@@ -9,7 +9,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PILLARS_DM_ONLY, KEY_PILLARS_OPENER, KEY_PILLARS_START_FAILED,
 };
 use pierre_core::errors::AppError;
-use pierre_core::models::{AddMessageParams, OnboardingState, Pillar};
+use pierre_core::models::{AddMessageParams, GuidedFlow, OnboardingState, Pillar};
 use pierre_messaging::commands::CommandResponse;
 use tracing::{info, warn};
 
@@ -63,7 +63,7 @@ impl CommandHandler for PillarsHandler {
             Some("full") => {
                 let n = repos
                     .memory
-                    .expire_onboarding_facts(ctx.tenant_id, &user, None)
+                    .expire_onboarding_facts(ctx.tenant_id, &user, None, None)
                     .await?;
                 info!(user_id = %ctx.user_id, superseded = n, "/pillars full re-screen");
             }
@@ -76,7 +76,7 @@ impl CommandHandler for PillarsHandler {
                 })?;
                 let n = repos
                     .memory
-                    .expire_onboarding_facts(ctx.tenant_id, &user, Some(pillar))
+                    .expire_onboarding_facts(ctx.tenant_id, &user, Some(pillar), None)
                     .await?;
                 info!(user_id = %ctx.user_id, pillar = pillar.as_str(), superseded = n, "/pillars pillar re-screen");
             }
@@ -87,7 +87,7 @@ impl CommandHandler for PillarsHandler {
         // reports whether a row actually matched: a tenant mismatch updates
         // nothing, and answering with the opener anyway would start a walk that
         // no turn ever runs in.
-        let json = OnboardingState::start_now_column();
+        let json = OnboardingState::start_now_column(GuidedFlow::Pillars);
         let activated = repos
             .chat
             .set_conversation_onboarding_state(conversation_id, Some(&json), ctx.tenant_id)

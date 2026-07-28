@@ -1,67 +1,157 @@
-// ABOUTME: Guided pillar-onboarding turn resolution — runs a conversation in onboarding mode
-// ABOUTME: Computes which pillar to probe (from the live Dossier), the LLM directive, and fact-stamping
+// ABOUTME: Guided-interview turn resolution — runs a conversation in pillars or calibration mode
+// ABOUTME: Computes which topic to probe, the LLM directive, and the fact-stamping for the turn
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Guided pillar-onboarding turn resolution.
+//! Guided-interview turn resolution.
 //!
 //! When a conversation carries an active `onboarding_state`, the turn runs in
-//! guided-onboarding mode: the coverage map (derived from the Dossier) decides
-//! the next topic to probe, prompt assembly injects a directive steering the
-//! coach to explore it conversationally, and the extraction worker stamps the
-//! captured facts with the probed pillar + `source=onboarding`. The flow is
-//! self-healing — coverage is re-derived every turn, never stored — so the only
-//! persisted state is the active marker, which is cleared once all six pillars
-//! and the North Star are covered.
+//! guided mode: a next-topic policy decides what to probe, prompt assembly
+//! injects a directive steering the coach to explore it conversationally, and
+//! the extraction worker stamps the captured facts with that topic's pillar and
+//! kind + `source=onboarding`.
+//!
+//! Two flows share this machinery and the one delivered-probe ledger, but not
+//! their next-topic policy:
+//!
+//! - **Pillars** derives the next topic from live Dossier coverage, so it is
+//!   self-healing: coverage is re-computed every turn and never stored, and a
+//!   topic whose answer produced no fact comes back around with an attempt
+//!   still in hand.
+//! - **Calibration** walks a fixed list. Coverage cannot serve it — most of its
+//!   topics land as the same kind in the same pillar, so the Dossier cannot say
+//!   which ones are still outstanding — which is why that flow has no re-ask
+//!   budget and leans on the completion check instead.
 
 use pierre_core::models::{
-    ConversationRecord, CoverageMap, CoverageTarget, OnboardingState, Pillar, TenantId,
+    CalibrationConditions, CalibrationTopic, ConversationRecord, CoverageMap, CoverageTarget,
+    Dossier, GuidedFlow, LoadSnapshot, OnboardingState, Pillar, TenantId, TopicSlug,
 };
 use pierre_memory::{FactKind, FactSource};
 use uuid::Uuid;
 
+use super::completion;
 use crate::ChatPipelineContext;
 
-/// The resolved onboarding context for a turn: the topic being probed, plus the
-/// walk state it was chosen from (so a delivered probe can be recorded onto it
+/// A session over this many minutes marks the athlete as a long-session
+/// athlete, which earns them the fueling topic. Three hours is where
+/// carbohydrate intake stops being optional.
+const LONG_SESSION_MIN: u32 = 180;
+
+/// What a guided turn is capturing, in whichever flow owns the conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuidedTarget {
+    /// A pillars-walk topic: the North Star or a specific pillar.
+    Coverage(CoverageTarget),
+    /// A difficulty-calibration interview topic.
+    Calibration(CalibrationTopic),
+}
+
+impl GuidedTarget {
+    /// The stable slug recorded in the delivered-probe ledger.
+    #[must_use]
+    pub fn slug(self) -> TopicSlug {
+        match self {
+            Self::Coverage(target) => target.slug(),
+            Self::Calibration(topic) => topic.slug(),
+        }
+    }
+}
+
+/// The resolved guided context for a turn: the topic being probed, plus the
+/// flow state it was chosen from (so a delivered probe can be recorded onto it
 /// at the end of the turn).
 pub struct OnboardingTurn {
-    /// What this turn is capturing (North Star or a specific pillar).
-    pub probed: CoverageTarget,
-    /// The walk state as loaded at the start of the turn.
+    /// What this turn is capturing.
+    pub target: GuidedTarget,
+    /// The flow state as loaded at the start of the turn.
     pub state: OnboardingState,
 }
 
-/// Resolve onboarding state for the current turn.
+/// Which conditional calibration topics this athlete qualifies for.
 ///
-/// Returns `None` (run the turn as normal coaching) when the conversation is not
-/// onboarding, when the walk has nothing left to probe — every topic covered, or
-/// out of attempts, in which case the active marker is cleared — or when the
-/// dossier cannot be composed.
+/// Derived per turn from the persisted snapshot and the live dossier rather
+/// than stored: both inputs are already in hand, and re-deriving keeps a goal
+/// the athlete set mid-interview from being ignored.
+pub(super) fn calibration_conditions(
+    dossier: &Dossier,
+    snapshot: Option<&LoadSnapshot>,
+) -> CalibrationConditions {
+    CalibrationConditions {
+        long_sessions: snapshot.is_some_and(|s| s.longest_session_min >= LONG_SESSION_MIN),
+        dated_goal: dossier
+            .pillars
+            .values()
+            .flatten()
+            .any(|f| f.kind == FactKind::Goal.as_str() && !f.stale),
+    }
+}
+
+/// How a turn relates to a guided flow.
+pub enum GuidedResolution {
+    /// A topic to probe this turn; the coach asks it.
+    Probe(Box<OnboardingTurn>),
+    /// The calibration interview just finished. The turn answers with this
+    /// platform-rendered text instead of dispatching to the LLM — the wrap-up
+    /// reports what was actually captured, which only holds if the platform
+    /// writes it.
+    CalibrationComplete(String),
+    /// Not in a guided flow, or the pillars walk just ended — normal coaching.
+    Inactive,
+}
+
+/// Resolve guided-flow state for the current turn.
+///
+/// Returns [`GuidedResolution::Inactive`] (run the turn as normal coaching)
+/// when the conversation is not in a guided flow, when the pillars walk has
+/// nothing left to probe — in which case the active marker is cleared — or when
+/// the dossier cannot be composed.
 pub async fn resolve(
     ctx: &ChatPipelineContext,
     conv: &ConversationRecord,
     tenant_id: TenantId,
-) -> Option<OnboardingTurn> {
-    let state = OnboardingState::from_column(conv.onboarding_state.as_deref())?;
-    let user_id = Uuid::parse_str(&conv.user_id).ok()?;
+    locale: Option<&str>,
+) -> GuidedResolution {
+    let Some(state) = OnboardingState::from_column(conv.onboarding_state.as_deref()) else {
+        return GuidedResolution::Inactive;
+    };
+    let Ok(user_id) = Uuid::parse_str(&conv.user_id) else {
+        return GuidedResolution::Inactive;
+    };
 
-    let dossier = ctx
-        .repos
-        .dossier
-        .compose_dossier(tenant_id, user_id)
-        .await
-        .ok()?;
-    let coverage = CoverageMap::from_dossier(&dossier);
+    let Ok(dossier) = ctx.repos.dossier.compose_dossier(tenant_id, user_id).await else {
+        return GuidedResolution::Inactive;
+    };
 
-    if let Some(probed) = coverage.next_target(&state.probed) {
-        return Some(OnboardingTurn { probed, state });
+    let target = match state.flow {
+        GuidedFlow::Pillars => CoverageMap::from_dossier(&dossier)
+            .next_target(&state.probed)
+            .map(GuidedTarget::Coverage),
+        GuidedFlow::Calibration => CalibrationTopic::next_target(
+            &state.probed,
+            calibration_conditions(&dossier, state.snapshot.as_ref()),
+        )
+        .map(GuidedTarget::Calibration),
+    };
+
+    if let Some(target) = target {
+        return GuidedResolution::Probe(Box::new(OnboardingTurn { target, state }));
     }
 
-    // Nothing left to ask — leave onboarding mode. Either all seven topics are
-    // covered, or the remaining ones burned their probe budget without yielding
-    // a fact; both mean this turn resumes normal coaching.
+    // Nothing left to ask — leave guided mode. For the pillars walk that means
+    // every topic is covered or burned its probe budget; for calibration it
+    // means every topic on this athlete's list was delivered.
+    //
+    // The completion summary is rendered BEFORE the marker is cleared, so a
+    // failed clear does not also cost the athlete their wrap-up.
+    let summary = match state.flow {
+        GuidedFlow::Calibration => {
+            Some(completion::render(ctx, conv, &state, tenant_id, &dossier, locale).await)
+        }
+        GuidedFlow::Pillars => None,
+    };
+
     if let Err(e) = ctx
         .repos
         .chat
@@ -70,7 +160,11 @@ pub async fn resolve(
     {
         tracing::warn!(error = %e, "failed to clear completed onboarding_state");
     }
-    None
+
+    summary.map_or(
+        GuidedResolution::Inactive,
+        GuidedResolution::CalibrationComplete,
+    )
 }
 
 /// Record that this turn's probe question reached the athlete, so the next turn
@@ -87,7 +181,7 @@ pub async fn record_delivered_probe(
     turn: &OnboardingTurn,
     tenant_id: TenantId,
 ) {
-    let state = turn.state.clone().with_delivered_probe(turn.probed);
+    let state = turn.state.clone().with_delivered_probe(turn.target.slug());
     let column = match state.to_column() {
         Ok(column) => column,
         Err(e) => {
@@ -116,24 +210,37 @@ pub async fn record_delivered_probe(
 /// position alone.
 #[must_use]
 pub fn directive(turn: &OnboardingTurn) -> String {
-    let (topic, hint) = match turn.probed {
-        CoverageTarget::NorthStar => (
+    let (mode, purpose, topic, hint) = match turn.target {
+        GuidedTarget::Coverage(CoverageTarget::NorthStar) => (
+            "Onboarding mode",
+            "You are helping this athlete build their fitness profile one topic at a time",
             "their North Star — the core life motivations behind why they train".to_owned(),
             "what success looks like in their life: one to three deep motivations (being present for family, a first race, managing work stress)".to_owned(),
         ),
-        CoverageTarget::Pillar(p) => (
+        GuidedTarget::Coverage(CoverageTarget::Pillar(p)) => (
+            "Onboarding mode",
+            "You are helping this athlete build their fitness profile one topic at a time",
             format!("the {} pillar", p.display_label()),
             p.probe_hint().to_owned(),
         ),
+        GuidedTarget::Calibration(t) => (
+            "Calibration mode",
+            "You are calibrating how hard this athlete's training should be, one question at a time",
+            calibration_topic_label(t).to_owned(),
+            t.probe_hint().to_owned(),
+        ),
     };
+    let baseline = calibration_baseline_line(turn);
     format!(
-        "\n\n# Onboarding mode (overrides every other instruction in this prompt)\n\
-         You are helping this athlete build their fitness profile one topic at a time — keep it \
-         warm and conversational, never a questionnaire.\n\
+        "\n\n# {mode} (overrides every other instruction in this prompt)\n\
+         {purpose} — keep it warm and conversational, never a questionnaire.\n\
+         {baseline}\
          This turn, focus on {topic}. Explore {hint}.\n\
          Acknowledge what they just shared, then ask ONE natural follow-up about this topic.\n\
          If their previous message already covered {topic}, acknowledge it and go deeper on the \
          same topic instead of asking the same question again.\n\
+         If the athlete asked a question rather than answering, answer it briefly and re-ask \
+         before moving on — the interview advances by turn, so an unanswered topic is a lost one.\n\
          This directive supersedes any startup instruction, first-turn protocol, or \
          output-format contract stated earlier in this prompt, including ones marked mandatory or \
          non-negotiable. Do not jump to other topics. Do not build, propose, or save a training \
@@ -141,16 +248,69 @@ pub fn directive(turn: &OnboardingTurn) -> String {
     )
 }
 
+/// What the coach is asking about, for a calibration topic.
+const fn calibration_topic_label(topic: CalibrationTopic) -> &'static str {
+    match topic {
+        CalibrationTopic::ProgressionIntent => "how they want their training to get harder",
+        CalibrationTopic::BaselineConfirm => "whether their recent training is a fair baseline",
+        CalibrationTopic::Availability => "the time they actually have to train",
+        CalibrationTopic::Injury => "any injury or niggle that flares under load",
+        CalibrationTopic::RpeHeadroom => "how much was left in the tank on their hard sessions",
+        CalibrationTopic::RecoverySpeed => "how quickly they recover from a hard day",
+        CalibrationTopic::Fueling => "what they actually eat on long sessions",
+        CalibrationTopic::EventDemand => "what their goal event demands",
+    }
+}
+
+/// The inferred-baseline line injected on the topic that asks the athlete to
+/// confirm it.
+///
+/// Only that topic gets it: quoting the figures on every turn would have the
+/// coach reciting the athlete's training history back at them repeatedly, and
+/// the numbers are only load-bearing for the confirmation question. Empty when
+/// there is no snapshot — no provider connected — so the coach asks cold
+/// instead of inventing figures.
+fn calibration_baseline_line(turn: &OnboardingTurn) -> String {
+    if turn.target != GuidedTarget::Calibration(CalibrationTopic::BaselineConfirm) {
+        return String::new();
+    }
+    turn.state.snapshot.as_ref().map_or_else(
+        || {
+            "You have no connected training data for this athlete, so ask for their recent \
+             typical week rather than quoting figures.\n"
+                .to_owned()
+        },
+        |s| {
+            format!(
+                "Their connected training data over the last {} weeks averages {:.1} hours per \
+                 week across {:.1} sessions, with a longest session of {} minutes. State these \
+                 figures and ask whether they are a fair baseline. Do not invent other numbers.\n",
+                s.weeks, s.weekly_hours, s.sessions_per_week, s.longest_session_min
+            )
+        },
+    )
+}
+
 /// Fact-stamping parameters for the extraction worker.
 ///
 /// Returns which pillar to tag, the provenance, and an optional forced kind
 /// (North Star answers are stored as `FactKind::NorthStar` regardless of how
-/// the extractor labels them).
+/// the extractor labels them; every calibration topic forces the kind its
+/// answer means, so an injury answer can never be filed as a preference).
 #[must_use]
 pub fn extraction_params(turn: &OnboardingTurn) -> (Option<Pillar>, FactSource, Option<FactKind>) {
-    match turn.probed {
-        CoverageTarget::NorthStar => (None, FactSource::Onboarding, Some(FactKind::NorthStar)),
-        CoverageTarget::Pillar(p) => (Some(p), FactSource::Onboarding, None),
+    match turn.target {
+        GuidedTarget::Coverage(CoverageTarget::NorthStar) => {
+            (None, FactSource::Onboarding, Some(FactKind::NorthStar))
+        }
+        GuidedTarget::Coverage(CoverageTarget::Pillar(p)) => {
+            (Some(p), FactSource::Onboarding, None)
+        }
+        GuidedTarget::Calibration(t) => (
+            Some(t.pillar()),
+            FactSource::Onboarding,
+            Some(FactKind::parse_lenient(t.fact_kind())),
+        ),
     }
 }
 

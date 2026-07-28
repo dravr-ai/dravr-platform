@@ -28,6 +28,7 @@ use pierre_commands as commands;
 #[cfg(feature = "client-messaging")]
 use pierre_commands::{
     account::LogoutHandler,
+    calibration::CalibrateHandler,
     coach::{CoachAssignHandler, CoachListHandler, CoachSelectHandler},
     group::{
         GroupCoachHandler, GroupConsentHandler, GroupInviteHandler, GroupLeaveHandler,
@@ -533,6 +534,7 @@ impl ServerContext {
         handler_reg.register("timezone", Arc::new(TimezoneHandler));
         handler_reg.register("pillars", Arc::new(PillarsHandler));
         handler_reg.register("plan", Arc::new(PlanShowHandler));
+        handler_reg.register("calibrate", Arc::new(CalibrateHandler));
         (Some(registry), Some(Arc::new(handler_reg)))
     }
 

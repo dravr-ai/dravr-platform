@@ -1,5 +1,5 @@
-// ABOUTME: Pillar-onboarding flow state + coverage map derived from the Dossier
-// ABOUTME: Drives the guided multi-turn onboarding: which pillar to probe next, when done
+// ABOUTME: Guided-flow state + the two next-topic policies (Dossier coverage, calibration list)
+// ABOUTME: Drives the guided multi-turn interviews: which topic to probe next, and when done
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -44,19 +44,55 @@ impl TopicSlug {
     }
 }
 
-/// Conversation-scoped state of a guided pillar-onboarding walk.
+/// Which guided interview a conversation is running.
 ///
-/// Serialized into `chat_conversations.onboarding_state`. Which topic is
-/// *covered* is NOT stored here — coverage is re-derived from the live Dossier
-/// every turn via [`CoverageMap`], so the flow stays self-healing. What is
-/// stored is the ask history, which coverage cannot express: it lets the walk
-/// advance before an answer's fact lands and gives every topic a bounded
-/// number of attempts.
+/// One conversation runs at most one flow at a time. Persisted in
+/// [`OnboardingState::flow`]; rows written before the field existed are
+/// pillars walks, which is what [`Default`] returns.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuidedFlow {
+    /// The six-pillar profile walk — topics come from Dossier coverage.
+    #[default]
+    Pillars,
+    /// The difficulty-calibration interview — topics come from a fixed list.
+    Calibration,
+}
+
+/// The athlete's recent training load, computed once when a calibration
+/// interview starts and reused by every later turn.
+///
+/// Held in the flow state rather than refetched per turn: the baseline-confirm
+/// topic quotes it back for confirmation, and a figure that drifted mid-walk
+/// would make the coach contradict itself.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoadSnapshot {
+    /// Mean training hours per week over the window.
+    pub weekly_hours: f64,
+    /// Mean sessions per week over the window.
+    pub sessions_per_week: f64,
+    /// Longest single session in the window, in minutes.
+    pub longest_session_min: u32,
+    /// How many weeks the means were taken over.
+    pub weeks: u32,
+}
+
+/// Conversation-scoped state of a guided interview.
+///
+/// Serialized into `chat_conversations.onboarding_state`. For the pillars walk,
+/// which topic is *covered* is NOT stored here — coverage is re-derived from the
+/// live Dossier every turn via [`CoverageMap`], so that flow stays self-healing.
+/// What is stored is the ask history, which coverage cannot express: it lets the
+/// walk advance before an answer's fact lands and gives every topic a bounded
+/// number of attempts. Calibration has no Dossier-derived coverage — seven of
+/// its topics land as the same kind in the same pillar — so for that flow the
+/// ask history is the whole completion authority.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OnboardingState {
     /// Whether the guided walk is currently active.
     pub active: bool,
-    /// RFC3339 timestamp when the walk was (re)started, for observability.
+    /// RFC3339 timestamp when the walk was (re)started, for observability and
+    /// for scoping a re-run's supersession window.
     pub started_at: String,
     /// One entry per topic probe that actually reached the athlete, in ask
     /// order — so an entry's multiplicity is that topic's attempt count. A
@@ -65,23 +101,43 @@ pub struct OnboardingState {
     /// `serde(default)`.
     #[serde(default)]
     pub probed: Vec<TopicSlug>,
+    /// Which interview this is. Absent from rows written before the field
+    /// existed, and those are all pillars walks — hence `serde(default)`.
+    #[serde(default)]
+    pub flow: GuidedFlow,
+    /// Recent-load figures computed at calibration start, or `None` for a
+    /// pillars walk and for an athlete with no connected provider.
+    #[serde(default)]
+    pub snapshot: Option<LoadSnapshot>,
 }
 
 impl OnboardingState {
-    /// Start a fresh onboarding walk.
+    /// Start a fresh guided walk for `flow`.
     #[must_use]
-    pub fn start(started_at: String) -> Self {
+    pub fn start(started_at: String, flow: GuidedFlow) -> Self {
         Self {
             active: true,
             started_at,
             probed: Vec::new(),
+            flow,
+            snapshot: None,
         }
     }
 
-    /// This state with one more delivered probe of `target` recorded.
+    /// This state with the flow-start load snapshot attached.
     #[must_use]
-    pub fn with_delivered_probe(mut self, target: CoverageTarget) -> Self {
-        self.probed.push(target.slug());
+    pub fn with_snapshot(mut self, snapshot: Option<LoadSnapshot>) -> Self {
+        self.snapshot = snapshot;
+        self
+    }
+
+    /// This state with one more delivered probe of `topic` recorded.
+    ///
+    /// Takes the slug rather than a flow-specific target type so both
+    /// interviews append to the one ledger.
+    #[must_use]
+    pub fn with_delivered_probe(mut self, topic: TopicSlug) -> Self {
+        self.probed.push(topic);
         self
     }
 
@@ -95,11 +151,27 @@ impl OnboardingState {
 
     /// Start a fresh walk stamped now, serialized to the JSON stored in
     /// `chat_conversations.onboarding_state`. Convenience for callers (e.g. the
-    /// `/pillars` handler) that lack a `chrono`/`serde_json` dependency.
+    /// `/pillars` and `/calibrate` handlers) that lack a `chrono`/`serde_json`
+    /// dependency.
+    ///
+    /// The serialization-failure fallback carries the flow. It used to be a
+    /// single flow-less literal, which — once `flow` defaults to `Pillars` —
+    /// would have turned a calibration start into a pillars walk silently, with
+    /// the athlete reading a calibration opener and then being asked about
+    /// sleep hygiene.
     #[must_use]
-    pub fn start_now_column() -> String {
-        serde_json::to_string(&Self::start(chrono::Utc::now().to_rfc3339()))
-            .unwrap_or_else(|_| r#"{"active":true,"started_at":""}"#.to_owned())
+    pub fn start_now_column(flow: GuidedFlow) -> String {
+        serde_json::to_string(&Self::start(chrono::Utc::now().to_rfc3339(), flow)).unwrap_or_else(
+            |_| {
+                match flow {
+                    GuidedFlow::Pillars => r#"{"active":true,"started_at":"","flow":"pillars"}"#,
+                    GuidedFlow::Calibration => {
+                        r#"{"active":true,"started_at":"","flow":"calibration"}"#
+                    }
+                }
+                .to_owned()
+            },
+        )
     }
 
     /// Parse from the stored JSON column. Returns `None` on absent/invalid.
@@ -218,7 +290,9 @@ impl CoverageMap {
 
 #[cfg(test)]
 mod tests {
-    use super::{CoverageMap, CoverageTarget, OnboardingState, TopicSlug, MAX_PROBE_ATTEMPTS};
+    use super::{
+        CoverageMap, CoverageTarget, GuidedFlow, OnboardingState, TopicSlug, MAX_PROBE_ATTEMPTS,
+    };
     use crate::models::{Dossier, DossierFact, Pillar};
     use uuid::Uuid;
 
@@ -286,12 +360,91 @@ mod tests {
 
     #[test]
     fn onboarding_state_roundtrip() {
-        let s = OnboardingState::start("2026-06-17T00:00:00Z".to_owned());
+        let s = OnboardingState::start("2026-06-17T00:00:00Z".to_owned(), GuidedFlow::Pillars);
         let json = serde_json::to_string(&s).unwrap_or_default();
         let back = OnboardingState::from_column(Some(&json));
         assert!(back.is_some());
         assert!(OnboardingState::from_column(None).is_none());
         assert!(OnboardingState::from_column(Some("not json")).is_none());
+    }
+
+    #[test]
+    fn flow_survives_the_column_round_trip() {
+        let json = OnboardingState::start_now_column(GuidedFlow::Calibration);
+        assert_eq!(
+            OnboardingState::from_column(Some(&json)).map(|s| s.flow),
+            Some(GuidedFlow::Calibration),
+            "a calibration start that came back as a pillars walk would ask the wrong questions"
+        );
+        let json = OnboardingState::start_now_column(GuidedFlow::Pillars);
+        assert_eq!(
+            OnboardingState::from_column(Some(&json)).map(|s| s.flow),
+            Some(GuidedFlow::Pillars)
+        );
+    }
+
+    #[test]
+    fn the_serialization_fallback_literals_carry_their_flow() {
+        // `start_now_column` degrades to a hand-written literal if serde ever
+        // fails. Both literals must parse back to the flow that produced them —
+        // a flow-less fallback would silently default a calibration start to
+        // the pillars walk.
+        for (literal, expected) in [
+            (
+                r#"{"active":true,"started_at":"","flow":"pillars"}"#,
+                GuidedFlow::Pillars,
+            ),
+            (
+                r#"{"active":true,"started_at":"","flow":"calibration"}"#,
+                GuidedFlow::Calibration,
+            ),
+        ] {
+            assert_eq!(
+                OnboardingState::from_column(Some(literal)).map(|s| s.flow),
+                Some(expected),
+                "fallback literal {literal} did not round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_written_before_flow_existed_is_a_pillars_walk() {
+        // Live rows predate both `probed` and `flow`. They must keep parsing,
+        // and they are all pillars walks — calibration did not exist.
+        let legacy = r#"{"active":true,"started_at":"2026-06-17T00:00:00Z"}"#;
+        let parsed = OnboardingState::from_column(Some(legacy));
+        assert_eq!(parsed.as_ref().map(|s| s.flow), Some(GuidedFlow::Pillars));
+        assert_eq!(parsed.as_ref().map(|s| s.probed.len()), Some(0));
+        assert!(parsed.is_some_and(|s| s.snapshot.is_none()));
+    }
+
+    #[test]
+    fn a_row_written_with_probed_but_no_flow_still_parses() {
+        // Rows written by the pillars Phase A build: `probed` present, `flow`
+        // absent. Both defaults must apply independently.
+        let mid = r#"{"active":true,"started_at":"2026-07-26T00:00:00Z","probed":["north_star"]}"#;
+        let parsed = OnboardingState::from_column(Some(mid));
+        assert_eq!(parsed.as_ref().map(|s| s.flow), Some(GuidedFlow::Pillars));
+        assert_eq!(parsed.map(|s| s.probed.len()), Some(1));
+    }
+
+    #[test]
+    fn the_snapshot_survives_the_column_round_trip() {
+        let snapshot = super::LoadSnapshot {
+            weekly_hours: 7.5,
+            sessions_per_week: 4.0,
+            longest_session_min: 195,
+            weeks: 6,
+        };
+        let state =
+            OnboardingState::start("2026-07-28T00:00:00Z".to_owned(), GuidedFlow::Calibration)
+                .with_snapshot(Some(snapshot.clone()));
+        let column = state.to_column().unwrap_or_default();
+        assert_eq!(
+            OnboardingState::from_column(Some(&column)).and_then(|s| s.snapshot),
+            Some(snapshot),
+            "later turns quote the baseline back; a lost snapshot would refetch and drift"
+        );
     }
 
     #[test]
@@ -363,7 +516,7 @@ mod tests {
         assert_eq!(parsed.as_ref().map(|s| s.probed.len()), Some(0));
 
         let recorded = parsed
-            .map(|s| s.with_delivered_probe(CoverageTarget::Pillar(Pillar::Fuelling)))
+            .map(|s| s.with_delivered_probe(CoverageTarget::Pillar(Pillar::Fuelling).slug()))
             .and_then(|s| s.to_column().ok())
             .and_then(|column| OnboardingState::from_column(Some(&column)));
         assert_eq!(

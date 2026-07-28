@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_core::models::{OnboardingState, Pillar, TenantId};
+use pierre_core::models::{GuidedFlow, OnboardingState, Pillar, TenantId};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
@@ -712,7 +712,7 @@ async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()>
         .chat
         .set_conversation_onboarding_state(
             &conversation.id,
-            Some(&OnboardingState::start_now_column()),
+            Some(&OnboardingState::start_now_column(GuidedFlow::Pillars)),
             tenant,
         )
         .await?;

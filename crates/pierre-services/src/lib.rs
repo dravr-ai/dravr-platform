@@ -103,6 +103,13 @@ pub mod okf;
 /// PAR-Q+ pre-participation medical-safety gate (structured Y/N → medical flags)
 pub mod parq;
 
+/// Plan-save ramp check — the opening week against the athlete's real load.
+pub mod ramp_check;
+
+/// The athlete's recent training load — one source for the calibration
+/// baseline and the plan-save ramp check.
+pub mod recent_load;
+
 pub mod password_reset;
 
 /// Background outbound retry worker for messaging delivery queue

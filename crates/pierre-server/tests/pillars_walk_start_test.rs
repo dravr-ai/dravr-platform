@@ -243,8 +243,8 @@ async fn probe_history_survives_the_onboarding_state_column() -> Result<()> {
     )
     .expect("walk active");
     state = state
-        .with_delivered_probe(CoverageTarget::NorthStar)
-        .with_delivered_probe(CoverageTarget::Pillar(Pillar::TrainingAndMovement));
+        .with_delivered_probe(CoverageTarget::NorthStar.slug())
+        .with_delivered_probe(CoverageTarget::Pillar(Pillar::TrainingAndMovement).slug());
     assert!(
         chat.set_conversation_onboarding_state(&conversation_id, Some(&state.to_column()?), tenant)
             .await?

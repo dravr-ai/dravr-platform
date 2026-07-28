@@ -11,7 +11,7 @@ use anyhow::Result;
 #[cfg(feature = "postgresql")]
 use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::{
-    CoverageMap, CoverageTarget, OnboardingState, Pillar, TenantId, MAX_PROBE_ATTEMPTS,
+    CoverageMap, CoverageTarget, GuidedFlow, OnboardingState, Pillar, TenantId, MAX_PROBE_ATTEMPTS,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
@@ -193,7 +193,7 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
     // Supersede the Fuelling onboarding fact (sets valid_until in the past).
     let superseded = repos
         .memory
-        .expire_onboarding_facts(tenant, &user_s, Some(Pillar::Fuelling))
+        .expire_onboarding_facts(tenant, &user_s, Some(Pillar::Fuelling), None)
         .await?;
     assert_eq!(superseded, 1);
 
@@ -229,8 +229,8 @@ async fn delivered_probe_history_round_trips_and_drives_the_advance() -> Result<
     let user = Uuid::new_v4();
 
     // Turn 1 delivered the North Star probe; nothing extracted yet.
-    let state = OnboardingState::start(chrono::Utc::now().to_rfc3339())
-        .with_delivered_probe(CoverageTarget::NorthStar);
+    let state = OnboardingState::start(chrono::Utc::now().to_rfc3339(), GuidedFlow::Pillars)
+        .with_delivered_probe(CoverageTarget::NorthStar.slug());
     let reloaded =
         OnboardingState::from_column(Some(&state.to_column()?)).expect("walk still active");
     assert_eq!(reloaded.probed.len(), 1);
@@ -249,9 +249,9 @@ async fn delivered_probe_history_round_trips_and_drives_the_advance() -> Result<
     // walk must terminate instead of looping forever on an unextractable answer.
     let mut exhausted = reloaded;
     for _ in 0..MAX_PROBE_ATTEMPTS {
-        exhausted = exhausted.with_delivered_probe(CoverageTarget::NorthStar);
+        exhausted = exhausted.with_delivered_probe(CoverageTarget::NorthStar.slug());
         for pillar in Pillar::ALL {
-            exhausted = exhausted.with_delivered_probe(CoverageTarget::Pillar(pillar));
+            exhausted = exhausted.with_delivered_probe(CoverageTarget::Pillar(pillar).slug());
         }
     }
     let exhausted =

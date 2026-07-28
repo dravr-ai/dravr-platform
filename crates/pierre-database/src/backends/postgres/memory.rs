@@ -386,6 +386,34 @@ impl HarnessMemoryRepository for PostgresDatabase {
         rows.iter().map(row_to_user_fact).collect()
     }
 
+    async fn list_user_facts_by_source(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        source: FactSource,
+        limit: i64,
+    ) -> AppResult<Vec<UserFact>> {
+        let rows = sqlx::query(
+            r"
+            SELECT * FROM user_facts
+            WHERE tenant_id = $1 AND user_id = $2 AND source = $3
+              AND (valid_until IS NULL OR valid_until > $4)
+            ORDER BY updated_at DESC
+            LIMIT $5
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id)
+        .bind(source.as_str())
+        .bind(Utc::now())
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list user facts by source: {e}")))?;
+
+        rows.iter().map(row_to_user_fact).collect()
+    }
+
     async fn delete_user_fact(
         &self,
         fact_id: &str,
@@ -412,6 +440,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         tenant_id: TenantId,
         user_id: &str,
         pillar: Option<Pillar>,
+        created_after: Option<DateTime<Utc>>,
     ) -> AppResult<u64> {
         let now = Utc::now();
         let result = sqlx::query(
@@ -420,6 +449,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
                SET valid_until = $1, updated_at = $1
              WHERE tenant_id = $2 AND user_id = $3 AND source = 'onboarding'
                AND ($4::text IS NULL OR pillar = $4)
+               AND ($5::timestamptz IS NULL OR created_at >= $5)
                AND (valid_until IS NULL OR valid_until > $1)
             ",
         )
@@ -427,6 +457,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(tenant_id.to_string())
         .bind(user_id)
         .bind(pillar.map(Pillar::as_str))
+        .bind(created_after)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to expire onboarding facts: {e}")))?;

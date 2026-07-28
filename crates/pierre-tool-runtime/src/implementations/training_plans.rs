@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pierre_core::models::{ConversationRecord, OnboardingState, Pillar, TenantId};
+use pierre_core::models::{ConversationRecord, LoadSnapshot, OnboardingState, Pillar, TenantId};
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
 };
@@ -30,11 +30,14 @@ use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanBlock, PlannedDay, RacePriority, MAX_DAYS_PER_WEEK,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope};
+use pierre_services::ramp_check::{assess_ramp, RampVerdict};
+use pierre_services::recent_load::recent_load_snapshot;
 use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::warn;
+use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -937,6 +940,14 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 })
                 .await?;
 
+            // The one enforced rail on plan difficulty: does the plan's opening
+            // week sit far above what this athlete actually does? A warning,
+            // never a block — the coach may have good reason, and refusing a
+            // save would strand a plan the athlete already agreed to. The event
+            // also reports when the comparison could not be made, so a quiet
+            // log means "measured and fine" rather than "never looked".
+            emit_ramp_check(repos, tenant, &user_id, &bundle.plan.id, weeks.first()).await;
+
             let race_summary = format!(
                 "{} on {}",
                 bundle.plan.goal_race.name, bundle.plan.goal_race.date
@@ -964,6 +975,92 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         }
         .await;
         tool_result_to_response(result)
+    }
+}
+
+/// Measure the saved plan's opening week against the athlete's real recent
+/// load and emit the result.
+///
+/// Best-effort by design: a plan the athlete already agreed to must not fail to
+/// save because the activity cache was unreadable, so every failure path here
+/// degrades to an unmeasurable verdict rather than an error.
+async fn emit_ramp_check(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: &str,
+    plan_id: &str,
+    first_week: Option<&WeekPayload>,
+) {
+    let baseline = ramp_baseline(repos, tenant, user_id).await;
+    let durations: Vec<Option<u32>> = first_week
+        .map(|w| w.days.iter().map(|d| d.duration_min).collect())
+        .unwrap_or_default();
+    emit_ramp_verdict(plan_id, &assess_ramp(&durations, baseline.as_ref()));
+}
+
+/// The athlete's recent-load baseline for the ramp check, or `None` when it
+/// cannot be read. Never propagates an error: the plan is already saved.
+async fn ramp_baseline(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: &str,
+) -> Option<LoadSnapshot> {
+    let uuid = match Uuid::parse_str(user_id) {
+        Ok(uuid) => uuid,
+        Err(e) => {
+            warn!(error = %e, "ramp check: unparseable user id");
+            return None;
+        }
+    };
+    recent_load_snapshot(repos.activity_cache.as_ref(), uuid, &tenant)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "ramp check: activity cache unreadable");
+            None
+        })
+}
+
+/// Emit the ramp verdict, including the explicit "could not measure" case so a
+/// quiet log means the comparison ran and passed.
+fn emit_ramp_verdict(plan_id: &str, verdict: &RampVerdict) {
+    match verdict {
+        RampVerdict::Exceeded {
+            planned_hours,
+            baseline_hours,
+            increase,
+        } => {
+            warn!(
+                target: "notify",
+                event = "training_plan.ramp_warning",
+                plan_id = %plan_id,
+                planned_hours = format!("{planned_hours:.1}"),
+                baseline_hours = format!("{baseline_hours:.1}"),
+                increase_pct = format!("{:.0}", increase * 100.0),
+                "planned opening week exceeds the athlete's recent weekly load"
+            );
+        }
+        RampVerdict::WithinThreshold {
+            planned_hours,
+            baseline_hours,
+        } => {
+            info!(
+                target: "notify",
+                event = "training_plan.ramp_checked",
+                plan_id = %plan_id,
+                planned_hours = format!("{planned_hours:.1}"),
+                baseline_hours = format!("{baseline_hours:.1}"),
+                "planned opening week is within the athlete's recent weekly load"
+            );
+        }
+        RampVerdict::Unmeasurable(reason) => {
+            info!(
+                target: "notify",
+                event = "training_plan.ramp_unmeasurable",
+                plan_id = %plan_id,
+                reason = reason.as_str(),
+                "could not compare the planned opening week against recent load"
+            );
+        }
     }
 }
 

@@ -24,6 +24,8 @@
 
 /// Account management commands (logout, profile)
 pub mod account;
+/// Difficulty-calibration interview command (`/calibrate`)
+pub mod calibration;
 /// Coach selection commands (list, select)
 pub mod coach;
 /// Transport-agnostic slash-command dispatcher — single authority for every chat surface

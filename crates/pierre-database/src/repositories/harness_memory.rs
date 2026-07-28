@@ -141,6 +141,26 @@ pub trait HarnessMemoryRepository: Send + Sync {
         limit: i64,
     ) -> AppResult<Vec<pierre_memory::UserFact>>;
 
+    /// List a user's still-valid facts from one provenance, newest first.
+    ///
+    /// Answers a question [`list_user_facts`](Self::list_user_facts) cannot:
+    /// *which facts did a guided interview capture*, regardless of the kind the
+    /// extractor chose for each answer. `compose_dossier` uses it to keep the
+    /// interview's output out of the recency window's eviction path — a
+    /// calibration answer is a `preference` like any chat-inferred fact, so
+    /// kind alone cannot protect it.
+    ///
+    /// Superseded facts (`valid_until` in the past) are excluded: they are what
+    /// a re-run's window expiry produces, and re-guaranteeing them would refill
+    /// the bundle with exactly the rows the athlete just replaced.
+    async fn list_user_facts_by_source(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        source: pierre_memory::FactSource,
+        limit: i64,
+    ) -> AppResult<Vec<pierre_memory::UserFact>>;
+
     /// Delete a fact by id for GDPR-style "forget" flows.
     async fn delete_user_fact(
         &self,
@@ -150,16 +170,26 @@ pub trait HarnessMemoryRepository: Send + Sync {
     ) -> AppResult<bool>;
 
     /// Supersede prior onboarding-captured facts by setting their `valid_until`
-    /// to now, so they render stale and demote. Optionally scoped to one pillar.
+    /// to now, so they render stale and demote. Optionally scoped to one pillar,
+    /// and optionally to facts created at or after `created_after`.
     ///
-    /// Backs `/pillars` re-runs (re-screen): this is supersession, not deletion
-    /// (GDPR erase stays on [`delete_user_fact`](Self::delete_user_fact)).
-    /// Returns the number of facts superseded. Tenant-scoped.
+    /// Backs both guided-interview re-runs. `/pillars` re-screens by pillar with
+    /// no time bound. `/calibrate` passes the *previous* interview's start time
+    /// instead: its topics cannot be identified by kind and pillar — most land
+    /// as a `preference` in the training pillar, so a per-topic match would
+    /// collapse seven distinct answers onto one — which leaves the window they
+    /// were captured in as the only thing that separates the old set from the
+    /// athlete's other onboarding facts.
+    ///
+    /// This is supersession, not deletion (GDPR erase stays on
+    /// [`delete_user_fact`](Self::delete_user_fact)). Returns the number of
+    /// facts superseded. Tenant-scoped.
     async fn expire_onboarding_facts(
         &self,
         tenant_id: TenantId,
         user_id: &str,
         pillar: Option<Pillar>,
+        created_after: Option<chrono::DateTime<chrono::Utc>>,
     ) -> AppResult<u64>;
 
     /// Tenant-wide aggregate snapshot of the memory extraction worker's output.

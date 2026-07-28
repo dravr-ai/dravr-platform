@@ -363,6 +363,41 @@ pub const KEY_PILLARS_START_FAILED: &str = "commands.pillars.start_failed";
 /// Key: `/reset` note appended when the reset ended an in-progress profile walk.
 pub const KEY_RESET_WALK_INTERRUPTED: &str = "commands.reset.walk_interrupted";
 
+// ── /calibrate command keys ───────────────────────────────────────────────
+
+/// Key: `/calibrate` opener — states what was inferred and what follows.
+///
+/// Persisted as the conversation's first assistant message for the same reason
+/// as the `/pillars` opener: without it the coach receives the athlete's first
+/// answer with no question attached, and the turn counts as message #1, which
+/// arms the first-turn startup prefetch.
+pub const KEY_CALIBRATE_OPENER: &str = "commands.calibrate.opener";
+/// Key: `/calibrate` refusal outside a 1:1 DM.
+///
+/// Same rationale as `/pillars`: in a shared room the answers would be stamped
+/// under the channel tenant, a fact space disjoint from the athlete's dossier.
+pub const KEY_CALIBRATE_DM_ONLY: &str = "commands.calibrate.dm_only";
+/// Key: `/calibrate` failure when the interview could not be activated.
+pub const KEY_CALIBRATE_START_FAILED: &str = "commands.calibrate.start_failed";
+/// Key: `/calibrate` completion header. `{0}` = answers captured, `{1}` = asked.
+pub const KEY_CALIBRATE_COMPLETE_HEADER: &str = "commands.calibrate.complete_header";
+/// Key: `/calibrate` completion note for a safety-critical answer that never
+/// landed. `{0}` = the topic label.
+///
+/// The interview says so rather than reporting success: the answers that *did*
+/// land all argue for more load, and the two that bound it are exactly these.
+pub const KEY_CALIBRATE_COMPLETE_MISSING: &str = "commands.calibrate.complete_missing";
+/// Key: `/calibrate` follow-up offered when the athlete already has a plan.
+pub const KEY_CALIBRATE_FOLLOWUP_PLAN: &str = "commands.calibrate.followup_plan";
+/// Key: `/calibrate` follow-up offered when the athlete has no plan yet.
+pub const KEY_CALIBRATE_FOLLOWUP_NO_PLAN: &str = "commands.calibrate.followup_no_plan";
+/// Key: label for the injury-history calibration topic, used by the completion
+/// message when that answer is missing.
+pub const KEY_CALIBRATE_TOPIC_INJURY: &str = "commands.calibrate.topic_injury";
+/// Key: label for the recovery-speed calibration topic, used by the completion
+/// message when that answer is missing.
+pub const KEY_CALIBRATE_TOPIC_RECOVERY: &str = "commands.calibrate.topic_recovery";
+
 // ── /plan command keys ────────────────────────────────────────────────────
 
 /// Key: `/plan` goal header. `{0}` = race name, `{1}` = race date, `{2}` = days out.
@@ -606,6 +641,20 @@ pub(crate) const FR_PILLARS_START_FAILED: &str =
 pub(crate) const FR_RESET_WALK_INTERRUPTED: &str =
     "\n\nTon profil était en cours — écris <code>/pillars</code> pour reprendre.";
 
+pub(crate) const FR_CALIBRATE_OPENER: &str = "On va calibrer la difficulté de ton entraînement. Je pars de tes données récentes et je te pose six questions courtes — une à la fois. Première : tu veux que ça devienne plus dur comment — plus d'heures, plus de séances dures, ou des sorties longues plus longues ?";
+pub(crate) const FR_CALIBRATE_DM_ONLY: &str = "Le calibrage se fait en privé. Écris-moi <code>/calibrate</code> en message direct et on commence.";
+pub(crate) const FR_CALIBRATE_START_FAILED: &str =
+    "Je n'ai pas réussi à démarrer le calibrage sur cette conversation. Réessaie dans un instant.";
+pub(crate) const FR_CALIBRATE_COMPLETE_HEADER: &str =
+    "Calibrage terminé — j'ai retenu {0} réponses sur {1}.";
+pub(crate) const FR_CALIBRATE_COMPLETE_MISSING: &str = "Il me manque ta réponse sur {0}. C'est ce qui limite jusqu'où je peux pousser, alors reprenons cette question — écris <code>/calibrate</code>.";
+pub(crate) const FR_CALIBRATE_FOLLOWUP_PLAN: &str =
+    "Tu veux que je reconstruise tes semaines à venir avec ça ?";
+pub(crate) const FR_CALIBRATE_FOLLOWUP_NO_PLAN: &str =
+    "Tu veux que je te construise un plan là-dessus ?";
+pub(crate) const FR_CALIBRATE_TOPIC_INJURY: &str = "tes blessures et douleurs récentes";
+pub(crate) const FR_CALIBRATE_TOPIC_RECOVERY: &str = "ta vitesse de récupération";
+
 pub(crate) const FR_PLAN_GOAL_LINE: &str = "Objectif : {0} — {1} ({2} jours)";
 pub(crate) const FR_PLAN_BLOCK_LINE: &str = "Bloc : {0}{1}";
 pub(crate) const FR_PLAN_DAY_LINE: &str = "{0} : {1}";
@@ -800,6 +849,19 @@ pub(crate) const EN_PILLARS_START_FAILED: &str =
 pub(crate) const EN_RESET_WALK_INTERRUPTED: &str =
     "\n\nYour profile walk was in progress — send <code>/pillars</code> to resume.";
 
+pub(crate) const EN_CALIBRATE_OPENER: &str = "Let's calibrate how hard your training should be. I'll start from your recent data and ask six short questions, one at a time. First: how do you want it to get harder — more hours, more hard days, or longer long sessions?";
+pub(crate) const EN_CALIBRATE_DM_ONLY: &str = "Calibration happens in private. Send me <code>/calibrate</code> in a direct message and we'll start.";
+pub(crate) const EN_CALIBRATE_START_FAILED: &str =
+    "I couldn't start calibration on this conversation. Try again in a moment.";
+pub(crate) const EN_CALIBRATE_COMPLETE_HEADER: &str =
+    "Calibration done — I captured {0} of {1} answers.";
+pub(crate) const EN_CALIBRATE_COMPLETE_MISSING: &str = "I'm missing your answer on {0}. That's what bounds how hard I can push, so let's redo that one — send <code>/calibrate</code>.";
+pub(crate) const EN_CALIBRATE_FOLLOWUP_PLAN: &str =
+    "Want me to rebuild your upcoming weeks with this?";
+pub(crate) const EN_CALIBRATE_FOLLOWUP_NO_PLAN: &str = "Want me to build a plan around this?";
+pub(crate) const EN_CALIBRATE_TOPIC_INJURY: &str = "your recent injuries and niggles";
+pub(crate) const EN_CALIBRATE_TOPIC_RECOVERY: &str = "how fast you recover";
+
 pub(crate) const EN_PLAN_GOAL_LINE: &str = "Goal: {0} — {1} ({2} days out)";
 pub(crate) const EN_PLAN_BLOCK_LINE: &str = "Block: {0}{1}";
 pub(crate) const EN_PLAN_DAY_LINE: &str = "{0}: {1}";
@@ -981,6 +1043,20 @@ pub(crate) const ES_PILLARS_START_FAILED: &str =
     "No pude iniciar el perfil en esta conversación. Vuelve a intentarlo en un momento.";
 pub(crate) const ES_RESET_WALK_INTERRUPTED: &str =
     "\n\nTu perfil estaba en curso — escribe <code>/pillars</code> para continuar.";
+
+pub(crate) const ES_CALIBRATE_OPENER: &str = "Vamos a calibrar la dificultad de tu entrenamiento. Parto de tus datos recientes y te hago seis preguntas cortas, una a una. La primera: ¿cómo quieres que se ponga más duro — más horas, más días fuertes, o salidas largas más largas?";
+pub(crate) const ES_CALIBRATE_DM_ONLY: &str = "El calibrado se hace en privado. Escríbeme <code>/calibrate</code> por mensaje directo y empezamos.";
+pub(crate) const ES_CALIBRATE_START_FAILED: &str =
+    "No pude iniciar el calibrado en esta conversación. Vuelve a intentarlo en un momento.";
+pub(crate) const ES_CALIBRATE_COMPLETE_HEADER: &str =
+    "Calibrado terminado — he retenido {0} respuestas de {1}.";
+pub(crate) const ES_CALIBRATE_COMPLETE_MISSING: &str = "Me falta tu respuesta sobre {0}. Eso es lo que limita hasta dónde puedo empujar, así que repitamos esa pregunta — escribe <code>/calibrate</code>.";
+pub(crate) const ES_CALIBRATE_FOLLOWUP_PLAN: &str =
+    "¿Quieres que reconstruya tus próximas semanas con esto?";
+pub(crate) const ES_CALIBRATE_FOLLOWUP_NO_PLAN: &str =
+    "¿Quieres que te construya un plan con esto?";
+pub(crate) const ES_CALIBRATE_TOPIC_INJURY: &str = "tus lesiones y molestias recientes";
+pub(crate) const ES_CALIBRATE_TOPIC_RECOVERY: &str = "tu velocidad de recuperación";
 
 pub(crate) const ES_PLAN_GOAL_LINE: &str = "Objetivo: {0} — {1} ({2} días)";
 pub(crate) const ES_PLAN_BLOCK_LINE: &str = "Bloque: {0}{1}";
@@ -1166,6 +1242,19 @@ pub(crate) const DE_PILLARS_START_FAILED: &str =
 pub(crate) const DE_RESET_WALK_INTERRUPTED: &str =
     "\n\nDein Profil war in Arbeit — schreib <code>/pillars</code>, um weiterzumachen.";
 
+pub(crate) const DE_CALIBRATE_OPENER: &str = "Wir kalibrieren, wie hart dein Training sein soll. Ich gehe von deinen letzten Daten aus und stelle dir sechs kurze Fragen, eine nach der anderen. Zuerst: Wie soll es härter werden — mehr Stunden, mehr harte Tage, oder längere lange Einheiten?";
+pub(crate) const DE_CALIBRATE_DM_ONLY: &str = "Die Kalibrierung läuft privat. Schreib mir <code>/calibrate</code> als Direktnachricht, dann legen wir los.";
+pub(crate) const DE_CALIBRATE_START_FAILED: &str =
+    "Ich konnte die Kalibrierung in dieser Unterhaltung nicht starten. Versuch es gleich noch einmal.";
+pub(crate) const DE_CALIBRATE_COMPLETE_HEADER: &str =
+    "Kalibrierung fertig — ich habe {0} von {1} Antworten aufgenommen.";
+pub(crate) const DE_CALIBRATE_COMPLETE_MISSING: &str = "Mir fehlt deine Antwort zu {0}. Genau das begrenzt, wie weit ich dich pushen kann — lass uns die Frage nachholen, schreib <code>/calibrate</code>.";
+pub(crate) const DE_CALIBRATE_FOLLOWUP_PLAN: &str =
+    "Soll ich deine kommenden Wochen damit neu aufbauen?";
+pub(crate) const DE_CALIBRATE_FOLLOWUP_NO_PLAN: &str = "Soll ich dir damit einen Plan bauen?";
+pub(crate) const DE_CALIBRATE_TOPIC_INJURY: &str = "deine jüngsten Verletzungen und Wehwehchen";
+pub(crate) const DE_CALIBRATE_TOPIC_RECOVERY: &str = "wie schnell du dich erholst";
+
 pub(crate) const DE_PLAN_GOAL_LINE: &str = "Ziel: {0} — {1} ({2} Tage)";
 pub(crate) const DE_PLAN_BLOCK_LINE: &str = "Block: {0}{1}";
 pub(crate) const DE_PLAN_DAY_LINE: &str = "{0}: {1}";
@@ -1349,6 +1438,19 @@ pub(crate) const PT_PILLARS_START_FAILED: &str =
 pub(crate) const PT_RESET_WALK_INTERRUPTED: &str =
     "\n\nO teu perfil estava em curso — escreve <code>/pillars</code> para retomar.";
 
+pub(crate) const PT_CALIBRATE_OPENER: &str = "Vamos calibrar a dificuldade do teu treino. Parto dos teus dados recentes e faço-te seis perguntas curtas, uma a uma. Primeira: como queres que fique mais duro — mais horas, mais dias fortes, ou saídas longas mais longas?";
+pub(crate) const PT_CALIBRATE_DM_ONLY: &str = "A calibração faz-se em privado. Escreve-me <code>/calibrate</code> em mensagem direta e começamos.";
+pub(crate) const PT_CALIBRATE_START_FAILED: &str =
+    "Não consegui iniciar a calibração nesta conversa. Tenta outra vez dentro de um momento.";
+pub(crate) const PT_CALIBRATE_COMPLETE_HEADER: &str =
+    "Calibração terminada — retive {0} respostas de {1}.";
+pub(crate) const PT_CALIBRATE_COMPLETE_MISSING: &str = "Falta-me a tua resposta sobre {0}. É isso que limita até onde te posso empurrar, por isso vamos repetir essa pergunta — escreve <code>/calibrate</code>.";
+pub(crate) const PT_CALIBRATE_FOLLOWUP_PLAN: &str =
+    "Queres que reconstrua as tuas próximas semanas com isto?";
+pub(crate) const PT_CALIBRATE_FOLLOWUP_NO_PLAN: &str = "Queres que te construa um plano com isto?";
+pub(crate) const PT_CALIBRATE_TOPIC_INJURY: &str = "as tuas lesões e queixas recentes";
+pub(crate) const PT_CALIBRATE_TOPIC_RECOVERY: &str = "a tua velocidade de recuperação";
+
 pub(crate) const PT_PLAN_GOAL_LINE: &str = "Objetivo: {0} — {1} ({2} dias)";
 pub(crate) const PT_PLAN_BLOCK_LINE: &str = "Bloco: {0}{1}";
 pub(crate) const PT_PLAN_DAY_LINE: &str = "{0}: {1}";
@@ -1506,6 +1608,15 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "fr", FR_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "fr", FR_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "fr", FR_RESET_WALK_INTERRUPTED),
+    (KEY_CALIBRATE_OPENER, "fr", FR_CALIBRATE_OPENER),
+    (KEY_CALIBRATE_DM_ONLY, "fr", FR_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_START_FAILED, "fr", FR_CALIBRATE_START_FAILED),
+    (KEY_CALIBRATE_COMPLETE_HEADER, "fr", FR_CALIBRATE_COMPLETE_HEADER),
+    (KEY_CALIBRATE_COMPLETE_MISSING, "fr", FR_CALIBRATE_COMPLETE_MISSING),
+    (KEY_CALIBRATE_FOLLOWUP_PLAN, "fr", FR_CALIBRATE_FOLLOWUP_PLAN),
+    (KEY_CALIBRATE_FOLLOWUP_NO_PLAN, "fr", FR_CALIBRATE_FOLLOWUP_NO_PLAN),
+    (KEY_CALIBRATE_TOPIC_INJURY, "fr", FR_CALIBRATE_TOPIC_INJURY),
+    (KEY_CALIBRATE_TOPIC_RECOVERY, "fr", FR_CALIBRATE_TOPIC_RECOVERY),
     (KEY_PLAN_GOAL_LINE, "fr", FR_PLAN_GOAL_LINE),
     (KEY_PLAN_BLOCK_LINE, "fr", FR_PLAN_BLOCK_LINE),
     (KEY_PLAN_DAY_LINE, "fr", FR_PLAN_DAY_LINE),
@@ -1644,6 +1755,15 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "en", EN_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "en", EN_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "en", EN_RESET_WALK_INTERRUPTED),
+    (KEY_CALIBRATE_OPENER, "en", EN_CALIBRATE_OPENER),
+    (KEY_CALIBRATE_DM_ONLY, "en", EN_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_START_FAILED, "en", EN_CALIBRATE_START_FAILED),
+    (KEY_CALIBRATE_COMPLETE_HEADER, "en", EN_CALIBRATE_COMPLETE_HEADER),
+    (KEY_CALIBRATE_COMPLETE_MISSING, "en", EN_CALIBRATE_COMPLETE_MISSING),
+    (KEY_CALIBRATE_FOLLOWUP_PLAN, "en", EN_CALIBRATE_FOLLOWUP_PLAN),
+    (KEY_CALIBRATE_FOLLOWUP_NO_PLAN, "en", EN_CALIBRATE_FOLLOWUP_NO_PLAN),
+    (KEY_CALIBRATE_TOPIC_INJURY, "en", EN_CALIBRATE_TOPIC_INJURY),
+    (KEY_CALIBRATE_TOPIC_RECOVERY, "en", EN_CALIBRATE_TOPIC_RECOVERY),
     (KEY_PLAN_GOAL_LINE, "en", EN_PLAN_GOAL_LINE),
     (KEY_PLAN_BLOCK_LINE, "en", EN_PLAN_BLOCK_LINE),
     (KEY_PLAN_DAY_LINE, "en", EN_PLAN_DAY_LINE),
@@ -1781,6 +1901,15 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "es", ES_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "es", ES_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "es", ES_RESET_WALK_INTERRUPTED),
+    (KEY_CALIBRATE_OPENER, "es", ES_CALIBRATE_OPENER),
+    (KEY_CALIBRATE_DM_ONLY, "es", ES_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_START_FAILED, "es", ES_CALIBRATE_START_FAILED),
+    (KEY_CALIBRATE_COMPLETE_HEADER, "es", ES_CALIBRATE_COMPLETE_HEADER),
+    (KEY_CALIBRATE_COMPLETE_MISSING, "es", ES_CALIBRATE_COMPLETE_MISSING),
+    (KEY_CALIBRATE_FOLLOWUP_PLAN, "es", ES_CALIBRATE_FOLLOWUP_PLAN),
+    (KEY_CALIBRATE_FOLLOWUP_NO_PLAN, "es", ES_CALIBRATE_FOLLOWUP_NO_PLAN),
+    (KEY_CALIBRATE_TOPIC_INJURY, "es", ES_CALIBRATE_TOPIC_INJURY),
+    (KEY_CALIBRATE_TOPIC_RECOVERY, "es", ES_CALIBRATE_TOPIC_RECOVERY),
     (KEY_PLAN_GOAL_LINE, "es", ES_PLAN_GOAL_LINE),
     (KEY_PLAN_BLOCK_LINE, "es", ES_PLAN_BLOCK_LINE),
     (KEY_PLAN_DAY_LINE, "es", ES_PLAN_DAY_LINE),
@@ -1919,6 +2048,15 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "de", DE_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "de", DE_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "de", DE_RESET_WALK_INTERRUPTED),
+    (KEY_CALIBRATE_OPENER, "de", DE_CALIBRATE_OPENER),
+    (KEY_CALIBRATE_DM_ONLY, "de", DE_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_START_FAILED, "de", DE_CALIBRATE_START_FAILED),
+    (KEY_CALIBRATE_COMPLETE_HEADER, "de", DE_CALIBRATE_COMPLETE_HEADER),
+    (KEY_CALIBRATE_COMPLETE_MISSING, "de", DE_CALIBRATE_COMPLETE_MISSING),
+    (KEY_CALIBRATE_FOLLOWUP_PLAN, "de", DE_CALIBRATE_FOLLOWUP_PLAN),
+    (KEY_CALIBRATE_FOLLOWUP_NO_PLAN, "de", DE_CALIBRATE_FOLLOWUP_NO_PLAN),
+    (KEY_CALIBRATE_TOPIC_INJURY, "de", DE_CALIBRATE_TOPIC_INJURY),
+    (KEY_CALIBRATE_TOPIC_RECOVERY, "de", DE_CALIBRATE_TOPIC_RECOVERY),
     (KEY_PLAN_GOAL_LINE, "de", DE_PLAN_GOAL_LINE),
     (KEY_PLAN_BLOCK_LINE, "de", DE_PLAN_BLOCK_LINE),
     (KEY_PLAN_DAY_LINE, "de", DE_PLAN_DAY_LINE),
@@ -2057,6 +2195,15 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PILLARS_DM_ONLY, "pt", PT_PILLARS_DM_ONLY),
     (KEY_PILLARS_START_FAILED, "pt", PT_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "pt", PT_RESET_WALK_INTERRUPTED),
+    (KEY_CALIBRATE_OPENER, "pt", PT_CALIBRATE_OPENER),
+    (KEY_CALIBRATE_DM_ONLY, "pt", PT_CALIBRATE_DM_ONLY),
+    (KEY_CALIBRATE_START_FAILED, "pt", PT_CALIBRATE_START_FAILED),
+    (KEY_CALIBRATE_COMPLETE_HEADER, "pt", PT_CALIBRATE_COMPLETE_HEADER),
+    (KEY_CALIBRATE_COMPLETE_MISSING, "pt", PT_CALIBRATE_COMPLETE_MISSING),
+    (KEY_CALIBRATE_FOLLOWUP_PLAN, "pt", PT_CALIBRATE_FOLLOWUP_PLAN),
+    (KEY_CALIBRATE_FOLLOWUP_NO_PLAN, "pt", PT_CALIBRATE_FOLLOWUP_NO_PLAN),
+    (KEY_CALIBRATE_TOPIC_INJURY, "pt", PT_CALIBRATE_TOPIC_INJURY),
+    (KEY_CALIBRATE_TOPIC_RECOVERY, "pt", PT_CALIBRATE_TOPIC_RECOVERY),
     (KEY_PLAN_GOAL_LINE, "pt", PT_PLAN_GOAL_LINE),
     (KEY_PLAN_BLOCK_LINE, "pt", PT_PLAN_BLOCK_LINE),
     (KEY_PLAN_DAY_LINE, "pt", PT_PLAN_DAY_LINE),
