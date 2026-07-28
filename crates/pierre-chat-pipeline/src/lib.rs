@@ -977,11 +977,27 @@ async fn run_turn(
     // identifiers alongside user/tenant/conversation/turn.
     record_turn_span_context(&conv);
 
-    // Stage 4.5: Onboarding mode. If this conversation is mid guided pillar
-    // walk, resolve the topic being probed (and clear the flag once complete).
-    // Drives the prompt directive (below) and the fact-stamping at Stage 21.
-    let onboarding_turn =
-        stages::onboarding::resolve(ctx, &conv, input.conversation_tenant_id).await;
+    // Stage 4.5: Guided mode. If this conversation is mid pillars walk or mid
+    // calibration interview, resolve the topic being probed (and clear the flag
+    // once complete). Drives the prompt directive (below) and the fact-stamping
+    // at Stage 21.
+    // A finished calibration interview answers deterministically and skips the
+    // LLM entirely (see `resolve_guided_or_answer`).
+    let onboarding_turn = match resolve_guided_or_answer(GuidedStageInputs {
+        ctx,
+        input: &input,
+        hooks,
+        turn_ctx: &turn_ctx,
+        turn_started,
+        active_model: &active_model,
+        user_message: &user_message,
+        conv: &conv,
+    })
+    .await?
+    {
+        GuidedOutcome::Answered(result) => return Ok(*result),
+        GuidedOutcome::Continue(turn) => turn,
+    };
 
     // Stage 5: Load conversation history for LLM context. Bound the load to a
     // generous multiple of the compaction message cap so a long thread loads
@@ -1149,6 +1165,180 @@ async fn run_turn(
 
     Ok(dispatch_result)
 }
+
+/// Everything the guided stage needs from the turn so far.
+struct GuidedStageInputs<'a> {
+    ctx: &'a ChatPipelineContext,
+    input: &'a TurnInput,
+    hooks: &'a PipelineHooks<'a>,
+    turn_ctx: &'a TurnContext,
+    turn_started: Instant,
+    active_model: &'a str,
+    user_message: &'a MessageRecord,
+    conv: &'a ConversationRecord,
+}
+
+/// What Stage 4.5 concluded: either the turn is already answered, or it carries
+/// on with an optional guided probe attached.
+enum GuidedOutcome {
+    /// The platform answered the turn itself; the caller returns this verbatim.
+    Answered(Box<DispatchResult>),
+    /// Run the turn normally, probing this topic if one is set.
+    Continue(Option<stages::onboarding::OnboardingTurn>),
+}
+
+/// Stage 4.5: resolve the guided flow, answering the turn outright when a
+/// calibration interview has just finished.
+///
+/// The wrap-up reports how many answers actually landed and names a safety
+/// topic that produced none — claims only the platform can make truthfully,
+/// since a coach asked to summarize its own interview has no view of what the
+/// extractor wrote and every incentive to declare success.
+async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<GuidedOutcome> {
+    let GuidedStageInputs {
+        ctx,
+        input,
+        hooks,
+        turn_ctx,
+        turn_started,
+        active_model,
+        user_message,
+        conv,
+    } = inputs;
+
+    let guided = stages::onboarding::resolve(
+        ctx,
+        conv,
+        input.conversation_tenant_id,
+        input.locale.as_deref(),
+    )
+    .await;
+
+    match guided {
+        stages::onboarding::GuidedResolution::Probe(turn) => {
+            Ok(GuidedOutcome::Continue(Some(*turn)))
+        }
+        stages::onboarding::GuidedResolution::Inactive => Ok(GuidedOutcome::Continue(None)),
+        stages::onboarding::GuidedResolution::CalibrationComplete(summary) => {
+            let result = deliver_deterministic_reply(
+                DeterministicReplyInputs {
+                    ctx,
+                    input,
+                    hooks,
+                    turn_ctx,
+                    turn_started,
+                    active_model: active_model.to_owned(),
+                    user_message: user_message.clone(),
+                    conv,
+                },
+                summary,
+            )
+            .await?;
+            Ok(GuidedOutcome::Answered(Box::new(result)))
+        }
+    }
+}
+
+/// Everything [`deliver_deterministic_reply`] needs from the turn so far.
+struct DeterministicReplyInputs<'a> {
+    ctx: &'a ChatPipelineContext,
+    input: &'a TurnInput,
+    hooks: &'a PipelineHooks<'a>,
+    turn_ctx: &'a TurnContext,
+    turn_started: Instant,
+    active_model: String,
+    user_message: MessageRecord,
+    conv: &'a ConversationRecord,
+}
+
+/// Answer the turn with platform-authored text, skipping the LLM entirely.
+///
+/// Used when the reply is something only the platform can state truthfully —
+/// today, the calibration wrap-up, whose whole value is reporting what the
+/// extractor actually wrote. Everything downstream of the dispatch still runs
+/// as usual: the reply is persisted, the conversation reloaded, and the usage
+/// hook fired, so the turn is indistinguishable from any other to callers.
+///
+/// Deliberately skipped: post-processing (guardrails, claim verification,
+/// identity-leak detection) and memory extraction. All of them exist to police
+/// model-generated text, and this text has no model behind it — running the
+/// leak detector over a locale string the platform wrote would only ever
+/// produce false positives, and extracting facts from it would feed the
+/// athlete's own summary back in as new evidence.
+async fn deliver_deterministic_reply(
+    inputs: DeterministicReplyInputs<'_>,
+    content: String,
+) -> AppResult<DispatchResult> {
+    let DeterministicReplyInputs {
+        ctx,
+        input,
+        hooks,
+        turn_ctx,
+        turn_started,
+        active_model,
+        user_message,
+        conv,
+    } = inputs;
+
+    let assistant_params = AddMessageParams {
+        tenant_id: input.conversation_tenant_id,
+        conversation_id: &input.conversation_id,
+        user_id: &input.user_id,
+        role: "assistant",
+        content: &content,
+        token_count: None,
+        finish_reason: Some(DETERMINISTIC_FINISH_REASON),
+        prompt_tokens: None,
+        model: Some(&active_model),
+        structured_content: None,
+    };
+    let (assistant_message, updated_conversation) = persist_assistant_response(
+        ctx.repos.chat.as_ref(),
+        &assistant_params,
+        input.conversation_tenant_id,
+    )
+    .await?;
+
+    finalize_session_state(
+        &ctx.data,
+        conv.session_id.as_deref(),
+        &[],
+        input.conversation_tenant_id,
+    )
+    .await;
+
+    let dispatch_result = DispatchResult {
+        content,
+        usage: None,
+        tool_calls_count: 0,
+        tools_called: Vec::new(),
+        turn_id: input.turn_id,
+        finish_reason: Some(DETERMINISTIC_FINISH_REASON.to_owned()),
+        activity_list: None,
+        model: active_model,
+        provider_name: DETERMINISTIC_PROVIDER.to_owned(),
+        user_message,
+        assistant_message,
+        conversation: updated_conversation,
+        identity_leak: None,
+    };
+
+    #[allow(clippy::cast_possible_truncation)]
+    let elapsed_ms = turn_started.elapsed().as_millis() as u64;
+    if let Some(recorder) = hooks.usage_recorder {
+        recorder
+            .record(turn_ctx, &dispatch_result, elapsed_ms)
+            .await;
+    }
+
+    Ok(dispatch_result)
+}
+
+/// Provider label recorded for a turn the platform answered itself. Named
+/// rather than blank so a usage row with no token counts is explicable.
+const DETERMINISTIC_PROVIDER: &str = "platform";
+/// Finish reason recorded for a platform-authored reply.
+const DETERMINISTIC_FINISH_REASON: &str = "deterministic";
 
 /// Resolve the active LLM model for a turn per the channel's [`ModelPolicy`].
 fn resolve_active_model(policy: ModelPolicy, conversation_id: &str, stored_model: &str) -> String {

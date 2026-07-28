@@ -411,6 +411,35 @@ impl HarnessMemoryRepository for Database {
         rows.iter().map(row_to_user_fact).collect()
     }
 
+    async fn list_user_facts_by_source(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        source: FactSource,
+        limit: i64,
+    ) -> AppResult<Vec<UserFact>> {
+        let now = Utc::now().to_rfc3339();
+        let rows = sqlx::query(
+            r"
+            SELECT * FROM user_facts
+            WHERE tenant_id = $1 AND user_id = $2 AND source = $3
+              AND (valid_until IS NULL OR valid_until > $4)
+            ORDER BY updated_at DESC
+            LIMIT $5
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(source.as_str())
+        .bind(&now)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list user facts by source: {e}")))?;
+
+        rows.iter().map(row_to_user_fact).collect()
+    }
+
     async fn delete_user_fact(
         &self,
         fact_id: &str,
@@ -437,14 +466,20 @@ impl HarnessMemoryRepository for Database {
         tenant_id: TenantId,
         user_id: &str,
         pillar: Option<Pillar>,
+        created_after: Option<DateTime<Utc>>,
     ) -> AppResult<u64> {
         let now = Utc::now().to_rfc3339();
+        // Both timestamps are written by `to_rfc3339()` in UTC, so the string
+        // comparison below orders the same way the instants do — the same
+        // assumption every `ORDER BY updated_at` in this file already makes.
+        let created_after = created_after.map(|d| d.to_rfc3339());
         let result = sqlx::query(
             r"
             UPDATE user_facts
                SET valid_until = $1, updated_at = $1
              WHERE tenant_id = $2 AND user_id = $3 AND source = 'onboarding'
                AND ($4 IS NULL OR pillar = $4)
+               AND ($5 IS NULL OR created_at >= $5)
                AND (valid_until IS NULL OR valid_until > $1)
             ",
         )
@@ -452,6 +487,7 @@ impl HarnessMemoryRepository for Database {
         .bind(tenant_id)
         .bind(user_id)
         .bind(pillar.map(Pillar::as_str))
+        .bind(created_after)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to expire onboarding facts: {e}")))?;

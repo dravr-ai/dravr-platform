@@ -32,13 +32,15 @@
 // Domain modules
 pub mod a2a;
 mod athlete;
+/// The difficulty-calibration interview's topic table and next-topic policy.
+pub mod calibration;
 /// Endurance athlete dossier composed at read time from physiology, goals,
 /// zones, nutrition, and equipment slots.
 pub mod dossier;
 mod health;
 mod nutrition;
 mod oauth;
-/// Guided pillar-onboarding flow state + Dossier-derived coverage map.
+/// Guided-flow state + the two next-topic policies (coverage, calibration list).
 pub mod onboarding;
 /// The canonical six fitness-adapted health pillars (single source of truth
 /// for per-user context, pillar-tagged facts, and the OKF bundle).
@@ -113,8 +115,12 @@ pub use user::{
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
+pub use calibration::{CalibrationConditions, CalibrationTopic};
 pub use dossier::{Dossier, DossierFact};
-pub use onboarding::{CoverageMap, CoverageTarget, OnboardingState, TopicSlug, MAX_PROBE_ATTEMPTS};
+pub use onboarding::{
+    CoverageMap, CoverageTarget, GuidedFlow, LoadSnapshot, OnboardingState, TopicSlug,
+    MAX_PROBE_ATTEMPTS,
+};
 pub use pillar::Pillar;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};
 pub use workout_template::{

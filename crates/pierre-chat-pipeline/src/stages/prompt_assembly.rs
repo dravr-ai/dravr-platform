@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use tracing::{field, info, trace, warn, Span};
+use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
@@ -112,6 +112,56 @@ const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static s
         | CoachCategory::Analysis
         | CoachCategory::Custom => None,
     }
+}
+
+/// Whether a coach in this category can prescribe training load, and so needs
+/// the progression guardrails.
+///
+/// Training is the obvious case. Recovery earns it because a recovery coach
+/// decides deload cadence and hard-day spacing, which is a load decision by
+/// another name. Analysis earns it because it is routinely asked "should I do
+/// more?" and answers with a recommendation. Nutrition, Recipes and Mobility do
+/// not prescribe endurance load; `Custom` is excluded because its scope is
+/// user-defined and unknown, and spending ~450 tokens on every turn of a coach
+/// that may never discuss load is the wrong default.
+const fn category_prescribes_load(category: CoachCategory) -> bool {
+    matches!(
+        category,
+        CoachCategory::Training | CoachCategory::Recovery | CoachCategory::Analysis
+    )
+}
+
+/// The load-progression guardrails block for this turn, or `None` when it does
+/// not apply.
+///
+/// Returns `None` for a turn with no bound coach: the guardrails bound how a
+/// *coach* prescribes, and the generic assistant has no plan-writing surface to
+/// bound.
+fn progression_guardrails(
+    ctx: &ChatPipelineContext,
+    coach_ctx: Option<&CoachRuntimeContext>,
+    guided_flow_active: bool,
+) -> Option<String> {
+    if guided_flow_active {
+        return None;
+    }
+    let category = coach_ctx?.category;
+    if !category_prescribes_load(category) {
+        return None;
+    }
+    let block = ctx.prompt_registry.progression_guardrails_prompt();
+    if block.trim().is_empty() {
+        return None;
+    }
+    // Prompt cost is charged on every turn of every load-prescribing coach, so
+    // it is recorded rather than assumed — the block's size is the thing to
+    // watch if the guardrails are later expanded.
+    debug!(
+        category = category.as_str(),
+        guardrails_bytes = block.len(),
+        "appended progression guardrails"
+    );
+    Some(block)
 }
 
 /// Rewrite the prompt-template placeholders with their runtime values.
@@ -534,6 +584,28 @@ pub(crate) async fn assemble_prompt_and_messages(
         base_prompt,
     )
     .await;
+
+    // Stage 7f.3: Append the load-progression guardrails for coaches whose
+    // category can actually prescribe load.
+    //
+    // Deliberately ABOVE the tool-discipline block (7g.1), the structured-output
+    // contract (7g.2) and the guided-flow directive (7g.3), giving up recency on
+    // purpose. Four of the twelve training coaches declare an `output_schema`
+    // and receive a JSON-only contract at 7g.2; ~450 tokens of prose landing
+    // after that contract is the same recency contest that turned the
+    // 2026-07-24 walk into an unwanted 16-week plan. These guardrails are
+    // content guidance, not an output-format rule, so they do not need to win
+    // that contest — and the real enforcement is the save-time ramp check in
+    // `save_training_plan`, which measures the plan rather than asking for it.
+    //
+    // Suppressed while a guided flow owns the turn, for the same reason 7f.2
+    // and 7g.2 are: a calibration interview is asking questions, not
+    // prescribing load, so the block would be pure prompt cost on every turn of
+    // the interview.
+    let base_prompt = match progression_guardrails(ctx, coach_ctx, onboarding.is_some()) {
+        Some(guardrails) => format!("{base_prompt}\n\n{guardrails}"),
+        None => base_prompt,
+    };
 
     // Stage 7g: Append the channel-profile response-constraints prompt.
     let raw_system_prompt = match profile.response_constraints_prompt.as_deref() {

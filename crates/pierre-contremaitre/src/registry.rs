@@ -15,8 +15,8 @@ use pierre_llm::prompts::{
     CASUAL_PERSONA_PROMPT, COACH_GENERATION_PROMPT, COACH_PERSONA_PROMPT,
     ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
     MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, PIERRE_SYSTEM_PROMPT,
-    POWER_ATHLETE_PERSONA_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT,
-    TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT,
+    POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT,
+    RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -115,6 +115,7 @@ impl PromptRegistry {
                 TOOL_DISCIPLINE_MESSAGING_PROMPT,
             ),
             ("memory_extraction", MEMORY_EXTRACTION_PROMPT),
+            ("progression_guardrails", PROGRESSION_GUARDRAILS_PROMPT),
         ];
 
         for (key, content) in compiled_in_prompts {
@@ -217,6 +218,12 @@ impl PromptRegistry {
     /// Get the memory extraction system prompt.
     pub fn memory_extraction_prompt(&self) -> String {
         self.get_system_prompt("memory_extraction")
+    }
+
+    /// Get the load-progression guardrails appended for load-prescribing
+    /// coaches.
+    pub fn progression_guardrails_prompt(&self) -> String {
+        self.get_system_prompt("progression_guardrails")
     }
 
     // ── Generic accessors ──────────────────────────────────────────────
@@ -464,6 +471,7 @@ impl PromptRegistry {
             "tool_discipline" => TOOL_DISCIPLINE_PROMPT,
             "tool_discipline_messaging" => TOOL_DISCIPLINE_MESSAGING_PROMPT,
             "memory_extraction" => MEMORY_EXTRACTION_PROMPT,
+            "progression_guardrails" => PROGRESSION_GUARDRAILS_PROMPT,
             _ => "",
         }
     }

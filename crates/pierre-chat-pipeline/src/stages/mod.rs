@@ -27,6 +27,9 @@ pub mod acronym_expansion;
 /// Re-auth recovery: short-circuit a turn with a hosted-login URL.
 pub mod auth_recovery;
 pub mod compaction;
+/// Deterministic completion for the calibration interview — the facts-landed
+/// check and the platform-rendered wrap-up.
+pub mod completion;
 pub mod followups;
 /// Guardian-denied recovery: short-circuit a turn with a localized "blocked
 /// for safety" reply when the runtime Guardian blocked a tool in enforce mode.

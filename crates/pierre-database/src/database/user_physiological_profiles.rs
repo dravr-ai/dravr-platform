@@ -9,7 +9,7 @@ use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{Dossier, TenantId, UserPhysiologicalProfile};
-use pierre_memory::FactKind;
+use pierre_memory::{FactKind, FactSource};
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -208,9 +208,20 @@ impl DossierRepository for Database {
         // Per-user pillar context, grouped into pillar / north-star / medical
         // buckets. Best-effort — facts are an enhancement, not a hard
         // dependency of the dossier. The general read is recency-bounded
-        // (LIMIT, ORDER BY updated_at DESC); safety/identity kinds
-        // (Medical, NorthStar) are additionally fetched by kind so they can
-        // never be evicted from that recency window — group_facts dedupes.
+        // (LIMIT, ORDER BY updated_at DESC); two guaranteed fetches sit
+        // alongside it so the facts that matter most cannot be evicted from
+        // that window — group_facts dedupes the overlap.
+        //
+        // By kind: Medical and NorthStar, whichever source wrote them (a
+        // coach-authored medical flag is not `source=onboarding`).
+        //
+        // By source: everything a guided interview captured. Kind cannot
+        // protect these — a calibration answer about recovery speed is a
+        // `preference`, indistinguishable from any chat-inferred preference —
+        // so a chatty athlete used to lose their whole calibration set inside
+        // the 40-fact window within weeks, which is the failure that made the
+        // interview feel like theatre. Superseded rows are excluded by the
+        // query, so a re-run's expired answers do not refill the bundle.
         let user = user_id.to_string();
         let mut facts = self
             .list_user_facts(tenant_id, &user, None, None, FACT_BUNDLE_LIMIT)
@@ -223,6 +234,16 @@ impl DossierRepository for Database {
                 .unwrap_or_default();
             facts.extend(guaranteed);
         }
+        facts.extend(
+            self.list_user_facts_by_source(
+                tenant_id,
+                &user,
+                FactSource::Onboarding,
+                FACT_BUNDLE_LIMIT,
+            )
+            .await
+            .unwrap_or_default(),
+        );
         let buckets = group_facts(&facts, Utc::now());
 
         Ok(Dossier {

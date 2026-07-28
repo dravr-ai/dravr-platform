@@ -30,8 +30,8 @@
 //!   the ordering regression this guards against is a source edit — someone
 //!   appending a new stage below the directive.
 
-use pierre_chat_pipeline::stages::onboarding::{directive, OnboardingTurn};
-use pierre_core::models::{CoverageTarget, OnboardingState, Pillar};
+use pierre_chat_pipeline::stages::onboarding::{directive, GuidedTarget, OnboardingTurn};
+use pierre_core::models::{CoverageTarget, GuidedFlow, OnboardingState, Pillar};
 use std::fs;
 use std::path::PathBuf;
 
@@ -124,11 +124,12 @@ fn tools_section_is_generated_with_the_guided_flow_flag() {
     );
 }
 
-/// The directive for a given topic, built the way Stage 7g.3 builds it.
+/// The directive for a given pillars-walk topic, built the way Stage 7g.3
+/// builds it.
 fn directive_for(target: CoverageTarget) -> String {
     let turn = OnboardingTurn {
-        probed: target,
-        state: OnboardingState::start("2026-07-25T00:00:00Z".to_owned()),
+        target: GuidedTarget::Coverage(target),
+        state: OnboardingState::start("2026-07-25T00:00:00Z".to_owned(), GuidedFlow::Pillars),
     };
     directive(&turn)
 }
