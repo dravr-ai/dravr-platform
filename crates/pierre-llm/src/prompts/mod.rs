@@ -63,6 +63,15 @@ pub const TOOL_DISCIPLINE_PROMPT: &str = system::TOOL_DISCIPLINE;
 /// channels where the user only sees plain text.
 pub const TOOL_DISCIPLINE_MESSAGING_PROMPT: &str = system::TOOL_DISCIPLINE_MESSAGING;
 
+/// Load-progression guardrails.
+///
+/// Bounds how fast a coach may ramp an athlete's training load — volume,
+/// intensity distribution, deload cadence — plus the framing rules that keep
+/// load talk from becoming injury-probability talk. Appended by prompt assembly
+/// for coaches whose category can prescribe load, and suppressed while a guided
+/// flow owns the turn.
+pub const PROGRESSION_GUARDRAILS_PROMPT: &str = system::PROGRESSION_GUARDRAILS;
+
 /// Recommendation analysis user prompt template
 ///
 /// Contains the user-facing prompt for generating training recommendations.
