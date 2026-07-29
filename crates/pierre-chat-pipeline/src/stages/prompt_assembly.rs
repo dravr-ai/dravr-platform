@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
@@ -16,7 +17,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
+use pierre_core::models::{CoachRuntimeContext, CoachingPersona, OnboardingState};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -659,6 +660,14 @@ pub(crate) async fn assemble_prompt_and_messages(
 
     // Stage 7g.3: Onboarding directive — when this conversation is mid guided
     // pillar walk, steer the coach to probe the current topic conversationally.
+    // On the first turn after that walk ends, the same slot carries the
+    // directive that revokes it: the interview block claims to override every
+    // other instruction and forbids saving a plan, and dropping it does not
+    // retract it from the transcript it already shaped (2026-07-28 — a coach
+    // reported a save failure 48 seconds after a completed calibration, having
+    // never called the tool). The two are mutually exclusive by construction —
+    // a conversation is either in a flow or just out of one — so they share one
+    // rebinding, which is also what keeps the tail invariant below intact.
     //
     // Deliberately below every behavioural block; only the Stage 7g.4 identity
     // anchor follows it, and that block states who the assistant IS rather than
@@ -671,6 +680,12 @@ pub(crate) async fn assemble_prompt_and_messages(
     // the athlete's first answer.
     let raw_system_prompt = match onboarding {
         Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
+        None if OnboardingState::just_completed(conv.onboarding_state.as_deref(), Utc::now()) => {
+            format!(
+                "{raw_system_prompt}{}",
+                super::onboarding::release_directive()
+            )
+        }
         None => raw_system_prompt,
     };
 

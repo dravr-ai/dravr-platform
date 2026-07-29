@@ -54,6 +54,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
 
+use chrono::Utc;
 use pierre_agui::AgUiEvent;
 use pierre_config::environment::LlmProviderType;
 use pierre_config::environment::ServerConfig;
@@ -65,7 +66,9 @@ use pierre_contremaitre::{
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::{AddMessageParams, CoachRuntimeContext, ConversationTurnId, TenantId};
+use pierre_core::models::{
+    AddMessageParams, CoachRuntimeContext, ConversationTurnId, OnboardingState, TenantId,
+};
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::ChatRepository;
@@ -482,6 +485,28 @@ async fn finish_turn_follow_through(inputs: FinishTurnInputs<'_>) {
         input.conversation_tenant_id,
     )
     .await;
+    retire_completed_interview_marker(ctx, conv, onboarding, input.conversation_tenant_id).await;
+}
+
+/// Clear the just-completed-interview marker once its release directive has
+/// been delivered, so the next turn is an ordinary one.
+///
+/// Nothing to do while a flow still owns the turn — that state is the live
+/// interview, not a finished one — and nothing to do when the conversation
+/// carries no marker at all, which is every normal turn.
+async fn retire_completed_interview_marker(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    onboarding: Option<&stages::onboarding::OnboardingTurn>,
+    tenant_id: TenantId,
+) {
+    if onboarding.is_some() {
+        return;
+    }
+    if !OnboardingState::just_completed(conv.onboarding_state.as_deref(), Utc::now()) {
+        return;
+    }
+    stages::onboarding::clear_completed_marker(ctx, conv, tenant_id).await;
 }
 
 /// Parameters for [`dispatch_stage`].

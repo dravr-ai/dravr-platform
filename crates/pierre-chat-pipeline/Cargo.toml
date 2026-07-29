@@ -23,6 +23,10 @@ tools-groups = [
 ]
 tools-verification = [
     "dep:pierre-evals",
+    # The claim-verification stage runs behind its own panic boundary
+    # (futures_util::FutureExt::catch_unwind), so the dep rides with the
+    # feature that turns the stage on.
+    "dep:futures-util",
     "pierre-services/tools-verification",
     "pierre-tool-runtime/tools-verification",
 ]
@@ -50,6 +54,7 @@ dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6
 pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
+futures-util = { version = "0.3", optional = true }
 
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }

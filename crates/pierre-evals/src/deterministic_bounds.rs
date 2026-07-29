@@ -44,24 +44,71 @@ pub fn check(claim: &ExtractedClaim) -> Option<BoundViolation> {
     }
 }
 
+/// How far to either side of the keyword the numeric scan reaches, in bytes.
+///
+/// Wide enough to span the clause a value normally shares with its keyword
+/// ("your `VO2max` of 55 ml/kg/min"), narrow enough that a number belonging to
+/// the next sentence is not attributed to this keyword.
+const WINDOW_BYTES: usize = 25;
+
+/// The largest char boundary at or below `i`.
+///
+/// `str::floor_char_boundary` is still unstable, so this is hand-rolled.
+fn floor_char_boundary(s: &str, mut i: usize) -> usize {
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// The smallest char boundary at or above `i`.
+///
+/// `str::ceil_char_boundary` is still unstable, so this is hand-rolled.
+fn ceil_char_boundary(s: &str, mut i: usize) -> usize {
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 pub(crate) fn extract_number_near(text: &str, keyword: &str) -> Option<f64> {
+    // Every offset below indexes `lower`, never `text`. `to_lowercase` is not
+    // length-preserving — "İ" is 2 bytes and lowercases to 3 — so an offset
+    // found in `lower` and applied to `text` reads a window shifted off the
+    // keyword, which extracts the wrong number without any outward sign.
+    // Reading digits out of `lower` is equivalent because lowercasing leaves
+    // ASCII digits and '.' untouched, and those are all this scanner consumes.
     let lower = text.to_lowercase();
     let idx = lower.find(keyword)?;
     let kw_end = idx + keyword.len();
 
     // Scan a symmetric window around the keyword, return the numeric token
     // whose starting position is closest to the keyword (either side).
-    let window_start = idx.saturating_sub(25);
-    let window_end = (kw_end + 25).min(text.len());
-    let window = &text[window_start..window_end];
+    //
+    // The window bounds are byte arithmetic with no relationship to character
+    // boundaries, so both are snapped outward to the nearest one. Without the
+    // snap any accented reply can put a bound inside a multi-byte character
+    // and slicing there panics — on 2026-07-28 a French coach reply did
+    // exactly that at `window_start`, taking down a turn that had already
+    // saved a training plan.
+    let window_start = floor_char_boundary(&lower, idx.saturating_sub(WINDOW_BYTES));
+    let window_end = ceil_char_boundary(&lower, (kw_end + WINDOW_BYTES).min(lower.len()));
+    let window = &lower[window_start..window_end];
     let kw_center_in_window = idx - window_start;
+    // The keyword's own span, in window coordinates. Two of the keywords
+    // ("vo2max", "vo2 max") contain an ASCII digit, and reading it back as
+    // the athlete's value made every bare mention of VO2max a claim of "2
+    // ml/kg/min" — out of range, so a sentence stating no value at all got
+    // contradicted. The keyword is the anchor of the search, never a value
+    // found by it.
+    let kw_span_in_window = kw_center_in_window..(kw_end - window_start);
 
     let mut best: Option<(f64, usize)> = None;
     let mut buf = String::new();
     let mut token_start: Option<usize> = None;
 
     for (offset, ch) in window.char_indices() {
-        if ch.is_ascii_digit() || ch == '.' {
+        if (ch.is_ascii_digit() || ch == '.') && !kw_span_in_window.contains(&offset) {
             if buf.is_empty() {
                 token_start = Some(offset);
             }

@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{Dossier, Pillar};
@@ -109,7 +110,21 @@ pub struct OnboardingState {
     /// pillars walk and for an athlete with no connected provider.
     #[serde(default)]
     pub snapshot: Option<LoadSnapshot>,
+    /// RFC3339 timestamp when the interview finished, set once `active` goes
+    /// false. `None` while the flow runs, and absent from rows written before
+    /// the field existed — hence `serde(default)`.
+    #[serde(default)]
+    pub completed_at: Option<String>,
 }
+
+/// How long after a guided interview ends its release directive keeps firing.
+///
+/// The directive is cleared the turn it fires, so this window only matters
+/// when that clear fails to write. Bounding it stops a stuck marker from
+/// asserting "the interview just finished" days later, and 30 minutes is far
+/// wider than the gap that mattered in the incident it exists for — the
+/// athlete's next message came 48 seconds after the wrap-up.
+pub const COMPLETION_RELEASE_WINDOW_MINUTES: i64 = 30;
 
 impl OnboardingState {
     /// Start a fresh guided walk for `flow`.
@@ -121,7 +136,50 @@ impl OnboardingState {
             probed: Vec::new(),
             flow,
             snapshot: None,
+            completed_at: None,
         }
+    }
+
+    /// This state marked finished, stamped `at` (RFC3339).
+    ///
+    /// The row is kept rather than deleted so the *next* turn can tell that an
+    /// interview just ended. That matters because the interview's directive is
+    /// the most forcefully worded block in the prompt — it "overrides every
+    /// other instruction" and ends with "do not build, propose, or save a
+    /// training plan" — and the athlete's transcript keeps its shape after the
+    /// block itself disappears. On 2026-07-28 a coach spent the turn after a
+    /// completed calibration telling the athlete it could not save his plan,
+    /// having never called the tool, which was callable on that turn.
+    #[must_use]
+    pub fn completed(mut self, at: String) -> Self {
+        self.active = false;
+        self.completed_at = Some(at);
+        self
+    }
+
+    /// Whether the stored column is a guided interview that finished recently
+    /// enough to still warrant the release directive.
+    ///
+    /// `false` for an active flow — that is [`Self::from_column`]'s job — for
+    /// an absent, unparseable or un-stamped column, and for a completion older
+    /// than [`COMPLETION_RELEASE_WINDOW_MINUTES`].
+    #[must_use]
+    pub fn just_completed(raw: Option<&str>, now: DateTime<Utc>) -> bool {
+        let Some(state) = raw.and_then(|s| serde_json::from_str::<Self>(s).ok()) else {
+            return false;
+        };
+        if state.active {
+            return false;
+        }
+        let Some(at) = state
+            .completed_at
+            .as_deref()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        else {
+            return false;
+        };
+        now.signed_duration_since(at.with_timezone(&Utc))
+            < Duration::minutes(COMPLETION_RELEASE_WINDOW_MINUTES)
     }
 
     /// This state with the flow-start load snapshot attached.

@@ -3539,6 +3539,7 @@ dependencies = [
  "chrono-tz",
  "dravr-contremaitre",
  "dravr-tronc",
+ "futures-util",
  "jsonschema",
  "pierre-agui",
  "pierre-config",

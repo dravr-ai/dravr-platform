@@ -24,6 +24,7 @@
 //!   which ones are still outstanding — which is why that flow has no re-ask
 //!   budget and leans on the completion check instead.
 
+use chrono::Utc;
 use pierre_core::models::{
     CalibrationConditions, CalibrationTopic, ConversationRecord, CoverageMap, CoverageTarget,
     Dossier, GuidedFlow, LoadSnapshot, OnboardingState, Pillar, TenantId, TopicSlug,
@@ -143,8 +144,8 @@ pub async fn resolve(
     // every topic is covered or burned its probe budget; for calibration it
     // means every topic on this athlete's list was delivered.
     //
-    // The completion summary is rendered BEFORE the marker is cleared, so a
-    // failed clear does not also cost the athlete their wrap-up.
+    // The completion summary is rendered BEFORE the marker is retired, so a
+    // failed write does not also cost the athlete their wrap-up.
     let summary = match state.flow {
         GuidedFlow::Calibration => {
             Some(completion::render(ctx, conv, &state, tenant_id, &dossier, locale).await)
@@ -152,13 +153,27 @@ pub async fn resolve(
         GuidedFlow::Pillars => None,
     };
 
+    // The row is retired rather than deleted: it becomes an inactive,
+    // timestamped marker that lets exactly one later turn know the interview
+    // just ended, so [`release_directive`] can revoke the interview's
+    // no-writing rule before the model acts on the transcript it shaped.
+    // A state that will not serialize falls back to deleting the row, which is
+    // the pre-existing behaviour — the flow still ends, only the release
+    // directive is lost.
+    let retired = state
+        .completed(Utc::now().to_rfc3339())
+        .to_column()
+        .map_err(|e| {
+            tracing::warn!(error = %e, "failed to serialize completed onboarding_state; clearing it instead");
+        })
+        .ok();
     if let Err(e) = ctx
         .repos
         .chat
-        .set_conversation_onboarding_state(&conv.id, None, tenant_id)
+        .set_conversation_onboarding_state(&conv.id, retired.as_deref(), tenant_id)
         .await
     {
-        tracing::warn!(error = %e, "failed to clear completed onboarding_state");
+        tracing::warn!(error = %e, "failed to retire completed onboarding_state");
     }
 
     summary.map_or(
@@ -196,6 +211,59 @@ pub async fn record_delivered_probe(
         .await
     {
         tracing::warn!(error = %e, "failed to persist onboarding probe history");
+    }
+}
+
+/// The system-prompt directive revoking the interview's rules, for the first
+/// turn after a guided flow ends.
+///
+/// [`directive`] is the most forcefully worded block in the whole prompt: it
+/// claims to override every other instruction, and it closes with "do not
+/// build, propose, or save a training plan on this turn". On 2026-07-28 an
+/// athlete finished a calibration interview that had carried that block on
+/// eight consecutive turns; 48 seconds later, with the block gone and
+/// `save_training_plan` back in the catalogue, the coach told him it could not
+/// save his plan "cette fois-ci" — and the logs show it never called the tool.
+/// Removing a prohibition does not retract it from the transcript that
+/// prohibition already shaped, so it is retracted explicitly.
+///
+/// Placed with the same recency logic as [`directive`], and worded to revoke
+/// rather than merely permit, because "you may now save" competes with eight
+/// turns of "do not save" while "the earlier instruction no longer applies"
+/// resolves them.
+#[must_use]
+pub fn release_directive() -> String {
+    "\n\n# Interview complete (this overrides the interview rules you were following)\n\
+     The guided interview is over. The instruction not to build, propose or save a training \
+     plan applied only while it was running and no longer applies — disregard it, along with \
+     any statement you made under it about being unable to save.\n\
+     Every tool listed under Available Tools is callable again this turn, including \
+     save_training_plan.\n\
+     Never tell the athlete that saving failed unless you called the tool on this turn and it \
+     returned an error. If you intend to save, call the tool and report what it actually \
+     returned."
+        .to_owned()
+}
+
+/// Retire the just-completed marker so [`release_directive`] fires once.
+///
+/// Called after the turn that carried the directive. Leaving it in place would
+/// have every later turn told the interview "just" ended;
+/// [`OnboardingState::just_completed`] bounds that to
+/// [`COMPLETION_RELEASE_WINDOW_MINUTES`] anyway, so a failed clear costs a
+/// repeat of the directive rather than a permanent one.
+pub async fn clear_completed_marker(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    tenant_id: TenantId,
+) {
+    if let Err(e) = ctx
+        .repos
+        .chat
+        .set_conversation_onboarding_state(&conv.id, None, tenant_id)
+        .await
+    {
+        tracing::warn!(error = %e, "failed to clear the completed-interview marker");
     }
 }
 

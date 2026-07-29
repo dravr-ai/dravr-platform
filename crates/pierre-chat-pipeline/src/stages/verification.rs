@@ -16,6 +16,11 @@
 //! evidence corpus and `pierre_evals` dependency are not built in every
 //! workspace configuration.
 
+use std::future::Future;
+use std::panic::AssertUnwindSafe;
+
+use futures_util::FutureExt;
+use pierre_core::error_helpers::panic_payload_str;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::{
     AthleteMetrics, ExtractedClaim, PersonalizedContext, ResolvedAction, ToleranceStrategy,
@@ -276,6 +281,49 @@ pub struct ClaimVerificationOutcome {
     pub pending_verdicts: Vec<(ExtractedClaim, VerdictOutcome)>,
 }
 
+/// Run `stage` under a panic boundary, degrading to the unverified `reply`.
+///
+/// Claim verification is decorative and it runs *late*: by the time it sees
+/// the reply, the turn's tool calls have already committed their writes. A
+/// panic here must therefore cost the reply's footer, never the turn.
+///
+/// On 2026-07-28 it cost the turn. A byte-offset window in the
+/// deterministic-bounds scanner sliced through an accented character in a
+/// French coach reply; the panic unwound past post-processing to the
+/// turn-level boundary in messaging dispatch, which correctly reported a
+/// total failure — six seconds after `save_training_plan` had committed the
+/// athlete's first successful plan. He was shown an outage message for a plan
+/// that was in the database.
+///
+/// The boundary is deliberately this narrow rather than wrapped around all of
+/// post-processing. Neighbouring stages are not decorative: the identity-leak
+/// scrub is a response-boundary security control, and degrading *it* to the
+/// raw model output on panic would publish the very text it exists to
+/// withhold. Only stages whose output can be dropped without changing what
+/// the turn is allowed to say belong inside a boundary like this one.
+///
+/// `AssertUnwindSafe` is sound because a caught panic discards the stage's
+/// result whole: `reply` is returned untouched and no verdicts are persisted,
+/// so no partially-updated state is ever observed.
+pub async fn degrade_to_unverified<F>(stage: F, reply: &str) -> ClaimVerificationOutcome
+where
+    F: Future<Output = ClaimVerificationOutcome>,
+{
+    match AssertUnwindSafe(stage).catch_unwind().await {
+        Ok(outcome) => outcome,
+        Err(payload) => {
+            tracing::error!(
+                panic = %panic_payload_str(payload.as_ref()),
+                "claim verification panicked — delivering the reply unverified rather than discarding the turn"
+            );
+            ClaimVerificationOutcome {
+                content: reply.to_owned(),
+                pending_verdicts: Vec::new(),
+            }
+        }
+    }
+}
+
 /// Run the bullshit detector over the finalized assistant reply.
 ///
 /// Computes verdicts and applies the coach's
@@ -284,9 +332,20 @@ pub struct ClaimVerificationOutcome {
 /// first and then invoke [`persist_pending_verdicts`] with the resulting
 /// `message_id`. This keeps the audit row linked to the message that
 /// produced it and avoids orphan verdicts when the message write fails.
+///
+/// Wrapped in [`degrade_to_unverified`] so that a bug anywhere in the
+/// detector costs the verification footer and nothing else.
 pub async fn apply_claim_verification(
     params: ClaimVerificationParams<'_>,
 ) -> ClaimVerificationOutcome {
+    // Copied out before `params` moves; `&str` is Copy and outlives the call.
+    let reply = params.reply;
+    degrade_to_unverified(verify_and_apply(params), reply).await
+}
+
+/// The claim-verification stage proper. Always entered through
+/// [`apply_claim_verification`], which owns the panic boundary.
+async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificationOutcome {
     let ClaimVerificationParams {
         ctx,
         reply,

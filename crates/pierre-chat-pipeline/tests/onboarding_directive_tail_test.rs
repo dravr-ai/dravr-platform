@@ -100,6 +100,39 @@ fn directive_is_appended_after_every_other_prompt_block() {
     );
 }
 
+/// The directive that retracts the interview's rules occupies the interview
+/// directive's own slot, not a new block below it.
+///
+/// It has to sit exactly where the block it retracts sat: a retraction that
+/// lands above the channel constraints, the tool-discipline block and the
+/// structured-output contract loses the same recency contest the 2026-07-24
+/// derail was decided by. Sharing the one `match` also keeps the rebinding
+/// count above at two — and the two arms are mutually exclusive by
+/// construction, since a conversation is either inside a flow or out of one.
+#[test]
+fn the_release_directive_shares_the_interview_directives_slot() {
+    let source = prompt_assembly_source();
+    let directive = sole_offset(&source, "// Stage 7g.3:");
+    let anchor = sole_offset(&source, "// Stage 7g.4:");
+    let stage = &source[directive..anchor];
+
+    assert!(
+        stage.contains("super::onboarding::release_directive()"),
+        "the post-interview release directive must be appended from Stage 7g.3"
+    );
+    assert!(
+        stage.contains("OnboardingState::just_completed"),
+        "the release arm must be gated on the retired-interview marker, so it fires \
+         on the turn after the wrap-up and not on every ordinary turn"
+    );
+    assert_eq!(
+        stage.matches("let raw_system_prompt =").count(),
+        1,
+        "the guided directive and its retraction are alternatives in one rebinding, \
+         never two stacked blocks — a turn must never carry both"
+    );
+}
+
 #[test]
 fn structured_output_contract_is_suppressed_during_the_walk() {
     let source = prompt_assembly_source();

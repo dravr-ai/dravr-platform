@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::any::Any;
 use std::fmt::Write as _;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -27,6 +26,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_COACH_PROPOSAL_WELCOME, KEY_COACH_PROPOSAL_WELCOME_GENERIC, KEY_EMPTY_REPLY,
     KEY_ERROR_GENERIC,
 };
+use pierre_core::error_helpers::panic_payload_str;
 use pierre_core::errors::AppError;
 use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
@@ -233,18 +233,6 @@ async fn deliver_reply(
         thread_id: dispatch.thread_id.clone(),
     };
     send_outbound_response(dispatch, channel_config, &outgoing).await;
-}
-
-/// Extract a human-readable message from a caught panic payload.
-///
-/// `std` panics carry either a `&'static str` or a `String`; anything else is
-/// reported generically so the correlation-id log still fires.
-fn panic_payload_str(payload: &(dyn Any + Send)) -> String {
-    payload
-        .downcast_ref::<&str>()
-        .map(|s| (*s).to_owned())
-        .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "unknown panic payload".to_owned())
 }
 
 /// Log the pipeline failure, track analytics, and send a localized
