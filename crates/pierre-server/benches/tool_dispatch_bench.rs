@@ -52,6 +52,7 @@ use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
+#[cfg(unix)]
 use pprof::criterion::{Output, PProfProfiler};
 use serde_json::json;
 use tokio::runtime::Runtime;
@@ -290,9 +291,22 @@ fn bench_auth_hook(c: &mut Criterion) {
     });
 }
 
+/// Criterion config with the pprof flamegraph hook (`-- --profile-time N`).
+#[cfg(unix)]
+fn bench_config() -> Criterion {
+    Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)))
+}
+
+/// Criterion config without a profiler: pprof does not compile on Windows,
+/// so non-unix builds bench timings only, no flamegraphs.
+#[cfg(not(unix))]
+fn bench_config() -> Criterion {
+    Criterion::default()
+}
+
 criterion_group! {
     name = benches;
-    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
+    config = bench_config();
     targets = bench_registry, bench_tools_list, bench_tools_call, bench_auth_hook
 }
 criterion_main!(benches);

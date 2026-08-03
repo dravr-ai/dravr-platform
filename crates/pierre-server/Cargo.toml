@@ -322,8 +322,6 @@ embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.19.
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
-# Flamegraph profiler hook for criterion benches (`-- --profile-time N`); linux + macOS only paths we use.
-pprof = { version = "0.15", features = ["flamegraph", "criterion"] }
 serde_urlencoded = "0.7"
 toml = "0.8"
 # Messaging transport test dependencies (crypto verification)
@@ -334,6 +332,13 @@ subtle = "2.6"
 ed25519-dalek = "2.2"
 # Stripe billing webhook integration test signs payloads against StripeClient.
 dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.8" }
+
+# Flamegraph profiler hook for criterion benches (`-- --profile-time N`).
+# pprof builds on libc signals and does not compile on Windows, and cargo
+# compiles every dev-dependency of this package for its lib tests, so an
+# unconditional entry breaks `cargo test` on the Windows cross-platform job.
+[target.'cfg(unix)'.dev-dependencies]
+pprof = { version = "0.15", features = ["flamegraph", "criterion"] }
 
 # ============================================================================
 # Benchmark Configuration
