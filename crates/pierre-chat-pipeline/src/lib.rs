@@ -68,6 +68,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{
     AddMessageParams, CoachRuntimeContext, ConversationTurnId, OnboardingState, TenantId,
+    WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -955,6 +956,26 @@ pub async fn run(
     outcome
 }
 
+/// The `finish_reason` to persist for this turn's assistant row.
+///
+/// A withheld turn stores the localized apology the athlete saw, not the model's
+/// output, so it is stamped with [`WITHHELD_REPLY_FINISH_REASON`]. That lets
+/// `push_history_row` drop it from later prompts by marker instead of by
+/// pattern-matching prose that is authored remotely in five locales.
+///
+/// Private and extracted purely to keep `run_turn` inside the cognitive-
+/// complexity budget; it adds no public API surface.
+const fn persisted_finish_reason(
+    leak_replaced: bool,
+    model_finish_reason: Option<&str>,
+) -> Option<&str> {
+    if leak_replaced {
+        Some(WITHHELD_REPLY_FINISH_REASON)
+    } else {
+        model_finish_reason
+    }
+}
+
 /// Run the body of a single turn.
 async fn run_turn(
     ctx: &ChatPipelineContext,
@@ -1119,7 +1140,7 @@ async fn run_turn(
         role: "assistant",
         content: &persisted_assistant_content,
         token_count,
-        finish_reason: result.finish_reason.as_deref(),
+        finish_reason: persisted_finish_reason(leak_replaced, result.finish_reason.as_deref()),
         prompt_tokens,
         model: Some(&active_model),
         structured_content: structured_content.as_deref(),

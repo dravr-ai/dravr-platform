@@ -257,6 +257,7 @@ pub async fn run_api_tool_loop(
         };
 
         log_iteration_start(iteration, params, llm_messages.len());
+        log_wire_shape("api_tool_loop", llm_messages);
 
         // notify: LLM call about to start. Per-iteration so tool-loop
         // breadth is observable from Slack (paired with the completion
@@ -612,6 +613,7 @@ pub async fn run_cli_tool_loop(
 
     for iteration in 0..max_iterations {
         let llm_request = {
+            log_wire_shape("cli_tool_loop", llm_messages);
             let req = ChatRequest::new(llm_messages.clone()).with_model(params.model);
             match params.temperature {
                 Some(t) => req.with_temperature(t),
@@ -873,6 +875,55 @@ fn to_embacle_responses(resps: &[FunctionResponse]) -> Vec<tool_simulation::Func
 fn millis_elapsed(start: Instant) -> i64 {
     let ms = start.elapsed().as_millis();
     i64::try_from(ms).unwrap_or(i64::MAX)
+}
+
+/// Log the SHAPE of the message vector handed to the provider — roles, counts
+/// and size, never content.
+///
+/// This exists because the platform spent months unable to answer "did the
+/// block we injected actually reach the model?". `copilot_headless` keeps only
+/// the FIRST system message and silently filters every other one out of
+/// history, and the platform was emitting five: the compaction replay, the
+/// same-turn splice, the turn-1 activity pre-load, the Stage 12b refresh and
+/// the guardian planner. Four were discarded on every turn. Nothing logged it,
+/// so the loss was invisible — the coach still looked grounded whenever it
+/// chose to call `get_activities` itself, which is the same observable outcome.
+///
+/// `system_message_count` is the field that would have shown `5` on the first
+/// turn after Stage 12b shipped, eleven days before anyone noticed. The
+/// existing counters (`message_count` here and `msg_count` in prompt assembly)
+/// count the vector without saying what is IN it, which is exactly the gap.
+///
+/// Deliberately NOT a `notify` event: this is diagnostic telemetry read from
+/// Cloud Logging, and routing it through the notify pipeline would couple it to
+/// the `dravr-contremaitre` event catalogue for no operator benefit.
+fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMessage]) {
+    let mut system_message_count = 0_usize;
+    let mut user_message_count = 0_usize;
+    let mut assistant_message_count = 0_usize;
+    let mut tool_message_count = 0_usize;
+    let mut total_chars = 0_usize;
+
+    for message in llm_messages {
+        total_chars += message.content.len();
+        match message.role {
+            MessageRole::System => system_message_count += 1,
+            MessageRole::User => user_message_count += 1,
+            MessageRole::Assistant => assistant_message_count += 1,
+            MessageRole::Tool => tool_message_count += 1,
+        }
+    }
+
+    info!(
+        dispatch_path,
+        system_message_count,
+        user_message_count,
+        assistant_message_count,
+        tool_message_count,
+        message_count = llm_messages.len(),
+        total_chars,
+        "wire shape at the provider boundary"
+    );
 }
 
 /// Emit a structured log marking the start of one tool-loop iteration.

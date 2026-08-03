@@ -178,6 +178,7 @@ mod conversation;
 pub use conversation::{
     AddMessageParams, CoachRuntimeContext, ConversationRecord, ConversationSummary,
     ConversationTurnId, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
+    WITHHELD_REPLY_FINISH_REASON,
 };
 
 // Security audit event types

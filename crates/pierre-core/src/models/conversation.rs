@@ -192,6 +192,30 @@ pub struct CoachRuntimeContext {
     pub category: CoachCategory,
 }
 
+/// `finish_reason` stamped on an assistant row whose reply was withheld at the
+/// response boundary.
+///
+/// A withheld turn persists a localized apology ("my reply didn't go through —
+/// resend your last message") in place of the model's output. That string is
+/// real conversation history the athlete saw, so it must stay in the database
+/// and in the UI — but it is *first-person narration about the platform
+/// failing*, and replaying it into later prompts teaches the coach that its own
+/// output gets blocked. That is the same self-referential-failure class the
+/// replay scrub exists to delete (2026-07-23 learned-helplessness incident,
+/// b57e0dee9), and the withhold string matched none of its pattern tables
+/// because the string is authored remotely in five locales.
+///
+/// Stamping the row is what makes it identifiable without pattern-matching
+/// prose: `build_llm_messages` drops rows carrying this marker, so a withheld
+/// turn is excluded from the coach turn's replayed history. The column already
+/// holds platform-synthesized values (`guardian_denied`, `max_iterations`,
+/// `provider_auth_required`), so this is not a new use of it.
+///
+/// Not a complete guarantee: `handle_generate` (coach-profile synthesis) reads
+/// persisted rows directly and does not route through `build_llm_messages`, so
+/// a withheld row still reaches that one-shot prompt.
+pub const WITHHELD_REPLY_FINISH_REASON: &str = "reply_withheld";
+
 /// Database representation of a chat message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageRecord {

@@ -26,6 +26,7 @@ use uuid::Uuid;
 #[cfg(feature = "tools-groups")]
 use crate::ChatPipelineContext;
 use pierre_core::models::ConnectionType;
+use pierre_core::models::WITHHELD_REPLY_FINISH_REASON;
 use pierre_core::narration::scrub_replayed_narration;
 use pierre_llm::ChatMessage;
 use pierre_runtime_context::DataContext;
@@ -124,11 +125,16 @@ pub fn build_llm_messages(
 ///
 /// Identical to [`build_llm_messages`] except that each accepted
 /// [`CompactionBlock`] collapses its covered `[first_message_id,
-/// last_message_id]` history range into a single `System` message carrying the
-/// block's `summary` text — exactly the read-side that lets a long thread keep
-/// its summarized context on later turns. The summary is injected verbatim,
-/// **without** the UI-only [`COMPACTION_MARKER`] prefix, so the model reads it
-/// as authoritative prior conversation rather than as a render artifact.
+/// last_message_id]` history range into a single `User` message carrying the
+/// block's `summary` text under [`REPLAYED_SUMMARY_PREFIX`] — exactly the
+/// read-side that lets a long thread keep its summarized context on later
+/// turns.
+///
+/// `User`, not `System`: the live provider keeps only the FIRST system message
+/// and filters every other one out of history, so a mid-list system summary
+/// never reached the model at all. The prefix is what tells it the text is
+/// recovered history rather than something the athlete just said. The UI-only
+/// [`COMPACTION_MARKER`] stays off the wire.
 ///
 /// [`COMPACTION_MARKER`]: pierre_services::conversation_compaction::COMPACTION_MARKER
 ///
@@ -257,6 +263,18 @@ fn push_history_row(
     // synthesized answer untouched and reduces pure scaffolding to empty, so
     // an empty result is dropped rather than re-seeding the parrot. Mirrors
     // the per-turn strip in `run_cli_tool_loop` / `finalize_headless_turn`.
+    // A withheld turn's persisted row is the platform's apology, not the coach's
+    // words. It stays in the database and the UI (the athlete saw it) but must
+    // never re-enter a prompt: replaying "my reply didn't go through" as an
+    // assistant turn is the self-referential-failure narration the replay scrub
+    // exists to remove, and it survived that scrub because the string is
+    // authored in dravr-contremaitre in five locales. The stamp is the
+    // pattern-free way to recognize it. Only assistant rows ever carry it —
+    // user rows and tool_call/tool_result rows persist `None`.
+    if msg.finish_reason.as_deref() == Some(WITHHELD_REPLY_FINISH_REASON) {
+        return;
+    }
+
     let stripped = strip_simulation_artifacts(&msg.content);
     if stripped.is_empty() {
         return;

@@ -124,9 +124,12 @@ pub(crate) async fn post_process_assistant_reply(
     // periodically answers as itself (« I'm GitHub Copilot CLI, a terminal-based
     // coding assistant » reached a live Telegram user on 2026-07-22). That is a
     // whole persona break, not salvageable sentence-by-sentence — withhold the
-    // entire reply like a canary hit. `leak_replaced = true` also gates Tier-2
-    // learning and makes the *persisted* copy the withheld marker rather than
-    // the refusal, so a poisoned turn can't replay into later prompts. The
+    // entire reply like a canary hit. `leak_replaced = true` gates Tier-2
+    // learning and stamps the persisted row with `WITHHELD_REPLY_FINISH_REASON`,
+    // which is what keeps the apology out of the coach turn's replayed history
+    // — the row itself IS persisted (the athlete saw it), contrary to what this
+    // comment claimed before 2026-08-02: WITHHELD_REPLY_TRANSCRIPT_MARKER only
+    // ever reaches the fact-extraction prompt, never the database. The
     // detection is logged (alertable) inside `scan_assistant_reply`.
     if leak_report.identity_leak.is_some() {
         return PostProcessedReply {
