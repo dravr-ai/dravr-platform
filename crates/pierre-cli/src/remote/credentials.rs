@@ -11,7 +11,9 @@
 //! bearer token, so it is created with `0600` permissions and never logged.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
@@ -108,6 +110,7 @@ impl CachedCredentials {
             .map_err(|e| AppError::internal(format!("Failed to serialize credentials: {e}")))?;
         fs::write(&path, body)
             .map_err(|e| AppError::internal(format!("Failed to write {}: {e}", path.display())))?;
+        #[cfg(unix)]
         restrict_permissions(&path)?;
         Ok(())
     }
@@ -127,7 +130,8 @@ impl CachedCredentials {
     }
 }
 
-/// Restrict the credential file to owner-read/write (`0600`) on Unix. No-op elsewhere.
+/// Restrict the credential file to owner-read/write (`0600`). Unix-only —
+/// non-Unix platforms have no mode bits, so `save` skips the call there.
 #[cfg(unix)]
 fn restrict_permissions(path: &Path) -> AppResult<()> {
     use std::fs::Permissions;
@@ -139,9 +143,4 @@ fn restrict_permissions(path: &Path) -> AppResult<()> {
             path.display()
         ))
     })
-}
-
-#[cfg(not(unix))]
-fn restrict_permissions(_path: &Path) -> AppResult<()> {
-    Ok(())
 }
