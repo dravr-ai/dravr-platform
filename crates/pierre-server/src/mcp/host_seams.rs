@@ -711,10 +711,18 @@ const SERVER_INSTRUCTIONS: &str = "This server provides fitness data tools for S
 /// The rich tool registry, per-tenant filtering, quota, and protocol areas are
 /// supplied through the three host seams; the engine's own (empty) registry is
 /// unused. Reused by both the HTTP route layer and the stdio binary entry point.
+///
+/// The `Origin` allowlist comes from `MCP_ALLOWED_ORIGINS`
+/// ([`McpConfig::allowed_origins`]) rather than the CORS list, which is
+/// wildcarded in deployed environments; the HTTP transport rejects a
+/// present-but-unlisted origin with 403 before authentication.
+///
+/// [`McpConfig::allowed_origins`]: pierre_config::mcp::McpConfig::allowed_origins
 #[must_use]
 pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn ToolRuntime>> {
     let state: Arc<dyn ToolRuntime> = resources.clone();
     let supported: Vec<String> = SUPPORTED_VERSIONS.iter().map(|v| (*v).to_owned()).collect();
+    let allowed_origins = resources.common.config.mcp.allowed_origins.clone();
 
     let server = McpServer::new(
         server_name_multitenant(),
@@ -725,6 +733,7 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     .with_capabilities(server_capabilities())
     .with_instructions(SERVER_INSTRUCTIONS)
     .with_supported_versions(supported)
+    .with_allowed_origins(allowed_origins)
     .with_auth_hook(Arc::new(PierreAuthHook {
         resources: resources.clone(),
     }))

@@ -26,6 +26,18 @@ pub struct McpConfig {
     pub notification_channel_size: usize,
     /// TCP keep-alive timeout in seconds
     pub tcp_keep_alive_secs: u64,
+    /// Browser origins permitted to reach the MCP endpoint (DNS-rebinding
+    /// protection, MCP Streamable HTTP transport).
+    ///
+    /// Deliberately distinct from [`CorsConfig::allowed_origins`]: CORS is
+    /// wildcarded in deployed environments so mobile and proxied web clients
+    /// work, whereas the MCP endpoint has no legitimate browser caller and can
+    /// be restrictive. A request carrying no `Origin` (native and CLI MCP
+    /// clients, server-to-server connectors) is always permitted; an empty list
+    /// permits every origin.
+    ///
+    /// [`CorsConfig::allowed_origins`]: crate::network::CorsConfig::allowed_origins
+    pub allowed_origins: Vec<String>,
 }
 
 impl McpConfig {
@@ -55,8 +67,21 @@ impl McpConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(network_config::TCP_KEEP_ALIVE_SECS),
+            allowed_origins: parse_origin_list(
+                &env::var("MCP_ALLOWED_ORIGINS").unwrap_or_default(),
+            ),
         }
     }
+}
+
+/// Split a comma-separated origin list, trimming whitespace and dropping empty
+/// entries so a trailing comma or an unset variable yields an empty list.
+fn parse_origin_list(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|o| !o.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 /// Protocol configuration for MCP server

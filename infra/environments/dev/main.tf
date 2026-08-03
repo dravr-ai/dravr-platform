@@ -248,6 +248,13 @@ module "backend" {
       # needed for mobile clients which don't enforce it. Wildcard is safe here.
       CORS_ALLOWED_ORIGINS = "*"
 
+      # DNS-rebinding protection for POST /mcp, deliberately NOT the wildcard
+      # CORS list above: the MCP endpoint has no browser caller of its own (the
+      # SPA only displays the URL for stdio clients to copy), and native/CLI MCP
+      # clients send no Origin at all, so they are unaffected. This rejects a
+      # browser origin other than our own with 403 before authentication.
+      MCP_ALLOWED_ORIGINS = var.frontend_base_url
+
       # Public URL for OAuth callbacks (frontend URL, since nginx proxies to backend)
       FRONTEND_URL = var.frontend_base_url
       BASE_URL     = var.frontend_base_url

@@ -428,7 +428,7 @@ pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Dat
 /// Create test `ServerContext` with all components properly initialized
 /// This replaces individual resource creation for proper architectural patterns
 pub async fn create_test_server_resources() -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner(None, Vec::new()).await
+    create_test_server_resources_inner(None, Vec::new(), None).await
 }
 
 /// Same as [`create_test_server_resources`] but injects a caller-supplied
@@ -440,7 +440,7 @@ pub async fn create_test_server_resources() -> Result<Arc<ServerContext>> {
 pub async fn create_test_server_resources_with_llm(
     provider: Arc<dyn LlmProvider + 'static>,
 ) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner(Some(provider), Vec::new()).await
+    create_test_server_resources_inner(Some(provider), Vec::new(), None).await
 }
 
 /// Same as [`create_test_server_resources_with_llm`] plus caller-supplied
@@ -456,12 +456,23 @@ pub async fn create_test_server_resources_with_llm_and_tools(
     provider: Arc<dyn LlmProvider + 'static>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
 ) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner(Some(provider), extra_tools).await
+    create_test_server_resources_inner(Some(provider), extra_tools, None).await
+}
+
+/// Same as [`create_test_server_resources`] but with a caller-supplied
+/// [`ServerConfig`], for tests that assert config-driven wiring (for example
+/// the MCP `Origin` allowlist, which is empty under [`ServerConfig::default`]
+/// and so cannot distinguish a wired server from an unwired one).
+pub async fn create_test_server_resources_with_config(
+    config: ServerConfig,
+) -> Result<Arc<ServerContext>> {
+    create_test_server_resources_inner(None, Vec::new(), Some(config)).await
 }
 
 async fn create_test_server_resources_inner(
     llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
+    config_override: Option<ServerConfig>,
 ) -> Result<Arc<ServerContext>> {
     init_test_logging();
     init_test_http_clients();
@@ -479,7 +490,7 @@ async fn create_test_server_resources_inner(
     let auth_manager = AuthManager::new(24);
 
     let admin_jwt_secret = "test_admin_secret";
-    let config = Arc::new(ServerConfig {
+    let config = Arc::new(config_override.unwrap_or_else(|| ServerConfig {
         usda_api_key: env::var("USDA_API_KEY").ok(),
         // ServerConfig::default() leaves this at 0 (the derived usize default);
         // from_env() uses DEFAULT_ACTIVITIES_LIMIT in production. A 0 limit makes
@@ -487,7 +498,7 @@ async fn create_test_server_resources_inner(
         // LIMIT 0 and return nothing, so give tests a realistic value.
         activity_fetch_limit: 100,
         ..ServerConfig::default()
-    });
+    }));
 
     // Create test cache with background cleanup disabled for tests
     let cache_config = CacheConfig {
