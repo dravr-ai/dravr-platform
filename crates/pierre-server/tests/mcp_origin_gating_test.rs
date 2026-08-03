@@ -7,6 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::env;
+
 use pierre_config::environment::ServerConfig;
 use pierre_config::mcp::McpConfig;
 use pierre_config::network::CorsConfig;
@@ -88,12 +90,12 @@ async fn test_mcp_allowlist_is_independent_of_cors() {
 /// value does not produce an origin that can never match.
 #[tokio::test]
 async fn test_env_list_is_split_and_trimmed() {
-    std::env::set_var(
+    env::set_var(
         "MCP_ALLOWED_ORIGINS",
         " https://a.example , https://b.example ,",
     );
     let parsed = McpConfig::from_env().allowed_origins;
-    std::env::remove_var("MCP_ALLOWED_ORIGINS");
+    env::remove_var("MCP_ALLOWED_ORIGINS");
 
     assert_eq!(parsed, ["https://a.example", "https://b.example"]);
 }
