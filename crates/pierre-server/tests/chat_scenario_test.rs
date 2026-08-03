@@ -45,12 +45,12 @@ use std::time::Duration;
 /// drive a per-scenario miss rate `p` to `p^4` (≈0.05% at p=0.15, the
 /// ~85%-reliable persona scenarios), which keeps the suite green without
 /// masking a hard regression (which fails every attempt). Three proved
-/// too few: fragment_dedup [fr] went 0-for-3 on both the 2026-08-02 and
-/// 2026-08-03 nightlies with every physical variable held constant
+/// too few: `fragment_dedup` \[fr\] went 0-for-3 on both the 2026-08-02
+/// and 2026-08-03 nightlies with every physical variable held constant
 /// (same commit, same EPYC 7763 runner, same ollama v0.32.5, same
 /// weights digest) — the Modelfile pins no temperature or seed, so its
 /// turn-1 miss rate is materially above the 0.15 this ceiling was sized
-/// for, and p^3 was landing in red-a-nightly territory. Hoisted out of
+/// for, and `p^3` was landing in red-a-nightly territory. Hoisted out of
 /// the function body so the workspace's `clippy::items_after_statements`
 /// lint stays satisfied.
 const MAX_SCENARIO_ATTEMPTS: usize = 4;
