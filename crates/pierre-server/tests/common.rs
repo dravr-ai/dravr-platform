@@ -459,10 +459,11 @@ pub async fn create_test_server_resources_with_llm_and_tools(
     create_test_server_resources_inner(Some(provider), extra_tools, None).await
 }
 
-/// Same as [`create_test_server_resources`] but with a caller-supplied
-/// [`ServerConfig`], for tests that assert config-driven wiring (for example
-/// the MCP `Origin` allowlist, which is empty under [`ServerConfig::default`]
-/// and so cannot distinguish a wired server from an unwired one).
+/// Same as [`create_test_server_resources`] but with a caller-supplied config.
+///
+/// For tests that assert config-driven wiring — for example the MCP `Origin`
+/// allowlist, which is empty under [`ServerConfig::default`] and so cannot
+/// distinguish a wired server from an unwired one.
 pub async fn create_test_server_resources_with_config(
     config: ServerConfig,
 ) -> Result<Arc<ServerContext>> {

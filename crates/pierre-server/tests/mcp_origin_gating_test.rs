@@ -14,8 +14,10 @@ use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 
 mod common;
 
-/// Build a `ServerConfig` whose MCP allowlist and CORS list disagree, so a test
-/// can tell which one the engine actually received.
+/// Build a `ServerConfig` whose MCP and CORS lists disagree.
+///
+/// Letting them differ is what allows a test to tell which of the two the
+/// engine actually received.
 fn config_with_origins(mcp_origins: &[&str], cors: &str) -> ServerConfig {
     ServerConfig {
         activity_fetch_limit: 100,
@@ -31,9 +33,10 @@ fn config_with_origins(mcp_origins: &[&str], cors: &str) -> ServerConfig {
     }
 }
 
-/// The configured allowlist must reach the engine. Before this wiring existed
-/// the list was always empty, which tronc treats as permit-any — so every
-/// browser origin reached `POST /mcp`.
+/// The configured allowlist must reach the engine.
+///
+/// Before this wiring existed the list was always empty, which tronc treats as
+/// permit-any — so every browser origin reached `POST /mcp` unchecked.
 #[tokio::test]
 async fn test_configured_origins_reach_the_engine() {
     common::init_server_config();
@@ -54,10 +57,11 @@ async fn test_configured_origins_reach_the_engine() {
     );
 }
 
-/// The MCP allowlist is deliberately NOT the CORS list: deployed environments
-/// wildcard CORS so proxied web and mobile clients work, while the MCP endpoint
-/// has no legitimate browser caller. Reusing the CORS value would make the
-/// guard inert exactly where it is needed.
+/// The MCP allowlist is deliberately not the CORS list.
+///
+/// Deployed environments wildcard CORS so proxied web and mobile clients work,
+/// while the MCP endpoint has no legitimate browser caller. Reusing the CORS
+/// value would make the guard inert exactly where it is needed.
 #[tokio::test]
 async fn test_mcp_allowlist_is_independent_of_cors() {
     common::init_server_config();
@@ -78,9 +82,10 @@ async fn test_mcp_allowlist_is_independent_of_cors() {
     assert_eq!(server.allowed_origins(), ["https://app.dravr.ai"]);
 }
 
-/// The env var is a comma-separated list: entries are trimmed and blanks
-/// dropped, so a trailing comma or padded value does not produce an origin that
-/// can never match.
+/// The env var is a comma-separated list.
+///
+/// Entries are trimmed and blanks dropped, so a trailing comma or a padded
+/// value does not produce an origin that can never match.
 #[tokio::test]
 async fn test_env_list_is_split_and_trimmed() {
     std::env::set_var(
@@ -93,9 +98,10 @@ async fn test_env_list_is_split_and_trimmed() {
     assert_eq!(parsed, ["https://a.example", "https://b.example"]);
 }
 
-/// An unset `MCP_ALLOWED_ORIGINS` leaves the endpoint unrestricted (tronc treats
-/// an empty allowlist as permit-any). Pinned so the permissive default is a
-/// stated choice for local development rather than an accident, and so a future
+/// An unset `MCP_ALLOWED_ORIGINS` leaves the endpoint unrestricted.
+///
+/// Tronc treats an empty allowlist as permit-any. Pinned so the permissive
+/// local default is a stated choice rather than an accident, and so a future
 /// change to a restrictive default has to update this test deliberately.
 #[tokio::test]
 async fn test_unset_allowlist_is_unrestricted() {
