@@ -40,6 +40,9 @@ BACKEND_PATHS=(
     "GET /.well-known/oauth-protected-resource"       # MCP client OAuth discovery
     "GET /.well-known/oauth-authorization-server"
     "GET /.well-known/agent-card.json"                # A2A
+    "POST /oauth2/register"                           # RFC 7591 dynamic client registration
+    "POST /oauth2/token"                              # OAuth token endpoint (oauth2 family)
+    "GET /oauth2/authorize"
     "GET /api/health"
     "POST /oauth/token"
     "GET /admin/x"
