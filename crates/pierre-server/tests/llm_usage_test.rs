@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use pierre_core::models::usage::InsertEmbeddingUsage;
 use pierre_core::models::ConversationTurnId;
 use pierre_database::database::llm_usage::InsertLlmUsage;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::database::test_utils::{create_sqlite_test_db, create_test_db};
 use pierre_llm::pricing::{
     calculate_cost_with_cache, is_not_per_token_metered, ModelPricing, PricingOverrideMap,
     PricingRegistry,
@@ -424,7 +424,7 @@ async fn test_admin_pricing_loader_round_trip() {
     use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
     use pierre_services::pricing_loader;
 
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let pool = db.sqlite_pool().expect("test db is sqlite");
 
     let now = chrono::Utc::now().to_rfc3339();
@@ -498,7 +498,7 @@ async fn test_embedding_sink_injection_records_via_instrumented_provider() {
         }
     }
 
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let repos = db.repositories();
     let sink: Arc<dyn EmbeddingUsageSink> =
         Arc::new(RepositoryEmbeddingSink::new(Arc::clone(&repos.llm_usage)));
