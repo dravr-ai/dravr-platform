@@ -78,7 +78,9 @@ pub async fn create_sqlite_test_db() -> AppResult<Database> {
 /// developer's on-disk database.
 #[cfg(feature = "postgresql")]
 fn postgres_test_url() -> Option<String> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    use std::env;
+
+    let url = env::var("DATABASE_URL").ok()?;
     (url.starts_with("postgres://") || url.starts_with("postgresql://")).then_some(url)
 }
 
