@@ -1,0 +1,44 @@
+# ABOUTME: Snapshot of the backend's top-level path prefixes, reviewed against nginx
+# ABOUTME: scripts/ci/nginx-routing-check.sh fails when the extracted set differs
+#
+# Regenerate:  python3 scripts/ci/backend-route-prefixes.py . > scripts/ci/backend-route-prefixes.txt
+#
+# Why a snapshot rather than a computed pass/fail: resolving Rust router
+# composition exactly (merge vs nest, builders bound through closures) needs a
+# real parser, and a heuristic that is *almost* right produces false alarms —
+# a first draft reported 14 nested routers as unrouted, and a check that cries
+# wolf gets ignored. The extractor only has to be DETERMINISTIC for this to
+# work: any change to the route surface changes this file, the check fails, and
+# whoever changed it has to decide whether nginx needs the new prefix.
+#
+# This is deliberately a drift check between two systems the codebase cannot
+# collapse into one — nginx is the public edge, the backend is behind it. Three
+# separate outages in one day (/mcp, /.well-known, /oauth2) came from exactly
+# this drift going unnoticed.
+#
+# proxied = reaches the backend via the nginx alternation
+# edge    = served by nginx itself, deliberately not proxied
+# nested  = an artefact of imperfect nest-resolution; the real path is under an
+#           already-proxied prefix (verify before adding a new one here)
+.well-known   # proxied
+a2a           # proxied
+admin         # proxied
+api           # proxied
+audit         # nested under /api/admin/config
+catalog       # nested under /api/admin/config
+category      # nested under /api/admin/config
+config        # nested under /api/admin/config
+dashboard     # NOT PROXIED — returns the SPA shell; unverified whether still used
+fitness       # NOT PROXIED — returns the SPA shell; unverified whether still used
+health        # edge: nginx serves `location = /health` for Cloud Run
+health-data   # NOT PROXIED — returns the SPA shell; unverified whether still used
+mcp           # proxied (bare-path alternative)
+messaging     # proxied
+oauth         # proxied
+oauth2        # proxied
+r             # proxied
+ready         # edge: container readiness
+reset         # nested under /api/admin/config
+tenants       # NOT PROXIED — returns the SPA shell; unverified whether still used
+validate      # nested under /api/admin/config
+webhooks      # proxied

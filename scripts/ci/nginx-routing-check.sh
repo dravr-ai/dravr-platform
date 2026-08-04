@@ -126,6 +126,34 @@ for spec in "${BACKEND_PATHS[@]}"; do check "$spec" backend; done
 echo "-- must be served by the SPA --"
 for spec in "${SPA_PATHS[@]}"; do check "$spec" spa; done
 
+# ---------------------------------------------------------------------------
+# Route-surface snapshot.
+#
+# The path checks above only cover paths someone remembered to list. This
+# catches the case that actually keeps happening: a new backend route family
+# lands, nobody adds it to nginx, and it silently serves index.html with a 200.
+# Any change to the extracted prefix set fails here and forces a decision.
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "-- backend route-surface snapshot --"
+
+SNAPSHOT="$REPO_ROOT/scripts/ci/backend-route-prefixes.txt"
+if diff -u <(awk '!/^#/ && NF {print $1}' "$SNAPSHOT") \
+           <(python3 "$REPO_ROOT/scripts/ci/backend-route-prefixes.py" "$REPO_ROOT") \
+           > /tmp/route-surface.diff 2>&1; then
+    echo "  ok   route surface unchanged"
+else
+    echo "  FAIL the backend's top-level path prefixes changed:"
+    sed 's/^/    /' /tmp/route-surface.diff | head -20
+    echo ""
+    echo "  A '+' line is a NEW backend prefix. Decide whether nginx must proxy it"
+    echo "  (docker/images/frontend/nginx.conf) — an unproxied prefix returns the"
+    echo "  SPA shell with a 200, which looks healthy and is not. Then refresh:"
+    echo "    python3 scripts/ci/backend-route-prefixes.py . > scripts/ci/backend-route-prefixes.txt"
+    failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo ""
     echo "❌ $failures routing failure(s)."
