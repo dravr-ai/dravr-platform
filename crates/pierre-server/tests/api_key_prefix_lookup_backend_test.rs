@@ -12,16 +12,16 @@
 //! That suite calls `create_test_db()`, which hardcodes `sqlite::memory:` even
 //! under `--features postgresql` — the feature flag only changes the
 //! constructor signature, not the URL. So `ci-postgres.yml` runs the database
-//! suite against SQLite, and the Postgres backend's own SQL is never executed.
+//! suite against `SQLite`, and the `PostgreSQL` backend's own SQL is never executed.
 //!
-//! That is exactly how the bug this guards survived: Postgres `get_by_prefix`
+//! That is exactly how the bug this guards survived: `PostgreSQL` `get_by_prefix`
 //! read `WHERE id LIKE $1` bound to `"{prefix}%"`, but `id` is a generated
 //! identifier that never begins with `pk_live_`. The query matched zero rows,
-//! so EVERY API key failed authentication on Postgres — while provisioning,
+//! so EVERY API key failed authentication on `PostgreSQL` — while provisioning,
 //! storage and listing (different queries) all kept reporting the key active.
 //!
-//! This test builds the database from `DATABASE_URL`, so it exercises Postgres
-//! wherever one is configured and SQLite otherwise — the same contract on both.
+//! This test builds the database from `DATABASE_URL`, so it exercises `PostgreSQL`
+//! wherever one is configured and `SQLite` otherwise — the same contract on both.
 
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 #[cfg(feature = "postgresql")]
@@ -31,7 +31,7 @@ use pierre_database::backends::factory::Database;
 use std::env;
 use uuid::Uuid;
 
-/// Build a database from `DATABASE_URL`, falling back to in-memory SQLite.
+/// Build a database from `DATABASE_URL`, falling back to in-memory `SQLite`.
 ///
 /// Deliberately does NOT use `create_test_db()`: that helper pins
 /// `sqlite::memory:` and would make this test pass on the very backend whose
