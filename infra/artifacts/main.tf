@@ -116,6 +116,30 @@ resource "google_project_iam_member" "publisher_artifact_writer" {
   member  = "serviceAccount:${google_service_account.image_publisher.email}"
 }
 
+# Moving the `deployed-dev` tag onto each newly shipped digest is a delete of
+# the tag from the previous digest followed by a create, and roles/…writer
+# grants only the create half — so the deploy tagged the first digest and then
+# failed on every deploy after it, leaving the serving image unprotected from
+# the retention policy the tag exists to satisfy.
+#
+# A custom role rather than roles/artifactregistry.repoAdmin: repoAdmin also
+# carries packages.delete and versions.delete, which would let a compromised
+# CI token erase published images outright. Tag deletion is the whole of the
+# additional authority the publisher needs.
+resource "google_project_iam_custom_role" "artifact_tag_mover" {
+  project     = var.project_id
+  role_id     = "artifactTagMover"
+  title       = "Artifact Registry Tag Mover"
+  description = "Retag an existing image, which requires removing the tag from the digest that held it"
+  permissions = ["artifactregistry.tags.delete"]
+}
+
+resource "google_project_iam_member" "publisher_tag_mover" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.artifact_tag_mover.id
+  member  = "serviceAccount:${google_service_account.image_publisher.email}"
+}
+
 # -----------------------------------------------------------------------------
 # Workload Identity Federation for GitHub Actions
 # -----------------------------------------------------------------------------
