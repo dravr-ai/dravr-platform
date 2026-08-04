@@ -223,6 +223,7 @@ resource "google_project_iam_member" "terraform_runner_roles" {
     "roles/artifactregistry.admin",          # google_artifact_registry_repository.images
     "roles/iam.serviceAccountAdmin",         # google_service_account.* + their IAM bindings
     "roles/iam.workloadIdentityPoolAdmin",   # google_iam_workload_identity_pool[_provider].github
+    "roles/iam.roleAdmin",                   # google_project_iam_custom_role.*
     "roles/resourcemanager.projectIamAdmin", # google_project_iam_member.* project bindings
     "roles/serviceusage.serviceUsageAdmin",  # google_project_service.* API enablement
   ])
