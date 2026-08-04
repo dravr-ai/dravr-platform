@@ -110,8 +110,21 @@ jobs:
           path: target/criterion
           key: criterion-baseline-main-${{ github.sha }}
 
+      # --advisory: the comparison is cross-machine, so the delta it measures is
+      # partly the runner. A branch benches on whatever runner it draws and
+      # compares against a baseline recorded on the runner that last ran main, and
+      # the observed spread between runners reaches the fail threshold on its own —
+      # 2026-08-04 produced three reds whose worst offenders were benchmarks no
+      # commit in the range could reach (`json_value/value_array_indexing` indexes
+      # a serde_json Value and nothing else). Regressions still print and still
+      # land in the job summary; they no longer block on evidence that cannot
+      # separate a slower machine from slower code.
+      #
+      # Removing --advisory is correct once the job benches the merge-base and the
+      # head in the same run on the same machine, which is the only comparison
+      # that isolates the code.
       - name: Check for regressions
-        run: python3 scripts/ci/bench-regression-check.py --criterion-dir target/criterion --warn-pct 10 --fail-pct 50
+        run: python3 scripts/ci/bench-regression-check.py --criterion-dir target/criterion --warn-pct 10 --fail-pct 50 --advisory
 
       - name: Upload benchmark results
         if: ${{ !cancelled() }}

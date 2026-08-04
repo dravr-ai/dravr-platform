@@ -206,8 +206,14 @@ jobs:
           components: clippy
           free-disk-space: 'true'
 
+      # --keep-going so one crate's violation does not hide every other crate's.
+      # Without it cargo stops at the first failing unit and never lints anything
+      # that depends on it, so a change touching several crates surfaces its
+      # violations one CI run at a time — a lint in pierre-core hides a lint in
+      # the test targets of pierre-server until the first is fixed and pushed.
+      # The preflight job already loops per crate for the same reason.
       - name: Lint with Clippy (Zero Tolerance + Cognitive Complexity)
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --keep-going --all-targets --all-features -- -D warnings
 
   deadlock-analysis:
     name: Static Deadlock Analysis (lockbud)

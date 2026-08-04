@@ -54,6 +54,15 @@ def main():
     parser.add_argument("--criterion-dir", type=Path, default=Path("target/criterion"))
     parser.add_argument("--warn-pct", type=float, default=10.0)
     parser.add_argument("--fail-pct", type=float, default=50.0)
+    parser.add_argument(
+        "--advisory",
+        action="store_true",
+        help=(
+            "Report regressions but always exit 0. For the cross-machine baseline: a "
+            "branch run compares against a baseline recorded on a different runner, so "
+            "the delta carries that hardware difference and the gate fails on it."
+        ),
+    )
     args = parser.parse_args()
 
     results = list(collect_changes(args.criterion_dir)) if args.criterion_dir.is_dir() else []
@@ -95,10 +104,19 @@ def main():
 
     if severe:
         worst = max(severe, key=lambda item: item[1])
-        print(
-            f"FAIL: {len(severe)} benchmark(s) past the +{args.fail_pct:g}% gate "
+        verdict = (
+            f"{len(severe)} benchmark(s) past the +{args.fail_pct:g}% gate "
             f"(worst: {worst[0]} at {worst[1]:+.1f}%)"
         )
+        if args.advisory:
+            print(f"ADVISORY: {verdict}")
+            print(
+                "Not failing the job: the baseline was recorded on a different runner, "
+                "so this delta includes hardware difference. Reproduce on one machine "
+                "before treating it as a regression."
+            )
+            return 0
+        print(f"FAIL: {verdict}")
         return 1
     return 0
 
