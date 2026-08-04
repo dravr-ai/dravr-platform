@@ -199,24 +199,25 @@ resource "google_project_iam_member" "env_app_reader" {
 # -----------------------------------------------------------------------------
 # Terraform Runner Service Account
 # -----------------------------------------------------------------------------
-# Impersonated by GitHub Actions (terraform-artifacts.yml) to plan/apply THIS
-# config. Distinct from image-publisher, which only pushes images
-# (artifactregistry.writer) and therefore cannot read state or manage the
-# registry policy — the reason the workflow's Terraform Init 403'd. The runner
-# needs admin on every resource type this config manages, scoped to the
-# single-purpose dravr-artifacts project (blast radius = this one registry
-# project). Its state-bucket access is a bootstrap grant applied out-of-band
-# (see below), deliberately NOT managed here.
+# Impersonated by GitHub Actions (terraform-artifacts.yml) to apply THIS config.
+# The write half of terraform only: the read-only terraform_planner below serves
+# plan, so this owner-equivalent credential is minted by the write verb alone.
+# Distinct from image-publisher, which only pushes images (artifactregistry.writer)
+# and therefore cannot read state or manage the registry policy — the reason the
+# workflow's Terraform Init 403'd. The runner needs admin on every resource type
+# this config manages, scoped to the single-purpose dravr-artifacts project
+# (blast radius = this one registry project). Its state-bucket access is a
+# bootstrap grant applied out-of-band (see below), deliberately NOT managed here.
 
 resource "google_service_account" "terraform_runner" {
   account_id   = "terraform-runner"
   project      = var.project_id
   display_name = "Terraform Runner"
-  description  = "Runs terraform plan/apply for infra/artifacts from GitHub Actions (terraform-artifacts.yml)"
+  description  = "Runs terraform apply for infra/artifacts from GitHub Actions (terraform-artifacts.yml)"
 }
 
-# One predefined role per resource type this config manages. Kept minimal — no
-# owner/editor. Each entry documents which resource it is required for.
+# One predefined admin role per resource type this config manages. Kept minimal —
+# no owner/editor. Each entry documents which resource it is required for.
 resource "google_project_iam_member" "terraform_runner_roles" {
   for_each = toset([
     "roles/artifactregistry.admin",          # google_artifact_registry_repository.images
@@ -252,4 +253,105 @@ resource "google_service_account_iam_member" "terraform_runner_wif" {
   service_account_id = google_service_account.terraform_runner.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.ref/refs/heads/main"
+}
+
+# -----------------------------------------------------------------------------
+# Terraform Planner Service Account (read-only)
+# -----------------------------------------------------------------------------
+# The read half of terraform as its own identity. `terraform plan` refreshes and
+# diffs and writes nothing, but running it as the runner above mints a credential
+# that can self-grant roles/owner — so an ungated plan job would hand that
+# credential out on demand, and a gated one puts a human approval in front of a
+# read-only verb. This SA holds viewer roles on dravr-artifacts and objectViewer
+# on the state bucket, with no setIamPolicy anywhere: there is nothing to escalate
+# to, so terraform-artifacts.yml runs its plan job with no Environment gate and
+# reserves that gate for apply.
+
+resource "google_service_account" "terraform_planner" {
+  account_id   = "terraform-planner"
+  project      = var.project_id
+  display_name = "Terraform Planner"
+  description  = "Runs read-only terraform plan for infra/artifacts from GitHub Actions (terraform-artifacts.yml)"
+}
+
+# The read-only mirror of terraform_runner_roles: one predefined viewer role per
+# resource type a plan refresh has to fetch. Each entry names the resource that
+# requires it.
+resource "google_project_iam_member" "terraform_planner_roles" {
+  for_each = toset([
+    "roles/artifactregistry.reader",         # google_artifact_registry_repository.images
+    "roles/iam.roleViewer",                  # google_project_iam_custom_role.* definitions
+    "roles/iam.serviceAccountViewer",        # google_service_account.* (also carries resourcemanager.projects.get)
+    "roles/iam.workloadIdentityPoolViewer",  # google_iam_workload_identity_pool[_provider].github
+    "roles/serviceusage.serviceUsageViewer", # google_project_service.* API enablement
+  ])
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.terraform_planner.email}"
+}
+
+# The viewer roles above read each resource's own attributes, but none of them
+# reads an IAM *policy* — and two of this config's resource types are policy
+# bindings: google_project_iam_member refreshes through
+# resourcemanager.projects.getIamPolicy, google_service_account_iam_member
+# through iam.serviceAccounts.getIamPolicy. Without both, a plan 403s during
+# refresh instead of producing a diff.
+#
+# No narrow predefined role carries those two permissions; the predefined answers
+# are roles/viewer and roles/iam.securityReviewer, both project-wide read.
+# roles/viewer also grants storage.objects.get/list, which would hand the planner
+# read of the terraform state bucket implicitly — the opposite of the explicit,
+# separately-revocable bucket grant documented below — and read of every future
+# bucket and image in the project. roles/iam.securityReviewer grants getIamPolicy
+# on every resource type this project ever gains. A custom role holding exactly
+# the two permissions is the narrower option, on the same reasoning that made
+# artifactTagMover a custom role rather than repoAdmin.
+resource "google_project_iam_custom_role" "terraform_plan_iam_reader" {
+  project     = var.project_id
+  role_id     = "terraformPlanIamReader"
+  title       = "Terraform Plan IAM Reader"
+  description = "Read the project and service-account IAM policies a terraform plan refresh diffs against"
+  permissions = [
+    "iam.serviceAccounts.getIamPolicy",
+    "resourcemanager.projects.getIamPolicy",
+  ]
+}
+
+resource "google_project_iam_member" "terraform_planner_iam_reader" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.terraform_plan_iam_reader.id
+  member  = "serviceAccount:${google_service_account.terraform_planner.email}"
+}
+
+# State-bucket access is a BOOTSTRAP grant applied out-of-band by an owner for the
+# same two reasons as the runner's: it is circular (the config owning the grant
+# that unlocks its own state), and roles/storage.objectViewer carries
+# storage.objects.get/list but not storage.buckets.getIamPolicy, so a
+# google_storage_bucket_iam_member here would 403 refreshing itself. objectViewer
+# rather than the runner's objectAdmin — the planner reads state and must never
+# write it. One-time, run by a project owner:
+#   gcloud storage buckets add-iam-policy-binding gs://dravr-artifacts-terraform-7d896 \
+#     --member="serviceAccount:terraform-planner@dravr-artifacts.iam.gserviceaccount.com" \
+#     --role="roles/storage.objectViewer"
+#
+# Read-only state has one consequence the workflow must honour: the GCS backend
+# takes its lock by creating a .tflock object, which objectViewer cannot do, so
+# `terraform plan` would 403 acquiring a lock before it ever refreshed. The plan
+# job therefore runs with -lock=false (terraform-artifacts.yml) — sound because a
+# plan writes no state, so there is nothing for the lock to serialize. Apply keeps
+# its lock: the runner holds objectAdmin.
+
+# Impersonation is repo-scoped rather than pinned to refs/heads/main like the
+# runner's. The runner is pinned because projectIamAdmin lets it self-grant owner,
+# so a feature branch holding the secrets could escalate; the planner holds only
+# read roles plus objectViewer on state and has no such reach to contain. Planning
+# a branch before it merges is the whole point of a read-only planner — main-only
+# scoping would leave the plan verb usable only after the change had already
+# landed. The provider's attribute_condition still pins the pool to this repo, so
+# the widening is across branches of dravr-ai/dravr-platform, not across repos.
+resource "google_service_account_iam_member" "terraform_planner_wif" {
+  service_account_id = google_service_account.terraform_planner.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/${var.github_org}/${var.github_repo}"
 }

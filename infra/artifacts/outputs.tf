@@ -17,6 +17,11 @@ output "image_publisher_sa_email" {
 }
 
 output "terraform_runner_sa_email" {
-  description = "Terraform runner service account email (set as GCP_ARTIFACTS_TF_SA GitHub secret so terraform-artifacts.yml impersonates it)"
+  description = "Terraform runner service account email (set as GCP_ARTIFACTS_TF_SA GitHub secret so terraform-artifacts.yml applies as it)"
   value       = google_service_account.terraform_runner.email
+}
+
+output "terraform_planner_sa_email" {
+  description = "Read-only terraform planner service account email (set as GCP_ARTIFACTS_TF_PLAN_SA GitHub secret so terraform-artifacts.yml plans as it)"
+  value       = google_service_account.terraform_planner.email
 }

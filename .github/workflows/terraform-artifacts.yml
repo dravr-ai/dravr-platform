@@ -1,5 +1,5 @@
 # ABOUTME: Automates Terraform plan/apply for the central infra/artifacts (dravr-artifacts) project
-# ABOUTME: Manual workflow_dispatch only; plan and apply are both gated by the 'artifacts' GitHub Environment
+# ABOUTME: Plan runs ungated as a read-only planner SA; apply keeps the 'artifacts' Environment gate
 
 name: "Infra: Artifacts Registry"
 
@@ -8,19 +8,42 @@ name: "Infra: Artifacts Registry"
 # rather than auto-applying on push, so a destructive cleanup change can't ship
 # unreviewed. A commented push trigger is left below for when auto-apply is wanted.
 #
-# One-time bootstrap. The terraform-runner SA, its 5 project roles (incl.
-# roles/iam.workloadIdentityPoolAdmin), and its refs/heads/main-scoped WIF binding
-# are managed in infra/artifacts/main.tf — apply that once as a project owner, then:
-#   1. Grant the runner state-bucket access (objectAdmin cannot self-manage bucket
-#      IAM, so it is intentionally not a terraform resource):
+# Split identity — plan and apply authenticate as different service accounts:
+#   * plan  → terraform-planner. Viewer roles on dravr-artifacts plus
+#     storage.objectViewer on the state bucket, and no setIamPolicy anywhere. It
+#     can change nothing, so it carries no Environment gate and its WIF binding
+#     accepts any branch of this repo — reviewing a diff before it merges is the
+#     point of a plan.
+#   * apply → terraform-runner. Holds projectIamAdmin + serviceAccountAdmin, so
+#     it can grant itself roles/owner. That credential, not the terraform verb,
+#     is what the 'artifacts' Environment reviewer gate exists to protect, and
+#     its WIF binding additionally refuses to mint outside refs/heads/main.
+# Both service accounts, their roles and their WIF bindings live in
+# infra/artifacts/main.tf.
+#
+# One-time bootstrap — apply infra/artifacts once as a project owner, then:
+#   1. Grant each SA its state-bucket access. Neither grant is a terraform
+#      resource: bucket IAM cannot be self-managed by the SA whose state lives in
+#      that bucket (see the comment blocks in main.tf).
 #        gcloud storage buckets add-iam-policy-binding gs://dravr-artifacts-terraform-7d896 \
 #          --member="serviceAccount:terraform-runner@dravr-artifacts.iam.gserviceaccount.com" \
 #          --role="roles/storage.objectAdmin"
-#   2. Add repo secrets GCP_ARTIFACTS_WIF_PROVIDER (the provider resource name) and
-#      GCP_ARTIFACTS_TF_SA (terraform-runner@dravr-artifacts.iam.gserviceaccount.com).
-#   3. Create a GitHub Environment named 'artifacts' with required reviewers so
-#      every job that assumes the runner SA — plan as well as apply — is
-#      approval-gated (the WIF binding already restricts impersonation to main).
+#        gcloud storage buckets add-iam-policy-binding gs://dravr-artifacts-terraform-7d896 \
+#          --member="serviceAccount:terraform-planner@dravr-artifacts.iam.gserviceaccount.com" \
+#          --role="roles/storage.objectViewer"
+#   2. Add GCP_ARTIFACTS_WIF_PROVIDER (the provider resource name),
+#      GCP_ARTIFACTS_TF_SA (terraform-runner@dravr-artifacts.iam.gserviceaccount.com)
+#      and GCP_ARTIFACTS_TF_PLAN_SA (terraform-planner@dravr-artifacts.iam.gserviceaccount.com)
+#      as REPOSITORY secrets. Repository, not Environment: the plan job carries no
+#      `environment:` and so cannot read Environment-scoped secrets — it would
+#      authenticate with an empty provider and fail.
+#   3. Create a GitHub Environment named 'artifacts' with required reviewers. Only
+#      the apply job uses it.
+#
+# Reviewing a change end to end: run with action=plan, read the uploaded
+# artifacts-tfplan artifact, then run again with action=apply and plan_run_id set
+# to the plan run's id — the reviewer then approves that exact saved diff rather
+# than approving a job that has yet to decide what it will do.
 on:
   # push:
   #   branches: [main]
@@ -33,6 +56,10 @@ on:
         type: choice
         options: [plan, apply]
         required: true
+      plan_run_id:
+        description: 'action=apply only: run id of the plan to apply. Empty applies the checked-out config directly.'
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -48,12 +75,11 @@ jobs:
     if: >
       github.event_name == 'workflow_dispatch' &&
       github.event.inputs.action == 'plan'
-    # Same reviewer gate as apply. Plan authenticates as the same terraform-runner
-    # SA, which holds projectIamAdmin + serviceAccountAdmin on dravr-artifacts and
-    # can therefore self-grant owner — the credential, not the terraform verb, is
-    # what the Environment gate exists to protect. An ungated plan would mint that
-    # token on demand.
-    environment: artifacts
+    # No Environment gate. This job authenticates as terraform-planner, whose
+    # roles are read-only and whose state access is objectViewer — there is no
+    # write it can perform and no role it can grant itself, so a reviewer
+    # approving this job would be approving the right to look. The gate lives on
+    # apply, which is where the owner-equivalent runner credential is minted.
 
     defaults:
       run:
@@ -63,11 +89,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Authenticate to GCP (artifacts terraform runner)
+      - name: Authenticate to GCP (artifacts terraform planner)
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_ARTIFACTS_TF_SA }}
+          service_account: ${{ secrets.GCP_ARTIFACTS_TF_PLAN_SA }}
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
@@ -76,7 +102,64 @@ jobs:
         run: terraform init
 
       - name: Terraform Plan
-        run: terraform plan -var-file="terraform.tfvars" -no-color
+        # -lock=false: the GCS backend takes its lock by creating a .tflock
+        # object, which the planner's objectViewer cannot do, so the default
+        # lock acquisition 403s before the refresh even starts. A plan writes no
+        # state, so there is nothing for the lock to serialize against; apply
+        # keeps its lock.
+        #
+        # Redirect (not pipe) so the recorded status is terraform's own exit —
+        # the setup-terraform wrapper + pipe combination false-greened a live
+        # diff in the drift monitor; same hardening as terraform.yml. terraform's
+        # status is held rather than propagated so the summary is written on both
+        # outcomes, then re-raised as the step's own exit on the last line: a
+        # failed plan fails the job, and the upload below (default if: success())
+        # never runs on one. Held here rather than via continue-on-error, which
+        # is forbidden in this repo's workflows without an allowlist entry.
+        #
+        # Resource action lines + the Plan:/No changes line on success, the error
+        # tail on failure — the condensed form terraform.yml uses, because this
+        # is a public repo and raw plan text can carry attributes terraform does
+        # not mark sensitive.
+        run: |
+          plan_status=0
+          terraform plan -var-file="terraform.tfvars" -lock=false -no-color -out=tfplan > plan-output.txt 2>&1 || plan_status=$?
+          {
+            echo '## Terraform Plan — artifacts'
+            echo '```'
+            if [ "$plan_status" -eq 0 ]; then
+              grep -E '^(Plan:|No changes)|^  # ' plan-output.txt || echo '(no resource change lines found)'
+            else
+              echo 'PLAN FAILED — last 40 lines:'
+              tail -n 40 plan-output.txt
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$plan_status"
+
+      - name: Upload plan
+        # The binary tfplan is what makes apply reviewable — it is the exact diff
+        # the operator reads, replayed byte for byte. plan-output.txt rides along
+        # so the diff is readable without terraform.
+        #
+        # dravr-platform is a public repo and its workflow artifacts are public
+        # with it. That is acceptable for THIS config alone: a tfplan embeds a
+        # state snapshot, and everything in this project's state — retention
+        # rules, service-account emails, IAM bindings, the WIF pool — is already
+        # committed in infra/artifacts/*.tf and terraform.tfvars. A plan for
+        # infra/environments/* must never be uploaded; that state holds the Cloud
+        # SQL password and encryption key in plaintext, which is why terraform.yml
+        # publishes only grep'd action lines and never the plan itself. Retention
+        # is short because a saved plan stops being applicable as soon as the
+        # state serial moves.
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-tfplan
+          path: |
+            infra/artifacts/tfplan
+            infra/artifacts/plan-output.txt
+          retention-days: 5
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Apply — runs on push to main or workflow_dispatch(action=apply)
@@ -86,13 +169,21 @@ jobs:
     name: Apply Artifacts
     runs-on: ubuntu-latest
     # No `needs: plan` — plan only runs on action=plan, so gating apply on it
-    # would block workflow_dispatch(action=apply) entirely. Apply runs its own
-    # init/apply below.
+    # would block workflow_dispatch(action=apply) entirely. An approved plan
+    # instead travels between runs as the artifacts-tfplan artifact, named by the
+    # plan_run_id input.
     if: >
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.action == 'apply')
     environment: artifacts
+    # actions:read is what lets download-artifact reach a *previous* run's
+    # artifact. contents/id-token repeat the workflow defaults because a
+    # job-level permissions block replaces them wholesale rather than extending.
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
 
     defaults:
       run:
@@ -114,5 +205,45 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      - name: Terraform Apply
+      - name: Download approved plan
+        if: github.event.inputs.plan_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-tfplan
+          run-id: ${{ github.event.inputs.plan_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Workspace-relative: defaults.run.working-directory governs `run`
+          # steps only, not actions.
+          path: infra/artifacts
+
+      - name: Record the approved diff in the job summary
+        if: github.event.inputs.plan_run_id != ''
+        # Ties the run that applied to the diff that was approved, so the audit
+        # trail does not depend on anyone remembering which plan they read.
+        run: |
+          {
+            echo '## Terraform Apply — artifacts (saved plan from run ${{ github.event.inputs.plan_run_id }})'
+            echo '```'
+            grep -E '^(Plan:|No changes)|^  # ' plan-output.txt || echo '(no resource change lines found)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Terraform Apply (approved plan)
+        if: github.event.inputs.plan_run_id != ''
+        # A saved plan carries its own variable values and its own recorded diff,
+        # so neither -var-file nor -auto-approve is accepted: terraform performs
+        # exactly what the reviewer read and aborts if the state has moved since
+        # the plan was taken. It also aborts if the two runs installed different
+        # Terraform versions (setup-terraform tracks latest) — re-run action=plan
+        # and apply the fresh run id.
+        run: terraform apply -no-color tfplan
+
+      - name: Terraform Apply (checked-out config)
+        if: github.event.inputs.plan_run_id == ''
+        # The path with no reviewable artifact, and it is not coverable: a push
+        # event carries no inputs, so it can never name a plan run, and an
+        # operator re-applying a known config may legitimately leave plan_run_id
+        # empty. Here the reviewer approves the job rather than a diff — run
+        # action=plan first and pass its run id whenever the change is not
+        # already understood.
         run: terraform apply -auto-approve -var-file="terraform.tfvars"
