@@ -41,16 +41,25 @@ impl ApiKeyRepository for PostgresDatabase {
         Ok(())
     }
 
+    /// Look up an active key by its prefix and hash.
+    ///
+    /// Matches `key_prefix`, not `id`. This previously read `WHERE id LIKE
+    /// $1` bound to `"{prefix}%"`: `id` is a generated identifier that never
+    /// begins with `pk_live_`, so the query matched zero rows and EVERY API
+    /// key failed authentication on Postgres — silently, because provisioning,
+    /// storage and listing all use different queries and kept reporting the key
+    /// as active. SQLite has always matched `key_prefix`, so local development
+    /// worked and only deployed environments were affected.
     async fn get_by_prefix(&self, prefix: &str, hash: &str) -> AppResult<Option<ApiKey>> {
         let row = sqlx::query(
             r"
             SELECT id, user_id, name, key_prefix, key_hash, description, tier, is_active, rate_limit_requests,
                    rate_limit_window_seconds, created_at, expires_at, last_used_at, updated_at
             FROM api_keys
-            WHERE id LIKE $1 AND key_hash = $2 AND is_active = true
+            WHERE key_prefix = $1 AND key_hash = $2 AND is_active = true
             ",
         )
-        .bind(format!("{prefix}%"))
+        .bind(prefix)
         .bind(hash)
         .fetch_optional(&self.pool)
         .await
