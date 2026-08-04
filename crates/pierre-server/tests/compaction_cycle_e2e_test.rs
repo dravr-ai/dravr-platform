@@ -17,7 +17,7 @@ use pierre_core::config::CompactionConfig;
 use pierre_core::errors::AppError;
 use pierre_core::models::{AddMessageParams, Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::database::test_utils::create_sqlite_test_db;
 use pierre_database::repositories::{ChatRepository, HarnessMemoryRepository};
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
@@ -153,13 +153,15 @@ async fn seed_user_and_tenant(db: &Database) -> (String, TenantId) {
 ///    versus `build_llm_messages` (no blocks), which would keep all 51 entries.
 #[tokio::test]
 async fn compaction_cycle_summarizes_persists_and_reconstructs() {
-    let factory = create_test_db().await.expect("test db should initialize");
+    let factory = create_sqlite_test_db()
+        .await
+        .expect("test db should initialize");
     // The repository trait impls (`ChatRepository`, `HarnessMemoryRepository`)
-    // live on the inner SQLite `Database`; `create_test_db` hands back the
+    // live on the inner SQLite `Database`; `create_sqlite_test_db` hands back the
     // backend factory enum, so unwrap to that handle once and use it for both.
     let db = factory
         .sqlite_database()
-        .expect("create_test_db yields a SQLite backend");
+        .expect("create_sqlite_test_db yields a SQLite backend");
 
     // Seed real parent rows so the conversation's FK constraints hold.
     let (user_id, tenant_id) = seed_user_and_tenant(&factory).await;

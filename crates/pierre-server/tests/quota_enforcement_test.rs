@@ -15,7 +15,7 @@ use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier, PROFESSIONAL, STARTER};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::database::test_utils::create_sqlite_test_db;
 use pierre_mcp_server::config::admin::service::AdminConfigService;
 use pierre_runtime_context::DefaultAdminConfig;
 use pierre_services::usage_counter::UsageCounterService;
@@ -76,7 +76,7 @@ async fn build_user(
 
 #[tokio::test]
 async fn starter_user_caps_at_starter_daily_messages_limit() {
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let repos = db.repositories();
     let (user_id, tenant_id) = build_user(&repos, UserTier::Starter).await;
 
@@ -120,7 +120,7 @@ async fn fallback_admin_config_still_enforces_tier_defaults() {
     // AdminConfigService fails to initialise, enforcement must degrade to
     // the compile-time tier defaults (via DefaultAdminConfig) rather than
     // being skipped entirely, which previously granted unlimited usage.
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let repos = db.repositories();
     let (user_id, tenant_id) = build_user(&repos, UserTier::Starter).await;
 
@@ -160,7 +160,7 @@ async fn fallback_admin_config_still_enforces_tier_defaults() {
 
 #[tokio::test]
 async fn professional_tier_resolves_higher_default_than_starter() {
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let repos = db.repositories();
     let (user_id, tenant_id) = build_user(&repos, UserTier::Professional).await;
 
@@ -186,7 +186,7 @@ async fn professional_tier_resolves_higher_default_than_starter() {
 
 #[tokio::test]
 async fn enterprise_tier_effectively_uncapped() {
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let repos = db.repositories();
     let (user_id, tenant_id) = build_user(&repos, UserTier::Enterprise).await;
 
@@ -213,7 +213,7 @@ async fn enterprise_tier_effectively_uncapped() {
 
 #[tokio::test]
 async fn per_conversation_cap_isolates_separate_conversations() {
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let repos = db.repositories();
     let (user_id, tenant_id) = build_user(&repos, UserTier::Starter).await;
 
@@ -265,7 +265,7 @@ async fn per_conversation_cap_isolates_separate_conversations() {
 
 #[tokio::test]
 async fn tier_change_via_set_tier_unblocks_quota() {
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let repos = db.repositories();
     let (user_id, tenant_id) = build_user(&repos, UserTier::Starter).await;
 

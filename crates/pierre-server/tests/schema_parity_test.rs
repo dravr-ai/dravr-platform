@@ -50,7 +50,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::database::test_utils::create_sqlite_test_db;
 use sqlx::Row;
 
 /// Repo-root-relative path to the SQLite migration tree.
@@ -190,8 +190,10 @@ async fn columns_match_on_shared_tables() {
     // PostgreSQL side runs only when a Postgres URL + the `postgresql` feature
     // are present, so it executes for real in ci-postgres and skips cleanly
     // in the SQLite-only local lane.
-    let db = create_test_db().await.unwrap();
-    let sqlite_pool = db.sqlite_pool().expect("create_test_db yields SQLite");
+    let db = create_sqlite_test_db().await.unwrap();
+    let sqlite_pool = db
+        .sqlite_pool()
+        .expect("create_sqlite_test_db yields SQLite");
     let sqlite = sqlite_schema(sqlite_pool).await;
     assert!(
         sqlite.len() > 50,

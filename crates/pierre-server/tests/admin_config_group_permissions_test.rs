@@ -9,12 +9,12 @@
 use std::collections::HashMap;
 
 use pierre_config::admin_types::ValidateConfigRequest;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::database::test_utils::create_sqlite_test_db;
 use pierre_mcp_server::config::admin::service::AdminConfigService;
 
 #[tokio::test]
 async fn validate_accepts_group_creation_policy_admins_only() {
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let pool = db.sqlite_pool().expect("test db is sqlite").clone();
     let svc = AdminConfigService::new(pool).await.unwrap();
 
@@ -36,7 +36,7 @@ async fn validate_accepts_group_creation_policy_admins_only() {
 
 #[tokio::test]
 async fn validate_accepts_group_creation_policy_everyone() {
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let pool = db.sqlite_pool().expect("test db is sqlite").clone();
     let svc = AdminConfigService::new(pool).await.unwrap();
 
@@ -58,7 +58,7 @@ async fn validate_accepts_group_creation_policy_everyone() {
 
 #[tokio::test]
 async fn validate_rejects_unknown_group_creation_policy_value() {
-    let db = create_test_db().await.unwrap();
+    let db = create_sqlite_test_db().await.unwrap();
     let pool = db.sqlite_pool().expect("test db is sqlite").clone();
     let svc = AdminConfigService::new(pool).await.unwrap();
 
