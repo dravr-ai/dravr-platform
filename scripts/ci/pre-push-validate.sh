@@ -191,11 +191,33 @@ if [[ "$HAS_SDK_CHANGES" == "true" ]]; then
     echo "Tier 6: SDK Validation"
     echo "----------------------"
     if [[ -d "$PROJECT_ROOT/sdk/node_modules" ]]; then
+        # Build first: several unit tests assert against dist/ (the published
+        # bin's shebang, --version, the shipped declarations), so a stale build
+        # reports failures the source does not have — and, worse, could pass an
+        # artifact that no longer matches src/.
+        echo "Building SDK..."
+        sdk_build_log="$(mktemp)"
+        if ! (cd "$PROJECT_ROOT/sdk" && bun run build) > "$sdk_build_log" 2>&1; then
+            tail -20 "$sdk_build_log"
+            rm -f "$sdk_build_log"
+            echo "FAIL: SDK build failed!"
+            exit 1
+        fi
+        rm -f "$sdk_build_log"
+
+        # The test output is captured rather than piped, because a pipeline
+        # reports the LAST command's status — `jest | tail` is always 0, so a
+        # piped form reported success over failing tests.
         echo "Running SDK unit tests..."
-        if ! (cd "$PROJECT_ROOT/sdk" && npm run test:unit --silent 2>&1 | tail -5); then
+        sdk_test_log="$(mktemp)"
+        if ! (cd "$PROJECT_ROOT/sdk" && bun run test:unit) > "$sdk_test_log" 2>&1; then
+            tail -25 "$sdk_test_log"
+            rm -f "$sdk_test_log"
             echo "FAIL: SDK tests failed!"
             exit 1
         fi
+        tail -5 "$sdk_test_log"
+        rm -f "$sdk_test_log"
         echo "OK: SDK tests passed"
     else
         echo "WARN: sdk/node_modules not found, skipping"
@@ -243,6 +265,15 @@ if [[ "$HAS_INFRA_CHANGES" == "true" ]]; then
             INFRA_FAILED=true
         fi
 
+        # Each root is initialised into a throwaway TF_DATA_DIR rather than its
+        # own .terraform/. A developer who has ever run a real `terraform init`
+        # has a gcs backend recorded in .terraform/terraform.tfstate, and
+        # terraform loads a recorded backend even under `-backend=false` — so
+        # without this the offline tier demands live GCP credentials and fails
+        # on an expired login. Isolating the data dir also leaves the
+        # developer's real terraform state untouched by a push.
+        INFRA_TF_DATA_ROOT="$(mktemp -d)"
+
         # Validate each Terraform root config (a dir with providers.tf) that was
         # touched. A shared-module change also validates the environment roots
         # that consume modules, since the module feeds their plan.
@@ -264,6 +295,7 @@ if [[ "$HAS_INFRA_CHANGES" == "true" ]]; then
             [[ "$root_changed" == "false" ]] && continue
 
             echo -n "Validating $rel... "
+            export TF_DATA_DIR="$INFRA_TF_DATA_ROOT/${rel//\//_}"
             if ! terraform -chdir="$root" init -backend=false -input=false > /dev/null 2>&1; then
                 echo "FAIL (terraform init)"
                 INFRA_FAILED=true
@@ -283,6 +315,8 @@ if [[ "$HAS_INFRA_CHANGES" == "true" ]]; then
             fi
             echo "OK"
         done < <(find "$PROJECT_ROOT/infra" -name providers.tf -type f 2>/dev/null)
+        unset TF_DATA_DIR
+        rm -rf "$INFRA_TF_DATA_ROOT"
 
         if [[ "$INFRA_FAILED" == "true" ]]; then
             echo ""
