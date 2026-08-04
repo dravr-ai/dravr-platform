@@ -707,6 +707,9 @@ async fn try_handle_chat_command(
         // no multi-party DM surface here.
         is_direct_message: true,
         conversation_id: Some(conversation_id),
+        // The conversation is owned by the caller's tenant on web/mobile —
+        // there is no bot tenant to diverge from.
+        conversation_tenant_id: tenant_id,
         // Web/mobile have no channel link to unlink.
         sender_id: None,
         text: &request.content,

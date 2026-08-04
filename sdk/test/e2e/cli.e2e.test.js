@@ -152,7 +152,7 @@ describe('CLI E2E Tests', () => {
 
   describe('Environment Variables', () => {
     test('should read PIERRE_SERVER_URL from environment', async () => {
-      const result = await execCli([], {
+      const result = await execCli(['--verbose'], {
         serverUrl: 'http://env-server:8081',
         autoClose: 3000,
       });
@@ -162,27 +162,36 @@ describe('CLI E2E Tests', () => {
     }, TIMEOUT);
 
     test('should read PIERRE_JWT_TOKEN from environment', async () => {
-      const result = await execCli([], {
+      const result = await execCli(['--verbose'], {
         token: 'env-jwt-token',
         autoClose: 3000,
       });
 
-      // Debug output should show token is set
+      // Diagnostics report presence, never the credential itself
       expect(result.stderr).toContain('PIERRE_JWT_TOKEN');
       expect(result.stderr).toContain('[SET]');
     }, TIMEOUT);
   });
 
   describe('Bridge Startup', () => {
-    test('should output debug information on startup', async () => {
+    test('should output startup diagnostics under --verbose', async () => {
+      const result = await execCli(['--verbose'], { autoClose: 3000 });
+
+      expect(result.stderr).toContain('pierre-mcp-client');
+      expect(result.stderr).toContain('starting');
+    }, TIMEOUT);
+
+    test('a plain launch keeps the host log clean', async () => {
       const result = await execCli([], { autoClose: 3000 });
 
-      expect(result.stderr).toContain('[DEBUG]');
-      expect(result.stderr).toContain('Bridge CLI starting');
+      // stdout carries the MCP protocol, and a host shows stderr as bridge
+      // logs — neither may carry diagnostics nobody asked for.
+      expect(result.stderr).not.toContain('PIERRE_SERVER_URL');
+      expect(result.stderr).not.toContain('PIERRE_JWT_TOKEN');
     }, TIMEOUT);
 
     test('should log CI environment detection', async () => {
-      const result = await execCli([], { autoClose: 3000 });
+      const result = await execCli(['--verbose'], { autoClose: 3000 });
 
       // Should detect CI environment
       expect(result.stderr).toContain('CI');

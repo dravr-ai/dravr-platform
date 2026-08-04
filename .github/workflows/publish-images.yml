@@ -139,8 +139,12 @@ jobs:
           # Registry-backed buildx cache (Artifact Registry) instead of type=gha:
           # the GHA cache export flaked intermittently (tar/zstd exit 1) and is
           # capped/evicted; a registry buildcache tag is durable and reliable.
-          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/server:buildcache
-          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/server:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          # It lives in its own server-cache package, never in server: the
+          # retention policy's keep-recent-versions floor counts versions per
+          # package, so cache manifests sharing the image package would consume
+          # the rollback window that is meant to hold images.
+          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/server-cache:buildcache
+          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/server-cache:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
           build-args: |
             GIT_COMMIT_SHA=${{ needs.resolve-sha.outputs.sha }}
           secrets: |
@@ -151,17 +155,33 @@ jobs:
         with:
           version: v0.70.0
 
-      - name: Scan server image for vulnerabilities
-        # Run trivy directly (not via trivy-action): the action did not apply our
-        # .trivyignore allowlist — neither the trivyignores input nor TRIVY_IGNOREFILE
-        # env took effect — so an allowlisted base-image CVE failed the build. An
-        # explicit --ignorefile reliably applies the allowlist (verified locally).
+      - name: Scan server image for vulnerabilities (report)
+        # Reporting pass: no allowlist, never blocks. Trivy applies --ignorefile
+        # as a result filter BEFORE it writes the report, so a SARIF produced by
+        # the gating run below would omit every allowlisted CVE and raise no
+        # GitHub Code Scanning alert at all. This pass writes the SARIF the
+        # upload step consumes, and runs first with --exit-code 0 so the file
+        # exists even when the gate fails.
         run: |
           trivy image \
             --format sarif --output trivy-server.sarif \
             --severity CRITICAL,HIGH --ignore-unfixed \
+            --scanners vuln --exit-code 0 \
+            "${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}"
+
+      - name: Scan server image for vulnerabilities (gate)
+        # Gating pass over the same digest, allowlist applied. Run trivy directly
+        # (not via trivy-action): the action did not apply our .trivyignore
+        # allowlist — neither the trivyignores input nor TRIVY_IGNOREFILE env
+        # took effect — so an allowlisted base-image CVE failed the build. An
+        # explicit --ignorefile reliably applies the allowlist (verified
+        # locally). The vulnerability DB and the analyzed image layers are
+        # already in trivy's cache from the reporting pass, so this run is cheap.
+        run: |
+          trivy image \
+            --format table \
+            --severity CRITICAL,HIGH --ignore-unfixed \
             --ignorefile "${GITHUB_WORKSPACE}/.trivyignore" \
-            --skip-dirs root/.cache/copilot \
             --scanners vuln --exit-code 1 \
             "${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}"
 
@@ -247,23 +267,35 @@ jobs:
             VITE_FIREBASE_STORAGE_BUCKET=${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
             VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
             VITE_FIREBASE_APP_ID=${{ vars.VITE_FIREBASE_APP_ID }}
-          # Registry-backed buildx cache (see server job) — replaces the flaky
+          # Registry-backed buildx cache in its own frontend-cache package (see
+          # server job for both halves of the reasoning) — replaces the flaky
           # type=gha cache whose export step intermittently failed the build.
-          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend:buildcache
-          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend-cache:buildcache
+          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend-cache:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Install Trivy
         uses: aquasecurity/setup-trivy@v0.3.1
         with:
           version: v0.70.0
 
-      - name: Scan frontend image for vulnerabilities
-        # Explicit trivy run with --ignorefile (see server step) — the trivy-action
-        # did not apply .trivyignore, so the allowlisted CVE-2026-9256 (nginx
-        # fixed-in-r2, not yet in the official nginx:alpine image) failed the build.
+      - name: Scan frontend image for vulnerabilities (report)
+        # Reporting pass: no allowlist, never blocks — see the server job for why
+        # the SARIF must come from an allowlist-free run and must be produced
+        # before the gate.
         run: |
           trivy image \
             --format sarif --output trivy-frontend.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed \
+            --scanners vuln --exit-code 0 \
+            "${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}"
+
+      - name: Scan frontend image for vulnerabilities (gate)
+        # Gating pass over the same digest, allowlist applied. Explicit trivy run
+        # with --ignorefile (see server step) — the trivy-action did not apply
+        # .trivyignore, so an allowlisted base-image CVE failed the build.
+        run: |
+          trivy image \
+            --format table \
             --severity CRITICAL,HIGH --ignore-unfixed \
             --ignorefile "${GITHUB_WORKSPACE}/.trivyignore" \
             --scanners vuln --exit-code 1 \
@@ -311,6 +343,44 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.publish-frontend.outputs.image }}
+
+  # ---------------------------------------------------------------------------
+  # Mark the digests dev is serving so registry retention keeps them
+  # ---------------------------------------------------------------------------
+  tag-deployed-dev:
+    name: Tag Deployed Digests (dev)
+    runs-on: ubuntu-latest
+    needs: [publish-server, publish-frontend, deploy-dev]
+
+    steps:
+      # image-publisher (artifactregistry.writer), not the dev deployer: the tag
+      # is written in the dravr-artifacts project, where the dev deployer has no
+      # write access.
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Tag deployed digests
+        # Dev deploys by digest, so nothing on a serving image tells the registry
+        # cleanup policy to spare it: once enough newer builds push it out of the
+        # recent-versions floor, the age rule is free to delete the image dev is
+        # running. The deployed-dev tag is matched by the keep-release-tags rule
+        # (infra/artifacts, release_tag_prefixes), which wins over every delete
+        # rule. The tag moves on the next deploy — the superseded digest keeps
+        # its SHA tag and resumes normal ageing.
+        run: |
+          for IMAGE in \
+            "${{ needs.publish-server.outputs.image }}" \
+            "${{ needs.publish-frontend.outputs.image }}"; do
+            PACKAGE="${IMAGE%@*}"
+            echo "Tagging ${IMAGE} as ${PACKAGE}:deployed-dev"
+            gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:deployed-dev" --quiet
+          done
 
   # ---------------------------------------------------------------------------
   # Run Seed Jobs (after dev deploy)

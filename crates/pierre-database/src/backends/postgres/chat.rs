@@ -715,6 +715,66 @@ impl ChatRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn compare_and_set_conversation_onboarding_state(
+        &self,
+        conversation_id: &str,
+        expected: Option<&str>,
+        onboarding_state: Option<&str>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        // `IS NOT DISTINCT FROM` is Postgres' NULL-safe equality: a conversation
+        // that carried no state matches only an absent `expected`, never any
+        // stored JSON. The cast pins the parameter type, which the planner
+        // cannot infer from a NULL-safe comparison alone.
+        let result = sqlx::query(
+            r"
+            UPDATE chat_conversations
+            SET onboarding_state = $1
+            WHERE id = $2 AND tenant_id = $3
+              AND onboarding_state IS NOT DISTINCT FROM $4::TEXT
+            ",
+        )
+        .bind(onboarding_state)
+        .bind(conversation_id)
+        .bind(tenant_id.to_string())
+        .bind(expected)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to compare-and-set conversation onboarding_state: {e}"
+            ))
+        })?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_user_onboarding_states(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+        limit: i64,
+    ) -> AppResult<Vec<String>> {
+        let rows = sqlx::query(
+            r"
+            SELECT onboarding_state
+            FROM chat_conversations
+            WHERE user_id = $1 AND tenant_id = $2 AND onboarding_state IS NOT NULL
+            ORDER BY updated_at DESC
+            LIMIT $3
+            ",
+        )
+        .bind(parse_uuid(user_id)?)
+        .bind(tenant_id.to_string())
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list user onboarding states: {e}")))?;
+        Ok(rows
+            .iter()
+            .map(|r| r.get::<String, _>("onboarding_state"))
+            .collect())
+    }
+
     async fn set_conversation_group_id(
         &self,
         conversation_id: &str,

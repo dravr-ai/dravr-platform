@@ -46,7 +46,12 @@ resource "google_artifact_registry_repository" "images" {
   # Keep policies win over delete policies: a version matched by both is kept.
   # Release-tagged and recent images below are therefore safe from the age rule.
 
-  # Protect deploy / rollback anchors (e.g. semver tags) indefinitely.
+  # Protect deploy / rollback anchors indefinitely: semver release tags, and the
+  # moving deployed-<env> tag that publish-images.yml applies to each digest it
+  # ships to Cloud Run. Dev deploys by digest and never carries a semver tag, so
+  # that deploy tag is what makes the serving image immune to the age rule —
+  # recency alone does not, since the newest-versions floor is a count of builds,
+  # not a statement about what any environment is running.
   cleanup_policies {
     id     = "keep-release-tags"
     action = "KEEP"

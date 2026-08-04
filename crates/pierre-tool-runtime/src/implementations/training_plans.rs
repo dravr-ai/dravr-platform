@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{Datelike, NaiveDate};
 use pierre_core::models::{ConversationRecord, LoadSnapshot, OnboardingState, Pillar, TenantId};
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
@@ -395,8 +396,28 @@ const MAX_TEXT_LEN: usize = 1_000;
 const MAX_SHORT_TEXT_LEN: usize = 200;
 const MAX_RACES: usize = 12;
 const MAX_BLOCKS: usize = 24;
+/// Two full seasons. The longest real single-payload plan is one season (52
+/// weeks to a late-year A race), and `MAX_BLOCKS` mesocycles of the usual three
+/// to four weeks describe roughly 96 weeks — so the two caps agree, and one
+/// save can still span a season boundary. Above this the payload is a
+/// hallucination, and each week costs two statements in the save transaction.
+const MAX_WEEKS: usize = 104;
 const MAX_TARGET_HOURS: f32 = 60.0;
 const MAX_DURATION_MIN: u32 = 24 * 60;
+
+/// Calendar domain a plan date must fall in.
+///
+/// `parse_plan_date` is a format check: chrono's `%Y` accepts a signed,
+/// unlimited-digit year and `NaiveDate`'s `Display` re-emits it, so
+/// `+262142-12-31` round-trips and persists. Every renderer that walks a plan
+/// adds `Days` to a stored date, which panics past `NaiveDate::MAX` — and a
+/// stored plan is re-rendered into the system prompt on every subsequent turn,
+/// so one such date breaks the athlete's chat until the row is removed.
+/// `9999-12-31` plus the longest offset any renderer adds stays far inside
+/// `NaiveDate::MAX`, which is what makes those additions unreachable from
+/// overflow rather than merely unlikely.
+const MIN_PLAN_YEAR: i32 = 1000;
+const MAX_PLAN_YEAR: i32 = 9999;
 
 /// Reject a text field longer than `max` Unicode scalar values.
 fn bounded(field: &str, value: &str, max: usize) -> AppResult<()> {
@@ -409,15 +430,30 @@ fn bounded(field: &str, value: &str, max: usize) -> AppResult<()> {
     Ok(())
 }
 
+/// Parse a plan date, accepting only a canonical `YYYY-MM-DD` inside the
+/// calendar domain plans are rendered in (see [`MIN_PLAN_YEAR`]).
+///
+/// `field` names the payload field in the rejection so the model's next
+/// iteration knows which date to fix.
+fn plan_date(field: &str, raw: &str) -> AppResult<NaiveDate> {
+    let Some(date) = parse_plan_date(raw) else {
+        return Err(AppError::invalid_input(format!(
+            "{field} must be YYYY-MM-DD, got '{raw}'"
+        )));
+    };
+    let year = date.year();
+    if !(MIN_PLAN_YEAR..=MAX_PLAN_YEAR).contains(&year) {
+        return Err(AppError::invalid_input(format!(
+            "{field} year {year} is outside {MIN_PLAN_YEAR}-{MAX_PLAN_YEAR}, got '{raw}'"
+        )));
+    }
+    Ok(date)
+}
+
 /// Validate every date/shape/size constraint BEFORE any write so a rejected
 /// payload can never begin a partial save.
 fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
-    if parse_plan_date(&outline.goal_race.date).is_none() {
-        return Err(AppError::invalid_input(format!(
-            "goal_race.date must be YYYY-MM-DD, got '{}'",
-            outline.goal_race.date
-        )));
-    }
+    plan_date("goal_race.date", &outline.goal_race.date)?;
     bounded(
         "goal_race.name",
         &outline.goal_race.name,
@@ -435,12 +471,7 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
         )));
     }
     for race in &outline.races {
-        if parse_plan_date(&race.date).is_none() {
-            return Err(AppError::invalid_input(format!(
-                "race '{}' date must be YYYY-MM-DD, got '{}'",
-                race.name, race.date
-            )));
-        }
+        plan_date(&format!("race '{}' date", race.name), &race.date)?;
         bounded("race.name", &race.name, MAX_SHORT_TEXT_LEN)?;
         bounded("race.discipline", &race.discipline, MAX_SHORT_TEXT_LEN)?;
     }
@@ -461,12 +492,7 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
         )));
     }
     for block in &outline.blocks {
-        if parse_plan_date(&block.start).is_none() {
-            return Err(AppError::invalid_input(format!(
-                "block start must be YYYY-MM-DD, got '{}'",
-                block.start
-            )));
-        }
+        plan_date("block start", &block.start)?;
         if block.weeks == 0 {
             return Err(AppError::invalid_input("block weeks must be >= 1"));
         }
@@ -484,12 +510,7 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
 
 /// Validate one week payload (dates, day count, day dates inside the week).
 fn validate_week(week: &WeekPayload) -> AppResult<()> {
-    let Some(start) = parse_plan_date(&week.week_start) else {
-        return Err(AppError::invalid_input(format!(
-            "week_start must be YYYY-MM-DD, got '{}'",
-            week.week_start
-        )));
-    };
+    let start = plan_date("week_start", &week.week_start)?;
     if week.days.is_empty() {
         return Err(AppError::invalid_input(format!(
             "week {} has no days",
@@ -510,12 +531,7 @@ fn validate_week(week: &WeekPayload) -> AppResult<()> {
         MAX_TEXT_LEN,
     )?;
     for day in &week.days {
-        let Some(date) = parse_plan_date(&day.date) else {
-            return Err(AppError::invalid_input(format!(
-                "day date must be YYYY-MM-DD, got '{}'",
-                day.date
-            )));
-        };
+        let date = plan_date("day date", &day.date)?;
         let offset = (date - start).num_days();
         if !(0..7).contains(&offset) {
             return Err(AppError::invalid_input(format!(
@@ -605,29 +621,49 @@ fn resolve_coach_slug(
 /// athlete's fact, or is a non-`Goal` fact — a plan links only to a Goal fact,
 /// and [`plan_goal_is_stale`] can see only Goal facts, so a non-Goal link would
 /// read stale forever. Such a value is dropped rather than persisted.
+///
+/// A point lookup, not a scan of a capped list: an athlete whose Goal facts
+/// outnumber any list cap would have a legitimate id below the cut treated as
+/// foreign and silently replaced.
 async fn fact_belongs_to_user(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: &str,
     fact_id: &str,
 ) -> AppResult<bool> {
-    let facts = repos
+    Ok(repos
         .memory
-        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 500)
-        .await?;
-    Ok(facts.iter().any(|f| f.id == fact_id))
+        .get_user_fact(fact_id, tenant, user_id)
+        .await?
+        .is_some_and(|fact| fact.kind == FactKind::Goal))
 }
 
-/// Ensure exactly one current coach-agnostic goal `user_fact` for the outline's
-/// goal race, returning its id. Idempotent: an identical goal already stored is
-/// reused (no churn on a re-save); a changed goal replaces the prior agnostic
-/// goal fact(s) so the pillar view never accumulates duplicates.
-async fn ensure_goal_fact(
+/// The goal fact a plan links to, together with the coach-agnostic goal facts
+/// it replaces.
+///
+/// Two halves because they belong on opposite sides of the plan write: the id
+/// has to exist *before* the save (the plan row stores it), while retiring the
+/// facts it supersedes must wait until the save has committed — a hard delete
+/// before a failed transaction erases the athlete's standing goal for a plan
+/// that was never stored.
+struct GoalFactConvergence {
+    /// The fact the plan links to.
+    fact_id: String,
+    /// Prior coach-agnostic goal facts, to retire once the plan is stored.
+    superseded: Vec<String>,
+}
+
+/// Converge the athlete's coach-agnostic goal `user_fact` on the outline's goal
+/// race: reuse an identical stored goal (no churn on a re-save), otherwise write
+/// the new one. Every *other* coach-agnostic goal fact is reported as
+/// superseded, in both cases, so the pillar view converges on one row even after
+/// a save that failed between the write and the retirement.
+async fn converge_goal_fact(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: &str,
     goal_race: &GoalRace,
-) -> AppResult<String> {
+) -> AppResult<GoalFactConvergence> {
     let object = goal_object(goal_race);
     let facts = repos
         .memory
@@ -637,35 +673,69 @@ async fn ensure_goal_fact(
         .iter()
         .filter(|f| f.coach_id.is_none() && f.predicate == GOAL_PREDICATE)
         .collect();
-    if let Some(existing) = agnostic_targets.iter().find(|f| f.object == object) {
-        return Ok(existing.id.clone());
-    }
-    for stale in &agnostic_targets {
-        repos
+    let fact_id = match agnostic_targets.iter().find(|f| f.object == object) {
+        Some(existing) => existing.id.clone(),
+        None => {
+            repos
+                .memory
+                .upsert_user_fact(&UpsertUserFactParams {
+                    tenant_id: tenant,
+                    user_id,
+                    coach_id: None,
+                    scope: MemoryScope::User,
+                    kind: FactKind::Goal,
+                    pillar: Some(Pillar::TrainingAndMovement),
+                    subject: GOAL_SUBJECT,
+                    predicate: GOAL_PREDICATE,
+                    object: &object,
+                    confidence: 0.95,
+                    source: FactSource::Coach,
+                    valid_until: None,
+                    source_msg_id: None,
+                    embedding: None,
+                })
+                .await?
+                .id
+        }
+    };
+    // The linked fact is never in the superseded set, so the retirement pass
+    // cannot delete the very row the plan points at.
+    let superseded = agnostic_targets
+        .iter()
+        .map(|f| f.id.clone())
+        .filter(|id| *id != fact_id)
+        .collect();
+    Ok(GoalFactConvergence {
+        fact_id,
+        superseded,
+    })
+}
+
+/// Delete the goal facts a stored plan's goal has replaced.
+///
+/// Runs only after the plan bundle has committed. `delete_user_fact` is the
+/// erase path, so calling it earlier would destroy the athlete's previous goal
+/// on behalf of a plan that may never be stored.
+///
+/// A failure here is logged rather than returned: the plan IS saved, and
+/// answering the coach with an error would have it tell the athlete a save
+/// failed that did not. The leftover fact is retired by the next save, which
+/// reports every non-linked agnostic goal fact as superseded.
+async fn retire_superseded_goal_facts(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: &str,
+    superseded: &[String],
+) {
+    for fact_id in superseded {
+        if let Err(e) = repos
             .memory
-            .delete_user_fact(&stale.id, tenant, user_id)
-            .await?;
+            .delete_user_fact(fact_id, tenant, user_id)
+            .await
+        {
+            warn!(error = %e, "save_training_plan: superseded goal fact not retired");
+        }
     }
-    let fact = repos
-        .memory
-        .upsert_user_fact(&UpsertUserFactParams {
-            tenant_id: tenant,
-            user_id,
-            coach_id: None,
-            scope: MemoryScope::User,
-            kind: FactKind::Goal,
-            pillar: Some(Pillar::TrainingAndMovement),
-            subject: GOAL_SUBJECT,
-            predicate: GOAL_PREDICATE,
-            object: &object,
-            confidence: 0.95,
-            source: FactSource::Coach,
-            valid_until: None,
-            source_msg_id: None,
-            embedding: None,
-        })
-        .await?;
-    Ok(fact.id)
 }
 
 // ============================================================================
@@ -863,6 +933,12 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             if let Some(o) = &outline {
                 validate_outline(o)?;
             }
+            if weeks.len() > MAX_WEEKS {
+                return Err(AppError::invalid_input(format!(
+                    "too many weeks ({}; max {MAX_WEEKS})",
+                    weeks.len()
+                )));
+            }
             for week in &weeks {
                 validate_week(week)?;
             }
@@ -876,14 +952,11 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // already drops this tool from the prompt's tool list and from the
             // native function declarations while a profile walk is active, but
             // neither covers the native-MCP path, where an ACP subprocess reads
-            // `tools/list` straight off the `/mcp` endpoint. Refusing here means
-            // the withhold holds on every surface, including a direct MCP call.
-            if conv
-                .as_ref()
-                .and_then(|c| c.onboarding_state.as_deref())
-                .and_then(|raw| OnboardingState::from_column(Some(raw)))
-                .is_some()
-            {
+            // `tools/list` straight off the `/mcp` endpoint. That path carries
+            // no conversation, so the walk is resolved from the athlete there
+            // (see `guided_flow_is_active`) and the withhold holds on every
+            // surface, including a direct MCP call.
+            if guided_flow_is_active(repos, conv.as_ref(), tenant, &user_id).await? {
                 return Err(AppError::invalid_input(
                     "this conversation is building the athlete's profile one topic at a time — \
                      finish the profile walk before saving a training plan",
@@ -904,10 +977,22 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // Close the pillar loop: an outline whose goal race has no linked
             // Goal fact converges on one coach-agnostic Goal fact (the athlete's
             // truth, shared across coaches and the /pillars walk) — idempotent
-            // so a re-save never mints a duplicate.
-            if let (Some(o), None) = (&outline, &goal_fact_id) {
-                goal_fact_id = Some(ensure_goal_fact(repos, tenant, &user_id, &o.goal_race).await?);
-            }
+            // so a re-save never mints a duplicate. The plan row stores the id,
+            // so the fact is written here; the facts it replaces are erased only
+            // once the plan is safely stored.
+            let converged = match (&outline, &goal_fact_id) {
+                (Some(o), None) => {
+                    Some(converge_goal_fact(repos, tenant, &user_id, &o.goal_race).await?)
+                }
+                _ => None,
+            };
+            let superseded_goal_facts: Vec<String> = match converged {
+                Some(c) => {
+                    goal_fact_id = Some(c.fact_id);
+                    c.superseded
+                }
+                None => Vec::new(),
+            };
 
             // Persist the outline and every week in ONE transaction so a
             // mid-payload failure can't strand a superseded plan with a
@@ -940,13 +1025,30 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 })
                 .await?;
 
+            // The plan is stored, so the goal facts its goal replaced can go.
+            retire_superseded_goal_facts(repos, tenant, &user_id, &superseded_goal_facts).await;
+
             // The one enforced rail on plan difficulty: does the plan's opening
             // week sit far above what this athlete actually does? A warning,
             // never a block — the coach may have good reason, and refusing a
             // save would strand a plan the athlete already agreed to. The event
             // also reports when the comparison could not be made, so a quiet
             // log means "measured and fine" rather than "never looked".
-            emit_ramp_check(repos, tenant, &user_id, &bundle.plan.id, weeks.first()).await;
+            //
+            // Only a save carrying an outline is a new plan with an opening
+            // week. A week-only save is an adjustment to one week of a plan
+            // that was already measured, and grading it as an opening week
+            // reports a ramp the athlete is not being asked to make.
+            if outline.is_some() {
+                emit_ramp_check(
+                    repos,
+                    tenant,
+                    &user_id,
+                    &bundle.plan.id,
+                    earliest_week(&weeks),
+                )
+                .await;
+            }
 
             let race_summary = format!(
                 "{} on {}",
@@ -978,6 +1080,49 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
     }
 }
 
+/// The chronologically first week of a payload — the plan's opening week.
+///
+/// Payload order is the model's, not the calendar's: nothing sorts `weeks`, and
+/// a plan may be sent newest-first or in any order at all. The ramp check grades
+/// the week the athlete starts on, so it is selected by date.
+fn earliest_week(weeks: &[WeekPayload]) -> Option<&WeekPayload> {
+    weeks
+        .iter()
+        .filter_map(|w| parse_plan_date(&w.week_start).map(|date| (date, w)))
+        .min_by_key(|(date, _)| *date)
+        .map(|(_, week)| week)
+}
+
+/// Newest conversations consulted when resolving an athlete's guided-flow state
+/// without a conversation in scope. An interview keeps its conversation the
+/// most recently updated one, so a running walk is always inside this window.
+const GUIDED_FLOW_SCAN_LIMIT: i64 = 50;
+
+/// `true` when a guided interview owns the turn and write tools are withheld.
+///
+/// The conversation is authoritative when the call arrives through the chat
+/// pipeline, which puts its id in scope. A `tools/call` on the `/mcp` endpoint
+/// has none, so the state is resolved from the athlete's conversations instead —
+/// the `conversation_id` argument is model-supplied and cannot be trusted to
+/// answer a question about whether this same model may write.
+async fn guided_flow_is_active(
+    repos: &RepositoryRegistry,
+    conv: Option<&ConversationRecord>,
+    tenant: TenantId,
+    user_id: &str,
+) -> AppResult<bool> {
+    if let Some(conv) = conv {
+        return Ok(OnboardingState::from_column(conv.onboarding_state.as_deref()).is_some());
+    }
+    let states = repos
+        .chat
+        .list_user_onboarding_states(user_id, tenant, GUIDED_FLOW_SCAN_LIMIT)
+        .await?;
+    Ok(states
+        .iter()
+        .any(|raw| OnboardingState::from_column(Some(raw)).is_some()))
+}
+
 /// Measure the saved plan's opening week against the athlete's real recent
 /// load and emit the result.
 ///
@@ -989,10 +1134,10 @@ async fn emit_ramp_check(
     tenant: TenantId,
     user_id: &str,
     plan_id: &str,
-    first_week: Option<&WeekPayload>,
+    opening_week: Option<&WeekPayload>,
 ) {
     let baseline = ramp_baseline(repos, tenant, user_id).await;
-    let durations: Vec<Option<u32>> = first_week
+    let durations: Vec<Option<u32>> = opening_week
         .map(|w| w.days.iter().map(|d| d.duration_min).collect())
         .unwrap_or_default();
     emit_ramp_verdict(plan_id, &assess_ramp(&durations, baseline.as_ref()));

@@ -31,10 +31,10 @@ use std::env;
 use std::time::Duration;
 
 use dravr_sciotte::models::{Activity as SciotteActivity, AuthSession};
-use pierre_core::errors::{AppError, AppResult};
-use reqwest::Client;
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use reqwest::{Client, StatusCode};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tracing::debug;
 
 /// Environment variable holding the remote scraper's base URL. Required since
@@ -42,6 +42,25 @@ use tracing::debug;
 pub const ENV_REMOTE_URL: &str = "DRAVR_SCIOTTE_REMOTE_URL";
 /// Environment variable holding the bearer the scraper service gates on.
 pub const ENV_API_KEY: &str = "DRAVR_SCIOTTE_API_KEY";
+
+/// Value of the `error` field the scraper service sheds with — its
+/// `busy_response` answers a saturated Chrome budget with
+/// `503 {"error":"scraper_busy","reason":…,"retry_after_secs":N}` plus a
+/// `Retry-After` header.
+const SHED_ERROR_MARKER: &str = "scraper_busy";
+
+/// Key the shed's wait window travels under.
+///
+/// It is both the field name in the service's body and the
+/// [`AppError::details`] entry [`shed_retry_after_secs`] reads back out, so a
+/// route layer can echo it as `Retry-After`.
+pub const RETRY_AFTER_SECS_DETAIL: &str = "retry_after_secs";
+
+/// Wait advertised when a shed response carries no `retry_after_secs`.
+/// Deliberately short: a shed clears as soon as one in-flight scrape releases
+/// its permit, so an over-long hint parks the caller on a service that is
+/// already free again.
+const SHED_RETRY_AFTER_FALLBACK_SECS: u64 = 30;
 
 /// Outcome of an interactive-login step, mirroring the scraper service's
 /// `{status, ...}` login response.
@@ -120,6 +139,78 @@ pub struct RemoteActivityQuery {
     pub sport_type: Option<String>,
     /// Whether to enrich each activity with its detail page (N+1, slower).
     pub enrich_details: bool,
+}
+
+/// The structured backpressure error for a scraper-service load-shed, or
+/// `None` when the response is a genuine failure.
+///
+/// The service sheds a saturated Chrome budget with `503` +
+/// `{"error":"scraper_busy","reason":…,"retry_after_secs":N}` and a
+/// `Retry-After` header. That body carries no login `status` field, so
+/// recognising it *before* any status match is what keeps designed
+/// load-shedding out of the catch-all that reports a system failure — one
+/// operator alert plus one `sync.failed` business event per shed request,
+/// precisely when the service is saturated.
+///
+/// [`ErrorCode::ResourceUnavailable`] renders as `503` and keeps the technical
+/// reason out of the client's reach; the wait the service computed rides in
+/// `details` so a route layer can hand it back as `Retry-After`.
+#[must_use]
+pub fn backpressure_error(http_status: StatusCode, body: &Value) -> Option<AppError> {
+    let shed = http_status == StatusCode::SERVICE_UNAVAILABLE
+        || body.get("error").and_then(Value::as_str) == Some(SHED_ERROR_MARKER);
+    if !shed {
+        return None;
+    }
+
+    let retry_after_secs = body
+        .get(RETRY_AFTER_SECS_DETAIL)
+        .and_then(Value::as_u64)
+        .unwrap_or(SHED_RETRY_AFTER_FALLBACK_SECS);
+    let reason = body
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or(SHED_ERROR_MARKER);
+
+    let mut error = AppError::resource_unavailable(format!(
+        "sciotte shed the request ({reason}); retry after {retry_after_secs}s"
+    ));
+    let mut details = Map::new();
+    details.insert(
+        RETRY_AFTER_SECS_DETAIL.to_owned(),
+        Value::from(retry_after_secs),
+    );
+    error.details = Some(Box::new(Value::Object(details)));
+    Some(error)
+}
+
+/// The wait window a load-shed advertises, or `None` when `error` is anything
+/// else.
+///
+/// Callers branch on this to answer a shed with the service's own
+/// `Retry-After` instead of routing it through the system-failure path.
+#[must_use]
+pub fn shed_retry_after_secs(error: &AppError) -> Option<u64> {
+    if !matches!(error.code, ErrorCode::ResourceUnavailable) {
+        return None;
+    }
+    error
+        .details
+        .as_ref()?
+        .get(RETRY_AFTER_SECS_DETAIL)?
+        .as_u64()
+}
+
+/// Map a non-success scrape response to an error, classifying the service's
+/// designed load-shed as retryable backpressure rather than a system failure.
+///
+/// `operation` names the endpoint in the internal message only — neither
+/// message reaches a client verbatim.
+async fn scrape_failure(operation: &str, resp: reqwest::Response) -> AppError {
+    let status = resp.status();
+    let body = resp.json::<Value>().await.unwrap_or_default();
+    backpressure_error(status, &body)
+        .unwrap_or_else(|| AppError::internal(format!("sciotte {operation} returned {status}")))
 }
 
 /// Client for the dedicated `dravr-sciotte-server`.
@@ -344,8 +435,9 @@ impl RemoteSciotteClient {
     /// # Errors
     ///
     /// Returns an error on transport failure, a non-success status (e.g. the
-    /// service no longer holds the session — the caller re-imports and retries),
-    /// or an unparseable body.
+    /// service no longer holds the session — the caller re-imports and retries,
+    /// or the service shed the request under backpressure), or an unparseable
+    /// body.
     pub async fn get_activities(
         &self,
         session_id: &str,
@@ -381,11 +473,8 @@ impl RemoteSciotteClient {
             .send()
             .await
             .map_err(|e| AppError::internal(format!("sciotte activities request: {e}")))?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(AppError::internal(format!(
-                "sciotte activities returned {status}"
-            )));
+        if !resp.status().is_success() {
+            return Err(scrape_failure("activities", resp).await);
         }
         Ok(resp
             .json::<ActivitiesResponse>()
@@ -407,11 +496,8 @@ impl RemoteSciotteClient {
             .send()
             .await
             .map_err(|e| AppError::internal(format!("sciotte athlete request: {e}")))?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(AppError::internal(format!(
-                "sciotte athlete returned {status}"
-            )));
+        if !resp.status().is_success() {
+            return Err(scrape_failure("athlete", resp).await);
         }
         resp.json::<RemoteAthleteProfile>()
             .await
@@ -441,23 +527,28 @@ impl RemoteSciotteClient {
             .send()
             .await
             .map_err(|e| AppError::internal(format!("sciotte activity request: {e}")))?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(AppError::internal(format!(
-                "sciotte activity returned {status}"
-            )));
+        if !resp.status().is_success() {
+            return Err(scrape_failure("activity", resp).await);
         }
         resp.json::<SciotteActivity>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte activity decode: {e}")))
     }
 
-    /// Parse a login-step response body into a [`RemoteLoginOutcome`].
+    /// Parse a login-step response body into a [`RemoteLoginOutcome`], or into
+    /// the retryable backpressure error a load-shed maps to (see
+    /// [`backpressure_error`]).
     async fn parse_login_outcome(resp: reqwest::Response) -> AppResult<RemoteLoginOutcome> {
         let http_status = resp.status();
         let body = resp.json::<Value>().await.map_err(|e| {
             AppError::internal(format!("sciotte login decode (HTTP {http_status}): {e}"))
         })?;
+        // A load-shed body carries no login `status` at all, so it has to be
+        // recognised ahead of the match below or it lands in the catch-all and
+        // is reported as a system failure.
+        if let Some(error) = backpressure_error(http_status, &body) {
+            return Err(error);
+        }
         let status = body.get("status").and_then(Value::as_str).unwrap_or("");
         let flow_id = body
             .get("flow_id")

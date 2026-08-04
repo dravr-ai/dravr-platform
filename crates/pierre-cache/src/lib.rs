@@ -227,7 +227,7 @@ impl CacheTtlConfig {
             }
             CacheResource::Stats { .. } => Duration::from_secs(self.stats_secs),
             CacheResource::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
-            CacheResource::Custom(_) => Duration::ZERO,
+            CacheResource::SciotteLoginFlow | CacheResource::Custom(_) => Duration::ZERO,
         }
     }
 
@@ -409,6 +409,14 @@ pub enum CacheResource {
         /// Inclusive ISO date (YYYY-MM-DD) of the end of the requested range.
         to: String,
     },
+    /// The sciotte login flow an athlete has parked on the scraper service,
+    /// awaiting its OTP/2FA continuation. Shared rather than process-local so a
+    /// continuation reaches the flow whichever pod it lands on. TTL is
+    /// caller-specified because it has to track the scraper service's own
+    /// deployed parked-flow lifetime (`DRAVR_SCIOTTE_PARKED_PERMIT_TTL_SECS`),
+    /// a knob this crate has no visibility into — so `recommended_ttl` returns
+    /// 0 for it, as it does for [`CacheResource::Custom`].
+    SciotteLoginFlow,
     /// General-purpose keyed resource for non-domain uses (nonces, rate limits, etc.).
     /// TTL is caller-specified — `recommended_ttl` returns 0 for this variant.
     Custom(String),
@@ -426,7 +434,7 @@ impl CacheResource {
             }
             Self::Stats { .. } => Duration::from_secs(TTL_STATS_SECS),
             Self::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
-            Self::Custom(_) => Duration::ZERO,
+            Self::SciotteLoginFlow | Self::Custom(_) => Duration::ZERO,
         }
     }
 }
@@ -460,6 +468,7 @@ impl fmt::Display for CacheResource {
             Self::TrainingHistory { from, to } => {
                 write!(f, "training_history:{from}:{to}")
             }
+            Self::SciotteLoginFlow => write!(f, "sciotte_login_flow"),
             Self::Custom(ref key) => write!(f, "custom:{key}"),
         }
     }

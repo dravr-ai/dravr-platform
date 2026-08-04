@@ -358,6 +358,118 @@ describe('EncryptedFileStorage - Encryption Properties', () => {
   });
 });
 
+describe('EncryptedFileStorage - File Permissions', () => {
+  // The obfuscation key is derived from public machine data, so the file mode is the
+  // only thing keeping another local user out of the token file. These tests assert
+  // the mode the SDK leaves on disk.
+  //
+  // Windows implements no POSIX mode bits, so there the assertion is that the file was
+  // still written and reads back; what protects it is the user profile directory ACLs.
+  const POSIX_FILE_MODES = process.platform !== 'win32';
+  let storage;
+
+  const modeOf = (target) => fs.statSync(target).mode & 0o777;
+
+  beforeAll(() => {
+    fs.mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  beforeEach(() => {
+    storage = new EncryptedFileStorage(() => {});
+    storage.encryptedFilePath = path.join(
+      TEST_DIR,
+      `tokens-perm-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.enc`
+    );
+  });
+
+  afterEach(() => {
+    try {
+      if (fs.existsSync(storage.encryptedFilePath)) {
+        fs.unlinkSync(storage.encryptedFilePath);
+      }
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  });
+
+  afterAll(() => {
+    try {
+      fs.rmSync(TEST_DIR, { recursive: true, force: true });
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  });
+
+  test('creates the token file owner-only', async () => {
+    await storage.saveTokens({ pierre: { access_token: 'perm_check_token' } });
+
+    expect(fs.existsSync(storage.encryptedFilePath)).toBe(true);
+    if (POSIX_FILE_MODES) {
+      expect(modeOf(storage.encryptedFilePath)).toBe(0o600);
+    }
+
+    // The mode must not have cost us the contents.
+    const retrieved = await storage.getTokens();
+    expect(retrieved.pierre.access_token).toBe('perm_check_token');
+  });
+
+  test('tightens a pre-existing world-readable file when saving', async () => {
+    // Simulate a token file left behind by a version that wrote it world-readable.
+    fs.writeFileSync(storage.encryptedFilePath, 'stale-content', 'utf8');
+    fs.chmodSync(storage.encryptedFilePath, 0o644);
+    if (POSIX_FILE_MODES) {
+      expect(modeOf(storage.encryptedFilePath)).toBe(0o644);
+    }
+
+    await storage.saveTokens({ pierre: { access_token: 'rewritten_token' } });
+
+    if (POSIX_FILE_MODES) {
+      expect(modeOf(storage.encryptedFilePath)).toBe(0o600);
+    }
+    const retrieved = await storage.getTokens();
+    expect(retrieved.pierre.access_token).toBe('rewritten_token');
+  });
+
+  test('tightens a pre-existing world-readable file when reading', async () => {
+    await storage.saveTokens({ pierre: { access_token: 'read_path_token' } });
+    fs.chmodSync(storage.encryptedFilePath, 0o644);
+
+    const retrieved = await storage.getTokens();
+
+    // Reading still works and leaves the file owner-only.
+    expect(retrieved.pierre.access_token).toBe('read_path_token');
+    if (POSIX_FILE_MODES) {
+      expect(modeOf(storage.encryptedFilePath)).toBe(0o600);
+    }
+  });
+
+  test('creates a missing parent directory owner-only', async () => {
+    const parent = path.join(TEST_DIR, `nested-${crypto.randomBytes(4).toString('hex')}`);
+    storage.encryptedFilePath = path.join(parent, 'tokens.enc');
+    expect(fs.existsSync(parent)).toBe(false);
+
+    await storage.saveTokens({ pierre: { access_token: 'nested_token' } });
+
+    expect(fs.existsSync(storage.encryptedFilePath)).toBe(true);
+    if (POSIX_FILE_MODES) {
+      expect(modeOf(parent)).toBe(0o700);
+      expect(modeOf(storage.encryptedFilePath)).toBe(0o600);
+    }
+    const retrieved = await storage.getTokens();
+    expect(retrieved.pierre.access_token).toBe('nested_token');
+  });
+
+  test('leaves an existing parent directory permissions alone', async () => {
+    // The default token path's parent is the user's home directory, which this SDK
+    // must not re-permission. TEST_DIR stands in for it.
+    const before = modeOf(TEST_DIR);
+
+    await storage.saveTokens({ pierre: { access_token: 'parent_untouched' } });
+
+    expect(modeOf(TEST_DIR)).toBe(before);
+  });
+});
+
 describe('EncryptedFileStorage - Migration from Plaintext', () => {
   let storage;
 

@@ -9,13 +9,14 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
 use sqlx::postgres::PgRow;
 use sqlx::Row;
+use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::training_plans::{
     built_plan_week, built_training_plan, plan_insert_values, plan_week_from_row,
-    training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek, PlanWeekRow,
-    SavePlanBundleParams, SavePlanWeekParams, SaveTrainingPlanParams, SavedPlanBundle,
-    TrainingPlanRepository, TrainingPlanRow,
+    training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek, PlanWeekInput, PlanWeekRow,
+    SavePlanBundleParams, SaveTrainingPlanParams, SavedPlanBundle, TrainingPlanRepository,
+    TrainingPlanRow,
 };
 
 /// Column list shared by every outline read so row mapping stays aligned.
@@ -91,9 +92,6 @@ const INSERT_PLAN_SQL: &str = "INSERT INTO training_plans (id, tenant_id, user_i
      source_conversation_id, created_at, updated_at) \
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12)";
 
-const VERIFY_PLAN_OWNED_SQL: &str =
-    "SELECT id FROM training_plans WHERE id = $1 AND tenant_id = $2 AND user_id = $3";
-
 const SUPERSEDE_ACTIVE_WEEK_SQL: &str = "UPDATE training_plan_weeks SET status = 'superseded', \
      updated_at = $1 WHERE tenant_id = $2 AND user_id = $3 AND plan_id = $4 AND week_start = $5 \
      AND status = 'active' RETURNING id";
@@ -101,6 +99,55 @@ const SUPERSEDE_ACTIVE_WEEK_SQL: &str = "UPDATE training_plan_weeks SET status =
 const INSERT_WEEK_SQL: &str = "INSERT INTO training_plan_weeks (id, tenant_id, user_id, plan_id, \
      week_start, focus, days_json, status, supersedes_id, adjustment_reason, created_at, \
      updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $10)";
+
+/// Re-parent a superseded outline's surviving weeks onto the outline that
+/// replaced it: every active week is flipped to `'superseded'` and re-inserted
+/// against the new plan id with `supersedes_id` pointing back at it. Weeks are
+/// keyed by `plan_id` and every read surface lists the *active* plan's weeks,
+/// so a week left behind is a schedule the athlete can no longer see. Row
+/// content is carried verbatim — `days_json` is never re-parsed — so only
+/// identity changes and the migration's "new row with `supersedes_id` set, old
+/// row `status='superseded'`" model holds across the plan boundary too.
+async fn carry_forward_active_weeks(
+    conn: &mut sqlx::PgConnection,
+    tenant_id: &str,
+    user_id: &str,
+    old_plan_id: &str,
+    new_plan_id: &str,
+    now: i64,
+) -> AppResult<()> {
+    let sql = format!(
+        "UPDATE training_plan_weeks SET status = 'superseded', updated_at = $1 \
+         WHERE tenant_id = $2 AND user_id = $3 AND plan_id = $4 AND status = 'active' \
+         RETURNING {WEEK_COLUMNS}"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(now)
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(old_plan_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| AppError::database(format!("supersede carried weeks: {e}")))?;
+    for row in &rows {
+        let old = week_row(row)?;
+        sqlx::query(INSERT_WEEK_SQL)
+            .bind(Uuid::new_v4().to_string())
+            .bind(tenant_id)
+            .bind(user_id)
+            .bind(new_plan_id)
+            .bind(&old.week_start)
+            .bind(&old.focus)
+            .bind(&old.days_json)
+            .bind(&old.id)
+            .bind(&old.adjustment_reason)
+            .bind(now)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| AppError::database(format!("carry forward plan week: {e}")))?;
+    }
+    Ok(())
+}
 
 /// Supersede the current active outline and insert the new one, on an
 /// in-transaction connection. The caller owns the transaction envelope.
@@ -133,6 +180,20 @@ async fn supersede_and_insert_plan(
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("insert training plan: {e}")))?;
+    // The new outline carries a new id, so the replaced outline's weeks move
+    // with it in this same transaction — otherwise the athlete's schedule
+    // stays on a plan no read surface fetches.
+    if let Some(old_plan_id) = superseded.as_deref() {
+        carry_forward_active_weeks(
+            &mut *conn,
+            params.tenant_id,
+            params.user_id,
+            old_plan_id,
+            &v.id,
+            v.now,
+        )
+        .await?;
+    }
     built_training_plan(BuiltPlan {
         id: v.id,
         tenant_id: params.tenant_id,
@@ -149,70 +210,51 @@ async fn supersede_and_insert_plan(
     })
 }
 
-/// Verify the plan exists for this tenant + user — a week must never attach to
-/// another athlete's (or tenant's) plan.
-async fn verify_plan_owned(
+/// Supersede the active row for this `week_start` and insert the new week, on
+/// an in-transaction connection. The caller resolves `plan_id` from a plan it
+/// created or read for this tenant + user in the same transaction, so the week
+/// can never attach to another athlete's (or tenant's) plan.
+async fn supersede_and_insert_week(
     conn: &mut sqlx::PgConnection,
     tenant_id: &str,
     user_id: &str,
     plan_id: &str,
-) -> AppResult<()> {
-    let owned: Option<String> = sqlx::query_scalar(VERIFY_PLAN_OWNED_SQL)
-        .bind(plan_id)
-        .bind(tenant_id)
-        .bind(user_id)
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(|e| AppError::database(format!("verify plan ownership: {e}")))?;
-    if owned.is_none() {
-        return Err(AppError::invalid_input(format!(
-            "no training plan {plan_id} for this user"
-        )));
-    }
-    Ok(())
-}
-
-/// Supersede the active row for this `week_start` and insert the new week, on
-/// an in-transaction connection. Does not verify plan ownership — the caller
-/// must have created or verified the plan in the same transaction.
-async fn supersede_and_insert_week(
-    conn: &mut sqlx::PgConnection,
-    params: &SavePlanWeekParams<'_>,
+    week: &PlanWeekInput<'_>,
 ) -> AppResult<PlanWeek> {
-    let v = week_insert_values(params)?;
+    let v = week_insert_values(week.days)?;
     let superseded: Option<String> = sqlx::query_scalar(SUPERSEDE_ACTIVE_WEEK_SQL)
         .bind(v.now)
-        .bind(params.tenant_id)
-        .bind(params.user_id)
-        .bind(params.plan_id)
-        .bind(params.week_start)
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(plan_id)
+        .bind(week.week_start)
         .fetch_optional(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("supersede active week: {e}")))?;
     sqlx::query(INSERT_WEEK_SQL)
         .bind(&v.id)
-        .bind(params.tenant_id)
-        .bind(params.user_id)
-        .bind(params.plan_id)
-        .bind(params.week_start)
-        .bind(params.focus)
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(plan_id)
+        .bind(week.week_start)
+        .bind(week.focus)
         .bind(&v.days_json)
         .bind(superseded.as_deref())
-        .bind(params.adjustment_reason)
+        .bind(week.adjustment_reason)
         .bind(v.now)
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("insert plan week: {e}")))?;
     built_plan_week(BuiltWeek {
         id: v.id,
-        tenant_id: params.tenant_id,
-        user_id: params.user_id,
-        plan_id: params.plan_id,
-        week_start: params.week_start,
-        focus: params.focus,
-        days: params.days,
+        tenant_id,
+        user_id,
+        plan_id,
+        week_start: week.week_start,
+        focus: week.focus,
+        days: week.days,
         superseded,
-        adjustment_reason: params.adjustment_reason,
+        adjustment_reason: week.adjustment_reason,
         now: v.now,
     })
 }
@@ -262,20 +304,6 @@ impl TrainingPlanRepository for PostgresDatabase {
         Ok(plan)
     }
 
-    async fn save_plan_week(&self, params: &SavePlanWeekParams<'_>) -> AppResult<PlanWeek> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AppError::database(format!("begin week tx: {e}")))?;
-        verify_plan_owned(&mut tx, params.tenant_id, params.user_id, params.plan_id).await?;
-        let week = supersede_and_insert_week(&mut tx, params).await?;
-        tx.commit()
-            .await
-            .map_err(|e| AppError::database(format!("commit week tx: {e}")))?;
-        Ok(week)
-    }
-
     async fn save_plan_bundle(
         &self,
         params: &SavePlanBundleParams<'_>,
@@ -319,16 +347,10 @@ impl TrainingPlanRepository for PostgresDatabase {
 
         let mut weeks = Vec::with_capacity(params.weeks.len());
         for w in params.weeks {
-            let swp = SavePlanWeekParams {
-                tenant_id: params.tenant_id,
-                user_id: params.user_id,
-                plan_id: &plan.id,
-                week_start: w.week_start,
-                focus: w.focus,
-                days: w.days,
-                adjustment_reason: w.adjustment_reason,
-            };
-            weeks.push(supersede_and_insert_week(&mut tx, &swp).await?);
+            weeks.push(
+                supersede_and_insert_week(&mut tx, params.tenant_id, params.user_id, &plan.id, w)
+                    .await?,
+            );
         }
 
         tx.commit()

@@ -281,7 +281,8 @@ pub struct ClaimVerificationOutcome {
     pub pending_verdicts: Vec<(ExtractedClaim, VerdictOutcome)>,
 }
 
-/// Run `stage` under a panic boundary, degrading to the unverified `reply`.
+/// Run `stage` under a panic boundary, degrading per the coach's configured
+/// [`VerificationConfig::fallback_behavior`].
 ///
 /// Claim verification is decorative and it runs *late*: by the time it sees
 /// the reply, the turn's tool calls have already committed their writes. A
@@ -302,22 +303,47 @@ pub struct ClaimVerificationOutcome {
 /// withhold. Only stages whose output can be dropped without changing what
 /// the turn is allowed to say belong inside a boundary like this one.
 ///
+/// Delivering the unverified reply is right for a coach that would only have
+/// appended a banner or recorded the verdict. It is wrong for one whose
+/// [`VerificationFallback::Block`] exists to REPLACE a reply carrying a
+/// contradicted claim — "an HR max of 300 bpm", "500 g of creatine per day" are
+/// the class the deterministic bounds catch, and they are precisely the class
+/// that panics the scanner. An unscanned reply is exactly as unproven as a
+/// flagged one, so a blocking coach gets its block fallback, which the caller
+/// supplies through `block_fallback` (localized, so it needs the messaging
+/// registry). The closure is only called when the coach blocks *and* the stage
+/// panicked.
+///
 /// `AssertUnwindSafe` is sound because a caught panic discards the stage's
-/// result whole: `reply` is returned untouched and no verdicts are persisted,
-/// so no partially-updated state is ever observed.
-pub async fn degrade_to_unverified<F>(stage: F, reply: &str) -> ClaimVerificationOutcome
+/// result whole: nothing of the stage's own state is read afterwards and no
+/// verdicts are persisted, so no partially-updated state is ever observed.
+pub async fn degrade_to_unverified<F, B>(
+    stage: F,
+    reply: &str,
+    config: &VerificationConfig,
+    block_fallback: B,
+) -> ClaimVerificationOutcome
 where
     F: Future<Output = ClaimVerificationOutcome>,
+    B: FnOnce() -> String,
 {
     match AssertUnwindSafe(stage).catch_unwind().await {
         Ok(outcome) => outcome,
         Err(payload) => {
+            // A disabled config never blocks anything: the stage returns the
+            // reply untouched before it looks at a single claim.
+            let blocks = config.enabled && config.fallback_behavior == VerificationFallback::Block;
             tracing::error!(
                 panic = %panic_payload_str(payload.as_ref()),
-                "claim verification panicked — delivering the reply unverified rather than discarding the turn"
+                blocked = blocks,
+                "claim verification panicked — degrading per the coach's fallback behavior rather than discarding the turn"
             );
             ClaimVerificationOutcome {
-                content: reply.to_owned(),
+                content: if blocks {
+                    block_fallback()
+                } else {
+                    reply.to_owned()
+                },
                 pending_verdicts: Vec::new(),
             }
         }
@@ -338,9 +364,21 @@ where
 pub async fn apply_claim_verification(
     params: ClaimVerificationParams<'_>,
 ) -> ClaimVerificationOutcome {
-    // Copied out before `params` moves; `&str` is Copy and outlives the call.
+    // Copied out before `params` moves; every one is a shared reference, which
+    // is Copy and outlives the call.
     let reply = params.reply;
-    degrade_to_unverified(verify_and_apply(params), reply).await
+    let config = params.config;
+    let ctx = params.ctx;
+    let locale = params.locale;
+    // Rendering the block fallback costs a language detection, so it is built
+    // lazily: only a blocking coach whose stage actually panicked pays for it.
+    degrade_to_unverified(verify_and_apply(params), reply, config, || {
+        ctx.messaging_strings_registry.get(
+            KEY_VERIFICATION_BLOCK_FALLBACK,
+            &resolve_banner_locale(reply, locale),
+        )
+    })
+    .await
 }
 
 /// The claim-verification stage proper. Always entered through

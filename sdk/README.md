@@ -53,7 +53,7 @@ No manual token management required!
 
 ## Available Tools
 
-Once connected, your AI assistant can access 47 fitness tools including:
+Once connected, your AI assistant can access 100+ fitness tools including:
 - Activity retrieval and analysis
 - Goal setting and progress tracking
 - Performance trend analysis
@@ -80,120 +80,80 @@ pierre-mcp-client --server <url> [options]
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `-s, --server <url>` | Pierre MCP Server URL (required) |
-| `-t, --token <jwt>` | Pre-authenticated JWT token |
-| `--oauth-client-id <id>` | OAuth client ID for authentication |
-| `--oauth-client-secret <secret>` | OAuth client secret |
-| `--user-email <email>` | User email for password authentication |
-| `--user-password <password>` | User password |
-| `--callback-port <port>` | OAuth callback server port (default: 9876) |
+| `-s, --server <url>` | Pierre MCP Server URL (default: `PIERRE_SERVER_URL`, else `http://localhost:8081`) |
+| `-t, --token <jwt>` | Pre-authenticated JWT token (default: `PIERRE_JWT_TOKEN`) |
+| `--oauth-client-id <id>` | OAuth client ID for authentication (default: `PIERRE_OAUTH_CLIENT_ID`) |
+| `--oauth-client-secret <secret>` | OAuth client secret (default: `PIERRE_OAUTH_CLIENT_SECRET`) |
+| `--user-email <email>` | User email for password authentication (default: `PIERRE_USER_EMAIL`) |
+| `--user-password <password>` | User password (default: `PIERRE_USER_PASSWORD`) |
+| `--callback-port <port>` | OAuth callback server port (default: `PIERRE_CALLBACK_PORT`, else 35535) |
 | `--no-browser` | Disable automatic browser opening |
-| `--token-validation-timeout <ms>` | Token validation timeout |
-| `--proactive-connection-timeout <ms>` | Initial connection timeout |
-| `--tool-call-connection-timeout <ms>` | Tool call timeout |
+| `--token-validation-timeout <ms>` | Token validation timeout (default: 3000) |
+| `--proactive-connection-timeout <ms>` | Initial connection timeout (default: 5000) |
+| `--proactive-tools-list-timeout <ms>` | Initial `tools/list` timeout (default: 3000) |
+| `--tool-call-connection-timeout <ms>` | Tool-triggered connection timeout (default: 10000) |
+| `--verbose` | Print startup diagnostics to stderr |
+| `-V, --version` | Print the client version |
+| `-h, --help` | Print usage |
+
+Diagnostics and logs go to stderr; stdout carries the MCP protocol stream only.
 
 ## Type System
 
-The SDK provides comprehensive TypeScript type definitions auto-generated from the server's Rust tool registry, ensuring type safety between server and client.
+The published package ships TypeScript declarations (`dist/index.d.ts`) for the client surface, so `pierre-mcp-client` is typed when imported programmatically.
 
-### Architecture
+### Published typed surface
+
+```typescript
+import { PierreMcpClient, BridgeConfig, PierreError, PierreErrorCode } from 'pierre-mcp-client';
+
+const config: BridgeConfig = {
+  mode: 'jwt',
+  pierreServerUrl: 'http://localhost:8081',
+  jwtToken: process.env.PIERRE_JWT_TOKEN ?? ''
+};
+
+const client = new PierreMcpClient(config);
+await client.start();
+```
+
+Also exported: `PierreOAuthClientProvider` for embedding the OAuth flow, the Zod response schemas with `validateToolResponse` / `validateMcpToolResponse`, and the token storage API (`createSecureStorage`, `EncryptedFileStorage`).
+
+### Tool parameter types
+
+Parameter interfaces for the server's tools (`GetActivitiesParams`, `AnalyzeTrainingLoadParams`, ...) are auto-generated from the server's Rust tool registry into `@pierre/mcp-types`:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Rust (Server)                                                  │
-│  src/protocols/universal/tool_registry.rs                       │
-│  ToolId enum + JSON schemas                                     │
+│  crates/pierre-server/src/tools/                                │
+│  Tool registry + JSON schemas                                   │
 └─────────────────────┬───────────────────────────────────────────┘
                       │ tools/list JSON-RPC
                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  scripts/sdk/generate-sdk-types.js                               │
+│  scripts/sdk/generate-sdk-types.js                              │
 │  Fetches schemas, converts to TypeScript                        │
 └─────────────────────┬───────────────────────────────────────────┘
                       │ generates
                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  TypeScript (SDK)                                               │
-│  sdk/src/types.ts                                               │
-│  47 tool parameter interfaces                                   │
+│  TypeScript (monorepo package)                                  │
+│  packages/mcp-types/src/tools.ts                                │
+│  One interface per tool, re-exported by sdk/src/types.ts        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Generated Types
-
-Each MCP tool has a corresponding TypeScript interface:
-
-```typescript
-// Tool: get_activities
-export interface GetActivitiesParams {
-  provider: string;      // required
-  limit?: number;        // optional
-  offset?: number;       // optional
-}
-
-// Tool: analyze_training_load
-export interface AnalyzeTrainingLoadParams {
-  provider: string;
-  days?: number;
-  include_predictions?: boolean;
-}
-
-// Tool: calculate_daily_nutrition
-export interface CalculateDailyNutritionParams {
-  weight_kg: number;
-  height_cm: number;
-  age: number;
-  gender: "male" | "female";
-  activity_level: "sedentary" | "light" | "moderate" | "active" | "very_active";
-  goal: "maintenance" | "weight_loss" | "muscle_gain" | "endurance";
-}
-```
-
-### Type Categories
-
-| Category | Interfaces | Description |
-|----------|------------|-------------|
-| Core Fitness | 7 | Activities, athlete, stats, connections |
-| Goals | 4 | Goal setting, progress, feasibility |
-| Analysis | 10 | Performance, trends, patterns, predictions |
-| Sleep & Recovery | 5 | Sleep quality, recovery scores |
-| Nutrition | 5 | BMR, TDEE, macros, food search |
-| Configuration | 10 | User settings, zones, profiles |
-| OAuth | 4 | Notifications, connection status |
-
-### Benefits
-
-- **Compile-time Safety**: TypeScript catches parameter errors before runtime
-- **IDE Support**: Auto-completion and inline documentation
-- **Schema Sync**: Types always match server expectations
-- **Self-documenting**: JSDoc comments from tool descriptions
-
-### Usage Example
-
-```typescript
-import { GetActivitiesParams, AnalyzeTrainingLoadParams } from 'pierre-mcp-client';
-
-// Type-safe parameter construction
-const activityParams: GetActivitiesParams = {
-  provider: 'strava',
-  limit: 10
-};
-
-const loadParams: AnalyzeTrainingLoadParams = {
-  provider: 'strava',
-  days: 30,
-  include_predictions: true
-};
-```
+`@pierre/mcp-types` is a monorepo-internal package. Its interfaces are bundled into the published JavaScript, and they are importable when you build against this repository — they are not part of the published type surface.
 
 ## Development
 
 ### Type Generation
 
-TypeScript type definitions in `src/types.ts` are **auto-generated** from server tool schemas. Do not edit this file manually.
+TypeScript type definitions in `packages/mcp-types/src/` are **auto-generated** from server tool schemas. Do not edit those files manually; `src/types.ts` only re-exports them.
 
 **Regenerate types after**:
-- Adding new MCP tools to `src/protocols/universal/tool_registry.rs`
+- Adding new MCP tools to the server tool registry (`crates/pierre-server/src/tools/`)
 - Modifying tool parameters or schemas
 - Changing tool descriptions
 
@@ -216,10 +176,10 @@ bun run generate-types
 1. Script connects to `http://localhost:8081/mcp`
 2. Sends `tools/list` JSON-RPC request
 3. Converts JSON schemas to TypeScript interfaces
-4. Writes to `sdk/src/types.ts`
-5. Generates 47 tool parameter interfaces
+4. Writes `packages/mcp-types/src/tools.ts` and `packages/mcp-types/src/common.ts`
+5. Generates one parameter interface per registered tool
 
-**Output**: `src/types.ts` (~500 lines with full type definitions)
+**Output**: `packages/mcp-types/src/tools.ts` (tool parameters, tool-name union, parameter map) and `packages/mcp-types/src/common.ts` (shared data types)
 
 **Troubleshooting**:
 - **Server connection failed**: Ensure server is running and accessible
@@ -235,6 +195,10 @@ cd sdk
 bun install
 bun run build
 ```
+
+`bun run build` bundles `dist/*.js` with esbuild and emits the shipped `dist/*.d.ts` declarations with `tsc`.
+
+Development in this repository uses bun. The `preinstall` check that enforces it fires only when an install is started in this directory, so installing `pierre-mcp-client` as a dependency with npm, npx, yarn or pnpm is unaffected.
 
 ## Example
 

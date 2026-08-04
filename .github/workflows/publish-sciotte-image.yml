@@ -100,12 +100,28 @@ jobs:
         with:
           version: v0.70.0
 
-      - name: Scan sciotte image for vulnerabilities
-        # Run trivy directly with an explicit --ignorefile — the trivy-action
-        # wrapper did not apply the allowlist (see publish-images.yml).
+      - name: Scan sciotte image for vulnerabilities (report)
+        # Reporting pass: no allowlist, never blocks. Trivy applies --ignorefile
+        # as a result filter before it writes the report, so a SARIF from the
+        # gating run below would omit every allowlisted CVE and raise no GitHub
+        # Code Scanning alert. This pass writes the SARIF the upload step
+        # consumes, and runs first with --exit-code 0 so the file exists even
+        # when the gate fails.
         run: |
           trivy image \
             --format sarif --output trivy-sciotte.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed \
+            --scanners vuln --exit-code 0 \
+            "${{ steps.tags.outputs.registry }}/sciotte@${{ steps.build.outputs.digest }}"
+
+      - name: Scan sciotte image for vulnerabilities (gate)
+        # Gating pass over the same digest with an explicit --ignorefile — the
+        # trivy-action wrapper did not apply the allowlist (see
+        # publish-images.yml). The vulnerability DB and the analyzed image layers
+        # are already in trivy's cache from the reporting pass.
+        run: |
+          trivy image \
+            --format table \
             --severity CRITICAL,HIGH --ignore-unfixed \
             --ignorefile "${GITHUB_WORKSPACE}/platform/.trivyignore" \
             --scanners vuln --exit-code 1 \

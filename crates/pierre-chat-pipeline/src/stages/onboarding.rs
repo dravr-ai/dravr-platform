@@ -93,11 +93,20 @@ pub(super) fn calibration_conditions(
 pub enum GuidedResolution {
     /// A topic to probe this turn; the coach asks it.
     Probe(Box<OnboardingTurn>),
-    /// The calibration interview just finished. The turn answers with this
+    /// The calibration interview just finished. The turn answers with
     /// platform-rendered text instead of dispatching to the LLM — the wrap-up
     /// reports what was actually captured, which only holds if the platform
     /// writes it.
-    CalibrationComplete(String),
+    CalibrationComplete {
+        /// The wrap-up delivered in place of an LLM reply.
+        summary: String,
+        /// The topic this turn's inbound message answers — see
+        /// [`answered_target`]. Carried out of the resolver because the reply
+        /// skips the LLM but the athlete's message still has to be extracted,
+        /// and the last core topic ([`CalibrationTopic::RecoverySpeed`]) is
+        /// safety-critical.
+        answered: Option<GuidedTarget>,
+    },
     /// Not in a guided flow, or the pillars walk just ended — normal coaching.
     Inactive,
 }
@@ -117,41 +126,105 @@ pub async fn resolve(
     let Some(state) = OnboardingState::from_column(conv.onboarding_state.as_deref()) else {
         return GuidedResolution::Inactive;
     };
-    let Ok(user_id) = Uuid::parse_str(&conv.user_id) else {
+    let Some(user_id) = conversation_user_id(conv) else {
+        return GuidedResolution::Inactive;
+    };
+    let Some(dossier) = load_dossier(ctx, conv, tenant_id, user_id).await else {
         return GuidedResolution::Inactive;
     };
 
-    let Ok(dossier) = ctx.repos.dossier.compose_dossier(tenant_id, user_id).await else {
-        return GuidedResolution::Inactive;
-    };
+    if let Some(target) = next_target(&state, &dossier) {
+        return GuidedResolution::Probe(Box::new(OnboardingTurn { target, state }));
+    }
 
-    let target = match state.flow {
-        GuidedFlow::Pillars => CoverageMap::from_dossier(&dossier)
+    leave_guided_mode(ctx, conv, state, tenant_id, &dossier, locale).await
+}
+
+/// The conversation's owner, or `None` when the column does not hold a UUID.
+///
+/// Degrading here drops the athlete mid-interview into an ordinary coaching
+/// turn: no probe is asked, the directive is dropped, and their answer is
+/// extracted without the onboarding stamp — so the topic comes back around
+/// later as if it had never been asked. Silence made that indistinguishable
+/// from a walk that simply ended, hence the warn. A non-UUID here means row
+/// corruption rather than a transient fault.
+fn conversation_user_id(conv: &ConversationRecord) -> Option<Uuid> {
+    match Uuid::parse_str(&conv.user_id) {
+        Ok(user_id) => Some(user_id),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                conversation_id = %conv.id,
+                "guided flow: conversation user_id is not a UUID — running the turn as ordinary coaching"
+            );
+            None
+        }
+    }
+}
+
+/// The athlete's dossier, or `None` when it cannot be composed.
+///
+/// Degrades the turn to ordinary coaching for the reasons in
+/// [`conversation_user_id`], and warns for the same reason: a transient
+/// repository fault otherwise looks exactly like a finished walk.
+async fn load_dossier(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> Option<Dossier> {
+    match ctx.repos.dossier.compose_dossier(tenant_id, user_id).await {
+        Ok(dossier) => Some(dossier),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                conversation_id = %conv.id,
+                "guided flow: could not compose the dossier — running the turn as ordinary coaching"
+            );
+            None
+        }
+    }
+}
+
+/// The next topic to probe, or `None` when the flow has nothing left to ask.
+fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarget> {
+    match state.flow {
+        GuidedFlow::Pillars => CoverageMap::from_dossier(dossier)
             .next_target(&state.probed)
             .map(GuidedTarget::Coverage),
         GuidedFlow::Calibration => CalibrationTopic::next_target(
             &state.probed,
-            calibration_conditions(&dossier, state.snapshot.as_ref()),
+            calibration_conditions(dossier, state.snapshot.as_ref()),
         )
         .map(GuidedTarget::Calibration),
-    };
-
-    if let Some(target) = target {
-        return GuidedResolution::Probe(Box::new(OnboardingTurn { target, state }));
     }
+}
 
-    // Nothing left to ask — leave guided mode. For the pillars walk that means
-    // every topic is covered or burned its probe budget; for calibration it
-    // means every topic on this athlete's list was delivered.
-    //
+/// End the walk: render any wrap-up, retire the marker, and leave guided mode.
+///
+/// For the pillars walk "nothing left to ask" means every topic is covered or
+/// burned its probe budget; for calibration it means every topic on this
+/// athlete's list was delivered.
+async fn leave_guided_mode(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    state: OnboardingState,
+    tenant_id: TenantId,
+    dossier: &Dossier,
+    locale: Option<&str>,
+) -> GuidedResolution {
     // The completion summary is rendered BEFORE the marker is retired, so a
     // failed write does not also cost the athlete their wrap-up.
     let summary = match state.flow {
         GuidedFlow::Calibration => {
-            Some(completion::render(ctx, conv, &state, tenant_id, &dossier, locale).await)
+            Some(completion::render(ctx, conv, &state, tenant_id, dossier, locale).await)
         }
         GuidedFlow::Pillars => None,
     };
+    // Read before the state is consumed by `completed`: this turn carries the
+    // athlete's answer to the interview's last question, and the deterministic
+    // reply path still has to extract it.
+    let answered = answered_target(&state);
 
     // The row is retired rather than deleted: it becomes an inactive,
     // timestamped marker that lets exactly one later turn know the interview
@@ -176,10 +249,36 @@ pub async fn resolve(
         tracing::warn!(error = %e, "failed to retire completed onboarding_state");
     }
 
-    summary.map_or(
-        GuidedResolution::Inactive,
-        GuidedResolution::CalibrationComplete,
-    )
+    summary.map_or(GuidedResolution::Inactive, |summary| {
+        GuidedResolution::CalibrationComplete { summary, answered }
+    })
+}
+
+/// The topic the athlete's inbound message is answering.
+///
+/// A probe is recorded as delivered at the END of the turn that asks it, so by
+/// the time the next turn loads this state its last ledger entry is the
+/// question the athlete just replied to. [`OnboardingTurn::target`] is the
+/// question this turn is about to ask, which is a different topic — stamping
+/// the answer with it mis-files every guided answer by one. On the calibration
+/// walk, where every topic forces a kind, that stored the availability answer
+/// as [`FactKind::Injury`] and the injury answer as [`FactKind::Preference`]:
+/// the dossier then hands the coach an "injury" fact reading "8 h/week,
+/// Tuesdays protected", and `completion::assess` — which detects a missing
+/// safety answer by its kind — reports a full house and names no gap.
+///
+/// `None` on the first guided turn, whose inbound message answers no probe, and
+/// for a slug this build does not recognize (one written by a later build).
+#[must_use]
+pub fn answered_target(state: &OnboardingState) -> Option<GuidedTarget> {
+    let slug = state.probed.last()?.as_str();
+    if let Some(topic) = CalibrationTopic::parse(slug) {
+        return Some(GuidedTarget::Calibration(topic));
+    }
+    if slug == CoverageTarget::NorthStar.slug().as_str() {
+        return Some(GuidedTarget::Coverage(CoverageTarget::NorthStar));
+    }
+    Pillar::parse(slug).map(|p| GuidedTarget::Coverage(CoverageTarget::Pillar(p)))
 }
 
 /// Record that this turn's probe question reached the athlete, so the next turn
@@ -190,6 +289,14 @@ pub async fn resolve(
 /// question. A false positive is self-correcting rather than lossy: the topic
 /// stays uncovered, so it comes back around on the next sweep with an attempt
 /// still in hand.
+///
+/// The write is a compare-and-set against the column as it stood at the start of
+/// this turn. `turn.state` is a snapshot taken then, and an LLM turn runs for
+/// tens of seconds while slash commands are handled synchronously in the webhook
+/// path, outside the dispatch lock: an athlete who types `/calibrate` mid-turn
+/// gets a fresh Calibration state written under this turn, and a blind write-back
+/// would overwrite it with the stale pillars snapshot — silently reverting the
+/// interview they just started and losing its load snapshot.
 pub async fn record_delivered_probe(
     ctx: &ChatPipelineContext,
     conv: &ConversationRecord,
@@ -204,13 +311,23 @@ pub async fn record_delivered_probe(
             return;
         }
     };
-    if let Err(e) = ctx
+    match ctx
         .repos
         .chat
-        .set_conversation_onboarding_state(&conv.id, Some(&column), tenant_id)
+        .compare_and_set_conversation_onboarding_state(
+            &conv.id,
+            conv.onboarding_state.as_deref(),
+            Some(&column),
+            tenant_id,
+        )
         .await
     {
-        tracing::warn!(error = %e, "failed to persist onboarding probe history");
+        Ok(true) => {}
+        Ok(false) => tracing::info!(
+            conversation_id = %conv.id,
+            "a newer guided flow owns this conversation; not appending the delivered probe"
+        ),
+        Err(e) => tracing::warn!(error = %e, "failed to persist onboarding probe history"),
     }
 }
 
@@ -252,18 +369,33 @@ pub fn release_directive() -> String {
 /// [`OnboardingState::just_completed`] bounds that to
 /// [`COMPLETION_RELEASE_WINDOW_MINUTES`] anyway, so a failed clear costs a
 /// repeat of the directive rather than a permanent one.
+///
+/// Cleared by compare-and-set against the marker this turn read, for the same
+/// reason [`record_delivered_probe`] appends by compare-and-set: an athlete who
+/// starts an interview mid-turn owns the column by the time this runs, and a
+/// blind clear would delete the flow they just started.
 pub async fn clear_completed_marker(
     ctx: &ChatPipelineContext,
     conv: &ConversationRecord,
     tenant_id: TenantId,
 ) {
-    if let Err(e) = ctx
+    match ctx
         .repos
         .chat
-        .set_conversation_onboarding_state(&conv.id, None, tenant_id)
+        .compare_and_set_conversation_onboarding_state(
+            &conv.id,
+            conv.onboarding_state.as_deref(),
+            None,
+            tenant_id,
+        )
         .await
     {
-        tracing::warn!(error = %e, "failed to clear the completed-interview marker");
+        Ok(true) => {}
+        Ok(false) => tracing::info!(
+            conversation_id = %conv.id,
+            "a newer guided flow owns this conversation; leaving the completed-interview marker alone"
+        ),
+        Err(e) => tracing::warn!(error = %e, "failed to clear the completed-interview marker"),
     }
 }
 
@@ -361,13 +493,17 @@ fn calibration_baseline_line(turn: &OnboardingTurn) -> String {
 
 /// Fact-stamping parameters for the extraction worker.
 ///
+/// Takes the topic the inbound message ANSWERS — [`answered_target`] — not the
+/// one this turn is about to ask. Extraction reads the athlete's message, which
+/// replies to the question the previous turn delivered.
+///
 /// Returns which pillar to tag, the provenance, and an optional forced kind
 /// (North Star answers are stored as `FactKind::NorthStar` regardless of how
 /// the extractor labels them; every calibration topic forces the kind its
 /// answer means, so an injury answer can never be filed as a preference).
 #[must_use]
-pub fn extraction_params(turn: &OnboardingTurn) -> (Option<Pillar>, FactSource, Option<FactKind>) {
-    match turn.target {
+pub fn extraction_params(answered: GuidedTarget) -> (Option<Pillar>, FactSource, Option<FactKind>) {
+    match answered {
         GuidedTarget::Coverage(CoverageTarget::NorthStar) => {
             (None, FactSource::Onboarding, Some(FactKind::NorthStar))
         }
@@ -382,11 +518,17 @@ pub fn extraction_params(turn: &OnboardingTurn) -> (Option<Pillar>, FactSource, 
     }
 }
 
-/// Extraction stamping for a turn: the onboarding params when onboarding is
-/// active, else the background-worker defaults (no pillar, conversation source).
+/// Extraction stamping for a turn: the onboarding params when the inbound
+/// message answers a guided probe, else the background-worker defaults (no
+/// pillar, conversation source).
+///
+/// The defaults also cover the first turn of a guided flow, whose message
+/// answers no probe: it arrived before any question was asked, so stamping it
+/// with a topic would file whatever the athlete happened to open with as that
+/// topic's answer.
 #[must_use]
 pub fn extraction_params_or_default(
-    turn: Option<&OnboardingTurn>,
+    answered: Option<GuidedTarget>,
 ) -> (Option<Pillar>, FactSource, Option<FactKind>) {
-    turn.map_or((None, FactSource::Conversation, None), extraction_params)
+    answered.map_or((None, FactSource::Conversation, None), extraction_params)
 }

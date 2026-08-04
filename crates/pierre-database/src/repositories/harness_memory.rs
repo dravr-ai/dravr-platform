@@ -161,6 +161,20 @@ pub trait HarnessMemoryRepository: Send + Sync {
         limit: i64,
     ) -> AppResult<Vec<pierre_memory::UserFact>>;
 
+    /// Fetch one fact by id, scoped to the tenant and user that own it.
+    ///
+    /// Answers the ownership question an LLM-supplied fact id raises ("is this
+    /// really this athlete's fact, and what kind is it?") as a point lookup.
+    /// [`list_user_facts`](Self::list_user_facts) cannot answer it: it is
+    /// capped, so a legitimate fact ranked below the cap reads as foreign and
+    /// is silently discarded. `None` when no row matches all three keys.
+    async fn get_user_fact(
+        &self,
+        fact_id: &str,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<Option<pierre_memory::UserFact>>;
+
     /// Delete a fact by id for GDPR-style "forget" flows.
     async fn delete_user_fact(
         &self,

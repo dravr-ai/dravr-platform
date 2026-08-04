@@ -61,6 +61,16 @@ pub struct DispatchRequest<'a> {
     /// group from `list_groups_for_user` (which is non-deterministic
     /// when a user belongs to several groups).
     pub conversation_id: Option<&'a str>,
+    /// Tenant that owns [`Self::conversation_id`]'s `chat_conversations` row.
+    ///
+    /// Separate from [`Self::tenant_id`] because the two differ on every
+    /// shared-bot group chat: the caller's own tenant scopes their user data,
+    /// while the session, conversation and messages of a non-DM room live under
+    /// the channel/bot tenant so all members read one conversation. Callers set
+    /// this to the same value their own conversation reads and writes use — for
+    /// a 1:1 DM (and for web/mobile, which are per-user by construction) that is
+    /// the caller's tenant.
+    pub conversation_tenant_id: TenantId,
     /// Channel sender identifier (e.g. Telegram chat id, Slack user id) for
     /// messaging surfaces; `None` on web/mobile and synthetic dispatch where
     /// there is no channel link. Used by `/logout` to unlink the exact
@@ -161,6 +171,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         locale: req.locale.to_owned(),
         is_direct_message: req.is_direct_message,
         conversation_id: req.conversation_id.map(ToOwned::to_owned),
+        conversation_tenant_id: req.conversation_tenant_id,
         sender_id: req.sender_id.map(ToOwned::to_owned),
     };
 

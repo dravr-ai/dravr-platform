@@ -22,6 +22,19 @@ use std::collections::HashMap;
 use tracing::warn;
 use uuid::Uuid;
 
+/// Column list shared by every read that maps a full [`User`], so the SELECT and the
+/// mapping can only ever move together.
+///
+/// Postgres keeps its own list rather than sharing the `SQLite` one: this tier still
+/// stores `tenant_id` on the row and orders the columns differently. The status
+/// listings below select a narrower set (no persona/roster/timezone, `user_status`
+/// through `COALESCE`) and are deliberately not expressed through this const.
+const USER_COLUMNS: &str =
+    "id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, \
+     role, user_status, approved_by, approved_at, created_at, last_active, \
+     firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, \
+     default_coach_id, coaching_persona, manages_roster, timezone";
+
 #[async_trait]
 impl UserRepository for PostgresDatabase {
     async fn create(&self, user: &User) -> AppResult<Uuid> {
@@ -132,20 +145,12 @@ impl UserRepository for PostgresDatabase {
     }
 
     async fn get_global(&self, user_id: Uuid) -> AppResult<Option<User>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
-                   role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster, timezone
-            FROM users
-            WHERE id = $1
-            ",
-        )
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user by ID: {e}")))?;
+        let query = format!("SELECT {USER_COLUMNS} FROM users WHERE id = $1");
+        let row = sqlx::query(&query)
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get user by ID: {e}")))?;
 
         row.map_or_else(
             || Ok(None),
@@ -204,20 +209,12 @@ impl UserRepository for PostgresDatabase {
             return Ok(HashMap::new());
         }
 
-        let rows = sqlx::query(
-            r"
-            SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
-                   role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster, timezone
-            FROM users
-            WHERE id = ANY($1)
-            ",
-        )
-        .bind(user_ids)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to batch-get users: {e}")))?;
+        let query = format!("SELECT {USER_COLUMNS} FROM users WHERE id = ANY($1)");
+        let rows = sqlx::query(&query)
+            .bind(user_ids)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to batch-get users: {e}")))?;
 
         let mut users = HashMap::with_capacity(rows.len());
         for row in &rows {
@@ -228,20 +225,12 @@ impl UserRepository for PostgresDatabase {
     }
 
     async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
-                   role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster, timezone
-            FROM users
-            WHERE email = $1
-            ",
-        )
-        .bind(email)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user by email: {e}")))?;
+        let query = format!("SELECT {USER_COLUMNS} FROM users WHERE email = $1");
+        let row = sqlx::query(&query)
+            .bind(email)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get user by email: {e}")))?;
 
         row.map_or_else(
             || Ok(None),
@@ -302,21 +291,14 @@ impl UserRepository for PostgresDatabase {
     }
 
     async fn get_first_admin_user(&self) -> AppResult<Option<User>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
-                   role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster, timezone
-            FROM users
-            WHERE is_admin = true
-            ORDER BY created_at ASC
-            LIMIT 1
-            ",
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get first admin user: {e}")))?;
+        let query = format!(
+            "SELECT {USER_COLUMNS} FROM users \
+             WHERE is_admin = true ORDER BY created_at ASC LIMIT 1"
+        );
+        let row = sqlx::query(&query)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get first admin user: {e}")))?;
 
         row.map_or_else(
             || Ok(None),
@@ -371,20 +353,12 @@ impl UserRepository for PostgresDatabase {
     }
 
     async fn get_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
-                   role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster, timezone
-            FROM users
-            WHERE firebase_uid = $1
-            ",
-        )
-        .bind(firebase_uid)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user by firebase_uid: {e}")))?;
+        let query = format!("SELECT {USER_COLUMNS} FROM users WHERE firebase_uid = $1");
+        let row = sqlx::query(&query)
+            .bind(firebase_uid)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get user by firebase_uid: {e}")))?;
 
         row.map_or_else(
             || Ok(None),

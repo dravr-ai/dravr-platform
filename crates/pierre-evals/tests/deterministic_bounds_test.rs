@@ -140,6 +140,59 @@ fn a_length_changing_lowercase_does_not_shift_the_window() {
     );
 }
 
+/// The hydration gate and the keyword scan must read the same lowercased text.
+///
+/// `check` lowercases the claim once and every probe below it works from that
+/// copy. A probe reading the raw text instead sees "WATER" and "L/HOUR" in
+/// their original case, matches neither, and waves through a dose that risks
+/// hyponatremia — the failure is silent, since a missed gate looks exactly
+/// like a claim that never mentioned water.
+#[test]
+fn a_shouted_hydration_claim_still_reaches_its_bound() {
+    let v = check(&claim(
+        "Drink 10 L/Hour of WATER during the race.",
+        ClaimCategory::Nutrition,
+    ))
+    .expect("10 L/hour is above the 4 L/hour hydration bound");
+    assert!(
+        v.reason.contains("10"),
+        "expected the claimed rate in the reason, got {}",
+        v.reason
+    );
+}
+
+/// Same domain requirement for the creatine gate, which guards its own set of
+/// dose keywords behind a `contains` on the claim text.
+#[test]
+fn a_shouted_creatine_claim_still_reaches_its_bound() {
+    let v = check(&claim(
+        "Take 200 G/Day of CREATINE.",
+        ClaimCategory::Supplement,
+    ))
+    .expect("200 g/day of creatine is far above any protocol");
+    assert!(
+        v.reason.contains("200"),
+        "expected the claimed dose in the reason, got {}",
+        v.reason
+    );
+}
+
+/// Same domain requirement for the caffeine gate, the second of the two
+/// independent gates inside the supplement check.
+#[test]
+fn a_shouted_caffeine_claim_still_reaches_its_bound() {
+    let v = check(&claim(
+        "Take 30 MG/KG of CAFFEINE pre-race.",
+        ClaimCategory::Supplement,
+    ))
+    .expect("30 mg/kg of caffeine is beyond the safe ergogenic dose");
+    assert!(
+        v.reason.contains("30"),
+        "expected the claimed dose in the reason, got {}",
+        v.reason
+    );
+}
+
 #[test]
 fn flags_absurd_protein_intake() {
     let v = check(&claim(

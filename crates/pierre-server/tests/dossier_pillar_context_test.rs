@@ -7,6 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::collections::HashMap;
+use std::fmt::Debug as FmtDebug;
+use std::sync::{Arc, Mutex};
+
 use anyhow::Result;
 #[cfg(feature = "postgresql")]
 use pierre_config::environment::PostgresPoolConfig;
@@ -17,7 +21,83 @@ use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
 use pierre_services::okf::render_okf_bundle_default;
+use tracing::field::{Field, Visit};
+use tracing::subscriber::DefaultGuard;
+use tracing::Subscriber;
+use tracing_subscriber::layer::{Context, SubscriberExt};
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 use uuid::Uuid;
+
+#[derive(Clone, Debug)]
+struct CapturedEvent {
+    level: tracing::Level,
+    message: String,
+    fields: HashMap<String, String>,
+}
+
+impl CapturedEvent {
+    fn field(&self, name: &str) -> Option<&str> {
+        self.fields.get(name).map(String::as_str)
+    }
+}
+
+#[derive(Clone, Default)]
+struct CaptureLayer {
+    events: Arc<Mutex<Vec<CapturedEvent>>>,
+}
+
+impl CaptureLayer {
+    fn events(&self) -> Arc<Mutex<Vec<CapturedEvent>>> {
+        Arc::clone(&self.events)
+    }
+}
+
+/// Records every field of an event as a string so the test can assert both the
+/// message and the structured `user_id` / `fact_kind` context.
+#[derive(Default)]
+struct FieldVisitor {
+    message: String,
+    fields: HashMap<String, String>,
+}
+
+impl Visit for FieldVisitor {
+    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
+        let rendered = format!("{value:?}");
+        if field.name() == "message" {
+            self.message.clone_from(&rendered);
+        }
+        self.fields.insert(field.name().to_owned(), rendered);
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.fields
+            .insert(field.name().to_owned(), value.to_owned());
+    }
+}
+
+impl<S> Layer<S> for CaptureLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+        let mut visitor = FieldVisitor::default();
+        event.record(&mut visitor);
+        self.events.lock().unwrap().push(CapturedEvent {
+            level: *event.metadata().level(),
+            message: visitor.message,
+            fields: visitor.fields,
+        });
+    }
+}
+
+fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
+    let capture = CaptureLayer::default();
+    let events = capture.events();
+    let guard = tracing_subscriber::registry().with(capture).set_default();
+    (events, guard)
+}
 
 async fn open_in_memory_db() -> Result<Database> {
     let encryption_key = generate_encryption_key().to_vec();
@@ -205,6 +285,83 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
             .get(&Pillar::SleepAndRecovery)
             .map(Vec::len),
         Some(1)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()> {
+    // A fact read that fails at the repository (a bind/decode fault or a
+    // missing relation) must not be swallowed: the dossier still renders on
+    // the surviving data, but each failed read leaves a WARN naming the error
+    // and the user, the same way the neighbouring `get_profile` degrade does.
+    // Silently returning an empty vec strips medical flags and every
+    // interview answer from the coach's context with no operator signal.
+    let db = open_in_memory_db().await?;
+    let tenant = TenantId::from(Uuid::new_v4());
+    let user = Uuid::new_v4();
+    let user_s = user.to_string();
+
+    // Take the fact table away so every fact read in compose_dossier fails.
+    let pool = match &db {
+        Database::SQLite(sqlite) => sqlite.pool(),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(_) => panic!("test expects the SQLite backend"),
+    };
+    sqlx::query("DROP TABLE user_facts").execute(pool).await?;
+
+    let repos = db.repositories();
+    let (events, _guard) = setup_capture();
+    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+
+    // Degradation is preserved: the dossier still composes, minus the facts.
+    assert!(dossier.pillars.is_empty());
+    assert!(dossier.medical.is_empty());
+    assert!(dossier.north_star.is_empty());
+    assert_eq!(dossier.user_id, user);
+
+    let warns: Vec<CapturedEvent> = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|e| e.level == tracing::Level::WARN && e.message.contains("fact read failed"))
+        .cloned()
+        .collect();
+
+    // One per read: the recency window, Medical, NorthStar, and by-source.
+    assert_eq!(
+        warns.len(),
+        4,
+        "every failed fact read warns, got: {warns:?}"
+    );
+    for warn in &warns {
+        assert_eq!(
+            warn.field("user_id"),
+            Some(user_s.as_str()),
+            "warn names the affected user"
+        );
+        let error = warn.field("error").unwrap_or_default();
+        assert!(
+            error.contains("user_facts"),
+            "warn carries the repository error, got {error:?}"
+        );
+    }
+
+    let mut kinds: Vec<&str> = warns.iter().filter_map(|w| w.field("fact_kind")).collect();
+    kinds.sort_unstable();
+    assert_eq!(
+        kinds,
+        vec!["medical", "north_star"],
+        "the by-kind safety guarantee names which kind was lost"
+    );
+    assert_eq!(
+        warns
+            .iter()
+            .filter_map(|w| w.field("fact_source"))
+            .collect::<Vec<_>>(),
+        vec!["onboarding"],
+        "the by-source guarantee names the interview source"
     );
 
     Ok(())

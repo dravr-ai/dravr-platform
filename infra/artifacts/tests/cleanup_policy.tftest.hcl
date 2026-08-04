@@ -94,10 +94,30 @@ run "release_tags_are_kept" {
   }
 }
 
-# The recent-versions floor guarantees the live image + one rollback survive
-# even a quiet week with no merges (when the age rule would otherwise reap them).
-# tfvars pins it to 2 for cost — guard against a revert to a large window that
-# would let the registry grow again.
+# The digest each environment is serving is tagged deployed-<env> by the deploy
+# workflow (publish-images.yml, job tag-deployed-dev). That prefix must stay in
+# the keep guard: dev deploys by digest and never carries a semver tag, so
+# dropping it would leave the serving image protected by nothing but its position
+# in the recent-versions window — which a handful of merges erases.
+run "deployed_digest_tags_are_kept" {
+  command = plan
+
+  assert {
+    condition = anytrue([
+      for p in google_artifact_registry_repository.images.cleanup_policies :
+      p.action == "KEEP" && contains(p.condition[0].tag_prefixes, "deployed-")
+      if p.id == "keep-release-tags"
+    ])
+    error_message = "keep-release-tags must KEEP the deployed-<env> tag the deploy workflow applies to the serving digest"
+  }
+}
+
+# The recent-versions floor keeps the two newest versions of each package through
+# a quiet week with no merges, when the age rule would otherwise reap the whole
+# package. It is a build-count window, not a statement about what any environment
+# is running — deployed_digest_tags_are_kept above covers that. tfvars pins it to
+# 2 for cost — guard against a revert to a large window that would let the
+# registry grow again.
 run "recent_versions_keep_count_is_two" {
   command = plan
 

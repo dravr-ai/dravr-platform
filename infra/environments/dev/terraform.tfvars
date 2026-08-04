@@ -46,7 +46,8 @@ backend_max_instances = 3
 # SINGLETON shared across all turns (built once, kept warm), and the ACP transport
 # mutex already serializes LLM turns onto it — so concurrent chat turns per pod are
 # capped by that mutex, NOT by this setting. Headless Chrome only spawns on a
-# cold-cache sciotte scrape and is capped by backend_sciotte_max_concurrent below.
+# cold-cache sciotte scrape, and admission control for that lives in the
+# dedicated dravr-sciotte service (ADR-021 Phase 4), not in this pod.
 # concurrency=1 was pure harm: it forced one pod per request, so a single user's
 # ~13-request parallel dashboard load cold-started ~13 pods (a herd) that then
 # exhausted the Postgres connection slots (rev 00679, 2026-07-10 incident).
@@ -62,15 +63,6 @@ backend_max_instances = 3
 # zero slots. Raising max_instances or the pool requires a bigger DB tier first;
 # raising concurrency is free (pool-bounded).
 backend_max_instance_request_concurrency = 80
-# 2 (was 1): one in-flight login legitimately holds a Chrome slot for the full
-# DRAVR_SCIOTTE_LOGIN_TIMEOUT (240s, sized for number-match 2FA phone-tap), so at
-# a single slot one user's 2FA wait shed a 503 on every other sciotte op on the
-# pod (rev 00687, 2026-07-11). Two slots ≈ 500Mi of the 2Gi budget (~4-Chrome
-# headroom, see backend_memory), halving in-pod starvation. Chrome count is
-# capped here independently of the 80 HTTP-request concurrency above (see the
-# block comment) — the "must match request concurrency" note in variables.tf
-# predates the one-user-one-pod model and no longer holds (80 != 1).
-backend_sciotte_max_concurrent = 2
 
 # database_tier                = "db-f1-micro"
 # database_deletion_protection = false

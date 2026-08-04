@@ -414,6 +414,28 @@ impl HarnessMemoryRepository for PostgresDatabase {
         rows.iter().map(row_to_user_fact).collect()
     }
 
+    async fn get_user_fact(
+        &self,
+        fact_id: &str,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<Option<UserFact>> {
+        let row = sqlx::query(
+            r"
+            SELECT * FROM user_facts
+            WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+            ",
+        )
+        .bind(fact_id)
+        .bind(tenant_id.to_string())
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get user fact: {e}")))?;
+
+        row.as_ref().map(row_to_user_fact).transpose()
+    }
+
     async fn delete_user_fact(
         &self,
         fact_id: &str,

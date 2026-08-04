@@ -83,7 +83,10 @@ pub struct WeekSelection<'a> {
 /// selection used to live inline in this renderer's loop, which is exactly how a
 /// second caller would have grown a parallel derivation.
 ///
-/// A week whose `week_start` does not parse is skipped rather than guessed at.
+/// A week whose `week_start` does not parse is skipped rather than guessed at,
+/// and so is one whose start sits close enough to `NaiveDate::MAX` that the
+/// week cannot be closed — `parse_plan_date` is a format check, so a stored
+/// `+262142-12-31` reaches here intact and `+ 6 days` would leave the calendar.
 #[must_use]
 pub fn select_active_weeks<'a>(
     weeks: &'a [PlanWeek],
@@ -96,7 +99,9 @@ pub fn select_active_weeks<'a>(
         let Some(start) = parse_plan_date(&week.week_start) else {
             continue;
         };
-        let end = start + chrono::Days::new(6);
+        let Some(end) = start.checked_add_days(chrono::Days::new(6)) else {
+            continue;
+        };
         if end < today {
             continue; // past weeks are done — nothing to show
         }
@@ -191,10 +196,7 @@ pub fn render_training_plan_block(
             sanitize_prompt_field(&race.name, MAX_FIELD_LEN),
             sanitize_prompt_field(&race.discipline, MAX_FIELD_LEN),
             race.date,
-            serde_json::to_value(race.priority)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_owned))
-                .unwrap_or_default()
+            race.priority.as_str()
         );
     }
     let _ = writeln!(
@@ -212,10 +214,7 @@ pub fn render_training_plan_block(
         let _ = writeln!(
             out,
             "- {marker}{} × {}wk from {}{hours}: {}",
-            serde_json::to_value(block.phase)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_owned))
-                .unwrap_or_default(),
+            block.phase.as_str(),
             block.weeks,
             block.start,
             sanitize_prompt_field(&block.intent, MAX_FIELD_LEN)
@@ -281,11 +280,17 @@ pub fn render_training_plan_block(
 
 /// Progress marker (`[done]`, `[current]`, or empty) for a block relative
 /// to today.
+///
+/// An unparseable start carries no marker, and neither does one whose block
+/// cannot be closed inside the calendar (`parse_plan_date` only checks format,
+/// so a stored `+262142-01-01` with 255 weeks runs past `NaiveDate::MAX`).
 fn block_marker(start: &str, weeks: u8, today: NaiveDate) -> &'static str {
     let Some(start) = parse_plan_date(start) else {
         return "";
     };
-    let end = start + chrono::Days::new(u64::from(weeks) * 7);
+    let Some(end) = start.checked_add_days(chrono::Days::new(u64::from(weeks) * 7)) else {
+        return "";
+    };
     if end <= today {
         "[done] "
     } else if start <= today {
@@ -327,7 +332,7 @@ pub async fn plan_goal_is_stale(
 
 #[cfg(test)]
 mod tests {
-    use super::render_training_plan_block;
+    use super::{parse_plan_date, render_training_plan_block};
     use chrono::NaiveDate;
     use pierre_memory::training_plans::{
         BlockPhase, GoalRace, PlanBlock, PlanStatus, PlanWeek, PlannedDay, RacePriority,
@@ -476,6 +481,86 @@ mod tests {
             !block.contains("`code`") && block.contains("Header 'code'"),
             "injected backticks must be defanged"
         );
+    }
+
+    /// `parse_plan_date` only checks the `YYYY-MM-DD` shape, and chrono's `%Y`
+    /// round-trips a signed five/six-digit year, so `NaiveDate::MAX`
+    /// (`+262142-12-31`) survives a save and reaches this renderer — which runs
+    /// during prompt assembly on every turn. Closing that week needs six more
+    /// days than the calendar has.
+    #[test]
+    fn week_at_the_calendar_edge_is_skipped_not_panicked() {
+        assert_eq!(
+            parse_plan_date("+262142-12-31"),
+            Some(NaiveDate::MAX),
+            "the fixture must be a date the save path actually accepts"
+        );
+        let weeks = vec![
+            week("+262142-12-31", "edge of the calendar"),
+            week("2026-07-13", "volume"),
+        ];
+        let block =
+            render_training_plan_block(&plan(), &weeks, d("2026-07-14")).unwrap_or_default();
+        assert!(
+            block.contains("This week (starting 2026-07-13) — focus: volume"),
+            "the real week must still render: {block}"
+        );
+        assert!(
+            !block.contains("edge of the calendar"),
+            "an unclosable week must be skipped, not rendered: {block}"
+        );
+    }
+
+    /// Same root cause on the outline side: `weeks` is a `u8`, so a stored
+    /// block can claim 255 weeks from a date near `NaiveDate::MAX`.
+    #[test]
+    fn block_past_the_calendar_edge_renders_without_a_marker() {
+        let mut p = plan();
+        p.blocks = vec![PlanBlock {
+            phase: BlockPhase::Base,
+            start: "+262142-01-01".to_owned(),
+            weeks: 255,
+            intent: "far side of the calendar".to_owned(),
+            target_hours: None,
+        }];
+        let block = render_training_plan_block(&p, &[], d("2026-07-14")).unwrap_or_default();
+        assert!(
+            block.contains("- base × 255wk from +262142-01-01: far side of the calendar"),
+            "block must render, unmarked: {block}"
+        );
+        assert!(
+            !block.contains("[done]") && !block.contains("[current]"),
+            "a block that ends off-calendar cannot be placed against today: {block}"
+        );
+    }
+
+    /// The phase and priority labels come from `as_str`; these are the strings
+    /// the coach reads, so they are asserted as text rather than trusted to a
+    /// serialization round-trip.
+    #[test]
+    fn phase_and_priority_render_their_serde_labels() {
+        let mut p = plan();
+        p.races = vec![GoalRace {
+            name: "Tune-up TT".to_owned(),
+            date: "2026-07-25".to_owned(),
+            discipline: "road".to_owned(),
+            priority: RacePriority::B,
+        }];
+        p.blocks.push(PlanBlock {
+            phase: BlockPhase::Rest,
+            start: "2026-08-10".to_owned(),
+            weeks: 1,
+            intent: "post-race reset".to_owned(),
+            target_hours: None,
+        });
+        let block = render_training_plan_block(&p, &[], d("2026-07-14")).unwrap_or_default();
+        assert!(
+            block.contains("Also on the calendar: Tune-up TT (road) on 2026-07-25 [B priority]"),
+            "secondary race must carry its priority letter: {block}"
+        );
+        assert!(block.contains("build × 3wk"), "build phase label: {block}");
+        assert!(block.contains("taper × 1wk"), "taper phase label: {block}");
+        assert!(block.contains("rest × 1wk"), "rest phase label: {block}");
     }
 
     #[test]

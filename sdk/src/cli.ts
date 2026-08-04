@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
@@ -17,23 +17,31 @@
 
 import { Command } from 'commander';
 import { PierreMcpClient, BridgeConfig } from './bridge';
+import { version as packageVersion } from '../package.json';
 
-// DEBUG: Log environment at startup (stderr only - stdout is for MCP protocol)
-console.error('[DEBUG] Bridge CLI starting...');
-console.error('[DEBUG] CI environment variables:');
-console.error(`  process.env.CI = ${process.env.CI}`);
-console.error(`  process.env.GITHUB_ACTIONS = ${process.env.GITHUB_ACTIONS}`);
-console.error(`  process.env.NODE_ENV = ${process.env.NODE_ENV}`);
-console.error('[DEBUG] Auth environment variables:');
-console.error(`  PIERRE_JWT_TOKEN = ${process.env.PIERRE_JWT_TOKEN ? '[SET]' : '[NOT SET]'}`);
-console.error(`  PIERRE_SERVER_URL = ${process.env.PIERRE_SERVER_URL || '[NOT SET]'}`);
+/**
+ * Startup diagnostics for troubleshooting a launch.
+ *
+ * Written to stderr because stdout carries the MCP protocol stream, and printed only
+ * under --verbose so that a normal MCP host launch leaves the host log clean.
+ * Credential values are never printed, only whether they are present.
+ */
+const logStartupDiagnostics = (serverUrl: string, callbackPort: string): void => {
+  console.error(`pierre-mcp-client ${packageVersion} starting`);
+  console.error(`  server URL = ${serverUrl}`);
+  console.error(`  callback port = ${callbackPort}`);
+  console.error(`  PIERRE_SERVER_URL = ${process.env.PIERRE_SERVER_URL || '[NOT SET]'}`);
+  console.error(`  PIERRE_JWT_TOKEN = ${process.env.PIERRE_JWT_TOKEN ? '[SET]' : '[NOT SET]'}`);
+  console.error(`  NODE_ENV = ${process.env.NODE_ENV || '[NOT SET]'}`);
+  console.error(`  CI = ${process.env.CI || '[NOT SET]'}`);
+};
 
 const program = new Command();
 
 program
   .name('pierre-mcp-client')
   .description('MCP client connecting to Pierre Fitness MCP Server')
-  .version('1.0.0')
+  .version(packageVersion)
   .option('-s, --server <url>', 'Pierre MCP server URL', process.env.PIERRE_SERVER_URL || 'http://localhost:8081')
   .option('-t, --token <jwt>', 'JWT authentication token', process.env.PIERRE_JWT_TOKEN)
   .option('--oauth-client-id <id>', 'OAuth 2.0 client ID', process.env.PIERRE_OAUTH_CLIENT_ID)
@@ -46,8 +54,13 @@ program
   .option('--proactive-connection-timeout <ms>', 'Proactive connection timeout in milliseconds (default: 5000)', process.env.PIERRE_PROACTIVE_CONNECTION_TIMEOUT_MS || '5000')
   .option('--proactive-tools-list-timeout <ms>', 'Proactive tools list timeout in milliseconds (default: 3000)', process.env.PIERRE_PROACTIVE_TOOLS_LIST_TIMEOUT_MS || '3000')
   .option('--tool-call-connection-timeout <ms>', 'Tool-triggered connection timeout in milliseconds (default: 10000)', process.env.PIERRE_TOOL_CALL_CONNECTION_TIMEOUT_MS || '10000')
+  .option('--verbose', 'Print startup diagnostics to stderr')
   .action(async (options) => {
     try {
+      if (options.verbose) {
+        logStartupDiagnostics(options.server, options.callbackPort);
+      }
+
       // Shared configuration across all auth modes
       const baseConfig = {
         pierreServerUrl: options.server,

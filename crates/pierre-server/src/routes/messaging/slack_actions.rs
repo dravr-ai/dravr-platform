@@ -12,7 +12,6 @@ use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
-use pierre_core::http_client::api_client;
 use pierre_core::models::TenantId;
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -25,8 +24,10 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserStatus;
 use pierre_services::tenant_admin as tenant_admin_service;
 
-/// Slack API endpoint for looking up user info by ID
-const SLACK_USERS_INFO_URL: &str = "https://slack.com/api/users.info";
+/// Channel type key Slack channel links are stored under in
+/// `messaging_channel_links`, matching the webhook path segment the ingress
+/// path uses.
+const SLACK_CHANNEL: &str = "slack";
 
 /// Handle Slack interactive action payloads (button clicks)
 ///
@@ -39,7 +40,10 @@ const SLACK_USERS_INFO_URL: &str = "https://slack.com/api/users.info";
 /// Security chain:
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
-/// 3. Slack user -> Pierre user mapping
+/// 3. Per-route authorization — the ops channel for approve/reject, the
+///    channel link and user-status gate for command postbacks. The signature
+///    proves the click came from Slack, never that the clicking Slack identity
+///    may act as a given Dravr user.
 pub(crate) async fn handle_slack_action(
     resources: &Arc<ServerContext>,
     body: &Bytes,
@@ -159,52 +163,58 @@ pub(crate) fn verify_slack_signature(
 
 /// Handle a messaging command postback from a Slack interactive action.
 ///
-/// Resolves the Slack user to a Pierre user, executes the command, and
-/// sends the response back to the Slack channel via the Bot Token.
+/// Executes the command on behalf of the authorized clicker and updates the
+/// originating card with the reply via the Bot Token.
 async fn handle_command_postback(
     resources: &Arc<ServerContext>,
     action: &SlackAction,
     command_text: &str,
 ) -> AppResult<(StatusCode, Json<Value>)> {
+    // The bot token updates the card in place once the command has run.
+    let bot_token = env::var("SLACK_BOT_TOKEN")
+        .map_err(|_| AppError::internal("SLACK_BOT_TOKEN not configured"))?;
+
+    let response_text = execute_postback_command(
+        resources,
+        &action.slack_user_id,
+        &action.channel_id,
+        command_text,
+    )
+    .await?;
+
+    // Send response to Slack channel
+    let slack_client = build_slack_client(&bot_token);
+    let blocks = json!([{
+        "type": "section",
+        "text": { "type": "mrkdwn", "text": response_text }
+    }]);
+    slack_client.update_message(&action.channel_id, &action.message_ts, &blocks);
+
+    Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
+}
+
+/// Authorize the Slack identity that clicked a card button and run the
+/// command it posted back, returning the reply text.
+///
+/// Split from [`handle_command_postback`] so the authorization gate and the
+/// command dispatch are exercised without the outbound Slack call. Exposed
+/// for the postback authorization integration tests.
+///
+/// # Errors
+///
+/// Propagates the channel-authorization outcome (unlinked Slack identity,
+/// pending / suspended account, rate limit) and any command-dispatch failure.
+pub async fn execute_postback_command(
+    resources: &Arc<ServerContext>,
+    slack_user_id: &str,
+    channel_id: &str,
+    command_text: &str,
+) -> AppResult<String> {
     use pierre_messaging::commands::CommandMatcher;
 
     use pierre_commands::PlatformCommandContext;
 
-    // Resolve Slack user to Pierre user via email lookup
-    let bot_token = env::var("SLACK_BOT_TOKEN")
-        .map_err(|_| AppError::internal("SLACK_BOT_TOKEN not configured"))?;
-    let slack_email = resolve_slack_user_email(&bot_token, &action.slack_user_id).await?;
-
-    let user = resources
-        .common
-        .repos
-        .users
-        .get_by_email(&slack_email)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to look up user: {e}")))?
-        .ok_or_else(|| {
-            warn!(
-                slack_user = %action.slack_user_id,
-                email = %slack_email,
-                "Slack user is not a Pierre user (command postback)"
-            );
-            AppError::auth_invalid("You are not registered as a Pierre user")
-        })?;
-
-    // Resolve user's tenant
-    let user_tenant = {
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await?;
-        if let Some(t) = tenants.first() {
-            t.id
-        } else {
-            TenantId::from_uuid(user.id)
-        }
-    };
+    let (user_id, user_tenant) = authorize_postback(resources, slack_user_id).await?;
 
     // Match command against registry
     let cmd_registry = resources
@@ -230,18 +240,18 @@ async fn handle_command_postback(
     let locale = resolve_messaging_locale(
         resources,
         user_tenant,
-        user.id,
-        "slack",
-        &action.slack_user_id,
+        user_id,
+        SLACK_CHANNEL,
+        slack_user_id,
     )
     .await;
 
     let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
         Arc::<ServerContext>::clone(resources);
     let ctx = PlatformCommandContext {
-        user_id: user.id,
+        user_id,
         tenant_id: user_tenant,
-        channel_type: "slack".to_owned(),
+        channel_type: SLACK_CHANNEL.to_owned(),
         args: parsed.args,
         raw_text: parsed.raw_text,
         ctx: ctx_dyn,
@@ -249,34 +259,75 @@ async fn handle_command_postback(
         // Slack block_actions payloads don't expose event.channel_type;
         // use the channel ID prefix convention ("D" = IM, "C" = channel,
         // "G" = private group).
-        is_direct_message: action.channel_id.starts_with('D'),
+        is_direct_message: channel_id.starts_with('D'),
         // Block-actions buttons fire outside a Pierre conversation
         // turn — there's no chat_conversations row associated with the
         // click. Group-scoped commands fall back to the user's most
         // recent group via list_groups_for_user when this is None.
         conversation_id: None,
-        sender_id: Some(action.slack_user_id.clone()),
+        // No conversation to scope, so this tracks the caller's tenant.
+        conversation_tenant_id: user_tenant,
+        sender_id: Some(slack_user_id.to_owned()),
     };
 
     let response = handler.execute(&ctx).await?;
 
     info!(
         command = %parsed.name,
-        user_id = %user.id,
-        slack_user = %action.slack_user_id,
+        user_id = %user_id,
+        slack_user = %slack_user_id,
         "Slack command postback executed"
     );
 
-    // Send response to Slack channel
-    let slack_client = build_slack_client(&bot_token);
-    let response_text = &response.text;
-    let blocks = json!([{
-        "type": "section",
-        "text": { "type": "mrkdwn", "text": response_text }
-    }]);
-    slack_client.update_message(&action.channel_id, &action.message_ts, &blocks);
+    Ok(response.text)
+}
 
-    Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
+/// Authorize the Slack identity behind a command postback through the same
+/// gate every inbound messaging turn walks.
+///
+/// Resolves the Slack identity to the tenant that owns its channel link, then
+/// calls [`pierre_middleware::auth::McpAuthMiddleware::authenticate_channel`]
+/// — the single source of truth that requires a `messaging_channel_links` row
+/// (proof the clicker completed the link flow and owns the Pierre account),
+/// applies the approval policy, and checks the per-user rate limit. Identity
+/// therefore rests on the verified link, not on the profile email Slack
+/// reports for the clicker: the HMAC signature proves the click came from
+/// Slack, nothing more.
+///
+/// Returns the Pierre user id and the tenant the command runs under — the
+/// user's own first-membership tenant, falling back to the link owner's
+/// tenant, the same resolution `messaging_ingress` performs on every turn.
+async fn authorize_postback(
+    resources: &ServerContext,
+    slack_user_id: &str,
+) -> AppResult<(Uuid, TenantId)> {
+    // The link row is the authoritative `(channel, channel_user_id) -> owner
+    // tenant` map; the ops-action endpoint carries no tenant of its own.
+    let link_tenant = resources
+        .common
+        .repos
+        .messaging
+        .get_channel_link_tenant(SLACK_CHANNEL, slack_user_id)
+        .await?
+        .ok_or_else(|| {
+            warn!(
+                slack_user = %slack_user_id,
+                "Slack command postback from an unlinked Slack identity"
+            );
+            AppError::auth_invalid("This Slack account is not linked to a Dravr account")
+        })?;
+
+    let auth = resources
+        .auth
+        .auth_middleware
+        .authenticate_channel(link_tenant, SLACK_CHANNEL, slack_user_id)
+        .await?;
+
+    let tenant_id = auth
+        .active_tenant_id
+        .map_or(link_tenant, TenantId::from_uuid);
+
+    Ok((auth.user_id, tenant_id))
 }
 
 // =============================================================================
@@ -446,43 +497,6 @@ fn verify_ops_channel(action: &SlackAction) -> AppResult<()> {
 pub fn channel_matches(channel_name: &str, channel_id: &str, configured: &str) -> bool {
     let expected = configured.trim().trim_start_matches('#');
     !expected.is_empty() && (channel_name == expected || channel_id == expected)
-}
-
-/// Resolve a Slack user ID to their email address via the Slack `users.info` API
-async fn resolve_slack_user_email(bot_token: &str, slack_user_id: &str) -> AppResult<String> {
-    let client = api_client();
-    let response = client
-        .get(SLACK_USERS_INFO_URL)
-        .header("Authorization", format!("Bearer {bot_token}"))
-        .query(&[("user", slack_user_id)])
-        .send()
-        .await
-        .map_err(|e| AppError::internal(format!("Slack users.info request failed: {e}")))?;
-
-    let body: Value = response
-        .json()
-        .await
-        .map_err(|e| AppError::internal(format!("Invalid Slack users.info response: {e}")))?;
-
-    let ok = body.get("ok").and_then(Value::as_bool).unwrap_or(false);
-    if !ok {
-        let error = body
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        return Err(AppError::internal(format!(
-            "Slack users.info failed: {error}"
-        )));
-    }
-
-    body.pointer("/user/profile/email")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            AppError::internal(
-                "Slack user profile missing email (bot may need users:read.email scope)",
-            )
-        })
 }
 
 /// Approve a user: set status to Active and create tenant if needed

@@ -112,11 +112,28 @@ pub fn get_startup_context_if_applicable(
     if let Some(q) = &query {
         info!(
             "Found startup query for coach conversation: {}",
-            &q[..q.len().min(50)]
+            startup_query_preview(q)
         );
     }
 
     Some((query, data_reqs))
+}
+
+/// How much of a coach's `startup_query` the log line shows.
+const STARTUP_QUERY_PREVIEW_CHARS: usize = 50;
+
+/// The opening of a coach's `startup_query`, for the log line only.
+///
+/// Counted in characters rather than bytes. `startup_query` is accepted
+/// verbatim by the custom-coach create/update API on a fr-first platform, so a
+/// byte slice at a fixed offset panics as soon as that offset lands inside an
+/// accented character — and this runs on the `history_len == 1` path, before
+/// dispatch, with no panic boundary between it and the turn boundary. The same
+/// defect class in the deterministic-bounds scanner destroyed a production turn
+/// on 2026-07-28.
+#[must_use]
+pub fn startup_query_preview(query: &str) -> String {
+    query.chars().take(STARTUP_QUERY_PREVIEW_CHARS).collect()
 }
 
 /// Pre-fetch activity data based on structured `DataRequirements`.
@@ -239,10 +256,7 @@ pub async fn inject_startup_context(
             if prefetch_window_is_empty(&activity_context) {
                 info!("startup grounding: activity window empty, skipping pre-load injection");
             } else {
-                let context_msg = format!(
-                    "The following activity data has been pre-loaded for your analysis:\n\n\
-                     {activity_context}"
-                );
+                let context_msg = format!("{STARTUP_GROUNDING_LEAD}\n\n{activity_context}");
                 log_inject("activity context", &context_msg);
                 // `User`, not `System`. The live provider (copilot_headless)
                 // keeps only the first system message and filters every other
@@ -417,6 +431,24 @@ fn prefetch_window_is_empty(content: &str) -> bool {
         .is_some_and(|count| count == 0)
 }
 
+/// Opening sentence of the later-turn activity-refresh block.
+///
+/// Named because it is a platform framing that rides in the User channel: it
+/// tells the coach that what follows is data the platform loaded, which is
+/// authority the athlete's own text must never borrow. `push_history_row`
+/// neutralizes it in replayed user rows, and it can only do that against one
+/// stated source — see [`super::prompt_builder`].
+pub const REFRESH_GROUNDING_LEAD: &str =
+    "The athlete's question needs to be grounded in their real training.";
+
+/// Opening sentence of the first-turn activity pre-load block.
+///
+/// Carries the same platform authority in the User channel as
+/// [`REFRESH_GROUNDING_LEAD`], and is neutralized in replayed user rows for the
+/// same reason.
+pub const STARTUP_GROUNDING_LEAD: &str =
+    "The following activity data has been pre-loaded for your analysis:";
+
 /// Insert the fresh-activity system message just before the latest user message.
 ///
 /// That slot is the most salient for a smaller model. Returns whether a message
@@ -432,7 +464,7 @@ pub fn inject_activity_refresh(
         return false;
     }
     let context_msg = format!(
-        "The athlete's question needs to be grounded in their real training. \
+        "{REFRESH_GROUNDING_LEAD} \
          The following activity data was freshly loaded for this turn — base \
          your analysis and any plan on these specific activities, cite them by \
          name and date, infer the sport mix from them rather than asking, and \

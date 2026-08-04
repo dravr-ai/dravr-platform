@@ -216,28 +216,42 @@ impl DossierRepository for PostgresDatabase {
         // the 40-fact window within weeks, which is the failure that made the
         // interview feel like theatre. Superseded rows are excluded by the
         // query, so a re-run's expired answers do not refill the bundle.
+        //
+        // A read that fails degrades to an empty set so the dossier still
+        // renders, but it warns first: a bind or decode fault on these queries
+        // strips medical flags and every interview answer from the coach's
+        // context, and the coach keeps prescribing either way.
         let user = user_id.to_string();
-        let mut facts = self
+        let mut facts = match self
             .list_user_facts(tenant_id, &user, None, None, FACT_BUNDLE_LIMIT)
             .await
-            .unwrap_or_default();
+        {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!(error = %e, user_id = %user_id, "recency-window fact read failed; dossier degrades to no general facts");
+                Vec::new()
+            }
+        };
         for kind in [FactKind::Medical, FactKind::NorthStar] {
-            let guaranteed = self
+            match self
                 .list_user_facts(tenant_id, &user, None, Some(kind), FACT_BUNDLE_LIMIT)
                 .await
-                .unwrap_or_default();
-            facts.extend(guaranteed);
+            {
+                Ok(guaranteed) => facts.extend(guaranteed),
+                Err(e) => {
+                    tracing::warn!(error = %e, user_id = %user_id, fact_kind = kind.as_str(), "guaranteed by-kind fact read failed; dossier degrades without this kind");
+                }
+            }
         }
-        facts.extend(
-            self.list_user_facts_by_source(
-                tenant_id,
-                &user,
-                FactSource::Onboarding,
-                FACT_BUNDLE_LIMIT,
-            )
+        match self
+            .list_user_facts_by_source(tenant_id, &user, FactSource::Onboarding, FACT_BUNDLE_LIMIT)
             .await
-            .unwrap_or_default(),
-        );
+        {
+            Ok(onboarding) => facts.extend(onboarding),
+            Err(e) => {
+                tracing::warn!(error = %e, user_id = %user_id, fact_source = FactSource::Onboarding.as_str(), "guaranteed by-source fact read failed; dossier degrades without interview answers");
+            }
+        }
         let buckets = group_facts(&facts, Utc::now());
 
         Ok(Dossier {

@@ -141,10 +141,12 @@ export {
 } from './response-validator';
 
 /**
- * Export secure storage utilities for token management
+ * Export token storage utilities for OAuth tokens and credentials
  *
- * These provide encrypted file-based storage for OAuth tokens and credentials.
- * The default storage location is ~/.pierre-mcp-tokens.enc
+ * createSecureStorage prefers the OS keychain. EncryptedFileStorage is the fallback
+ * used when no keychain is available: it stores tokens at ~/.pierre-mcp-tokens.enc and
+ * its protection is the owner-only (0600) file mode, not its AES layer, whose key is
+ * derived from non-secret machine data.
  */
 export {
   createSecureStorage,

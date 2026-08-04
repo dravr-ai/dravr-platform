@@ -283,15 +283,19 @@ async fn resolve_coach_ctx(
 
 /// Fire the Tier 2 background fact extraction for a completed turn, stamping the
 /// onboarding pillar/source/force-kind when the conversation is mid pillar walk.
+///
+/// `answered` is the guided topic the athlete's inbound message replies to (see
+/// [`stages::onboarding::answered_target`]), which is what extraction reads —
+/// never the topic this turn goes on to ask.
 fn spawn_turn_extraction(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     conv: &ConversationRecord,
     assistant_reply: &str,
     assistant_message_id: &str,
-    onboarding: Option<&stages::onboarding::OnboardingTurn>,
+    answered: Option<stages::onboarding::GuidedTarget>,
 ) {
-    let (pillar, source, force_kind) = stages::onboarding::extraction_params_or_default(onboarding);
+    let (pillar, source, force_kind) = stages::onboarding::extraction_params_or_default(answered);
     spawn_extract_for_turn(
         Arc::clone(&ctx.repos.memory),
         ctx.chat_provider.as_ref().map(Arc::clone),
@@ -368,7 +372,7 @@ fn spawn_turn_background_learning(
     conv: &ConversationRecord,
     assistant_reply: &str,
     assistant_message_id: &str,
-    onboarding: Option<&stages::onboarding::OnboardingTurn>,
+    answered: Option<stages::onboarding::GuidedTarget>,
     leak_replaced: bool,
 ) {
     if leak_replaced {
@@ -378,7 +382,7 @@ fn spawn_turn_background_learning(
             conv,
             WITHHELD_REPLY_TRANSCRIPT_MARKER,
             assistant_message_id,
-            onboarding,
+            answered,
         );
         return;
     }
@@ -388,7 +392,7 @@ fn spawn_turn_background_learning(
         conv,
         assistant_reply,
         assistant_message_id,
-        onboarding,
+        answered,
     );
     spawn_turn_advice_capture(ctx, input, conv, assistant_reply, assistant_message_id);
 }
@@ -469,13 +473,18 @@ async fn finish_turn_follow_through(inputs: FinishTurnInputs<'_>) {
         onboarding,
         leak_replaced,
     } = inputs;
+    // The message being extracted answers the probe the PREVIOUS turn delivered
+    // — `onboarding.target` is the question this turn asks, one topic further
+    // on. Stamping with it filed every guided answer under the next topic's
+    // pillar and forced kind.
+    let answered = onboarding.and_then(|turn| stages::onboarding::answered_target(&turn.state));
     spawn_turn_background_learning(
         ctx,
         input,
         conv,
         assistant_reply,
         assistant_message_id,
-        onboarding,
+        answered,
         leak_replaced,
     );
     record_guided_flow_probe(
@@ -1265,7 +1274,7 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
             Ok(GuidedOutcome::Continue(Some(*turn)))
         }
         stages::onboarding::GuidedResolution::Inactive => Ok(GuidedOutcome::Continue(None)),
-        stages::onboarding::GuidedResolution::CalibrationComplete(summary) => {
+        stages::onboarding::GuidedResolution::CalibrationComplete { summary, answered } => {
             let result = deliver_deterministic_reply(
                 DeterministicReplyInputs {
                     ctx,
@@ -1280,6 +1289,20 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
                 summary,
             )
             .await?;
+            // This turn carries the athlete's answer to the interview's LAST
+            // question, and the reply skipping the LLM does not make that
+            // answer any less theirs. Returning here without extracting dropped
+            // it on every calibration run — and the last core topic is recovery
+            // speed, which is safety-critical and the sole writer of its kind,
+            // so its absence is exactly what the wrap-up would have named.
+            spawn_turn_extraction(
+                ctx,
+                input,
+                conv,
+                PLATFORM_REPLY_TRANSCRIPT_MARKER,
+                &result.assistant_message.id,
+                answered,
+            );
             Ok(GuidedOutcome::Answered(Box::new(result)))
         }
     }
@@ -1306,11 +1329,14 @@ struct DeterministicReplyInputs<'a> {
 /// hook fired, so the turn is indistinguishable from any other to callers.
 ///
 /// Deliberately skipped: post-processing (guardrails, claim verification,
-/// identity-leak detection) and memory extraction. All of them exist to police
-/// model-generated text, and this text has no model behind it — running the
-/// leak detector over a locale string the platform wrote would only ever
-/// produce false positives, and extracting facts from it would feed the
-/// athlete's own summary back in as new evidence.
+/// identity-leak detection) and assistant-side learning. All of them exist to
+/// police or learn from model-generated text, and this text has no model behind
+/// it — running the leak detector over a locale string the platform wrote would
+/// only ever produce false positives.
+///
+/// Memory extraction is NOT skipped, but it belongs to the caller: extraction
+/// reads the athlete's inbound message, which is theirs whoever wrote the
+/// reply, and only the caller knows which guided topic that message answers.
 async fn deliver_deterministic_reply(
     inputs: DeterministicReplyInputs<'_>,
     content: String,
@@ -1379,6 +1405,19 @@ async fn deliver_deterministic_reply(
 
     Ok(dispatch_result)
 }
+
+/// Stand-in for the coach reply when extraction runs over a turn the platform
+/// answered itself.
+///
+/// The platform-authored text is a report about the interview, not a coach turn
+/// about the athlete; handing it to the extractor would mint facts out of the
+/// platform's own summary of what it just captured. The athlete's message is
+/// theirs either way, so the reply side is replaced and the user side is
+/// extracted — the same split [`WITHHELD_REPLY_TRANSCRIPT_MARKER`] makes for a
+/// withheld reply, worded for a reply that was never generated rather than one
+/// that was suppressed.
+const PLATFORM_REPLY_TRANSCRIPT_MARKER: &str =
+    "(the platform answered this turn itself; extract only from the user turn above)";
 
 /// Provider label recorded for a turn the platform answered itself. Named
 /// rather than blank so a usage row with no token counts is explicable.

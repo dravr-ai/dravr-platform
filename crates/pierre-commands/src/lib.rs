@@ -101,6 +101,16 @@ pub struct PlatformCommandContext {
     /// messaging ingress); `None` only on synthetic dispatch sites
     /// without a persisted conversation.
     pub conversation_id: Option<String>,
+    /// Tenant that owns [`Self::conversation_id`]'s `chat_conversations` row.
+    ///
+    /// Distinct from [`Self::tenant_id`], which scopes the *caller's* own data.
+    /// A 1:1 DM files its session, conversation and messages under the user's
+    /// own tenant, but a shared room files them under the channel/bot tenant so
+    /// every member of that room — who may belong to different tenants — reads
+    /// one conversation. Handlers must use this tenant for conversation and
+    /// group lookups, otherwise a member whose tenant is not the bot's never
+    /// finds the row and falls through to a guess.
+    pub conversation_tenant_id: TenantId,
     /// Channel sender identifier (Telegram chat id, Slack user id, ...) on
     /// messaging surfaces; `None` on web/mobile and synthetic dispatch.
     /// `/logout` uses it to unlink the exact channel sender.

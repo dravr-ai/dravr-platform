@@ -1,5 +1,5 @@
 # ABOUTME: Automates Terraform plan/apply for the central infra/artifacts (dravr-artifacts) project
-# ABOUTME: Manual workflow_dispatch only; apply is gated by the 'artifacts' GitHub Environment
+# ABOUTME: Manual workflow_dispatch only; plan and apply are both gated by the 'artifacts' GitHub Environment
 
 name: "Infra: Artifacts Registry"
 
@@ -19,7 +19,8 @@ name: "Infra: Artifacts Registry"
 #   2. Add repo secrets GCP_ARTIFACTS_WIF_PROVIDER (the provider resource name) and
 #      GCP_ARTIFACTS_TF_SA (terraform-runner@dravr-artifacts.iam.gserviceaccount.com).
 #   3. Create a GitHub Environment named 'artifacts' with required reviewers so
-#      apply is approval-gated (the WIF binding already restricts impersonation to main).
+#      every job that assumes the runner SA — plan as well as apply — is
+#      approval-gated (the WIF binding already restricts impersonation to main).
 on:
   # push:
   #   branches: [main]
@@ -47,6 +48,12 @@ jobs:
     if: >
       github.event_name == 'workflow_dispatch' &&
       github.event.inputs.action == 'plan'
+    # Same reviewer gate as apply. Plan authenticates as the same terraform-runner
+    # SA, which holds projectIamAdmin + serviceAccountAdmin on dravr-artifacts and
+    # can therefore self-grant owner — the credential, not the terraform verb, is
+    # what the Environment gate exists to protect. An ungated plan would mint that
+    # token on demand.
+    environment: artifacts
 
     defaults:
       run:

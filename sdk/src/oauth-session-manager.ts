@@ -13,8 +13,9 @@ import {
   OAuthTokens,
   OAuthClientInformationFull,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { createSecureStorage, SecureTokenStorage } from "./secure-storage.js";
+import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
 
 // Load OAuth HTML templates from dist/templates/ (copied during build)
@@ -27,6 +28,29 @@ const OAUTH_ERROR_TEMPLATE = readFileSync(
   join(__dirname, "templates/oauth_error.html"),
   "utf-8",
 );
+
+/** Callback port published in the redirect URI when the caller does not choose one */
+const DEFAULT_CALLBACK_PORT = 35535;
+
+/** How long the flow waits for the user to finish authorizing in the browser */
+const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 300000;
+
+/** Accepted shape of the {provider} segment of the provider token callback path */
+const PROVIDER_CALLBACK_PATH = /^\/oauth\/provider-callback\/([A-Za-z0-9_-]{1,32})$/;
+
+/**
+ * Compares two secrets without leaking their contents through timing. Lengths are
+ * compared first because timingSafeEqual throws on unequal buffer lengths; that only
+ * reveals the length of a presented value, never how far it matched.
+ */
+function constantTimeEquals(presented: string, expected: string): boolean {
+  const presentedBytes = Buffer.from(presented, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (presentedBytes.length !== expectedBytes.length) {
+    return false;
+  }
+  return timingSafeEqual(presentedBytes, expectedBytes);
+}
 
 /** Stored tokens structure for keychain persistence */
 export interface StoredTokens {
@@ -51,6 +75,8 @@ export interface OAuthSessionConfigBase {
   callbackPort?: number;
   disableBrowser?: boolean;
   tokenValidationTimeoutMs?: number;
+  /** Upper bound on the wait for the browser authorization callback (default 5 minutes) */
+  authorizationTimeoutMs?: number;
 }
 
 /** JWT token authentication mode */
@@ -111,6 +137,9 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   private authorizationPending: Promise<any> | undefined = undefined;
   private callbackPort: number = 0;
   private callbackSessionToken: string | undefined = undefined;
+  private callbackServerReady: Promise<number> | undefined = undefined;
+  private callbackBindError: PierreError | undefined = undefined;
+  private refreshInFlight: Promise<void> | undefined = undefined;
 
   // Secure token storage using OS keychain
   private secureStorage: SecureTokenStorage | undefined = undefined;
@@ -410,6 +439,11 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       // Start callback server synchronously if not already started
       this.startCallbackServerSync();
     }
+    // A port that failed to bind is never published: the URI would name a port held by
+    // another process. Callers await ensureCallbackServerBound() before sending it.
+    if (this.callbackBindError) {
+      throw this.callbackBindError;
+    }
     // Wait for callbackPort to be set by the server startup
     if (this.callbackPort === 0) {
       throw new PierreError(PierreErrorCode.CONFIG_ERROR, "Callback server failed to start - no port available");
@@ -472,6 +506,10 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     clientInfo: OAuthClientInformationFull,
   ): Promise<void> {
     const registrationEndpoint = `${this.serverUrl}/oauth2/register`;
+
+    // The registration request publishes the redirect URI, so the callback port must
+    // already be held by this process when it goes out.
+    await this.ensureCallbackServerBound();
 
     const registrationRequest = {
       client_id: clientInfo.client_id,
@@ -549,75 +587,16 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   async tokens(): Promise<OAuthTokens | undefined> {
     // If no in-memory tokens, try to load from persistent storage
     if (!this.savedTokens && this.allStoredTokens.pierre) {
-      this.log(
-        `No in-memory tokens, attempting to reload from persistent storage`,
-      );
-
-      const storedTokens = this.allStoredTokens.pierre;
-
-      // Always validate with server using validate-and-refresh endpoint
-      const validationResult = await this.validateAndRefreshToken(
-        storedTokens.access_token,
-        storedTokens.refresh_token,
-      );
-
-      if (validationResult) {
-        if (validationResult.status === "valid") {
-          // Token is valid, reload into memory
-          this.savedTokens = {
-            access_token: storedTokens.access_token,
-            refresh_token: storedTokens.refresh_token,
-            expires_in: storedTokens.expires_in,
-            token_type: storedTokens.token_type || "Bearer",
-            scope: storedTokens.scope,
-          };
-          this.log(
-            `Your session is valid (expires in ${validationResult.expires_in}s)`,
-          );
-        } else if (validationResult.status === "refreshed") {
-          // Token was refreshed, save new tokens
-          this.log(`Your session was automatically renewed with a fresh token`);
-
-          this.savedTokens = {
-            access_token: validationResult.access_token!,
-            refresh_token: validationResult.refresh_token,
-            expires_in: validationResult.expires_in,
-            token_type: validationResult.token_type || "Bearer",
-            scope: storedTokens.scope,
-          };
-
-          // Update persistent storage with new tokens
-          this.allStoredTokens.pierre = {
-            ...this.savedTokens,
-            saved_at: Math.floor(Date.now() / 1000),
-          };
-          await this.saveStoredTokens();
-          this.log(
-            `Session renewed successfully - you can continue using Pierre tools`,
-          );
-        } else {
-          // Token is invalid, clear storage and require full re-auth
-          this.log(
-            `Your session has expired and cannot be renewed automatically`,
-          );
-          this.log(
-            `Reason: ${validationResult.reason || "Token validation failed"}`,
-          );
-          this.log(
-            `Please use the "Connect to Pierre" tool to re-authenticate`,
-          );
-          delete this.allStoredTokens.pierre;
-          await this.saveStoredTokens();
-          this.savedTokens = undefined;
-        }
-      } else {
-        // Validation request failed, clear storage to be safe
-        this.log(`Unable to validate your session with Pierre server`);
-        this.log(`Please use the "Connect to Pierre" tool to re-authenticate`);
-        delete this.allStoredTokens.pierre;
-        await this.saveStoredTokens();
-        this.savedTokens = undefined;
+      // Single-flight. A refresh rotates the refresh token, so a second concurrent
+      // attempt presents one the server has already retired and is told "invalid" -
+      // and that verdict used to delete the session the first attempt had just renewed.
+      // Concurrent callers await the one attempt and share its outcome.
+      if (!this.refreshInFlight) {
+        this.refreshInFlight = this.reloadTokensFromStorage().finally(() => {
+          this.refreshInFlight = undefined;
+        });
       }
+      await this.refreshInFlight;
     }
 
     this.log(
@@ -627,6 +606,81 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       this.log(`Token type: ${this.savedTokens.token_type}`);
     }
     return this.savedTokens;
+  }
+
+  private async reloadTokensFromStorage(): Promise<void> {
+    const storedTokens = this.allStoredTokens.pierre;
+    if (!storedTokens) {
+      return;
+    }
+
+    this.log(
+      `No in-memory tokens, attempting to reload from persistent storage`,
+    );
+
+    // Always validate with server using validate-and-refresh endpoint
+    const validationResult = await this.validateAndRefreshToken(
+      storedTokens.access_token,
+      storedTokens.refresh_token,
+    );
+
+    if (!validationResult) {
+      // The request itself did not complete (network failure or timeout), which says
+      // nothing about whether the session is still good. The stored credentials stay
+      // exactly as they are so a later call can retry; discarding them here would sign
+      // the user out on a blip and leave memory and keychain disagreeing.
+      this.log(`Unable to validate your session with Pierre server`);
+      this.log(`Keeping stored credentials - the next call retries validation`);
+      return;
+    }
+
+    if (validationResult.status === "valid") {
+      // Token is valid, reload into memory
+      this.savedTokens = {
+        access_token: storedTokens.access_token,
+        refresh_token: storedTokens.refresh_token,
+        expires_in: storedTokens.expires_in,
+        token_type: storedTokens.token_type || "Bearer",
+        scope: storedTokens.scope,
+      };
+      this.log(
+        `Your session is valid (expires in ${validationResult.expires_in}s)`,
+      );
+      return;
+    }
+
+    if (validationResult.status === "refreshed") {
+      // Token was refreshed, save new tokens
+      this.log(`Your session was automatically renewed with a fresh token`);
+
+      this.savedTokens = {
+        access_token: validationResult.access_token!,
+        refresh_token: validationResult.refresh_token,
+        expires_in: validationResult.expires_in,
+        token_type: validationResult.token_type || "Bearer",
+        scope: storedTokens.scope,
+      };
+
+      // Update persistent storage with new tokens
+      this.allStoredTokens.pierre = {
+        ...this.savedTokens,
+        saved_at: Math.floor(Date.now() / 1000),
+      };
+      await this.saveStoredTokens();
+      this.log(
+        `Session renewed successfully - you can continue using Pierre tools`,
+      );
+      return;
+    }
+
+    // Token is invalid, clear storage and require full re-auth. Memory and keychain are
+    // cleared together so no caller is left holding half of a dead session.
+    this.log(`Your session has expired and cannot be renewed automatically`);
+    this.log(`Reason: ${validationResult.reason || "Token validation failed"}`);
+    this.log(`Please use the "Connect to Pierre" tool to re-authenticate`);
+    this.savedTokens = undefined;
+    delete this.allStoredTokens.pierre;
+    await this.saveStoredTokens();
   }
 
   public async validateAndRefreshToken(
@@ -720,20 +774,101 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     this.log(`Opening browser for authorization`);
 
     // Open the authorization URL in the user's default browser with focus
-    await this.openUrlInBrowserWithFocus(authorizationUrl.toString());
+    openUrlInBrowserWithFocus(authorizationUrl.toString(), {
+      disableBrowser: this.config?.disableBrowser,
+      log: (message) => this.log(message),
+    });
 
     this.log(`If browser doesn't open automatically, visit:`);
     this.log(`${authorizationUrl.toString()}`);
     this.log(`Waiting for authorization completion`);
 
-    // Wait for authorization completion
-    if (this.authorizationPending) {
-      const authResult = await this.authorizationPending;
+    await this.completeAuthorization();
+  }
+
+  /**
+   * Waits for the browser callback, exchanges the code, and tears the flow down.
+   * Teardown is unconditional: an abandoned authorization leaves no listener on the
+   * callback port and no code verifier or state in memory for a later flow to reuse.
+   */
+  private async completeAuthorization(): Promise<void> {
+    try {
+      const authResult = await this.awaitAuthorizationCallback();
       this.log(`Authorization callback completed, exchanging code for tokens`);
 
       // Exchange authorization code for JWT token
       await this.exchangeCodeForTokens(authResult.code, authResult.state);
+    } finally {
+      this.teardownAuthorizationFlow();
     }
+  }
+
+  private async awaitAuthorizationCallback(): Promise<{
+    code: string;
+    state: string;
+  }> {
+    const pending = this.authorizationPending;
+    if (!pending) {
+      throw new PierreError(
+        PierreErrorCode.AUTH_ERROR,
+        "Authorization wait was not armed - callback server was not started",
+      );
+    }
+
+    const timeoutMs =
+      this.config.authorizationTimeoutMs || DEFAULT_AUTHORIZATION_TIMEOUT_MS;
+
+    return new Promise<{ code: string; state: string }>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new PierreError(
+            PierreErrorCode.TIMEOUT_ERROR,
+            `OAuth authorization was not completed within ${Math.round(timeoutMs / 1000)}s. The browser approval was never received - run the connect tool again to start a new authorization.`,
+          ),
+        );
+      }, timeoutMs);
+
+      pending.then(
+        (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  /**
+   * Ends the authorization flow: closes the callback listener (including keep-alive
+   * sockets, which would otherwise hold the port), and drops the per-flow secrets.
+   * The next flow starts a fresh listener with a fresh state, verifier and callback token.
+   */
+  private teardownAuthorizationFlow(): void {
+    const server = this.callbackServer;
+
+    this.callbackServer = undefined;
+    this.callbackServerReady = undefined;
+    this.callbackBindError = undefined;
+    this.callbackPort = 0;
+    this.callbackSessionToken = undefined;
+    this.authorizationPending = undefined;
+    this.codeVerifierValue = undefined;
+    this.stateValue = undefined;
+
+    if (server) {
+      server.removeAllListeners("request");
+      delete server._authResolve;
+      delete server._authReject;
+      server.close(() => undefined);
+      server.closeAllConnections?.();
+    }
+
+    this.log(
+      "Authorization flow closed: callback listener stopped, state and code verifier cleared",
+    );
   }
 
   private async exchangeCodeForTokens(
@@ -914,131 +1049,101 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       .replace(/=/g, "");
   }
 
-  private async openUrlInBrowserWithFocus(url: string): Promise<void> {
-    // Check if browser opening is disabled (testing mode). The env kill switch
-    // (PIERRE_DISABLE_BROWSER / CI / GITHUB_ACTIONS) suppresses the popup even
-    // when the config flag wasn't threaded through, so non-interactive runs
-    // never open (and never OOM) a browser tab. Real MCP hosts set none of these.
-    const envDisabled =
-      process.env.PIERRE_DISABLE_BROWSER === "true" ||
-      process.env.CI === "true" ||
-      process.env.GITHUB_ACTIONS === "true";
-    if (this.config.disableBrowser || envDisabled) {
-      this.log(
-        "Browser opening disabled - OAuth URL available at callback server",
-      );
-      this.log(`OAuth URL: ${url}`);
-      return;
-    }
-
-    const { exec } = await import("child_process");
-    const platform = process.platform;
-
-    if (platform === "darwin") {
-      // macOS: Open URL then explicitly activate browser after a brief delay
-      exec(`open "${url}"`, (error: Error | null) => {
-        if (error) {
-          this.log(`Failed to open browser: ${error.message}`);
-          return;
-        }
-
-        // After opening, try to activate common browsers
-        setTimeout(() => {
-          exec(
-            `osascript -e 'tell application "Google Chrome" to activate' 2>/dev/null || osascript -e 'tell application "Safari" to activate' 2>/dev/null || osascript -e 'tell application "Firefox" to activate' 2>/dev/null || osascript -e 'tell application "Brave Browser" to activate' 2>/dev/null`,
-            (activateError) => {
-              if (activateError) {
-                this.log(`Could not activate browser (non-fatal)`);
-              }
-            },
-          );
-        }, 500);
-      });
-    } else if (platform === "win32") {
-      // Windows: start command brings window to front by default
-      exec(`start "" "${url}"`, (error: Error | null) => {
-        if (error) {
-          this.log(`Failed to open browser: ${error.message}`);
-        }
-      });
-    } else {
-      // Linux: xdg-open
-      exec(`xdg-open "${url}"`, (error: Error | null) => {
-        if (error) {
-          this.log(`Failed to open browser: ${error.message}`);
-        }
-      });
-    }
-  }
-
   private startCallbackServerSync(): void {
-    // This is a synchronous wrapper that starts the server immediately
-    // Use configured port (default 35535) instead of dynamic port
+    // Binds the configured callback port and only that port. The redirect URI published
+    // to the authorization server names this port, and a provider delivers the
+    // authorization code to whichever local process holds it - so moving to a different
+    // port after publishing would hand the code to the process squatting the published
+    // one. A port that cannot be bound is therefore a hard failure, surfaced through
+    // ensureCallbackServerBound() before the authorization request is ever sent.
     const http = require("http");
 
     if (this.callbackServer) {
       return; // Already started
     }
 
-    // Use configured callback port or default to 35535
-    const port = this.config.callbackPort || 35535;
+    const port = this.config.callbackPort || DEFAULT_CALLBACK_PORT;
 
-    // Set the port immediately so redirectUrl can use it
-    // (server.listen is async but we need the port value synchronously)
+    this.callbackBindError = undefined;
     this.callbackPort = port;
+    // Per-flow secret proving a provider token callback belongs to this flow. Generated
+    // with the server so it is available to whoever kicks the flow off, not only once
+    // the asynchronous listen() completes.
+    this.callbackSessionToken = randomBytes(32).toString("hex");
 
-    // Create server immediately with fixed port
-    this.callbackServer = http.createServer();
+    const server = http.createServer();
+    this.callbackServer = server;
 
-    // Add error handler for port-in-use errors
-    this.callbackServer.on("error", (error: any) => {
-      if (error.code === "EADDRINUSE") {
+    this.callbackServerReady = new Promise<number>((resolve, reject) => {
+      const onListening = (): void => {
+        server.removeListener("error", onError);
+        this.callbackPort = server.address().port;
         this.log(
-          `Port ${port} is already in use - likely from previous session`,
+          `Callback server listening on http://localhost:${this.callbackPort}/oauth/callback`,
         );
-        this.log(`Attempting to use dynamic port assignment instead...`);
+        this.setupCallbackHandler();
+        resolve(this.callbackPort);
+      };
 
-        // Clean up failed server
-        this.callbackServer?.close();
-        this.callbackServer = null;
+      const onError = (error: any): void => {
+        server.removeListener("listening", onListening);
+        const message =
+          error.code === "EADDRINUSE"
+            ? `OAuth callback port ${port} is already in use. The redirect URI http://localhost:${port}/oauth/callback is published to the authorization server, so the authorization code would be delivered to the process holding that port instead of this client. Free the port (lsof -ti:${port} | xargs kill) or start the client with --callback-port <free port>, then retry.`
+            : `OAuth callback server failed to bind port ${port}: ${error.message}`;
+        this.callbackBindError = new PierreError(
+          PierreErrorCode.CONFIG_ERROR,
+          message,
+        );
+        this.callbackPort = 0;
+        this.callbackServer = undefined;
+        this.log(message);
+        server.close(() => undefined);
+        reject(this.callbackBindError);
+      };
 
-        // Retry with dynamic port (OS will assign available port)
-        this.callbackServer = http.createServer();
-        this.callbackServer.listen(0, "localhost", () => {
-          this.callbackPort = this.callbackServer.address().port;
-          this.log(
-            `Callback server listening on http://localhost:${this.callbackPort}/oauth/callback`,
-          );
-          this.setupCallbackHandler();
-        });
-      } else {
-        this.log(`Failed to start callback server:`, error);
-        throw error;
-      }
+      server.once("listening", onListening);
+      server.once("error", onError);
+      server.listen(port, "localhost");
     });
 
-    this.callbackServer.listen(port, "localhost", () => {
-      // Port already set above, just confirm it matches
-      const actualPort = this.callbackServer.address().port;
-      if (actualPort !== this.callbackPort) {
-        this.log(
-          `Warning: Server started on ${actualPort} but expected ${this.callbackPort}`,
-        );
-      }
-      this.log(
-        `Callback server listening on http://localhost:${this.callbackPort}/oauth/callback`,
+    // ensureCallbackServerBound() is the awaiter. Attach a sink so a bind failure that
+    // nobody has awaited yet does not surface as an unhandled rejection.
+    this.callbackServerReady.catch(() => undefined);
+  }
+
+  /**
+   * Resolves with the port the callback listener actually holds, rejecting with an
+   * actionable error if it could not be bound. Callers must await this before sending
+   * the redirect URI anywhere, so the published port is always a port this process owns.
+   */
+  public async ensureCallbackServerBound(): Promise<number> {
+    if (!this.callbackServer && this.callbackPort === 0) {
+      this.startCallbackServerSync();
+    }
+    if (this.callbackBindError) {
+      throw this.callbackBindError;
+    }
+    if (!this.callbackServerReady) {
+      throw new PierreError(
+        PierreErrorCode.CONFIG_ERROR,
+        "Callback server was never started - no port available",
       );
-      // Set up the actual request handler
-      this.setupCallbackHandler();
-    });
+    }
+    return this.callbackServerReady;
+  }
+
+  /**
+   * Per-flow secret a provider token callback must present on the local endpoint.
+   * Available as soon as the callback server is created, so the flow initiator can hand
+   * it to the party that will post the provider tokens back.
+   */
+  public get callbackAuthToken(): string | undefined {
+    return this.callbackSessionToken;
   }
 
   private setupCallbackHandler(): void {
     if (!this.callbackServer) return;
-
-    // Generate a random session token for callback authentication
-    this.callbackSessionToken = randomBytes(32).toString("hex");
-    this.log(`Generated callback session token for authentication`);
 
     this.callbackServer.removeAllListeners("request");
     this.callbackServer.on("request", async (req: any, res: any) => {
@@ -1088,126 +1193,9 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
               ),
             );
           }
-        } else if (
-          parsedUrl.pathname?.startsWith("/oauth/provider-callback/") &&
-          req.method === "POST"
-        ) {
-          // Handle provider token callback for client-side storage
-          const pathParts = parsedUrl.pathname.split("/");
-          const provider = pathParts[3]; // /oauth/provider-callback/{provider}
-
-          // Security: Validate both Host header and source IP (localhost only)
-          // Provider OAuth callbacks come from Pierre server (not browser redirects)
-          const host = req.headers.host;
-          if (
-            !host ||
-            !(host.startsWith("localhost") || host.startsWith("127.0.0.1"))
-          ) {
-            this.log(
-              `Rejected POST callback for ${provider}: Invalid host ${host}`,
-            );
-            res.writeHead(403, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({
-                success: false,
-                message: "Invalid host - only localhost allowed",
-              }),
-            );
-            return;
-          }
-
-          // Validate source IP is actually localhost (Host header can be spoofed)
-          const remoteAddress = req.socket?.remoteAddress;
-          if (
-            remoteAddress &&
-            remoteAddress !== "127.0.0.1" &&
-            remoteAddress !== "::1" &&
-            remoteAddress !== "::ffff:127.0.0.1"
-          ) {
-            this.log(
-              `Rejected POST callback for ${provider}: Non-localhost source IP ${remoteAddress}`,
-            );
-            res.writeHead(403, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({
-                success: false,
-                message: "Invalid source - only localhost allowed",
-              }),
-            );
-            return;
-          }
-
-          // Validate callback session token if provided (defense in depth)
-          const callbackToken =
-            req.headers["x-callback-token"] ||
-            parsedUrl.query?.callback_token;
-          if (
-            this.callbackSessionToken &&
-            callbackToken &&
-            callbackToken !== this.callbackSessionToken
-          ) {
-            this.log(
-              `Rejected POST callback for ${provider}: Invalid callback session token`,
-            );
-            res.writeHead(403, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({
-                success: false,
-                message: "Invalid callback session token",
-              }),
-            );
-            return;
-          }
-
-          this.log(`Provider token callback for ${provider}`);
-
-          let body = "";
-          req.on("data", (chunk: any) => {
-            body += chunk.toString();
-          });
-
-          req.on("end", async () => {
-            try {
-              const tokenData = JSON.parse(body);
-              await this.saveProviderToken(provider, tokenData);
-
-              // Resolve pending provider OAuth promise (allows handleConnectProvider to continue)
-              this.resolveProviderOAuth(provider);
-
-              // Notify PierreMcpClient about provider OAuth completion (for MCP notification)
-              if (this.onProviderOAuthComplete) {
-                try {
-                  await this.onProviderOAuthComplete(provider);
-                  this.log(
-                    `Notified MCP client about ${provider} OAuth completion`,
-                  );
-                } catch (notifyError) {
-                  this.log(
-                    `Failed to notify MCP client about ${provider} OAuth: ${notifyError}`,
-                  );
-                }
-              }
-
-              res.writeHead(200, { "Content-Type": "application/json" });
-              res.end(
-                JSON.stringify({
-                  success: true,
-                  message: `${provider} token stored client-side`,
-                }),
-              );
-            } catch (error) {
-              this.log(`Failed to save ${provider} token: ${error}`);
-              res.writeHead(400, { "Content-Type": "application/json" });
-              res.end(
-                JSON.stringify({
-                  success: false,
-                  message: "Failed to save provider token",
-                }),
-              );
-            }
-          });
-
-          return; // Don't write response yet, wait for request body
+        } else if (parsedUrl.pathname?.startsWith("/oauth/provider-callback")) {
+          this.handleProviderTokenCallback(req, res, parsedUrl);
+          return; // Response is written by the handler, after the body is read
         } else {
           res.writeHead(404, { "Content-Type": "text/plain" });
           res.end("Not Found");
@@ -1220,20 +1208,184 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     });
   }
 
-  private async startCallbackServer(): Promise<void> {
-    // If server already started by sync method, just set up the authorization promise
-    if (this.callbackServer) {
-      this.authorizationPending = new Promise((resolve, reject) => {
-        // Store resolve/reject for the callback handler to use
-        (this.callbackServer as any)._authResolve = resolve;
-        (this.callbackServer as any)._authReject = reject;
-      });
-      return Promise.resolve();
+  /**
+   * Provider token callback endpoint. Whatever it accepts is written into the user's
+   * credential store, and the listener is reachable by every process on the machine and
+   * by any page the user's browser loads - so a request is only accepted when it proves
+   * it belongs to the flow this process started: exact method and path, no browser origin,
+   * loopback host and peer, and the per-flow callback token. Everything else is refused
+   * before the body is parsed and nothing is stored.
+   */
+  private handleProviderTokenCallback(req: any, res: any, parsedUrl: any): void {
+    const reject = (
+      status: number,
+      message: string,
+      logLine: string,
+    ): void => {
+      this.log(logLine);
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, message }));
+    };
+
+    if (req.method !== "POST") {
+      reject(
+        405,
+        "Method not allowed - provider token callbacks are POST only",
+        `Rejected provider callback: method ${req.method}`,
+      );
+      return;
     }
 
-    // Otherwise start server normally
-    this.startCallbackServerSync();
+    // Exact path match. Prefix matching accepted trailing segments, which let a caller
+    // dress an arbitrary request up as a callback for a provider it named itself.
+    const pathMatch = PROVIDER_CALLBACK_PATH.exec(parsedUrl.pathname);
+    if (!pathMatch) {
+      reject(
+        404,
+        "Unknown callback path",
+        `Rejected provider callback: unsupported path ${parsedUrl.pathname}`,
+      );
+      return;
+    }
+    const provider = pathMatch[1];
+
+    // Host header and source IP must both be loopback: the header alone can be spoofed,
+    // and the peer address alone does not stop a DNS-rebound page from reaching us.
+    const host = req.headers.host;
+    if (
+      !host ||
+      !(host.startsWith("localhost") || host.startsWith("127.0.0.1"))
+    ) {
+      reject(
+        403,
+        "Invalid host - only localhost allowed",
+        `Rejected POST callback for ${provider}: Invalid host ${host}`,
+      );
+      return;
+    }
+
+    const remoteAddress = req.socket?.remoteAddress;
+    if (
+      remoteAddress &&
+      remoteAddress !== "127.0.0.1" &&
+      remoteAddress !== "::1" &&
+      remoteAddress !== "::ffff:127.0.0.1"
+    ) {
+      reject(
+        403,
+        "Invalid source - only localhost allowed",
+        `Rejected POST callback for ${provider}: Non-localhost source IP ${remoteAddress}`,
+      );
+      return;
+    }
+
+    // Origin or Referer means a web page issued this request. The OAuth notification is
+    // a server-to-client call and carries neither, so their presence identifies the one
+    // caller class that must never be able to plant credentials.
+    const origin = req.headers.origin;
+    const referer = req.headers.referer;
+    if (origin || referer) {
+      reject(
+        403,
+        "Browser-originated requests are not accepted on this endpoint",
+        `Rejected POST callback for ${provider}: browser origin=${origin ?? "none"} referer=${referer ?? "none"}`,
+      );
+      return;
+    }
+
+    const presentedToken = this.readCallbackToken(req, parsedUrl);
+    if (
+      !this.callbackSessionToken ||
+      !presentedToken ||
+      !constantTimeEquals(presentedToken, this.callbackSessionToken)
+    ) {
+      reject(
+        403,
+        "Invalid or missing callback authentication token",
+        `Rejected POST callback for ${provider}: callback token ${presentedToken ? "mismatch" : "absent"}`,
+      );
+      return;
+    }
+
+    this.log(`Provider token callback for ${provider}`);
+
+    let body = "";
+    req.on("data", (chunk: any) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+      try {
+        const tokenData = JSON.parse(body);
+        if (
+          typeof tokenData?.access_token !== "string" ||
+          tokenData.access_token.length === 0
+        ) {
+          reject(
+            400,
+            "Provider token payload has no access_token",
+            `Rejected POST callback for ${provider}: payload has no access_token`,
+          );
+          return;
+        }
+
+        await this.saveProviderToken(provider, tokenData);
+
+        // Resolve pending provider OAuth promise (allows handleConnectProvider to continue)
+        this.resolveProviderOAuth(provider);
+
+        // Notify PierreMcpClient about provider OAuth completion (for MCP notification)
+        if (this.onProviderOAuthComplete) {
+          try {
+            await this.onProviderOAuthComplete(provider);
+            this.log(`Notified MCP client about ${provider} OAuth completion`);
+          } catch (notifyError) {
+            this.log(
+              `Failed to notify MCP client about ${provider} OAuth: ${notifyError}`,
+            );
+          }
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: true,
+            message: `${provider} token stored client-side`,
+          }),
+        );
+      } catch (error) {
+        this.log(`Failed to save ${provider} token: ${error}`);
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: false,
+            message: "Failed to save provider token",
+          }),
+        );
+      }
+    });
+  }
+
+  private readCallbackToken(req: any, parsedUrl: any): string | undefined {
+    const headerToken = req.headers["x-callback-token"];
+    if (typeof headerToken === "string" && headerToken.length > 0) {
+      return headerToken;
+    }
+    const queryToken = parsedUrl.query?.callback_token;
+    if (typeof queryToken === "string" && queryToken.length > 0) {
+      return queryToken;
+    }
+    return undefined;
+  }
+
+  private async startCallbackServer(): Promise<void> {
+    // Bind before arming the wait: the redirect URI carried in the authorization request
+    // names the callback port, so the port is owned by this process before that request
+    // leaves. A bind failure throws here rather than degrading to another port.
+    await this.ensureCallbackServerBound();
+
     this.authorizationPending = new Promise((resolve, reject) => {
+      // Store resolve/reject for the callback handler to use
       (this.callbackServer as any)._authResolve = resolve;
       (this.callbackServer as any)._authReject = reject;
     });

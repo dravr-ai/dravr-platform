@@ -8,7 +8,8 @@
 #![allow(missing_docs)]
 
 use pierre_core::feature_flags::FeatureKey;
-use pierre_core::models::{ToolEnablementSource, UserStatus};
+use pierre_core::models::{CoachingPersona, ToolEnablementSource, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_services::admin_ops;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::sync::Arc;
@@ -140,12 +141,29 @@ async fn test_get_first_admin_user_returns_seeded_admin() {
     // Regression: the SQLite SELECT referenced the dropped plan_tier column,
     // so this method errored on every call ("no such column") — and the CLI's
     // audit-actor lookup silently degraded to NULL. Content-assert the row.
+    //
+    // The optional columns are asserted too, and with non-default values: the
+    // row mapper reads locale / persona / roster / timezone through
+    // `try_get(...).ok()`, so a column missing from the SELECT does not error —
+    // it hands back "fr" / Casual / false / None and the drift stays invisible.
     let db = common::create_test_database().await.unwrap();
     let repos = db.repositories();
     let (user_id, user) = common::create_test_user_with_email(&db, "first-admin@example.com")
         .await
         .unwrap();
     repos.users.set_admin_status(user_id, true).await.unwrap();
+    repos.users.update_locale(user_id, "es").await.unwrap();
+    repos
+        .users
+        .set_coaching_persona(user_id, CoachingPersona::PowerAthlete)
+        .await
+        .unwrap();
+    repos.users.set_manages_roster(user_id, true).await.unwrap();
+    repos
+        .users
+        .set_timezone(user_id, "Europe/Madrid")
+        .await
+        .unwrap();
 
     let admin = repos
         .users
@@ -156,6 +174,26 @@ async fn test_get_first_admin_user_returns_seeded_admin() {
     assert_eq!(admin.id, user_id);
     assert_eq!(admin.email, user.email);
     assert!(admin.is_admin);
+    assert_eq!(admin.role, UserRole::Admin);
+    assert_eq!(admin.tier, UserTier::Starter);
+    assert_eq!(admin.user_status, UserStatus::Active);
+    assert_eq!(admin.locale, "es");
+    assert_eq!(admin.coaching_persona, CoachingPersona::PowerAthlete);
+    assert!(admin.manages_roster);
+    assert_eq!(admin.timezone.as_deref(), Some("Europe/Madrid"));
+
+    // Same row, same columns, through the other reader of this column list.
+    let by_email = repos
+        .users
+        .get_by_email(&user.email)
+        .await
+        .unwrap()
+        .expect("seeded admin must be found by email");
+    assert_eq!(by_email.locale, admin.locale);
+    assert_eq!(by_email.coaching_persona, admin.coaching_persona);
+    assert_eq!(by_email.manages_roster, admin.manages_roster);
+    assert_eq!(by_email.timezone, admin.timezone);
+    assert_eq!(by_email.role, admin.role);
 }
 
 #[tokio::test]

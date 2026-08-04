@@ -24,8 +24,122 @@ use pierre_core::models::coaches::ListCoachesFilter;
 #[cfg(feature = "tools-groups")]
 use pierre_core::models::groups::GroupInviteKind;
 use pierre_core::models::groups::{GroupRole, UpdateGroupRequest};
+use pierre_core::models::TenantId;
+use uuid::Uuid;
 
 use crate::{CommandHandler, PlatformCommandContext};
+
+/// The coaching group a `/group` subcommand acts on, together with the tenant
+/// whose rows describe it.
+struct TargetGroup {
+    /// `coaching_groups.id`.
+    id: Uuid,
+    /// Display name, echoed back in confirmations.
+    name: String,
+    /// Tenant that owns the `coaching_groups` row — the conversation tenant
+    /// when the chat binding supplied the group, the caller's own tenant on the
+    /// `list_groups_for_user` path (which reports no tenant).
+    tenant_id: TenantId,
+    /// How the group was resolved, for the operator log line: either
+    /// `"conversation_group_id"` or `"list_groups_for_user_first"`.
+    source: &'static str,
+}
+
+/// Resolve the group bound to this turn's conversation.
+///
+/// `Ok(None)` means the conversation exists and simply carries no group — a
+/// personal chat. A conversation id that is invisible under
+/// [`PlatformCommandContext::conversation_tenant_id`], or a binding pointing at
+/// a group that tenant cannot see, is an error: the caller must refuse rather
+/// than pick some other group.
+async fn conversation_bound_group(
+    ctx: &PlatformCommandContext,
+    conversation_id: &str,
+) -> Result<Option<TargetGroup>, AppError> {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = ctx.locale.as_str();
+
+    let conversation = ctx
+        .ctx
+        .repos()
+        .chat
+        .get_conversation(
+            conversation_id,
+            &ctx.user_id.to_string(),
+            ctx.conversation_tenant_id,
+        )
+        .await?
+        .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+
+    let Some(group_id) = conversation.group_id else {
+        return Ok(None);
+    };
+
+    let group = ctx
+        .ctx
+        .repos()
+        .groups
+        .get_group(&group_id, ctx.conversation_tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+
+    Ok(Some(TargetGroup {
+        id: group.id,
+        name: group.name,
+        tenant_id: ctx.conversation_tenant_id,
+        source: "conversation_group_id",
+    }))
+}
+
+/// Resolve the coaching group a `/group` subcommand acts on.
+///
+/// The conversation carrying the turn is the authority. Its `group_id` and the
+/// group it names are read under [`PlatformCommandContext::conversation_tenant_id`]
+/// — a shared room's conversation and coaching group belong to the channel/bot
+/// tenant, which is not the caller's tenant whenever a member joined from
+/// elsewhere.
+///
+/// `list_groups_for_user` is the fallback only for personal chats and for
+/// surfaces that carry no conversation id at all (Slack `block_actions`
+/// buttons). It spans tenants, applies no tenant filter and orders by
+/// `updated_at DESC`, so using it after a failed conversation lookup would
+/// silently point the command at whichever other group the caller touched last.
+/// For a privacy control such as `/group consent` a visible refusal is the
+/// safer failure, so a shared room that cannot name its group refuses.
+async fn resolve_target_group(ctx: &PlatformCommandContext) -> Result<TargetGroup, AppError> {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = ctx.locale.as_str();
+
+    if let Some(conversation_id) = ctx.conversation_id.as_deref() {
+        if let Some(group) = conversation_bound_group(ctx, conversation_id).await? {
+            return Ok(group);
+        }
+        if !ctx.is_direct_message {
+            return Err(AppError::not_found(reg.render(
+                KEY_GROUP_NOT_A_MEMBER,
+                locale,
+                &[],
+            )));
+        }
+    }
+
+    let groups = ctx
+        .ctx
+        .repos()
+        .groups
+        .list_groups_for_user(ctx.user_id)
+        .await?;
+    let group = groups
+        .first()
+        .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+
+    Ok(TargetGroup {
+        id: group.id,
+        name: group.name.clone(),
+        tenant_id: ctx.tenant_id,
+        source: "list_groups_for_user_first",
+    })
+}
 
 /// Map a [`GroupRole`] to its localized messaging-string key so the role
 /// label renders in the user's locale instead of leaking the raw English
@@ -178,16 +292,7 @@ impl CommandHandler for GroupInviteHandler {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
 
-        let groups = ctx
-            .ctx
-            .repos()
-            .groups
-            .list_groups_for_user(ctx.user_id)
-            .await?;
-
-        let group = groups
-            .first()
-            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+        let group = resolve_target_group(ctx).await?;
 
         // Check admin role
         let member = ctx
@@ -221,10 +326,12 @@ impl CommandHandler for GroupInviteHandler {
                 GroupInviteKind::Member
             };
 
+            // The invite is filed under the tenant that owns the group, not the
+            // issuer's — in a shared room those differ.
             let invite = ctx
                 .ctx
                 .group_service()
-                .create_invite(group.id, ctx.user_id, ctx.tenant_id, Some(7), None, kind)
+                .create_invite(group.id, ctx.user_id, group.tenant_id, Some(7), None, kind)
                 .await?;
 
             let text = reg.render(
@@ -274,16 +381,8 @@ impl CommandHandler for GroupCoachHandler {
             ));
         }
 
-        // Resolve the caller's group (mirrors /group invite).
-        let groups = ctx
-            .ctx
-            .repos()
-            .groups
-            .list_groups_for_user(ctx.user_id)
-            .await?;
-        let group = groups
-            .first()
-            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+        // Resolve the chat-bound group (mirrors /group invite).
+        let group = resolve_target_group(ctx).await?;
 
         // Owner/admin only — changing the group's coach is a settings change.
         let member = ctx
@@ -334,10 +433,12 @@ impl CommandHandler for GroupCoachHandler {
             peer_data_sharing: None,
             is_active: None,
         };
+        // Scoped to the tenant that owns the group row, which is the channel
+        // tenant when the command came from a shared room.
         let updated = ctx
             .ctx
             .group_service()
-            .update_group(&group.id.to_string(), ctx.tenant_id, &request)
+            .update_group(&group.id.to_string(), group.tenant_id, &request)
             .await?
             .ok_or_else(|| AppError::not_found("Group not found"))?;
 
@@ -383,14 +484,9 @@ impl CommandHandler for GroupLeaveHandler {
 /// Handler for `/group consent yes|no` — toggle peer-sharing consent.
 ///
 /// Updates `coaching_group_members.peer_sharing_consent` for the requester
-/// in the group bound to the current chat conversation. Resolution order:
-///
-///   1. `chat_conversations.group_id` for `ctx.conversation_id` — used by
-///      Telegram/Slack/Discord group chats (auto-bound) and any web/mobile
-///      conversation explicitly created against a group.
-///   2. The user's most recently updated group from `list_groups_for_user`
-///      — fallback for chat surfaces that haven't propagated a
-///      conversation id (notably Slack `block_actions` buttons).
+/// in the group [`resolve_target_group`] names — the group bound to the chat
+/// the command was typed in, refusing rather than retargeting when a shared
+/// room cannot name one.
 ///
 /// The privacy gate in `pierre_groups::GroupService::inject_group_context`
 /// honors this flag: even when the group has `peer_data_sharing = true`,
@@ -417,41 +513,9 @@ impl CommandHandler for GroupConsentHandler {
             }
         };
 
-        let user_id_str = ctx.user_id.to_string();
-        let conversation_group = if let Some(conv_id) = ctx.conversation_id.as_deref() {
-            ctx.ctx
-                .repos()
-                .chat
-                .get_conversation(conv_id, &user_id_str, ctx.tenant_id)
-                .await?
-                .and_then(|c| c.group_id)
-        } else {
-            None
-        };
-
-        let (group_id_str, group_name) = if let Some(gid) = conversation_group {
-            let group = ctx
-                .ctx
-                .repos()
-                .groups
-                .get_group(&gid, ctx.tenant_id)
-                .await?
-                .ok_or_else(|| {
-                    AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[]))
-                })?;
-            (group.id.to_string(), group.name)
-        } else {
-            let groups = ctx
-                .ctx
-                .repos()
-                .groups
-                .list_groups_for_user(ctx.user_id)
-                .await?;
-            let group = groups.first().ok_or_else(|| {
-                AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[]))
-            })?;
-            (group.id.to_string(), group.name.clone())
-        };
+        let target = resolve_target_group(ctx).await?;
+        let group_id_str = target.id.to_string();
+        let group_name = target.name;
 
         let rows_affected = ctx
             .ctx
@@ -466,7 +530,7 @@ impl CommandHandler for GroupConsentHandler {
             group_name = %group_name,
             consent_choice,
             rows_affected,
-            source = if ctx.conversation_id.is_some() { "conversation_group_id" } else { "list_groups_for_user_first" },
+            source = target.source,
             "Applied /group consent — peer_sharing_consent updated"
         );
 

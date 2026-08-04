@@ -120,6 +120,19 @@ pub enum RacePriority {
     C,
 }
 
+impl RacePriority {
+    /// Stable string identifier — byte-for-byte what serde emits for this
+    /// variant, so renderers can label a race without a JSON round-trip.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::A => "A",
+            Self::B => "B",
+            Self::C => "C",
+        }
+    }
+}
+
 /// A race in the plan's calendar.
 ///
 /// The outline's `goal_race` is a **snapshot** taken at plan time; the living
@@ -151,6 +164,21 @@ pub enum BlockPhase {
     Peak,
     /// Pre-race freshening: shorter, sharper, more rest.
     Taper,
+}
+
+impl BlockPhase {
+    /// Stable string identifier — byte-for-byte what serde emits for this
+    /// variant, so renderers can label a block without a JSON round-trip.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rest => "rest",
+            Self::Base => "base",
+            Self::Build => "build",
+            Self::Peak => "peak",
+            Self::Taper => "taper",
+        }
+    }
 }
 
 /// Deserialize a whole-valued JSON number (int or float) into `u8`.

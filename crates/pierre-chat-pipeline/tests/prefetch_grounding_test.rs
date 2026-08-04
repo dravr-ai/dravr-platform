@@ -22,7 +22,7 @@
 
 use pierre_chat_pipeline::stages::prefetch::{
     get_startup_context_if_applicable, inject_activity_refresh, needs_activity_grounding,
-    should_refresh_activity_context,
+    should_refresh_activity_context, startup_query_preview,
 };
 use pierre_core::models::{CoachCategory, CoachRuntimeContext};
 use pierre_llm::{ChatMessage, MessageRole};
@@ -176,6 +176,72 @@ fn startup_gate_never_fires_while_a_guided_flow_owns_the_turn() {
     assert!(
         get_startup_context_if_applicable(1, Some(&with_activities), false).is_some(),
         "outside a guided flow the first turn still grounds"
+    );
+}
+
+/// A fr-first `startup_query` whose 50th byte lands inside the `è` of
+/// "athlète" — the geometry that made the log preview's byte slice panic.
+const ACCENTED_STARTUP_QUERY: &str =
+    "Analyse les douze dernières semaines de cet athlète: régularité, pics, récupération.";
+
+#[test]
+fn the_startup_query_preview_cuts_on_a_character_not_a_byte() {
+    // `startup_query` is accepted verbatim by the custom-coach create/update
+    // API on a fr-first platform, and the log line previewed it with a raw byte
+    // slice. That runs on the `history_len == 1` path, before dispatch, with no
+    // panic boundary between it and the turn — the same defect class that
+    // destroyed a production turn in the deterministic-bounds scanner.
+    //
+    // The geometry is asserted before the function is exercised, so a reworded
+    // fixture cannot silently stop reproducing the bug.
+    let query = ACCENTED_STARTUP_QUERY;
+    assert_eq!(
+        query.len(),
+        90,
+        "the fixture must be longer than the preview"
+    );
+    assert!(
+        !query.is_char_boundary(50),
+        "byte 50 must land inside a character ('è' spans bytes 49..51) or this proves nothing"
+    );
+    assert!(query.is_char_boundary(49) && query.is_char_boundary(51));
+
+    let preview = startup_query_preview(query);
+    assert_eq!(
+        preview, "Analyse les douze dernières semaines de cet athlèt",
+        "the preview must be the first 50 characters, whole"
+    );
+    assert_eq!(preview.chars().count(), 50);
+    assert_eq!(
+        preview.len(),
+        52,
+        "50 characters of accented French are 52 bytes — a byte cut would have split the 'è'"
+    );
+
+    // A query shorter than the window is previewed whole, accents and all.
+    assert_eq!(
+        startup_query_preview("Résume la semaine."),
+        "Résume la semaine."
+    );
+}
+
+#[test]
+fn a_startup_query_with_an_accent_at_the_preview_boundary_still_grounds_the_turn() {
+    let mut with_startup_query = coach(None);
+    with_startup_query.startup_query = Some(ACCENTED_STARTUP_QUERY.to_owned());
+
+    let (returned, data_reqs) =
+        get_startup_context_if_applicable(1, Some(&with_startup_query), false)
+            .expect("a coach carrying a startup query must still ground its first turn");
+
+    assert_eq!(
+        returned.as_deref(),
+        Some(ACCENTED_STARTUP_QUERY),
+        "the query reaching the caller must be the coach's, untruncated"
+    );
+    assert!(
+        data_reqs.is_none(),
+        "this coach declares no data_requirements"
     );
 }
 

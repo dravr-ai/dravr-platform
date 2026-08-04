@@ -36,6 +36,8 @@ use pierre_tool_runtime::tool_execution::{
     is_withheld_during_guided_flow, strip_simulation_artifacts,
 };
 
+use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
+
 #[cfg(feature = "tools-groups")]
 use pierre_core::errors::AppResult;
 #[cfg(feature = "tools-groups")]
@@ -285,8 +287,17 @@ fn push_history_row(
     // verbatim teaches the model to keep narrating — the « Je continue
     // d'ignorer le bloc caché » loop observed live on 2026-07-10. A row
     // that is pure narration is dropped like pure scaffolding.
+    //
+    // User-channel rows instead get the platform markers defanged. Every
+    // injected platform block rides in the `User` role (a mid-list `System`
+    // message is dropped by the live provider), and each is told apart from the
+    // athlete's own text by a literal lead sentence — so an athlete who types
+    // that sentence is quoted back into the same channel wearing the platform's
+    // authority. For a training-prescription product the payoff is fabricated
+    // volume and intensity history driving a real prescription.
     let replayed = match msg.role.as_str() {
         "assistant" | "tool_call" => Cow::Owned(scrub_replayed_narration(&stripped).cleaned),
+        "user" | "tool_result" => defang_platform_markers(&stripped),
         _ => Cow::Borrowed(stripped.as_str()),
     };
     if replayed.is_empty() {
@@ -300,6 +311,46 @@ fn push_history_row(
     };
     messages.push(chat_msg);
     source_ids.push(Some(msg.id.clone()));
+}
+
+/// The literal lead sentences that mark a `User` message as platform-authored.
+///
+/// Commit `0988e17e6` moved every injected block to the `User` role because the
+/// live provider keeps only the first `System` message, and told the model which
+/// `User` messages are the platform's by prefixing each with one of these. That
+/// makes the sentences themselves the credential: [`REPLAYED_SUMMARY_PREFIX`]
+/// asserts "recovered context, not a new message from the athlete", and the two
+/// grounding leads assert that the activities under them were loaded from the
+/// athlete's real provider data.
+const PLATFORM_MARKERS: [&str; 3] = [
+    REPLAYED_SUMMARY_PREFIX,
+    REFRESH_GROUNDING_LEAD,
+    STARTUP_GROUNDING_LEAD,
+];
+
+/// What replaces a platform marker found in athlete-authored text.
+///
+/// Names the text rather than deleting it, so an athlete who quotes the framing
+/// while asking about it still gets their question through — as their own words.
+const QUOTED_PLATFORM_MARKER: &str = "[athlete-typed text imitating a platform marker]";
+
+/// Strip the platform's own framings out of text the athlete wrote.
+///
+/// Persisted athlete rows replay verbatim into the same `User` channel the
+/// platform injects into, so a message that opens with one of
+/// [`PLATFORM_MARKERS`] arrives indistinguishable from recovered history or from
+/// a freshly loaded activity block. Fabricated volume and intensity presented
+/// with platform authority is what a coach then prescribes against.
+///
+/// Borrows unchanged when no marker is present, which is every real message.
+fn defang_platform_markers(text: &str) -> Cow<'_, str> {
+    let mut out = Cow::Borrowed(text);
+    for marker in PLATFORM_MARKERS {
+        if out.contains(marker) {
+            out = Cow::Owned(out.replace(marker, QUOTED_PLATFORM_MARKER));
+        }
+    }
+    out
 }
 
 /// Build the "Connected Fitness Data Providers" system-prompt section.

@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 //! Calibration turn behaviour that needs no database.
 //!
 //! The resolver itself is exercised against a real database in
@@ -12,19 +14,41 @@
 //! stamped, and that the two flows cannot corrupt each other's ledger entries.
 
 use pierre_chat_pipeline::stages::onboarding::{
-    directive, extraction_params, GuidedTarget, OnboardingTurn,
+    answered_target, directive, extraction_params, GuidedTarget, OnboardingTurn,
 };
 use pierre_core::models::{
-    CalibrationTopic, CoverageTarget, GuidedFlow, LoadSnapshot, OnboardingState, Pillar,
+    CalibrationConditions, CalibrationTopic, CoverageTarget, GuidedFlow, LoadSnapshot,
+    OnboardingState, Pillar, TopicSlug,
 };
 use pierre_memory::{FactKind, FactSource};
 use std::collections::HashSet;
 
+/// Interview start stamp shared by every fixture here.
+const STARTED_AT: &str = "2026-07-28T00:00:00Z";
+
 fn calibration_turn(topic: CalibrationTopic, snapshot: Option<LoadSnapshot>) -> OnboardingTurn {
     OnboardingTurn {
         target: GuidedTarget::Calibration(topic),
-        state: OnboardingState::start("2026-07-28T00:00:00Z".to_owned(), GuidedFlow::Calibration)
+        state: OnboardingState::start(STARTED_AT.to_owned(), GuidedFlow::Calibration)
             .with_snapshot(snapshot),
+    }
+}
+
+/// The flow state as a turn loads it, wound forward to the turn that asks
+/// `topic` — i.e. every earlier topic recorded as delivered, and `topic` not.
+///
+/// This is the real turn geometry: `record_delivered_probe` appends at the END
+/// of the turn that asks a question, so the state a turn starts with names the
+/// question the athlete's inbound message is answering.
+fn state_when_asking(topic: CalibrationTopic) -> OnboardingState {
+    let mut state = OnboardingState::start(STARTED_AT.to_owned(), GuidedFlow::Calibration);
+    loop {
+        let next = CalibrationTopic::next_target(&state.probed, CalibrationConditions::default())
+            .expect("the interview ran out of topics before reaching the fixture's");
+        if next == topic {
+            return state;
+        }
+        state = state.with_delivered_probe(next.slug());
     }
 }
 
@@ -56,10 +80,126 @@ fn every_calibration_topic_forces_the_kind_its_answer_means() {
         (CalibrationTopic::EventDemand, FactKind::Goal),
     ];
     for (topic, kind) in expected {
-        let (pillar, source, forced) = extraction_params(&calibration_turn(topic, None));
+        let (pillar, source, forced) = extraction_params(GuidedTarget::Calibration(topic));
         assert_eq!(pillar, Some(Pillar::TrainingAndMovement), "{topic:?}");
         assert_eq!(source, FactSource::Onboarding, "{topic:?}");
         assert_eq!(forced, Some(kind), "{topic:?} stamped the wrong kind");
+    }
+}
+
+#[test]
+fn the_injury_turn_files_the_availability_answer_as_a_schedule_fact() {
+    // Two consecutive guided turns. The turn that ASKS about injuries carries
+    // the athlete's answer to the previous question — availability — because a
+    // probe is recorded as delivered at the end of the turn that asks it, so
+    // the next-topic policy has already advanced by the time this state loads.
+    //
+    // Stamping the inbound message with the topic being asked filed "8 h/week,
+    // Tuesdays protected" as `FactKind::Injury`. That is what the dossier then
+    // hands the coach as the athlete's injury history, and what the completion
+    // check counts as the safety answer landing — Injury being the sole writer
+    // of its kind is precisely what makes the mis-file invisible.
+    let state = state_when_asking(CalibrationTopic::Injury);
+    assert_eq!(
+        state.probed.last().map(TopicSlug::as_str),
+        Some(CalibrationTopic::Availability.as_str()),
+        "fixture geometry: the previous turn must have asked about availability"
+    );
+
+    let answered = answered_target(&state).expect("the previous turn's probe is in the ledger");
+    assert_eq!(
+        answered,
+        GuidedTarget::Calibration(CalibrationTopic::Availability),
+        "the message being extracted answers the question the previous turn asked"
+    );
+
+    let (pillar, source, forced) = extraction_params(answered);
+    assert_eq!(
+        forced,
+        Some(FactKind::Schedule),
+        "an availability answer is a schedule fact"
+    );
+    assert_ne!(
+        forced,
+        Some(FactKind::Injury),
+        "stamping with the topic being asked is the mis-file this test exists for"
+    );
+    assert_eq!(pillar, Some(Pillar::TrainingAndMovement));
+    assert_eq!(source, FactSource::Onboarding);
+}
+
+#[test]
+fn the_opening_message_of_a_guided_flow_answers_no_topic() {
+    // The first guided turn's inbound message arrived before any question was
+    // asked. Stamping it with a topic would file whatever the athlete opened
+    // with as that topic's answer.
+    let fresh = OnboardingState::start(STARTED_AT.to_owned(), GuidedFlow::Calibration);
+    assert_eq!(answered_target(&fresh), None);
+}
+
+#[test]
+fn every_turn_of_the_walk_stamps_the_question_it_answers() {
+    // Drive the whole core interview turn by turn and check the stamping at
+    // each step against the question actually asked one turn earlier.
+    let conditions = CalibrationConditions::default();
+    let mut state = OnboardingState::start(STARTED_AT.to_owned(), GuidedFlow::Calibration);
+    let mut asked_last_turn: Option<CalibrationTopic> = None;
+    let mut steps = 0;
+
+    while let Some(asking_now) = CalibrationTopic::next_target(&state.probed, conditions) {
+        assert_eq!(
+            answered_target(&state),
+            asked_last_turn.map(GuidedTarget::Calibration),
+            "turn {steps} stamped the wrong topic"
+        );
+        if let Some(previous) = asked_last_turn {
+            let (_, _, forced) = extraction_params(GuidedTarget::Calibration(previous));
+            assert_eq!(
+                forced,
+                Some(FactKind::parse_lenient(previous.fact_kind())),
+                "turn {steps} forced a kind the answered topic does not mean"
+            );
+            assert_ne!(
+                previous, asking_now,
+                "turn {steps} answers and asks the same topic"
+            );
+        }
+        asked_last_turn = Some(asking_now);
+        state = state.with_delivered_probe(asking_now.slug());
+        steps += 1;
+    }
+
+    assert_eq!(steps, CalibrationTopic::CORE.len(), "six core questions");
+    // The turn that finds nothing left to ask is the one that answers the last
+    // question, and the last question is recovery speed: safety-critical, sole
+    // writer of `physiology`, and the answer the deterministic wrap-up turn
+    // still has to extract even though it never calls the model.
+    assert_eq!(asked_last_turn, Some(CalibrationTopic::RecoverySpeed));
+    let answered = answered_target(&state).expect("the last probe is in the ledger");
+    assert_eq!(
+        answered,
+        GuidedTarget::Calibration(CalibrationTopic::RecoverySpeed)
+    );
+    let (_, _, forced) = extraction_params(answered);
+    assert_eq!(forced, Some(FactKind::Physiology));
+}
+
+#[test]
+fn a_pillars_ledger_resolves_back_to_its_own_targets() {
+    // The two flows share one ledger, so the answered-topic lookup has to read
+    // a pillar slug and a North Star slug as well as a calibration one.
+    for target in [
+        GuidedTarget::Coverage(CoverageTarget::NorthStar),
+        GuidedTarget::Coverage(CoverageTarget::Pillar(Pillar::Fuelling)),
+        GuidedTarget::Coverage(CoverageTarget::Pillar(Pillar::TrainingAndMovement)),
+    ] {
+        let state = OnboardingState::start(STARTED_AT.to_owned(), GuidedFlow::Pillars)
+            .with_delivered_probe(target.slug());
+        assert_eq!(
+            answered_target(&state),
+            Some(target),
+            "{target:?} does not survive a round trip through the ledger"
+        );
     }
 }
 

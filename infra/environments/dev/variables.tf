@@ -257,30 +257,6 @@ variable "backend_max_instance_request_concurrency" {
   default     = 4
 }
 
-variable "backend_sciotte_max_concurrent" {
-  description = "Hard cap on concurrent Chrome-driven sciotte scrapes per instance. Used as PIERRE_SCIOTTE_MAX_CONCURRENT env var. Must match backend_max_instance_request_concurrency."
-  type        = number
-  default     = 4
-}
-
-variable "backend_sciotte_max_queue" {
-  description = "Combined cap on running + waiting sciotte requests per instance before fast-rejecting with 503. Used as PIERRE_SCIOTTE_MAX_QUEUE env var."
-  type        = number
-  default     = 20
-}
-
-variable "backend_sciotte_acquire_timeout_secs" {
-  description = "Maximum seconds a sciotte request waits for a permit before being rejected. Used as PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS env var."
-  type        = number
-  default     = 10
-}
-
-variable "backend_sciotte_permit_max_lifetime_secs" {
-  description = "Maximum seconds a sciotte permit can stay parked across a multi-step OTP/2FA flow before the watchdog evicts it. Used as PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS env var. Must stay above the DRAVR_SCIOTTE_*_TIMEOUT login budget so the watchdog never evicts a permit mid-login."
-  type        = number
-  default     = 360
-}
-
 variable "backend_sciotte_login_timeout_secs" {
   description = "Overall sciotte credential-login budget in seconds. Used as DRAVR_SCIOTTE_LOGIN_TIMEOUT env var (dravr-sciotte crate default is 120). Sized for the slowest interactive path: number-match 2FA where the user must tap a number on their phone."
   type        = number
@@ -320,24 +296,6 @@ variable "backend_sciotte_remote" {
     condition     = !var.backend_sciotte_remote || var.enable_sciotte_service
     error_message = "backend_sciotte_remote requires enable_sciotte_service = true (the URL references the sciotte module)."
   }
-}
-
-variable "backend_sciotte_watchdog_interval_secs" {
-  description = "Interval at which the sciotte watchdog scans for stale parked permits. Used as PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS env var."
-  type        = number
-  default     = 15
-}
-
-variable "backend_sciotte_retry_after_hint_secs" {
-  description = "`Retry-After` header value emitted on sciotte queue-full / timeout rejections. Used as PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS env var."
-  type        = number
-  default     = 5
-}
-
-variable "backend_sciotte_closed_retry_after_secs" {
-  description = "`Retry-After` header value emitted when the sciotte limiter is closed (shutdown). Used as PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS env var."
-  type        = number
-  default     = 60
 }
 
 # -----------------------------------------------------------------------------

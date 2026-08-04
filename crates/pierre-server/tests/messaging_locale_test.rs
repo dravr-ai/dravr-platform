@@ -224,6 +224,7 @@ async fn status_handler_renders_french_by_default() {
         locale: "fr".to_owned(),
         is_direct_message: false,
         conversation_id: None,
+        conversation_tenant_id: tenant_id,
         sender_id: None,
     };
 
@@ -253,6 +254,7 @@ async fn status_handler_switches_to_english_when_locale_set() {
         locale: "en".to_owned(),
         is_direct_message: false,
         conversation_id: None,
+        conversation_tenant_id: tenant_id,
         sender_id: None,
     };
 

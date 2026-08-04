@@ -3,13 +3,14 @@
   "version": "0.2.0",
   "description": "MCP client for Pierre Fitness MCP Server - works with Claude Desktop, ChatGPT, and any MCP host",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "packageManager": "bun@1.1.0",
   "bin": {
     "pierre-mcp-client": "./dist/cli.js"
   },
   "scripts": {
-    "preinstall": "node -e \"if(!process.env.npm_execpath || !process.env.npm_execpath.includes('bun')) { console.error('\\n\\x1b[31mERROR: Use bun, not npm/yarn!\\x1b[0m\\nRun: bun install\\n'); process.exit(1); }\"",
-    "build": "node esbuild.config.mjs",
+    "preinstall": "node -e \"if(process.env.INIT_CWD === process.cwd() && !(process.env.npm_execpath || '').includes('bun')) { console.error('\\n\\x1b[31mERROR: Use bun, not npm/yarn!\\x1b[0m\\nRun: bun install\\n'); process.exit(1); }\"",
+    "build": "node esbuild.config.mjs && tsc --emitDeclarationOnly",
     "build:tsc": "tsc",
     "lint": "eslint src/",
     "type-check": "tsc --noEmit",

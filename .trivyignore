@@ -1,22 +1,74 @@
 # Trivy CVE allowlist for dravr-platform image scans.
 #
 # Each entry MUST include:
-#   - the CVE ID alone on a line
+#   - the CVE ID plus an `exp:YYYY-MM-DD` expiry, so an exception cannot outlive
+#     its rationale silently
 #   - a leading comment block explaining: which image, why ignored, when to remove
 #
-# Entries here suppress Trivy's exit-code 1 in scripts/CI (publish-images.yml)
-# while still surfacing the finding in GitHub Code Scanning. Remove an entry as
-# soon as the upstream fix lands so the alert closes itself.
+# An entry here suppresses the finding at the BUILD GATE ONLY, not in reporting.
+# Trivy applies --ignorefile as a result filter before it writes its report, so a
+# single scan carrying this file would hide the vulnerability from the SARIF too.
+# publish-images.yml and publish-sciotte-image.yml therefore scan each digest
+# twice: a reporting pass with no --ignorefile and --exit-code 0, whose SARIF
+# goes to github/codeql-action/upload-sarif, then a gating pass with this file
+# and --exit-code 1. An allowlisted CVE stays visible as a GitHub Code Scanning
+# alert and closes itself when the upstream fix lands; what the entry buys is
+# only that the publish is not blocked meanwhile. (Trivy keeps suppressed
+# findings under ExperimentalModifiedFindings in JSON output; SARIF carries no
+# equivalent, which is why the split exists rather than a single scan.)
 #
-# Currently empty: the frontend nginx CVEs that lived here (CVE-2026-9256,
+# The expiry date is what re-blocks the gate: when it passes, the gating pass
+# exits 1 again and holds the image publish until someone re-reviews.
+#
+# Scoping: the plain-text .trivyignore format understands an ID and an optional
+# `exp:` date, nothing else. It cannot scope an ignore to a package, a path, or
+# one of the three published images (server, frontend, sciotte), so every entry
+# applies to all three scans until it expires. Package/path scoping requires the
+# experimental .trivyignore.yaml format (purls / paths / expired_at), which the
+# --ignorefile call sites do not point at; Trivy selects the YAML parser by file
+# extension, so YAML written into this file parses as garbage IDs and silently
+# ignores nothing.
+#
+# No nginx entries remain: the frontend CVEs that lived here (CVE-2026-9256,
 # CVE-2026-49975) were patched at the source by switching the frontend runtime
 # from the official nginx:alpine image (nginx.org's unpatched r1) to alpine's own
-# patched nginx — see docker/images/frontend/Dockerfile. No active allowlist needed.
+# patched nginx — see docker/images/frontend/Dockerfile.
 
-# sciotte + server images: adm-zip 0.5.17 (HIGH, CVE-2026-39244) is vendored
-# inside the GitHub Copilot CLI npm package, which is deliberately pinned at
-# 1.0.59 (newer CLIs regress the MCP bridge — see memory/copilot CLI
-# regression). Not reachable from the scrape/login path; the CLI only spawns
-# for vision-login LLM calls. Remove when the CLI pin can advance to a version
-# bundling adm-zip >= 0.6.0.
-CVE-2026-39244
+# server + sciotte images: adm-zip 0.5.17 (HIGH, CVE-2026-39244) arrives with the
+# GitHub Copilot CLI, pinned at 1.0.59 (newer CLIs regress the MCP bridge — see
+# memory/copilot CLI regression). It is not inside the npm tarball:
+# @github/copilot-linux-x64@1.0.59 ships four files (the SEA binary,
+# package.json, LICENSE.md, README.md). adm-zip lands when the CLI materializes
+# its sidecar tree at
+# $HOME/.copilot/pkg/<platform>/<cli-version>/foundry-local-sdk/node_modules/foundry-local-sdk/node_modules/adm-zip,
+# as a dependency of foundry-local-sdk 1.2.3; the `copilot --version` step in
+# both Dockerfiles triggers that during the image build.
+#
+# Exposure, stated plainly: on the server image the CLI is the PRIMARY chat
+# provider (PIERRE_LLM_PROVIDER=copilot_headless, infra/environments/dev/main.tf),
+# so it spawns on every coaching turn — not on a narrow vision-login path. On the
+# sciotte image it spawns for the vision-login LLM only.
+#
+# The suppression rests on adm-zip being unreachable, not on the CLI being
+# unreachable. adm-zip's risk is extracting untrusted archives, and its only call
+# site in foundry-local-sdk is script/install-utils.cjs — the npm install
+# lifecycle script, which downloads a .nupkg and calls extractEntryTo on it.
+# Nothing under foundry-local-sdk/dist (the runtime SDK) requires adm-zip, so a
+# chat turn never loads it. That archive is named from deps_versions.json and
+# fetched from a hard-coded feed list (api.nuget.org, then the ORT-Nightly Azure
+# DevOps feed): no part of the URL, the filename or the archive bytes derives
+# from athlete input, tool output or model output. Dravr runs remote Copilot
+# models and never enables Foundry Local, so the extraction path runs only when
+# the sidecar tree is first laid down.
+#
+# Checked against the published 1.0.59 tarball (file list) and against an
+# on-disk .copilot/pkg tree laid down by the CLI, reading foundry-local-sdk's
+# package.json, dist/ and script/install-utils.cjs. Re-do those three reads
+# before extending the date; a CLI release that starts calling adm-zip from
+# dist/ invalidates the argument.
+#
+# Remove when the CLI pin can advance to a release whose foundry-local-sdk
+# depends on adm-zip >= 0.6.0. On 2026-11-01 the entry expires and the scans exit
+# 1 again: re-verify the reachability argument above, then extend the date or
+# drop the entry.
+CVE-2026-39244 exp:2026-11-01

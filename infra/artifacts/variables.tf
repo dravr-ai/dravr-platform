@@ -94,7 +94,7 @@ variable "untagged_retention_days" {
 }
 
 variable "release_tag_prefixes" {
-  description = "Tag prefixes for images kept indefinitely (deploy / rollback anchors, e.g. semver releases)."
+  description = "Tag prefixes for images kept indefinitely (deploy / rollback anchors: semver releases, plus the moving deployed-<env> tag each Cloud Run deploy applies to the digest it ships)."
   type        = list(string)
-  default     = ["v"]
+  default     = ["v", "deployed-"]
 }

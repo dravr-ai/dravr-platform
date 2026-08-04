@@ -1009,7 +1009,44 @@ pub(crate) async fn cache_activities_result(
     }
 }
 
+/// The ways an LLM asks for "every sport" rather than naming one, in the five
+/// locales the platform ships (en/fr/es/de/pt).
+///
+/// These are not sport names: matching them literally drops every activity and
+/// makes the coach report "no recent data" over a full cache (the 2026-07-20
+/// dev incident, where English `all` did exactly that). The coach speaks the
+/// athlete's language, so it emits the wildcard in that language too.
+///
+/// Compared after [`normalise_sport_string`], which lowercases and strips
+/// separators — so entries here are lowercase and separator-free.
+const SPORT_WILDCARDS: &[&str] = &[
+    // no filter at all
+    "",
+    // en
+    "all",
+    "any",
+    "everything",
+    // fr
+    "tous",
+    "toutes",
+    "tout",
+    // es
+    "todos",
+    "todas",
+    "todo",
+    "cualquiera",
+    // de
+    "alle",
+    "alles",
+    "jede",
+    // pt
+    "tudo",
+    "qualquer",
+];
+
 /// Filter activities by sport type, using alias-aware enum matching.
+///
+/// A wildcard input ([`SPORT_WILDCARDS`]) passes the list through untouched.
 ///
 /// The LLM (or a UI) passes a free-form string like `nordicski`, `xc_ski`,
 /// `ski de fond`, or `cross_country_skiing`. The filter resolves the input
@@ -1032,13 +1069,7 @@ pub fn filter_activities_by_sport_type(
         return activities;
     };
     let normalised_filter = normalise_sport_string(filter);
-    // Wildcard inputs ("all", "any", French "tous") are how an LLM asks for
-    // every sport — they are not sport names, so matching them literally
-    // would filter out every activity.
-    if matches!(
-        normalised_filter.as_str(),
-        "" | "all" | "any" | "tous" | "toutes" | "tout"
-    ) {
+    if SPORT_WILDCARDS.contains(&normalised_filter.as_str()) {
         return activities;
     }
     let canonical_filter = resolve_sport_type(filter);

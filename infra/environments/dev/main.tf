@@ -401,20 +401,9 @@ module "backend" {
       CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
       CONTREMAITRE_BRANCH = "main"
 
-      # Sciotte backpressure limiter — all seven knobs are required at
-      # startup; the crate ships no numeric defaults. See
-      # pierre-providers/src/sciotte_limiter.rs for the semantics of each.
-      PIERRE_SCIOTTE_MAX_CONCURRENT           = tostring(var.backend_sciotte_max_concurrent)
-      PIERRE_SCIOTTE_MAX_QUEUE                = tostring(var.backend_sciotte_max_queue)
-      PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS     = tostring(var.backend_sciotte_acquire_timeout_secs)
-      PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS = tostring(var.backend_sciotte_permit_max_lifetime_secs)
-      PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS   = tostring(var.backend_sciotte_watchdog_interval_secs)
-      PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS    = tostring(var.backend_sciotte_retry_after_hint_secs)
-      PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS  = tostring(var.backend_sciotte_closed_retry_after_secs)
-
       # Sciotte scraper login-step timeouts (consumed by the dravr-sciotte
-      # crate, not the limiter). The crate's compiled defaults (login 120s,
-      # password-step 30s, phone-tap 60s) are too short for Strava's
+      # crate). The crate's compiled defaults (login 120s, password-step 30s,
+      # phone-tap 60s) are too short for Strava's
       # number-match 2FA, where the user must read a number off the login
       # screen and tap it on their phone — a 3-4 minute interactive step.
       DRAVR_SCIOTTE_LOGIN_TIMEOUT         = tostring(var.backend_sciotte_login_timeout_secs)

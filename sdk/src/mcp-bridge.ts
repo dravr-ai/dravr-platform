@@ -27,6 +27,7 @@ import {
   type ResponseValidatorConfig,
 } from "./response-validator.js";
 import { PierreOAuthClientProvider, OAuthSessionConfig } from "./oauth-session-manager.js";
+import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
 
@@ -1312,7 +1313,10 @@ export class PierreMcpClient {
         const providerOAuthUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
 
         // Open provider OAuth in browser with focus
-        await this.openUrlInBrowserWithFocus(providerOAuthUrl);
+        openUrlInBrowserWithFocus(providerOAuthUrl, {
+          disableBrowser: this.config.disableBrowser,
+          log: (message) => this.log(message),
+        });
 
         this.log(`Opened ${provider} OAuth in browser: ${providerOAuthUrl}`);
         this.log(`Waiting for ${provider} OAuth to complete...`);
@@ -1372,99 +1376,6 @@ export class PierreMcpClient {
         ],
         isError: true,
       };
-    }
-  }
-
-  private async openUrlInBrowserWithFocus(url: string): Promise<void> {
-    // Check if browser opening is disabled (testing mode). The env kill switch
-    // (PIERRE_DISABLE_BROWSER / CI / GITHUB_ACTIONS) suppresses the popup even
-    // when the config flag wasn't threaded through, so non-interactive runs
-    // never open (and never OOM) a browser tab. Real MCP hosts set none of these.
-    const envDisabled =
-      process.env.PIERRE_DISABLE_BROWSER === "true" ||
-      process.env.CI === "true" ||
-      process.env.GITHUB_ACTIONS === "true";
-    if (this.config.disableBrowser || envDisabled) {
-      this.log(
-        "Browser opening disabled - OAuth URL available at callback server",
-      );
-      this.log(`OAuth URL: ${url}`);
-      return;
-    }
-
-    // Security: Validate URL format before opening to prevent command injection
-    // Only allow http/https URLs from trusted OAuth providers
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(url);
-      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-        this.log(`Refusing to open non-HTTP URL: ${parsedUrl.protocol}`);
-        return;
-      }
-    } catch {
-      this.log("Invalid URL format, refusing to open");
-      return;
-    }
-
-    // Use execFile instead of exec to prevent shell injection
-    // execFile does not spawn a shell, so special characters in the URL cannot be interpreted
-    const { execFile } = await import("child_process");
-    const platform = process.platform;
-
-    if (platform === "darwin") {
-      // macOS: Open URL then explicitly activate browser after a brief delay
-      execFile("open", [parsedUrl.href], (error: Error | null) => {
-        if (error) {
-          this.log(`Failed to open browser: ${error.message}`);
-          return;
-        }
-
-        // After opening, try to activate common browsers using osascript
-        // This is safe as we're not passing user input to the script
-        setTimeout(() => {
-          execFile(
-            "osascript",
-            [
-              "-e",
-              'tell application "Google Chrome" to activate',
-            ],
-            (chromeError) => {
-              if (chromeError) {
-                execFile(
-                  "osascript",
-                  ["-e", 'tell application "Safari" to activate'],
-                  (safariError) => {
-                    if (safariError) {
-                      execFile(
-                        "osascript",
-                        ["-e", 'tell application "Firefox" to activate'],
-                        () => {
-                          // Ignore errors - browser activation is non-critical
-                        },
-                      );
-                    }
-                  },
-                );
-              }
-            },
-          );
-        }, 500);
-      });
-    } else if (platform === "win32") {
-      // Windows: Use cmd.exe with /c start to open URL
-      // execFile with cmd.exe prevents shell injection while allowing URL opening
-      execFile("cmd.exe", ["/c", "start", "", parsedUrl.href], (error: Error | null) => {
-        if (error) {
-          this.log(`Failed to open browser: ${error.message}`);
-        }
-      });
-    } else {
-      // Linux: xdg-open with validated URL
-      execFile("xdg-open", [parsedUrl.href], (error: Error | null) => {
-        if (error) {
-          this.log(`Failed to open browser: ${error.message}`);
-        }
-      });
     }
   }
 

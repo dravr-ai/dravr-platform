@@ -23,6 +23,18 @@ use std::collections::HashMap;
 use tracing::warn;
 use uuid::Uuid;
 
+/// Column list shared by every read that maps a row through `row_to_user`,
+/// so the SELECT and the mapper can only ever move together.
+///
+/// Hand-copying it is what let `get_first_admin_user` keep asking for the dropped
+/// `plan_tier` column: the query errored on every call until `pierre-cli` became its
+/// first live caller and surfaced it.
+const USER_COLUMNS: &str = "id, email, display_name, password_hash, tier, \
+     is_active, user_status, is_admin, role, approved_by, approved_at, \
+     created_at, last_active, firebase_uid, auth_provider, \
+     analytics_consent, analytics_consent_at, locale, default_coach_id, \
+     coaching_persona, manages_roster, timezone";
+
 impl Database {
     /// Create or update a user
     ///
@@ -141,16 +153,7 @@ impl Database {
             .map(|i| format!("${i}"))
             .collect::<Vec<_>>()
             .join(", ");
-        let query = format!(
-            r"
-            SELECT id, email, display_name, password_hash, tier,
-                   is_active, user_status, is_admin, role, approved_by, approved_at,
-                   created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster, timezone
-            FROM users WHERE id IN ({placeholders})
-            "
-        );
+        let query = format!("SELECT {USER_COLUMNS} FROM users WHERE id IN ({placeholders})");
 
         let mut q = sqlx::query(&query);
         for id in user_ids {
@@ -239,16 +242,7 @@ impl Database {
     /// Internal implementation for getting a user
     async fn get_user_by_field(&self, field: &str, value: &str) -> AppResult<Option<User>> {
         // NOTE: tenant_id is no longer stored on User - use tenant_users junction table
-        let query = format!(
-            r"
-            SELECT id, email, display_name, password_hash, tier,
-                   is_active, user_status, is_admin, role, approved_by, approved_at,
-                   created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster, timezone
-            FROM users WHERE {field} = $1
-            "
-        );
+        let query = format!("SELECT {USER_COLUMNS} FROM users WHERE {field} = $1");
 
         let row = sqlx::query(&query)
             .bind(value)
@@ -1022,26 +1016,14 @@ impl Database {
     /// # Errors
     /// Returns error if database operation fails
     pub async fn get_first_admin_user(&self) -> AppResult<Option<User>> {
-        // Column list mirrors get_user_by_field — the old hand-rolled SELECT
-        // still referenced the dropped plan_tier column, so this method
-        // errored ("no such column") on every call until pierre-cli became
-        // its first live caller and surfaced it (2026-07-17).
-        let row = sqlx::query(
-            r"
-            SELECT id, email, display_name, password_hash, tier,
-                   is_active, user_status, is_admin, role, approved_by, approved_at,
-                   created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at, locale, default_coach_id,
-                   coaching_persona, manages_roster, timezone
-            FROM users
-            WHERE is_admin = 1
-            ORDER BY created_at ASC
-            LIMIT 1
-            ",
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get first admin user: {e}")))?;
+        let query = format!(
+            "SELECT {USER_COLUMNS} FROM users \
+             WHERE is_admin = 1 ORDER BY created_at ASC LIMIT 1"
+        );
+        let row = sqlx::query(&query)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get first admin user: {e}")))?;
 
         row.map(|r| Self::row_to_user(&r)).transpose()
     }

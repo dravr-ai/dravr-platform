@@ -113,24 +113,26 @@ fn render_header(
             &[&plan.goal_race.name, &plan.goal_race.date, &days_out],
         )
     );
-    // The block containing today, when the outline has one.
+    // The block containing today, when the outline has one. A block whose span
+    // runs past `NaiveDate::MAX` holds no calendar date, today included, so it
+    // is passed over the same way an unparseable start is — `parse_plan_date`
+    // is a format check and `weeks` reaches 255, so the end is not always a
+    // date that exists.
     if let Some(block) = plan.blocks.iter().find(|b| {
         parse_plan_date(&b.start).is_some_and(|start| {
-            let end = start + chrono::Days::new(u64::from(b.weeks) * 7);
-            (start..end).contains(&today)
+            start
+                .checked_add_days(chrono::Days::new(u64::from(b.weeks) * 7))
+                .is_some_and(|end| (start..end).contains(&today))
         })
     }) {
-        let phase = serde_json::to_value(block.phase)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
+        let phase = block.phase.as_str();
         let hours = block
             .target_hours
             .map_or_else(String::new, |h| format!(", ~{h}h/wk"));
         let _ = writeln!(
             out,
             "{}",
-            reg.render(KEY_PLAN_BLOCK_LINE, locale, &[&phase, &hours])
+            reg.render(KEY_PLAN_BLOCK_LINE, locale, &[phase, &hours])
         );
     }
     out

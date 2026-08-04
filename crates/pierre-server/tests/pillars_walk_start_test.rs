@@ -81,6 +81,7 @@ fn ctx(
         locale: "en".to_owned(),
         is_direct_message,
         conversation_id,
+        conversation_tenant_id: tenant_id,
         sender_id: None,
     }
 }

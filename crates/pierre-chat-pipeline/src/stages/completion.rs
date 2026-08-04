@@ -163,10 +163,21 @@ pub async fn render(
     // Follow-up: offer a rebuild when the athlete already has a plan, a build
     // when they do not. Both are questions, never actions — the athlete
     // approves the change.
+    //
+    // Scoped to this conversation's coach, which is the slug `save_training_plan`
+    // binds a plan to. The lookup falls back to a coach-agnostic plan on its own
+    // (`coach_slug IN (slug, '')`), so passing the coach only widens what counts:
+    // a `None` here matches agnostic plans alone, and calibration runs inside
+    // coach-bound messaging conversations — it would tell the athletes most
+    // likely to hold a plan, the ones who built one with a coach, to build one.
     let has_plan = ctx
         .repos
         .training_plans
-        .get_active_plan(&tenant_id.to_string(), &conv.user_id, None)
+        .get_active_plan(
+            &tenant_id.to_string(),
+            &conv.user_id,
+            conv.coach_id.as_deref(),
+        )
         .await
         .ok()
         .flatten()

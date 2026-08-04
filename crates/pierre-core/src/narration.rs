@@ -500,42 +500,96 @@ const IDENTITY_NARRATION_PATTERNS: &[IdentityPattern] = &[
     ip("teste de injecao", IdentityPatternClass::Injection, "pt"),
 ];
 
-/// Fold a string for separator-insensitive matching: lowercase, then
-/// collapse every run of ASCII/Unicode hyphens, dashes, apostrophes and
-/// whitespace to a single space, trimmed. So `« prompt-injection »`,
+/// Dashes that join words: ASCII hyphen, U+2010 hyphen, U+2011 non-breaking
+/// hyphen, U+2012 figure dash. Inside a word (`terminal-based`) they carry no
+/// clause boundary.
+const fn is_word_dash(ch: char) -> bool {
+    matches!(ch, '-' | '\u{2010}' | '\u{2011}' | '\u{2012}')
+}
+
+/// Dashes that punctuate rather than join: en dash, em dash, horizontal bar.
+/// These break a clause wherever they appear, spaced or not.
+const fn is_clause_dash(ch: char) -> bool {
+    matches!(ch, '\u{2013}' | '\u{2014}' | '\u{2015}')
+}
+
+/// Apostrophes, ASCII and typographic.
+const fn is_apostrophe(ch: char) -> bool {
+    matches!(ch, '\'' | '\u{2018}' | '\u{2019}')
+}
+
+/// Every character [`fold_into`] collapses to a space.
+fn is_separator(ch: char) -> bool {
+    ch.is_whitespace() || is_word_dash(ch) || is_clause_dash(ch) || is_apostrophe(ch)
+}
+
+/// Fold a string for separator-insensitive matching, reporting the clause
+/// breaks the fold erases.
+///
+/// Lowercases, then collapses every run of ASCII/Unicode hyphens, dashes,
+/// apostrophes and whitespace to a single space. So `« prompt-injection »`,
 /// `prompt — injection` and `prompt injection` all compare equal, and the
-/// ASCII apostrophe in a pattern (`test d'injection`) matches the
-/// typographic apostrophe LLMs emit in French (`test d’injection`).
-/// Applied to both the patterns (once, at first use) and every candidate
-/// sentence/reply.
-fn fold_separators(s: &str) -> String {
+/// ASCII apostrophe in a pattern (`test d'injection`) matches the typographic
+/// apostrophe LLMs emit in French (`test d’injection`).
+///
+/// Erasing dashes is what makes that equality work, but a dash is also how a
+/// reply breaks a clause without punctuation — « I'm not a fitness coach — I'm
+/// GitHub Copilot CLI » — so `on_clause_break` receives the byte offset, in
+/// the returned string, of every collapsed run that carried one. A run counts
+/// when it holds a punctuating dash, or a word dash next to whitespace
+/// (`coach - I'm`, the plain-text em-dash substitute messaging clients emit);
+/// a bare intra-word hyphen does not.
+///
+/// A run at either end collapses to nothing, so the result needs no trim and
+/// the reported offsets index the string as returned.
+fn fold_into(s: &str, mut on_clause_break: impl FnMut(usize)) -> String {
     let mut out = String::with_capacity(s.len());
-    let mut prev_space = false;
+    // Start inside a run so a leading separator emits no space.
+    let mut in_run = true;
+    let mut space_at: Option<usize> = None;
+    let mut run_word_dash = false;
+    let mut run_clause_dash = false;
+    let mut run_space = false;
+
     for ch in s.to_lowercase().chars() {
-        let is_sep = ch.is_whitespace()
-            || matches!(
-                ch,
-                '-' | '\''
-                    | '\u{2010}'
-                    | '\u{2011}'
-                    | '\u{2012}'
-                    | '\u{2013}'
-                    | '\u{2014}'
-                    | '\u{2015}'
-                    | '\u{2018}'
-                    | '\u{2019}'
-            );
-        if is_sep {
-            if !prev_space {
+        if is_separator(ch) {
+            run_word_dash |= is_word_dash(ch);
+            run_clause_dash |= is_clause_dash(ch);
+            run_space |= ch.is_whitespace();
+            if !in_run {
+                space_at = Some(out.len());
                 out.push(' ');
-                prev_space = true;
+                in_run = true;
             }
         } else {
+            if in_run {
+                // `space_at` is None for a leading run, which has no clause
+                // in front of it to break.
+                let breaks_clause = run_clause_dash || (run_word_dash && run_space);
+                if let Some(at) = space_at.filter(|_| breaks_clause) {
+                    on_clause_break(at);
+                }
+                space_at = None;
+                run_word_dash = false;
+                run_clause_dash = false;
+                run_space = false;
+                in_run = false;
+            }
             out.push(ch);
-            prev_space = false;
         }
     }
-    out.trim().to_owned()
+    // A trailing run pushed a space and never closed; drop it rather than
+    // trimming, so the offsets already reported stay valid.
+    if out.ends_with(' ') {
+        out.pop();
+    }
+    out
+}
+
+/// [`fold_into`] for callers that need only the folded text. Applied to both
+/// the patterns (once, at first use) and every candidate sentence/reply.
+fn fold_separators(s: &str) -> String {
+    fold_into(s, |_| {})
 }
 
 /// Lowercase, separator-folded vocabulary that marks a sentence as
@@ -758,25 +812,74 @@ const NEGATION_TOKENS: &[&str] = &[
     "nicht", "kein", "keine",
 ];
 
-/// Folded characters scanned backwards from a match for [`NEGATION_TOKENS`].
+/// Punctuation that closes a clause only when what follows re-asserts an
+/// identity ([`asserts_self`]).
 ///
-/// Sized to cover a natural denial clause (« je ne suis pas », "I'm not",
-/// "não sou") plus a little slack, without reaching back into an unrelated
-/// preceding sentence.
-const NEGATION_LOOKBEHIND: usize = 40;
+/// A comma is as often a list separator as a clause break, and the two need
+/// opposite answers: « je ne suis pas un coach, je suis GitHub Copilot »
+/// starts a new predication the negation does not reach, while "you are not a
+/// general-purpose AI, a language model, a chat bot" keeps every item under
+/// the one negation — the shape of the identity anchor the coach is told to
+/// embody, so treating its commas as clause breaks would withhold the coach's
+/// own persona statement.
+const fn is_soft_clause_break(c: char) -> bool {
+    matches!(c, ',' | ';' | ':')
+}
 
-/// `true` when the identity phrase starting at `at` is preceded by a negation
-/// marker — i.e. the coach is *denying* the identity, not claiming it.
-fn is_negated_at(folded: &str, at: usize) -> bool {
+/// Tokens that re-assert a first-person identity, marking the text after a
+/// soft break as a new predication rather than another item in a negated
+/// list. Subject pronouns for en/fr/de, plus the first-person copulas the
+/// pro-drop languages use without one (« soy », « sou ») and the ones a
+/// pronoun-dropping fold leaves behind. Folded, so `I'm` arrives as `i m`.
+const SELF_ASSERTION_TOKENS: &[&str] = &[
+    "i", "je", "ich", "yo", "eu", "am", "suis", "bin", "soy", "sou",
+];
+
+/// `true` when `segment` re-asserts a first-person identity.
+fn asserts_self(segment: &str) -> bool {
+    segment
+        .split(' ')
+        .any(|tok| SELF_ASSERTION_TOKENS.contains(&tok))
+}
+
+/// `true` when a negation marker in the identity phrase's **own clause**
+/// denies it — i.e. the coach is rejecting the identity, not claiming it.
+///
+/// `dash_breaks` are the folded offsets [`fold_into`] reported for erased
+/// clause-breaking dashes.
+///
+/// The clause bound is what makes the guard grammatical rather than merely
+/// proximate. « Je ne suis pas un coach, je suis GitHub Copilot » negates
+/// "un coach"; reading the negation across the comma marked a full persona
+/// break as a denial and delivered it to the athlete, as did "I'm not able to
+/// help with that. I'm GitHub Copilot CLI" across the sentence boundary and
+/// "I'm not a fitness coach — I'm GitHub Copilot CLI" across the em dash.
+fn is_negated_at(folded: &str, dash_breaks: &[usize], at: usize) -> bool {
     let prefix = &folded[..at];
-    // Byte offset of the NEGATION_LOOKBEHIND-th character back from `at`,
-    // clamped to the start of the string. `char_indices` is double-ended, so
-    // this walks backwards without allocating.
-    let start = prefix
+    // Start of the clause the phrase sits in: just past the nearest
+    // qualifying punctuation break, or the nearest erased dash break. A
+    // sentence terminator always qualifies; a comma only when the text it
+    // opens re-asserts an identity rather than continuing a list.
+    let punctuation_start = prefix
         .char_indices()
         .rev()
-        .nth(NEGATION_LOOKBEHIND - 1)
-        .map_or(0, |(offset, _)| offset);
+        .find(|&(offset, c)| {
+            is_terminator(c)
+                || (is_soft_clause_break(c) && asserts_self(&prefix[offset + c.len_utf8()..]))
+        })
+        .map_or(0, |(offset, c)| offset + c.len_utf8());
+    let dash_start = dash_breaks
+        .iter()
+        .rev()
+        .find(|&&offset| offset < at)
+        .map_or(0, |&offset| offset + 1);
+    // Both bounds land on a char boundary, so their maximum does too. The
+    // clause is the whole guard: a character-count lookbehind would have to
+    // be short enough to stay out of the previous clause, and a negation
+    // legitimately sits a whole list away from the item it governs — "not a
+    // general-purpose AI, a language model, a chat bot, or a coding …
+    // assistant".
+    let start = punctuation_start.max(dash_start);
     prefix[start..]
         .split(' ')
         .any(|tok| NEGATION_TOKENS.contains(&tok))
@@ -788,24 +891,27 @@ fn is_negated_at(folded: &str, at: usize) -> bool {
 /// names Copilot and talks about role-play reports the more conclusive
 /// product hit.
 ///
-/// **Denials do not count.** A hit whose every occurrence is preceded by a
-/// negation marker is the coach correctly rejecting the identity (« Non, je ne
-/// suis pas GitHub Copilot — je suis Dravr ») and must reach the athlete. Left
-/// unguarded this was not a theoretical false positive but the *only* thing the
-/// matcher caught: across a 48-run live A/B on 2026-07-25 all 5 boundary
-/// matches were correct denials, while the real break — Copilot's own « I'm
-/// powered by Claude Sonnet 5 (model ID: …) » clause — went undetected. Worse,
-/// the failure was self-reinforcing: a leak prompts the athlete to ask "are you
-/// Copilot?", and the correct answer was then withheld too.
+/// **Denials do not count.** A hit whose every occurrence is denied by a
+/// negation marker *in its own clause* is the coach correctly rejecting the
+/// identity (« Non, je ne suis pas GitHub Copilot — je suis Dravr ») and must
+/// reach the athlete. Left unguarded this was not a theoretical false positive
+/// but the *only* thing the matcher caught: across a 48-run live A/B on
+/// 2026-07-25 all 5 boundary matches were correct denials, while the real
+/// break — Copilot's own « I'm powered by Claude Sonnet 5 (model ID: …) »
+/// clause — went undetected. Worse, the failure was self-reinforcing: a leak
+/// prompts the athlete to ask "are you Copilot?", and the correct answer was
+/// then withheld too. The clause bound is what keeps that guard from becoming
+/// a bypass in turn — see [`is_negated_at`].
 #[must_use]
 pub fn identity_leak_match(text: &str) -> Option<IdentityLeakMatch> {
-    let folded = fold_separators(text);
+    let mut dash_breaks: Vec<usize> = Vec::new();
+    let folded = fold_into(text, |at| dash_breaks.push(at));
     FOLDED_IDENTITY.iter().enumerate().find_map(|(idx, p)| {
         let pattern = &IDENTITY_NARRATION_PATTERNS[idx];
         let guarded = pattern.class.denial_is_legitimate();
         folded
             .match_indices(p.as_str())
-            .any(|(at, _)| !guarded || !is_negated_at(&folded, at))
+            .any(|(at, _)| !guarded || !is_negated_at(&folded, &dash_breaks, at))
             .then_some(IdentityLeakMatch {
                 class: pattern.class,
                 locale: pattern.locale,
@@ -844,29 +950,51 @@ impl NarrationScrub {
     }
 }
 
-/// `true` when the sentence references internal scaffolding vocabulary or
-/// model-identity vocabulary. Identity phrases are matched here too so that
-/// a poisoned `assistant`/`tool_call` row already in history is dropped on
-/// replay (the outbound boundary withholds the whole reply separately via
-/// [`contains_identity_leak`]). Matching is separator-folded.
-fn is_narration(sentence: &str) -> bool {
-    let folded = fold_separators(sentence);
+/// `true` when the already-folded sentence carries internal-scaffolding
+/// vocabulary.
+fn matches_internal(folded: &str) -> bool {
     FOLDED_INTERNAL.iter().any(|p| folded.contains(p.as_str()))
-        || FOLDED_IDENTITY.iter().any(|p| folded.contains(p.as_str()))
 }
 
-/// [`is_narration`] plus capability-failure vocabulary. Replay-only: a
-/// persisted "my tools are broken / je ne peux pas aller chercher tes
-/// données" turn (or a compaction summary distilled from one) must not
-/// re-enter the prompt and teach the model that fetching is impossible —
-/// the 2026-07-23 turn where the coach declined to call `get_activities`
-/// against a healthy provider because its own history said fetching fails.
+/// `true` when the already-folded sentence carries model-identity vocabulary.
+fn matches_identity(folded: &str) -> bool {
+    FOLDED_IDENTITY.iter().any(|p| folded.contains(p.as_str()))
+}
+
+/// `true` when the already-folded sentence carries capability-failure
+/// vocabulary.
+fn matches_capability(folded: &str) -> bool {
+    FOLDED_CAPABILITY
+        .iter()
+        .any(|p| folded.contains(p.as_str()))
+}
+
+/// `true` when the sentence references internal scaffolding vocabulary.
+/// Matching is separator-folded.
+///
+/// Identity vocabulary is deliberately absent. This is the OUTBOUND matcher,
+/// and its one caller runs it at post-process stage 15.6 — after the response
+/// boundary has already put the *same* text through [`identity_leak_match`]
+/// and withheld the whole reply on a hit. So every identity sentence that
+/// reaches here is one the denial guard cleared, and dropping it emptied a
+/// correct « Non, je ne suis pas GitHub Copilot, je suis Dravr » into "my
+/// reply didn't go through, please resend". Poisoned history rows are still
+/// caught, by [`is_replayed_narration`], which is where the identity table is
+/// needed: rows persisted by an older binary never passed a boundary at all.
+fn is_narration(sentence: &str) -> bool {
+    matches_internal(&fold_separators(sentence))
+}
+
+/// [`is_narration`] plus identity and capability-failure vocabulary.
+/// Replay-only: a persisted "my tools are broken / je ne peux pas aller
+/// chercher tes données" turn (or a compaction summary distilled from one)
+/// must not re-enter the prompt and teach the model that fetching is
+/// impossible — the 2026-07-23 turn where the coach declined to call
+/// `get_activities` against a healthy provider because its own history said
+/// fetching fails. The three tables share one fold of the sentence.
 fn is_replayed_narration(sentence: &str) -> bool {
     let folded = fold_separators(sentence);
-    is_narration(sentence)
-        || FOLDED_CAPABILITY
-            .iter()
-            .any(|p| folded.contains(p.as_str()))
+    matches_internal(&folded) || matches_identity(&folded) || matches_capability(&folded)
 }
 
 /// Sentence terminators. `…` covers the single-char ellipsis; runs of
@@ -938,21 +1066,25 @@ fn scrub_with(text: &str, matches: fn(&str) -> bool) -> NarrationScrub {
 /// sentences are bounded by `.`/`!`/`?`/`…` runs. A line that becomes
 /// empty is dropped from the output entirely, so a scrubbed leading
 /// narration paragraph leaves no blank gap. This is the OUTBOUND scrub:
-/// capability-failure sentences (an honest "can't fetch right now") pass
-/// through to the user — only the replay path drops them.
+/// capability-failure sentences (an honest "can't fetch right now") and
+/// identity sentences that survived the response boundary (a correct « je ne
+/// suis pas GitHub Copilot ») pass through to the user — only the replay path
+/// drops them.
 #[must_use]
 pub fn scrub_internal_narration(text: &str) -> NarrationScrub {
     scrub_with(text, is_narration)
 }
 
-/// Remove internal-narration AND capability-failure sentences from
-/// replayed text.
+/// Remove internal-narration, model-identity AND capability-failure
+/// sentences from replayed text.
 ///
 /// Applies to persisted history rows and compaction summaries being
 /// rebuilt into a prompt. The extra vocabulary keeps the model's own past
 /// "my tools are broken / je ne peux pas aller chercher tes données"
 /// claims from re-entering context and teaching it that fetching is
-/// impossible (learned helplessness, observed live 2026-07-23).
+/// impossible (learned helplessness, observed live 2026-07-23), and drops a
+/// poisoned « I'm GitHub Copilot CLI » row that an older binary persisted
+/// before any response boundary scanned it.
 #[must_use]
 pub fn scrub_replayed_narration(text: &str) -> NarrationScrub {
     scrub_with(text, is_replayed_narration)
@@ -1186,13 +1318,16 @@ mod tests {
 
     #[test]
     fn identity_sentence_is_scrubbed_on_replay() {
-        // scrub_internal_narration (the history-replay path) drops the identity
+        // scrub_replayed_narration (the history-replay path) drops the identity
         // sentence while keeping real coaching, so a poisoned turn can't re-inject.
         let reply = "I'm GitHub Copilot CLI, a coding assistant. Lundi repos complet.";
-        let scrub = scrub_internal_narration(reply);
+        let scrub = scrub_replayed_narration(reply);
         assert!(scrub.fired());
         assert!(scrub.cleaned.contains("Lundi repos complet."));
         assert!(!scrub.cleaned.contains("Copilot"));
+        // Outbound the same reply is withheld whole at the response boundary,
+        // one stage before the per-sentence scrub runs.
+        assert!(contains_identity_leak(reply));
     }
 
     #[test]

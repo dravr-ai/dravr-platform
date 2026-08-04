@@ -89,6 +89,21 @@ mod short_link;
 #[doc(hidden)]
 pub use sciotte::{friendly_login_failure_message, report_login_system_failure};
 
+// Re-exported for the sciotte flow-binding and backpressure regression tests
+// (`sciotte_flow_binding_test`, `sciotte_backpressure_test`): the `sciotte`
+// module is private, and the cache-backed pending-flow registry is the whole of
+// the caller-to-parked-browser binding, so these are the seam for asserting
+// that a continuation without a live flow of the caller's own is refused, that
+// the entry is reachable from any pod sharing the cache, that it is scoped to
+// the tenant that parked it, and that a scraper load-shed answers with a
+// retryable 503 instead of an operator alert. Doc-hidden — internal-only.
+#[cfg(feature = "provider-sciotte")]
+#[doc(hidden)]
+pub use sciotte::{
+    forget_remote_flow, login_failure_response, remember_remote_flow, remember_remote_flow_for,
+    require_remote_flow, REMOTE_FLOW_TTL_SECS,
+};
+
 // Re-export the cross-cutting auth DTOs so existing
 // `crate::routes::auth::*` paths in pierre-server tests + callers continue
 // to compile after the move (`pub use pierre_routes_auth as auth;` in

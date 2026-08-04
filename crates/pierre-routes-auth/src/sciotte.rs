@@ -4,29 +4,32 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::{LazyLock, Mutex as StdMutex, PoisonError};
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::header::RETRY_AFTER;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
 use dravr_sciotte::config::ScraperConfig;
 use dravr_sciotte::models::AuthSession;
+use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use pierre_providers::sciotte_remote::{RemoteLoginOutcome, RemoteSciotteClient};
+use pierre_providers::sciotte_remote::{
+    shed_retry_after_secs, RemoteLoginOutcome, RemoteSciotteClient, RETRY_AFTER_SECS_DETAIL,
+};
 
 use crate::AuthRoutesContext;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::redaction::redact_url;
 use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims,
@@ -37,12 +40,14 @@ use pierre_middleware::provider_link_token::{
 /// permit — lives on the scraper service; the platform keeps only this so a
 /// continuation can name the right server-side flow *and* alert operators with
 /// the right platform on a system failure.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct RemoteFlowState {
-    /// Service-minted id that names the parked browser (the multi-provider
-    /// service can park several flows, so continuations must name theirs). A
-    /// missing entry is fine: the service falls back to its sole pending flow,
-    /// so a platform pod restart mid-2FA degrades gracefully instead of failing.
+    /// Service-minted id that names the parked browser. It is the only binding
+    /// between the caller and the login *they* started, so every continuation
+    /// carries it: a continuation sent without one lets the service resume its
+    /// sole pending flow, which on a busy service is another athlete's browser
+    /// — and its exported session would be persisted under the caller's
+    /// account.
     flow_id: String,
     /// Backend provider name (`sciotte` / `sciotte_garmin`) carried from the
     /// login request. A *system* failure on an OTP/2FA continuation needs it for
@@ -51,42 +56,199 @@ struct RemoteFlowState {
     provider: String,
 }
 
-// Each user's in-flight REMOTE login (ADR-021 path), keyed by user_id.
-static PENDING_REMOTE_FLOWS: LazyLock<StdMutex<HashMap<Uuid, RemoteFlowState>>> =
-    LazyLock::new(|| StdMutex::new(HashMap::new()));
+/// How long a remembered flow stays usable.
+///
+/// Mirrors the parked flow's own lifetime on the scraper service
+/// (`DRAVR_SCIOTTE_PARKED_PERMIT_TTL_SECS`, deployed at 600s). It is the cache
+/// entry's TTL, so once the service's reaper has released that browser and its
+/// permit the entry is gone on its own — the id names nothing, and the
+/// continuation is refused with actionable copy instead of being answered with
+/// the service's `no_pending_login` 404.
+pub const REMOTE_FLOW_TTL_SECS: u64 = 600;
 
-/// Remember the server-side `flow_id` (with its backend provider) for a user's
-/// remote login continuation. No-op when the outcome carried no `flow_id`.
-fn remember_remote_flow(user_id: Uuid, flow_id: Option<String>, provider: &str) {
+/// Provider namespace of the cache key a parked flow is filed under.
+///
+/// The *family*, never the backend variant: which backend the flow belongs to
+/// (`sciotte` / `sciotte_garmin`) is what the entry stores, so a continuation
+/// — which does not know it yet — could not use it to find the entry.
+const REMOTE_FLOW_KEY_PROVIDER: &str = "sciotte";
+
+/// User-facing copy when a continuation arrives with no live flow of the
+/// caller's own. `InvalidInput` renders verbatim (see
+/// `AppError::sanitized_message`), and both login UIs put the user back on the
+/// credential screen from their error phase, so the copy names the one action
+/// that works.
+const NO_PENDING_LOGIN_MESSAGE: &str =
+    "This sign-in is no longer active. Please start the sign-in again.";
+
+/// Cache key naming one athlete's parked sciotte login flow.
+///
+/// [`CacheKey`] carries the tenant alongside the user, so an entry is only ever
+/// reachable by a continuation from the same `(tenant, user)` pair.
+fn remote_flow_key(tenant_id: Uuid, user_id: Uuid) -> CacheKey {
+    CacheKey::new(
+        TenantId::from(tenant_id),
+        user_id,
+        REMOTE_FLOW_KEY_PROVIDER.to_owned(),
+        CacheResource::SciotteLoginFlow,
+    )
+}
+
+/// Remember the server-side `flow_id` (with its backend provider) reported by a
+/// login step that parked a browser.
+async fn remember_flow_from_outcome(
+    cache: &Cache,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    flow_id: Option<String>,
+    provider: &str,
+) {
     if let Some(flow_id) = flow_id {
-        PENDING_REMOTE_FLOWS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(
-                user_id,
-                RemoteFlowState {
-                    flow_id,
-                    provider: provider.to_owned(),
-                },
-            );
+        remember_remote_flow(cache, tenant_id, user_id, flow_id, provider).await;
+        return;
+    }
+    // The service mints an id on every step that parks a browser, so an absent
+    // one is a contract break worth an operator's attention. Whatever this user
+    // already had is left untouched: on a continuation that is the id the login
+    // parked, still naming this same flow, and its remaining TTL is the one
+    // that tracks the service's reaper. On the login step itself there is
+    // nothing to keep — the handler cleared the user first — so the
+    // continuation that follows is refused, which is the safe direction: the
+    // platform has no id to bind it with.
+    warn!(
+        %user_id,
+        provider = %provider,
+        "Sciotte login outcome carried no flow_id — leaving this user's remembered flow untouched"
+    );
+}
+
+/// Remember a user's remote login flow for the parked flow's own lifetime.
+///
+/// The registry is the shared cache, not process-local state: a 2FA
+/// continuation can arrive minutes after the login, Cloud Run runs the API on
+/// up to three pods with no session affinity, and a revision deploy or a pod
+/// restart lands mid-wait — so an entry written while serving the login has to
+/// be readable by whichever pod serves the continuation. `pierre_cache` falls
+/// back to an in-memory backend when `REDIS_URL` is unset or the `redis`
+/// feature is off; that degrades to single-pod behaviour, which is right for
+/// local runs and tests and never less safe, because a flow that cannot be
+/// recalled is refused rather than resumed blindly.
+pub async fn remember_remote_flow(
+    cache: &Cache,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    flow_id: String,
+    provider: &str,
+) {
+    remember_remote_flow_for(
+        cache,
+        tenant_id,
+        user_id,
+        flow_id,
+        provider,
+        Duration::from_secs(REMOTE_FLOW_TTL_SECS),
+    )
+    .await;
+}
+
+/// Remember a user's remote login flow for an explicit lifetime.
+///
+/// Production passes the parked flow's own [`REMOTE_FLOW_TTL_SECS`]; the TTL is
+/// what ages the entry out, so it is the whole of the expiry policy.
+pub async fn remember_remote_flow_for(
+    cache: &Cache,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    flow_id: String,
+    provider: &str,
+    ttl: Duration,
+) {
+    let state = RemoteFlowState {
+        flow_id,
+        provider: provider.to_owned(),
+    };
+    if let Err(e) = cache
+        .set(&remote_flow_key(tenant_id, user_id), &state, ttl)
+        .await
+    {
+        warn!(
+            %user_id,
+            provider = %provider,
+            error = %e,
+            "Failed to remember the sciotte login flow — the continuation will be refused"
+        );
     }
 }
 
-/// The user's remembered remote flow state, if any (kept until a terminal outcome).
-fn recall_remote_flow(user_id: Uuid) -> Option<RemoteFlowState> {
-    PENDING_REMOTE_FLOWS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get(&user_id)
-        .cloned()
+/// The user's remembered remote flow state, when the cache still holds one.
+///
+/// Expiry is the entry's TTL, matching the scraper service's parked-flow
+/// lifetime: past it the id names a browser the reaper has already released, so
+/// the entry is gone and counts as no entry at all — sending its id would
+/// resume nothing and surface the service's `no_pending_login` 404 as a
+/// platform failure. A cache read that *fails* is treated the same way, since
+/// refusing a continuation the platform cannot bind is the safe direction.
+async fn recall_remote_flow(
+    cache: &Cache,
+    tenant_id: Uuid,
+    user_id: Uuid,
+) -> Option<RemoteFlowState> {
+    match cache
+        .get::<RemoteFlowState>(&remote_flow_key(tenant_id, user_id))
+        .await
+    {
+        Ok(state) => state,
+        Err(e) => {
+            warn!(
+                %user_id,
+                error = %e,
+                "Failed to read the remembered sciotte login flow — treating it as absent"
+            );
+            None
+        }
+    }
 }
 
-/// Drop the user's remembered remote flow state (terminal outcome reached).
-fn forget_remote_flow(user_id: Uuid) {
-    PENDING_REMOTE_FLOWS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .remove(&user_id);
+/// The `flow_id` + backend provider of the caller's own parked flow, or a
+/// client error naming the recovery.
+///
+/// The id is the whole of the caller-to-flow binding: `submit-otp` /
+/// `select-2fa` authenticate the caller, but the scraper service resumes its
+/// *sole* pending flow when a continuation carries no id — so continuing
+/// without one hands the caller whichever browser is parked, and
+/// `remote_login_to_response` then persists that session under the caller's
+/// `user_id`/`tenant_id`. A caller with no live entry is refused here instead.
+///
+/// # Errors
+///
+/// Returns [`AppError::invalid_input`] when the caller has no live flow —
+/// they never started a login, or they let the flow lapse.
+pub async fn require_remote_flow(
+    cache: &Cache,
+    tenant_id: Uuid,
+    user_id: Uuid,
+) -> Result<(String, String), AppError> {
+    let Some(flow) = recall_remote_flow(cache, tenant_id, user_id).await else {
+        warn!(
+            %user_id,
+            "Sciotte continuation has no live flow for this caller — refusing instead of \
+             letting the service resume whichever browser is parked"
+        );
+        return Err(AppError::invalid_input(NO_PENDING_LOGIN_MESSAGE));
+    };
+    Ok((flow.flow_id, flow.provider))
+}
+
+/// Drop the user's remembered remote flow state (the attempt is over, whether
+/// it authenticated, was rejected, errored, or was superseded by a new login).
+pub async fn forget_remote_flow(cache: &Cache, tenant_id: Uuid, user_id: Uuid) {
+    if let Err(e) = cache.invalidate(&remote_flow_key(tenant_id, user_id)).await {
+        warn!(
+            %user_id,
+            error = %e,
+            "Failed to drop the remembered sciotte login flow"
+        );
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,7 +349,6 @@ fn spawn_activity_prefetch(
     provider_name: &str,
     session_json: &str,
 ) {
-    use pierre_cache::{CacheKey, CacheResource};
     use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
 
     let registry = resources.provider_registry.clone();
@@ -285,7 +446,7 @@ async fn remote_login_to_response(
             // ("garmin"/"strava"); map it to the backend name the platform
             // persists under. The platform never has to remember the provider
             // across the multi-step 2FA flow — only the flow_id string.
-            forget_remote_flow(user_id);
+            forget_remote_flow(&resources.cache, tenant_id, user_id).await;
             let provider_name = SciotteTarget::from_target_param(&provider).provider_name();
             info!(user_id = %user_id, provider = %provider_name, "Sciotte remote login successful");
             let session = remote.export_session(&session_id).await?;
@@ -295,18 +456,21 @@ async fn remote_login_to_response(
             store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
         }
         RemoteLoginOutcome::OtpRequired { flow_id } => {
-            remember_remote_flow(user_id, flow_id, provider);
+            remember_flow_from_outcome(&resources.cache, tenant_id, user_id, flow_id, provider)
+                .await;
             Ok(Json(serde_json::json!({"status": "otp_required"})).into_response())
         }
         RemoteLoginOutcome::TwoFactorChoice { options, flow_id } => {
-            remember_remote_flow(user_id, flow_id, provider);
+            remember_flow_from_outcome(&resources.cache, tenant_id, user_id, flow_id, provider)
+                .await;
             Ok(
                 Json(serde_json::json!({"status": "two_factor_choice", "options": options}))
                     .into_response(),
             )
         }
         RemoteLoginOutcome::NumberMatch { number, flow_id } => {
-            remember_remote_flow(user_id, flow_id, provider);
+            remember_flow_from_outcome(&resources.cache, tenant_id, user_id, flow_id, provider)
+                .await;
             Ok(Json(serde_json::json!({
                 "status": "number_match",
                 "number": number,
@@ -314,7 +478,7 @@ async fn remote_login_to_response(
             .into_response())
         }
         RemoteLoginOutcome::Failed(reason) => {
-            forget_remote_flow(user_id);
+            forget_remote_flow(&resources.cache, tenant_id, user_id).await;
             info!(
                 user_id = %user_id,
                 "Sciotte remote login rejected by provider (user credentials)"
@@ -574,6 +738,72 @@ pub fn friendly_login_failure_message(provider: &str) -> String {
     )
 }
 
+/// Turn an `Err` from the dedicated scraper service into what the athlete gets
+/// back: a retryable shed response, or the operator-alerting system failure.
+///
+/// A load-shed is the service's designed answer to a saturated Chrome budget
+/// (`503` + `Retry-After`), so it is deliberately routed *around*
+/// [`report_login_system_failure`]. That path emits an `error!` — which
+/// `dravr-tronc` forwards to the `#dev-dravr-errors` Slack channel — plus a
+/// `sync.failed` business event, and both would fire once per shed request at
+/// exactly the moment the service is busiest, turning healthy backpressure into
+/// an operator page storm. Everything else still alerts.
+///
+/// # Errors
+///
+/// Returns the system-failure [`AppError`] (already logged + alerted) for any
+/// error that is not a shed.
+pub fn login_failure_response(
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider: &str,
+    stage: &str,
+    error: &AppError,
+) -> Result<Response, AppError> {
+    let Some(retry_after_secs) = shed_retry_after_secs(error) else {
+        return Err(report_login_system_failure(
+            user_id, tenant_id, provider, stage, error,
+        ));
+    };
+    warn!(
+        %user_id,
+        provider = %provider,
+        stage = %stage,
+        retry_after_secs,
+        "Sciotte login shed by scraper backpressure — retryable, not a system failure"
+    );
+    Ok(shed_response(provider, retry_after_secs))
+}
+
+/// The athlete-facing answer to a scraper-service load-shed: the service's own
+/// `503` status, the wait it computed both as a `Retry-After` header and in
+/// `details`, and the same friendly copy a login failure carries.
+///
+/// [`ErrorCode::ExternalRateLimited`] is the code that renders as `503` *and*
+/// whose message `AppError::sanitized_message` passes through verbatim, so the
+/// login modal shows the copy rather than a canned description. The header is
+/// also what `response_failure_log_middleware` keys on to record the `503` at
+/// `WARN` instead of `ERROR`, so the shed leaves one backpressure line in the
+/// logs and nothing in the ops channel.
+fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
+    let mut error = AppError::new(
+        ErrorCode::ExternalRateLimited,
+        friendly_login_failure_message(provider),
+    );
+    let mut details = Map::new();
+    details.insert(
+        RETRY_AFTER_SECS_DETAIL.to_owned(),
+        Value::from(retry_after_secs),
+    );
+    error.details = Some(Box::new(Value::Object(details)));
+
+    let mut response = error.into_response();
+    if let Ok(value) = HeaderValue::from_str(&retry_after_secs.to_string()) {
+        response.headers_mut().insert(RETRY_AFTER, value);
+    }
+    response
+}
+
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
 pub async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
@@ -585,6 +815,11 @@ pub async fn handle_sciotte_login(
     if request.email.is_empty() || request.password.is_empty() {
         return Err(AppError::invalid_input("Email and password are required"));
     }
+
+    // This login supersedes whatever the user left parked: the service mints a
+    // fresh flow_id for it, and an id inherited from an abandoned 2FA would
+    // name a flow the service has already reaped.
+    forget_remote_flow(&resources.cache, tenant_id, user_id).await;
 
     let target = &request.target;
     let provider = SciotteTarget::from_target_param(target).provider_name();
@@ -605,10 +840,11 @@ pub async fn handle_sciotte_login(
     // Chrome budget and the interactive 2FA parking; the platform stays
     // session-of-record (it exports + persists the session, keyed by flow_id).
     // A transport/service fault (not a credential rejection, which comes back
-    // as `Failed`) is a *system* failure: alert operators + emit `sync.failed`.
+    // as `Failed`, nor a load-shed, which comes back as retryable backpressure)
+    // is a *system* failure: alert operators + emit `sync.failed`.
     let remote = RemoteSciotteClient::require_from_env()?;
     info!(user_id = %user_id, target = %target, "Starting sciotte credential login (remote service)");
-    let outcome = remote
+    let outcome = match remote
         .login_with_credentials(
             &request.email,
             &request.password,
@@ -616,9 +852,12 @@ pub async fn handle_sciotte_login(
             SciotteTarget::from_target_param(target).scraper_provider_name(),
         )
         .await
-        .map_err(|e| {
-            report_login_system_failure(user_id, tenant_id, provider, "credential_login", &e)
-        })?;
+    {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            return login_failure_response(user_id, tenant_id, provider, "credential_login", &e)
+        }
+    };
     remote_login_to_response(
         outcome,
         &remote,
@@ -640,26 +879,40 @@ pub async fn handle_sciotte_select_2fa(
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
 
     // ADR-021: the parked browser lives on the dedicated service; resume the
-    // flow by its server-minted flow_id (or the sole pending flow when absent).
-    // The remembered provider names the platform for a *system* failure alert;
-    // it defaults to Strava-copy when the flow state was lost (pod restart).
+    // flow by its server-minted flow_id, which is also the only thing tying
+    // that browser to this caller (see `require_remote_flow`). The remembered
+    // provider names the platform for a *system* failure alert.
+    let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
     let remote = RemoteSciotteClient::require_from_env()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
-    let flow = recall_remote_flow(user_id);
-    let (flow_id, provider) = flow.as_ref().map_or((None, "sciotte"), |f| {
-        (Some(f.flow_id.as_str()), f.provider.as_str())
-    });
-    let outcome = remote
-        .select_2fa(&request.option_id, flow_id)
+    let outcome = match remote
+        .select_2fa(&request.option_id, Some(flow_id.as_str()))
         .await
-        .map_err(|e| report_login_system_failure(user_id, tenant_id, provider, "two_factor", &e))?;
+    {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            return match login_failure_response(user_id, tenant_id, &provider, "two_factor", &e) {
+                // A shed never reached the parked browser, so the flow is still
+                // there for the retry the `Retry-After` invites — keep it.
+                Ok(shed) => Ok(shed),
+                // Both login UIs send the user back to the credential screen
+                // from their error phase, so a system failure ends the attempt:
+                // dropping the entry stops the next login from inheriting an id
+                // the service reaps.
+                Err(failure) => {
+                    forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+                    Err(failure)
+                }
+            };
+        }
+    };
     remote_login_to_response(
         outcome,
         &remote,
         &resources,
         user_id,
         tenant_id,
-        provider,
+        &provider,
         link_context.as_ref(),
     )
     .await
@@ -680,25 +933,40 @@ pub async fn handle_sciotte_submit_otp(
     // ADR-021: the parked browser lives on the dedicated service, which
     // continues the login and reports the provider on success. The platform
     // holds only the flow_id + provider — no parked browser, no permit. The
-    // provider names the platform for a *system* failure alert, defaulting to
-    // Strava-copy when the flow state was lost (pod restart mid-2FA).
+    // flow_id is what binds that browser to this caller (see
+    // `require_remote_flow`); the provider names the platform for a *system*
+    // failure alert.
+    let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
     let remote = RemoteSciotteClient::require_from_env()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
-    let flow = recall_remote_flow(user_id);
-    let (flow_id, provider) = flow.as_ref().map_or((None, "sciotte"), |f| {
-        (Some(f.flow_id.as_str()), f.provider.as_str())
-    });
-    let outcome = remote
-        .submit_otp(&request.code, flow_id)
+    let outcome = match remote
+        .submit_otp(&request.code, Some(flow_id.as_str()))
         .await
-        .map_err(|e| report_login_system_failure(user_id, tenant_id, provider, "otp", &e))?;
+    {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            return match login_failure_response(user_id, tenant_id, &provider, "otp", &e) {
+                // A shed never reached the parked browser, so the flow is still
+                // there for the retry the `Retry-After` invites — keep it.
+                Ok(shed) => Ok(shed),
+                // Both login UIs send the user back to the credential screen
+                // from their error phase, so a system failure ends the attempt:
+                // dropping the entry stops the next login from inheriting an id
+                // the service reaps.
+                Err(failure) => {
+                    forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+                    Err(failure)
+                }
+            };
+        }
+    };
     remote_login_to_response(
         outcome,
         &remote,
         &resources,
         user_id,
         tenant_id,
-        provider,
+        &provider,
         link_context.as_ref(),
     )
     .await

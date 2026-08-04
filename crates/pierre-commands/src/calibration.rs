@@ -110,11 +110,25 @@ impl CommandHandler for CalibrateHandler {
         // a training-pillar answer it wrote inside the same window is the one
         // overlap, and losing it costs less than leaving the athlete with two
         // contradictory progression intents both rendered as current.
+        //
+        // A read that *fails* is not an athlete without a profile, and the two
+        // must not collapse: `upsert_profile` below replaces the whole
+        // document, so starting from `None` after a failed read writes a bare
+        // `{"calibration": …}` over the athlete's nutrition and equipment
+        // blocks — the ones `compose_dossier` reads out of this same blob — and
+        // supersedes nothing. The command reports the failure instead, which
+        // leaves the stored profile exactly as it was.
         let profile = repos
             .profiles
             .get_profile(ctx.user_id)
             .await
-            .unwrap_or(None);
+            .inspect_err(|e| {
+                warn!(
+                    error = %e,
+                    user_id = %ctx.user_id,
+                    "/calibrate could not read the athlete's profile; interview not started"
+                );
+            })?;
         if let Some(previous) = last_calibration_start(profile.as_ref()) {
             let superseded = repos
                 .memory

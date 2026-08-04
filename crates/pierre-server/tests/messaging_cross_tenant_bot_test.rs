@@ -32,6 +32,8 @@ mod cross_tenant_bot_tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
+    use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
@@ -374,6 +376,255 @@ mod cross_tenant_bot_tests {
             outbound_tenant.expect("an outbound message row must be persisted"),
             user_tenant_str,
             "outbound message must be stored under the user tenant, not the bot tenant"
+        );
+    }
+
+    /// The same cross-tenant topology, but for a GROUP chat and a slash command.
+    ///
+    /// A group session, its conversation and the `coaching_groups` row auto-bound
+    /// to the chat all live under the BOT tenant, while the member's
+    /// `active_tenant_id` is their own. `/group consent yes` is a privacy control:
+    /// it must flip `peer_sharing_consent` on the group that owns the chat it was
+    /// typed in. When the slash dispatcher looked the conversation up under the
+    /// caller's tenant instead, the read missed and the handler fell through to
+    /// `list_groups_for_user().first()` — an unfiltered, cross-tenant,
+    /// `updated_at DESC` list — and published the athlete's training data to the
+    /// members of whichever OTHER group they had touched most recently.
+    #[tokio::test]
+    #[serial]
+    async fn cross_tenant_group_slash_consent_binds_to_the_chat_group() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+
+        let mock = Arc::new(MockLlmProvider::new("unused — slash commands skip the LLM"));
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (user_id, user_tenant) =
+            create_user_with_own_tenant(&resources, "group_slash_member@example.com").await;
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(
+                user_id,
+                user_tenant,
+                "synthetic",
+                &ConnectionType::Synthetic,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let (bot_owner, bot_tenant) =
+            create_user_with_own_tenant(&resources, "group_slash_bot@example.com").await;
+        assert_ne!(user_tenant, bot_tenant, "fixture must be cross-tenant");
+
+        // The channel-group bootstrap picks a system coach from the BOT tenant;
+        // without one it declines to create the group and the chat stays
+        // ungrouped.
+        resources
+            .common
+            .repos
+            .coaches
+            .create_system_coach(
+                bot_owner,
+                bot_tenant,
+                &CreateSystemCoachRequest {
+                    title: "Group Slash Coach".to_owned(),
+                    description: None,
+                    system_prompt: "Test prompt".to_owned(),
+                    category: CoachCategory::Training,
+                    tags: vec![],
+                    sample_prompts: vec![],
+                    visibility: CoachVisibility::Global,
+                },
+            )
+            .await
+            .unwrap();
+
+        // A second group in the member's OWN tenant, stamped in the future so it
+        // heads `list_groups_for_user` (ORDER BY updated_at DESC). This is the
+        // row consent must NOT land on.
+        let decoy_coach = resources
+            .common
+            .repos
+            .coaches
+            .create_system_coach(
+                user_id,
+                user_tenant,
+                &CreateSystemCoachRequest {
+                    title: "Decoy Coach".to_owned(),
+                    description: None,
+                    system_prompt: "Test prompt".to_owned(),
+                    category: CoachCategory::Training,
+                    tags: vec![],
+                    sample_prompts: vec![],
+                    visibility: CoachVisibility::Global,
+                },
+            )
+            .await
+            .unwrap();
+        let decoy_group_id = Uuid::new_v4();
+        let now = Utc::now();
+        resources
+            .common
+            .repos
+            .groups
+            .create_group(
+                user_tenant,
+                &CoachingGroup {
+                    id: decoy_group_id,
+                    tenant_id: user_tenant.to_string(),
+                    name: "Decoy group".to_owned(),
+                    description: None,
+                    coach_id: decoy_coach.id.to_string(),
+                    owner_id: user_id,
+                    coach_user_id: None,
+                    peer_data_sharing: true,
+                    max_members: 10,
+                    is_active: true,
+                    channel_type: None,
+                    channel_chat_id: None,
+                    created_at: now,
+                    updated_at: now + chrono::Duration::seconds(600),
+                },
+            )
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .groups
+            .add_member(&GroupMember {
+                id: Uuid::new_v4(),
+                group_id: decoy_group_id,
+                user_id,
+                tenant_id: user_tenant.to_string(),
+                role: GroupRole::Owner,
+                peer_sharing_consent: false,
+                consent_given_at: now,
+                joined_at: now,
+                left_at: None,
+                display_name: None,
+            })
+            .await
+            .unwrap();
+
+        let tg_secret = "group_slash_tg_secret";
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id: bot_tenant,
+            channel_type: "telegram",
+            api_key: None,
+            api_secret: None,
+            webhook_secret: Some(tg_secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: Some("12345:GROUP_SLASH_BOT"),
+            is_active: true,
+        })
+        .await
+        .unwrap();
+
+        let sender_id = "77";
+        db.create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id: bot_tenant,
+            user_id: &user_id.to_string(),
+            channel_type: "telegram",
+            channel_user_id: sender_id,
+            display_name: Some("Group Slash Sender"),
+        })
+        .await
+        .unwrap();
+
+        // chat.id != from.id and chat.type = "supergroup" → not a DM, so the
+        // session, conversation and coaching group land under the bot tenant.
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let resp = AxumTestRequest::post("/api/messaging/webhook/telegram")
+            .header("content-type", "application/json")
+            .header("x-telegram-bot-api-secret-token", tg_secret)
+            .json(&json!({
+                "update_id": 9101,
+                "message": {
+                    "message_id": 1,
+                    "from": { "id": 77, "first_name": "GroupSlash" },
+                    "chat": { "id": -1_001_234, "type": "supergroup", "title": "Club Run" },
+                    "text": "/group consent yes"
+                }
+            }))
+            .send(router)
+            .await;
+        assert_eq!(resp.status_code(), StatusCode::OK);
+
+        let pool = resources
+            .coach
+            .database
+            .sqlite_pool()
+            .expect("test fixture runs against SQLite");
+
+        // The chat's coaching group is created during session resolution; poll
+        // until it exists, then until the consent write lands.
+        let mut chat_group: Option<(String, String)> = None;
+        for _ in 0..50 {
+            chat_group = sqlx::query_as(
+                "SELECT id, tenant_id FROM coaching_groups WHERE channel_chat_id = ?1",
+            )
+            .bind("-1001234")
+            .fetch_optional(pool)
+            .await
+            .unwrap();
+            if chat_group.is_some() {
+                break;
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        let (chat_group_id, chat_group_tenant) =
+            chat_group.expect("the supergroup chat must auto-create a coaching_groups row");
+        assert_eq!(
+            chat_group_tenant,
+            bot_tenant.to_string(),
+            "a shared room's coaching group belongs to the channel tenant"
+        );
+
+        let mut chat_consent = false;
+        for _ in 0..50 {
+            chat_consent = resources
+                .common
+                .repos
+                .groups
+                .list_members(&chat_group_id)
+                .await
+                .unwrap()
+                .iter()
+                .find(|m| m.user_id == user_id)
+                .is_some_and(|m| m.peer_sharing_consent);
+            if chat_consent {
+                break;
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        assert!(
+            chat_consent,
+            "/group consent yes must flip consent on the group bound to the chat \
+             it was typed in, even though the member's tenant is not the bot's"
+        );
+
+        let decoy_consent = resources
+            .common
+            .repos
+            .groups
+            .list_members(&decoy_group_id.to_string())
+            .await
+            .unwrap()
+            .iter()
+            .find(|m| m.user_id == user_id)
+            .expect("decoy membership row")
+            .peer_sharing_consent;
+        assert!(
+            !decoy_consent,
+            "consent must not leak into the member's other, more recently updated group"
         );
     }
 }

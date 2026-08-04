@@ -8,7 +8,10 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_core::models::{GuidedFlow, OnboardingState, Pillar, TenantId};
+use chrono::Utc;
+use pierre_core::models::{
+    Activity, ActivityBuilder, GuidedFlow, OnboardingState, Pillar, SportType, TenantId,
+};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
@@ -18,10 +21,81 @@ use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::tool_execution::generate_tool_catalog;
 use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::fmt::Debug as FmtDebug;
+use std::sync::{Arc, Mutex};
+use tracing::field::{Field, Visit};
+use tracing::subscriber::DefaultGuard;
+use tracing::Subscriber;
+use tracing_subscriber::layer::{Context, SubscriberExt};
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 use uuid::Uuid;
 
 mod common;
+
+// ============================================================================
+// Notify-event capture
+// ============================================================================
+
+/// One `tracing` event with its structured fields, so a test can assert on the
+/// `notify` events the save emits rather than only on what it returns.
+#[derive(Clone, Debug)]
+struct CapturedEvent {
+    fields: HashMap<String, String>,
+}
+
+impl CapturedEvent {
+    fn field(&self, name: &str) -> Option<&str> {
+        self.fields.get(name).map(String::as_str)
+    }
+}
+
+#[derive(Clone, Default)]
+struct CaptureLayer {
+    events: Arc<Mutex<Vec<CapturedEvent>>>,
+}
+
+#[derive(Default)]
+struct FieldVisitor {
+    fields: HashMap<String, String>,
+}
+
+impl Visit for FieldVisitor {
+    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
+        self.fields
+            .insert(field.name().to_owned(), format!("{value:?}"));
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.fields
+            .insert(field.name().to_owned(), value.to_owned());
+    }
+}
+
+impl<S> Layer<S> for CaptureLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+        let mut visitor = FieldVisitor::default();
+        event.record(&mut visitor);
+        if let Ok(mut events) = self.events.lock() {
+            events.push(CapturedEvent {
+                fields: visitor.fields,
+            });
+        }
+    }
+}
+
+/// Capture every event emitted on this thread until the guard is dropped.
+fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
+    let capture = CaptureLayer::default();
+    let events = Arc::clone(&capture.events);
+    let guard = tracing_subscriber::registry().with(capture).set_default();
+    (events, guard)
+}
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -920,6 +994,566 @@ async fn outline_without_blocks_saves_and_reads_back() -> Result<()> {
         "2x8min @ 85% FTP"
     );
     assert_eq!(fetched["weeks"][0]["days"][1]["sport"], "rest");
+    Ok(())
+}
+
+/// Write one coach-agnostic `target race` Goal fact directly, the way an
+/// earlier save (or a `/pillars` walk) leaves one behind.
+async fn seed_agnostic_goal_fact(
+    executor: &UniversalToolExecutor,
+    tenant: TenantId,
+    user_id: Uuid,
+    object: &str,
+) -> Result<String> {
+    let fact = executor
+        .resources
+        .repos()
+        .memory
+        .upsert_user_fact(&UpsertUserFactParams {
+            tenant_id: tenant,
+            user_id: &user_id.to_string(),
+            coach_id: None,
+            scope: MemoryScope::User,
+            kind: FactKind::Goal,
+            pillar: Some(Pillar::TrainingAndMovement),
+            subject: "you",
+            predicate: "target race",
+            object,
+            confidence: 0.95,
+            source: FactSource::Coach,
+            valid_until: None,
+            source_msg_id: None,
+            embedding: None,
+        })
+        .await?;
+    Ok(fact.id)
+}
+
+#[tokio::test]
+async fn goal_convergence_retires_leftovers_even_when_the_goal_is_unchanged() -> Result<()> {
+    // F10: the goal fact is written before the plan bundle (the plan row stores
+    // its id) and the facts it replaces are erased only after the bundle
+    // commits — so a bundle that fails leaves an extra agnostic goal fact
+    // behind. The next save has to converge anyway, including the case where
+    // the athlete's goal did not change and the matching fact already exists.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+
+    // The fact this payload's goal race converges on, already stored…
+    let matching = seed_agnostic_goal_fact(
+        &executor,
+        tenant,
+        user_id,
+        "Big Red (gravel) on 2026-08-08 — priority A",
+    )
+    .await?;
+    // …alongside the goal it replaced, which an interrupted save left behind.
+    let leftover = seed_agnostic_goal_fact(
+        &executor,
+        tenant,
+        user_id,
+        "Spring Classic (road) on 2026-04-11 — priority A",
+    )
+    .await?;
+
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(save.success, "save failed: {:?}", save.error);
+    assert_eq!(
+        save.result.expect("result")["goal_fact_id"].as_str(),
+        Some(matching.as_str()),
+        "an unchanged goal must reuse the fact already stored"
+    );
+
+    let facts = agnostic_goal_facts(&executor, &tenant_id, user_id).await?;
+    assert_eq!(
+        facts.len(),
+        1,
+        "the superseded goal fact must be retired, got {facts:?}"
+    );
+    assert_eq!(facts[0].0, matching, "the linked fact is the surviving one");
+    assert!(
+        !facts.iter().any(|(id, _)| id == &leftover),
+        "the replaced goal fact must not survive convergence: {facts:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Result<()> {
+    // F22: ownership of an LLM-supplied goal_fact_id used to be decided by
+    // listing the athlete's Goal facts and scanning. An athlete with more Goal
+    // facts than the cap had legitimate ids below the cut read as foreign,
+    // dropped, and silently replaced by a freshly minted fact. The check is a
+    // point lookup, so rank cannot decide ownership.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+
+    // The athlete's real goal fact, written first so every later fact outranks
+    // it in the newest-first ordering the list read uses.
+    let owned = seed_agnostic_goal_fact(
+        &executor,
+        tenant,
+        user_id,
+        "Big Red (gravel) on 2026-08-08 — priority A",
+    )
+    .await?;
+    for i in 0..520 {
+        executor
+            .resources
+            .repos()
+            .memory
+            .upsert_user_fact(&UpsertUserFactParams {
+                tenant_id: tenant,
+                user_id: &user_id.to_string(),
+                coach_id: None,
+                scope: MemoryScope::User,
+                kind: FactKind::Goal,
+                pillar: Some(Pillar::TrainingAndMovement),
+                subject: "you",
+                predicate: "want to",
+                object: &format!("hit checkpoint {i}"),
+                confidence: 0.8,
+                source: FactSource::Conversation,
+                valid_until: None,
+                source_msg_id: None,
+                embedding: None,
+            })
+            .await?;
+    }
+
+    let mut payload = full_plan_payload();
+    payload["goal_fact_id"] = json!(owned);
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(save.success, "save failed: {:?}", save.error);
+    assert_eq!(
+        save.result.expect("result")["goal_fact_id"].as_str(),
+        Some(owned.as_str()),
+        "the athlete's own goal fact must be linked, not replaced"
+    );
+
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert_eq!(
+        get.result.expect("result")["plan"]["goal_fact_id"].as_str(),
+        Some(owned.as_str()),
+        "the stored plan must carry the supplied fact id"
+    );
+    Ok(())
+}
+
+/// Six one-hour rides inside the six-week snapshot window: a baseline of
+/// exactly one hour a week, so a planned week's verdict is arithmetic rather
+/// than a guess.
+async fn seed_one_hour_per_week_baseline(
+    executor: &UniversalToolExecutor,
+    tenant_id: &str,
+    user_id: Uuid,
+) -> Result<()> {
+    let tenant = TenantId::from(Uuid::parse_str(tenant_id)?);
+    let rides: Vec<Activity> = (0..6)
+        .map(|i| {
+            ActivityBuilder::new(
+                format!("baseline-{i}"),
+                format!("baseline ride {i}"),
+                SportType::Ride,
+                Utc::now() - chrono::Duration::days(2 + i * 7),
+                3_600,
+                "strava",
+            )
+            .build()
+        })
+        .collect();
+    executor
+        .resources
+        .repos()
+        .activity_cache
+        .upsert_activities(user_id, &tenant, "strava", &rides)
+        .await?;
+    Ok(())
+}
+
+/// An outline plus two weeks sent NEWEST FIRST: a five-hour week ahead of the
+/// one-hour week the athlete actually starts on.
+fn plan_with_the_heavy_week_first() -> Value {
+    json!({
+        "coach_id": "endurance-coach",
+        "outline": {
+            "goal_race": {
+                "name": "Big Red",
+                "date": "2026-08-08",
+                "discipline": "gravel",
+                "priority": "A"
+            },
+            "strategy": "ease back in, then one big week before the taper"
+        },
+        "weeks": [
+            {
+                "week_start": "2026-07-20",
+                "focus": "big week",
+                "days": [
+                    {"date": "2026-07-21", "sport": "gravel", "workout": "long endurance", "duration_min": 300, "intensity": "Z2"}
+                ]
+            },
+            {
+                "week_start": "2026-07-13",
+                "focus": "ease back in",
+                "days": [
+                    {"date": "2026-07-14", "sport": "gravel", "workout": "easy hour", "duration_min": 60, "intensity": "Z2"}
+                ]
+            }
+        ]
+    })
+}
+
+/// The `notify` events a captured run emitted for `event`.
+fn notify_events<'a>(events: &'a [CapturedEvent], event: &str) -> Vec<&'a CapturedEvent> {
+    events
+        .iter()
+        .filter(|e| e.field("event").is_some_and(|v| v.contains(event)))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_ramp_check_grades_the_earliest_week_not_the_first_in_the_payload() -> Result<()> {
+    // F12: the check used to measure `weeks[0]`, the first element of the
+    // payload array. Nothing sorts the weeks and the schema documents
+    // single-week adjustment saves, so a plan sent newest-first was graded on
+    // an arbitrary mid-plan week — here it would warn "planned opening week
+    // exceeds recent weekly load" about a week five weeks in, while the week
+    // the athlete actually starts on matches their baseline exactly.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    seed_one_hour_per_week_baseline(&executor, &tenant_id, user_id).await?;
+
+    let (events, guard) = setup_capture();
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            plan_with_the_heavy_week_first(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let captured = events.lock().expect("capture lock").clone();
+    drop(guard);
+
+    assert!(save.success, "save failed: {:?}", save.error);
+    assert!(
+        notify_events(&captured, "training_plan.ramp_warning").is_empty(),
+        "the opening week matches the baseline — no warning is owed: {captured:?}"
+    );
+    let checked = notify_events(&captured, "training_plan.ramp_checked");
+    assert_eq!(
+        checked.len(),
+        1,
+        "exactly one ramp verdict per save: {captured:?}"
+    );
+    let planned = checked[0].field("planned_hours").unwrap_or_default();
+    assert!(
+        planned.contains("1.0"),
+        "the earliest week (1.0 h) must be the one measured, got {planned}"
+    );
+    assert!(
+        checked[0]
+            .field("baseline_hours")
+            .is_some_and(|b| b.contains("1.0")),
+        "the seeded baseline must be the comparison: {captured:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()> {
+    // F12: a save with no outline adjusts one week of a plan whose opening week
+    // was measured when it was created. Grading it as an opening week reports a
+    // ramp the athlete was never asked to make — a big mid-plan week is the
+    // point of a big mid-plan week.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    seed_one_hour_per_week_baseline(&executor, &tenant_id, user_id).await?;
+
+    executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            plan_with_the_heavy_week_first(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+
+    let (events, guard) = setup_capture();
+    let adjust = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            json!({
+                "coach_id": "endurance-coach",
+                "weeks": [{
+                    "week_start": "2026-07-20",
+                    "focus": "big week",
+                    "adjustment_reason": "feeling strong — keeping the volume",
+                    "days": [
+                        {"date": "2026-07-21", "sport": "gravel", "workout": "long endurance", "duration_min": 300, "intensity": "Z2"},
+                        {"date": "2026-07-23", "sport": "mtb", "workout": "long endurance", "duration_min": 300, "intensity": "Z2"}
+                    ]
+                }]
+            }),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let captured = events.lock().expect("capture lock").clone();
+    drop(guard);
+
+    assert!(adjust.success, "adjust failed: {:?}", adjust.error);
+    let result = adjust.result.expect("adjust result");
+    assert_eq!(result["weeks_saved"], 1);
+    assert_eq!(result["weeks"][0]["superseded"], true);
+    for verdict in [
+        "training_plan.ramp_warning",
+        "training_plan.ramp_checked",
+        "training_plan.ramp_unmeasurable",
+    ] {
+        assert!(
+            notify_events(&captured, verdict).is_empty(),
+            "a week-only adjustment must emit no {verdict}: {captured:?}"
+        );
+    }
+
+    // The adjustment itself still landed.
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let fetched = get.result.expect("get result");
+    let weeks = fetched["weeks"].as_array().expect("weeks");
+    assert_eq!(weeks.len(), 2, "still one active row per week");
+    assert_eq!(weeks[1]["days"][1]["duration_min"], 300);
+    assert_eq!(weeks[0]["focus"], "ease back in", "week 1 untouched");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Result<()> {
+    // F17: `%Y` accepts a signed, unlimited-digit year and NaiveDate's Display
+    // re-emits it, so "+262142-12-31" round-trips through the format check.
+    // Stored, it panics the renderers on every later turn — a plan is
+    // re-rendered into the system prompt for the rest of the athlete's chat
+    // history. Every date the payload carries is bounded at save time.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    for (pointer, value) in [
+        ("/outline/goal_race/date", "+262142-12-31"),
+        ("/outline/blocks/0/start", "+262142-01-05"),
+        ("/weeks/0/week_start", "+262142-07-13"),
+        ("/weeks/0/days/0/date", "+262142-07-13"),
+        ("/outline/goal_race/date", "0999-08-08"),
+    ] {
+        let mut payload = full_plan_payload();
+        *payload
+            .pointer_mut(pointer)
+            .unwrap_or_else(|| panic!("{pointer} exists in the fixture")) = json!(value);
+        let message = outcome_text(
+            &executor,
+            make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+        )
+        .await;
+        assert!(
+            message.contains("is outside 1000-9999"),
+            "the rejection of {pointer} must name the calendar bound it broke, \
+             not a shape it satisfies: {message}"
+        );
+        assert!(
+            message.contains(value),
+            "the rejection of {pointer} must name the offending date: {message}"
+        );
+
+        let get = executor
+            .execute_tool(make_request(
+                "get_training_plan",
+                json!({"coach_id": "endurance-coach"}),
+                user_id,
+                Some(&tenant_id),
+            ))
+            .await?;
+        assert!(
+            get.result.expect("get result")["plan"].is_null(),
+            "a plan carrying an out-of-range {pointer} must persist nothing"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_hallucinated_week_count_is_rejected_with_no_write() -> Result<()> {
+    // F25: every other collection in the payload is capped. An unbounded weeks
+    // array turns one hallucinated call into thousands of statements in a
+    // single transaction, and a plan that is re-rendered into every later
+    // prompt.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let mut week_start = chrono::NaiveDate::from_ymd_opt(2026, 7, 13).expect("valid date");
+    let mut weeks = Vec::new();
+    for _ in 0..105 {
+        weeks.push(json!({
+            "week_start": week_start.format("%Y-%m-%d").to_string(),
+            "focus": "endurance",
+            "days": [{
+                "date": week_start.format("%Y-%m-%d").to_string(),
+                "sport": "gravel",
+                "workout": "endurance",
+                "duration_min": 90,
+                "intensity": "Z2"
+            }]
+        }));
+        week_start += chrono::Duration::days(7);
+    }
+    let mut payload = full_plan_payload();
+    payload["weeks"] = Value::Array(weeks);
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("too many weeks"),
+        "the rejection must say the week count is the problem: {message}"
+    );
+
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        get.result.expect("get result")["plan"].is_null(),
+        "an over-long weeks array must persist nothing"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn save_refuses_mid_walk_even_with_no_conversation_in_scope() -> Result<()> {
+    // F27: the withhold used to key on the conversation the chat pipeline puts
+    // in a task-local. A `tools/call` arriving on the `/mcp` endpoint has none,
+    // so the guard was skipped there and a plan could be written mid-interview
+    // — on the very surface the server-side refusal exists to cover. The flow
+    // is resolved from the athlete when no conversation is in scope.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let repos = executor.resources.repos();
+
+    let conversation = repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            tenant,
+            "profile walk",
+            "gemini-2.0-flash",
+            None,
+            None,
+        )
+        .await?;
+    repos
+        .chat
+        .set_conversation_onboarding_state(
+            &conversation.id,
+            Some(&OnboardingState::start_now_column(GuidedFlow::Pillars)),
+            tenant,
+        )
+        .await?;
+
+    // No conversation id in scope — the MCP-direct shape.
+    let refused = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await;
+    let error = refused
+        .expect_err("an MCP-direct save must be refused during the walk")
+        .to_string();
+    assert!(
+        error.contains("profile walk"),
+        "refusal must tell the model why, got: {error}"
+    );
+    // The payload names its coach, and with no conversation in scope that
+    // argument is the slug the plan would be saved under — so that is the slug
+    // the "nothing was written" check has to look at.
+    assert!(
+        repos
+            .training_plans
+            .get_active_plan(&tenant_id, &user_id.to_string(), Some("endurance-coach"))
+            .await?
+            .is_none(),
+        "the refused save must not have written a plan"
+    );
+
+    // A finished interview is not an active one: the marker the release
+    // directive leaves behind must not keep refusing saves.
+    repos
+        .chat
+        .set_conversation_onboarding_state(
+            &conversation.id,
+            Some(
+                &OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Pillars)
+                    .completed(Utc::now().to_rfc3339())
+                    .to_column()?,
+            ),
+            tenant,
+        )
+        .await?;
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            full_plan_payload(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        saved.success,
+        "a completed interview must not withhold the tool, got: {:?}",
+        saved.error
+    );
+    assert_eq!(
+        saved.result.expect("result")["goal_race"],
+        "Big Red on 2026-08-08"
+    );
     Ok(())
 }
 

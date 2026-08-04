@@ -18,21 +18,38 @@ WORKDIR /app
 # Stage 1: generate dependency recipe from the full workspace source tree
 FROM chef AS planner
 COPY . .
+# The private dravr-* git dependencies authenticate through a global gitconfig
+# that rewrites https://github.com/ to an x-access-token URL. HOME (/root) is a
+# tmpfs mount for the duration of the RUN, so that rendered config — which holds
+# the token in plaintext — lives in memory and never enters the stage snapshot.
+# Persisting it would publish the token: buildx exports every stage of this
+# build to a registry buildcache tag (cache-to mode=max) whose read access is
+# granted project-wide. The credential has to stay a real file rather than move
+# to git's GIT_CONFIG_COUNT/KEY/VALUE environment form, because this build
+# leaves CARGO_NET_GIT_FETCH_WITH_CLI unset and cargo's libgit2 fetch path reads
+# config from files only.
 RUN --mount=type=secret,id=git_token \
+    --mount=type=tmpfs,target=/root \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo chef prepare --recipe-path recipe.json
 
 # Stage 2: build all workspace dependencies (cached unless Cargo.toml/Cargo.lock changes)
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
+# Credential handling as in the planner stage: HOME is a tmpfs mount so the
+# rendered gitconfig never reaches this stage's layers.
 RUN --mount=type=secret,id=git_token \
+    --mount=type=tmpfs,target=/root \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo chef cook --release --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" --recipe-path recipe.json
 
 # Build the server binary and pierre-cli (which now hosts all seeder subcommands).
 # Reruns only when source code changes.
 COPY . .
+# Credential handling as in the planner stage: HOME is a tmpfs mount so the
+# rendered gitconfig never reaches this stage's layers.
 RUN --mount=type=secret,id=git_token \
+    --mount=type=tmpfs,target=/root \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo build --release --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" \
     --bin pierre-mcp-server \

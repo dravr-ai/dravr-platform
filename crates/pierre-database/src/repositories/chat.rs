@@ -165,6 +165,46 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 
+    /// Set (or clear) the guided-interview state only while the column still
+    /// holds `expected` — a compare-and-set on the conversation row.
+    ///
+    /// An LLM turn reads this column when it starts and writes it back tens of
+    /// seconds later, while slash commands are handled synchronously in the
+    /// webhook path outside the dispatch lock. An athlete who types
+    /// `/calibrate` mid-turn therefore has a fresh interview written under the
+    /// running turn, and a blind write-back would replace it with the snapshot
+    /// that turn loaded — reverting the interview they just started. Passing
+    /// the turn-start value as `expected` makes that write a no-op instead.
+    ///
+    /// `expected` is matched NULL-safely, so "the conversation carried no
+    /// state" is a value like any other. Tenant-scoped; returns `true` when the
+    /// row was updated and `false` when it was not — either because a newer
+    /// state owns the column or because the conversation does not exist.
+    async fn compare_and_set_conversation_onboarding_state(
+        &self,
+        conversation_id: &str,
+        expected: Option<&str>,
+        onboarding_state: Option<&str>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// The raw `onboarding_state` JSON of this user's conversations that carry
+    /// one, newest-updated first, capped at `limit`.
+    ///
+    /// Keyed on the athlete rather than one conversation, because a `tools/call`
+    /// arriving on the `/mcp` endpoint has no conversation in scope and the
+    /// guided-flow write guard still has to answer "is an interview running for
+    /// this athlete right now?". Returns the columns verbatim — whether a stored
+    /// state is *active* or a finished marker is the caller's read
+    /// (`OnboardingState::from_column`), so the two never disagree.
+    /// Tenant-scoped.
+    async fn list_user_onboarding_states(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+        limit: i64,
+    ) -> AppResult<Vec<String>>;
+
     /// Attach a coaching group id to an existing conversation row.
     ///
     /// Used by the messaging-ingress auto-bind path to retrofit

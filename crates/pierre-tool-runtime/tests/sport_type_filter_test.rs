@@ -74,6 +74,47 @@ fn wildcard_french_tous_returns_every_activity() {
 }
 
 #[test]
+fn wildcard_spanish_german_portuguese_return_every_activity() {
+    // The platform ships fr/en/es/de/pt end to end and the coach answers in the
+    // athlete's language, so the wildcard arrives in that language too. An
+    // es/de/pt wildcard that filtered literally would reproduce the 2026-07-20
+    // incident for those athletes: every activity dropped, "no recent data".
+    for wildcard in [
+        "todos",
+        "todas",
+        "todo",
+        "cualquiera",
+        "alle",
+        "alles",
+        "jede",
+        "tudo",
+        "qualquer",
+    ] {
+        let filtered = filter_activities_by_sport_type(seeded_activities(), Some(wildcard));
+        assert_eq!(
+            filtered.len(),
+            3,
+            "sport_type '{wildcard}' must pass every activity through, got {filtered:?}"
+        );
+    }
+}
+
+#[test]
+fn wildcards_are_case_insensitive() {
+    // The filter is compared after normalisation, so the capitalised form a
+    // model actually writes at the start of a sentence still reads as a
+    // wildcard rather than an unknown sport.
+    for wildcard in ["ALL", "Tous", "Todos", "Alle"] {
+        let filtered = filter_activities_by_sport_type(seeded_activities(), Some(wildcard));
+        assert_eq!(
+            filtered.len(),
+            3,
+            "sport_type '{wildcard}' must pass every activity through, got {filtered:?}"
+        );
+    }
+}
+
+#[test]
 fn blank_filter_returns_every_activity() {
     let filtered = filter_activities_by_sport_type(seeded_activities(), Some("  "));
     assert_eq!(

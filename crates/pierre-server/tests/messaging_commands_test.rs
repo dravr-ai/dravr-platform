@@ -506,6 +506,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
 
@@ -561,6 +562,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
 
@@ -666,6 +668,7 @@ mod command_tests {
             locale: "fr".to_owned(),
             is_direct_message: true,
             conversation_id: None,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
 
@@ -720,6 +723,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id: None,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
 
@@ -774,6 +778,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id: None,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
 
@@ -938,6 +943,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: Some(conversation.id.clone()),
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
 
@@ -985,6 +991,276 @@ mod command_tests {
             !other_member_consent,
             "consent must NOT leak to a different group the user belongs to"
         );
+    }
+
+    /// Shared-bot group deployment: the member belongs to tenant A while the
+    /// Telegram bot (and therefore the conversation + the coaching group) lives
+    /// under the channel tenant `T_bot`. `/group consent yes` must still land on
+    /// the chat-bound group even though the two tenants differ — the case a
+    /// single-tenant fixture cannot reach.
+    #[tokio::test]
+    async fn group_consent_binds_to_chat_group_across_tenants() {
+        use pierre_commands::group::GroupConsentHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
+
+        let resources = create_test_server_resources().await.unwrap();
+        let fixture = cross_tenant_group_fixture(&resources).await;
+
+        let ctx = PlatformCommandContext {
+            user_id: fixture.user,
+            // The caller's OWN tenant — what AuthResult carries for a member of
+            // a shared bot's group.
+            tenant_id: fixture.member_tenant,
+            // The conversation row was written under the bot tenant.
+            conversation_tenant_id: fixture.channel_tenant,
+            channel_type: "telegram".to_owned(),
+            args: vec!["yes".to_owned()],
+            raw_text: "/group consent yes".to_owned(),
+            ctx: Arc::<ServerContext>::clone(&resources),
+            locale: "en".to_owned(),
+            is_direct_message: false,
+            conversation_id: Some(fixture.conversation.clone()),
+            sender_id: None,
+        };
+
+        let response = GroupConsentHandler.execute(&ctx).await.unwrap();
+        assert!(
+            response.text.contains("Bot-tenant chat group"),
+            "consent confirmation should name the chat-bound group, got: {}",
+            response.text
+        );
+
+        assert!(
+            member_consent(&resources, fixture.chat_group, fixture.user).await,
+            "consent must flip on the group bound to the chat, even though the \
+             member's tenant differs from the channel tenant"
+        );
+        assert!(
+            !member_consent(&resources, fixture.other_group, fixture.user).await,
+            "consent must NOT land on the member's own more-recently-updated group"
+        );
+    }
+
+    /// Fail-closed: a conversation id that does not resolve under the
+    /// conversation tenant must refuse rather than silently retarget the
+    /// consent write at `list_groups_for_user().first()`.
+    #[tokio::test]
+    async fn group_consent_refuses_unresolvable_conversation() {
+        use pierre_commands::group::GroupConsentHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let fixture = cross_tenant_group_fixture(&resources).await;
+
+        let ctx = PlatformCommandContext {
+            user_id: fixture.user,
+            tenant_id: fixture.member_tenant,
+            conversation_tenant_id: fixture.channel_tenant,
+            channel_type: "telegram".to_owned(),
+            args: vec!["yes".to_owned()],
+            raw_text: "/group consent yes".to_owned(),
+            ctx: Arc::<ServerContext>::clone(&resources),
+            locale: "en".to_owned(),
+            is_direct_message: false,
+            // No such conversation anywhere.
+            conversation_id: Some(Uuid::new_v4().to_string()),
+            sender_id: None,
+        };
+
+        let err = GroupConsentHandler
+            .execute(&ctx)
+            .await
+            .expect_err("unresolvable conversation must refuse");
+        assert!(
+            err.to_string().contains("not a member"),
+            "refusal should reuse the not-a-member string, got: {err}"
+        );
+
+        assert!(
+            !member_consent(&resources, fixture.chat_group, fixture.user).await,
+            "a refused command must not write consent anywhere"
+        );
+        assert!(
+            !member_consent(&resources, fixture.other_group, fixture.user).await,
+            "a refused command must not retarget consent at another group"
+        );
+    }
+
+    struct CrossTenantGroupFixture {
+        user: Uuid,
+        member_tenant: TenantId,
+        channel_tenant: TenantId,
+        chat_group: Uuid,
+        other_group: Uuid,
+        conversation: String,
+    }
+
+    /// Seed the shared-bot topology: one member in tenant A, a bot tenant that
+    /// owns the group chat's conversation and coaching group, and a second
+    /// group in A that is more recently updated (so `list_groups_for_user`
+    /// ordered by `updated_at DESC` would pick it).
+    async fn cross_tenant_group_fixture(resources: &ServerContext) -> CrossTenantGroupFixture {
+        use pierre_core::models::coaches::{
+            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        };
+        use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+
+        let (user_id, member_tenant_id) =
+            create_test_user(resources, "crosstenant-member@test.com").await;
+        let channel_tenant_id = TenantId::new();
+        let bot_tenant = Tenant {
+            id: channel_tenant_id,
+            name: "Bot Tenant".to_owned(),
+            slug: format!("bot-tenant-{channel_tenant_id}"),
+            domain: None,
+            plan: "professional".to_owned(),
+            owner_user_id: user_id,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        resources
+            .common
+            .repos
+            .tenants
+            .create(&bot_tenant)
+            .await
+            .unwrap();
+
+        let coach = resources
+            .common
+            .repos
+            .coaches
+            .create_system_coach(
+                user_id,
+                member_tenant_id,
+                &CreateSystemCoachRequest {
+                    title: "Cross Tenant Coach".to_owned(),
+                    description: None,
+                    system_prompt: "Test prompt".to_owned(),
+                    category: CoachCategory::Training,
+                    tags: vec![],
+                    sample_prompts: vec![],
+                    visibility: CoachVisibility::Global,
+                },
+            )
+            .await
+            .unwrap();
+
+        let now = Utc::now();
+        let chat_group_id = Uuid::new_v4();
+        let other_group_id = Uuid::new_v4();
+        let mk_group = |id: Uuid, name: &str, owner_tenant: TenantId, updated_at| CoachingGroup {
+            id,
+            tenant_id: owner_tenant.to_string(),
+            name: name.to_owned(),
+            description: None,
+            coach_id: coach.id.to_string(),
+            owner_id: user_id,
+            coach_user_id: None,
+            peer_data_sharing: true,
+            max_members: 10,
+            is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
+            created_at: now,
+            updated_at,
+        };
+        let chat_group = mk_group(
+            chat_group_id,
+            "Bot-tenant chat group",
+            channel_tenant_id,
+            now,
+        );
+        // Later `updated_at` — this is what the cross-tenant, unfiltered
+        // `list_groups_for_user` fallback would select.
+        let other_group = mk_group(
+            other_group_id,
+            "Member's own group",
+            member_tenant_id,
+            now + chrono::Duration::seconds(60),
+        );
+        resources
+            .common
+            .repos
+            .groups
+            .create_group(channel_tenant_id, &chat_group)
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .groups
+            .create_group(member_tenant_id, &other_group)
+            .await
+            .unwrap();
+
+        let mk_member = |group_id: Uuid, member_tenant: TenantId| GroupMember {
+            id: Uuid::new_v4(),
+            group_id,
+            user_id,
+            tenant_id: member_tenant.to_string(),
+            role: GroupRole::Owner,
+            peer_sharing_consent: false,
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        };
+        resources
+            .common
+            .repos
+            .groups
+            .add_member(&mk_member(chat_group_id, member_tenant_id))
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .groups
+            .add_member(&mk_member(other_group_id, member_tenant_id))
+            .await
+            .unwrap();
+
+        // The group chat's conversation lives under the BOT tenant — this is
+        // what `resolve_linked_session` does for a non-DM.
+        let conversation = resources
+            .common
+            .repos
+            .chat
+            .create_conversation(
+                &user_id.to_string(),
+                channel_tenant_id,
+                "Telegram group",
+                "gpt-4",
+                None,
+                Some(&chat_group_id.to_string()),
+            )
+            .await
+            .unwrap();
+
+        CrossTenantGroupFixture {
+            user: user_id,
+            member_tenant: member_tenant_id,
+            channel_tenant: channel_tenant_id,
+            chat_group: chat_group_id,
+            other_group: other_group_id,
+            conversation: conversation.id,
+        }
+    }
+
+    async fn member_consent(resources: &ServerContext, group_id: Uuid, user_id: Uuid) -> bool {
+        resources
+            .common
+            .repos
+            .groups
+            .list_members(&group_id.to_string())
+            .await
+            .unwrap()
+            .iter()
+            .find(|m| m.user_id == user_id)
+            .expect("member row")
+            .peer_sharing_consent
     }
 
     #[tokio::test]
@@ -1079,6 +1355,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
         let response = GroupCoachHandler.execute(&ctx).await.unwrap();
@@ -1147,6 +1424,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: false,
             conversation_id: None,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
 
@@ -1199,6 +1477,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id: None,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         };
 
@@ -1368,6 +1647,7 @@ mod command_tests {
             locale: "en".to_owned(),
             is_direct_message: true,
             conversation_id,
+            conversation_tenant_id: tenant_id,
             sender_id: None,
         }
     }

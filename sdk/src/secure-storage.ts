@@ -1,40 +1,64 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Secure token storage using OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-// ABOUTME: Provides encrypted storage for OAuth tokens with automatic migration from plaintext files
+// ABOUTME: OAuth token storage preferring the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
+// ABOUTME: Falls back to an owner-only (0600) file whose AES layer is obfuscation, not a local-attacker boundary
 
 // NOTE: @napi-rs/keyring is lazy-loaded to prevent D-Bus hangs in Linux CI environments
 // Uses Rust-based keyring-rs bindings (replaces deprecated node-keytar)
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  unlinkSync,
+  chmodSync,
+  mkdirSync,
+  statSync,
+} from 'fs';
+import { join, dirname } from 'path';
 import { homedir, networkInterfaces } from 'os';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 
 const KEYCHAIN_SERVICE = 'pierre-mcp-client';
 const KEYCHAIN_ACCOUNT_PREFIX = 'pierre-mcp-tokens';
 
+/** Owner-only mode for the fallback token file. This is what actually protects it. */
+const TOKEN_FILE_MODE = 0o600;
+
+/** Owner-only mode applied when the fallback token file's parent directory must be created. */
+const TOKEN_DIR_MODE = 0o700;
+
 /**
- * Secure token storage interface
+ * Windows implements no POSIX mode bits: `mode` arguments are ignored there and
+ * `chmodSync` toggles only the read-only flag. On that platform the fallback file
+ * is protected by the ACLs it inherits from the user profile directory, and the
+ * Windows Credential Manager reached through `KeychainTokenStorage` is the
+ * properly protected store.
+ */
+const POSIX_FILE_MODES = process.platform !== 'win32';
+
+/**
+ * Token storage interface, implemented by the OS keychain store and by the
+ * owner-only file store used when no keychain is available.
  */
 export interface SecureTokenStorage {
   /**
-   * Store tokens securely in OS keychain
+   * Persist tokens to the backing store
    */
   saveTokens(tokens: Record<string, any>): Promise<void>;
 
   /**
-   * Retrieve tokens from OS keychain
+   * Retrieve tokens from the backing store
    */
   getTokens(): Promise<Record<string, any> | null>;
 
   /**
-   * Clear all tokens from OS keychain
+   * Clear all tokens from the backing store
    */
   clearTokens(): Promise<void>;
 
   /**
-   * Migrate tokens from plaintext file to keychain
+   * Migrate tokens from a plaintext file into the backing store
    */
   migrateFromPlaintextFile(filePath: string): Promise<boolean>;
 }
@@ -129,8 +153,18 @@ export class KeychainTokenStorage implements SecureTokenStorage {
 }
 
 /**
- * Encrypted file-based storage (fallback when keychain unavailable)
- * Uses AES-256-GCM with machine-specific key derivation
+ * File-based token storage, used only when the OS keychain is unavailable.
+ *
+ * The AES-256-GCM layer here is obfuscation, not confidentiality. `deriveEncryptionKey`
+ * builds its key from MAC addresses and the home directory path — public machine data
+ * that any local process can read — and the ciphertext sits on disk next to everything
+ * needed to reproduce that key. It keeps tokens out of casual disk greps and backup
+ * archives; it stops nobody who can run code on this machine.
+ *
+ * What actually protects this store is the file mode: the token file is created 0600
+ * and any directory this class creates for it is 0700, so only the owner can read it.
+ * `KeychainTokenStorage` is preferred wherever the OS keychain works — this class is
+ * the degraded path.
  */
 export class EncryptedFileStorage implements SecureTokenStorage {
   private log: (message: string, ...args: any[]) => void;
@@ -141,11 +175,23 @@ export class EncryptedFileStorage implements SecureTokenStorage {
     this.log = logFunction || ((msg) => console.error(`[SecureStorage] ${msg}`));
     this.encryptedFilePath = join(homedir(), '.pierre-mcp-tokens.enc');
     this.encryptionKey = this.deriveEncryptionKey();
+
+    if (!POSIX_FILE_MODES) {
+      this.log(
+        'Windows fallback storage: the token file is protected by the ACLs it inherits from ' +
+          'the user profile directory, not by permissions this SDK sets. The Windows Credential ' +
+          'Manager is the protected store where it is reachable.'
+      );
+    }
   }
 
   /**
-   * Derive encryption key from machine-specific data
-   * Uses MAC addresses and homedir to create a stable machine-specific key
+   * Derive the AES key from machine-specific data.
+   *
+   * MAC addresses and the home directory path are stable across runs, which is what lets
+   * a stored file be read back on the next start. They are not secret, so this key is
+   * reproducible by anything running on the machine — see the class doc for what that
+   * means for the guarantees of this store.
    */
   private deriveEncryptionKey(): Buffer {
     const interfaces = networkInterfaces();
@@ -210,12 +256,58 @@ export class EncryptedFileStorage implements SecureTokenStorage {
     return decrypted;
   }
 
+  /**
+   * Create the token file's parent directory owner-only when it is missing.
+   *
+   * `mkdir` applies the mode itself, so the directory is never briefly group- or
+   * world-readable. An existing directory is left alone: the default path's parent is
+   * the user's home directory, whose permissions belong to the user and are not this
+   * SDK's to rewrite.
+   */
+  private ensureParentDirectory(): void {
+    const parent = dirname(this.encryptedFilePath);
+    if (existsSync(parent)) {
+      return;
+    }
+
+    mkdirSync(parent, { recursive: true, mode: TOKEN_DIR_MODE });
+  }
+
+  /**
+   * Tighten an existing token file to owner-only before anything is written into it.
+   *
+   * `writeFileSync`'s `mode` option is honoured only when the file is created, so a
+   * file left group- or world-readable by an earlier version keeps that mode through a
+   * plain overwrite. Tightening runs before the write rather than after it, so fresh
+   * tokens are never written into a file others can still read.
+   */
+  private restrictFilePermissions(): void {
+    if (!POSIX_FILE_MODES || !existsSync(this.encryptedFilePath)) {
+      return;
+    }
+
+    const currentMode = statSync(this.encryptedFilePath).mode & 0o777;
+    if (currentMode === TOKEN_FILE_MODE) {
+      return;
+    }
+
+    chmodSync(this.encryptedFilePath, TOKEN_FILE_MODE);
+    this.log(
+      `Tightened token file permissions from ${currentMode.toString(8)} to ${TOKEN_FILE_MODE.toString(8)}`
+    );
+  }
+
   async saveTokens(tokens: Record<string, any>): Promise<void> {
     try {
       const serialized = JSON.stringify(tokens);
       const encrypted = this.encrypt(serialized);
-      writeFileSync(this.encryptedFilePath, encrypted, 'utf8');
-      this.log('Saved tokens to encrypted file');
+      this.ensureParentDirectory();
+      this.restrictFilePermissions();
+      writeFileSync(this.encryptedFilePath, encrypted, {
+        encoding: 'utf8',
+        mode: TOKEN_FILE_MODE,
+      });
+      this.log('Saved tokens to owner-only token file');
     } catch (error) {
       this.log(`Failed to save tokens to encrypted file: ${error}`);
       throw new Error(`Encrypted file storage failed: ${error}`);
@@ -227,6 +319,16 @@ export class EncryptedFileStorage implements SecureTokenStorage {
       if (!existsSync(this.encryptedFilePath)) {
         this.log('No encrypted token file found');
         return null;
+      }
+
+      try {
+        // A file written by an earlier version may still be world-readable, and a session
+        // that only ever reads would otherwise never correct it.
+        this.restrictFilePermissions();
+      } catch (error) {
+        // The file is readable but its mode cannot be corrected. Report it and still return
+        // the tokens rather than locking the user out of their own session.
+        this.log(`Could not tighten token file permissions: ${error}`);
       }
 
       const encryptedData = readFileSync(this.encryptedFilePath, 'utf8');
@@ -310,7 +412,7 @@ export async function createSecureStorage(
   // Workaround: Use encrypted file storage in CI environments to prevent MCP validator timeout.
   // Background: OS keychains require D-Bus for credential storage on Linux, which is not available in CI containers.
   if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') {
-    log('CI environment detected - using encrypted file storage (keyring disabled)');
+    log('CI environment detected - using owner-only file storage (keyring disabled)');
     const encryptedStorage = new EncryptedFileStorage(logFunction);
 
     // Attempt migration from plaintext file
@@ -343,7 +445,10 @@ export async function createSecureStorage(
     return keychainStorage;
   } catch (error) {
     log(`OS keychain unavailable: ${error}`);
-    log('Falling back to encrypted file storage');
+    log(
+      'Falling back to owner-only file storage - degraded: tokens are protected by file ' +
+        'permissions alone, since the file obfuscation key is derivable from machine data'
+    );
 
     // Fallback to encrypted file storage
     const encryptedStorage = new EncryptedFileStorage(logFunction);

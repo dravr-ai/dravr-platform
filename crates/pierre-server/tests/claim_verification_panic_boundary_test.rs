@@ -19,23 +19,46 @@
 #![allow(missing_docs)]
 
 use pierre_chat_pipeline::stages::verification::{degrade_to_unverified, ClaimVerificationOutcome};
+use pierre_evals::{VerificationConfig, VerificationFallback};
+use tokio::task::yield_now;
 
 const REPLY: &str = "Ta semaine 4 est un pic: 5 séances, dont une sortie longue de 3 h.";
 
+/// What a blocking coach replaces a reply with. The real one is localized out
+/// of the messaging-strings registry; the boundary only ever calls the closure
+/// the caller hands it, so its text is the caller's business.
+const BLOCK_FALLBACK: &str = "Je préfère vérifier ce point avant de te répondre.";
+
+/// A coach config with the given fallback behavior.
+fn config(fallback: VerificationFallback) -> VerificationConfig {
+    VerificationConfig {
+        fallback_behavior: fallback,
+        ..VerificationConfig::default()
+    }
+}
+
+/// The panic shape the production incident had: a byte offset landing inside a
+/// multi-byte character. The boundary must not care which bug it is, so every
+/// test here panics the same way.
+async fn panicking_stage() -> ClaimVerificationOutcome {
+    // The yield keeps the panic inside the polled future. Panicking before any
+    // suspension point would unwind at the call site instead, outside the
+    // boundary these tests exist to exercise.
+    yield_now().await;
+    let text = "dernixxère";
+    let _ = &text[..8];
+    unreachable!("the slice above panics")
+}
+
 #[tokio::test]
 async fn a_panicking_verifier_delivers_the_reply_unverified() {
-    // A panic anywhere inside the stage — the 2026-07-28 one was a string
-    // slice on a non-char-boundary index, but the boundary must not care
-    // which bug it is.
+    // A warning coach would only ever have appended a footer, so losing the
+    // footer is the whole cost of the panic.
     let outcome = degrade_to_unverified(
-        async {
-            let text = "dernixxère";
-            // Same shape as the production panic: a byte offset that lands
-            // inside a multi-byte character.
-            let _ = &text[..8];
-            unreachable!("the slice above panics")
-        },
+        panicking_stage(),
         REPLY,
+        &config(VerificationFallback::Warn),
+        || BLOCK_FALLBACK.to_owned(),
     )
     .await;
 
@@ -66,6 +89,8 @@ async fn a_healthy_verifier_result_passes_through_untouched() {
             }
         },
         REPLY,
+        &config(VerificationFallback::Warn),
+        || BLOCK_FALLBACK.to_owned(),
     )
     .await;
 
@@ -77,4 +102,67 @@ async fn a_healthy_verifier_result_passes_through_untouched() {
         outcome.content, REPLY,
         "a boundary that returned the fallback on success would look green here"
     );
+}
+
+#[tokio::test]
+async fn a_blocking_coach_gets_its_block_fallback_when_the_detector_panics() {
+    // A coach configured to Block does not append a caveat — its fallback
+    // exists to REPLACE a reply carrying a contradicted claim ("an HR max of
+    // 300 bpm", "500 g of creatine per day"). Those are the class the
+    // deterministic bounds catch, and the class whose numeric scan panicked.
+    // Delivering the reply unverified hands the athlete exactly the sentence
+    // the coach configured the platform to withhold.
+    let outcome = degrade_to_unverified(
+        panicking_stage(),
+        REPLY,
+        &config(VerificationFallback::Block),
+        || BLOCK_FALLBACK.to_owned(),
+    )
+    .await;
+
+    assert_eq!(
+        outcome.content, BLOCK_FALLBACK,
+        "a blocking coach must not deliver an unscanned reply"
+    );
+    assert_ne!(
+        outcome.content, REPLY,
+        "the unverified reply is what this coach configured away"
+    );
+    assert!(
+        outcome.pending_verdicts.is_empty(),
+        "a panicked verifier has no verdicts to persist"
+    );
+}
+
+#[tokio::test]
+async fn a_silent_coach_still_gets_its_reply_after_a_panic() {
+    // Silent records the verdict and shows nothing, so an unscanned reply is
+    // exactly what it would have delivered anyway. Only Block changes.
+    let outcome = degrade_to_unverified(
+        panicking_stage(),
+        REPLY,
+        &config(VerificationFallback::Silent),
+        || BLOCK_FALLBACK.to_owned(),
+    )
+    .await;
+
+    assert_eq!(outcome.content, REPLY);
+}
+
+#[tokio::test]
+async fn a_coach_with_verification_off_is_never_blocked_by_a_panic() {
+    // A disabled config returns the reply untouched before it looks at a single
+    // claim, so it has no block behavior to honor — replacing the reply here
+    // would invent a refusal the coach never asked for.
+    let disabled = VerificationConfig {
+        enabled: false,
+        ..config(VerificationFallback::Block)
+    };
+
+    let outcome = degrade_to_unverified(panicking_stage(), REPLY, &disabled, || {
+        BLOCK_FALLBACK.to_owned()
+    })
+    .await;
+
+    assert_eq!(outcome.content, REPLY);
 }

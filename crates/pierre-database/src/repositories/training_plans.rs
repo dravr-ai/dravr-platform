@@ -35,25 +35,6 @@ pub struct SaveTrainingPlanParams<'a> {
     pub source_conversation_id: Option<&'a str>,
 }
 
-/// A new microcycle (or adjusted re-save of one) to persist. Saving
-/// supersedes the plan's current active row for the same `week_start`.
-pub struct SavePlanWeekParams<'a> {
-    /// Owning tenant.
-    pub tenant_id: &'a str,
-    /// Athlete the week is for.
-    pub user_id: &'a str,
-    /// Outline this week belongs to.
-    pub plan_id: &'a str,
-    /// Civil date of the week's first day, `YYYY-MM-DD`.
-    pub week_start: &'a str,
-    /// The week's intent in coach voice.
-    pub focus: &'a str,
-    /// The day rows, in date order (at most seven).
-    pub days: &'a [PlannedDay],
-    /// Why the coach re-saved this week; empty on first save.
-    pub adjustment_reason: &'a str,
-}
-
 /// The outline half of a [`SavePlanBundleParams`].
 ///
 /// Mirrors [`SaveTrainingPlanParams`] minus the identity fields the bundle
@@ -72,11 +53,13 @@ pub struct PlanOutlineInput<'a> {
     pub source_conversation_id: Option<&'a str>,
 }
 
-/// One week of a [`SavePlanBundleParams`].
+/// One microcycle of a [`SavePlanBundleParams`] — a new week, or an adjusted
+/// re-save of one, which supersedes the plan's current active row for the same
+/// `week_start`.
 ///
-/// Like [`SavePlanWeekParams`] but without `plan_id`: the bundle resolves the
-/// plan (fresh outline insert or existing active plan) once and attaches every
-/// week to it inside the same transaction.
+/// Carries no `plan_id`: the bundle resolves the plan (fresh outline insert or
+/// existing active plan) once and attaches every week to it inside the same
+/// transaction, so a week can only ever land on a plan this tenant + user owns.
 pub struct PlanWeekInput<'a> {
     /// Civil date of the week's first day, `YYYY-MM-DD`.
     pub week_start: &'a str,
@@ -131,26 +114,23 @@ pub struct SavedPlanBundle {
 pub trait TrainingPlanRepository: Send + Sync {
     /// Persist a new plan outline, superseding the athlete's current active
     /// outline for the same coach in the same transaction. The new row's
-    /// `supersedes_id` points at the replaced outline (audit chain). Returns
-    /// the stored plan.
+    /// `supersedes_id` points at the replaced outline (audit chain), and the
+    /// replaced outline's still-active weeks are carried onto the new plan id
+    /// so the athlete's day-by-day schedule follows it. Returns the stored plan.
     async fn save_training_plan(
         &self,
         params: &SaveTrainingPlanParams<'_>,
     ) -> AppResult<TrainingPlan>;
 
-    /// Persist one microcycle, superseding the plan's current active row for
-    /// the same `week_start` in the same transaction ("move Tuesday to
-    /// Wednesday" is a whole-week re-save). Fails with `invalid_input` when
-    /// `plan_id` is not an existing plan of this tenant + user — a week must
-    /// never attach to another athlete's plan.
-    async fn save_plan_week(&self, params: &SavePlanWeekParams<'_>) -> AppResult<PlanWeek>;
-
     /// Atomically persist an optional outline plus zero or more weeks in a
     /// **single transaction**, so a mid-payload failure can never leave the
-    /// athlete with a superseded old plan and a half-populated new one.
+    /// athlete with a superseded old plan and a half-populated new one. This
+    /// is the only write path: one week is a bundle of one ("move Tuesday to
+    /// Wednesday" is a whole-week re-save superseding that `week_start`).
     ///
-    /// With an outline: supersedes the current active plan and inserts the new
-    /// one, then attaches every week to it. Without an outline: resolves the
+    /// With an outline: supersedes the current active plan, inserts the new
+    /// one, carries the superseded outline's surviving weeks onto it, then
+    /// attaches every week in the payload. Without an outline: resolves the
     /// athlete's existing active plan (erroring if none) and attaches the
     /// weeks. Either way the whole set commits or none of it does.
     async fn save_plan_bundle(
@@ -351,9 +331,9 @@ pub(crate) struct WeekInsertValues {
     pub now: i64,
 }
 
-/// Build the serialized insert values for [`SavePlanWeekParams`].
-pub(crate) fn week_insert_values(params: &SavePlanWeekParams<'_>) -> AppResult<WeekInsertValues> {
-    let days_json = serde_json::to_string(params.days)
+/// Build the serialized insert values for one [`PlanWeekInput`]'s day rows.
+pub(crate) fn week_insert_values(days: &[PlannedDay]) -> AppResult<WeekInsertValues> {
+    let days_json = serde_json::to_string(days)
         .map_err(|e| AppError::internal(format!("serialize plan days: {e}")))?;
     Ok(WeekInsertValues {
         id: uuid::Uuid::new_v4().to_string(),
