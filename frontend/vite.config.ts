@@ -68,6 +68,10 @@ export default defineConfig(({ mode }) => {
             /^\/__/,
             /^\/r\//,
             /^\/providers\//,
+            // MCP JSON-RPC endpoint + the OAuth discovery documents an MCP
+            // client fetches before connecting. Both are backend routes.
+            /^\/mcp/,
+            /^\/\.well-known\//,
           ],
           // No runtimeCaching: tenant-scoped /api responses must always hit the
           // network. Only the immutable shell is cached, via precache above.
@@ -112,6 +116,18 @@ export default defineConfig(({ mode }) => {
             '/ws': {
               target: backendUrl,
               ws: true,
+              changeOrigin: true,
+            },
+            // MCP JSON-RPC endpoint and the OAuth discovery documents MCP
+            // clients fetch. Present so `bun dev` matches the deployed nginx
+            // routing — the absence of /mcp from BOTH layers is why nobody
+            // noticed POST /mcp was unreachable in production.
+            '/mcp': {
+              target: backendUrl,
+              changeOrigin: true,
+            },
+            '/.well-known': {
+              target: backendUrl,
               changeOrigin: true,
             },
             // Firebase auth handler: proxy to firebaseapp.com so authDomain = localhost works

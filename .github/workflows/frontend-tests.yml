@@ -13,6 +13,8 @@ on:
       - 'crates/pierre-server/src/routes/dashboard/**'
       - 'crates/pierre-core/src/models/**'
       - '.github/workflows/frontend-tests.yml'
+      - 'docker/images/frontend/**'
+      - 'scripts/ci/nginx-routing-check.sh'
   pull_request:
     branches: [ main ]
     paths:
@@ -25,6 +27,8 @@ on:
       - 'crates/pierre-server/src/routes/dashboard/**'
       - 'crates/pierre-core/src/models/**'
       - '.github/workflows/frontend-tests.yml'
+      - 'docker/images/frontend/**'
+      - 'scripts/ci/nginx-routing-check.sh'
   workflow_dispatch:  # Allow manual triggering
 
 concurrency:
@@ -36,6 +40,22 @@ permissions:
   contents: read
 
 jobs:
+  # The only job that traverses nginx. Everything else in CI reaches the backend
+  # directly (SDK, MCP compliance) or the vite dev server with routes mocked
+  # (Playwright), so docker/images/frontend/nginx.conf was built but never
+  # exercised — which is how /mcp stayed absent from the proxy alternation while
+  # the SPA told users to point their MCP clients at it.
+  nginx-routing:
+    name: nginx Routing Contract
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Verify backend paths are proxied, SPA paths are not
+        run: ./scripts/ci/nginx-routing-check.sh
+
   frontend-tests:
     name: Frontend Test Suite
     runs-on: ubuntu-latest
