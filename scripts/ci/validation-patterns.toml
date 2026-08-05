@@ -441,15 +441,22 @@ files = [
 ]
 
 [ci_continue_on_error_allowlist]
-# Workflow steps permitted to have continue-on-error: true
-# Format: "workflow_file:step_name" or "workflow_file:line_number"
-# Only add entries after explicit approval with documented justification
+# Workflow steps permitted to have continue-on-error: true.
+# Format: "workflow_file:job_id:Step Name" — checked by
+# scripts/ci/check-continue-on-error.py, which parses the workflows.
+#
+# Names, not line numbers: a line-pinned entry stops matching the moment anyone
+# edits above it, so an already-approved step fails the build for no reason
+# (twice on 2026-08-05, from adding a comment). An entry matching no step is
+# also an error — stale approval hides whether the real use is still sanctioned.
+#
+# Only add entries after explicit approval with documented justification.
 allowed = [
-    # Terraform plan steps: continue-on-error captures plan output for the job
-    # summary, then the subsequent "Fail if plan failed" step checks outcome and
-    # exits 1
-    "terraform.yml:95",
-    "terraform.yml:166",
+    # Terraform plan: continue-on-error captures the plan output for the job
+    # summary, then "Fail if plan failed" checks steps.plan.outcome and exits 1,
+    # so the failure is reported, not swallowed.
+    "terraform.yml:plan-dev:Terraform Plan",
+    "terraform.yml:plan-prod:Terraform Plan",
 ]
 
 [js_test_skip_allowlist]

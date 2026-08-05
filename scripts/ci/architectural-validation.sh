@@ -644,50 +644,15 @@ fi
 echo ""
 echo -e "${BLUE}==== Test Integrity Validation ====${NC}"
 
-# Parse CI continue-on-error allowlist from TOML
-CI_COE_ALLOWLIST=$(python3 -c "
-import tomllib
-with open('$SCRIPT_DIR/validation-patterns.toml', 'rb') as f:
-    config = tomllib.load(f)
-allowed = config.get('ci_continue_on_error_allowlist', {}).get('allowed', [])
-print('\n'.join(allowed))
-" 2>/dev/null || echo "")
-
-# Check for continue-on-error: true in CI workflows (excluding commented lines)
-# Note: grep -v pattern must match the file:line format from rg, not just the line content
-CI_CONTINUE_ON_ERROR_TOTAL=$(rg "continue-on-error:\s*true" .github/workflows/ -n 2>/dev/null | grep -v "#.*continue-on-error" | wc -l | tr -d ' ' || echo 0)
-
-# Filter out allowlisted entries
-CI_CONTINUE_ON_ERROR=$CI_CONTINUE_ON_ERROR_TOTAL
-if [ -n "$CI_COE_ALLOWLIST" ] && [ "$CI_CONTINUE_ON_ERROR_TOTAL" -gt 0 ]; then
-    # Build grep pattern to exclude allowlisted entries
-    EXCLUDE_PATTERN=""
-    while IFS= read -r entry; do
-        [ -z "$entry" ] && continue
-        if [ -z "$EXCLUDE_PATTERN" ]; then
-            EXCLUDE_PATTERN="$entry"
-        else
-            EXCLUDE_PATTERN="$EXCLUDE_PATTERN|$entry"
-        fi
-    done <<< "$CI_COE_ALLOWLIST"
-
-    if [ -n "$EXCLUDE_PATTERN" ]; then
-        CI_CONTINUE_ON_ERROR=$(rg "continue-on-error:\s*true" .github/workflows/ -n 2>/dev/null | grep -v "#.*continue-on-error" | grep -v -E "$EXCLUDE_PATTERN" | wc -l | tr -d ' ' || echo 0)
-    fi
-fi
-
-if [ "$CI_CONTINUE_ON_ERROR" -gt 0 ]; then
-    echo -e "${RED}❌ FORBIDDEN: Found $CI_CONTINUE_ON_ERROR 'continue-on-error: true' in CI workflows${NC}"
-    echo -e "${RED}All test jobs must fail the build when tests fail.${NC}"
-    echo -e "${YELLOW}To allowlist (requires explicit approval), add to validation-patterns.toml [ci_continue_on_error_allowlist]${NC}"
-    if [ -n "$EXCLUDE_PATTERN" ]; then
-        rg "continue-on-error:\s*true" .github/workflows/ -n | grep -v "#.*continue-on-error" | grep -v -E "$EXCLUDE_PATTERN" | head -5
-    else
-        rg "continue-on-error:\s*true" .github/workflows/ -n | grep -v "#.*continue-on-error" | head -5
-    fi
-    fail_validation "Remove continue-on-error: true from test jobs"
-else
+# CI continue-on-error: checked by name (workflow:job:step), not line number.
+# The previous implementation grepped `file:line` and substring-matched the
+# allowlist, so an edit above an approved step silently unpinned it — and the
+# documented `workflow_file:step_name` form never matched anything, because the
+# grep output's third field is the flag line, not the step name.
+if python3 "$SCRIPT_DIR/check-continue-on-error.py" "$SCRIPT_DIR/../.."; then
     pass_validation "No unauthorized continue-on-error: true in CI workflows"
+else
+    fail_validation "Unapproved or stale continue-on-error: true in CI workflows"
 fi
 
 # Parse JS test skip allowlist from TOML
@@ -1142,11 +1107,16 @@ else
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_DOCTEST"
 fi
 
-printf "│ %-35s │ %5d │ " "CI continue-on-error: true" "$CI_CONTINUE_ON_ERROR"
-if [ "$CI_CONTINUE_ON_ERROR" -eq 0 ]; then
-    printf "$(format_status "✅ PASS")│ %-39s │\n" "Tests fail the build"
+# Re-run the name-based check quietly for the summary row; it is the same
+# source of truth as the Test Integrity section above, so the table cannot
+# disagree with the verdict (the old row read a variable that stopped existing).
+if COE_OUTPUT=$(python3 "$SCRIPT_DIR/check-continue-on-error.py" "$SCRIPT_DIR/../.." 2>&1); then
+    printf "│ %-35s │ %5s │ " "CI continue-on-error: true" "ok"
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "All uses approved by name"
 else
-    FIRST_COE=$(rg "continue-on-error:\s*true" .github/workflows/ -n 2>/dev/null | grep -v "^\s*#" | head -1 | cut -d: -f1-2)
+    COE_COUNT=$(printf '%s\n' "$COE_OUTPUT" | grep -c "FORBIDDEN\|STALE")
+    FIRST_COE=$(printf '%s\n' "$COE_OUTPUT" | grep -m1 "FORBIDDEN\|STALE" | sed 's/^ *//')
+    printf "│ %-35s │ %5d │ " "CI continue-on-error: true" "$COE_COUNT"
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$(truncate_text "$FIRST_COE" 37)"
 fi
 
