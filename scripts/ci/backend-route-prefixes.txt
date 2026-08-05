@@ -28,10 +28,10 @@ audit         # nested under /api/admin/config
 catalog       # nested under /api/admin/config
 category      # nested under /api/admin/config
 config        # nested under /api/admin/config
-dashboard     # NOT PROXIED — returns the SPA shell; unverified whether still used
-fitness       # NOT PROXIED — returns the SPA shell; unverified whether still used
+dashboard     # proxied (/dashboard/... ; bare /dashboard stays SPA)
+fitness       # proxied
 health        # edge: nginx serves `location = /health` for Cloud Run
-health-data   # NOT PROXIED — returns the SPA shell; unverified whether still used
+health-data   # proxied
 mcp           # proxied (bare-path alternative)
 messaging     # proxied
 oauth         # proxied
@@ -39,6 +39,6 @@ oauth2        # proxied
 r             # proxied
 ready         # edge: container readiness
 reset         # nested under /api/admin/config
-tenants       # NOT PROXIED — returns the SPA shell; unverified whether still used
+tenants       # proxied (bare-path alternative: POST/GET /tenants)
 validate      # nested under /api/admin/config
 webhooks      # proxied

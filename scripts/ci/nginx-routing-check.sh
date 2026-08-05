@@ -49,6 +49,11 @@ BACKEND_PATHS=(
     "GET /a2a/x"
     "GET /providers/x"
     "GET /r/abc"
+    "GET /dashboard/status"                           # 7-route family, previously SPA-shelled
+    "GET /fitness/config"
+    "GET /health-data/recovery"
+    "GET /tenants"                                    # bare path: list
+    "POST /tenants"                                   # bare path: create
 )
 
 # Paths that MUST be served by the SPA. Guards against an over-broad
