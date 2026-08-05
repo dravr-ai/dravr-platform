@@ -13,12 +13,21 @@ const SDK_ROOT = path.join(__dirname, '..', '..');
 const CLI_PATH = path.join(SDK_ROOT, 'dist', 'cli.js');
 const manifest = JSON.parse(fs.readFileSync(path.join(SDK_ROOT, 'package.json'), 'utf8'));
 
+// A developer shell exports PIERRE_* variables (server URL, JWT, OAuth client) through
+// .envrc, and the client now takes its credentials from exactly there - so every launch
+// starts from an environment with those stripped and re-adds only what the case supplies.
+// The browser kill switch is re-asserted because an OAuth launch would otherwise pop one.
+const BASE_ENV = {
+  ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('PIERRE_'))),
+  PIERRE_DISABLE_BROWSER: 'true',
+};
+
 const runCli = (args, options = {}) =>
   spawnSync(process.execPath, [CLI_PATH, ...args], {
     encoding: 'utf8',
     timeout: options.timeout,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ...options.env },
+    env: { ...BASE_ENV, ...options.env },
   });
 
 // The bridge started by a bare launch runs until it is killed, so the launches that
@@ -44,6 +53,71 @@ describe('Published bin', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--verbose');
+  });
+});
+
+describe('Credential flags', () => {
+  // Process arguments are world-readable to any local process for as long as the client
+  // runs (`ps -ef`, /proc/<pid>/cmdline) and they survive in shell history and in the MCP
+  // host's configuration file, so no flag may carry a secret.
+  test.each([
+    ['--token', 'eyJhbGciOiJIUzI1NiJ9.leaked.jwt'],
+    ['-t', 'eyJhbGciOiJIUzI1NiJ9.leaked.jwt'],
+    ['--oauth-client-secret', 'leaked-client-secret'],
+    ['--user-password', 'leaked-password'],
+    ['--user-email', 'leaked@example.com'],
+  ])('%s is not a flag the client accepts', (flag, value) => {
+    const result = runCli([flag, value, '--server', 'http://127.0.0.1:1', '--no-browser'], {
+      timeout: LAUNCH_TIMEOUT_MS,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`unknown option '${flag}'`);
+    expect(result.stdout).toBe('');
+  });
+
+  test('--help documents the environment variables that replaced them', () => {
+    const result = runCli(['--help']);
+
+    expect(result.stdout).toContain('PIERRE_JWT_TOKEN');
+    expect(result.stdout).toContain('PIERRE_OAUTH_CLIENT_SECRET');
+    expect(result.stdout).not.toContain('--token <');
+    expect(result.stdout).not.toContain('--oauth-client-secret');
+    expect(result.stdout).not.toContain('--user-password');
+  });
+});
+
+describe('Auth mode selection', () => {
+  const launch = (env) =>
+    runCli(['--verbose', '--server', 'http://127.0.0.1:1', '--no-browser'], {
+      timeout: LAUNCH_TIMEOUT_MS,
+      env,
+    });
+
+  test('PIERRE_JWT_TOKEN selects JWT mode without printing the token', () => {
+    const result = launch({ PIERRE_JWT_TOKEN: 'eyJhbGciOiJIUzI1NiJ9.env.jwt' });
+
+    expect(result.stderr).toContain('auth mode = jwt');
+    expect(result.stderr).toContain('PIERRE_JWT_TOKEN = [SET]');
+    expect(result.stderr).not.toContain('env.jwt');
+  });
+
+  test('PIERRE_OAUTH_CLIENT_SECRET selects the pre-registered OAuth client', () => {
+    const result = launch({
+      PIERRE_OAUTH_CLIENT_ID: 'client-from-env',
+      PIERRE_OAUTH_CLIENT_SECRET: 'secret-from-env',
+    });
+
+    expect(result.stderr).toContain('auth mode = oauth');
+    expect(result.stderr).toContain('OAuth client = client-from-env');
+    expect(result.stderr).not.toContain('secret-from-env');
+  });
+
+  test('a client id with no secret in the environment falls back to dynamic registration', () => {
+    const result = launch({ PIERRE_OAUTH_CLIENT_ID: 'client-from-env' });
+
+    expect(result.stderr).toContain('auth mode = oauth');
+    expect(result.stderr).toContain('OAuth client = [dynamic registration]');
   });
 });
 

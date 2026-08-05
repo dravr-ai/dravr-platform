@@ -75,12 +75,8 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
     // it discloses NO server tools. It may still surface its own synthetic
     // `connect_to_pierre` affordance (a client-side OAuth trigger, not a server
     // tool and carrying no fitness data) so an MCP host can start the login flow.
-    bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl
-      // NO --token flag! This is unauthenticated
-    ]);
+    // No PIERRE_JWT_TOKEN for this bridge: it runs unauthenticated
+    bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl]);
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -103,13 +99,9 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
     // Authenticated users see the full tool set (including connection and write tools)
     // while unauthenticated users only see public discovery tools
 
-    bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -150,13 +142,9 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
   test('authenticated tools/list returns the full tool set', async () => {
     // Post-RFC-9728 there is no unauthenticated tool set; an authenticated client
     // sees the complete catalog over the bridge.
-    bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -215,13 +203,9 @@ describe('MCP Spec Compliance: Authentication at Call Time', () => {
     // Calling a tool WITH valid credentials should work
     // Using tools/list as the test tool since it's always available
 
-    bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -250,12 +234,8 @@ describe('MCP Spec Compliance: Authentication at Call Time', () => {
     // 1. Return authentication required error
     // 2. Trigger OAuth flow (connect_to_pierre)
 
-    bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl
-      // NO --token! Unauthenticated
-    ]);
+    // No PIERRE_JWT_TOKEN for this bridge: it runs unauthenticated
+    bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl]);
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -321,13 +301,9 @@ describe('MCP Spec Compliance: Tools List Consistency', () => {
   test('MCP SPEC: Multiple tools/list calls MUST return consistent results', async () => {
     // Per MCP spec: tools/list should return stable, cacheable results
 
-    const bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    const bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -353,13 +329,9 @@ describe('MCP Spec Compliance: Tools List Consistency', () => {
   test('MCP SPEC: tools/list MUST be fast (cacheable)', async () => {
     // Per MCP spec: tools/list should be cacheable and fast
 
-    const bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    const bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -415,13 +387,9 @@ describe('MCP Spec Compliance: Critical Tools Availability', () => {
     // even without auth propagation through the bridge.
     // Connection tools (connect_provider) require auth-gated visibility.
 
-    const bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    const bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -447,13 +415,9 @@ describe('MCP Spec Compliance: Critical Tools Availability', () => {
   test('REGRESSION PREVENTION: Public discovery tools always available', async () => {
     // Verify public discovery tools are always visible via bridge
 
-    const bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    const bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);

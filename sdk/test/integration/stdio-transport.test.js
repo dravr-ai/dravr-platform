@@ -50,11 +50,9 @@ describe('Stdio Transport Integration Tests (Claude Desktop Path)', () => {
     }, 30000);
 
     test('should handle bridge startup with authentication token', async () => {
-      const client = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      const client = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       await client.start();
       expect(client.process).toBeDefined();
@@ -181,11 +179,9 @@ describe('Stdio Transport Integration Tests (Claude Desktop Path)', () => {
     let client;
 
     beforeEach(async () => {
-      client = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      client = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
       await client.start();
       await client.send(MCPMessages.initialize);
     });
@@ -288,11 +284,9 @@ describe('Stdio Transport Integration Tests (Claude Desktop Path)', () => {
     let client;
 
     beforeEach(async () => {
-      client = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      client = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
       await client.start();
       await client.send(MCPMessages.initialize);
     });

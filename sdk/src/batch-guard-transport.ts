@@ -5,71 +5,73 @@
 // ABOUTME: Intercepts JSON-RPC batch requests and handles them appropriately for MCP protocol
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { JSONRPCMessage, JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
+
+/**
+ * Newline-delimited stdio framing that carries JSON-RPC batches through intact.
+ *
+ * Honours the same contract as the transport's own read buffer - `append` adds bytes,
+ * `readMessage` returns the next complete message or null when the buffer holds no
+ * further newline, `clear` drops what is buffered - so the transport keeps draining
+ * every message out of a chunk before it returns to waiting on stdin.
+ *
+ * The one difference is deserialization. `JSONRPCMessageSchema` has no array member, so
+ * a batch line would otherwise be thrown away as a parse error; here it is returned as
+ * the parsed array for the message handler to answer.
+ */
+class BatchAwareReadBuffer {
+  private buffer?: Buffer;
+
+  append(chunk: Buffer): void {
+    this.buffer = this.buffer ? Buffer.concat([this.buffer, chunk]) : chunk;
+  }
+
+  readMessage(): JSONRPCMessage | null {
+    if (!this.buffer) {
+      return null;
+    }
+
+    const index = this.buffer.indexOf("\n");
+    if (index === -1) {
+      return null;
+    }
+
+    const line = this.buffer.toString("utf8", 0, index).replace(/\r$/, "");
+    this.buffer = this.buffer.subarray(index + 1);
+
+    const parsed: unknown = JSON.parse(line);
+    if (Array.isArray(parsed)) {
+      // The batch travels the message path so it can be answered per request id.
+      return parsed as unknown as JSONRPCMessage;
+    }
+    return JSONRPCMessageSchema.parse(parsed);
+  }
+
+  clear(): void {
+    this.buffer = undefined;
+  }
+}
 
 /**
  * Installs a batch request guard on a StdioServerTransport.
- * 
- * The MCP SDK's JSONRPCMessageSchema does not support arrays (batch requests),
- * so batch requests are rejected during deserialization. This guard intercepts
- * raw buffer processing to handle batch requests at the protocol level.
- * 
- * @param transport The StdioServerTransport to patch
+ *
+ * The MCP SDK's JSONRPCMessageSchema does not support arrays (batch requests), so a
+ * batch line fails deserialization and never reaches `onmessage`. Swapping the read
+ * buffer moves that single decision and leaves the transport's drain loop untouched,
+ * which is what keeps a request sharing one stdin chunk with a batch deliverable in the
+ * same pass instead of waiting for the next chunk that may never come.
+ *
+ * @param transport The StdioServerTransport to install the guard on
  * @param log Logging function for debugging
  */
 export function installBatchGuard(
   transport: StdioServerTransport,
   log: (message: string, ...args: any[]) => void,
 ): void {
-  // Access private internals via any cast
-  const transportAny = transport as any;
-  const originalProcessReadBuffer = transportAny.processReadBuffer.bind(transport);
-
-  transportAny.processReadBuffer = function (this: any) {
-    const readBuffer = this._readBuffer;
-    if (!readBuffer || !readBuffer._buffer) {
-      return;
-    }
-
-    // Check for newline
-    const index = readBuffer._buffer.indexOf("\n");
-    if (index === -1) {
-      return;
-    }
-
-    // Extract the line
-    const line = readBuffer._buffer
-      .toString("utf8", 0, index)
-      .replace(/\r$/, "");
-    readBuffer._buffer = readBuffer._buffer.subarray(index + 1);
-
-    try {
-      const parsed = JSON.parse(line);
-
-      // Handle batch requests specially (arrays)
-      if (Array.isArray(parsed)) {
-        // Trigger our onmessage handler directly with the array
-        if (this.onmessage) {
-          this.onmessage(parsed);
-        }
-        return;
-      }
-
-      // For non-batch messages, use the original processing
-      // Put the line back in the buffer for normal processing
-      readBuffer._buffer = Buffer.concat([
-        Buffer.from(line + "\n"),
-        readBuffer._buffer,
-      ]);
-      originalProcessReadBuffer();
-    } catch (_error) {
-      // JSON parse error - let original handler deal with it
-      readBuffer._buffer = Buffer.concat([
-        Buffer.from(line + "\n"),
-        readBuffer._buffer,
-      ]);
-      originalProcessReadBuffer();
-    }
-  };
+  // The read buffer is transport-private. Installation happens before connect() starts
+  // the stdin listener, so the buffer being replaced has never held bytes.
+  (transport as unknown as { _readBuffer: BatchAwareReadBuffer })._readBuffer =
+    new BatchAwareReadBuffer();
 
   log("Batch request guard installed on transport");
 }

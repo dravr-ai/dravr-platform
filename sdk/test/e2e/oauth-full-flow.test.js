@@ -114,11 +114,9 @@ describe('E2E: OAuth Full Flow Tests', () => {
     test('authenticated bridge should show full tool set immediately', async () => {
       // Use real RS256 JWT from server registration+login
 
-      client = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      client = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       await client.start();
       await client.send(MCPMessages.initialize);
@@ -147,11 +145,9 @@ describe('E2E: OAuth Full Flow Tests', () => {
     test('authenticated bridge should be able to call get_connection_status', async () => {
       // Use real RS256 JWT from server registration+login
 
-      client = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      client = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       await client.start();
       await client.send(MCPMessages.initialize);
@@ -207,11 +203,9 @@ describe('E2E: OAuth Full Flow Tests', () => {
       // Test 2: With token (simulating post-OAuth)
       // Use real RS256 JWT from server registration+login
 
-      const client2 = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      const client2 = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       await client2.start();
       await client2.send(MCPMessages.initialize);
@@ -245,11 +239,9 @@ describe('E2E: OAuth Full Flow Tests', () => {
     });
 
     test('tools/list returns public discovery tools via bridge', async () => {
-      client = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      client = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       await client.start();
       await client.send(MCPMessages.initialize);
@@ -266,11 +258,9 @@ describe('E2E: OAuth Full Flow Tests', () => {
     test('connect_provider call should return OAuth URL or status', async () => {
       // Use real RS256 JWT from server registration+login
 
-      client = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      client = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       await client.start();
       await client.send(MCPMessages.initialize);
@@ -312,17 +302,13 @@ describe('E2E: OAuth Full Flow Tests', () => {
   describe('Tenant Isolation in OAuth Flow', () => {
     test('different users should have isolated OAuth state', async () => {
       // Two independent bridge instances using the same authenticated user
-      const client1 = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      const client1 = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
-      const client2 = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      const client2 = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       try {
         await client1.start();
@@ -361,11 +347,9 @@ describe('E2E: OAuth Full Flow Tests', () => {
       // public discovery subset is returned. Auth-gated tools (connect_provider,
       // disconnect_provider) require server-side auth propagation in the bridge.
 
-      const client = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      const client = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       try {
         await client.start();

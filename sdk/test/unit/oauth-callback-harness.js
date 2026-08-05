@@ -80,6 +80,39 @@ function httpRequest(port, { method = 'GET', path = '/', headers = {}, json, bod
   });
 }
 
+/**
+ * Minimal stand-in for the Pierre OAuth endpoints the client talks to. Each route is a
+ * handler receiving (callNumber, body) so a route can answer differently per call, e.g.
+ * a server that rotates refresh tokens. Every request is recorded for assertions.
+ */
+function startPierreStub(routes) {
+  return new Promise((resolve, reject) => {
+    const requests = [];
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        requests.push({ url: req.url, method: req.method, body });
+        const handler = routes[req.url];
+        if (!handler) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end('{}');
+          return;
+        }
+        const payload = handler(requests.filter((r) => r.url === req.url).length, body);
+        res.writeHead(payload.status ?? 200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(payload.body));
+      });
+    });
+    server.once('error', reject);
+    server.listen(0, 'localhost', () => {
+      resolve({ server, requests, url: `http://localhost:${server.address().port}` });
+    });
+  });
+}
+
 function makeConfig(overrides = {}) {
   return {
     mode: 'oauth',
@@ -130,6 +163,7 @@ module.exports = {
   makeProvider,
   occupyPort,
   portIsFree,
+  startPierreStub,
   startProvider,
   stopProvider,
 };

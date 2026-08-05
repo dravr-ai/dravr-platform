@@ -15,11 +15,20 @@ const { EventEmitter } = require('events');
  * Simulates MCP Client behavior
  */
 class MockMCPClient extends EventEmitter {
-  constructor(command, args = []) {
+  /**
+   * @param {string} command - executable to spawn (the bridge is `node dist/cli.js`)
+   * @param {string[]} args - arguments for that executable
+   * @param {{env?: Record<string,string>}} options - `env` entries are merged over the
+   *   inherited environment. Credentials travel here, never in `args`: process arguments
+   *   are world-readable (`ps -ef`, /proc/<pid>/cmdline), so the client takes its JWT from
+   *   PIERRE_JWT_TOKEN and its OAuth secret from PIERRE_OAUTH_CLIENT_SECRET.
+   */
+  constructor(command, args = [], options = {}) {
     super();
     this.command = command;
     // ALWAYS add --no-browser to prevent 100+ Chrome tabs opening during tests
     this.args = args.includes('--no-browser') ? args : [...args, '--no-browser'];
+    this.env = { ...process.env, ...options.env };
     this.process = null;
     this.buffer = '';
     this.pendingRequests = new Map();
@@ -29,7 +38,8 @@ class MockMCPClient extends EventEmitter {
   async start() {
     return new Promise((resolve, reject) => {
       this.process = spawn(this.command, this.args, {
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: this.env
       });
 
       this.process.on('error', (error) => {

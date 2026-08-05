@@ -24,12 +24,17 @@ import { version as packageVersion } from '../package.json';
  *
  * Written to stderr because stdout carries the MCP protocol stream, and printed only
  * under --verbose so that a normal MCP host launch leaves the host log clean.
- * Credential values are never printed, only whether they are present.
+ * Credential values are never printed, only whether they are present. The resolved auth
+ * mode is printed because which credential the environment supplied decides it.
  */
-const logStartupDiagnostics = (serverUrl: string, callbackPort: string): void => {
+const logStartupDiagnostics = (config: BridgeConfig, callbackPort: string): void => {
   console.error(`pierre-mcp-client ${packageVersion} starting`);
-  console.error(`  server URL = ${serverUrl}`);
+  console.error(`  server URL = ${config.pierreServerUrl}`);
   console.error(`  callback port = ${callbackPort}`);
+  console.error(`  auth mode = ${config.mode}`);
+  if (config.mode === 'oauth') {
+    console.error(`  OAuth client = ${config.oauthClientId || '[dynamic registration]'}`);
+  }
   console.error(`  PIERRE_SERVER_URL = ${process.env.PIERRE_SERVER_URL || '[NOT SET]'}`);
   console.error(`  PIERRE_JWT_TOKEN = ${process.env.PIERRE_JWT_TOKEN ? '[SET]' : '[NOT SET]'}`);
   console.error(`  NODE_ENV = ${process.env.NODE_ENV || '[NOT SET]'}`);
@@ -43,11 +48,7 @@ program
   .description('MCP client connecting to Pierre Fitness MCP Server')
   .version(packageVersion)
   .option('-s, --server <url>', 'Pierre MCP server URL', process.env.PIERRE_SERVER_URL || 'http://localhost:8081')
-  .option('-t, --token <jwt>', 'JWT authentication token', process.env.PIERRE_JWT_TOKEN)
   .option('--oauth-client-id <id>', 'OAuth 2.0 client ID', process.env.PIERRE_OAUTH_CLIENT_ID)
-  .option('--oauth-client-secret <secret>', 'OAuth 2.0 client secret', process.env.PIERRE_OAUTH_CLIENT_SECRET)
-  .option('--user-email <email>', 'User email for automated login', process.env.PIERRE_USER_EMAIL)
-  .option('--user-password <password>', 'User password for automated login', process.env.PIERRE_USER_PASSWORD)
   .option('--callback-port <port>', 'OAuth callback server port', process.env.PIERRE_CALLBACK_PORT || '35535')
   .option('--no-browser', 'Disable automatic browser opening for OAuth (testing mode)')
   .option('--token-validation-timeout <ms>', 'Token validation timeout in milliseconds (default: 3000)', process.env.PIERRE_TOKEN_VALIDATION_TIMEOUT_MS || '3000')
@@ -55,12 +56,17 @@ program
   .option('--proactive-tools-list-timeout <ms>', 'Proactive tools list timeout in milliseconds (default: 3000)', process.env.PIERRE_PROACTIVE_TOOLS_LIST_TIMEOUT_MS || '3000')
   .option('--tool-call-connection-timeout <ms>', 'Tool-triggered connection timeout in milliseconds (default: 10000)', process.env.PIERRE_TOOL_CALL_CONNECTION_TIMEOUT_MS || '10000')
   .option('--verbose', 'Print startup diagnostics to stderr')
+  .addHelpText(
+    'after',
+    `
+Credentials (environment only, never passed as arguments):
+  PIERRE_JWT_TOKEN              Pre-authenticated JWT; selects JWT auth mode
+  PIERRE_OAUTH_CLIENT_SECRET    OAuth 2.0 client secret; used with --oauth-client-id
+
+Without either, the client registers an OAuth client dynamically and authorizes in a browser.`,
+  )
   .action(async (options) => {
     try {
-      if (options.verbose) {
-        logStartupDiagnostics(options.server, options.callbackPort);
-      }
-
       // Shared configuration across all auth modes
       const baseConfig = {
         pierreServerUrl: options.server,
@@ -72,17 +78,25 @@ program
         toolCallConnectionTimeoutMs: parseInt(options.toolCallConnectionTimeout, 10)
       };
 
-      // Determine auth mode based on provided options (priority order)
+      // Credentials come from the environment and never from argv: process arguments are
+      // world-readable for the life of the process (`ps -ef`, /proc/<pid>/cmdline) and they
+      // also persist in shell history and in the MCP host's configuration file.
+      const jwtToken = process.env.PIERRE_JWT_TOKEN;
+      const oauthClientSecret = process.env.PIERRE_OAUTH_CLIENT_SECRET;
+
+      // Determine auth mode based on the credentials available (priority order)
       let config: BridgeConfig;
-      if (options.token) {
-        config = { ...baseConfig, mode: 'jwt', jwtToken: options.token };
-      } else if (options.oauthClientId && options.oauthClientSecret) {
-        config = { ...baseConfig, mode: 'oauth', oauthClientId: options.oauthClientId, oauthClientSecret: options.oauthClientSecret };
-      } else if (options.userEmail && options.userPassword) {
-        config = { ...baseConfig, mode: 'credentials', userEmail: options.userEmail, userPassword: options.userPassword };
+      if (jwtToken) {
+        config = { ...baseConfig, mode: 'jwt', jwtToken };
+      } else if (options.oauthClientId && oauthClientSecret) {
+        config = { ...baseConfig, mode: 'oauth', oauthClientId: options.oauthClientId, oauthClientSecret };
       } else {
         // Default to OAuth mode without pre-configured client (will use dynamic registration)
         config = { ...baseConfig, mode: 'oauth', oauthClientId: '', oauthClientSecret: '' };
+      }
+
+      if (options.verbose) {
+        logStartupDiagnostics(config, options.callbackPort);
       }
 
       const bridge = new PierreMcpClient(config);

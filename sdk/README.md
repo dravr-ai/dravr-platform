@@ -81,11 +81,7 @@ pierre-mcp-client --server <url> [options]
 | Option | Description |
 |--------|-------------|
 | `-s, --server <url>` | Pierre MCP Server URL (default: `PIERRE_SERVER_URL`, else `http://localhost:8081`) |
-| `-t, --token <jwt>` | Pre-authenticated JWT token (default: `PIERRE_JWT_TOKEN`) |
 | `--oauth-client-id <id>` | OAuth client ID for authentication (default: `PIERRE_OAUTH_CLIENT_ID`) |
-| `--oauth-client-secret <secret>` | OAuth client secret (default: `PIERRE_OAUTH_CLIENT_SECRET`) |
-| `--user-email <email>` | User email for password authentication (default: `PIERRE_USER_EMAIL`) |
-| `--user-password <password>` | User password (default: `PIERRE_USER_PASSWORD`) |
 | `--callback-port <port>` | OAuth callback server port (default: `PIERRE_CALLBACK_PORT`, else 35535) |
 | `--no-browser` | Disable automatic browser opening |
 | `--token-validation-timeout <ms>` | Token validation timeout (default: 3000) |
@@ -97,6 +93,32 @@ pierre-mcp-client --server <url> [options]
 | `-h, --help` | Print usage |
 
 Diagnostics and logs go to stderr; stdout carries the MCP protocol stream only.
+
+**Credentials:**
+
+Secrets are read from the environment and have no command-line flag. Process arguments are
+world-readable to every local process (`ps -ef`, `/proc/<pid>/cmdline`) for as long as the
+client runs, and they persist in shell history and in the MCP host's configuration file.
+
+| Variable | Effect |
+|----------|--------|
+| `PIERRE_JWT_TOKEN` | Authenticates with a pre-issued JWT; selects JWT auth mode |
+| `PIERRE_OAUTH_CLIENT_SECRET` | Client secret for the `--oauth-client-id` given; selects OAuth auth mode |
+
+With neither set, the client registers an OAuth client dynamically and authorizes in a browser.
+In an MCP host, set them in the server entry's `env` block:
+
+```json
+{
+  "mcpServers": {
+    "pierre": {
+      "command": "npx",
+      "args": ["-y", "pierre-mcp-client@next", "--server", "http://localhost:8081"],
+      "env": { "PIERRE_JWT_TOKEN": "<jwt>" }
+    }
+  }
+}
+```
 
 ## Type System
 

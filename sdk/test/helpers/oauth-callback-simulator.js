@@ -350,7 +350,7 @@ class SimpleOAuthSimulator {
 
   /**
    * Simulate OAuth by creating a user and generating a token via admin API
-   * Then inject the token into bridge via --token flag restart
+   * The caller hands that token to a bridge through PIERRE_JWT_TOKEN
    *
    * This tests everything EXCEPT the exchangeCodeForTokens() path
    */

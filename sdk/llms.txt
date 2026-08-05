@@ -169,11 +169,15 @@ Client: Display formatted output
 - Initiates OAuth flow for Pierre authentication
 - Always available even when not connected
 - Opens browser for user login
+- Answers inside the host's request deadline: a sign-in still unfinished when the wait ends is reported as pending, and the browser page, its callback and the token storage stay live, so finishing there and running the tool again completes it
 
 **connect_provider**
 - Initiates OAuth flow for fitness provider
 - Requires `provider` argument (e.g., "strava")
 - Opens browser for provider authorization
+- Answers inside the host's request deadline; an authorization still unfinished when the wait ends is reported as pending and announces itself through notifications/message when it lands
+
+Any other tool called without a Pierre session starts the same sign-in, on the same bounded wait, and reports back naming itself: the tool runs when the sign-in lands inside the wait, and otherwise the reply asks for it to be run again once the browser sign-in is finished. One sign-in runs at a time - a second call joins the one in flight rather than opening a second browser page.
 
 ## Configuration
 

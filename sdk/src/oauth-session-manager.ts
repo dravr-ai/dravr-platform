@@ -98,15 +98,8 @@ export interface OAuthSessionConfigApiKey extends OAuthSessionConfigBase {
   apiKey: string;
 }
 
-/** User email/password credentials authentication mode */
-export interface OAuthSessionConfigCredentials extends OAuthSessionConfigBase {
-  mode: 'credentials';
-  userEmail: string;
-  userPassword: string;
-}
-
 /** Discriminated union for authentication modes */
-export type OAuthSessionConfig = OAuthSessionConfigJwt | OAuthSessionConfigOAuth | OAuthSessionConfigApiKey | OAuthSessionConfigCredentials;
+export type OAuthSessionConfig = OAuthSessionConfigJwt | OAuthSessionConfigOAuth | OAuthSessionConfigApiKey;
 
 interface OAuth2TokenResponse {
   access_token: string;
@@ -176,34 +169,71 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     );
   }
 
-  // Wait for provider OAuth to complete (called from PierreMcpClient.handleConnectProvider)
+  /**
+   * Waits for provider OAuth to complete (called from
+   * PierreMcpClient.handleConnectProvider).
+   *
+   * The optional signal is the MCP request's abort signal: when the host abandons the
+   * tool call, the wait ends with it rather than blocking on a request nobody is
+   * listening to any more. Every exit - completion, timeout, cancellation - clears the
+   * timer and drops the pending entry, so an abandoned wait holds nothing open. The
+   * browser flow itself keeps running: whenever it lands, the callback stores the
+   * provider token and announces it through onProviderOAuthComplete.
+   */
   public waitForProviderOAuth(
     provider: string,
     timeoutMs: number = 120000,
+    signal?: AbortSignal,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       this.log(`Waiting for ${provider} OAuth completion (timeout: ${timeoutMs}ms)`);
 
-      // Store the promise resolvers
-      this.pendingProviderOAuth.set(provider, { resolve, reject });
+      if (signal?.aborted) {
+        reject(
+          new PierreError(
+            PierreErrorCode.PROVIDER_ERROR,
+            `${provider} OAuth wait cancelled by the MCP host`,
+          ),
+        );
+        return;
+      }
 
-      // Set timeout
-      const timeoutId = setTimeout(() => {
+      const settle = (finish: () => void) => {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener("abort", onAbort);
         this.pendingProviderOAuth.delete(provider);
-        reject(new Error(`${provider} OAuth timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+        finish();
+      };
 
-      // Wrap resolve to clear timeout
-      const originalResolve = resolve;
+      const onAbort = () =>
+        settle(() => {
+          this.log(`${provider} OAuth wait cancelled by the MCP host`);
+          reject(
+            new PierreError(
+              PierreErrorCode.PROVIDER_ERROR,
+              `${provider} OAuth wait cancelled by the MCP host`,
+            ),
+          );
+        });
+
+      const timeoutId = setTimeout(
+        () =>
+          settle(() =>
+            reject(
+              new PierreError(
+                PierreErrorCode.TIMEOUT_ERROR,
+                `${provider} OAuth timed out after ${timeoutMs}ms`,
+              ),
+            ),
+          ),
+        timeoutMs,
+      );
+
+      signal?.addEventListener("abort", onAbort, { once: true });
+
       this.pendingProviderOAuth.set(provider, {
-        resolve: (value: any) => {
-          clearTimeout(timeoutId);
-          originalResolve(value);
-        },
-        reject: (error: any) => {
-          clearTimeout(timeoutId);
-          reject(error);
-        },
+        resolve: (value: any) => settle(() => resolve(value)),
+        reject: (error: any) => settle(() => reject(error)),
       });
     });
   }
@@ -230,12 +260,11 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       // Migrate legacy plaintext client info file to secure storage
       await this.migratePlaintextClientInfo();
 
-      // If JWT token was provided via --token parameter, use it for authentication
-      // This is used in testing scenarios where tokens are passed directly
-      // CRITICAL: CLI token ALWAYS takes precedence over keychain tokens (for testing)
+      // If a JWT was supplied through PIERRE_JWT_TOKEN, use it for authentication.
+      // CRITICAL: that token ALWAYS takes precedence over keychain tokens
       if (this.config.mode === 'jwt') {
         this.log(
-          "Using JWT token from --token parameter for authentication (overrides keychain)",
+          "Using JWT token from the environment for authentication (overrides keychain)",
         );
         this.savedTokens = {
           access_token: this.config.jwtToken,
@@ -650,23 +679,8 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     }
 
     if (validationResult.status === "refreshed") {
-      // Token was refreshed, save new tokens
-      this.log(`Your session was automatically renewed with a fresh token`);
-
-      this.savedTokens = {
-        access_token: validationResult.access_token!,
-        refresh_token: validationResult.refresh_token,
-        expires_in: validationResult.expires_in,
-        token_type: validationResult.token_type || "Bearer",
-        scope: storedTokens.scope,
-      };
-
-      // Update persistent storage with new tokens
-      this.allStoredTokens.pierre = {
-        ...this.savedTokens,
-        saved_at: Math.floor(Date.now() / 1000),
-      };
-      await this.saveStoredTokens();
+      // validateAndRefreshToken has already adopted the renewed pair into memory and
+      // secure storage, so there is nothing left to write here.
       this.log(
         `Session renewed successfully - you can continue using Pierre tools`,
       );
@@ -681,6 +695,47 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     this.savedTokens = undefined;
     delete this.allStoredTokens.pierre;
     await this.saveStoredTokens();
+  }
+
+  /**
+   * Adopts the pair a refresh just minted, into memory and secure storage.
+   *
+   * This is owned by validateAndRefreshToken rather than by its callers because the
+   * server rotates the refresh token: the request that renews the session consumes the
+   * stored refresh token, so a caller that returned without writing would leave the
+   * keychain holding a token the server has already retired and an access token that has
+   * already been rejected. The next validation calls that session invalid and signs the
+   * user out. Persisting here makes every caller correct without having to know that.
+   */
+  private async adoptRefreshedTokens(
+    result: ValidateRefreshResponse,
+  ): Promise<void> {
+    if (!result.access_token) {
+      this.log(
+        `Refresh reported success without an access token - keeping the stored session`,
+      );
+      return;
+    }
+
+    // The scope is not echoed by the refresh response; it belongs to the session being
+    // renewed, so it is carried over from whichever copy of that session is loaded.
+    const scope = this.savedTokens?.scope ?? this.allStoredTokens.pierre?.scope;
+
+    this.savedTokens = {
+      access_token: result.access_token,
+      refresh_token: result.refresh_token,
+      expires_in: result.expires_in,
+      token_type: result.token_type || "Bearer",
+      scope,
+    };
+
+    this.allStoredTokens.pierre = {
+      ...this.savedTokens,
+      saved_at: Math.floor(Date.now() / 1000),
+    };
+    await this.saveStoredTokens();
+
+    this.log(`Your session was automatically renewed with a fresh token`);
   }
 
   public async validateAndRefreshToken(
@@ -730,6 +785,10 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
 
       const result = (await response.json()) as ValidateRefreshResponse;
       this.log(`Token validation status: ${result.status}`);
+
+      if (result.status === "refreshed") {
+        await this.adoptRefreshedTokens(result);
+      }
 
       if (result.status === "invalid" && result.reason) {
         this.log(`Token invalid reason: ${result.reason}`);
@@ -1427,11 +1486,11 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       return;
     }
 
-    // Skip validation when using JWT token from --token parameter (testing mode)
+    // Skip validation when using the JWT from PIERRE_JWT_TOKEN
     // These tokens are validated by the server on each request, not pre-validated
     if (this.config.mode === 'jwt') {
       this.log(
-        "Skipping credential validation (using JWT token from --token parameter)",
+        "Skipping credential validation (using the JWT token from the environment)",
       );
       return;
     }

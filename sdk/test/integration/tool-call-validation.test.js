@@ -135,13 +135,9 @@ describe('Tool Call Validation: Schema Compliance', () => {
   test.each(toolCallTests)(
     'Tool call: $name - $description',
     async ({ name, arguments: args, expectedError }) => {
-      bridgeClient = new MockMCPClient('node', [
-        bridgePath,
-        '--server',
-        serverUrl,
-        '--token',
-        testToken.access_token
-      ]);
+      bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       await bridgeClient.start();
       await bridgeClient.send(MCPMessages.initialize);
@@ -198,13 +194,9 @@ describe('Tool Call Validation: Schema Compliance', () => {
     // This test specifically validates the fix for image #1 error:
     // "Failed to parse JSON in get_activity_intelligence parameters: unknown field `provider`, expected `activity_id`"
 
-    bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -240,13 +232,9 @@ describe('Tool Call Validation: Schema Compliance', () => {
     // and can be called without "Unknown tool" errors.
     // Note: This tool requires auth so may not appear in unauthenticated tools/list.
 
-    bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server',
-      serverUrl,
-      '--token',
-      testToken.access_token
-    ]);
+    bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);

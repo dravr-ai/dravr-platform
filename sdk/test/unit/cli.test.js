@@ -19,12 +19,6 @@ describe('CLI Argument Parsing', () => {
     expect(customUrl).toBe('http://localhost:9000');
   });
 
-  test('should accept JWT token via --token flag', () => {
-    const token = 'test_jwt_token_123';
-    expect(token).toBeTruthy();
-    expect(typeof token).toBe('string');
-  });
-
   test('should accept OAuth credentials', () => {
     const clientId = 'test_client_id';
     const clientSecret = 'test_client_secret';

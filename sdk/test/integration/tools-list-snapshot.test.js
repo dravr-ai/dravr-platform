@@ -176,11 +176,9 @@ describe('Tools List Snapshot Tests', () => {
       }
 
       // Get tools via stdio transport
-      const stdioClient = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      const stdioClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
 
       let stdioToolNames;
       try {

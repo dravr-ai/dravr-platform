@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for SDK authentication mode configuration
-// ABOUTME: Tests the discriminated union pattern for JWT, OAuth, credentials, and API key modes
+// ABOUTME: Tests the discriminated union pattern for JWT, OAuth, and API key modes
 
 describe('JWT Authentication Mode', () => {
   test('should accept valid JWT mode configuration', () => {
@@ -106,34 +106,6 @@ describe('OAuth 2.0 Authentication Mode', () => {
   });
 });
 
-describe('User Credentials Authentication Mode', () => {
-  test('should accept valid credentials mode configuration', () => {
-    const config = {
-      mode: 'credentials',
-      pierreServerUrl: 'http://localhost:8081',
-      userEmail: 'admin@example.com',
-      userPassword: 'SecurePassword123',
-    };
-
-    expect(config.mode).toBe('credentials');
-    expect(config.userEmail).toBeTruthy();
-    expect(config.userPassword).toBeTruthy();
-  });
-
-  test('should use email/password for direct authentication', () => {
-    const config = {
-      mode: 'credentials',
-      pierreServerUrl: 'http://localhost:8081',
-      userEmail: 'test@pierre.dev',
-      userPassword: 'TestPassword123!',
-    };
-
-    // Credentials mode authenticates directly without browser interaction
-    expect(config.userEmail).toContain('@');
-    expect(config.userPassword.length).toBeGreaterThan(0);
-  });
-});
-
 describe('API Key Authentication Mode', () => {
   test('should accept valid API key mode configuration', () => {
     const config = {
@@ -148,17 +120,16 @@ describe('API Key Authentication Mode', () => {
 });
 
 describe('Authentication Mode Discrimination', () => {
-  test('should correctly discriminate between all four modes', () => {
+  test('should correctly discriminate between all three modes', () => {
     const configs = [
       { mode: 'jwt', pierreServerUrl: 'http://localhost:8081', jwtToken: 'token' },
       { mode: 'oauth', pierreServerUrl: 'http://localhost:8081', oauthClientId: 'id', oauthClientSecret: 'secret' },
-      { mode: 'credentials', pierreServerUrl: 'http://localhost:8081', userEmail: 'a@b.com', userPassword: 'pass' },
       { mode: 'api-key', pierreServerUrl: 'http://localhost:8081', apiKey: 'key' },
     ];
 
     const modes = configs.map(c => c.mode);
-    expect(modes).toEqual(['jwt', 'oauth', 'credentials', 'api-key']);
-    expect(new Set(modes).size).toBe(4);
+    expect(modes).toEqual(['jwt', 'oauth', 'api-key']);
+    expect(new Set(modes).size).toBe(3);
   });
 
   test('should identify JWT mode by jwtToken property', () => {
@@ -178,20 +149,10 @@ describe('Authentication Mode Discrimination', () => {
     }
   });
 
-  test('should identify credentials mode by userEmail property', () => {
-    const config = { mode: 'credentials', pierreServerUrl: 'http://localhost:8081', userEmail: 'a@b.com', userPassword: 'pass' };
-
-    if (config.mode === 'credentials') {
-      expect(config.userEmail).toBeDefined();
-      expect(config.userPassword).toBeDefined();
-    }
-  });
-
   test('all modes share pierreServerUrl base property', () => {
     const configs = [
       { mode: 'jwt', pierreServerUrl: 'http://host:8081', jwtToken: 't' },
       { mode: 'oauth', pierreServerUrl: 'http://host:8081', oauthClientId: 'i', oauthClientSecret: 's' },
-      { mode: 'credentials', pierreServerUrl: 'http://host:8081', userEmail: 'e', userPassword: 'p' },
       { mode: 'api-key', pierreServerUrl: 'http://host:8081', apiKey: 'k' },
     ];
 
@@ -201,51 +162,5 @@ describe('Authentication Mode Discrimination', () => {
   });
 });
 
-describe('CLI Authentication Mode Priority', () => {
-  test('--token flag selects JWT mode (highest priority)', () => {
-    // CLI priority: --token > --oauth-client-id > --user-email > default oauth
-    const cliArgs = { token: 'jwt-token', oauthClientId: 'id', userEmail: 'e@m.com' };
-
-    // token takes precedence
-    let selectedMode;
-    if (cliArgs.token) {
-      selectedMode = 'jwt';
-    } else if (cliArgs.oauthClientId) {
-      selectedMode = 'oauth';
-    } else if (cliArgs.userEmail) {
-      selectedMode = 'credentials';
-    }
-
-    expect(selectedMode).toBe('jwt');
-  });
-
-  test('--oauth-client-id selects OAuth mode when no --token', () => {
-    const cliArgs = { oauthClientId: 'id', oauthClientSecret: 'secret', userEmail: 'e@m.com' };
-
-    let selectedMode;
-    if (cliArgs.token) {
-      selectedMode = 'jwt';
-    } else if (cliArgs.oauthClientId) {
-      selectedMode = 'oauth';
-    } else if (cliArgs.userEmail) {
-      selectedMode = 'credentials';
-    }
-
-    expect(selectedMode).toBe('oauth');
-  });
-
-  test('--user-email selects credentials mode when no --token or --oauth-client-id', () => {
-    const cliArgs = { userEmail: 'test@example.com', userPassword: 'pass123' };
-
-    let selectedMode;
-    if (cliArgs.token) {
-      selectedMode = 'jwt';
-    } else if (cliArgs.oauthClientId) {
-      selectedMode = 'oauth';
-    } else if (cliArgs.userEmail) {
-      selectedMode = 'credentials';
-    }
-
-    expect(selectedMode).toBe('credentials');
-  });
-});
+// Which credential the environment supplies decides the mode; that priority is asserted
+// against the built binary in cli-contract.test.js under "Auth mode selection".

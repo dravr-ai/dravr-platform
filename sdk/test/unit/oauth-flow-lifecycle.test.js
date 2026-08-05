@@ -4,45 +4,16 @@
 // ABOUTME: Lifecycle tests for the OAuth authorization wait, its teardown, and token refresh
 // ABOUTME: Proves the wait is bounded, the listener never outlives a flow, and refresh is single-flight
 
-const http = require('http');
 const {
   closeServer,
   freePort,
   httpRequest,
   makeProvider,
   portIsFree,
+  startPierreStub,
   startProvider,
   stopProvider,
 } = require('./oauth-callback-harness.js');
-
-/** Minimal stand-in for the Pierre OAuth endpoints the client talks to. */
-function startPierreStub(routes) {
-  return new Promise((resolve, reject) => {
-    const requests = [];
-    const server = http.createServer((req, res) => {
-      let body = '';
-      req.on('data', (chunk) => {
-        body += chunk;
-      });
-      req.on('end', () => {
-        requests.push({ url: req.url, method: req.method, body });
-        const handler = routes[req.url];
-        if (!handler) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end('{}');
-          return;
-        }
-        const payload = handler(requests.filter((r) => r.url === req.url).length, body);
-        res.writeHead(payload.status ?? 200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(payload.body));
-      });
-    });
-    server.once('error', reject);
-    server.listen(0, 'localhost', () => {
-      resolve({ server, requests, url: `http://localhost:${server.address().port}` });
-    });
-  });
-}
 
 describe('authorization wait lifecycle', () => {
   test('an authorization nobody completes times out and takes the whole flow down with it', async () => {

@@ -12,7 +12,7 @@
  * - Account: 'pierre-mcp-tokens'
  *
  * Without cleanup, tokens from one test leak into subsequent tests,
- * causing flaky failures (especially when tests run without --token flag).
+ * causing flaky failures (especially when tests run without PIERRE_JWT_TOKEN).
  */
 async function clearKeychainTokens() {
   try {

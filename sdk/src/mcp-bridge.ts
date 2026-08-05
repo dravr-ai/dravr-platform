@@ -47,6 +47,33 @@ const OAuthCompletedNotificationSchema = z.object({
 // Define the notification type explicitly to avoid deep type instantiation issues
 type OAuthCompletedNotification = z.infer<typeof OAuthCompletedNotificationSchema>;
 
+/**
+ * How long a tool call waits for a browser step only a human can finish - a Pierre
+ * sign-in or a provider authorization - when the host gave it nothing to report progress
+ * against.
+ *
+ * The MCP SDK's default per-request timeout is 60s (DEFAULT_REQUEST_TIMEOUT_MSEC), so a
+ * host that sets no timeout of its own abandons the call at that point, emits
+ * notifications/cancelled and tells the user the connection failed. The wait therefore
+ * ends inside that window and reports what it actually knows, rather than returning a
+ * success nobody is listening for any more.
+ */
+const INTERACTIVE_WAIT_MS = 55000;
+
+/**
+ * How long that wait runs when the host sent a progressToken.
+ *
+ * Progress notifications hold off the host's deadline only for a host that asked for
+ * resetTimeoutOnProgress, which defaults to false and is not visible from the server
+ * side. So the full human-sized window is spent only when there is a token to keep
+ * reporting against; a host that does not extend its deadline cancels instead, and the
+ * wait honours the cancellation.
+ */
+const INTERACTIVE_PROGRESS_WAIT_MS = 120000;
+
+/** Progress cadence during an interactive wait, well inside a 60s deadline. */
+const INTERACTIVE_PROGRESS_INTERVAL_MS = 10000;
+
 /** Base configuration shared by all authentication modes */
 export interface BridgeConfigBase {
   pierreServerUrl: string;
@@ -79,15 +106,8 @@ export interface BridgeConfigApiKey extends BridgeConfigBase {
   apiKey: string;
 }
 
-/** User email/password credentials authentication mode */
-export interface BridgeConfigCredentials extends BridgeConfigBase {
-  mode: 'credentials';
-  userEmail: string;
-  userPassword: string;
-}
-
 /** Discriminated union for authentication modes */
-export type BridgeConfig = BridgeConfigJwt | BridgeConfigOAuth | BridgeConfigApiKey | BridgeConfigCredentials;
+export type BridgeConfig = BridgeConfigJwt | BridgeConfigOAuth | BridgeConfigApiKey;
 
 export class PierreMcpClient {
   private config: BridgeConfig;
@@ -96,6 +116,7 @@ export class PierreMcpClient {
   private serverTransport: StdioServerTransport | null = null;
   private cachedTools: any = null;
   private proactiveConnectionPromise: Promise<void> | null = null;
+  private pierreLoginInFlight: Promise<void> | null = null;
   private oauthProvider: PierreOAuthClientProvider | null = null;
   private mcpUrl: string = "";
 
@@ -207,9 +228,6 @@ export class PierreMcpClient {
       case 'api-key':
         oauthConfig = { ...baseConfig, mode: 'api-key', apiKey: this.config.apiKey };
         break;
-      case 'credentials':
-        oauthConfig = { ...baseConfig, mode: 'credentials', userEmail: this.config.userEmail, userPassword: this.config.userPassword };
-        break;
     }
 
     this.oauthProvider = new PierreOAuthClientProvider(
@@ -226,9 +244,14 @@ export class PierreMcpClient {
     // This prevents wasting user time with invalid credentials
     await this.oauthProvider.validateAndCleanupCachedCredentials();
 
-    // ALWAYS connect proactively to cache tools for MCP host
-    // Server allows tools/list without authentication - only tool calls require auth
-    // This ensures all tools are visible immediately in MCP host (tools/list_changed doesn't work)
+    // Connect proactively to cache the toolset for the MCP host. The server allows
+    // tools/list without authentication - only tool calls require auth - so this warms
+    // a connection the first tool call would otherwise have to build synchronously, and
+    // gives tools/list a real answer instead of the connect-only fallback it returns
+    // when it cannot reach the server in time. It runs in the background (start() does
+    // not await it), so the budget below caps a background task rather than delaying
+    // startup. When authentication later swaps in the full toolset, the host is told via
+    // notifications/tools/list_changed.
     const connectionTimeoutMs =
       this.config.proactiveConnectionTimeoutMs || 15000;
     const toolsListTimeoutMs = this.config.proactiveToolsListTimeoutMs || 10000;
@@ -596,6 +619,136 @@ export class PierreMcpClient {
     );
   }
 
+  /**
+   * Starts the Pierre sign-in flow, or hands back the one already running.
+   *
+   * The flow outlives the wait on it: it owns the callback listener and its own
+   * authorization deadline, and closes that listener itself when it settles - so a caller
+   * that stops waiting leaves the browser page working and the tokens still landing in
+   * storage. What a caller must never do is start a second flow on top of the first: that
+   * replaces the code verifier the open page was challenged against, so neither page can
+   * complete. Every entry point therefore joins the flow in flight.
+   */
+  private beginPierreLogin(): Promise<void> {
+    if (!this.pierreLoginInFlight) {
+      const login = this.initiateConnection().finally(() => {
+        this.pierreLoginInFlight = null;
+      });
+      // The waits on this flow are bounded, so it can settle with nobody listening.
+      // Record the outcome where it happens rather than losing it.
+      login.then(
+        () => this.log("Pierre sign-in flow completed"),
+        (error: any) => this.log(`Pierre sign-in flow ended: ${error.message}`),
+      );
+      this.pierreLoginInFlight = login;
+    }
+    return this.pierreLoginInFlight;
+  }
+
+  /**
+   * Waits for a sign-in flow, ending at the host's budget or at its cancellation -
+   * whichever comes first - and reporting which of the three happened. Ending the wait
+   * ends only the wait; the flow itself keeps running.
+   */
+  private async waitForPierreLogin(
+    login: Promise<void>,
+    waitMs: number,
+    signal?: AbortSignal,
+  ): Promise<"connected" | "pending" | "cancelled"> {
+    if (signal?.aborted) {
+      return "cancelled";
+    }
+
+    // ReturnType<typeof setTimeout> rather than NodeJS.Timeout: this package is
+    // built inside a monorepo whose root node_modules carries DOM-flavoured
+    // globals (@types/react-native, @types/jsdom), and when those win the
+    // resolution setTimeout returns number. The inferred form is correct under
+    // either.
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+
+    try {
+      return await Promise.race([
+        login.then(() => "connected" as const),
+        new Promise<"pending">((resolve) => {
+          budgetTimer = setTimeout(() => resolve("pending"), waitMs);
+        }),
+        new Promise<"cancelled">((resolve) => {
+          onAbort = () => resolve("cancelled");
+          signal?.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      clearTimeout(budgetTimer);
+      if (onAbort) {
+        signal?.removeEventListener("abort", onAbort);
+      }
+    }
+  }
+
+  /**
+   * The budget an interactive browser wait gets inside the host's request, and the token
+   * to report progress against. Both come from the same check because a progress token is
+   * only usable with a channel to send it on: without one, nothing can hold off the
+   * host's deadline, so the wait stays inside the default one.
+   */
+  private hostInteractiveBudget(extra?: any): {
+    waitMs: number;
+    progressToken: string | number | undefined;
+  } {
+    const progressToken =
+      typeof extra?.sendNotification === "function"
+        ? extra._meta?.progressToken
+        : undefined;
+
+    return {
+      waitMs:
+        progressToken === undefined
+          ? INTERACTIVE_WAIT_MS
+          : INTERACTIVE_PROGRESS_WAIT_MS,
+      progressToken,
+    };
+  }
+
+  /**
+   * Reports progress for the duration of an interactive wait and returns the function
+   * that stops it. The first report goes out immediately as well as on the interval, so
+   * the host learns the call is waiting on a human before its first deadline gets close.
+   */
+  private reportInteractiveProgress(
+    extra: any,
+    progressToken: string | number | undefined,
+    waitMs: number,
+    message: string,
+  ): () => void {
+    if (progressToken === undefined) {
+      return () => undefined;
+    }
+
+    const startedAt = Date.now();
+    const sendProgress = () =>
+      extra
+        .sendNotification({
+          method: "notifications/progress",
+          params: {
+            progressToken,
+            progress: Date.now() - startedAt,
+            total: waitMs,
+            message,
+          },
+        })
+        .catch((notifyError: any) =>
+          this.log(`Failed to send progress notification: ${notifyError.message}`),
+        );
+
+    sendProgress();
+    const progressTimer = setInterval(
+      sendProgress,
+      INTERACTIVE_PROGRESS_INTERVAL_MS,
+    );
+    return () => clearInterval(progressTimer);
+  }
+
   getClientSideTokenStatus(): {
     pierre: boolean;
     providers: Record<string, boolean>;
@@ -618,7 +771,11 @@ export class PierreMcpClient {
       },
       {
         capabilities: {
-          tools: {},
+          // listChanged is declared because the bridge emits
+          // notifications/tools/list_changed: authenticating swaps the unauthenticated
+          // toolset for the full one, and a host only re-fetches tools/list when the
+          // capability was declared up front.
+          tools: { listChanged: true },
           resources: {},
           prompts: {},
           logging: {},
@@ -758,16 +915,20 @@ export class PierreMcpClient {
     );
 
     // Bridge tools/call requests
-    this.mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.mcpServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       this.log("Bridging tool call:", request.params.name);
 
       // Handle special authentication tools
       if (request.params.name === "connect_to_pierre") {
-        return await this.handleConnectToPierre(request);
+        // extra carries the host's abort signal and progress token: signing in waits on
+        // a human, so it needs both to stay inside the host's request budget.
+        return await this.handleConnectToPierre(request, extra);
       }
 
       if (request.params.name === "connect_provider") {
-        return await this.handleConnectProvider(request);
+        // extra carries the host's abort signal and progress token: connect_provider
+        // waits on a human, so it needs both to stay inside the host's request budget.
+        return await this.handleConnectProvider(request, extra);
       }
 
       // CRITICAL: Check for authentication tokens BEFORE attempting tool call
@@ -781,11 +942,15 @@ export class PierreMcpClient {
             `No authentication tokens available - triggering OAuth flow for ${request.params.name}`,
           );
 
-          // Automatically trigger OAuth instead of returning error
-          // This provides seamless UX - user doesn't need to know about "connect_to_pierre"
+          // Start the sign-in rather than returning an error the user cannot act on:
+          // the browser is the only place they can authenticate, and a host holding a
+          // tool call open has no other way to send them there. The wait is bounded and
+          // its reply names this tool, so a sign-in the budget did not outlive is
+          // reported as what it is - still open, run this tool again - instead of
+          // holding the call for five minutes the host stopped listening after.
           try {
-            const connectResult = await this.handleConnectToPierre(request);
-            if (connectResult.isError) {
+            const connectResult = await this.handleConnectToPierre(request, extra);
+            if (connectResult.isError || !(await this.oauthProvider.tokens())) {
               return connectResult;
             }
             // After successful OAuth, retry the original tool call
@@ -890,7 +1055,9 @@ export class PierreMcpClient {
             if (validationResult?.status === "refreshed") {
               this.log(`Session automatically renewed - retrying your request`);
 
-              // Retry the tool call with new tokens
+              // Retry with the renewed session. validateAndRefreshToken adopted the new
+              // pair before returning, and the transport asks the OAuth provider for
+              // tokens on every send, so this retry carries the fresh access token.
               try {
                 const retryResult = await this.pierreClient!.callTool({
                   name: request.params.name,
@@ -1051,7 +1218,12 @@ export class PierreMcpClient {
     this.log("Request handlers configured");
   }
 
-  private async handleConnectToPierre(_request: any): Promise<any> {
+  private async handleConnectToPierre(request: any, extra?: any): Promise<any> {
+    // The retry instruction below names the tool the host actually called: the sign-in is
+    // also started from connect_provider and from any tool call that finds no session, and
+    // telling that caller to run connect_to_pierre would send it somewhere it never was.
+    const toolName = request?.params?.name || "connect_to_pierre";
+
     try {
       this.log("Handling connect_to_pierre tool call - initiating OAuth flow");
 
@@ -1116,8 +1288,52 @@ export class PierreMcpClient {
         };
       }
 
-      // Initiate the OAuth connection
-      await this.initiateConnection();
+      // Wait for the sign-in inside the host's request budget. The flow keeps running
+      // past this wait - see beginPierreLogin - so ending it early costs the user
+      // nothing but the confirmation.
+      const { waitMs, progressToken } = this.hostInteractiveBudget(extra);
+      const stopProgress = this.reportInteractiveProgress(
+        extra,
+        progressToken,
+        waitMs,
+        "Waiting for Pierre sign-in in your browser",
+      );
+
+      let status: "connected" | "pending" | "cancelled";
+      try {
+        status = await this.waitForPierreLogin(
+          this.beginPierreLogin(),
+          waitMs,
+          extra?.signal,
+        );
+      } finally {
+        stopProgress();
+      }
+
+      if (status !== "connected") {
+        // Not a failure: the sign-in page is still open, its callback still lands, and
+        // the tokens are still stored when it does - the session is unconfirmed rather
+        // than broken, and calling that a failure is what tells users something broke
+        // while it is in fact completing. Nothing announces a finished Pierre sign-in to
+        // the host, so the honest instruction is to finish in the browser and run the
+        // tool again, not to wait for a message.
+        this.log(
+          `Pierre sign-in not confirmed within the host request budget (${status})`,
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                status === "cancelled"
+                  ? `Stopped waiting for Pierre sign-in, which is not confirmed yet. The page is still open in your browser - finish signing in there, then run ${toolName} again.`
+                  : `Pierre sign-in is still open in your browser and is not confirmed yet.\n\n` +
+                    `Finish signing in there, then run ${toolName} again. If you closed the page, running ${toolName} again starts a new sign-in.`,
+            },
+          ],
+          isError: false,
+        };
+      }
 
       // Cache tools immediately after successful connection
       if (this.pierreClient) {
@@ -1179,7 +1395,7 @@ export class PierreMcpClient {
     }
   }
 
-  private async handleConnectProvider(request: any): Promise<any> {
+  private async handleConnectProvider(request: any, extra?: any): Promise<any> {
     try {
       this.log("Handling unified connect_provider tool call");
 
@@ -1199,26 +1415,18 @@ export class PierreMcpClient {
       const provider = request.params.arguments?.provider || "strava";
       this.log(`Unified flow for provider: ${provider}`);
 
-      // Step 1: Ensure Pierre authentication is complete
+      // Step 1: Ensure Pierre authentication is complete. Signing in is itself an
+      // interactive browser step, so it runs under the same bounded wait rather than
+      // spending the host's whole budget before the provider flow has even started.
       if (!this.pierreClient) {
         this.log(
           "Pierre not connected - initiating Pierre authentication first",
         );
-        try {
-          await this.initiateConnection();
-          this.log("Pierre authentication completed");
-        } catch (error: any) {
-          this.log(`Pierre authentication failed: ${error.message}`);
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Failed to authenticate with Pierre: ${error.message}. Please try again.`,
-              },
-            ],
-            isError: true,
-          };
+        const connectResult = await this.handleConnectToPierre(request, extra);
+        if (connectResult.isError || !(await this.oauthProvider.tokens())) {
+          return connectResult;
         }
+        this.log("Pierre authentication completed");
       } else {
         this.log("Pierre already authenticated");
       }
@@ -1321,9 +1529,26 @@ export class PierreMcpClient {
         this.log(`Opened ${provider} OAuth in browser: ${providerOAuthUrl}`);
         this.log(`Waiting for ${provider} OAuth to complete...`);
 
-        // Wait for provider OAuth to complete (similar to Pierre OAuth flow)
-        // Timeout after 2 minutes if user doesn't complete OAuth
-        await this.oauthProvider.waitForProviderOAuth(provider, 120000);
+        // Wait for provider OAuth to complete, inside the host's request budget and
+        // under its cancellation. Whatever the outcome here, the browser flow keeps
+        // running and announces itself through notifications/message when it lands.
+        const { waitMs, progressToken } = this.hostInteractiveBudget(extra);
+        const stopProgress = this.reportInteractiveProgress(
+          extra,
+          progressToken,
+          waitMs,
+          `Waiting for ${provider} authorization in your browser`,
+        );
+
+        try {
+          await this.oauthProvider.waitForProviderOAuth(
+            provider,
+            waitMs,
+            extra?.signal,
+          );
+        } finally {
+          stopProgress();
+        }
 
         this.log(`${provider} OAuth completed successfully`);
 
@@ -1340,17 +1565,40 @@ export class PierreMcpClient {
           isError: false,
         };
       } catch (error: any) {
-        // Check if it's a timeout
-        if (error.message?.includes("timed out")) {
-          this.log(`${provider} OAuth timed out`);
+        if (extra?.signal?.aborted) {
+          this.log(
+            `${provider} OAuth wait ended because the host cancelled the request`,
+          );
           return {
             content: [
               {
                 type: "text",
-                text: `${provider.toUpperCase()} authentication timed out. Please try again with connect_provider.`,
+                text: `Stopped waiting for ${provider.toUpperCase()} authorization. The page is still open in your browser - finishing there completes the connection.`,
               },
             ],
-            isError: true,
+            isError: false,
+          };
+        }
+
+        if (error.code === PierreErrorCode.TIMEOUT_ERROR) {
+          // Not a failure. The authorization page is still open and its callback still
+          // arrives whenever the user finishes, so the connection is unconfirmed rather
+          // than broken - reporting it as failed is what told users a connection had
+          // failed while it was in fact completing.
+          this.log(
+            `${provider} OAuth not confirmed within the host request budget - reporting it as still pending`,
+          );
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  `${provider.toUpperCase()} authorization is still open in your browser and is not confirmed yet.\n\n` +
+                  `Finish signing in there and you will get a confirmation message as soon as it completes - then ask for your ${provider} data. ` +
+                  `If you closed the page, run connect_provider again.`,
+              },
+            ],
+            isError: false,
           };
         }
         this.log(`Failed to complete ${provider} OAuth: ${error.message}`);

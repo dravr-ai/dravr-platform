@@ -10,6 +10,9 @@ const path = require('path');
 const TIMEOUT = 30000;
 const CLI_PATH = path.join(__dirname, '../../dist/cli.js');
 
+// Credentials reach the client through the environment, never through argv: process
+// arguments are world-readable (`ps -ef`, /proc/<pid>/cmdline). `options.token` supplies
+// the JWT and `options.env` any other variable a case needs.
 const execCli = (args = [], options = {}) => {
   return new Promise((resolve, reject) => {
     const proc = spawn('node', [CLI_PATH, ...args], {
@@ -18,6 +21,7 @@ const execCli = (args = [], options = {}) => {
         PIERRE_SERVER_URL: options.serverUrl || 'http://localhost:8081',
         PIERRE_JWT_TOKEN: options.token || '',
         CI: 'true',
+        ...options.env,
       },
       timeout: options.timeout || 10000,
     });
@@ -57,7 +61,7 @@ describe('CLI E2E Tests', () => {
       expect(result.stdout).toContain('pierre-mcp-client');
       expect(result.stdout).toContain('MCP client');
       expect(result.stdout).toContain('--server');
-      expect(result.stdout).toContain('--token');
+      expect(result.stdout).toContain('PIERRE_JWT_TOKEN');
     }, TIMEOUT);
 
     test('should display version with --version flag', async () => {
@@ -90,17 +94,30 @@ describe('CLI E2E Tests', () => {
     }, TIMEOUT);
   });
 
-  describe('Token Option', () => {
-    test('should accept --token option', async () => {
-      const result = await execCli(['--token', 'test-jwt-token', '--help']);
+  describe('Token Credential', () => {
+    test('should select JWT auth mode from PIERRE_JWT_TOKEN', async () => {
+      const result = await execCli(['--verbose'], {
+        token: 'test-jwt-token',
+        autoClose: 3000,
+      });
 
-      expect(result.code).toBe(0);
+      expect(result.stderr).toContain('auth mode = jwt');
+      // The credential itself never reaches a log the host displays
+      expect(result.stderr).not.toContain('test-jwt-token');
     }, TIMEOUT);
 
-    test('should accept -t shorthand for token', async () => {
-      const result = await execCli(['-t', 'test-jwt-token', '--help']);
+    test('should reject --token', async () => {
+      const result = await execCli(['--token', 'test-jwt-token']);
 
-      expect(result.code).toBe(0);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("unknown option '--token'");
+    }, TIMEOUT);
+
+    test('should reject -t', async () => {
+      const result = await execCli(['-t', 'test-jwt-token']);
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("unknown option '-t'");
     }, TIMEOUT);
   });
 
@@ -111,10 +128,15 @@ describe('CLI E2E Tests', () => {
       expect(result.code).toBe(0);
     }, TIMEOUT);
 
-    test('should accept --oauth-client-secret option', async () => {
-      const result = await execCli(['--oauth-client-secret', 'test-secret', '--help']);
+    test('should pair --oauth-client-id with PIERRE_OAUTH_CLIENT_SECRET', async () => {
+      const result = await execCli(['--verbose', '--oauth-client-id', 'test-client-id'], {
+        env: { PIERRE_OAUTH_CLIENT_SECRET: 'test-secret' },
+        autoClose: 3000,
+      });
 
-      expect(result.code).toBe(0);
+      expect(result.stderr).toContain('auth mode = oauth');
+      expect(result.stderr).toContain('OAuth client = test-client-id');
+      expect(result.stderr).not.toContain('test-secret');
     }, TIMEOUT);
 
     test('should accept --callback-port option', async () => {
@@ -249,12 +271,11 @@ describe('CLI E2E Tests', () => {
     test('should accept multiple options together', async () => {
       const result = await execCli([
         '--server', 'http://localhost:8081',
-        '--token', 'test-token',
         '--oauth-client-id', 'client-id',
         '--callback-port', '35537',
         '--no-browser',
         '--help',
-      ]);
+      ], { token: 'test-token' });
 
       expect(result.code).toBe(0);
     }, TIMEOUT);

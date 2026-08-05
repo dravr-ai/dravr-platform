@@ -69,11 +69,9 @@ describe('All Tools Response Validation', () => {
   // ============================================================================
 
   test('tools/list returns all expected tools', async () => {
-    bridgeClient = new MockMCPClient('node', [
-      bridgePath,
-      '--server', serverUrl,
-      '--token', testToken.access_token
-    ]);
+    bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+      env: { PIERRE_JWT_TOKEN: testToken.access_token }
+    });
 
     await bridgeClient.start();
     await bridgeClient.send(MCPMessages.initialize);
@@ -145,11 +143,9 @@ describe('All Tools Response Validation', () => {
 
   describe('Non-Authentication Tools Response Shapes', () => {
     beforeEach(async () => {
-      bridgeClient = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
       await bridgeClient.start();
       await bridgeClient.send(MCPMessages.initialize);
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -334,11 +330,9 @@ describe('All Tools Response Validation', () => {
 
   describe('Error Response Shapes', () => {
     beforeEach(async () => {
-      bridgeClient = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
       await bridgeClient.start();
       await bridgeClient.send(MCPMessages.initialize);
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -447,11 +441,9 @@ describe('All Tools Response Validation', () => {
 
   describe('Tool Schema Consistency', () => {
     beforeEach(async () => {
-      bridgeClient = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
       await bridgeClient.start();
       await bridgeClient.send(MCPMessages.initialize);
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -506,11 +498,9 @@ describe('All Tools Response Validation', () => {
 
   describe('Cross-Provider Tool Compatibility', () => {
     beforeEach(async () => {
-      bridgeClient = new MockMCPClient('node', [
-        bridgePath,
-        '--server', serverUrl,
-        '--token', testToken.access_token
-      ]);
+      bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
+        env: { PIERRE_JWT_TOKEN: testToken.access_token }
+      });
       await bridgeClient.start();
       await bridgeClient.send(MCPMessages.initialize);
       await new Promise(resolve => setTimeout(resolve, 2000));
