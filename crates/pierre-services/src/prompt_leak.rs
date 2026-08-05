@@ -30,6 +30,12 @@ use pierre_core::prompt_fingerprint::{
 };
 use tracing::{error, info, warn};
 
+/// Characters of context kept either side of a matched identity phrase when a
+/// leak is logged. Wide enough to carry the negation that distinguishes «je ne
+/// suis pas GitHub Copilot» from «je suis GitHub Copilot», narrow enough that
+/// the withheld reply stays withheld.
+const LEAK_CONTEXT_WINDOW: usize = 60;
+
 /// Per-turn state produced by [`harden_system_prompt`]. Held by the
 /// caller and passed back to [`scan_assistant_reply`] after the LLM
 /// turn completes.
@@ -158,7 +164,7 @@ pub fn scan_assistant_reply(
             tenant_id,
             coach_id,
             &guard.fingerprint.sha256_hex,
-            reply_body.len(),
+            reply_body,
             leak,
         );
     }
@@ -190,14 +196,22 @@ fn log_identity_leak(
     tenant_id: TenantId,
     coach_id: Option<&str>,
     sha256: &str,
-    reply_len: usize,
+    reply_body: &str,
     leak: IdentityLeakMatch,
 ) {
+    // `pattern_index` alone cannot separate a genuine persona break from the
+    // coach CORRECTLY denying one — both match the same table entry. The
+    // 2026-07-25 A/B found all five live matches were denials, which means every
+    // leak count before this field is an upper bound, not a measurement. The
+    // window is bounded and separator-folded so the withheld text stays
+    // withheld; see `identity_leak_context`.
+    let matched_context = narration::identity_leak_context(reply_body, LEAK_CONTEXT_WINDOW);
     warn!(
         tenant_id = %tenant_id,
         coach_id = %coach_id.unwrap_or("<none>"),
         sha256 = %sha256,
-        reply_len = reply_len,
+        reply_len = reply_body.len(),
+        matched_context = matched_context.as_deref().unwrap_or("<none>"),
         pattern_class = leak.class.as_str(),
         pattern_locale = leak.locale,
         pattern_index = leak.pattern_index,

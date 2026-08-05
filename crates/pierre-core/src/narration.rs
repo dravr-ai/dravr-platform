@@ -920,6 +920,51 @@ pub fn identity_leak_match(text: &str) -> Option<IdentityLeakMatch> {
     })
 }
 
+/// A bounded, separator-folded window of the reply around the matched identity
+/// phrase — the minimum forensics needed to tell a CLAIM from a DENIAL.
+///
+/// `pattern_index` alone cannot: «I'm GitHub Copilot», «I'm NOT GitHub Copilot»
+/// and «I'm powered by Claude Sonnet 5» are three completely different
+/// diagnoses that log identically today, which is why every historical leak
+/// count is an upper bound rather than a measurement. The 2026-07-25 A/B found
+/// all five live matches were correct denials; without a window there is no way
+/// to know that from telemetry.
+///
+/// Deliberately bounded and folded rather than the whole reply: the withheld
+/// text is withheld for a reason, so this returns at most `window_chars` either
+/// side of the matched phrase, lowercased with separators collapsed. That is
+/// enough to read the model's own words about its own identity and nothing
+/// more — it is not athlete data, and the cap keeps an accidental PII spill
+/// short. Returns `None` when the reply is clean.
+#[must_use]
+pub fn identity_leak_context(text: &str, window_chars: usize) -> Option<String> {
+    let hit = identity_leak_match(text)?;
+    let pattern = FOLDED_IDENTITY.get(hit.pattern_index)?;
+    // The dash-break offsets are only needed by the negation lookbehind, which
+    // `identity_leak_match` above has already applied — this call just needs the
+    // folded text, so the callback discards them rather than allocating.
+    let folded = fold_into(text, |_| ());
+    let at = folded.find(pattern.as_str())?;
+
+    // Char-safe on both ends: the folded text is still UTF-8 and a raw byte
+    // slice here would panic on an accented character — the exact defect class
+    // that took down a whole turn in 5c2c38c81.
+    let start = folded[..at]
+        .char_indices()
+        .rev()
+        .nth(window_chars.saturating_sub(1))
+        .map_or(0, |(offset, _)| offset);
+    let tail = &folded[at..];
+    let take = pattern.chars().count() + window_chars;
+    let end = at
+        + tail
+            .char_indices()
+            .nth(take)
+            .map_or(tail.len(), |(offset, _)| offset);
+
+    Some(folded[start..end].to_owned())
+}
+
 /// Boolean shorthand for [`identity_leak_match`].
 ///
 /// `true` when the reply anywhere identifies as the underlying model/
