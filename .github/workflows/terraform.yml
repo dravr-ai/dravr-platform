@@ -31,6 +31,20 @@ permissions:
   contents: read
   id-token: write
 
+# One Terraform run at a time. Every job here shares a single GCS-backed state,
+# and its lock is advisory-but-exclusive: a concurrent operation loses. On
+# 2026-08-05 a push-plan and a workflow_dispatch apply started 5 seconds apart
+# on the same commit (runs 31017901186 and 31017908804) — the plan failed and
+# the dispatch passed, identical code, which reads as a flaky infra check and
+# is really state contention.
+#
+# cancel-in-progress is deliberately FALSE, unlike every other workflow in this
+# repo: cancelling a running `terraform apply` can leave real infrastructure
+# half-created with the state file not yet written back. Queue instead.
+concurrency:
+  group: terraform-state
+  cancel-in-progress: false
+
 jobs:
   # ---------------------------------------------------------------------------
   # Plan dev — runs on push to main or workflow_dispatch(env=dev, action=plan).
@@ -93,7 +107,15 @@ jobs:
 
       - name: Fail if plan failed
         if: steps.plan.outcome == 'failure'
-        run: exit 1
+        # Echo the error tail to the LOG as well as the job summary. The plan is
+        # redirected to a file so a false-green pipe can't hide a live diff, but
+        # that also meant a failure was invisible to `gh run view --log-failed`
+        # — diagnosing run 31017901186 needed the web UI. No new exposure: the
+        # summary already publishes this same tail on failure.
+        run: |
+          echo "::error::terraform plan failed — last 40 lines:"
+          tail -n 40 plan-output.txt
+          exit 1
 
   # ---------------------------------------------------------------------------
   # Plan prod — workflow_dispatch(env=prod, action=plan) only.
@@ -156,7 +178,15 @@ jobs:
 
       - name: Fail if plan failed
         if: steps.plan.outcome == 'failure'
-        run: exit 1
+        # Echo the error tail to the LOG as well as the job summary. The plan is
+        # redirected to a file so a false-green pipe can't hide a live diff, but
+        # that also meant a failure was invisible to `gh run view --log-failed`
+        # — diagnosing run 31017901186 needed the web UI. No new exposure: the
+        # summary already publishes this same tail on failure.
+        run: |
+          echo "::error::terraform plan failed — last 40 lines:"
+          tail -n 40 plan-output.txt
+          exit 1
 
   # ---------------------------------------------------------------------------
   # Apply dev — MANUAL ONLY: workflow_dispatch(env=dev, action=apply).
