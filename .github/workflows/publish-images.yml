@@ -383,6 +383,46 @@ jobs:
           done
 
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # MCP SDK smoke test (after dev deploy)
+  #
+  # The only job that exercises the shipped artifact the way a user does: the
+  # real SDK bundle, over HTTPS, through nginx, against the deployed binary,
+  # with a real credential. Everything else in CI reaches a localhost server and
+  # therefore cannot see a routing, deploy or auth regression.
+  #
+  # On 2026-08-04 all three were live at once behind eight green workflows:
+  # POST /mcp returned nginx's 405 (unroutable), /oauth2/register the same
+  # (broken client registration), and every API key failed authentication in
+  # deployed environments. Each was found by hand, not by CI.
+  # ---------------------------------------------------------------------------
+  sdk-smoke-dev:
+    name: MCP SDK Smoke (dev)
+    runs-on: ubuntu-latest
+    needs: [deploy-dev]
+    environment: development
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build the SDK bundle
+        working-directory: sdk
+        run: bun install --frozen-lockfile && bun run build
+
+      - name: Drive the SDK against the deployed endpoint
+        env:
+          PIERRE_SERVER_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
+          # Long-lived API key for the jf_test@dravr.ai test account, starter
+          # tier, revocable via POST /admin/revoke. Rotate by provisioning a new
+          # key and updating this secret; the smoke test names expiry as a
+          # likely cause when it fails.
+          PIERRE_JWT_TOKEN: ${{ secrets.DEV_MCP_SMOKE_KEY }}
+        run: ./scripts/ci/mcp-sdk-smoke.sh
+
   # Run Seed Jobs (after dev deploy)
   # ---------------------------------------------------------------------------
   seed-dev:
