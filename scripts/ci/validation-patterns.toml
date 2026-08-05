@@ -448,8 +448,8 @@ allowed = [
     # Terraform plan steps: continue-on-error captures plan output for the job
     # summary, then the subsequent "Fail if plan failed" step checks outcome and
     # exits 1
-    "terraform.yml:88",
-    "terraform.yml:159",
+    "terraform.yml:95",
+    "terraform.yml:166",
 ]
 
 [js_test_skip_allowlist]

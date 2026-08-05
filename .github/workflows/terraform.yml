@@ -14,6 +14,13 @@ on:
     paths:
       - 'infra/environments/**'
       - 'infra/modules/**'
+      # Self-reference, as every other CI workflow here does. Without it an edit
+      # to this file could not trigger its own workflow, so a change to the plan
+      # steps, the concurrency group or the auth wiring shipped unexercised and
+      # only surfaced the next time someone happened to touch infra/. The
+      # concurrency group added alongside this makes the extra plan safe: it
+      # queues behind any in-flight apply rather than racing it for the state.
+      - '.github/workflows/terraform.yml'
   workflow_dispatch:
     inputs:
       environment:
