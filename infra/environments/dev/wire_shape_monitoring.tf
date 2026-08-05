@@ -78,6 +78,17 @@ resource "google_logging_metric" "wire_shape_multi_system" {
   }
 }
 
+# Cloud Logging creates the metric immediately, but its descriptor takes up to
+# ~10 minutes to propagate to Cloud Monitoring — so an alert policy referencing
+# it 404s on a fresh apply ("Cannot find metric(s) that match type = ...").
+# `depends_on` orders Terraform's graph, not GCP's eventual consistency, so it
+# cannot help here. Observed on the first apply of this file, 2026-08-05.
+# Mirrors the propagation gate the KMS module already uses for API enablement.
+resource "time_sleep" "wire_shape_metric_propagation" {
+  depends_on      = [google_logging_metric.wire_shape_multi_system]
+  create_duration = "600s"
+}
+
 # Pages on the FIRST violating turn. The condition is deliberately a threshold of
 # zero over a short window rather than a rate: one dropped block is already a
 # silent correctness failure, and the whole point of this alert is that the
@@ -135,5 +146,5 @@ resource "google_monitoring_alert_policy" "wire_shape_multi_system" {
     auto_close = "1800s"
   }
 
-  depends_on = [google_logging_metric.wire_shape_multi_system]
+  depends_on = [time_sleep.wire_shape_metric_propagation]
 }
