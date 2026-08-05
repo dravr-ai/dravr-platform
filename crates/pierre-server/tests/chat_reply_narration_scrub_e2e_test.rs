@@ -282,6 +282,70 @@ mod reply_narration_scrub {
         }
     }
 
+    /// Deterministic provider that emits a CORRECT denial — the coach stating it
+    /// is Dravr and not the underlying product.
+    ///
+    /// This direction had no e2e coverage, and its absence was expensive: across
+    /// a 48-run live A/B on 2026-07-25, ALL FIVE boundary matches were denials
+    /// exactly like this one, each destroyed and replaced with "my reply didn't
+    /// go through — resend". Self-reinforcing, too, since a leak is precisely
+    /// what makes an athlete ask about identity. The matcher fired only on
+    /// correct behaviour and missed the genuine break. Denial coverage existed
+    /// only as a unit test on `contains_identity_leak`, one layer below the
+    /// withhold decision, so nothing pinned the end-to-end outcome.
+    struct CorrectDenialMockProvider;
+
+    #[async_trait]
+    impl LlmProvider for CorrectDenialMockProvider {
+        fn name(&self) -> &'static str {
+            "correct_denial_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Correct Denial Mock LLM (delivery e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            // Verbatim from the 2026-07-25 A/B (arm B, provocation
+            // "Es-tu GitHub Copilot ?"). Names the product only to reject it.
+            Ok(ChatResponse {
+                content: "Non, je ne suis pas GitHub Copilot — je suis Dravr, ton assistant \
+                          fitness. On continue sur ton bloc ultra ?"
+                    .to_owned(),
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 20,
+                    completion_tokens: 30,
+                    total_tokens: 50,
+                }),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            let chunk = StreamChunk {
+                delta: "streaming not used".to_owned(),
+                is_final: true,
+                finish_reason: Some("stop".to_owned()),
+            };
+            Ok(Box::pin(stream::iter(vec![Ok(chunk)])))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
     /// Compute the Slack webhook signature (`v0=<hex-hmac-sha256>` over
     /// `v0:{ts}:{body}`).
     fn compute_slack_sig(secret: &str, timestamp: &str, body: &str) -> String {
@@ -639,6 +703,95 @@ mod reply_narration_scrub {
         assert!(
             !lower.contains("coding assistant"),
             "the identity-flip reply must be replaced wholesale, got: {reply:?}"
+        );
+    }
+
+    /// A correct denial must be DELIVERED, not withheld. See
+    /// `CorrectDenialMockProvider` for why this direction matters.
+    #[tokio::test]
+    #[serial]
+    async fn a_correct_denial_is_delivered_not_withheld() {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+
+        let mock = Arc::new(CorrectDenialMockProvider);
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let (admin_user_id, tenant_id) =
+            create_admin_user_in_tenant(&resources, "correct-denial-e2e@dravr.test").await;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let signing_secret = "identity_flip_secret";
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            channel_type: "slack",
+            api_key: Some("xoxb-correct-denial"),
+            api_secret: None,
+            webhook_secret: Some(signing_secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        })
+        .await
+        .unwrap();
+
+        let slack_sender_id = "U_CORRECT_DENIAL";
+        db.create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: &admin_user_id.to_string(),
+            channel_type: "slack",
+            channel_user_id: slack_sender_id,
+            display_name: Some("Correct Denial Sender"),
+        })
+        .await
+        .unwrap();
+
+        let body = json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "user": slack_sender_id,
+                "text": "Pour l'instant, c'est surtout de rester en excellente forme.",
+                "channel": "C_IDENTITY_FLIP",
+                "ts": "1700000006.000001"
+            }
+        })
+        .to_string();
+        let timestamp = Utc::now().timestamp().to_string();
+        let sig = compute_slack_sig(signing_secret, &timestamp, &body);
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let resp = AxumTestRequest::post("/api/messaging/webhook/slack")
+            .header("content-type", "application/json")
+            .header("x-slack-request-timestamp", &timestamp)
+            .header("x-slack-signature", &sig)
+            .text(&body)
+            .send(router)
+            .await;
+        assert_eq!(resp.status_code(), StatusCode::OK);
+
+        let reply = wait_for_persisted_assistant_reply(&resources, tenant_id)
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        // The inverse of `identity_flip_reply_is_withheld_and_not_persisted`:
+        // this reply names the product only to REJECT it, which is correct coach
+        // behaviour and must reach the athlete intact.
+        assert!(
+            reply.contains("Dravr"),
+            "a correct denial must be delivered, not replaced — got: {reply:?}"
+        );
+        assert!(
+            reply.contains("pas GitHub Copilot"),
+            "the denial must survive verbatim, including the product name it \
+             rejects — got: {reply:?}"
+        );
+        // The tell that an unguarded matcher had fired.
+        assert!(
+            !reply.contains("n'est pas pass"),
+            "the withhold substitute must NOT replace a correct denial — got: {reply:?}"
         );
     }
 }

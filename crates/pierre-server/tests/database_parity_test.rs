@@ -959,6 +959,103 @@ async fn test_parity_recovery_metrics_roundtrip() {
     }
 }
 
+/// The WHOOP shape: a provider id that is CONSTANT across dates.
+///
+/// `test_parity_health_snapshot_roundtrip` seeds `id: String::new()`, which
+/// selects the one branch that could never fail — an empty id always minted a
+/// fresh UUID, so the primary key could not collide. The real defect needed a
+/// NON-EMPTY id repeating across two dates: dravr-enforme stamps
+/// `whoop-body-{user}` for every date while the conflict arbiter keys on
+/// `(user, tenant, provider, date)`, so the second date repeated the primary key
+/// and the INSERT died before the arbiter was ever consulted. 108 failures in 14
+/// days on dev, and WHOOP sync stuck permanently in `SyncStatus::Failed`.
+///
+/// Fixed by minting a surrogate id and reading the stored one back with
+/// `RETURNING id`. This test is red against the old code and green against the
+/// fix, on both backends.
+#[tokio::test]
+async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
+    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
+        eprintln!("Skipping parity test: PostgreSQL not available");
+        return;
+    };
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, tenant_id) = create_test_user(&repos).await;
+        let data_source_id = seed_data_source(&repos, user_id, tenant_id).await;
+
+        // Captured once so a midnight rollover mid-test cannot make the two
+        // upserts share a date and silently stop testing the collision.
+        let today = Utc::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+        let provider_id = format!("whoop-body-{user_id}");
+
+        let make = |date, weight| StoredHealthMetrics {
+            id: provider_id.clone(),
+            user_id: user_id.to_string(),
+            data_source_id: data_source_id.clone(),
+            date,
+            weight_kg: Some(weight),
+            body_fat_pct: None,
+            muscle_mass_kg: None,
+            bmi: None,
+            bone_mass_kg: None,
+            water_pct: None,
+            systolic_bp: None,
+            diastolic_bp: None,
+            blood_glucose: None,
+            source_name: "whoop".to_owned(),
+            recorded_at: Utc::now(),
+        };
+
+        let first = repos
+            .health_snapshots
+            .upsert_health_snapshot(&tenant_id, &make(yesterday, 70.0))
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: first upsert must succeed: {e}"));
+
+        // The assertion the old code failed: a DIFFERENT date carrying the SAME
+        // provider id must land, not violate health_snapshots_pkey.
+        let second = repos
+            .health_snapshots
+            .upsert_health_snapshot(&tenant_id, &make(today, 71.0))
+            .await
+            .unwrap_or_else(|e| {
+                panic!("{backend}: a constant provider id on a new date must not collide: {e}")
+            });
+
+        assert_ne!(
+            first, second,
+            "{backend}: two dates are two rows, so they must carry distinct store-assigned ids"
+        );
+
+        // Re-syncing the same date updates in place and reports the SAME id —
+        // this is what lets legacy rows heal without a backfill.
+        let resynced = repos
+            .health_snapshots
+            .upsert_health_snapshot(&tenant_id, &make(today, 72.0))
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: same-date re-sync must succeed: {e}"));
+        assert_eq!(
+            resynced, second,
+            "{backend}: re-syncing a date must return the pre-existing row id, not mint a new one"
+        );
+
+        let latest = repos
+            .health_snapshots
+            .get_latest_health_snapshot(user_id, &tenant_id)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: get_latest must not error: {e}"))
+            .unwrap_or_else(|| panic!("{backend}: a snapshot must be found"));
+        assert_eq!(
+            latest.weight_kg,
+            Some(72.0),
+            "{backend}: the re-sync must have overwritten the weight in place"
+        );
+    }
+}
+
 /// Same INT4 regression class for `health_snapshots.bp_systolic` /
 /// `bp_diastolic`, which were decoded as `i64` and panicked when non-NULL.
 #[tokio::test]

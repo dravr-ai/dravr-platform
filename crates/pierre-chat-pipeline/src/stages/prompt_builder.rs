@@ -303,10 +303,16 @@ fn push_history_row(
     if replayed.is_empty() {
         return;
     }
+    // No `"system"` arm, deliberately. Nothing persists a `role = "system"` chat
+    // row — writers emit only user / assistant / tool_call / tool_result — so the
+    // arm was unreachable, and it was a landmine: the live provider keeps only
+    // the FIRST system message and silently drops the rest, so the moment any
+    // future feature persisted a system row this would have re-created the
+    // months-long block-dropping bug that 0988e17e6 fixed, with no error to show
+    // for it. An unknown role falls through to the same `return` it always did.
     let chat_msg = match msg.role.as_str() {
         "user" | "tool_result" => ChatMessage::user(replayed.as_ref()),
         "assistant" | "tool_call" => ChatMessage::assistant(replayed.as_ref()),
-        "system" => ChatMessage::system(replayed.as_ref()),
         _ => return,
     };
     messages.push(chat_msg);
