@@ -408,6 +408,12 @@ jobs:
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned to match every other workflow. Unpinned, setup-bun resolved
+          # 1.1.0, which predates the text-format bun.lock (bun >= 1.2) and so
+          # reported "lockfile had changes, but lockfile is frozen" against a
+          # lockfile that is in fact in sync — failing this job on every deploy.
+          bun-version: "1.3.4"
 
       - name: Build the SDK bundle
         working-directory: sdk
