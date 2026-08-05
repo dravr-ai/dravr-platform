@@ -675,6 +675,166 @@ async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<(
     Ok(())
 }
 
+/// Two consecutive outline re-saves, which is how a plan actually loses weeks.
+///
+/// Carrying weeks forward across a *single* supersede is covered above. The
+/// shape that stranded a real athlete's schedule was three outlines in a row:
+/// the second save re-outlined and wrote its own weeks, the third re-outlined
+/// again and wrote only the first two of them. Every week the second plan held
+/// but the third did not re-send has to arrive on the third plan, or the build
+/// and taper the athlete was promised become unreachable while the outline
+/// still advertises those phases.
+#[tokio::test]
+async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
+    let db = open_in_memory_db().await?;
+    let repos = db.repositories();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let blks = blocks();
+
+    // Plan A — the first goal, with the two weeks around it.
+    let a1 = week_days("2026-07-28");
+    let a2 = week_days("2026-08-04");
+    let race_a = big_red();
+    let plan_a = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: None,
+            outline: Some(outline_input(&race_a, &blks)),
+            weeks: &[
+                PlanWeekInput {
+                    week_start: "2026-07-28",
+                    focus: "race week",
+                    days: &a1,
+                    adjustment_reason: "",
+                },
+                PlanWeekInput {
+                    week_start: "2026-08-04",
+                    focus: "post-race easy",
+                    days: &a2,
+                    adjustment_reason: "",
+                },
+            ],
+        })
+        .await?;
+    assert_eq!(plan_a.weeks.len(), 2);
+
+    // Plan B — the goal changes and the coach lays out the whole run to it.
+    let b1 = week_days("2026-08-10");
+    let b2 = week_days("2026-08-17");
+    let b3 = week_days("2026-08-24");
+    let race_b = GoalRace {
+        name: "Harricana".to_owned(),
+        date: "2026-09-11".to_owned(),
+        ..big_red()
+    };
+    let plan_b = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: None,
+            outline: Some(outline_input(&race_b, &blks)),
+            weeks: &[
+                PlanWeekInput {
+                    week_start: "2026-08-10",
+                    focus: "reintroduction",
+                    days: &b1,
+                    adjustment_reason: "",
+                },
+                PlanWeekInput {
+                    week_start: "2026-08-17",
+                    focus: "build",
+                    days: &b2,
+                    adjustment_reason: "",
+                },
+                PlanWeekInput {
+                    week_start: "2026-08-24",
+                    focus: "peak",
+                    days: &b3,
+                    adjustment_reason: "",
+                },
+            ],
+        })
+        .await?;
+    assert_ne!(plan_b.plan.id, plan_a.plan.id);
+
+    // Plan C — the same outline again, re-sending only the first two weeks.
+    // `2026-08-24` is not in this payload and exists only on plan B.
+    let c1 = week_days("2026-08-10");
+    let c2 = week_days("2026-08-17");
+    let plan_c = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: None,
+            outline: Some(outline_input(&race_b, &blks)),
+            weeks: &[
+                PlanWeekInput {
+                    week_start: "2026-08-10",
+                    focus: "reintroduction, revised",
+                    days: &c1,
+                    adjustment_reason: "",
+                },
+                PlanWeekInput {
+                    week_start: "2026-08-17",
+                    focus: "build, revised",
+                    days: &c2,
+                    adjustment_reason: "",
+                },
+            ],
+        })
+        .await?;
+    assert_ne!(plan_c.plan.id, plan_b.plan.id);
+
+    // Every week ever written is reachable from the plan the athlete now reads.
+    let weeks = repos
+        .training_plans
+        .list_plan_weeks(&tenant, &user, &plan_c.plan.id, false)
+        .await?;
+    let starts: Vec<&str> = weeks.iter().map(|w| w.week_start.as_str()).collect();
+    assert_eq!(
+        starts,
+        vec![
+            "2026-07-28",
+            "2026-08-04",
+            "2026-08-10",
+            "2026-08-17",
+            "2026-08-24"
+        ],
+        "a week the third outline did not re-send must still arrive on it"
+    );
+    assert!(weeks.iter().all(|w| w.status == WeekStatus::Active));
+
+    // The re-sent weeks carry the revision, and the week that only ever lived on
+    // plan B keeps its original content rather than an empty placeholder.
+    assert_eq!(weeks[2].focus, "reintroduction, revised");
+    assert_eq!(weeks[3].focus, "build, revised");
+    assert_eq!(weeks[4].focus, "peak");
+    assert_eq!(weeks[4].days.len(), 3);
+    assert_eq!(weeks[4].days[1].workout, "tempo 3x8min");
+    assert_eq!(weeks[4].days[2].duration_min, Some(105));
+
+    // Neither superseded outline retains an active week.
+    for (label, id) in [("A", &plan_a.plan.id), ("B", &plan_b.plan.id)] {
+        let stranded = repos
+            .training_plans
+            .list_plan_weeks(&tenant, &user, id, false)
+            .await?;
+        assert!(
+            stranded.is_empty(),
+            "plan {label} still holds active weeks: {stranded:?}"
+        );
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()> {
     let db = open_in_memory_db().await?;

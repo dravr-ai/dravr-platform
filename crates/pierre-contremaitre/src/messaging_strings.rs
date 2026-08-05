@@ -414,8 +414,13 @@ pub const KEY_PLAN_TODAY: &str = "commands.plan.today";
 pub const KEY_PLAN_TOMORROW: &str = "commands.plan.tomorrow";
 /// Key: `/plan week` header. `{0}` = week start date, `{1}` = the week's focus.
 pub const KEY_PLAN_WEEK_HEADER: &str = "commands.plan.week_header";
-/// Key: `/plan` when no day is scheduled for the requested date.
+/// Key: `/plan` when a stored week spans the date but prescribes nothing on it.
 pub const KEY_PLAN_NO_SESSION: &str = "commands.plan.no_session";
+/// Key: `/plan` when no stored week spans the date at all — the plan has a hole
+/// here, which is a different fact from a deliberate empty day.
+pub const KEY_PLAN_NO_COVERAGE: &str = "commands.plan.no_coverage";
+/// Key: `/plan` note naming the date the plan picks up again. `{0}` = that date.
+pub const KEY_PLAN_RESUMES: &str = "commands.plan.resumes";
 /// Key: `/plan` empty state — nothing saved yet.
 pub const KEY_PLAN_EMPTY: &str = "commands.plan.empty";
 /// Key: `/plan` note appended when the plan's goal fact has been superseded.
@@ -663,6 +668,8 @@ pub(crate) const FR_PLAN_TODAY: &str = "Aujourd'hui";
 pub(crate) const FR_PLAN_TOMORROW: &str = "Demain";
 pub(crate) const FR_PLAN_WEEK_HEADER: &str = "Semaine du {0}{1}";
 pub(crate) const FR_PLAN_NO_SESSION: &str = "rien de prévu";
+pub(crate) const FR_PLAN_NO_COVERAGE: &str = "pas couvert par le plan";
+pub(crate) const FR_PLAN_RESUMES: &str = "Le plan reprend le {0}.";
 pub(crate) const FR_PLAN_EMPTY: &str = "Aucun plan enregistré pour l'instant — demande à ton coach d'en construire un vers ton objectif.";
 pub(crate) const FR_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Ton objectif a changé depuis — demande à ton coach de mettre le plan à jour.";
@@ -870,6 +877,8 @@ pub(crate) const EN_PLAN_TODAY: &str = "Today";
 pub(crate) const EN_PLAN_TOMORROW: &str = "Tomorrow";
 pub(crate) const EN_PLAN_WEEK_HEADER: &str = "Week of {0}{1}";
 pub(crate) const EN_PLAN_NO_SESSION: &str = "nothing scheduled";
+pub(crate) const EN_PLAN_NO_COVERAGE: &str = "not covered by the plan";
+pub(crate) const EN_PLAN_RESUMES: &str = "The plan resumes on {0}.";
 pub(crate) const EN_PLAN_EMPTY: &str =
     "No plan saved yet — ask your coach to build one toward your goal.";
 pub(crate) const EN_PLAN_STALE_GOAL: &str =
@@ -1066,6 +1075,8 @@ pub(crate) const ES_PLAN_TODAY: &str = "Hoy";
 pub(crate) const ES_PLAN_TOMORROW: &str = "Mañana";
 pub(crate) const ES_PLAN_WEEK_HEADER: &str = "Semana del {0}{1}";
 pub(crate) const ES_PLAN_NO_SESSION: &str = "nada programado";
+pub(crate) const ES_PLAN_NO_COVERAGE: &str = "no cubierto por el plan";
+pub(crate) const ES_PLAN_RESUMES: &str = "El plan se reanuda el {0}.";
 pub(crate) const ES_PLAN_EMPTY: &str =
     "Aún no hay plan guardado — pide a tu coach que construya uno hacia tu objetivo.";
 pub(crate) const ES_PLAN_STALE_GOAL: &str =
@@ -1263,6 +1274,8 @@ pub(crate) const DE_PLAN_TODAY: &str = "Heute";
 pub(crate) const DE_PLAN_TOMORROW: &str = "Morgen";
 pub(crate) const DE_PLAN_WEEK_HEADER: &str = "Woche ab {0}{1}";
 pub(crate) const DE_PLAN_NO_SESSION: &str = "nichts geplant";
+pub(crate) const DE_PLAN_NO_COVERAGE: &str = "nicht vom Plan abgedeckt";
+pub(crate) const DE_PLAN_RESUMES: &str = "Der Plan wird am {0} fortgesetzt.";
 pub(crate) const DE_PLAN_EMPTY: &str =
     "Noch kein Plan gespeichert — bitte deinen Coach, einen auf dein Ziel hin zu bauen.";
 pub(crate) const DE_PLAN_STALE_GOAL: &str =
@@ -1459,6 +1472,8 @@ pub(crate) const PT_PLAN_TODAY: &str = "Hoje";
 pub(crate) const PT_PLAN_TOMORROW: &str = "Amanhã";
 pub(crate) const PT_PLAN_WEEK_HEADER: &str = "Semana de {0}{1}";
 pub(crate) const PT_PLAN_NO_SESSION: &str = "nada planeado";
+pub(crate) const PT_PLAN_NO_COVERAGE: &str = "não coberto pelo plano";
+pub(crate) const PT_PLAN_RESUMES: &str = "O plano recomeça a {0}.";
 pub(crate) const PT_PLAN_EMPTY: &str =
     "Ainda não há plano guardado — pede ao teu coach para construir um até ao teu objetivo.";
 pub(crate) const PT_PLAN_STALE_GOAL: &str =
@@ -1625,6 +1640,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_TOMORROW, "fr", FR_PLAN_TOMORROW),
     (KEY_PLAN_WEEK_HEADER, "fr", FR_PLAN_WEEK_HEADER),
     (KEY_PLAN_NO_SESSION, "fr", FR_PLAN_NO_SESSION),
+    (KEY_PLAN_NO_COVERAGE, "fr", FR_PLAN_NO_COVERAGE),
+    (KEY_PLAN_RESUMES, "fr", FR_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "fr", FR_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "fr", FR_PLAN_STALE_GOAL),
     (KEY_PLAN_TRUNCATED, "fr", FR_PLAN_TRUNCATED),
@@ -1772,6 +1789,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_TOMORROW, "en", EN_PLAN_TOMORROW),
     (KEY_PLAN_WEEK_HEADER, "en", EN_PLAN_WEEK_HEADER),
     (KEY_PLAN_NO_SESSION, "en", EN_PLAN_NO_SESSION),
+    (KEY_PLAN_NO_COVERAGE, "en", EN_PLAN_NO_COVERAGE),
+    (KEY_PLAN_RESUMES, "en", EN_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "en", EN_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "en", EN_PLAN_STALE_GOAL),
     (KEY_PLAN_TRUNCATED, "en", EN_PLAN_TRUNCATED),
@@ -1918,6 +1937,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_TOMORROW, "es", ES_PLAN_TOMORROW),
     (KEY_PLAN_WEEK_HEADER, "es", ES_PLAN_WEEK_HEADER),
     (KEY_PLAN_NO_SESSION, "es", ES_PLAN_NO_SESSION),
+    (KEY_PLAN_NO_COVERAGE, "es", ES_PLAN_NO_COVERAGE),
+    (KEY_PLAN_RESUMES, "es", ES_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "es", ES_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "es", ES_PLAN_STALE_GOAL),
     (KEY_PLAN_TRUNCATED, "es", ES_PLAN_TRUNCATED),
@@ -2065,6 +2086,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_TOMORROW, "de", DE_PLAN_TOMORROW),
     (KEY_PLAN_WEEK_HEADER, "de", DE_PLAN_WEEK_HEADER),
     (KEY_PLAN_NO_SESSION, "de", DE_PLAN_NO_SESSION),
+    (KEY_PLAN_NO_COVERAGE, "de", DE_PLAN_NO_COVERAGE),
+    (KEY_PLAN_RESUMES, "de", DE_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "de", DE_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "de", DE_PLAN_STALE_GOAL),
     (KEY_PLAN_TRUNCATED, "de", DE_PLAN_TRUNCATED),
@@ -2212,6 +2235,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_TOMORROW, "pt", PT_PLAN_TOMORROW),
     (KEY_PLAN_WEEK_HEADER, "pt", PT_PLAN_WEEK_HEADER),
     (KEY_PLAN_NO_SESSION, "pt", PT_PLAN_NO_SESSION),
+    (KEY_PLAN_NO_COVERAGE, "pt", PT_PLAN_NO_COVERAGE),
+    (KEY_PLAN_RESUMES, "pt", PT_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "pt", PT_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "pt", PT_PLAN_STALE_GOAL),
     (KEY_PLAN_TRUNCATED, "pt", PT_PLAN_TRUNCATED),

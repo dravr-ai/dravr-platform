@@ -381,3 +381,356 @@ async fn plan_survives_a_stored_date_at_the_calendar_edge() -> Result<()> {
     );
     Ok(())
 }
+
+/// Seed a plan whose stored weeks all begin after today, with the outline's
+/// first block starting alongside them.
+///
+/// This is the shape a plan takes when nothing covers the present — the coach
+/// left a stretch unstructured, or the weeks that covered it were lost. `/plan`
+/// must name the gap rather than render it as an ordinary empty day.
+///
+/// Returns the resume week's start date, as stored.
+async fn seed_future_only_plan(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> Result<String> {
+    let today = chrono::Utc::now().date_naive();
+    let resume = today + chrono::Days::new(5);
+    let goal = GoalRace {
+        name: "Harricana".to_owned(),
+        date: (today + chrono::Days::new(120))
+            .format("%Y-%m-%d")
+            .to_string(),
+        discipline: "trail run".to_owned(),
+        priority: RacePriority::A,
+    };
+    let resume_start = resume.format("%Y-%m-%d").to_string();
+    let second_start = (resume + chrono::Days::new(7))
+        .format("%Y-%m-%d")
+        .to_string();
+    let blocks = vec![PlanBlock {
+        phase: BlockPhase::Base,
+        start: resume_start.clone(),
+        weeks: 4,
+        intent: "reintroduce structure after the break".to_owned(),
+        target_hours: Some(9.0),
+    }];
+    let first_days: Vec<PlannedDay> = (0..7)
+        .map(|i| {
+            let d = (resume + chrono::Days::new(i))
+                .format("%Y-%m-%d")
+                .to_string();
+            day(&d, "trail", "reintro trail", Some(60), "Z2")
+        })
+        .collect();
+    let second_days: Vec<PlannedDay> = (0..7)
+        .map(|i| {
+            let d = (resume + chrono::Days::new(7 + i))
+                .format("%Y-%m-%d")
+                .to_string();
+            day(&d, "trail", "build trail", Some(75), "Z2")
+        })
+        .collect();
+    resources
+        .common
+        .repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant.to_string(),
+            user_id: &user_id.to_string(),
+            coach_slug: None,
+            goal_fact_id: None,
+            outline: Some(PlanOutlineInput {
+                goal_race: &goal,
+                races: &[],
+                strategy: "rest, then rebuild toward the A race",
+                blocks: &blocks,
+                source_conversation_id: None,
+            }),
+            weeks: &[
+                PlanWeekInput {
+                    week_start: &resume_start,
+                    focus: "reintroduction",
+                    days: &first_days,
+                    adjustment_reason: "",
+                },
+                PlanWeekInput {
+                    week_start: &second_start,
+                    focus: "build",
+                    days: &second_days,
+                    adjustment_reason: "",
+                },
+            ],
+        })
+        .await?;
+    Ok(resume_start)
+}
+
+/// Seed a plan whose current week spans today but prescribes nothing on it —
+/// a deliberate empty day inside a covered week.
+async fn seed_week_missing_today(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> Result<()> {
+    let today = chrono::Utc::now().date_naive();
+    let (start, dates) = week_dates();
+    let goal = GoalRace {
+        name: "Unbound XL".to_owned(),
+        date: (today + chrono::Days::new(90))
+            .format("%Y-%m-%d")
+            .to_string(),
+        discipline: "gravel".to_owned(),
+        priority: RacePriority::A,
+    };
+    let blocks = vec![PlanBlock {
+        phase: BlockPhase::Build,
+        start: start.format("%Y-%m-%d").to_string(),
+        weeks: 4,
+        intent: "volume up".to_owned(),
+        target_hours: Some(14.0),
+    }];
+    // Index 2 is today — every other day of the week is listed, today is not.
+    let days: Vec<PlannedDay> = dates
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != 2)
+        .map(|(_, d)| day(d, "gravel", "endurance ride", Some(90), "Z2"))
+        .collect();
+    let week_start = start.format("%Y-%m-%d").to_string();
+    resources
+        .common
+        .repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant.to_string(),
+            user_id: &user_id.to_string(),
+            coach_slug: None,
+            goal_fact_id: None,
+            outline: Some(PlanOutlineInput {
+                goal_race: &goal,
+                races: &[],
+                strategy: "build volume",
+                blocks: &blocks,
+                source_conversation_id: None,
+            }),
+            weeks: &[PlanWeekInput {
+                week_start: &week_start,
+                focus: "build volume",
+                days: &days,
+                adjustment_reason: "",
+            }],
+        })
+        .await?;
+    Ok(())
+}
+
+/// A date no stored week spans must read as a hole in the plan, not as a
+/// scheduled easy day. These two states used to share one string, so a plan
+/// that had lost the weeks covering the present rendered exactly like a working
+/// plan — the failure that made a data gap look like a broken command.
+#[tokio::test]
+async fn a_date_outside_every_stored_week_reports_no_coverage() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    seed_future_only_plan(&resources, user_id, tenant).await?;
+
+    let response = PlanShowHandler
+        .execute(&ctx(&resources, user_id, tenant, &conversation_id, vec![]))
+        .await?;
+    let text = response.text;
+
+    assert!(
+        text.contains("not covered by the plan"),
+        "an uncovered date must say the plan does not reach it: {text}"
+    );
+    assert!(
+        !text.contains("nothing scheduled"),
+        "an uncovered date must not borrow the empty-day wording: {text}"
+    );
+    // The plan is real — the goal still frames the answer.
+    assert!(text.contains("Harricana"), "goal race missing: {text}");
+    Ok(())
+}
+
+/// Knowing the plan does not cover today is only half an answer; the command
+/// already selected the week it resumes in, so it must name that date.
+#[tokio::test]
+async fn a_gap_names_the_date_the_plan_resumes() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    let resume_start = seed_future_only_plan(&resources, user_id, tenant).await?;
+
+    for args in [vec![], vec!["today".to_owned()]] {
+        let view = args
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "compact".to_owned());
+        let response = PlanShowHandler
+            .execute(&ctx(&resources, user_id, tenant, &conversation_id, args))
+            .await?;
+        let text = response.text;
+        assert!(
+            text.contains(&format!("The plan resumes on {resume_start}")),
+            "{view} view must name the resume date {resume_start}: {text}"
+        );
+    }
+    Ok(())
+}
+
+/// When today sits in a gap the outline does not phase, the header falls back
+/// to the block covering the first week actually shown — dropping the line is
+/// how the phase context went silently missing whenever a plan resumed later.
+#[tokio::test]
+async fn a_gap_still_names_the_phase_of_the_week_shown() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    seed_future_only_plan(&resources, user_id, tenant).await?;
+
+    let response = PlanShowHandler
+        .execute(&ctx(&resources, user_id, tenant, &conversation_id, vec![]))
+        .await?;
+    assert!(
+        response.text.contains("Block: base, ~9h/wk"),
+        "header must name the phase of the week it is about to show: {}",
+        response.text
+    );
+    Ok(())
+}
+
+/// Seed a plan whose every stored week already ended — the state a plan reaches
+/// once its last week is behind the athlete and nothing has replaced it.
+async fn seed_expired_plan(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> Result<()> {
+    let today = chrono::Utc::now().date_naive();
+    let first = today - chrono::Days::new(30);
+    let second = today - chrono::Days::new(23);
+    let goal = GoalRace {
+        name: "Unbound XL".to_owned(),
+        date: (today - chrono::Days::new(16))
+            .format("%Y-%m-%d")
+            .to_string(),
+        discipline: "gravel".to_owned(),
+        priority: RacePriority::A,
+    };
+    let blocks = vec![PlanBlock {
+        phase: BlockPhase::Taper,
+        start: first.format("%Y-%m-%d").to_string(),
+        weeks: 2,
+        intent: "sharpen into the race".to_owned(),
+        target_hours: Some(8.0),
+    }];
+    let first_start = first.format("%Y-%m-%d").to_string();
+    let second_start = second.format("%Y-%m-%d").to_string();
+    let first_days: Vec<PlannedDay> = (0..7)
+        .map(|i| {
+            let d = (first + chrono::Days::new(i))
+                .format("%Y-%m-%d")
+                .to_string();
+            day(&d, "gravel", "taper spin", Some(45), "Z1")
+        })
+        .collect();
+    let second_days: Vec<PlannedDay> = (0..7)
+        .map(|i| {
+            let d = (second + chrono::Days::new(i))
+                .format("%Y-%m-%d")
+                .to_string();
+            day(&d, "gravel", "race week", Some(30), "Z1")
+        })
+        .collect();
+    resources
+        .common
+        .repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant.to_string(),
+            user_id: &user_id.to_string(),
+            coach_slug: None,
+            goal_fact_id: None,
+            outline: Some(PlanOutlineInput {
+                goal_race: &goal,
+                races: &[],
+                strategy: "taper and race",
+                blocks: &blocks,
+                source_conversation_id: None,
+            }),
+            weeks: &[
+                PlanWeekInput {
+                    week_start: &first_start,
+                    focus: "taper",
+                    days: &first_days,
+                    adjustment_reason: "",
+                },
+                PlanWeekInput {
+                    week_start: &second_start,
+                    focus: "race week",
+                    days: &second_days,
+                    adjustment_reason: "",
+                },
+            ],
+        })
+        .await?;
+    Ok(())
+}
+
+/// A plan whose weeks have all run out reports the gap without inventing a
+/// resume date, and must stay distinguishable from having no plan at all — the
+/// athlete still has a stored plan, it has simply ended.
+#[tokio::test]
+async fn a_plan_whose_weeks_have_all_ended_reports_no_coverage_and_no_resume() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    seed_expired_plan(&resources, user_id, tenant).await?;
+
+    let response = PlanShowHandler
+        .execute(&ctx(&resources, user_id, tenant, &conversation_id, vec![]))
+        .await?;
+    let text = response.text;
+
+    assert!(
+        text.contains("not covered by the plan"),
+        "an expired plan must report the gap: {text}"
+    );
+    assert!(
+        !text.contains("The plan resumes on"),
+        "there is no later week to resume into: {text}"
+    );
+    assert!(
+        !text.contains("No plan saved yet"),
+        "a stored plan that ended is not the same as no plan: {text}"
+    );
+    assert!(
+        text.contains("Unbound XL"),
+        "the stored plan still frames the answer: {text}"
+    );
+    Ok(())
+}
+
+/// The mirror of the gap case: a week that spans today and simply prescribes
+/// nothing on it is a rest day, and must keep saying so. Without this the
+/// no-coverage wording could be introduced by relabelling every empty day,
+/// which would lose exactly the distinction it was added to make.
+#[tokio::test]
+async fn an_empty_day_inside_a_covered_week_still_reports_no_session() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    seed_week_missing_today(&resources, user_id, tenant).await?;
+
+    let response = PlanShowHandler
+        .execute(&ctx(&resources, user_id, tenant, &conversation_id, vec![]))
+        .await?;
+    let text = response.text;
+
+    assert!(
+        text.contains("nothing scheduled"),
+        "a covered day with no session is a rest day: {text}"
+    );
+    assert!(
+        !text.contains("not covered by the plan"),
+        "a covered day must not be reported as a hole in the plan: {text}"
+    );
+    assert!(
+        !text.contains("The plan resumes on"),
+        "a plan that already covers today has nothing to resume: {text}"
+    );
+    Ok(())
+}
