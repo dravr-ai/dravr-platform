@@ -660,6 +660,10 @@ struct RecoveryAndPostProcessInputs<'a> {
     conv: &'a ConversationRecord,
     coach_ctx: Option<&'a CoachRuntimeContext>,
     prompt_guard: &'a prompt_leak::PromptGuard,
+    /// The turn's assembled messages, replayed verbatim by the identity re-ask.
+    llm_messages: &'a [ChatMessage],
+    /// Model the turn ran on, so the re-ask does not drift to another one.
+    active_model: &'a str,
 }
 
 /// Wrap stages 14b–18: run the auth-recovery short-circuit, then either
@@ -678,6 +682,8 @@ async fn run_recovery_and_post_process(
         conv,
         coach_ctx,
         prompt_guard,
+        llm_messages,
+        active_model,
     } = inputs;
     // Guardian-denied short-circuit takes precedence over re-auth: a tool
     // blocked by the runtime Guardian (enforce mode) is rendered as a
@@ -725,6 +731,17 @@ async fn run_recovery_and_post_process(
             identity_leak: None,
         };
     }
+
+    // Stage 14a: one bounded re-ask if the model answered as the provider.
+    //
+    // Deliberately below both short-circuits above: guardian-denied and re-auth
+    // replies are deterministic platform text, not model output, so they cannot
+    // carry an identity break and must never be re-asked. Deliberately above
+    // post-processing so that chain runs exactly once, on whichever reply
+    // survived — and post-processing still owns the withhold, so if the re-ask
+    // leaks again, errors, or finds no provider handle, Stage 15.4 withholds
+    // exactly as it did before.
+    reask_after_identity_leak(ctx, llm_messages, active_model, result).await;
 
     stages::post_process::post_process_assistant_reply(
         stages::post_process::PostProcessInputs {
@@ -1191,17 +1208,10 @@ async fn run_turn(
     )
     .await?;
 
-    // Stage 14a: one bounded re-ask if the model answered as the provider.
-    //
-    // Sits BEFORE post-processing so the chain below runs exactly once, on
-    // whichever reply survived. Post-processing still owns the withhold: if the
-    // re-ask leaks again (or there is no provider handle, or it errors), the
-    // content is unchanged and Stage 15.4 withholds it exactly as before.
-    reask_after_identity_leak(ctx, &llm_messages, &active_model, &mut result).await;
-
-    // Stages 14b–18: provider re-auth recovery short-circuit, then either
-    // skip post-processing (recovery content is already canonical) or run
-    // the standard guardrails/verification/hook chain on LLM-produced text.
+    // Stages 14a–18: the bounded identity re-ask, the provider re-auth recovery
+    // short-circuit, then either skip post-processing (recovery content is
+    // already canonical) or run the standard guardrails/verification/hook chain
+    // on LLM-produced text.
     let post_processed = run_recovery_and_post_process(
         RecoveryAndPostProcessInputs {
             ctx,
@@ -1210,6 +1220,8 @@ async fn run_turn(
             conv: &conv,
             coach_ctx: coach_ctx.as_ref(),
             prompt_guard: &prompt_guard,
+            llm_messages: &llm_messages,
+            active_model: &active_model,
         },
         &mut result,
         hooks,

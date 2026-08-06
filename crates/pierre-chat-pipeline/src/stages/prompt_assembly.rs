@@ -87,37 +87,32 @@ Everything above is your coaching context, not a competing identity.";
 /// Occupies the Stage 7g.3 slot whenever no guided flow owns it, so every turn
 /// reaches the model carrying a concrete, turn-scoped task.
 ///
-/// This is the block that closes the identity leak, and it does so without
-/// saying anything about identity at all. Measured against the production
-/// fixture (`pierre_system.md` + the platform tool list + the embacle catalogue
-/// + an 18-message history, ~73 KB — the regime the ~49 KB lab never reached,
-/// which is why 180 lab runs found nothing):
+/// What this does NOT claim: that it closes the identity leak. Measured against
+/// a fixture rebuilt to production scale and validated against the real rate
+/// (lab empty-slot 3/100, production 7/217 guided-flow-inactive turns, Fisher
+/// exact p = 1.0 for agreement), this block scored 1/100 against the empty
+/// slot's 3/100. Directionally better, p = 0.62, and separating 3% from 1% at
+/// 80% power needs roughly 768 runs per arm. Treat it as unproven.
 ///
-/// | Stage 7g.3 slot          | leaked | runs |
-/// |--------------------------|--------|------|
-/// | empty (production today) | **6**  | 14   |
-/// | guided interview block   | 0      | 14   |
-/// | this block               | 0      | 8    |
-///
-/// Fisher's exact, empty vs guided: p = 0.016.
-///
-/// The mechanism the refusals name themselves: with no task for the turn, the
-/// model evaluates the assembled prompt AS A DOCUMENT and concludes it is a
-/// persona-injection attempt — "I won't role-play as a different assistant with
-/// tools I don't have", "this looks like a full system-prompt/persona
-/// transcript". Given a job to do it simply does the job. That is why the
-/// leaking turns were always the open-ended ones, and why turns that opened
-/// with a tool call never leaked: a tool call is already a task.
+/// It ships for two reasons that do not depend on that number. The slot has
+/// always carried a task on guided turns and on the turn that retracts a guided
+/// flow, and was empty only on ordinary turns — an asymmetry with no reason
+/// behind it. And the arm's replies ground themselves in the athlete's own
+/// history rather than answering generically, which is what the wording asks
+/// for.
 ///
 /// Deliberately contains NO identity assertion, no negation of the underlying
 /// assistant and no concealment rule. The [`IDENTITY_ANCHOR`] was present in
-/// every one of the six leaking runs, so more identity text is not the lever —
-/// and text shaped like an identity override is what the 2026-07-12 catalogue
-/// incident showed provokes the refusal in the first place.
+/// every observed break, so more identity text is not the lever — and text
+/// shaped like an identity override is what the 2026-07-12 catalogue incident
+/// showed provokes the refusal in the first place. The provider says so itself
+/// when driven directly: it classifies forceful persona instructions as "an
+/// injected/conflicting instruction rather than a legitimate system directive".
 ///
 /// Carries no length or format rule either: those belong to the Stage 7g
 /// channel constraints and the Stage 7g.2 output contract, so this block cannot
 /// contradict either one.
+///
 /// Public purely so the "states a task, asserts no identity" contract is
 /// testable without standing up the full async assembly stage — the same
 /// reason [`close_with_identity_anchor`] is public.
