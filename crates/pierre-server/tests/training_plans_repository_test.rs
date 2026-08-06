@@ -8,10 +8,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, SaveTrainingPlanParams,
 };
@@ -20,18 +18,16 @@ use pierre_memory::training_plans::{
 };
 use uuid::Uuid;
 
-async fn open_in_memory_db() -> Result<Database> {
-    let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
-    Ok(db)
+/// Open the backend under test.
+///
+/// [`create_test_db`] honours a `PostgreSQL` `DATABASE_URL`, so under
+/// `ci-postgres` these tests execute the `PostgreSQL` backend's own SQL. This
+/// file previously pinned `sqlite::memory:` in both `cfg` arms, which meant the
+/// carry-forward regression tests below — written to prove that superseding an
+/// outline does not strand its weeks — never once ran against the backend
+/// production uses, while the `postgresql` lane reported them green.
+async fn open_test_db() -> Result<Database> {
+    Ok(create_test_db().await?)
 }
 
 fn big_red() -> GoalRace {
@@ -110,7 +106,7 @@ fn plan_params<'a>(
 
 #[tokio::test]
 async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -176,7 +172,7 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
 
 #[tokio::test]
 async fn outline_resave_supersedes_previous() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -211,7 +207,7 @@ async fn outline_resave_supersedes_previous() -> Result<()> {
 
 #[tokio::test]
 async fn week_resave_supersedes_that_week_only() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -304,7 +300,7 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
 
 #[tokio::test]
 async fn tenant_and_user_isolation_enforced() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant_a = Uuid::new_v4().to_string();
     let tenant_b = Uuid::new_v4().to_string();
@@ -362,7 +358,7 @@ async fn tenant_and_user_isolation_enforced() -> Result<()> {
 
 #[tokio::test]
 async fn coach_scoped_plan_prefers_specific_over_agnostic() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -404,7 +400,7 @@ async fn a_coach_bound_plan_is_invisible_to_a_coachless_lookup() -> Result<()> {
     // conversation's coach, so a caller that asks without one sees nothing and
     // concludes the athlete has no plan — which is what told the athletes most
     // likely to hold one, at the end of a calibration interview, to go build it.
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -448,7 +444,7 @@ fn outline_input<'a>(race: &'a GoalRace, blocks: &'a [PlanBlock]) -> PlanOutline
 
 #[tokio::test]
 async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -494,7 +490,7 @@ async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
 
 #[tokio::test]
 async fn bundle_weeks_only_attaches_to_active_plan() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -530,7 +526,7 @@ async fn bundle_weeks_only_attaches_to_active_plan() -> Result<()> {
 
 #[tokio::test]
 async fn bundle_weeks_only_with_no_plan_errors_and_writes_nothing() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -565,7 +561,7 @@ async fn bundle_weeks_only_with_no_plan_errors_and_writes_nothing() -> Result<()
 
 #[tokio::test]
 async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -686,7 +682,7 @@ async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<(
 /// still advertises those phases.
 #[tokio::test]
 async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -725,7 +721,33 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
     // Plan B — the goal changes and the coach lays out the whole run to it.
     let b1 = week_days("2026-08-10");
     let b2 = week_days("2026-08-17");
-    let b3 = week_days("2026-08-24");
+    // The peak week is the one plan C never re-sends, so it is the week whose
+    // survival this test exists to prove. Its days are deliberately unlike
+    // every other week's: `week_days` writes the same two sessions everywhere,
+    // so asserting those would pass on any week's payload arriving here.
+    let b3 = vec![
+        PlannedDay {
+            date: "2026-08-24".to_owned(),
+            sport: "rest".to_owned(),
+            workout: "off before the peak block".to_owned(),
+            duration_min: None,
+            intensity: String::new(),
+        },
+        PlannedDay {
+            date: "2026-08-26".to_owned(),
+            sport: "trail".to_owned(),
+            workout: "VO2max 6x3min".to_owned(),
+            duration_min: Some(75),
+            intensity: "6x3min @ 95-100%".to_owned(),
+        },
+        PlannedDay {
+            date: "2026-08-29".to_owned(),
+            sport: "trail".to_owned(),
+            workout: "long trail simulating race pace and aid stations".to_owned(),
+            duration_min: Some(110),
+            intensity: "race effort".to_owned(),
+        },
+    ];
     let race_b = GoalRace {
         name: "Harricana".to_owned(),
         date: "2026-09-11".to_owned(),
@@ -810,18 +832,22 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
         ],
         "a week the third outline did not re-send must still arrive on it"
     );
-    assert!(weeks.iter().all(|w| w.status == WeekStatus::Active));
-
     // The re-sent weeks carry the revision, and the week that only ever lived on
-    // plan B keeps its original content rather than an empty placeholder.
+    // plan B keeps its own content rather than an empty placeholder or another
+    // week's payload — these values appear on no other week in this test.
     assert_eq!(weeks[2].focus, "reintroduction, revised");
     assert_eq!(weeks[3].focus, "build, revised");
     assert_eq!(weeks[4].focus, "peak");
     assert_eq!(weeks[4].days.len(), 3);
-    assert_eq!(weeks[4].days[1].workout, "tempo 3x8min");
-    assert_eq!(weeks[4].days[2].duration_min, Some(105));
+    assert_eq!(weeks[4].days[1].workout, "VO2max 6x3min");
+    assert_eq!(
+        weeks[4].days[2].workout,
+        "long trail simulating race pace and aid stations"
+    );
+    assert_eq!(weeks[4].days[2].duration_min, Some(110));
 
-    // Neither superseded outline retains an active week.
+    // Neither superseded outline retains an active week, and both keep their
+    // rows as audit trail rather than losing them.
     for (label, id) in [("A", &plan_a.plan.id), ("B", &plan_b.plan.id)] {
         let stranded = repos
             .training_plans
@@ -831,13 +857,39 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             stranded.is_empty(),
             "plan {label} still holds active weeks: {stranded:?}"
         );
+        let history = repos
+            .training_plans
+            .list_plan_weeks(&tenant, &user, id, true)
+            .await?;
+        assert!(
+            !history.is_empty() && history.iter().all(|w| w.status == WeekStatus::Superseded),
+            "plan {label}'s rows must survive as superseded audit trail: {history:?}"
+        );
     }
+
+    // The audit chain is unbroken across BOTH hops: the peak week reachable
+    // from plan C points at the row plan B held, not at plan B's plan id, not
+    // at the original on plan A, and not at nothing. A carry-forward that
+    // rebound this wrong after two hops still satisfies every count above.
+    let b_history = repos
+        .training_plans
+        .list_plan_weeks(&tenant, &user, &plan_b.plan.id, true)
+        .await?;
+    let b_peak = b_history
+        .iter()
+        .find(|w| w.week_start == "2026-08-24")
+        .expect("plan B wrote the peak week");
+    assert_eq!(
+        weeks[4].supersedes_id.as_deref(),
+        Some(b_peak.id.as_str()),
+        "the twice-carried peak week must chain back to the row it replaced"
+    );
     Ok(())
 }
 
 #[tokio::test]
 async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
@@ -905,7 +957,7 @@ async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()>
 
 #[tokio::test]
 async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
