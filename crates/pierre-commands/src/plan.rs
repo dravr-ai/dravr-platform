@@ -251,6 +251,21 @@ fn render_view(
             append_resume(&mut out);
         }
         PlanView::Week => {
+            // A week block carries a date, not a tense, so on its own it cannot
+            // tell the athlete whether they are reading the week they are in or
+            // one that has not started — seven sessions under a future date
+            // read exactly like this week's. Leading with today's status says
+            // which, and it is the only thing this view has to say at all when
+            // every stored week has ended and the selection comes back empty.
+            if matches!(day_across(today), DayStatus::Uncovered) {
+                let label = reg.render(KEY_PLAN_TODAY, locale, &[]);
+                let _ = writeln!(
+                    out,
+                    "{}",
+                    render_day(reg, locale, &label, DayStatus::Uncovered)
+                );
+                append_resume(&mut out);
+            }
             // The current week if today falls in one, else the first upcoming.
             let Some(week) = weeks
                 .iter()

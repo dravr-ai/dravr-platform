@@ -706,6 +706,110 @@ async fn a_plan_whose_weeks_have_all_ended_reports_no_coverage_and_no_resume() -
     Ok(())
 }
 
+/// `/plan week` on a plan that has not started must say so before it shows the
+/// week. The header names a date, not a tense, so seven sessions rendered under
+/// a future Monday read exactly like the current week — the athlete could train
+/// next week's plan today believing it was prescribed for now.
+#[tokio::test]
+async fn the_week_view_reports_the_gap_before_showing_an_upcoming_week() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    let resume_start = seed_future_only_plan(&resources, user_id, tenant).await?;
+
+    let response = PlanShowHandler
+        .execute(&ctx(
+            &resources,
+            user_id,
+            tenant,
+            &conversation_id,
+            vec!["week".to_owned()],
+        ))
+        .await?;
+    let text = response.text;
+
+    assert!(
+        text.contains("not covered by the plan"),
+        "the week view must say today is not covered: {text}"
+    );
+    assert!(
+        text.contains(&format!("The plan resumes on {resume_start}")),
+        "the week view must name the resume date {resume_start}: {text}"
+    );
+    // The week itself is still the point of the view.
+    assert!(
+        text.contains(&format!("Week of {resume_start}")),
+        "the upcoming week must still be rendered: {text}"
+    );
+    Ok(())
+}
+
+/// `/plan week` on a plan whose weeks have all ended has no week to render at
+/// all. It used to return the goal line alone — no sessions, no explanation —
+/// while the compact view on the same data reported the gap.
+#[tokio::test]
+async fn the_week_view_reports_the_gap_when_no_week_is_left_to_show() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    seed_expired_plan(&resources, user_id, tenant).await?;
+
+    let response = PlanShowHandler
+        .execute(&ctx(
+            &resources,
+            user_id,
+            tenant,
+            &conversation_id,
+            vec!["week".to_owned()],
+        ))
+        .await?;
+    let text = response.text;
+
+    assert!(
+        text.contains("not covered by the plan"),
+        "an expired plan must report the gap in the week view too: {text}"
+    );
+    assert!(
+        !text.contains("The plan resumes on"),
+        "there is no later week to resume into: {text}"
+    );
+    assert!(
+        !text.contains("Week of"),
+        "there is no week left to render: {text}"
+    );
+    Ok(())
+}
+
+/// The week view must stay silent about coverage when the plan does cover
+/// today: the gap lines are for holes, and adding them to a healthy week would
+/// make every athlete read a warning about a plan that is working.
+#[tokio::test]
+async fn the_week_view_says_nothing_about_coverage_when_today_is_covered() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    seed_plan(&resources, user_id, tenant).await?;
+
+    let response = PlanShowHandler
+        .execute(&ctx(
+            &resources,
+            user_id,
+            tenant,
+            &conversation_id,
+            vec!["week".to_owned()],
+        ))
+        .await?;
+    let text = response.text;
+
+    assert!(
+        !text.contains("not covered by the plan"),
+        "a covered week must not report a gap: {text}"
+    );
+    assert!(
+        !text.contains("The plan resumes on"),
+        "a plan that already covers today has nothing to resume: {text}"
+    );
+    assert!(
+        text.contains("endurance ride"),
+        "the current week's sessions must still render: {text}"
+    );
+    Ok(())
+}
+
 /// The mirror of the gap case: a week that spans today and simply prescribes
 /// nothing on it is a rest day, and must keep saying so. Without this the
 /// no-coverage wording could be introduced by relabelling every empty day,
