@@ -794,4 +794,318 @@ mod reply_narration_scrub {
             "the withhold substitute must NOT replace a correct denial — got: {reply:?}"
         );
     }
+
+    /// Coaching text the re-ask returns on its second call. Must reach the
+    /// athlete verbatim — a withheld apology here means the re-ask never ran.
+    const REASK_COACHING: &str = "Pour tes descentes, on vise 900 m de dénivelé négatif \
+                                  une fois par semaine, plus des step-downs excentriques.";
+
+    /// Heading of the assembled coach system prompt (`pierre_system.md`), which
+    /// only the turn's own completions carry.
+    const ASSEMBLED_PROMPT_MARKER: &str = "# Dravr Fitness Intelligence Assistant";
+
+    /// Is this completion part of the turn, or a post-turn extractor?
+    ///
+    /// `advice_capture` and `memory_extraction` both drive the same provider
+    /// after the reply is persisted, so a bare counter reads 4 and cannot say
+    /// whether that meant one retry or three. Matching on the question text does
+    /// NOT separate them — both extractors quote the athlete's turn back. What
+    /// separates them is the system prompt: the turn carries the full assembled
+    /// coach prompt, each extractor carries its own small task prompt ("You are
+    /// a memory extractor…", "You analyze a fitness coaching exchange…").
+    fn turn_completion(request: &ChatRequest) -> bool {
+        request
+            .messages
+            .first()
+            .is_some_and(|m| m.content.contains(ASSEMBLED_PROMPT_MARKER))
+    }
+
+    /// Inert reply for calls this mock is not measuring.
+    fn plain_response(content: &str) -> ChatResponse {
+        ChatResponse {
+            content: content.to_owned(),
+            model: "mock-model".to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        }
+    }
+
+    /// Leaks on the first completion, answers normally on the second.
+    ///
+    /// This is the production shape: the break is per-completion, not
+    /// per-conversation — in the conversation behind the 2026-08-05 Telegram
+    /// incident the turns either side of the leak answered correctly.
+    struct LeakThenRecoverMockProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for LeakThenRecoverMockProvider {
+        fn name(&self) -> &'static str {
+            "mock-model"
+        }
+        fn display_name(&self) -> &'static str {
+            "Leak-then-recover Mock LLM (re-ask e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            // Count ONLY the turn's own completions. The pipeline also drives
+            // this provider after the reply lands — `advice_capture` and
+            // `memory_extraction` each spawn their own call — so a bare counter
+            // reads 4 and says nothing about whether the re-ask was bounded.
+            // The turn's completions are the ones carrying the athlete's
+            // question; the extractors send their own prompts.
+            if !turn_completion(request) {
+                return Ok(plain_response("not a turn completion"));
+            }
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            // Call 0 is the turn's own completion and leaks; call 1 is the
+            // re-ask. Verbatim shape of the 2026-08-05 production break.
+            let content = if n == 0 {
+                "I'm GitHub Copilot CLI, a terminal-based coding assistant — I don't have \
+                 access to fitness tools."
+                    .to_owned()
+            } else {
+                REASK_COACHING.to_owned()
+            };
+            Ok(ChatResponse {
+                content,
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 20,
+                    completion_tokens: 30,
+                    total_tokens: 50,
+                }),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            let chunk = StreamChunk {
+                delta: "streaming not used".to_owned(),
+                is_final: true,
+                finish_reason: Some("stop".to_owned()),
+            };
+            Ok(Box::pin(stream::iter(vec![Ok(chunk)])))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    /// Leaks on every completion, so the re-ask cannot rescue the turn.
+    struct AlwaysLeakMockProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for AlwaysLeakMockProvider {
+        fn name(&self) -> &'static str {
+            "mock-model"
+        }
+        fn display_name(&self) -> &'static str {
+            "Always-leak Mock LLM (re-ask bound e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            // Same discrimination as LeakThenRecoverMockProvider: post-turn
+            // extractors share this provider and would inflate the bound.
+            if !turn_completion(request) {
+                return Ok(plain_response("not a turn completion"));
+            }
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ChatResponse {
+                content: "I'm GitHub Copilot CLI, a terminal-based coding assistant.".to_owned(),
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 20,
+                    completion_tokens: 30,
+                    total_tokens: 50,
+                }),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            let chunk = StreamChunk {
+                delta: "streaming not used".to_owned(),
+                is_final: true,
+                finish_reason: Some("stop".to_owned()),
+            };
+            Ok(Box::pin(stream::iter(vec![Ok(chunk)])))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    /// Drive one Slack turn through the pipeline and return the persisted reply.
+    ///
+    /// Extracted so the two re-ask tests below differ only in which provider
+    /// they hand it, which is the variable under test.
+    async fn run_one_slack_turn(
+        provider: Arc<dyn LlmProvider>,
+        email: &str,
+        sender: &str,
+    ) -> Option<String> {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        let resources = create_test_server_resources_with_llm(provider)
+            .await
+            .unwrap();
+        let (admin_user_id, tenant_id) = create_admin_user_in_tenant(&resources, email).await;
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let signing_secret = "reask_secret";
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            channel_type: "slack",
+            api_key: Some("xoxb-reask"),
+            api_secret: None,
+            webhook_secret: Some(signing_secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        })
+        .await
+        .unwrap();
+
+        db.create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: &admin_user_id.to_string(),
+            channel_type: "slack",
+            channel_user_id: sender,
+            display_name: Some("Re-ask Sender"),
+        })
+        .await
+        .unwrap();
+
+        let body = json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "user": sender,
+                "text": "Comment preparer mes jambes pour les longues descentes?",
+                "channel": "C_REASK",
+                "ts": "1700000009.000001"
+            }
+        })
+        .to_string();
+        let timestamp = Utc::now().timestamp().to_string();
+        let sig = compute_slack_sig(signing_secret, &timestamp, &body);
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let resp = AxumTestRequest::post("/api/messaging/webhook/slack")
+            .header("content-type", "application/json")
+            .header("x-slack-request-timestamp", &timestamp)
+            .header("x-slack-signature", &sig)
+            .text(&body)
+            .send(router)
+            .await;
+        assert_eq!(resp.status_code(), StatusCode::OK);
+
+        wait_for_persisted_assistant_reply(&resources, tenant_id).await
+    }
+
+    /// A leaked completion must be re-asked, and the clean answer delivered.
+    ///
+    /// Before this, the athlete lost the turn outright: the boundary withheld
+    /// the leak (correctly) and substituted "my reply didn't go through —
+    /// resend". Measured over 30 days that cost 7 of 217 guided-flow-inactive
+    /// turns, each of them a real question.
+    #[tokio::test]
+    #[serial]
+    async fn a_leaked_reply_is_reasked_and_the_clean_answer_delivered() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mock = Arc::new(LeakThenRecoverMockProvider {
+            calls: Arc::clone(&calls),
+        });
+
+        let reply = run_one_slack_turn(mock, "reask-recover@example.com", "U_REASK_OK")
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        assert!(
+            reply.contains("dénivelé négatif") || reply.contains(REASK_COACHING),
+            "the re-ask's clean coaching answer must reach the athlete, got: {reply:?}"
+        );
+        let lower = reply.to_lowercase();
+        assert!(
+            !lower.contains("copilot"),
+            "the leaked first completion must never be delivered, got: {reply:?}"
+        );
+        assert!(
+            !reply.contains("n'est pas pass"),
+            "the athlete must NOT get the withhold substitute when the re-ask \
+             succeeded — that is the whole point of the re-ask, got: {reply:?}"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "exactly one re-ask: the turn's own completion plus one retry"
+        );
+    }
+
+    /// A re-ask that leaks again must still withhold — and must not try a third time.
+    ///
+    /// The bound is the safety property. Without it a persistently leaking
+    /// provider would spin the turn, and each extra completion costs the
+    /// athlete latency on a reply they are not going to receive anyway.
+    #[tokio::test]
+    #[serial]
+    async fn a_second_leak_still_withholds_and_stops_at_one_retry() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mock = Arc::new(AlwaysLeakMockProvider {
+            calls: Arc::clone(&calls),
+        });
+
+        let reply = run_one_slack_turn(mock, "reask-exhausted@example.com", "U_REASK_FAIL")
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        let lower = reply.to_lowercase();
+        assert!(
+            !lower.contains("copilot"),
+            "a twice-leaked turn must still be withheld, got: {reply:?}"
+        );
+        assert!(
+            !lower.contains("coding assistant"),
+            "the withhold must replace the reply wholesale, got: {reply:?}"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "the re-ask is bounded to ONE retry — a third completion means the \
+             bound was lost"
+        );
+    }
 }

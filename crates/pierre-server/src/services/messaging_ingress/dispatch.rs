@@ -445,11 +445,25 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // recurrence is visible instead of silent in the logs. The `pattern_*`
     // labels (extra fields beyond the catalogue's required set) identify which
     // pattern class fired — never the reply text, which is never persisted.
+    //
+    // The tenant is `session_tenant_id` — the SAME field this path hands the
+    // pipeline as `conversation_tenant_id` (see the `TurnInput` construction
+    // below), which is what the detection side logs. It used to be
+    // `channel_tenant_id`, and the two are documented to differ whenever a
+    // messaging user belongs to a different tenant than the bot owning the
+    // webhook. On the 2026-08-05 Telegram break that is exactly what happened:
+    // detection recorded 0f09bd31 and this alert recorded 988c4bbc for one
+    // turn. Since the event dedups per tenant, keying it on the bot's tenant
+    // collapses leaks from different athletes into one another, and an operator
+    // triaging from #dravr-signal cannot reach the conversation — so
+    // `conversation_id` and `turn_id` ride along for that.
     if let Some(leak) = dispatch_result.identity_leak {
         info!(
             target: "notify",
             event = "messaging.identity_leak",
-            tenant_id = %dispatch.channel_tenant_id,
+            tenant_id = %dispatch.session_tenant_id,
+            conversation_id = %dispatch.session.conversation,
+            turn_id = %dispatch_result.turn_id,
             channel = %dispatch.channel,
             model = %dispatch_result.model,
             pattern_class = leak.class.as_str(),
