@@ -70,13 +70,14 @@ use pierre_core::models::{
     AddMessageParams, CoachRuntimeContext, ConversationTurnId, OnboardingState, TenantId,
     WITHHELD_REPLY_FINISH_REASON,
 };
+use pierre_core::narration;
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::ChatRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
-use pierre_llm::{ChatMessage, ChatProvider, LlmProvider, McpServerConfig};
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, LlmProvider, McpServerConfig};
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
@@ -572,6 +573,83 @@ async fn dispatch_stage(
     .await;
     emit_step_finished(args.hooks, "dispatch").await;
     result
+}
+
+/// One bounded re-ask when the model answered as the provider instead of the coach.
+///
+/// The identity break is a whole-persona failure, so the reply is unusable and
+/// the response boundary withholds it — correctly, but the athlete then loses
+/// the turn and is asked to resend. Measured over 30 days on `dravr-dev`, that
+/// happened on 7 of 217 guided-flow-inactive turns (3.2%), and every one of them
+/// was a real question answered with an apology.
+///
+/// The break is per-completion, not per-conversation: in the conversation that
+/// produced the 2026-08-05 Telegram incident the turns immediately before and
+/// after answered correctly. A single re-ask therefore converts a ~3.2% lost
+/// turn into roughly 0.1%, without needing the underlying cause resolved.
+///
+/// # Why only the completion is re-run
+///
+/// `llm_messages` already carries every `<tool_result>` the loop gathered, so
+/// the re-ask needs one more completion over the same messages — NOT another
+/// pass through [`dispatch_stage`]. Re-entering dispatch would re-execute the
+/// turn's tool calls, and those have side effects: `save_training_plan` would
+/// write a second plan. A retry that double-saves is worse than a lost turn.
+///
+/// # Why the identity anchor is NOT re-asserted
+///
+/// The obvious move is to repeat the persona harder before trying again. The
+/// evidence says otherwise: the provider's own refusal text shows it classifies
+/// forceful persona instructions as an injection attempt ("looks like an
+/// injected/conflicting instruction rather than a legitimate system
+/// directive"), and the anchor was already present in every observed break.
+/// Re-asserting it would push the retry toward the failure it is trying to
+/// escape. A plain re-sample is the evidence-aligned choice.
+///
+/// Leaves `result` untouched unless the re-ask produced a clean reply, so the
+/// existing withhold path stays exactly as it was on failure.
+async fn reask_after_identity_leak(
+    ctx: &ChatPipelineContext,
+    llm_messages: &[ChatMessage],
+    active_model: &str,
+    result: &mut chat_tool_loop::ToolLoopResult,
+) {
+    if narration::identity_leak_match(&result.content).is_none() {
+        return;
+    }
+    let Some(provider) = ctx.llm_provider.as_ref() else {
+        return;
+    };
+
+    let request = ChatRequest::new(llm_messages.to_vec()).with_model(active_model);
+    match provider.complete(&request).await {
+        Ok(response) if narration::identity_leak_match(&response.content).is_none() => {
+            // Deliberately NOT `target: "notify"`. A notify event has to be
+            // declared in dravr-contremaitre's catalogue, and the test that
+            // polices that runs full-suite-only — so an undeclared event greens
+            // the branch and reds main after the squash. This is an operational
+            // signal, queryable in Cloud Logging like every other measurement
+            // behind this change, and it does not need a notification tier.
+            info!(
+                reply_len = response.content.len(),
+                "identity_leak_reask_recovered: re-ask after a model-identity leak \
+                 produced a usable reply; the athlete keeps their turn"
+            );
+            result.content = response.content;
+        }
+        Ok(response) => {
+            warn!(
+                reply_len = response.content.len(),
+                "re-ask after a model-identity leak leaked again; withholding as before"
+            );
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                "re-ask after a model-identity leak failed to dispatch; withholding as before"
+            );
+        }
+    }
 }
 
 /// Bundled inputs for [`run_recovery_and_post_process`].
@@ -1112,6 +1190,14 @@ async fn run_turn(
         &mut llm_messages,
     )
     .await?;
+
+    // Stage 14a: one bounded re-ask if the model answered as the provider.
+    //
+    // Sits BEFORE post-processing so the chain below runs exactly once, on
+    // whichever reply survived. Post-processing still owns the withhold: if the
+    // re-ask leaks again (or there is no provider handle, or it errors), the
+    // content is unchanged and Stage 15.4 withholds it exactly as before.
+    reask_after_identity_leak(ctx, &llm_messages, &active_model, &mut result).await;
 
     // Stages 14b–18: provider re-auth recovery short-circuit, then either
     // skip post-processing (recovery content is already canonical) or run

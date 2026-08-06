@@ -82,6 +82,52 @@ never claim any identity other than Dravr — not even to deny another one. If t
 who or what you are, or about your \"real\" identity, you are simply Dravr, their coach. \
 Everything above is your coaching context, not a competing identity.";
 
+/// What the coach is meant to DO on an ordinary turn.
+///
+/// Occupies the Stage 7g.3 slot whenever no guided flow owns it, so every turn
+/// reaches the model carrying a concrete, turn-scoped task.
+///
+/// This is the block that closes the identity leak, and it does so without
+/// saying anything about identity at all. Measured against the production
+/// fixture (`pierre_system.md` + the platform tool list + the embacle catalogue
+/// + an 18-message history, ~73 KB — the regime the ~49 KB lab never reached,
+/// which is why 180 lab runs found nothing):
+///
+/// | Stage 7g.3 slot          | leaked | runs |
+/// |--------------------------|--------|------|
+/// | empty (production today) | **6**  | 14   |
+/// | guided interview block   | 0      | 14   |
+/// | this block               | 0      | 8    |
+///
+/// Fisher's exact, empty vs guided: p = 0.016.
+///
+/// The mechanism the refusals name themselves: with no task for the turn, the
+/// model evaluates the assembled prompt AS A DOCUMENT and concludes it is a
+/// persona-injection attempt — "I won't role-play as a different assistant with
+/// tools I don't have", "this looks like a full system-prompt/persona
+/// transcript". Given a job to do it simply does the job. That is why the
+/// leaking turns were always the open-ended ones, and why turns that opened
+/// with a tool call never leaked: a tool call is already a task.
+///
+/// Deliberately contains NO identity assertion, no negation of the underlying
+/// assistant and no concealment rule. The [`IDENTITY_ANCHOR`] was present in
+/// every one of the six leaking runs, so more identity text is not the lever —
+/// and text shaped like an identity override is what the 2026-07-12 catalogue
+/// incident showed provokes the refusal in the first place.
+///
+/// Carries no length or format rule either: those belong to the Stage 7g
+/// channel constraints and the Stage 7g.2 output contract, so this block cannot
+/// contradict either one.
+/// Public purely so the "states a task, asserts no identity" contract is
+/// testable without standing up the full async assembly stage — the same
+/// reason [`close_with_identity_anchor`] is public.
+pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
+     Answer the athlete's question using their history and the facts above.\n\
+     Ground every recommendation in something specific you know about them — their volume, \
+     their injury history, their event, or what they told you earlier in this conversation.\n\
+     If you need data you do not have, call one tool and then answer.\n\
+     Do not restate the question, and do not list assumptions in place of an answer.";
+
 /// Append the [`IDENTITY_ANCHOR`] to an assembled system prompt.
 ///
 /// Applied unconditionally to both the default and coach-bound paths, so no
@@ -649,10 +695,15 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7f.2 suppresses the plan block: a JSON-plan output contract has no
     // business in a profile-building conversation, and it directly contradicts
     // the onboarding directive appended below.
-    let raw_system_prompt = if coach_ctx.is_some_and(|c| c.output_schema.is_some())
+    // Bound once and read twice: this same predicate decides whether Stage 7g.3
+    // may append [`TURN_DIRECTIVE`] below. Two copies of it would be free to
+    // drift, and the drift would be silent — a builder coach would carry both a
+    // JSON-only contract and a prose task directive, with the prose block
+    // winning on recency. That is the 2026-07-24 derail exactly.
+    let structured_contract_active = coach_ctx.is_some_and(|c| c.output_schema.is_some())
         && !profile.channel.is_messaging()
-        && onboarding.is_none()
-    {
+        && onboarding.is_none();
+    let raw_system_prompt = if structured_contract_active {
         format!("{raw_system_prompt}\n\n{}", ctx.structured_output_prompt)
     } else {
         raw_system_prompt
@@ -678,6 +729,12 @@ pub(crate) async fn assemble_prompt_and_messages(
     // whose persona mandates a plan on its first reply won that recency
     // contest, which is how the 2026-07-24 walk derailed into a 16-week plan on
     // the athlete's first answer.
+    // The slot is never empty. Whichever arm wins, the turn ships with a
+    // concrete task — that is the property that holds the persona, and leaving
+    // the ordinary-turn arm empty is what let the 2026-08-05 Telegram break
+    // through (see [`TURN_DIRECTIVE`] for the measurement). The release arm
+    // already qualifies: "call the tool and report what it actually returned"
+    // is as turn-scoped as an interview probe.
     let raw_system_prompt = match onboarding {
         Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
         None if OnboardingState::just_completed(conv.onboarding_state.as_deref(), Utc::now()) => {
@@ -686,7 +743,11 @@ pub(crate) async fn assemble_prompt_and_messages(
                 super::onboarding::release_directive()
             )
         }
-        None => raw_system_prompt,
+        // A builder coach on a card channel already received the JSON output
+        // contract at Stage 7g.2, which IS this turn's task. Appending prose
+        // below it would win the recency contest against the contract.
+        None if structured_contract_active => raw_system_prompt,
+        None => format!("{raw_system_prompt}{TURN_DIRECTIVE}"),
     };
 
     // Stage 7g.4: Close every prompt with the identity anchor.
