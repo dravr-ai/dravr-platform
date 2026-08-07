@@ -39,9 +39,16 @@ If any workflow on main has been red for 2+ runs, STOP and ask the user "Should 
 | `./bin/start-server.sh` | Start server (loads `.envrc`, background, health check) |
 | `./bin/stop-server.sh` | Graceful shutdown w/ force-kill fallback |
 | `curl http://localhost:8081/health` | Health check |
-| `./bin/reset-dev-db.sh` | Reset dev DB (fixes migration checksum mismatch; SQLite-only safety check; backs up to `data/backups/`, recreates, runs all seeders) |
 
-After reset, default login: `admin@example.com` / `AdminPassword123`.
+To reset the dev DB, re-run `./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh` — it
+recreates the database from scratch and runs every seeder.
+
+**The admin login is environment-dependent**: the script resolves
+`${ADMIN_EMAIL:-admin@example.com}`, so whatever `.envrc` sets wins (locally that is
+`admin@pierre.mcp`). Resolve it — `set -a; source .envrc; set +a; echo "$ADMIN_EMAIL"` —
+rather than assuming the default, which returns `invalid_grant` and looks like a broken
+server. Seeded user accounts are constants in `crates/pierre-seeders/src/demo_data.rs`.
+Both kinds are pinned by `frontend/e2e-real/seeded-credentials.real.spec.ts`.
 
 **Admin users & tokens** (`pierre-cli`):
 

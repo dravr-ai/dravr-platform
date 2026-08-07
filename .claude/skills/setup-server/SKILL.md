@@ -1,330 +1,173 @@
 ---
 name: setup-server
-description: Bootstrap Pierre server with database, admin user, coaches, and test users for development and testing
+description: Bootstrap the Pierre dev stack — database, seeds, admin/test users, server, frontend, Expo — for development and testing
 user-invocable: true
 ---
 
-# Setup Server Skill
+# Setup Server
 
-**CLAUDE: When this skill is invoked with `/setup-server`, run the setup script:**
-```bash
-./bin/setup-and-start.sh --skip-fresh-start
-```
+Brings the Pierre dev environment from zero to fully running with seeded test data.
 
-For a completely fresh start (wipes database):
-```bash
-./bin/setup-and-start.sh
-```
-
-## Purpose
-Bootstraps the Pierre MCP Server with all required components: database, admin user, coaches, and optionally test users. Essential for development, testing, and iOS Simulator testing.
-
-## Usage
-```bash
-/setup-server
-```
-
-## Synthetic Provider vs Strava (IMPORTANT)
-
-**CLAUDE: Default to synthetic provider. Ask if Strava is needed.**
-
-### When to Use Synthetic Provider (DEFAULT)
-- **Most development and testing** - no OAuth required
-- **iOS Simulator testing** - works without external accounts
-- **UI/UX development** - realistic data without API limits
-- **CI/CD pipelines** - deterministic, reproducible tests
-
-### When Strava is Needed
-Only use Strava when:
-- Testing OAuth flow specifically
-- Validating real Strava API integration
-- User explicitly requests Strava data
-- Testing webhook sync features
-
-### Set Provider in .envrc
-```bash
-# Default to synthetic (RECOMMENDED)
-export PIERRE_DEFAULT_PROVIDER=synthetic
-
-# Only if Strava OAuth testing needed
-export PIERRE_DEFAULT_PROVIDER=strava
-```
-
-## Default Test Credentials
-
-**CRITICAL: These are the default credentials from `.envrc`. Always use these for testing.**
-
-### Admin User
-```
-Email:    admin@pierre.mcp
-Password: adminpass123
-```
-
-### Regular Test User
-```
-Email:    user@example.com
-Password: userpass123
-```
-
-### Environment Variables (from .envrc)
-```bash
-export ADMIN_EMAIL="admin@pierre.mcp"
-export ADMIN_PASSWORD="adminpass123"
-export OAUTH_DEFAULT_EMAIL="user@example.com"
-export OAUTH_DEFAULT_PASSWORD="userpass123"
-```
-
-## Admin Token (REQUIRED FOR USER MANAGEMENT)
-
-**CLAUDE: To create/approve users via admin API, you need an admin token.**
-
-### Generate Admin Token
-```bash
-cargo run --bin pierre-cli -- token generate --service claude_test --expires-days 7
-```
-
-### Use Admin Token in API Calls
-```bash
-# Store the token
-export ADMIN_TOKEN="<token-from-above-command>"
-
-# Use in curl requests
-curl -H "Authorization: Bearer $ADMIN_TOKEN" \
-  http://localhost:8081/admin/users
-```
-
-### Automatic Token Handling
-The `complete-user-workflow.sh` script handles admin tokens automatically:
-```bash
-./scripts/complete-user-workflow.sh
-```
-This script:
-1. Generates an admin token (or reuses existing)
-2. Creates test user
-3. Approves user with tenant
-4. Saves all tokens to `.workflow_test_env`
-
-### After Running Workflow Script
-```bash
-# Load saved tokens
-source .workflow_test_env
-
-# Now you can use $ADMIN_TOKEN and $JWT_TOKEN
-echo "Admin: $ADMIN_TOKEN"
-echo "User JWT: $JWT_TOKEN"
-```
-
-## Bootstrap Commands
-
-### Quick Start (skip database wipe)
-```bash
-./bin/setup-and-start.sh --skip-fresh-start
-```
-
-### Fresh Start (wipes and recreates database)
-```bash
-./bin/setup-and-start.sh
-```
-
-### Fresh Start with Workflow Tests
-```bash
-./bin/setup-and-start.sh --run-tests
-```
-
-## What Setup Does
-
-1. **Database Setup** - Creates/migrates SQLite database
-2. **Admin User** - Creates admin@pierre.mcp with adminpass123
-3. **Seed Coaches** - Loads AI coaching personas
-4. **Start Server** - Starts on port 8081
-5. **Health Check** - Waits for server to be healthy
-
-**Note:** Basic setup only runs `pierre-cli seed coaches`. For full test data, run additional seeders below.
-
-## Data Seeders (IMPORTANT FOR TESTING)
-
-**CLAUDE: Before testing features, run the appropriate seeders to populate test data.**
-
-All seeders are consolidated under `pierre-cli seed <domain>` subcommands.
-
-### Available Seeders
-
-| Seeder | Command | What It Creates |
-|--------|---------|-----------------|
-| Bootstrap | `pierre-cli seed bootstrap` | Admin + demo users (idempotent; requires `ADMIN_PASSWORD`) |
-| Coaches | `pierre-cli seed coaches` | 9 AI coaching personas (training, nutrition, recovery, mobility) |
-| Demo Data | `pierre-cli seed demo-data` | Dashboard analytics, API keys, usage time-series data |
-| Mobility | `pierre-cli seed mobility` | Stretching exercises, yoga poses, activity-muscle mappings |
-| Social | `pierre-cli seed social` | Friend connections, shared insights, reactions, feed data |
-| **Synthetic Activities** | `pierre-cli seed synthetic-activities` | **100+ diverse activities (run, MTB, nordic ski, etc.)** |
-| LLM Usage | `pierre-cli seed llm-usage` | 30 days of LLM call records for analytics dashboards |
-| Insight Samples | `pierre-cli seed insight-samples` | Loads and validates insight sample markdown files (no DB writes) |
-
-### Synthetic Activities Seeder (For Testing Without Strava)
-
-**CRITICAL: Use this seeder for testing without OAuth.**
+**CLAUDE: when invoked as `/setup-server`, run:**
 
 ```bash
-# Seed 100 activities for default test user
-pierre-cli seed synthetic-activities
-
-# Seed more activities
-pierre-cli seed synthetic-activities --count 200
-
-# Seed for specific user
-pierre-cli seed synthetic-activities --email alice@example.com
-
-# Reset and reseed
-pierre-cli seed synthetic-activities --reset --count 150
+./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
 ```
 
-**Sport types included:** Run, Trail Run, Ride, Mountain Bike, Gravel Ride, Nordic Ski, Backcountry Ski, Alpine Ski, Swim, Hike, Walk, Weight Training, Yoga, Rowing, Kayaking, SUP, and more.
+This is the only supported entry point. It resets the database, runs migrations, creates the
+admin, runs every seeder, and starts all services. There is no "skip the wipe" mode — for a
+stack that is already up and healthy, just leave it alone.
 
-### Run All Seeders (Full Test Setup)
+> **Destructive.** It kills every running service and recreates the dev DB. If someone may be
+> mid-session on this worktree, confirm before running.
 
-**Option A: Fresh database with ALL seeders (RECOMMENDED)**
+## Flags
+
+| Flag | Effect |
+|---|---|
+| *(none)* | debug build — faster to compile, slower to run |
+| `--release` | optimized build — slower to compile, faster to drive |
+| `--native` | build the native mobile dev client instead of Expo Go |
+| `--stream-logs` | tail service logs in the foreground after startup |
+| `--tunnel` | start a Cloudflare tunnel and rewrite `BASE_URL` for physical-device testing |
+
+## What it starts
+
+| Service | Port | Log |
+|---|---|---|
+| Pierre server | 8081 | `logs/pierre-server.log` |
+| Vite web frontend | 5173 | `logs/frontend.log` |
+| Expo / Metro | 8082 | `logs/expo.log` |
+| Dev fixture API (serves seeded Strava/Garmin activities) | 9555 | `logs/fixture.log` |
+
+Port 8081 is reserved for Pierre — never start anything else on it. Expo must stay on 8082.
+
+Verify before using the stack:
+
 ```bash
-./bin/reset-dev-db.sh
+curl -sf http://localhost:8081/health && echo " server ok"
+curl -sf -o /dev/null http://localhost:5173 && echo " vite ok"
 ```
-This wipes the database and runs ALL seeders automatically.
 
-**Option B: Run seeders individually (existing database)**
+## Prerequisites
+
+- `.envrc` present and populated (`cp .envrc.example .envrc && direnv allow`). The script
+  hard-fails listing any missing required var — `DATABASE_URL`,
+  `PIERRE_MASTER_ENCRYPTION_KEY`, and the seven `PIERRE_SCIOTTE_*` backpressure vars.
+- A coach source at `../dravr-contremaitre/prompts/coaches`, or `PIERRE_COACHES_DIR` set.
+  The script exits if it is absent — coach definitions live in dravr-contremaitre as the
+  single source of truth.
+
+## Credentials
+
+There are **two different kinds** here, and conflating them is what has repeatedly produced
+wrong docs:
+
+**The admin is environment-dependent.** The setup script resolves
+`${ADMIN_EMAIL:-admin@example.com}` / `${ADMIN_PASSWORD:-AdminPassword123}`, so whatever
+`.envrc` sets wins. On a machine whose `.envrc` sets `ADMIN_EMAIL="admin@pierre.mcp"`, that
+is the operator account and `admin@example.com` does not exist at all — logging in with the
+default returns `invalid_grant` and looks like a broken server. **Read your own `.envrc`
+before assuming.** CI, which has no `.envrc` override, gets the defaults.
+
+The admin is created with `--super-admin` on purpose: `cookie_admin_middleware` derives
+console permissions from the role, so a plain `admin` silently loses contremaitre config,
+store moderation and impersonation.
+
+**The seeded users are constants**, baked into `crates/pierre-seeders/src/demo_data.rs` —
+`webtest@pierre.dev`, `mobiletest@pierre.dev`, `alice@acme.com`, `bob@startup.io`. Read the
+seeder for their passwords rather than trusting a restated table: that table has been copied
+into docs, hooks and skills and drifted (the session banner advertised a mobile password the
+seeder never produced, and this script's summary printed a `bob@acme.com` that does not
+exist).
+
+`frontend/e2e-real/seeded-credentials.real.spec.ts` pins both kinds against a live server —
+the seeded users by constant, the admin via `ADMIN_EMAIL`/`ADMIN_PASSWORD` from the
+environment. Run it under a sourced `.envrc`, or the admin case falls back to the default and
+fails for the wrong reason.
+
+Admin API token is written to `logs/admin-token.txt` at the end of the run.
+
+## Admin users and tokens (`pierre-cli`)
+
+| Command | Purpose |
+|---|---|
+| `cargo run --bin pierre-cli -- user create --email <e> --password <p>` | create a user |
+| `cargo run --bin pierre-cli -- token generate --service <s> --expires-days 30` | API token |
+| `cargo run --bin pierre-cli -- token generate --service admin_console --super-admin` | super-admin token, no expiry |
+| `cargo run --bin pierre-cli -- token list --detailed` | list admin tokens |
+| `cargo run --bin pierre-cli -- token revoke <token_id>` | revoke |
+
+## Seeders
+
+The setup script runs all of these already. Run one individually only against an existing
+database you do not want to wipe.
+
+| Subcommand | Creates |
+|---|---|
+| `pierre-cli seed bootstrap` | admin + demo users (idempotent) |
+| `pierre-cli seed coaches --coaches-dir <dir>` | coach personas from contremaitre markdown |
+| `pierre-cli seed demo-data --days 30` | demo users, dashboard analytics, API keys, usage series |
+| `pierre-cli seed social` | friend connections, shared insights, reactions, feed |
+| `pierre-cli seed mobility` | stretches, yoga poses, activity-muscle mappings |
+| `pierre-cli seed llm-usage --admin-email <e> --days 30` | LLM call records for analytics |
+| `pierre-cli seed synthetic-activities` | activities + a fixture-backed provider connection |
+| `pierre-cli seed insight-samples` | validates insight sample markdown (no DB writes) |
+
+### synthetic-activities
+
+Seeds activities **and** an encrypted dev-fixture `oauth_token`, so the user appears as a
+real Strava or Garmin athlete and the activities are served back through the genuine provider
+code path by the fixture API on 9555.
+
 ```bash
-pierre-cli seed coaches
-pierre-cli seed demo-data
-pierre-cli seed mobility
-pierre-cli seed social
+pierre-cli seed synthetic-activities --email <e> --provider strava --count 30 --days 30
 ```
 
-### When to Run Which Seeder
+| Arg | Default | Notes |
+|---|---|---|
+| `--email` | `user@example.com` | the CLI default is *not* a seeded account — always pass a real one |
+| `--count` | 100 | |
+| `--days` | 90 | |
+| `--provider` | `strava` | `strava` \| `garmin` |
+| `--reset` | off | clear existing synthetic activities first |
+| `--seed` | none | fix the RNG for reproducible data |
 
-| Testing This Feature | Required Seeders |
-|---------------------|------------------|
-| Mobile app login | `seed coaches` (minimal) |
-| Coach conversations | `seed coaches` |
-| Activity list/analysis | **`seed synthetic-activities`** |
-| Performance insights | **`seed synthetic-activities`** |
-| Dashboard/Analytics | `seed demo-data` |
-| Mobility/Stretching | `seed mobility` |
-| Friends/Feed/Social | `seed social` + `seed synthetic-activities` |
-| **Full E2E testing** | **All seeders** |
+Demo users are seeded as fixture-backed Strava/Garmin athletes rather than as a bare
+`synthetic` provider, so they clear the onboarding provider gate and get real coach
+recommendations.
 
-## Complete User Workflow
+## Manual service control
 
-After server is running, to create a test user with full access:
-```bash
-./scripts/complete-user-workflow.sh
-```
-
-This script:
-1. Creates/gets admin token
-2. Registers regular user (user@example.com)
-3. Approves user with tenant creation
-4. Tests MCP access
-5. Saves tokens to `.workflow_test_env`
-
-## iOS Simulator Testing
-
-When testing the mobile app with iOS Simulator:
-
-### 1. Reset Database with Full Test Data
-```bash
-./bin/reset-dev-db.sh
-```
-This creates a fresh database with ALL seeders (coaches, demo data, mobility, social).
-
-### 2. Start Server
-```bash
-./bin/start-server.sh
-```
-
-### 3. Run User Workflow (creates test user)
-```bash
-./scripts/complete-user-workflow.sh
-```
-
-### 4. Login Credentials for Mobile App
-```
-Email:    user@example.com
-Password: userpass123
-```
-
-### 5. Start Mobile App
-```bash
-cd frontend-mobile && bun start
-```
-
-## Server Endpoints
-
-| Endpoint | Purpose |
-|----------|---------|
-| `http://localhost:8081/health` | Health check |
-| `http://localhost:8081/oauth2/login` | Web login page |
-| `http://localhost:8081/oauth/token` | OAuth token endpoint |
-| `http://localhost:8081/mcp` | MCP protocol endpoint |
-| `http://localhost:8081/admin/*` | Admin endpoints |
-
-## Manual Server Control
-
-### Start Server Only
-```bash
-./bin/start-server.sh
-```
-
-### Stop Server
-```bash
-./bin/stop-server.sh
-```
-
-### Check Server Status
-```bash
-curl http://localhost:8081/health
-```
+| Command | Effect |
+|---|---|
+| `./bin/start-server.sh` | start Pierre alone |
+| `./bin/stop-server.sh` | graceful shutdown, force-kill fallback |
+| `./bin/stop-all.sh` | stop every service the setup script started |
+| `./bin/dev-logs.sh` | tail dev logs |
 
 ## Troubleshooting
 
-### Server won't start
+**Server won't start**
+
 ```bash
-# Kill any existing processes
-pkill -f pierre-mcp-server
-
-# Check port availability
-lsof -i :8081
-
-# Start fresh
-./bin/setup-and-start.sh
+lsof -i :8081        # what is holding the port
+./bin/stop-all.sh
+./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
 ```
 
-### Database errors
-```bash
-# Reset database completely
-./bin/reset-dev-db.sh
-```
+**Migration checksum mismatch** — an applied sqlx migration was edited, which panics at boot.
+Never edit an applied migration; add a new one. Recover by re-running the setup script, which
+recreates the database from scratch.
 
-### Token expired
-```bash
-# Generate new admin token
-cargo run --bin pierre-cli -- token generate --service test --expires-days 7
-```
+**"Port 8081 in use" while starting Expo** — that is Pierre running correctly. Expo belongs
+on 8082 (`bun start` in `frontend-mobile/` is already configured for it).
 
-### Missing .envrc
-```bash
-cp .envrc.example .envrc
-direnv allow
-```
+**Token expired** — Strava tokens last 6 hours; the server auto-refreshes from the stored
+refresh token. If refresh fails the user must re-run the OAuth flow.
 
-## Environment Files After Setup
+## Related
 
-After running `complete-user-workflow.sh`:
-```bash
-# Contains JWT tokens for API testing
-source .workflow_test_env
-
-# Use tokens in curl commands
-curl -H "Authorization: Bearer $JWT_TOKEN" http://localhost:8081/mcp ...
-```
-
-## Related Skills
-- `validate-frontend` - Frontend validation
-- `validate-mobile` - Mobile app validation
-- `create-worktree` - Git worktree for feature branches
+- `test-web-app` — drive the running stack end-to-end and land regression tests
+- `validate-frontend` / `validate-mobile` / `validate-sdk`
+- `create-worktree` — isolated worktree on its own ports
