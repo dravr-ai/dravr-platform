@@ -87,19 +87,31 @@ Everything above is your coaching context, not a competing identity.";
 /// Occupies the Stage 7g.3 slot whenever no guided flow owns it, so every turn
 /// reaches the model carrying a concrete, turn-scoped task.
 ///
-/// What this does NOT claim: that it closes the identity leak. Measured against
-/// a fixture rebuilt to production scale and validated against the real rate
-/// (lab empty-slot 3/100, production 7/217 guided-flow-inactive turns, Fisher
-/// exact p = 1.0 for agreement), this block scored 1/100 against the empty
-/// slot's 3/100. Directionally better, p = 0.62, and separating 3% from 1% at
-/// 80% power needs roughly 768 runs per arm. Treat it as unproven.
+/// Cuts the identity-break rate by roughly three quarters. Measured over 1,536
+/// live completions against the pinned Copilot CLI, using a fixture rebuilt to
+/// production scale and validated against the real rate before being trusted
+/// (its empty-slot arm scores within noise of production's 7/217 guided-flow-
+/// inactive turns):
 ///
-/// It ships for two reasons that do not depend on that number. The slot has
-/// always carried a task on guided turns and on the turn that retracts a guided
-/// flow, and was empty only on ordinary turns — an asymmetry with no reason
-/// behind it. And the arm's replies ground themselves in the athlete's own
-/// history rather than answering generically, which is what the wording asks
-/// for.
+/// - empty slot, as production ran until 2026-08-06: 50 / 768 = 6.51%
+/// - this block in the slot: 13 / 768 = 1.69%
+///
+/// Fisher exact two-tailed p = 1.9e-6; the absolute reduction is 4.8 points,
+/// 95% CI [2.9, 6.8]. With the bounded re-ask in
+/// `reask_after_identity_leak` on top, the turn-loss rate an athlete actually
+/// experiences goes from ~0.42% to ~0.03%.
+///
+/// Sample size was the whole difficulty. At 100 runs per arm the same
+/// comparison read 1/100 against 3/100 — p = 0.62, indistinguishable from
+/// nothing — and this comment previously said so. Separating a 6.5% rate from a
+/// 1.7% one needs hundreds of runs per arm, which is why every earlier attempt
+/// to settle this by eye or by a couple of dozen trials failed.
+///
+/// It would ship regardless of that number: the slot has always carried a task
+/// on guided turns and on the turn that retracts a guided flow, and was empty
+/// only on ordinary turns — an asymmetry with no reason behind it. The replies
+/// also ground themselves in the athlete's own history rather than answering
+/// generically, which is what the wording asks for.
 ///
 /// Deliberately contains NO identity assertion, no negation of the underlying
 /// assistant and no concealment rule. The [`IDENTITY_ANCHOR`] was present in
