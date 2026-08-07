@@ -119,6 +119,22 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
 fi
 
 # ============================================================================
+# TIER 0b: Inline Path Lint (compile-free)
+# ============================================================================
+# clippy::absolute_paths is denied workspace-wide but only reported by the
+# full-workspace clippy job ~12 minutes into CI. Grepping the diff finds the
+# same thing in under a second. Added after this rule alone caused three
+# separate red-then-fix-then-wait cycles on 2026-08-07.
+if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -x "$PROJECT_ROOT/scripts/ci/check-inline-paths.sh" ]]; then
+    echo "Tier 0b: Inline Path Lint"
+    echo "--------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-inline-paths.sh" "$BASE_REF"; then
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 1: Architectural Validation
 # ============================================================================
 if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/architectural-validation.sh" ]]; then
