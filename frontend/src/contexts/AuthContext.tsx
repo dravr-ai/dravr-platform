@@ -110,6 +110,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const response = await authApi.login({ email, password });
+    // Re-arm the logout guard for this new session. logout() latches it and
+    // never releases it, so that a burst of 401s from a dead session collapses
+    // into a single logout; a successful login is what makes a future logout
+    // meaningful again.
+    isLoggingOutRef.current = false;
     // OAuth2 ROPC response uses access_token, csrf_token, and user
     const { access_token, csrf_token, user: userData } = response;
 
@@ -180,7 +185,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .finally(() => {
         localStorage.removeItem(STORAGE_KEYS.USER);
-        isLoggingOutRef.current = false;
+        // Deliberately NOT clearing isLoggingOutRef here. Releasing it when the
+        // POST settles only guards against CONCURRENT re-entry, while the 401s
+        // that trigger logout arrive sequentially — each later one found the
+        // flag clear and fired another full logout (5 observed against a dead
+        // session). Once logout has begun, further auth failures are redundant;
+        // login() re-arms the flag for the next session.
       });
   }, [impersonation.isImpersonating]);
 

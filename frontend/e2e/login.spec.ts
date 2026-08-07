@@ -386,3 +386,55 @@ test.describe('Login Page - Accessibility', () => {
     await expect(page.getByRole('button', { name: /signing in/i })).toBeDisabled();
   });
 });
+
+test.describe('Stale cached session — logout storm', () => {
+  // Regression: AuthContext optimistically renders a `dravr.user` cached in
+  // localStorage before the cookie session is validated, so isAuthenticated
+  // flips true and the guarded queries fire. Against a backend that no longer
+  // knows the session (expired cookie, or a reset dev DB) every one of those
+  // 401s raised `pierre:auth:failure`. The isLoggingOutRef guard released in
+  // logout()'s .finally(), so it only blocked CONCURRENT re-entry — each later
+  // 401 found the flag clear and fired another full logout. Observed live: 5
+  // POST /api/auth/logout on a page where nobody had logged in.
+  test('a stale cached user with a dead session logs out exactly once', async ({ page }) => {
+    let logoutCalls = 0;
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'pierre_user',
+        JSON.stringify({
+          id: 'stale-1',
+          user_id: 'stale-1',
+          email: 'stale@pierre.dev',
+          display_name: 'Stale Session',
+          role: 'user',
+          is_admin: false,
+          user_status: 'active',
+          tenant_id: 'stale-1',
+        }),
+      );
+    });
+
+    // Backend no longer recognises the session.
+    await page.route('**/api/auth/session', (route) =>
+      route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
+    );
+    await page.route('**/api/me/onboarding-status', (route) =>
+      route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
+    );
+    await page.route('**/api/auth/logout', async (route) => {
+      logoutCalls += 1;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    await page.goto('/');
+    // Settle: the login form is what a cleared session must land on.
+    await page.waitForSelector('form', { timeout: 10_000 });
+    await page.waitForTimeout(1500);
+
+    expect(
+      logoutCalls,
+      `expected at most one logout for a dead session, got ${logoutCalls}`,
+    ).toBeLessThanOrEqual(1);
+  });
+});

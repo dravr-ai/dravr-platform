@@ -72,6 +72,43 @@ async function loginAndNavigateToAnalytics(page: Page) {
   await page.waitForTimeout(500);
 }
 
+/**
+ * Stub the LLM consumption endpoint with a free-tier row (`cost_usd: 0`)
+ * alongside a paid one. Path and response shape captured from the live
+ * server — GET /admin/usage/llm-consumption?days=N.
+ */
+async function setupLlmConsumptionMocks(page: Page) {
+  await page.route('**/admin/usage/llm-consumption*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: { total_tokens: 48_677, total_calls: 45, estimated_cost_usd: 0.48 },
+        daily_series: [{ date: '2026-08-01', tokens: 48_677, calls: 45, cost_usd: 0.48 }],
+        breakdown: [
+          {
+            provider: 'gemini',
+            model: 'gemini-2.5-pro-preview',
+            call_type: 'chat',
+            total_tokens: 19_289,
+            calls: 31,
+            cost_usd: 0.48,
+          },
+          {
+            // Free-tier model — the server really does return exactly 0.0 here.
+            provider: 'groq',
+            model: 'llama-3.1-8b-instant',
+            call_type: 'chat',
+            total_tokens: 29_388,
+            calls: 14,
+            cost_usd: 0,
+          },
+        ],
+      }),
+    });
+  });
+}
+
 test.describe('Analytics Tab', () => {
   test('renders Analytics tab with all main sections', async ({ page }) => {
     await setupAnalyticsMocks(page);
@@ -250,5 +287,30 @@ test.describe('Analytics Tab - Chart Interactions', () => {
     await expect(toolItem).toBeVisible();
     // Hover over item to verify it's interactive
     await toolItem.hover();
+  });
+});
+
+test.describe('Analytics Tab - LLM cost formatting', () => {
+  // Regression: formatCost() in LlmConsumptionPanel.tsx branched on `usd < 0.01`
+  // to give sub-cent costs extra precision, which is right for a genuinely tiny
+  // value (0.003 -> "$0.0030") but wrong at exactly zero: free-tier models
+  // (llama-3.1-8b-instant, gemini-2.0-flash-exp) return cost_usd: 0.0 and
+  // rendered as "$0.0000" — four zeros sitting in a money column next to
+  // "$0.48". Verified against the live server: those rows really are 0.0, not
+  // small non-zero values.
+  test('a free-tier row renders $0.00, not $0.0000, beside paid rows', async ({ page }) => {
+    await setupAnalyticsMocks(page);
+    await setupLlmConsumptionMocks(page);
+    await loginAndNavigateToAnalytics(page);
+
+    const details = page.getByText('Consumption Details').locator('..');
+    await expect(details).toBeVisible();
+
+    // The paid row keeps 2-decimal formatting.
+    await expect(details.getByText('$0.48', { exact: true })).toBeVisible();
+
+    // The zero-cost row must match that precision, not spill to 4 decimals.
+    await expect(details.getByText('$0.00', { exact: true })).toBeVisible();
+    await expect(page.getByText('$0.0000')).toHaveCount(0);
   });
 });

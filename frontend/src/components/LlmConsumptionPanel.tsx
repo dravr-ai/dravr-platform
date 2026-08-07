@@ -35,8 +35,19 @@ function formatTokens(count: number): string {
   return count.toLocaleString();
 }
 
-/** Format USD cost for display */
+/**
+ * Format USD cost for display.
+ *
+ * Sub-cent costs get four decimals so a real-but-tiny spend stays visible
+ * instead of collapsing to "$0.00". Exactly zero is not a tiny spend though —
+ * free-tier models (llama-3.1-8b-instant, gemini-2.0-flash-exp) report
+ * `cost_usd: 0.0`, and rendering those as "$0.0000" puts four zeros in a money
+ * column beside two-decimal figures for no added information.
+ */
 function formatCost(usd: number): string {
+  if (usd === 0) {
+    return '$0.00';
+  }
   if (usd < 0.01) {
     return `$${usd.toFixed(4)}`;
   }
