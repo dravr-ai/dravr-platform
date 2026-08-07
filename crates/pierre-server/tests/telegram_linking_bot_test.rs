@@ -26,6 +26,8 @@
 #![allow(missing_docs)]
 
 use std::env;
+use std::fs;
+use std::path::Path;
 
 use serde_json::json;
 
@@ -77,10 +79,10 @@ fn an_at_prefixed_handle_is_normalised() {
 
 /// With nothing configured, resolution must FAIL rather than pick a name.
 ///
-/// This is the regression that matters. The assertion is not "the result is not
-/// PierreBot" but "there is no result at all" — any default, however
-/// harmless-looking, is an account-binding code aimed at a bot we do not
-/// control.
+/// This is the regression that matters. The assertion is not that the result
+/// differs from the old default, but that there is no result at all — any
+/// default, however harmless-looking, is an account-binding code aimed at a
+/// bot we do not control.
 #[test]
 fn an_unconfigured_bot_username_yields_no_url() {
     env::remove_var(ENV_VAR);
@@ -128,8 +130,8 @@ fn the_env_var_supplies_the_handle_when_config_does_not() {
 /// default — fails here even if it routes around the resolver entirely.
 #[test]
 fn the_third_party_bot_appears_nowhere_in_the_linking_source() {
-    let source = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/routes/messaging/linking.rs"),
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/routes/messaging/linking.rs"),
     )
     .expect("read linking.rs");
 
