@@ -30,6 +30,7 @@ mod messaging_routes_tests {
     use pierre_core::models::ConnectionType;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
+    use std::env;
     use std::sync::Arc;
 
     // ════════════════════════════════════════════════════════════════
@@ -232,7 +233,7 @@ mod messaging_routes_tests {
         // dropped. This test used to pass without setting anything because
         // `build_linking_url` defaulted to a third-party bot; that fallback is
         // gone, so the handle now has to come from somewhere real.
-        std::env::set_var("PIERRE_TELEGRAM_BOT_USERNAME", "DravrTestBot");
+        env::set_var("PIERRE_TELEGRAM_BOT_USERNAME", "DravrTestBot");
         let (router, token) = setup_messaging_router().await;
 
         AxumTestRequest::put("/api/messaging/channels/telegram")
