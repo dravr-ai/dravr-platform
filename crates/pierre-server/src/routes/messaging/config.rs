@@ -255,6 +255,22 @@ pub async fn upsert_channel_config(
     let phone_number = creds.get("phone_number").and_then(|v| v.as_str());
     let bot_token = creds.get("bot_token").and_then(|v| v.as_str());
 
+    // `bot_username` is NOT persisted: `messaging_channel_configs` has no such
+    // column, so a value sent here would be silently dropped. Say so instead of
+    // accepting it — a caller who believes they configured the Telegram handle
+    // and did not is exactly how every link URL ended up pointing at a
+    // third-party bot (see `linking.rs::telegram_bot_username`). The handle
+    // comes from PIERRE_TELEGRAM_BOT_USERNAME until there is a column to hold
+    // it.
+    if creds.get("bot_username").is_some() {
+        return Err(AppError::invalid_input(
+            "bot_username cannot be stored in channel credentials — there is no \
+             column for it, so it would be silently discarded. Set the \
+             PIERRE_TELEGRAM_BOT_USERNAME environment variable on the server \
+             instead.",
+        ));
+    }
+
     let params = UpsertChannelConfigParams {
         id: &id,
         tenant_id,

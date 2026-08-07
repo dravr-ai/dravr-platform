@@ -156,7 +156,7 @@ mod messaging_routes_tests {
             .header("authorization", &token)
             .json(&json!({
                 "enabled": true,
-                "credentials": { "bot_token": "12345:ABC-DEF", "bot_username": "DravrTestBot" }
+                "credentials": { "bot_token": "12345:ABC-DEF" }
             }))
             .send(router.clone())
             .await;
@@ -199,7 +199,7 @@ mod messaging_routes_tests {
             .header("authorization", &token)
             .json(&json!({
                 "enabled": false,
-                "credentials": { "bot_token": "12345:ABC-DEF", "bot_username": "DravrTestBot" }
+                "credentials": { "bot_token": "12345:ABC-DEF" }
             }))
             .send(router.clone())
             .await;
@@ -224,13 +224,22 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_link_init_deep_link_returns_qr_svg() {
+        // The Telegram bot handle comes from PIERRE_TELEGRAM_BOT_USERNAME, not
+        // from the credentials blob below. The channel-config write path
+        // persists api_key / api_secret / webhook_secret / verify_token /
+        // account_id / phone_number / bot_token — there is no `bot_username`
+        // column, so a `bot_username` sent in credentials is accepted and
+        // dropped. This test used to pass without setting anything because
+        // `build_linking_url` defaulted to a third-party bot; that fallback is
+        // gone, so the handle now has to come from somewhere real.
+        std::env::set_var("PIERRE_TELEGRAM_BOT_USERNAME", "DravrTestBot");
         let (router, token) = setup_messaging_router().await;
 
         AxumTestRequest::put("/api/messaging/channels/telegram")
             .header("authorization", &token)
             .json(&json!({
                 "enabled": true,
-                "credentials": { "bot_token": "12345:ABC-DEF", "bot_username": "DravrTestBot" }
+                "credentials": { "bot_token": "12345:ABC-DEF" }
             }))
             .send(router.clone())
             .await;
