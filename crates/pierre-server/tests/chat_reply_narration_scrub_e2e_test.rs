@@ -36,7 +36,9 @@ mod helpers;
 
 #[cfg(feature = "client-messaging")]
 mod reply_narration_scrub {
-    use crate::common::create_test_server_resources_with_llm;
+    use crate::common::{
+        create_test_server_resources_with_chat_provider, create_test_server_resources_with_llm,
+    };
     use crate::helpers::axum_test::AxumTestRequest;
     use async_trait::async_trait;
     use axum::http::StatusCode;
@@ -974,10 +976,34 @@ mod reply_narration_scrub {
         email: &str,
         sender: &str,
     ) -> Option<String> {
+        drive_slack_turn(provider, email, sender, false).await
+    }
+
+    /// Same turn, but the provider arrives the way production supplies it.
+    async fn run_one_slack_turn_via_chat_provider(
+        provider: Arc<dyn LlmProvider>,
+        email: &str,
+        sender: &str,
+    ) -> Option<String> {
+        drive_slack_turn(provider, email, sender, true).await
+    }
+
+    async fn drive_slack_turn(
+        provider: Arc<dyn LlmProvider>,
+        email: &str,
+        sender: &str,
+        as_chat_provider: bool,
+    ) -> Option<String> {
         env::set_var("PIERRE_LLM_MODEL", "mock-model");
-        let resources = create_test_server_resources_with_llm(provider)
-            .await
-            .unwrap();
+        let resources = if as_chat_provider {
+            create_test_server_resources_with_chat_provider(provider)
+                .await
+                .unwrap()
+        } else {
+            create_test_server_resources_with_llm(provider)
+                .await
+                .unwrap()
+        };
         let (admin_user_id, tenant_id) = create_admin_user_in_tenant(&resources, email).await;
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
@@ -1072,6 +1098,48 @@ mod reply_narration_scrub {
             calls.load(Ordering::SeqCst),
             2,
             "exactly one re-ask: the turn's own completion plus one retry"
+        );
+    }
+
+    /// The re-ask must fire under PRODUCTION provider wiring, not just test wiring.
+    ///
+    /// This is the test whose absence let the re-ask ship inert. The two tests
+    /// above use `create_test_server_resources_with_llm`, which sets
+    /// `llm_provider` — but `pierre-mcp-server.rs` sets `llm_provider: None`
+    /// and supplies a `ChatProvider` instead. The first implementation read
+    /// `ctx.llm_provider` directly, so it returned early on every live turn
+    /// while both tests stayed green.
+    ///
+    /// Identical mock and assertions to
+    /// `a_leaked_reply_is_reasked_and_the_clean_answer_delivered`; the ONLY
+    /// difference is which seam the provider arrives through. It fails against
+    /// the original implementation and passes against the factory-resolved one.
+    #[tokio::test]
+    #[serial]
+    async fn the_reask_fires_when_the_provider_is_wired_as_production_wires_it() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mock = Arc::new(LeakThenRecoverMockProvider {
+            calls: Arc::clone(&calls),
+        });
+
+        let reply = run_one_slack_turn_via_chat_provider(
+            mock,
+            "reask-prodwiring@example.com",
+            "U_REASK_PROD",
+        )
+        .await
+        .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        assert!(
+            reply.contains("dénivelé négatif") || reply.contains(REASK_COACHING),
+            "with production wiring the re-ask must still deliver the clean answer; \
+             a withhold here means it resolved no provider and returned early — \
+             got: {reply:?}"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "the re-ask must actually run under production wiring"
         );
     }
 

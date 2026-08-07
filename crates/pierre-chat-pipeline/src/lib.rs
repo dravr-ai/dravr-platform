@@ -82,6 +82,7 @@ use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
 };
+use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::memory_extraction::{
     spawn_extract_for_turn, SpawnedExtractionRequest, WITHHELD_REPLY_TRANSCRIPT_MARKER,
 };
@@ -617,8 +618,25 @@ async fn reask_after_identity_leak(
     if narration::identity_leak_match(&result.content).is_none() {
         return;
     }
-    let Some(provider) = ctx.llm_provider.as_ref() else {
-        return;
+    // Resolve through the same factory Stage 11 dispatch uses. Reading
+    // `ctx.llm_provider` directly makes this whole function dead code in
+    // production: the server binary sets `llm_provider: None` and wires
+    // `chat_provider` instead, so the early return fired on every live turn
+    // while both e2e tests stayed green — they inject through the very seam
+    // production leaves empty. Anything that resolves a provider must go
+    // through this factory.
+    let provider = match chat_provider_from_resources_arc(
+        ctx.chat_provider.as_ref(),
+        ctx.llm_provider.as_ref(),
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(
+                error = %e,
+                "re-ask after a model-identity leak found no provider; withholding as before"
+            );
+            return;
+        }
     };
 
     let request = ChatRequest::new(llm_messages.to_vec()).with_model(active_model);

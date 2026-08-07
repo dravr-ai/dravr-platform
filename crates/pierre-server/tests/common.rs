@@ -37,6 +37,7 @@ use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_database::backends::DatabaseProvider;
 use pierre_database::database::generate_encryption_key;
+use pierre_llm::ChatProvider;
 use pierre_mcp_server::{
     constants,
     mcp::resources::{ServerContext, ServerContextOptions},
@@ -470,10 +471,36 @@ pub async fn create_test_server_resources_with_config(
     create_test_server_resources_inner(None, Vec::new(), Some(config)).await
 }
 
+/// Wire the mock the way PRODUCTION wires a provider: `chat_provider` set,
+/// `llm_provider` left `None`.
+///
+/// [`create_test_server_resources_with_llm`] does the opposite, and the
+/// difference is not cosmetic. `pierre-mcp-server.rs` sets
+/// `llm_provider: None` and supplies a `ChatProvider`, so any pipeline code
+/// that reads `ctx.llm_provider` directly is dead in production while passing
+/// every test that uses the `with_llm` helper. That is exactly how the bounded
+/// identity re-ask shipped inert in 48175a705 — two green e2e tests, zero live
+/// executions. Tests covering code that resolves a provider should use THIS
+/// helper.
+pub async fn create_test_server_resources_with_chat_provider(
+    provider: Arc<dyn LlmProvider + 'static>,
+) -> Result<Arc<ServerContext>> {
+    create_test_server_resources_inner_full(None, Vec::new(), None, Some(provider)).await
+}
+
 async fn create_test_server_resources_inner(
     llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
     config_override: Option<ServerConfig>,
+) -> Result<Arc<ServerContext>> {
+    create_test_server_resources_inner_full(llm_provider, extra_tools, config_override, None).await
+}
+
+async fn create_test_server_resources_inner_full(
+    llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
+    extra_tools: Vec<Arc<dyn RuntimeTool>>,
+    config_override: Option<ServerConfig>,
+    as_chat_provider: Option<Arc<dyn LlmProvider + 'static>>,
 ) -> Result<Arc<ServerContext>> {
     init_test_logging();
     init_test_http_clients();
@@ -525,7 +552,7 @@ async fn create_test_server_resources_inner(
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(jwks_manager),
                 llm_provider,
-                chat_provider: None,
+                chat_provider: as_chat_provider.map(|p| Arc::new(ChatProvider::Custom(p))),
                 extra_tools,
                 billing_provider: None,
             },
