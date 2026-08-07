@@ -77,7 +77,9 @@ use pierre_database::repositories::ChatRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
-use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, LlmProvider, McpServerConfig};
+use pierre_llm::{
+    ChatMessage, ChatProvider, ChatRequest, ChatResponse, LlmProvider, McpServerConfig,
+};
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
@@ -618,29 +620,47 @@ async fn reask_after_identity_leak(
     if narration::identity_leak_match(&result.content).is_none() {
         return;
     }
-    // Resolve through the same factory Stage 11 dispatch uses. Reading
-    // `ctx.llm_provider` directly makes this whole function dead code in
-    // production: the server binary sets `llm_provider: None` and wires
-    // `chat_provider` instead, so the early return fired on every live turn
-    // while both e2e tests stayed green — they inject through the very seam
-    // production leaves empty. Anything that resolves a provider must go
-    // through this factory.
-    let provider = match chat_provider_from_resources_arc(
-        ctx.chat_provider.as_ref(),
-        ctx.llm_provider.as_ref(),
-    ) {
-        Ok(p) => p,
+    let Some(provider) = resolve_reask_provider(ctx) else {
+        return;
+    };
+    let request = ChatRequest::new(llm_messages.to_vec()).with_model(active_model);
+    apply_reask_outcome(provider.complete(&request).await, result);
+}
+
+/// Resolve the provider for a re-ask, or `None` after logging why not.
+///
+/// Goes through the same factory Stage 11 dispatch uses at
+/// `tool_dispatch.rs`. Reading `ctx.llm_provider` directly — as the first
+/// implementation did — makes the re-ask dead code in production: the server
+/// binary sets `llm_provider: None` and wires `chat_provider` instead, so the
+/// early return fired on every live turn while both e2e tests stayed green,
+/// because they inject through the very seam production leaves empty.
+/// Anything here that needs a provider must ask this factory for one.
+///
+/// A failure is a wiring bug rather than a transient condition, so it warns
+/// instead of returning silently.
+fn resolve_reask_provider(ctx: &ChatPipelineContext) -> Option<Arc<ChatProvider>> {
+    match chat_provider_from_resources_arc(ctx.chat_provider.as_ref(), ctx.llm_provider.as_ref()) {
+        Ok(provider) => Some(provider),
         Err(e) => {
             warn!(
                 error = %e,
                 "re-ask after a model-identity leak found no provider; withholding as before"
             );
-            return;
+            None
         }
-    };
+    }
+}
 
-    let request = ChatRequest::new(llm_messages.to_vec()).with_model(active_model);
-    match provider.complete(&request).await {
+/// Take the re-ask's reply if it is clean; otherwise leave the withhold alone.
+///
+/// Split out purely to keep [`reask_after_identity_leak`] inside the
+/// cognitive-complexity budget; it adds no public API surface.
+fn apply_reask_outcome(
+    outcome: Result<ChatResponse, AppError>,
+    result: &mut chat_tool_loop::ToolLoopResult,
+) {
+    match outcome {
         Ok(response) if narration::identity_leak_match(&response.content).is_none() => {
             // Deliberately NOT `target: "notify"`. A notify event has to be
             // declared in dravr-contremaitre's catalogue, and the test that
