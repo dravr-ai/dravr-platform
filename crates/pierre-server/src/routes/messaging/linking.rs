@@ -19,6 +19,7 @@ use pierre_database::backends::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -101,20 +102,59 @@ pub fn generate_link_code() -> String {
         .collect()
 }
 
-/// Build the linking URL based on channel type and method
+/// The Telegram bot a link code must be sent to, or an error if unknown.
+///
+/// Sourced from the channel config, then `PIERRE_TELEGRAM_BOT_USERNAME` so a
+/// deployment can set it without a config write. There is deliberately no
+/// third fallback: a wrong bot name is an account-binding credential handed to
+/// a stranger, so "we do not know" has to surface as a failure the operator
+/// can see and fix.
+fn telegram_bot_username(config: &serde_json::Value) -> Result<String, AppError> {
+    config
+        .get("bot_username")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .or_else(|| env::var("PIERRE_TELEGRAM_BOT_USERNAME").ok())
+        .map(|name| name.trim_start_matches('@').to_owned())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            AppError::internal(
+                "Telegram bot username is not configured: set `bot_username` in the \
+                 channel credentials or PIERRE_TELEGRAM_BOT_USERNAME. Refusing to \
+                 guess — an incorrect bot name sends the athlete's one-time link \
+                 code to a third party who can then bind their account.",
+            )
+        })
+}
+
+/// Build the linking URL based on channel type and method.
 fn build_linking_url(
     channel_type: ChannelType,
     code: &str,
     config: &serde_json::Value,
     base_url: &str,
-) -> String {
+) -> Result<String, AppError> {
     match channel_type {
         ChannelType::Telegram => {
-            let bot_username = config
-                .get("bot_username")
-                .and_then(|v| v.as_str())
-                .unwrap_or("PierreBot");
-            format!("https://t.me/{bot_username}?start={code}")
+            // No fallback bot, deliberately. This used to default to
+            // "PierreBot" when the channel config carried no `bot_username` —
+            // and it always did, because the config write path never persists
+            // that key (see `config.rs`, which extracts api_key / api_secret /
+            // webhook_secret / verify_token / account_id / phone_number /
+            // bot_token and nothing else). So EVERY link pointed at
+            // https://t.me/PierreBot, which is a real bot belonging to a
+            // stranger.
+            //
+            // That is worse than a dead link. `detect_linking_code` +
+            // `execute_link_code` bind whoever sends the code to the requesting
+            // athlete's account inside the TTL, so pressing Start on that
+            // third-party bot hands an account-binding credential off-platform.
+            //
+            // Guessing a bot name is therefore never acceptable: an absent
+            // username must fail loudly rather than produce a plausible URL
+            // aimed at someone else's bot.
+            let bot_username = telegram_bot_username(config)?;
+            Ok(format!("https://t.me/{bot_username}?start={code}"))
         }
         ChannelType::WhatsApp => {
             let phone = config
@@ -123,12 +163,12 @@ fn build_linking_url(
                 .unwrap_or("");
             let message_text = format!("LINK {code}");
             let encoded_message = urlencoding::encode(&message_text);
-            format!("https://wa.me/{phone}?text={encoded_message}")
+            Ok(format!("https://wa.me/{phone}?text={encoded_message}"))
         }
         // OAuth channels return the full callback URL so callers get a usable absolute URL
-        ChannelType::Slack | ChannelType::Discord | ChannelType::Messenger => {
-            format!("{base_url}/api/messaging/link/callback/{channel_type}?state={code}")
-        }
+        ChannelType::Slack | ChannelType::Discord | ChannelType::Messenger => Ok(format!(
+            "{base_url}/api/messaging/link/callback/{channel_type}?state={code}"
+        )),
     }
 }
 
@@ -195,7 +235,7 @@ pub async fn init_channel_link(
         &code,
         &config,
         &resources.common.config.base_url,
-    );
+    )?;
     let expires_at_str = expires_at.to_rfc3339();
 
     info!(

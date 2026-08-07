@@ -323,8 +323,15 @@ export OAUTH_DEFAULT_EMAIL="user@example.com"
 export OAUTH_DEFAULT_PASSWORD="userpass123"
 
 # Admin user defaults (for setup scripts)
-export ADMIN_EMAIL="admin@pierre.mcp"
-export ADMIN_PASSWORD="adminpass123"
+# These MUST match the seeder's own defaults — `admin_email` in
+# crates/pierre-seeders/src/bootstrap.rs and ADMIN_EMAIL/ADMIN_PASSWORD in
+# bin/setup-db-with-seeds-and-oauth-and-start-servers.sh. This block previously
+# named admin@pierre.mcp / adminpass123, and anyone who exported it got a
+# database whose admin did not match README.md, AGENTS.md or CLAUDE.md — which
+# is exactly what happened to the dev database on 2026-08-04, leaving the
+# documented login unusable for three days.
+export ADMIN_EMAIL="admin@example.com"
+export ADMIN_PASSWORD="AdminPassword123"
 ```
 
 ## Frontend Configuration
