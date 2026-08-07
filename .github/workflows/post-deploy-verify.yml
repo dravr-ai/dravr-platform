@@ -1,0 +1,166 @@
+# ABOUTME: Post-deploy verification — reads the deployed revision, traffic split and error counts
+# ABOUTME: Exists because a green deploy job proves the rollout ran, not that the service is healthy after it
+#
+# A successful `Deploy: Build & Ship (dev)` means the image built and Cloud Run
+# accepted the revision. It says nothing about what the service did in the
+# minutes after traffic moved — a revision can deploy cleanly and then panic on
+# its first real request.
+#
+# Checking that from a laptop needs `gcloud auth login`, which cannot be done
+# non-interactively, so post-deploy verification has been skipped whenever the
+# operator's local credentials had expired. This workflow does it with the same
+# Workload Identity credentials the deploy itself uses, so the check is always
+# available and always uses an identity that is guaranteed current.
+#
+# Read-only by construction: it describes the service and reads logs. It never
+# deploys, never mutates traffic, and never touches a secret.
+
+name: "Monitor: Post-Deploy Verification (dev)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How many minutes back to scan for errors"
+        required: false
+        default: "60"
+  workflow_run:
+    workflows: ["Deploy: Build & Ship (dev)"]
+    types: [completed]
+
+concurrency:
+  group: post-deploy-verify
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    name: Verify the deployed revision is healthy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # On workflow_run, only verify a deploy that actually succeeded — verifying
+    # after a failed rollout would report the PREVIOUS revision as healthy and
+    # read as confirmation that the failed deploy was fine.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Serving revision and traffic split
+        id: revision
+        run: |
+          set -euo pipefail
+          SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-api"
+          REGION="${{ vars.GCP_DEV_CLOUD_RUN_REGION }}"
+
+          echo "## Serving revision" >> "$GITHUB_STEP_SUMMARY"
+          gcloud run services describe "$SERVICE" \
+            --region="$REGION" \
+            --format='value(status.latestReadyRevisionName)' | tee /tmp/rev.txt
+          REV="$(cat /tmp/rev.txt)"
+          echo "- revision: \`${REV}\`" >> "$GITHUB_STEP_SUMMARY"
+
+          # A pinned traffic split is a known hazard: it silently strands every
+          # later deploy on an old revision.
+          gcloud run services describe "$SERVICE" \
+            --region="$REGION" \
+            --format='value(status.traffic)' | tee /tmp/traffic.txt
+          echo "- traffic: \`$(cat /tmp/traffic.txt)\`" >> "$GITHUB_STEP_SUMMARY"
+
+          if grep -q "revisionName" /tmp/traffic.txt; then
+            echo "::warning::Traffic appears pinned to a specific revision — new deploys will not serve."
+          fi
+          echo "revision=${REV}" >> "$GITHUB_OUTPUT"
+
+      - name: Error, panic and 5xx counts since the deploy
+        id: errors
+        run: |
+          set -euo pipefail
+          MINS="${{ github.event.inputs.minutes || '60' }}"
+          SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-api"
+          FRESH="${MINS}m"
+
+          count() {
+            gcloud logging read "$1" --freshness="$FRESH" --limit=1000 \
+              --format='value(timestamp)' 2>/dev/null | grep -c . || true
+          }
+
+          ERRORS=$(count "severity>=ERROR AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${SERVICE}\"")
+          PANICS=$(count "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${SERVICE}\" AND textPayload:\"panicked at\"")
+          HTTP5XX=$(count "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${SERVICE}\" AND httpRequest.status>=500")
+
+          {
+            echo "## Health in the last ${MINS} minutes"
+            echo "| signal | count |"
+            echo "|---|---:|"
+            echo "| ERROR-severity lines | ${ERRORS} |"
+            echo "| panics | ${PANICS} |"
+            echo "| 5xx responses | ${HTTP5XX} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "errors=${ERRORS}" >> "$GITHUB_OUTPUT"
+          echo "panics=${PANICS}" >> "$GITHUB_OUTPUT"
+          echo "http5xx=${HTTP5XX}" >> "$GITHUB_OUTPUT"
+
+          # Panics and 5xx are unambiguous failures. ERROR-severity lines are
+          # reported but not failed on: the platform logs recoverable
+          # provider-side conditions at ERROR, so a nonzero count is expected
+          # and gating on it would make this check noise.
+          if [ "${PANICS}" -gt 0 ] || [ "${HTTP5XX}" -gt 0 ]; then
+            echo "::error::Deployed revision is unhealthy: ${PANICS} panic(s), ${HTTP5XX} 5xx response(s)."
+            exit 1
+          fi
+
+      - name: Sample the recent ERROR lines
+        if: steps.errors.outputs.errors != '0'
+        run: |
+          set -euo pipefail
+          MINS="${{ github.event.inputs.minutes || '60' }}"
+          SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-api"
+          {
+            echo "### ERROR-line sample"
+            echo '```'
+            gcloud logging read \
+              "severity>=ERROR AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${SERVICE}\"" \
+              --freshness="${MINS}m" --limit=15 \
+              --format='value(timestamp,jsonPayload.message,textPayload)' 2>/dev/null | cut -c1-200
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Live endpoint probe
+        run: |
+          set -euo pipefail
+          SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-frontend"
+          REGION="${{ vars.GCP_DEV_CLOUD_RUN_REGION }}"
+          URL="$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')"
+
+          echo "## Live probe — ${URL}" >> "$GITHUB_STEP_SUMMARY"
+          FAILED=0
+          for path in /health /admin/health /.well-known/oauth-protected-resource; do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${URL}${path}")"
+            echo "- \`${path}\` → ${CODE}" >> "$GITHUB_STEP_SUMMARY"
+            [ "$CODE" = "200" ] || FAILED=1
+          done
+
+          # An unauthenticated tools/list must be refused with the RFC 9728
+          # challenge, never served. A 200 here is an auth regression.
+          MCP="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "${URL}/mcp" \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')"
+          echo "- \`POST /mcp\` (unauthenticated) → ${MCP}" >> "$GITHUB_STEP_SUMMARY"
+          [ "$MCP" = "401" ] || { echo "::error::POST /mcp returned ${MCP}, expected 401."; FAILED=1; }
+
+          [ "$FAILED" = "0" ] || { echo "::error::Live endpoint probe failed."; exit 1; }
+          echo "✅ Deployed revision \`${{ steps.revision.outputs.revision }}\` is serving and healthy." >> "$GITHUB_STEP_SUMMARY"
