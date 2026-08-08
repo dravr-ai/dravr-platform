@@ -265,7 +265,12 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
           <div>
             <span className="text-sm text-on-surface-variant">Usage Count</span>
             <div className="text-xl font-semibold text-on-surface mt-1">
-              {token.usage_count.toLocaleString()}
+              {/* Defensive despite `usage_count` being non-optional in
+                  shared-types: the server omitted it entirely for months and
+                  the required type is exactly why neither side caught it. An
+                  unguarded deref here throws past this component to the root
+                  ErrorBoundary and blanks the whole SPA. */}
+              {(token.usage_count ?? 0).toLocaleString()}
             </div>
           </div>
           <div>
@@ -314,7 +319,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                 {token.is_super_admin ? (
                   <Badge variant="enterprise">All Permissions (Super Admin)</Badge>
                 ) : (
-                  token.permissions.map(permission => (
+                  (token.permissions ?? []).map(permission => (
                     <Badge key={permission} variant="info">
                       {permission.replace(/_/g, ' ')}
                     </Badge>

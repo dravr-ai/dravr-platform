@@ -148,17 +148,28 @@ struct AdminTokensResponse {
     total_count: usize,
 }
 
-/// Admin token summary for listing
+/// Admin token summary for listing.
+///
+/// Mirrors the `AdminToken` interface in `packages/shared-types/src/admin.ts`,
+/// which the web console consumes. `permissions` and `usage_count` are declared
+/// non-optional there, so omitting them here did not fail type-checking on
+/// either side — it failed at runtime, when `ApiKeyDetails` dereferenced
+/// `usage_count.toLocaleString()` on `undefined` and took the whole SPA down
+/// through the root `ErrorBoundary`. `permissions` is emitted as a flat array via
+/// `to_vec()` rather than the wrapper struct's `{ permissions: [...] }` shape,
+/// because that array is what the client's `permissions.map()` expects.
 #[derive(Serialize)]
 struct AdminTokenSummary {
     id: String,
     service_name: String,
     service_description: Option<String>,
+    permissions: Vec<AdminPermission>,
     is_active: bool,
     is_super_admin: bool,
     created_at: String,
     expires_at: Option<String>,
     last_used_at: Option<String>,
+    usage_count: u64,
     token_prefix: Option<String>,
 }
 
@@ -734,6 +745,13 @@ impl WebAdminRoutes {
     ) -> Result<Response, AppError> {
         // Authenticate and verify admin status
         let auth = Self::authenticate_admin(&headers, &resources).await?;
+        // Admin tokens are credentials for the whole platform, including
+        // super-admin service tokens. `authenticate_admin` only proves *an*
+        // admin role, so without this a tenant-scoped admin could enumerate and
+        // revoke a super-admin token — privilege escalation by deletion. The
+        // programmatic twin (pierre-routes-admin) has always gated this; this
+        // cookie-auth surface had drifted.
+        admin_ops::require_super_admin(auth.user_id, &resources.data).await?;
 
         info!(
             user_id = %auth.user_id,
@@ -755,11 +773,13 @@ impl WebAdminRoutes {
                 id: token.id.clone(),
                 service_name: token.service_name.clone(),
                 service_description: token.service_description.clone(),
+                permissions: token.permissions.to_vec(),
                 is_active: token.is_active,
                 is_super_admin: token.is_super_admin,
                 created_at: token.created_at.to_rfc3339(),
                 expires_at: token.expires_at.map(|d| d.to_rfc3339()),
                 last_used_at: token.last_used_at.map(|d| d.to_rfc3339()),
+                usage_count: token.usage_count,
                 token_prefix: Some(token.token_prefix.clone()),
             })
             .collect();
@@ -947,6 +967,8 @@ impl WebAdminRoutes {
         Path(token_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
+        // Same escalation risk as the list handler — see the note there.
+        admin_ops::require_super_admin(auth.user_id, &resources.data).await?;
 
         info!(
             user_id = %auth.user_id,
@@ -968,11 +990,13 @@ impl WebAdminRoutes {
                 id: token.id,
                 service_name: token.service_name,
                 service_description: token.service_description,
+                permissions: token.permissions.to_vec(),
                 is_active: token.is_active,
                 is_super_admin: token.is_super_admin,
                 created_at: token.created_at.to_rfc3339(),
                 expires_at: token.expires_at.map(|d| d.to_rfc3339()),
                 last_used_at: token.last_used_at.map(|d| d.to_rfc3339()),
+                usage_count: token.usage_count,
                 token_prefix: Some(token.token_prefix),
             }),
         )
@@ -986,6 +1010,10 @@ impl WebAdminRoutes {
         Path(token_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
+        // The sharpest edge of the three: revoking a super-admin service token
+        // is a denial-of-service against the platform's own operators, and it
+        // was reachable by any admin-role account. See the list handler.
+        admin_ops::require_super_admin(auth.user_id, &resources.data).await?;
 
         info!(
             user_id = %auth.user_id,
