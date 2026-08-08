@@ -106,7 +106,7 @@ pub fn generate_link_code() -> String {
 
 /// Cache of bot token -> username, so `getMe` is called once per token rather
 /// than once per link request. A bot's username changes only when an operator
-/// renames it in BotFather, and a stale entry would send codes to a handle that
+/// renames it in `BotFather`, and a stale entry would send codes to a handle that
 /// no longer resolves, so the process lifetime is the right bound: a redeploy
 /// re-reads it.
 static TELEGRAM_BOT_USERNAMES: LazyLock<RwLock<HashMap<String, String>>> =
@@ -122,7 +122,7 @@ static TELEGRAM_BOT_USERNAMES: LazyLock<RwLock<HashMap<String, String>>> =
 /// That matters more here than it usually would. This URL is where the athlete
 /// sends a one-time code that binds whoever sends it to their account, so a
 /// wrong handle is not a broken link, it is a credential disclosure. The
-/// previous implementation defaulted to a hardcoded "PierreBot" — a real bot
+/// previous implementation defaulted to a hardcoded `PierreBot` — a real bot
 /// belonging to a stranger — and every link went there, because the config
 /// write path never persisted a `bot_username` for the default to fall back
 /// from. An environment variable would have fixed that instance while leaving
