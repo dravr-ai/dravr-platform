@@ -227,15 +227,15 @@ fn slice_between<'a>(source: &'a str, from: &str, to: &str) -> &'a str {
 /// something a test can arrange.
 #[test]
 fn the_reask_resolves_its_provider_the_same_way_dispatch_does() {
+    const RESOLVER: &str =
+        "chat_provider_from_resources_arc(ctx.chat_provider.as_ref(), ctx.llm_provider.as_ref())";
+
     let pipeline = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
         .expect("read lib.rs");
     let dispatch = fs::read_to_string(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/stages/tool_dispatch.rs"),
     )
     .expect("read tool_dispatch.rs");
-
-    const RESOLVER: &str =
-        "chat_provider_from_resources_arc(ctx.chat_provider.as_ref(), ctx.llm_provider.as_ref())";
 
     assert!(
         dispatch.contains(RESOLVER),
