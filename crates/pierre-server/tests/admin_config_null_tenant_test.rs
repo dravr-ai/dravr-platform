@@ -78,7 +78,7 @@ async fn seed_admin(db: &Database) -> String {
 /// Create a real tenant row and return its id.
 ///
 /// `admin_config_overrides.tenant_id` carries a foreign key, so a scoped
-/// override cannot reference an invented uuid — it fails with SQLite error 787
+/// override cannot reference an invented uuid — it fails with `SQLite` error 787
 /// rather than exercising the upsert this test is about.
 async fn seed_tenant(db: &Database, owner_user_id: &str) -> String {
     let tenant_id = TenantId::new();
