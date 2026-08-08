@@ -19,9 +19,10 @@ use pierre_database::backends::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::env;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::{LazyLock, RwLock};
 use tokio::task::spawn_blocking;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -29,6 +30,7 @@ use uuid::Uuid;
 use super::templates;
 use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
+use pierre_config::utils::http_client::shared_client;
 use pierre_core::errors::AppError;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
@@ -102,33 +104,89 @@ pub fn generate_link_code() -> String {
         .collect()
 }
 
-/// The Telegram bot a link code must be sent to, or an error if unknown.
+/// Cache of bot token -> username, so `getMe` is called once per token rather
+/// than once per link request. A bot's username changes only when an operator
+/// renames it in BotFather, and a stale entry would send codes to a handle that
+/// no longer resolves, so the process lifetime is the right bound: a redeploy
+/// re-reads it.
+static TELEGRAM_BOT_USERNAMES: LazyLock<RwLock<HashMap<String, String>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// The Telegram bot a link code must be sent to.
 ///
-/// Sourced from the channel config, then `PIERRE_TELEGRAM_BOT_USERNAME` so a
-/// deployment can set it without a config write. There is deliberately no
-/// third fallback: a wrong bot name is an account-binding credential handed to
-/// a stranger, so "we do not know" has to surface as a failure the operator
-/// can see and fix.
-fn telegram_bot_username(config: &serde_json::Value) -> Result<String, AppError> {
-    config
-        .get("bot_username")
+/// Asked of Telegram, not configured. `getMe` returns the username belonging to
+/// the bot token we already store, which makes the answer correct by
+/// construction — there is no value for an operator to set, mistype, or leave
+/// stale, and no second place for it to drift from.
+///
+/// That matters more here than it usually would. This URL is where the athlete
+/// sends a one-time code that binds whoever sends it to their account, so a
+/// wrong handle is not a broken link, it is a credential disclosure. The
+/// previous implementation defaulted to a hardcoded "PierreBot" — a real bot
+/// belonging to a stranger — and every link went there, because the config
+/// write path never persisted a `bot_username` for the default to fall back
+/// from. An environment variable would have fixed that instance while leaving
+/// the same shape in place: a human-supplied name that nothing verifies.
+///
+/// A missing or rejected token is an error. Guessing is never correct.
+async fn telegram_bot_username(config: &serde_json::Value) -> Result<String, AppError> {
+    let token = config
+        .get("bot_token")
         .and_then(|v| v.as_str())
-        .map(str::to_owned)
-        .or_else(|| env::var("PIERRE_TELEGRAM_BOT_USERNAME").ok())
-        .map(|name| name.trim_start_matches('@').to_owned())
-        .filter(|name| !name.is_empty())
+        .filter(|t| !t.is_empty())
         .ok_or_else(|| {
             AppError::internal(
-                "Telegram bot username is not configured: set `bot_username` in the \
-                 channel credentials or PIERRE_TELEGRAM_BOT_USERNAME. Refusing to \
-                 guess — an incorrect bot name sends the athlete's one-time link \
-                 code to a third party who can then bind their account.",
+                "Telegram channel has no bot_token, so the bot's username cannot be \
+                 resolved and no linking URL can be built. Configure the channel \
+                 before issuing link codes.",
             )
-        })
+        })?;
+
+    if let Some(cached) = TELEGRAM_BOT_USERNAMES
+        .read()
+        .ok()
+        .and_then(|m| m.get(token).cloned())
+    {
+        return Ok(cached);
+    }
+
+    let url = format!("https://api.telegram.org/bot{token}/getMe");
+    let response = shared_client()
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::internal(format!("Telegram getMe request failed: {e}")))?;
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| AppError::internal(format!("Telegram getMe returned no JSON: {e}")))?;
+
+    let username = body
+        .get("result")
+        .and_then(|r| r.get("username"))
+        .and_then(|u| u.as_str())
+        .filter(|u| !u.is_empty())
+        .ok_or_else(|| {
+            // Deliberately does not log the body: a rejected token comes back
+            // with a description that can echo the token itself.
+            AppError::internal(
+                "Telegram getMe did not return a username — the stored bot_token is \
+                 rejected or the bot was deleted. Refusing to build a linking URL \
+                 without knowing which bot it points at.",
+            )
+        })?
+        .to_owned();
+
+    if let Ok(mut cache) = TELEGRAM_BOT_USERNAMES.write() {
+        cache.insert(token.to_owned(), username.clone());
+    }
+    info!(bot_username = %username, "resolved the Telegram bot username via getMe");
+    Ok(username)
 }
 
 /// Build the linking URL based on channel type and method.
-fn build_linking_url(
+async fn build_linking_url(
     channel_type: ChannelType,
     code: &str,
     config: &serde_json::Value,
@@ -153,14 +211,27 @@ fn build_linking_url(
             // Guessing a bot name is therefore never acceptable: an absent
             // username must fail loudly rather than produce a plausible URL
             // aimed at someone else's bot.
-            let bot_username = telegram_bot_username(config)?;
+            let bot_username = telegram_bot_username(config).await?;
             Ok(format!("https://t.me/{bot_username}?start={code}"))
         }
         ChannelType::WhatsApp => {
+            // Same rule as Telegram above, for the same reason. An empty number
+            // yields `https://wa.me/?text=LINK+CODE`, which is not a dead link:
+            // WhatsApp opens the contact picker with the athlete's one-time
+            // binding code already typed, and whoever they pick receives it.
+            // Milder than aiming at a stranger's bot only because it takes a
+            // tap — the failure is identical in kind, so it fails identically.
             let phone = config
                 .get("phone_number")
                 .and_then(|v| v.as_str())
-                .unwrap_or("");
+                .filter(|p| !p.is_empty())
+                .ok_or_else(|| {
+                    AppError::internal(
+                        "WhatsApp channel has no phone_number, so there is no recipient \
+                         for the link code. Refusing to build a URL that would open a \
+                         contact picker with the athlete's binding code pre-filled.",
+                    )
+                })?;
             let message_text = format!("LINK {code}");
             let encoded_message = urlencoding::encode(&message_text);
             Ok(format!("https://wa.me/{phone}?text={encoded_message}"))
@@ -235,7 +306,8 @@ pub async fn init_channel_link(
         &code,
         &config,
         &resources.common.config.base_url,
-    )?;
+    )
+    .await?;
     let expires_at_str = expires_at.to_rfc3339();
 
     info!(

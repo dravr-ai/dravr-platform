@@ -67,7 +67,9 @@ Open Telegram, message [@BotFather](https://t.me/BotFather):
 ```
 /newbot
 → Name: Pierre Fitness Coach
-→ Username: pierre_fitness_bot
+→ Username: dravr_fitness_bot   # whatever you choose here is discovered
+                                 # automatically via getMe — it is never
+                                 # configured a second time in Dravr
 ```
 
 BotFather returns a bot token like `7123456789:AAHk...`. Save it.

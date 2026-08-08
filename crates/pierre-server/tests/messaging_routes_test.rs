@@ -225,27 +225,25 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_link_init_deep_link_returns_qr_svg() {
-        // The Telegram bot handle comes from PIERRE_TELEGRAM_BOT_USERNAME, not
-        // from the credentials blob below. The channel-config write path
-        // persists api_key / api_secret / webhook_secret / verify_token /
-        // account_id / phone_number / bot_token — there is no `bot_username`
-        // column, so a `bot_username` sent in credentials is accepted and
-        // dropped. This test used to pass without setting anything because
-        // `build_linking_url` defaulted to a third-party bot; that fallback is
-        // gone, so the handle now has to come from somewhere real.
-        env::set_var("PIERRE_TELEGRAM_BOT_USERNAME", "DravrTestBot");
+        // Exercised through WhatsApp rather than Telegram. Both are deep-link
+        // channels and share this code path, but Telegram's bot handle is now
+        // resolved by calling getMe with the stored token — so a Telegram
+        // assertion here would either need a live Telegram credential or a
+        // network stub, and would be testing the resolver rather than the QR
+        // rendering this test is about. WhatsApp's destination is the
+        // configured number, which needs neither.
         let (router, token) = setup_messaging_router().await;
 
-        AxumTestRequest::put("/api/messaging/channels/telegram")
+        AxumTestRequest::put("/api/messaging/channels/whatsapp")
             .header("authorization", &token)
             .json(&json!({
                 "enabled": true,
-                "credentials": { "bot_token": "12345:ABC-DEF" }
+                "credentials": { "api_key": "wa-key", "phone_number": "15551234567" }
             }))
             .send(router.clone())
             .await;
 
-        let response = AxumTestRequest::post("/api/messaging/link/init/telegram")
+        let response = AxumTestRequest::post("/api/messaging/link/init/whatsapp")
             .header("authorization", &token)
             .send(router)
             .await;
