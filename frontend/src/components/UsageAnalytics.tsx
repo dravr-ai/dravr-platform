@@ -88,14 +88,6 @@ export default function UsageAnalytics() {
         tension: 0.4,
         fill: true,
       },
-      {
-        label: 'Errors',
-        data: analytics?.time_series?.map((point: TimeSeriesPoint) => point.error_count) || [],
-        borderColor: pierreColors.red,
-        backgroundColor: `${pierreColors.red}1A`,
-        tension: 0.4,
-        fill: true,
-      },
     ],
   };
 
@@ -197,12 +189,6 @@ export default function UsageAnalytics() {
               {analytics?.time_series?.reduce((sum: number, point: TimeSeriesPoint) => sum + point.request_count, 0) || 0}
             </div>
             <div className="text-sm text-on-surface-variant">Total Requests</div>
-          </div>
-          <div className="stat-card-dark">
-            <div className="text-2xl font-bold text-pierre-red-500">
-              {analytics?.error_rate?.toFixed(1) || 0}%
-            </div>
-            <div className="text-sm text-on-surface-variant">Error Rate</div>
           </div>
           <div className="stat-card-dark">
             <div className="text-2xl font-bold text-pierre-activity">

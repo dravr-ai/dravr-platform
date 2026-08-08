@@ -14,17 +14,32 @@ import type { SocialInsightsConfig } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 
+/** Auto-approval payload from `GET /api/admin/settings/auto-approval`. */
+interface AutoApprovalSetting {
+  enabled: boolean;
+  description: string;
+  /**
+   * True when the server's AUTO_APPROVE_USERS environment variable decides
+   * `enabled`. The database row the toggle writes is inert while it is set,
+   * so the toggle is rendered read-only. Absent on servers that do not report
+   * the override, which are treated as not overridden.
+   */
+  overridden_by_env?: boolean;
+}
+
 export default function AdminSettings() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [showSocialInsightsConfig, setShowSocialInsightsConfig] = useState(false);
   const adminTenantId = user?.tenant_id ?? null;
 
-  const { data: autoApprovalData, isLoading, error } = useQuery({
+  const { data: autoApprovalData, isLoading, error } = useQuery<AutoApprovalSetting>({
     queryKey: QUERY_KEYS.adminSettings.autoApproval(),
     queryFn: () => adminApi.getAutoApprovalSetting(),
     retry: 1,
   });
+
+  const autoApprovalLockedByEnv = autoApprovalData?.overridden_by_env === true;
 
   const {
     data: socialInsightsConfig,
@@ -71,7 +86,7 @@ export default function AdminSettings() {
   });
 
   const handleToggleAutoApproval = () => {
-    if (autoApprovalData) {
+    if (autoApprovalData && !autoApprovalLockedByEnv) {
       updateAutoApprovalMutation.mutate(!autoApprovalData.enabled);
     }
   };
@@ -154,6 +169,12 @@ export default function AdminSettings() {
                 {autoApprovalData?.description ??
                   'When enabled, new registrations are auto-approved. When disabled, only emails from auto_approve_domains are auto-approved.'}
               </p>
+              {autoApprovalLockedByEnv && (
+                <p className="text-xs text-pierre-yellow-100 mt-2" data-testid="auto-approval-env-lock">
+                  Locked by the AUTO_APPROVE_USERS environment variable on the server. Change it
+                  there and restart — a value saved here would be ignored.
+                </p>
+              )}
             </div>
             <div className="flex-shrink-0">
               {isLoading ? (
@@ -163,12 +184,17 @@ export default function AdminSettings() {
               ) : (
                 <button
                   onClick={handleToggleAutoApproval}
-                  disabled={updateAutoApprovalMutation.isPending}
+                  disabled={updateAutoApprovalMutation.isPending || autoApprovalLockedByEnv}
+                  title={
+                    autoApprovalLockedByEnv
+                      ? 'Set by the AUTO_APPROVE_USERS environment variable — not editable here'
+                      : undefined
+                  }
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-pierre-slate ${
                     autoApprovalData?.enabled
                       ? 'bg-pierre-activity'
                       : 'bg-zinc-600'
-                  } ${updateAutoApprovalMutation.isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  } ${updateAutoApprovalMutation.isPending || autoApprovalLockedByEnv ? 'opacity-50 cursor-not-allowed' : ''}`}
                   role="switch"
                   aria-checked={autoApprovalData?.enabled}
                 >

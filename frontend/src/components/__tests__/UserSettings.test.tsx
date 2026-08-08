@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, act, waitFor } from '@testing-library/react';
+import { render, screen, act, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import UserSettings from '../UserSettings';
@@ -93,6 +93,7 @@ vi.mock('../../hooks/useAuth', () => ({
 // OAuth spies shared with the Data Providers tests below.
 const getAuthorizeUrlForProvider = vi.fn().mockResolvedValue('https://www.strava.com/oauth/authorize?x=1');
 const getProvidersStatus = vi.fn().mockResolvedValue({ providers: [] });
+const disconnectProvider = vi.fn().mockResolvedValue(undefined);
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
@@ -109,7 +110,7 @@ vi.mock('../../services/api', () => ({
   oauthApi: {
     getProvidersStatus: (...args: unknown[]) => getProvidersStatus(...args),
     getAuthorizeUrlForProvider: (...args: unknown[]) => getAuthorizeUrlForProvider(...args),
-    disconnectProvider: vi.fn().mockResolvedValue(undefined),
+    disconnectProvider: (...args: unknown[]) => disconnectProvider(...args),
     disconnectIntervalsIcu: vi.fn().mockResolvedValue(undefined),
   },
   pierreApi: {
@@ -493,6 +494,118 @@ describe('UserSettings Component', () => {
     // and mobile ConnectionsScreen/OnboardingConnectScreen suites; UserSettings
     // routes it through the same handleConnectProvider poll, which cannot be
     // isolated reliably here because that poll's interval outlives unmount.
+  });
+
+  describe('Data Providers — Strava connected through the native OAuth row', () => {
+    // Mirrors the live GET /api/providers payload for a Strava-connected user:
+    // the grant lands on the native `strava` row while the `sciotte` row — the
+    // card the UI actually renders — stays `connected: false`.
+    const stravaOnNativeRow = () => [
+      {
+        provider: 'sciotte',
+        display_name: 'Strava',
+        requires_oauth: false,
+        connected: false,
+        needs_reauth: false,
+        capabilities: ['activities'],
+        recommended_backend: 'oauth' as const,
+        seats_left: 7,
+      },
+      {
+        provider: 'strava',
+        display_name: 'Strava',
+        requires_oauth: true,
+        connected: true,
+        needs_reauth: false,
+        capabilities: ['activities'],
+      },
+    ];
+
+    beforeEach(() => {
+      localStorage.clear();
+      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+    });
+
+    it('renders the single Strava card as Connected with a Disconnect control', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: stravaOnNativeRow() });
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByText('Connected')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
+      // The connected card must not still offer "Connect"...
+      expect(screen.queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
+      // ...and the native `strava` row must stay hidden, so exactly one Strava
+      // card is on screen rather than a duplicate pair.
+      expect(screen.getAllByText('Strava')).toHaveLength(1);
+    });
+
+    it('disconnects the native `strava` grant that actually backs the card', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: stravaOnNativeRow() });
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Disconnect' }));
+
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+
+      // `DELETE /api/oauth/providers/{provider}/disconnect` deletes the tokens
+      // for exactly the id it is handed, so `sciotte` here would leave the
+      // Strava grant in place and the card connected after a refetch.
+      await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('strava'));
+      expect(disconnectProvider).not.toHaveBeenCalledWith('sciotte');
+    });
+
+    it('carries needs_reauth from the native row instead of showing a healthy pill', async () => {
+      const providers = stravaOnNativeRow();
+      providers[1].needs_reauth = true;
+      getProvidersStatus.mockResolvedValue({ providers });
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByText('Reconnect needed')).toBeInTheDocument();
+      expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+    });
+
+    it('guards the Strava/Sciotte switch when the mirror holds the connection', async () => {
+      // The mirror (`sciotte`) holds a dead connection while shared OAuth seats
+      // remain, so the card's Reconnect goes through native `strava` — the
+      // exclusivity guard must catch that as a backend switch. It reads the raw
+      // provider list, because the `strava` row it compares against is hidden.
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            provider: 'sciotte',
+            display_name: 'Strava',
+            requires_oauth: false,
+            connected: true,
+            needs_reauth: true,
+            capabilities: ['activities'],
+            recommended_backend: 'oauth' as const,
+            seats_left: 7,
+          },
+        ],
+      });
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+      expect(await screen.findByText('Switch Provider')).toBeInTheDocument();
+      // The guard short-circuits the connect, so no OAuth URL is requested.
+      expect(getAuthorizeUrlForProvider).not.toHaveBeenCalled();
+    });
   });
 
   describe('API Tokens Tab', () => {

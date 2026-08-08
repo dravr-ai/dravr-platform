@@ -211,7 +211,7 @@ impl LlmConsumptionRoutes {
                     call_type: row.call_type.clone(),
                     total_tokens: row.total_tokens,
                     calls: row.calls,
-                    cost_usd: round_cost(cost),
+                    cost_usd: cost,
                 }
             })
             .collect();
@@ -241,16 +241,24 @@ impl LlmConsumptionRoutes {
                     date: d.date,
                     tokens: d.tokens,
                     calls: d.calls,
-                    cost_usd: round_cost(day_cost),
+                    cost_usd: day_cost,
                 }
             })
             .collect();
 
+        // Costs are serialized at full f64 precision and rounded for display by
+        // the client. Rounding here to two decimals erased real spend: models
+        // billed per million tokens produce genuine sub-cent daily figures
+        // (llama-3.1-8b is $0.05/M input, so light traffic lands near
+        // $0.00008), and every one of them arrived at the console as exactly
+        // 0.0 — indistinguishable from free. The breakdown accumulator was
+        // worse, rounding on each add so sub-cent contributions never summed
+        // into a visible total.
         LlmConsumptionResponse {
             summary: ConsumptionSummary {
                 total_tokens,
                 total_calls,
-                estimated_cost_usd: round_cost(estimated_cost_usd),
+                estimated_cost_usd,
             },
             breakdown,
             daily_series,
@@ -702,7 +710,7 @@ fn merge_breakdown_by_group(
 
         entry.total_tokens += item.total_tokens;
         entry.calls += item.calls;
-        entry.cost_usd = round_cost(entry.cost_usd + item.cost_usd);
+        entry.cost_usd += item.cost_usd;
     }
 
     let mut result: Vec<ConsumptionBreakdownItem> = merged.into_values().collect();
@@ -724,11 +732,6 @@ fn estimate_daily_cost(
         .map(|r| calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens))
         .sum();
     total_cost * (day_tokens as f64 / total_tokens as f64)
-}
-
-/// Round a cost value to 2 decimal places
-fn round_cost(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
 }
 
 #[cfg(test)]

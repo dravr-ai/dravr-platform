@@ -212,6 +212,11 @@ pub struct AutoApprovalSettings {
     pub enabled: bool,
     /// Email domains that bypass approval regardless of the global flag
     pub auto_approve_domains: Vec<String>,
+    /// True when `AUTO_APPROVE_USERS` in the process environment decided
+    /// `enabled`. The database row is then inert: writing it changes nothing
+    /// until the environment variable is unset and the server restarted, so
+    /// callers surface the setting as read-only instead of editable.
+    pub overridden_by_env: bool,
 }
 
 // =========================================================================
@@ -1345,7 +1350,10 @@ pub async fn compute_user_admin_profile(
 
 /// Retrieve the effective auto-approval setting.
 ///
-/// Precedence: env var (if set) > database > default.
+/// Precedence: env var (if set) > database > default. The returned
+/// `overridden_by_env` records which side won, so a caller that offers an
+/// editing surface can present the value as fixed rather than accepting a
+/// write the next read would discard.
 ///
 /// # Errors
 ///
@@ -1372,10 +1380,16 @@ pub async fn get_auto_approval_settings(
     Ok(AutoApprovalSettings {
         enabled,
         auto_approve_domains: app_behavior.auto_approve_domains.clone(),
+        overridden_by_env: app_behavior.auto_approve_users_from_env,
     })
 }
 
 /// Persist a new auto-approval setting to the database.
+///
+/// The stored row only governs behaviour while `AUTO_APPROVE_USERS` is absent
+/// from the environment; [`get_auto_approval_settings`] is the sole authority
+/// on the effective value, so callers that report an outcome to a client read
+/// it back from there rather than echoing `enabled`.
 ///
 /// # Errors
 ///

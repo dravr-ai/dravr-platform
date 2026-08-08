@@ -45,7 +45,6 @@ async function setupAnalyticsMocks(
       return {
         date: date.toISOString().split('T')[0],
         request_count: Math.floor(Math.random() * 200) + 100,
-        error_count: Math.floor(Math.random() * 10),
       };
     });
 
@@ -95,7 +94,10 @@ async function setupLlmConsumptionMocks(page: Page) {
             cost_usd: 0.48,
           },
           {
-            // Free-tier model — the server really does return exactly 0.0 here.
+            // A genuinely zero-cost row. Not because this model is free — it is
+            // billed at $0.05 per million input tokens — but because a row can
+            // legitimately total zero, and the column must render it like every
+            // other whole-cent figure rather than as "$0.0000".
             provider: 'groq',
             model: 'llama-3.1-8b-instant',
             call_type: 'chat',
@@ -120,7 +122,6 @@ test.describe('Analytics Tab', () => {
     // Check for main sections
     await expect(page.getByText('Usage Analytics')).toBeVisible();
     await expect(page.getByText('Total Requests')).toBeVisible();
-    await expect(page.getByText('Error Rate')).toBeVisible();
     await expect(page.getByText('Avg Response Time')).toBeVisible();
   });
 
@@ -159,9 +160,6 @@ test.describe('Analytics Tab', () => {
 
     // Wait for stats to load
     await expect(page.getByText('Total Requests')).toBeVisible();
-
-    // Check error rate displays with percentage
-    await expect(page.getByText('2.3%')).toBeVisible();
 
     // Check average response time displays with ms
     await expect(page.getByText('118ms')).toBeVisible();

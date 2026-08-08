@@ -75,8 +75,6 @@ pub struct UsageAnalytics {
     pub time_series: Vec<UsageDataPoint>,
     /// Most frequently used tools
     pub top_tools: Vec<ToolUsage>,
-    /// Percentage of requests that resulted in errors
-    pub error_rate: f64,
     /// Average response time across all requests (ms)
     pub average_response_time: f64,
 }
@@ -88,8 +86,6 @@ pub struct UsageDataPoint {
     pub date: String,
     /// Number of requests in this period
     pub request_count: u64,
-    /// Number of errors in this period
-    pub error_count: u64,
     /// Average response time in this period (ms)
     pub average_response_time: f64,
 }
@@ -308,8 +304,13 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
 
         let start_date = Utc::now() - Duration::days(i64::from(days));
 
+        // The series spans the `days` calendar days ending on the current UTC
+        // day, so the newest point is today and the tab agrees with
+        // /admin/usage/llm-consumption over the same range.
+        let window_start = start_date + Duration::days(1);
+
         // Use LLM usage daily series (covers all requests, not just API key ones)
-        let since = start_date.format("%Y-%m-%d").to_string();
+        let since = window_start.format("%Y-%m-%d").to_string();
         let tenant_id = auth
             .active_tenant_id
             .map_or_else(String::new, |tid| tid.to_string());
@@ -327,19 +328,17 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
         // Time series data (daily aggregates from LLM usage)
         let mut time_series = Vec::new();
         for day in 0..days {
-            let day_start = start_date + Duration::days(i64::from(day));
+            let day_start = window_start + Duration::days(i64::from(day));
             let day_date = day_start.format("%Y-%m-%d").to_string();
 
-            let (request_count, error_count, avg_response_ms) = llm_by_date
-                .get(&day_date)
-                .map_or((0u64, 0u64, 0.0_f64), |row| {
-                    (row.calls.unsigned_abs(), 0u64, row.avg_execution_time_ms)
+            let (request_count, avg_response_ms) =
+                llm_by_date.get(&day_date).map_or((0u64, 0.0_f64), |row| {
+                    (row.calls.unsigned_abs(), row.avg_execution_time_ms)
                 });
 
             time_series.push(UsageDataPoint {
                 date: day_date,
                 request_count,
-                error_count,
                 average_response_time: avg_response_ms,
             });
         }
@@ -349,35 +348,38 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
             .get_top_tools_analysis(user_id, start_date, Utc::now())
             .await?;
 
-        // Overall metrics
-        let total_requests: u64 = time_series.iter().map(|d| d.request_count).sum();
-        let total_errors: u64 = time_series.iter().map(|d| d.error_count).sum();
-        let error_rate = if total_requests > 0 {
-            (f64::from(u32::try_from(total_errors).unwrap_or(u32::MAX))
-                / f64::from(u32::try_from(total_requests).unwrap_or(u32::MAX)))
-                * 100.0
+        // Overall metrics.
+        // Latency is observed per call, so each day carries the weight of the
+        // calls it served and days without calls carry none. Averaging the
+        // daily means over the whole window instead would let a wider range
+        // pull the figure toward zero without any change in system behaviour.
+        let (weighted_response_ms, weighted_calls) = time_series
+            .iter()
+            .filter(|point| point.request_count > 0)
+            .fold((0.0_f64, 0.0_f64), |(sum_ms, sum_calls), point| {
+                let calls = f64::from(u32::try_from(point.request_count).unwrap_or(u32::MAX));
+                (
+                    calls.mul_add(point.average_response_time, sum_ms),
+                    sum_calls + calls,
+                )
+            });
+        let average_response_time = if weighted_calls > 0.0 {
+            weighted_response_ms / weighted_calls
         } else {
             0.0
         };
 
-        let average_response_time = if time_series.is_empty() {
-            0.0
-        } else {
-            time_series
-                .iter()
-                .map(|d| d.average_response_time)
-                .sum::<f64>()
-                / {
-                    {
-                        f64::from(u32::try_from(time_series.len()).unwrap_or(u32::MAX))
-                    }
-                }
-        };
-
+        // No error rate is reported here. This analytic is derived from
+        // `llm_usage`, which records a row only after a call completes and
+        // carries no status, error or success column on either backend — a
+        // failed call leaves no trace at all. The rate was therefore a
+        // hardcoded zero, and an operator reading "0% errors" from a metric
+        // structurally incapable of reporting one is worse served than by its
+        // absence. Reinstating it needs a failure signal at the write site
+        // first, not a computation here.
         Ok(UsageAnalytics {
             time_series,
             top_tools,
-            error_rate,
             average_response_time,
         })
     }

@@ -10,6 +10,7 @@ import { dashboardApi } from '../services/api';
 import type { RecentActivityResponse, RecentLlmCall, RecentConversation } from '../services/api/dashboard';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Input } from './ui';
+import { formatCost } from '../utils/formatCost';
 
 /** Polling interval for real-time activity data (10 seconds) */
 const POLLING_INTERVAL_MS = 10_000;
@@ -36,11 +37,6 @@ function formatDuration(ms: number | null): string {
 }
 
 /** Format USD cost for display */
-function formatCost(usd: number): string {
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
 /** Format tokens with K/M suffixes */
 function formatTokens(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;

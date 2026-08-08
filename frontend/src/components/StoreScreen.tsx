@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { Compass, ArrowLeft, Plus, Trash2 } from 'lucide-react';
-import { storeApi } from '../services/api';
+import { storeApi, coachesApi } from '../services/api';
 import { track } from '../services/analytics';
 import { TabHeader } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -77,6 +77,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Debounce search query
@@ -99,6 +100,9 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
   const {
     data: browseData,
     isLoading: isBrowsing,
+    isError: isBrowseError,
+    error: browseError,
+    refetch: refetchBrowse,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -117,7 +121,13 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
     staleTime: 30_000,
   });
 
-  const { data: searchData, isLoading: isSearching } = useQuery({
+  const {
+    data: searchData,
+    isLoading: isSearching,
+    isError: isSearchError,
+    error: searchError,
+    refetch: refetchSearch,
+  } = useQuery({
     queryKey: QUERY_KEYS.store.search(debouncedSearch),
     queryFn: () => storeApi.search(debouncedSearch, 50),
     enabled: !!debouncedSearch,
@@ -132,17 +142,34 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
     staleTime: 30_000,
   });
 
-  // Fetch installed coaches to check if selected coach is installed
-  const { data: installedCoaches } = useQuery({
-    queryKey: QUERY_KEYS.store.installations(),
-    queryFn: () => storeApi.getInstallations(),
-    staleTime: 30_000,
+  // Installing a store coach mints a personal copy with a fresh id and
+  // `forked_from` set to the store listing's id, so the user's own coach list
+  // is what maps a listing back to the copy. Query options mirror
+  // CoachLibraryTab so both components share the `listWithHidden` cache slot.
+  const { data: myCoaches } = useQuery({
+    queryKey: QUERY_KEYS.coaches.listWithHidden(),
+    queryFn: () => coachesApi.list({
+      include_hidden: true,
+      personalize: true,
+    }),
   });
 
-  const isInstalled = useMemo(() => {
-    if (!selectedCoachId || !installedCoaches) return false;
-    return installedCoaches.coaches.some(c => c.id === selectedCoachId);
-  }, [selectedCoachId, installedCoaches]);
+  // Store listing id -> id of the personal copy that installing it created.
+  const installedCopyBySource = useMemo(() => {
+    const bySource = new Map<string, string>();
+    for (const coach of myCoaches?.coaches ?? []) {
+      if (coach.forked_from) {
+        bySource.set(coach.forked_from, coach.id);
+      }
+    }
+    return bySource;
+  }, [myCoaches]);
+
+  // Uninstall addresses the personal copy, not the store listing.
+  const installedCopyId = selectedCoachId
+    ? installedCopyBySource.get(selectedCoachId)
+    : undefined;
+  const isInstalled = installedCopyId !== undefined;
 
   // Install mutation
   const installMutation = useMutation({
@@ -150,8 +177,13 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setActionError(null);
       setSuccessMessage(`"${coachDetail?.title}" has been added to your coaches.`);
       track({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
+    },
+    onError: (error: Error) => {
+      setSuccessMessage(null);
+      setActionError(error.message || 'Failed to add coach');
     },
   });
 
@@ -161,7 +193,12 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setActionError(null);
       setSuccessMessage(`Coach has been removed from your library.`);
+    },
+    onError: (error: Error) => {
+      setSuccessMessage(null);
+      setActionError(error.message || 'Failed to remove coach');
     },
   });
 
@@ -174,6 +211,16 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
   }, [debouncedSearch, searchData, browseData]);
 
   const isLoading = debouncedSearch ? isSearching : isBrowsing;
+  const isListError = debouncedSearch ? isSearchError : isBrowseError;
+  const listError = debouncedSearch ? searchError : browseError;
+
+  const handleRetryList = useCallback(() => {
+    if (debouncedSearch) {
+      refetchSearch();
+    } else {
+      refetchBrowse();
+    }
+  }, [debouncedSearch, refetchSearch, refetchBrowse]);
 
   // Intersection Observer for infinite scroll
   useEffect(() => {
@@ -207,19 +254,22 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
   const handleBackToStore = useCallback(() => {
     setSelectedCoachId(null);
     setSuccessMessage(null);
+    setActionError(null);
   }, []);
 
   const handleInstall = useCallback(() => {
     if (selectedCoachId) {
+      setActionError(null);
       installMutation.mutate(selectedCoachId);
     }
   }, [selectedCoachId, installMutation]);
 
   const handleRemove = useCallback(() => {
-    if (selectedCoachId && window.confirm(`Remove Coach?\n\nRemove "${coachDetail?.title}" from your coaches? You can always reinstall it later.`)) {
-      uninstallMutation.mutate(selectedCoachId);
+    if (installedCopyId && window.confirm(`Remove Coach?\n\nRemove "${coachDetail?.title}" from your coaches? You can always reinstall it later.`)) {
+      setActionError(null);
+      uninstallMutation.mutate(installedCopyId);
     }
-  }, [selectedCoachId, coachDetail, uninstallMutation]);
+  }, [installedCopyId, coachDetail, uninstallMutation]);
 
   // Render detail view if a coach is selected
   if (selectedCoachId) {
@@ -230,6 +280,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
         isInstalled={isInstalled}
         isInstalling={installMutation.isPending || uninstallMutation.isPending}
         successMessage={successMessage}
+        actionError={actionError}
         onBack={handleBackToStore}
         onInstall={handleInstall}
         onRemove={handleRemove}
@@ -332,6 +383,32 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
               <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="mt-3 text-sm text-gray-500">Loading coaches...</p>
             </div>
+          </div>
+        ) : isListError ? (
+          <div className="text-center py-12">
+            <svg
+              className="w-12 h-12 text-pierre-red-500 mx-auto mb-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <h3 className="text-lg font-medium text-on-surface">
+              {searchQuery ? "Couldn't search coaches" : "Couldn't load the store"}
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">
+              {listError instanceof Error && listError.message
+                ? listError.message
+                : 'The server did not return a coach list.'}
+            </p>
+            <button
+              onClick={handleRetryList}
+              className="mt-4 px-4 py-2 bg-primary text-on-primary font-medium rounded-lg hover:bg-pierre-violet/80 transition-colors min-h-[44px]"
+            >
+              Try Again
+            </button>
           </div>
         ) : coaches.length === 0 ? (
           <div className="text-center py-12">
@@ -444,6 +521,7 @@ interface CoachDetailViewProps {
   isInstalled: boolean;
   isInstalling: boolean;
   successMessage: string | null;
+  actionError: string | null;
   onBack: () => void;
   onInstall: () => void;
   onRemove: () => void;
@@ -456,6 +534,7 @@ function CoachDetailView({
   isInstalled,
   isInstalling,
   successMessage,
+  actionError,
   onBack,
   onInstall,
   onRemove,
@@ -565,7 +644,7 @@ function CoachDetailView({
           <div>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">System Prompt</h3>
             <div className="p-3 bg-surface-container-low border ghost-border rounded-lg">
-              <p className="text-sm text-gray-400 font-mono whitespace-pre-wrap line-clamp-10">
+              <p className="text-sm text-gray-400 font-mono whitespace-pre-wrap line-clamp-6">
                 {coach.system_prompt}
               </p>
               {coach.system_prompt.length > 500 && (
@@ -594,6 +673,13 @@ function CoachDetailView({
               )}
             </div>
           </div>
+
+          {/* Install/remove failure */}
+          {actionError && (
+            <div className="p-4 bg-pierre-red-500/10 border border-pierre-red-500/30 rounded-lg">
+              <p className="text-sm text-pierre-red-500">{actionError}</p>
+            </div>
+          )}
 
           {/* Success message */}
           {successMessage && (

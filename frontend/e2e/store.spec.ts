@@ -59,32 +59,66 @@ const mockCoachDetail = {
   publish_status: 'published',
 };
 
-async function setupStoreMocks(page: Page, options: { emptyStore?: boolean; installed?: string[] } = {}) {
-  const { emptyStore = false, installed = [] } = options;
+// Installing a store coach mints a personal copy: a fresh id with `forked_from`
+// pointing back at the store listing. Both GET /api/coaches and
+// GET /api/store/installations return those copies, never the listing itself.
+function personalCopyOf(storeCoach: (typeof mockStoreCoaches)[number]) {
+  return {
+    id: `installed-copy-of-${storeCoach.id}`,
+    title: storeCoach.title,
+    description: storeCoach.description,
+    system_prompt: mockCoachDetail.system_prompt,
+    category: storeCoach.category,
+    tags: storeCoach.tags,
+    sample_prompts: storeCoach.sample_prompts,
+    token_count: storeCoach.token_count,
+    is_favorite: false,
+    use_count: 0,
+    last_used_at: null,
+    created_at: '2024-02-01T00:00:00Z',
+    updated_at: '2024-02-01T00:00:00Z',
+    is_system: false,
+    visibility: 'private',
+    is_assigned: true,
+    forked_from: storeCoach.id,
+  };
+}
+
+async function setupStoreMocks(
+  page: Page,
+  options: { emptyStore?: boolean; installed?: string[]; failStore?: boolean } = {}
+) {
+  const { emptyStore = false, installed = [], failStore = false } = options;
+  const installedCopies = mockStoreCoaches
+    .filter((c) => installed.includes(c.id))
+    .map(personalCopyOf);
 
   // Set up base dashboard mocks for regular user
   await setupDashboardMocks(page, { role: 'user' });
 
-  // Mock user coaches endpoint (required for sidebar)
-  await page.route('**/api/coaches', async (route) => {
+  // Mock user coaches endpoint (required for sidebar, and the source of the
+  // `forked_from` mapping the store uses to recognize an installed coach).
+  // The regex also matches the `?include_hidden=true&personalize=true` variant
+  // while leaving sub-paths like /api/coaches/hidden to the dashboard mocks.
+  await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: [],
-        total: 0,
+        coaches: installedCopies,
+        total: installedCopies.length,
+        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
     });
   });
 
   // Mock store installations endpoint (must come before /api/store/coaches/*)
   await page.route('**/api/store/installations', async (route) => {
-    const installedCoaches = mockStoreCoaches.filter((c) => installed.includes(c.id));
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: installedCoaches,
+        coaches: installedCopies,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
     });
@@ -131,29 +165,54 @@ async function setupStoreMocks(page: Page, options: { emptyStore?: boolean; inst
   // This pattern matches /api/store/coaches/{id} and /api/store/coaches/{id}/install
   await page.route('**/api/store/coaches/*/**', async (route) => {
     const url = route.request().url();
+    const pathId = url.split('/api/store/coaches/')[1]?.split('/')[0] ?? '';
 
-    // Handle install endpoint
+    // Install takes the store listing id and rejects a second install
     if (url.includes('/install') && route.request().method() === 'POST') {
+      if (installed.includes(pathId)) {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            code: 'InvalidInput',
+            message: `Coach ${pathId} is already installed`,
+          }),
+        });
+        return;
+      }
+      const source = mockStoreCoaches.find((c) => c.id === pathId);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           message: 'Coach installed successfully',
-          coach_id: 'store-coach-1',
+          coach: source ? personalCopyOf(source) : null,
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
       });
       return;
     }
 
-    // Handle uninstall endpoint (DELETE to /install)
+    // Uninstall takes the personal copy id — the server 404s on a listing id
     if (url.includes('/install') && route.request().method() === 'DELETE') {
+      const copy = installedCopies.find((c) => c.id === pathId);
+      if (!copy) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            code: 'ResourceNotFound',
+            message: 'The requested resource was not found',
+          }),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           message: 'Coach uninstalled successfully',
-          coach_id: 'store-coach-1',
+          source_coach_id: copy.forked_from,
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
       });
@@ -174,6 +233,18 @@ async function setupStoreMocks(page: Page, options: { emptyStore?: boolean; inst
 
   // Mock store browse endpoint (handles query params)
   await page.route(/\/api\/store\/coaches(\?.*)?$/, async (route) => {
+    if (failStore) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'InternalError',
+          message: 'Store listing query failed',
+        }),
+      });
+      return;
+    }
+
     const url = new URL(route.request().url());
     const category = url.searchParams.get('category');
     const sortBy = url.searchParams.get('sort_by');
@@ -756,6 +827,87 @@ test.describe('Coach Store Add/Remove', () => {
 
     // Should show success message
     await expect(page.getByText(/has been removed from your library/)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('uninstall addresses the personal copy id, not the store listing id', async ({ page }) => {
+    await setupStoreMocks(page, { installed: ['store-coach-1'] });
+    await loginToDashboard(page);
+    await page.waitForSelector('main', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
+
+    await page.getByText('Marathon Training Coach').click();
+    await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
+
+    const deleteUrls: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'DELETE' && request.url().includes('/install')) {
+        deleteUrls.push(request.url());
+      }
+    });
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+
+    await page.getByRole('button', { name: 'Remove' }).click();
+    await expect(page.getByText(/has been removed from your library/)).toBeVisible({ timeout: 5000 });
+
+    expect(deleteUrls).toHaveLength(1);
+    expect(deleteUrls[0]).toContain('/api/store/coaches/installed-copy-of-store-coach-1/install');
+  });
+});
+
+test.describe('Coach Store Failures', () => {
+  test('shows a retry error state when the store request fails', async ({ page }) => {
+    await setupStoreMocks(page, { failStore: true });
+    await loginToDashboard(page);
+    await page.waitForSelector('main', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+
+    // The app's QueryClient keeps React Query's default 3 retries with
+    // exponential backoff, so the terminal error state lands ~7s after the
+    // first failure
+    await expect(page.getByText("Couldn't load the store")).toBeVisible({ timeout: 30000 });
+
+    // A failed request must not claim the store has no published coaches
+    await expect(page.getByText('Store is empty')).toHaveCount(0);
+    await expect(page.getByText('No published coaches available yet')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Try Again' })).toBeVisible();
+  });
+
+  test('surfaces a failed install instead of showing nothing', async ({ page }) => {
+    await setupStoreMocks(page, { installed: [] });
+    // Registered after setupStoreMocks so it wins over the success handler
+    await page.route('**/api/store/coaches/store-coach-1/install', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            code: 'InvalidInput',
+            message: 'Coach Marathon Training Coach is already installed',
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await loginToDashboard(page);
+    await page.waitForSelector('main', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
+
+    await page.getByText('Marathon Training Coach').click();
+    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Add Coach' }).click();
+
+    // The banner carries the rejected request's message (axios reports the
+    // status), so the failure is visible rather than a spinner that stops
+    await expect(page.getByText(/status code 400/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/has been added to your coaches/)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible();
   });
 });
 

@@ -79,7 +79,6 @@ export interface RateLimitData {
 export interface TimeSeriesPoint {
   date: string;
   request_count: number;
-  error_count: number;
 }
 
 export interface TopTool {

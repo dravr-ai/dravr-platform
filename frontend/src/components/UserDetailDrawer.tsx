@@ -14,6 +14,7 @@ import PasswordResetModal from './PasswordResetModal';
 import { useAuth } from '../hooks/useAuth';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
+import { formatCost } from '../utils/formatCost';
 
 interface UserDetailDrawerProps {
   user: User | null;
@@ -82,11 +83,6 @@ export default function UserDetailDrawer({
     queryFn: () => user ? adminApi.getUserAdminProfile(user.id) : null,
     enabled: !!user && isOpen,
   });
-
-  const formatCost = (usd: number) => {
-    if (usd < 0.01 && usd > 0) return '<$0.01';
-    return `$${usd.toFixed(2)}`;
-  };
 
   const formatPersona = (slug: string) =>
     slug.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

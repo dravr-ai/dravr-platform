@@ -241,56 +241,40 @@ pub async fn handle_oauth_status(
 
     let user_id = auth_result.user_id;
 
-    // Check OAuth provider connection status for the user (cross-tenant view)
-    let provider_statuses = resources
+    // Check OAuth provider connection status for the user (cross-tenant view).
+    // A repository failure propagates as a 5xx: an all-disconnected payload is
+    // reserved for the user who genuinely holds no tokens, so the client can
+    // tell "you are not connected" apart from "we could not find out".
+    let tokens = resources
         .repos
         .oauth_tokens
         .get_tokens(user_id, None)
-        .await
-        .map_or_else(
-            |_| {
-                vec![
-                    OAuthStatus {
-                        provider: "strava".to_owned(),
-                        connected: false,
-                        last_sync: None,
-                    },
-                    OAuthStatus {
-                        provider: "fitbit".to_owned(),
-                        connected: false,
-                        last_sync: None,
-                    },
-                ]
-            },
-            |tokens| {
-                // Convert tokens to status objects
-                let mut statuses = vec![];
-                let mut providers_seen = HashSet::new();
+        .await?;
 
-                for token in tokens {
-                    if providers_seen.insert(token.provider.clone()) {
-                        statuses.push(OAuthStatus {
-                            provider: token.provider,
-                            connected: true,
-                            last_sync: Some(token.created_at.to_rfc3339()),
-                        });
-                    }
-                }
+    // Convert tokens to status objects
+    let mut provider_statuses = vec![];
+    let mut providers_seen = HashSet::new();
 
-                // Add default providers if not connected
-                for provider in ["strava", "fitbit"] {
-                    if !providers_seen.contains(provider) {
-                        statuses.push(OAuthStatus {
-                            provider: provider.to_owned(),
-                            connected: false,
-                            last_sync: None,
-                        });
-                    }
-                }
+    for token in tokens {
+        if providers_seen.insert(token.provider.clone()) {
+            provider_statuses.push(OAuthStatus {
+                provider: token.provider,
+                connected: true,
+                last_sync: Some(token.created_at.to_rfc3339()),
+            });
+        }
+    }
 
-                statuses
-            },
-        );
+    // Add default providers if not connected
+    for provider in ["strava", "fitbit"] {
+        if !providers_seen.contains(provider) {
+            provider_statuses.push(OAuthStatus {
+                provider: provider.to_owned(),
+                connected: false,
+                last_sync: None,
+            });
+        }
+    }
 
     Ok((StatusCode::OK, Json(provider_statuses)).into_response())
 }

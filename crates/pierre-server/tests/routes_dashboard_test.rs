@@ -875,7 +875,6 @@ async fn test_get_usage_analytics_success() -> Result<()> {
     }
 
     // Verify overall metrics
-    assert!(analytics.error_rate >= 0.0 && analytics.error_rate <= 100.0);
     assert!(analytics.average_response_time >= 0.0);
 
     Ok(())

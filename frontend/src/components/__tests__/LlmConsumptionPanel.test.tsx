@@ -6,8 +6,14 @@
 
 import { describe, it, expect } from 'vitest';
 
-// We test the pure utility functions used by LlmConsumptionPanel.
-// These are module-private, so we replicate the logic for testing.
+import { formatCost } from '../../utils/formatCost';
+
+// formatTokens/formatDate/groupBreakdown below are still module-private to
+// LlmConsumptionPanel, so their logic is replicated here. That is a known
+// weakness: a replicated test passes no matter how the component behaves.
+// formatCost used to be replicated the same way, and it is exactly why the
+// "$0.0000" zero-cost bug shipped — the test asserted the buggy output of its
+// own copy. It now imports the shared implementation.
 
 function formatTokens(count: number): string {
   if (count >= 1_000_000) {
@@ -17,13 +23,6 @@ function formatTokens(count: number): string {
     return `${(count / 1_000).toFixed(1)}K`;
   }
   return count.toLocaleString();
-}
-
-function formatCost(usd: number): string {
-  if (usd < 0.01) {
-    return `$${usd.toFixed(4)}`;
-  }
-  return `$${usd.toFixed(2)}`;
 }
 
 function formatDate(dateStr: string): string {
@@ -89,10 +88,16 @@ describe('formatCost', () => {
     expect(formatCost(123.45)).toBe('$123.45');
   });
 
-  it('formats tiny costs with 4 decimals', () => {
-    expect(formatCost(0.001)).toBe('$0.0010');
+  it('formats sub-cent costs at significant digits, not fixed decimals', () => {
+    expect(formatCost(0.001)).toBe('$0.001');
     expect(formatCost(0.0075)).toBe('$0.0075');
-    expect(formatCost(0)).toBe('$0.0000');
+  });
+
+  it('formats exactly zero as $0.00', () => {
+    // This assertion previously read '$0.0000' — the test encoded the defect
+    // as correct behaviour, so wiring it to the real function would have
+    // blocked the fix rather than confirmed it.
+    expect(formatCost(0)).toBe('$0.00');
   });
 });
 

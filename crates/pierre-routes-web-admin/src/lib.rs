@@ -14,7 +14,8 @@
 //! Endpoints covered:
 //! - User lifecycle (`pending-users`, `users`, `approve-user`, `suspend-user`,
 //!   `users/{id}/reset-password`, `promote`, `demote`, `admins`)
-//! - Admin token CRUD (`tokens`, `tokens/{id}`, `tokens/{id}/revoke`)
+//! - Admin token CRUD (`tokens`, `tokens/{id}`, `tokens/{id}/revoke`,
+//!   `tokens/{id}/rotate`)
 //! - Per-user diagnostics (`users/{id}/rate-limit`, `activity`, `admin-profile`)
 //! - Settings (`settings/auto-approval`, `settings/social-insights`)
 //! - Tool selection (`tools/catalog`, `tools/tenant/{id}/*`, `tools/global-disabled`)
@@ -255,6 +256,35 @@ struct CreateAdminTokenWebResponse {
     expires_at: Option<String>,
 }
 
+/// Request body for rotating an admin token via web admin.
+///
+/// Every field is optional so a bare `POST` with an empty `{}` body — what the
+/// console sends — rotates on the default one-year lifetime.
+#[derive(Deserialize)]
+struct RotateAdminTokenWebRequest {
+    expires_in_days: Option<u64>,
+}
+
+/// Response for a rotated admin token.
+///
+/// The replacement token's fields sit at the top level, matching
+/// [`CreateAdminTokenWebResponse`] rather than the nested `data.new_token`
+/// envelope the service-token router returns: `ApiKeyDetails` reads
+/// `data.jwt_token` straight off the mutation result to populate the
+/// "copy your new token" modal.
+#[derive(Serialize)]
+struct RotateAdminTokenWebResponse {
+    success: bool,
+    message: String,
+    old_token_id: String,
+    token_id: String,
+    service_name: String,
+    jwt_token: String,
+    token_prefix: String,
+    is_super_admin: bool,
+    expires_at: Option<String>,
+}
+
 /// Response for user status change operations
 #[derive(Serialize)]
 struct UserStatusChangeResponse {
@@ -311,6 +341,18 @@ struct AdminListResponse {
 pub struct UserActivityQuery {
     /// Number of days to look back (default: 30)
     pub days: Option<u32>,
+}
+
+/// Query parameters for the admin-token list endpoint.
+#[derive(Debug, Deserialize)]
+pub struct AdminTokensQuery {
+    /// When true, revoked (inactive) tokens are returned alongside active ones.
+    ///
+    /// The console's token list requests this so it can render the Inactive
+    /// badge and compute active/inactive counts client-side. The default of
+    /// `false` keeps a bare `GET /api/admin/tokens` scoped to live tokens.
+    #[serde(default)]
+    pub include_inactive: bool,
 }
 
 /// Query parameters for the usage-range endpoints (per-user and per-tenant).
@@ -425,6 +467,10 @@ impl WebAdminRoutes {
             .route(
                 "/api/admin/tokens/{token_id}/revoke",
                 post(Self::handle_revoke_admin_token),
+            )
+            .route(
+                "/api/admin/tokens/{token_id}/rotate",
+                post(Self::handle_rotate_admin_token),
             )
             .route(
                 "/api/admin/approve-user/{user_id}",
@@ -742,6 +788,7 @@ impl WebAdminRoutes {
     async fn handle_admin_tokens(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
+        Query(params): Query<AdminTokensQuery>,
     ) -> Result<Response, AppError> {
         // Authenticate and verify admin status
         let auth = Self::authenticate_admin(&headers, &resources).await?;
@@ -755,14 +802,14 @@ impl WebAdminRoutes {
 
         info!(
             user_id = %auth.user_id,
+            include_inactive = params.include_inactive,
             "Web admin listing admin tokens"
         );
 
-        // Fetch admin tokens (include_inactive = false for active tokens only)
         let tokens = resources
             .repos
             .admin
-            .list_tokens(false)
+            .list_tokens(params.include_inactive)
             .await
             .map_err(|e| AppError::internal(format!("Failed to fetch admin tokens: {e}")))?;
 
@@ -1003,6 +1050,91 @@ impl WebAdminRoutes {
             .into_response())
     }
 
+    /// Handle rotating an admin token via web admin (cookie auth)
+    ///
+    /// Deactivates the existing token and mints a replacement carrying the same
+    /// service identity, super-admin flag, and tenant scope. The plaintext JWT
+    /// is returned once, in this response, and is not recoverable afterwards.
+    async fn handle_rotate_admin_token(
+        State(resources): State<WebAdminContext>,
+        headers: HeaderMap,
+        Path(token_id): Path<String>,
+        request: Option<Json<RotateAdminTokenWebRequest>>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        // Rotation both destroys the current credential and mints a new one at
+        // the old token's privilege level — including super-admin. Same gate as
+        // the list/get/revoke handlers; see the note on the list handler.
+        admin_ops::require_super_admin(auth.user_id, &resources.data).await?;
+
+        info!(
+            user_id = %auth.user_id,
+            token_id = %token_id,
+            "Web admin rotating admin token"
+        );
+
+        let existing_token = resources
+            .repos
+            .admin
+            .get_token_by_id(&token_id)
+            .await
+            .map_err(|e| AppError::internal(format!("Failed to fetch admin token: {e}")))?
+            .ok_or_else(|| AppError::not_found(format!("Admin token {token_id}")))?;
+
+        resources
+            .repos
+            .admin
+            .deactivate_token(&token_id)
+            .await
+            .map_err(|e| AppError::internal(format!("Failed to deactivate old token: {e}")))?;
+
+        let expires_in_days = request
+            .and_then(|Json(body)| body.expires_in_days)
+            .unwrap_or(365);
+
+        let token_request = CreateAdminTokenRequest {
+            service_name: existing_token.service_name,
+            service_description: existing_token.service_description,
+            permissions: None,
+            expires_in_days: Some(expires_in_days),
+            is_super_admin: existing_token.is_super_admin,
+            tenant_id: existing_token.tenant_id,
+        };
+
+        let new_token = resources
+            .repos
+            .admin
+            .create_token(
+                &token_request,
+                &resources.admin_jwt_secret,
+                &resources.jwks_manager,
+            )
+            .await
+            .map_err(|e| AppError::internal(format!("Failed to generate new admin token: {e}")))?;
+
+        info!(
+            old_token_id = %token_id,
+            new_token_id = %new_token.token_id,
+            "Admin token rotated successfully via web admin"
+        );
+
+        Ok((
+            StatusCode::OK,
+            Json(RotateAdminTokenWebResponse {
+                success: true,
+                message: "Admin token rotated successfully".to_owned(),
+                old_token_id: token_id,
+                token_id: new_token.token_id,
+                service_name: new_token.service_name,
+                jwt_token: new_token.jwt_token,
+                token_prefix: new_token.token_prefix,
+                is_super_admin: new_token.is_super_admin,
+                expires_at: new_token.expires_at.map(|t| t.to_rfc3339()),
+            }),
+        )
+            .into_response())
+    }
+
     /// Handle revoking an admin token via web admin (cookie auth)
     async fn handle_revoke_admin_token(
         State(resources): State<WebAdminContext>,
@@ -1020,6 +1152,18 @@ impl WebAdminRoutes {
             token_id = %token_id,
             "Web admin revoking admin token"
         );
+
+        // `deactivate_token` is an unconditional UPDATE that returns `()`, so a
+        // miss is indistinguishable from a hit at the repository layer. Resolve
+        // the token first so an unknown id answers 404 rather than reporting a
+        // revocation that never touched a row.
+        resources
+            .repos
+            .admin
+            .get_token_by_id(&token_id)
+            .await
+            .map_err(|e| AppError::internal(format!("Failed to fetch admin token: {e}")))?
+            .ok_or_else(|| AppError::not_found(format!("Admin token {token_id}")))?;
 
         resources
             .repos
@@ -1203,6 +1347,10 @@ impl WebAdminRoutes {
                 "data": {
                     "enabled": settings.enabled,
                     "auto_approve_domains": settings.auto_approve_domains,
+                    // The console disables its toggle on this flag. Without it the
+                    // operator gets a control that accepts a change, reports success,
+                    // and silently reverts on the next read.
+                    "overridden_by_env": settings.overridden_by_env,
                     "description": "When enabled, all new registrations are auto-approved. \
                         When disabled, only emails from auto_approve_domains are auto-approved."
                 }
@@ -1232,19 +1380,47 @@ impl WebAdminRoutes {
 
         admin_ops::set_auto_approval(&resources.data, enabled).await?;
 
+        // Read the setting back rather than echoing the request. `AUTO_APPROVE_USERS`
+        // in the environment takes precedence over the stored row by design, so the
+        // write can persist while changing nothing: the old response reported the
+        // requested value as fact, the UI showed success, and the toggle snapped back
+        // on the next read. Reporting the effective value makes the override visible
+        // instead of pretending the write took.
+        let effective =
+            admin_ops::get_auto_approval_settings(&resources.data, &resources.config.app_behavior)
+                .await?;
+
         info!(
             user_id = %auth.user_id,
-            enabled = enabled,
+            requested = enabled,
+            effective = effective.enabled,
+            overridden_by_env = effective.overridden_by_env,
             "Auto-approval setting updated"
         );
+
+        let message = if effective.overridden_by_env {
+            "Auto-approval is controlled by the AUTO_APPROVE_USERS environment variable; \
+             the stored setting was saved but has no effect while that override is set."
+                .to_owned()
+        } else {
+            format!(
+                "Auto-approval has been {}",
+                if effective.enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            )
+        };
 
         Ok((
             StatusCode::OK,
             Json(serde_json::json!({
                 "success": true,
-                "message": format!("Auto-approval has been {}", if enabled { "enabled" } else { "disabled" }),
+                "message": message,
                 "data": {
-                    "enabled": enabled,
+                    "enabled": effective.enabled,
+                    "overridden_by_env": effective.overridden_by_env,
                     "description": "When enabled, new user registrations are automatically approved without admin intervention"
                 }
             })),

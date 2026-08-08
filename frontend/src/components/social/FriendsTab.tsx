@@ -43,16 +43,19 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
     }
   }, []);
 
-  const loadPendingRequests = useCallback(async () => {
+  // `withSpinner` is false for the badge refresh that runs alongside
+  // loadFriends: the two share `isLoading`, so raising the spinner here would
+  // blank the friend list the moment this request settles first.
+  const loadPendingRequests = useCallback(async (withSpinner = true) => {
     try {
-      setIsLoading(true);
+      if (withSpinner) setIsLoading(true);
       const response = await socialApi.getPendingFriendRequests();
       setPendingReceived(response.received);
       setPendingSent(response.sent);
     } catch (error) {
       console.error('Failed to load pending requests:', error);
     } finally {
-      setIsLoading(false);
+      if (withSpinner) setIsLoading(false);
     }
   }, []);
 
@@ -63,6 +66,12 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
       loadPendingRequests();
     }
   }, [activeTab, loadFriends, loadPendingRequests]);
+
+  // The toolbar pill and the Pending tab bubble both count received requests,
+  // so the count is fetched on mount rather than when the Pending tab opens.
+  useEffect(() => {
+    loadPendingRequests(false);
+  }, [loadPendingRequests]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;

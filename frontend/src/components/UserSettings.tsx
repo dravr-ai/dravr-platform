@@ -20,6 +20,7 @@ import LlmSettingsTab from './LlmSettingsTab';
 import MessagingSettingsTab from './MessagingSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
+import { buildFitnessProviderCards } from '../utils/fitnessProviderCards';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
@@ -267,15 +268,11 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     refetchOnMount: 'always',
   });
 
-  // Native `strava` (official OAuth) is reached only through the Sciotte
-  // modal's "Use my own Strava OAuth app" button — it must not render as a
-  // second Strava card alongside `sciotte` (the Strava-mirror). Mirrors the
-  // filter in ProviderConnectionCards.
-  const fitnessProviders: ProviderStatus[] = (providersResponse?.providers || []).filter(
-    // Hide native `strava` (see above) and `garmin` ("Garmin Connect") — Garmin's
-    // OAuth API is uncredentialed/unsupported, so it must not be offered.
-    (p) => p.provider !== 'strava' && p.provider !== 'garmin',
-  );
+  // The raw list still carries the rows the cards hide (native `strava`,
+  // `garmin`). The exclusivity guard below reads it, because the backend it
+  // compares against is one of the hidden rows.
+  const allProviders: ProviderStatus[] = providersResponse?.providers ?? [];
+  const fitnessProviders = buildFitnessProviderCards(allProviders);
 
   // Fetch OAuth apps
   const { data: oauthAppsResponse, isLoading: isLoadingApps } = useQuery({
@@ -462,15 +459,20 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
 
   // Connect to a fitness provider via OAuth in a new tab
-  // Check for Strava/Sciotte conflict before connecting
+  // Check for Strava/Sciotte conflict before connecting. `backendId` is the
+  // backend the connection will actually use, not the card that was clicked:
+  // the `sciotte` card connects through native `strava` OAuth while shared
+  // seats remain, and re-authing that same backend is not a conflict.
   const EXCLUSIVE_PROVIDERS = ['strava', 'sciotte'];
-  const checkProviderConflict = (providerId: string): boolean => {
-    if (!EXCLUSIVE_PROVIDERS.includes(providerId)) return false;
-    const otherProvider = providerId === 'strava' ? 'sciotte' : 'strava';
-    const otherConnected = fitnessProviders.find(p => p.provider === otherProvider && p.connected);
+  const checkProviderConflict = (backendId: string): boolean => {
+    if (!EXCLUSIVE_PROVIDERS.includes(backendId)) return false;
+    const otherProvider = backendId === 'strava' ? 'sciotte' : 'strava';
+    // Search the raw list: native `strava` is filtered out of the cards, so a
+    // card-list lookup can never observe the Strava OAuth grant it guards.
+    const otherConnected = allProviders.find(p => p.provider === otherProvider && p.connected);
     if (otherConnected) {
       setProviderConflict({
-        connecting: providerId === 'sciotte' ? 'Strava — Sciotte' : 'Strava',
+        connecting: backendId === 'sciotte' ? 'Strava — Sciotte' : 'Strava',
         disconnecting: otherProvider === 'sciotte' ? 'Strava — Sciotte' : 'Strava',
       });
       return true;
@@ -821,7 +823,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 <Button
                                   variant="secondary"
                                   size="sm"
-                                  onClick={() => setProviderToDisconnect(provider.provider)}
+                                  onClick={() => setProviderToDisconnect(provider.connectionProvider)}
                                   className="text-red-400 hover:bg-red-500/20"
                                 >
                                   Disconnect
@@ -840,14 +842,20 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 variant="gradient"
                                 size="sm"
                                 onClick={() => {
-                                  if (checkProviderConflict(provider.provider)) return;
                                   // The `sciotte` card is the user-facing "Strava" card. OAuth is
                                   // the default while shared-app seats remain (server recommends
                                   // `oauth`); once the athlete cap is reached it recommends `mirror`
                                   // and we open the Sciotte credential login. If the OAuth attempt
                                   // itself fails, handleConnectProvider falls back to Sciotte.
                                   // Garmin (`sciotte_garmin`) is always the credential flow.
-                                  if (provider.provider === 'sciotte' && provider.recommended_backend === 'oauth') {
+                                  const backend =
+                                    provider.provider === 'sciotte' && provider.recommended_backend === 'oauth'
+                                      ? 'strava'
+                                      : provider.provider;
+                                  // Guard on the resolved backend so re-authing the backend that
+                                  // already holds the grant isn't mistaken for a provider switch.
+                                  if (checkProviderConflict(backend)) return;
+                                  if (backend === 'strava') {
                                     void handleConnectProvider('strava');
                                   } else {
                                     setSciotteModalTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');

@@ -181,12 +181,18 @@ impl AdminConfigManager {
             .execute(&self.pool)
             .await
         } else {
+            // A system-wide row stores tenant_id as NULL, and NULL is distinct
+            // from NULL under `UNIQUE(category, config_key, tenant_id)`, so that
+            // constraint can never arbitrate this INSERT. The conflict target is
+            // instead the partial unique index over the tenant-less rows
+            // (`idx_admin_config_overrides_global_unique`), whose predicate must
+            // be restated here for SQLite to infer it.
             sqlx::query(
                 r"
                 INSERT INTO admin_config_overrides
                     (id, category, config_key, config_value, data_type, tenant_id, created_by, created_at, updated_at, reason)
                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?7, ?8)
-                ON CONFLICT(category, config_key, tenant_id) DO UPDATE SET
+                ON CONFLICT (category, config_key) WHERE tenant_id IS NULL DO UPDATE SET
                     config_value = ?4,
                     data_type = ?5,
                     updated_at = ?7,

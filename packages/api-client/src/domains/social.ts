@@ -146,10 +146,14 @@ export function createSocialApi(axios: AxiosInstance) {
 
     /**
      * Get the social feed.
+     *
+     * The feed paginates by offset: the `next_cursor` a response carries is the
+     * offset the following page starts at, so a caller's cursor travels on the
+     * wire as the `offset` parameter the endpoint reads.
      */
     async getFeed(options?: { cursor?: string; limit?: number }): Promise<FeedResponse> {
       const params = new URLSearchParams();
-      if (options?.cursor) params.append('cursor', options.cursor);
+      if (options?.cursor) params.append('offset', options.cursor);
       if (options?.limit) params.append('limit', options.limit.toString());
 
       const queryString = params.toString();
@@ -225,13 +229,22 @@ export function createSocialApi(axios: AxiosInstance) {
     /**
      * Get adapted insights.
      */
+    /**
+     * List the user's adapted insights.
+     *
+     * Paginates by offset, exactly like `getFeed`: the cursor a caller carries
+     * is the offset the next page starts at, and it travels on the wire as the
+     * `offset` parameter `ListAdaptedQuery` actually reads. Sending it as
+     * `cursor` made axum drop it silently, so every "load more" returned page
+     * one again.
+     */
     async getAdaptedInsights(options?: {
       limit?: number;
       cursor?: string;
     }): Promise<AdaptedInsightsResponse> {
       const params = new URLSearchParams();
       if (options?.limit) params.append('limit', options.limit.toString());
-      if (options?.cursor) params.append('cursor', options.cursor);
+      if (options?.cursor) params.append('offset', options.cursor);
       const queryString = params.toString();
       const url = queryString ? `${ENDPOINTS.SOCIAL.ADAPTED}?${queryString}` : ENDPOINTS.SOCIAL.ADAPTED;
       const response = await axios.get<AdaptedInsightsResponse>(url);

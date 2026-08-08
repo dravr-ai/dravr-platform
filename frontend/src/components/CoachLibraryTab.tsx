@@ -124,13 +124,20 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
   const [importPreviewData, setImportPreviewData] = useState<ImportPreviewResponse | null>(null);
   const [pendingImportSource, setPendingImportSource] = useState<{ type: 'file'; content: string } | { type: 'url'; url: string } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
 
   // Fetch all coaches (including hidden) for client-side filtering.
   // `personalize` asks the backend to score system coaches against the user's
   // recent sport mix + connected providers so we can surface a curated set.
-  const { data: coachesData, isLoading: coachesLoading } = useQuery({
+  const {
+    data: coachesData,
+    isLoading: coachesLoading,
+    isError: coachesFailed,
+    error: coachesError,
+    refetch: refetchCoaches,
+  } = useQuery({
     queryKey: QUERY_KEYS.coaches.listWithHidden(),
     queryFn: () => coachesApi.list({
       include_hidden: true,
@@ -173,8 +180,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setActionError(null);
       setIsCreating(false);
       setFormData(defaultFormData);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Failed to create coach');
     },
   });
 
@@ -207,8 +218,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setActionError(null);
       setIsEditing(false);
       setSelectedCoach(null);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Failed to save coach');
     },
   });
 
@@ -217,7 +232,11 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     mutationFn: (id: string) => coachesApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setActionError(null);
       setSelectedCoach(null);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Failed to delete coach');
     },
   });
 
@@ -226,9 +245,13 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     mutationFn: (id: string) => coachesApi.toggleFavorite(id),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setActionError(null);
       // The detail view renders from local selectedCoach state, which the list
       // refetch does not touch — reflect the new favorite status immediately.
       setSelectedCoach((prev) => (prev ? { ...prev, is_favorite: data.is_favorite } : prev));
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Failed to update favorite');
     },
   });
 
@@ -238,7 +261,11 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.hidden() });
+      setActionError(null);
       setActionMenuCoach(null);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Failed to hide coach');
     },
   });
 
@@ -248,7 +275,11 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.hidden() });
+      setActionError(null);
       setActionMenuCoach(null);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Failed to show coach');
     },
   });
 
@@ -257,7 +288,11 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     mutationFn: (id: string) => coachesApi.fork(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setActionError(null);
       setActionMenuCoach(null);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Failed to fork coach');
     },
   });
 
@@ -330,6 +365,10 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      setActionError(null);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Failed to export coach');
     },
   });
 
@@ -916,10 +955,30 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
 
         {/* Coaches Grid - scrollable content area */}
         <div className="flex-1 overflow-y-auto p-6">
+        {actionError && (
+          <div className="mb-4 p-3 rounded-lg bg-pierre-red-500/10 border border-pierre-red-500/30">
+            <p className="text-sm text-pierre-red-500">{actionError}</p>
+          </div>
+        )}
         {coachesLoading ? (
           <div className="flex justify-center py-12">
             <div className="pierre-spinner w-8 h-8"></div>
           </div>
+        ) : coachesFailed ? (
+          <Card variant="dark" className="text-center py-12">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-red-500/10 flex items-center justify-center">
+              <svg className="w-8 h-8 text-pierre-red-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-on-surface mb-2">Couldn't load your coaches</h3>
+            <p className="text-on-surface-variant mb-4">
+              {coachesError instanceof Error && coachesError.message
+                ? coachesError.message
+                : 'The server did not return your coach library.'}
+            </p>
+            <Button onClick={() => refetchCoaches()}>Try Again</Button>
+          </Card>
         ) : filteredCoaches.length === 0 ? (
           <Card variant="dark" className="text-center py-12">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-container-low flex items-center justify-center">
@@ -1499,6 +1558,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               )}
             </div>
 
+            {actionError && (
+              <div className="p-3 rounded-lg bg-pierre-red-500/10 border border-pierre-red-500/30">
+                <p className="text-sm text-pierre-red-500">{actionError}</p>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex items-center gap-3 pt-4 border-t">
               <Button
@@ -1601,6 +1666,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             </Button>
           </div>
         </div>
+
+        {actionError && (
+          <div className="mb-6 p-3 rounded-lg bg-pierre-red-500/10 border border-pierre-red-500/30">
+            <p className="text-sm text-pierre-red-500">{actionError}</p>
+          </div>
+        )}
 
         {/* Description */}
         {selectedCoach.description && (
