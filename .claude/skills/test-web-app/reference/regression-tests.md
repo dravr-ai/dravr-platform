@@ -114,22 +114,16 @@ Verified endpoints usable without lookup: `POST /oauth/token`, `POST /api/auth/r
 
 Gotchas that cost time:
 
-- **Kill the dev Vite before running the mocked suite.** This one is guaranteed to bite you
-  in this workflow, because the sweep starts by running the setup script. That script launches
-  Vite via `bun run dev` — *without* `E2E_TEST=true`, so the backend proxy is live. The
-  Playwright config sets `reuseExistingServer: !process.env.CI`, so locally it **reuses that
-  proxy-mode server instead of starting its own E2E-mode one**, and the whole mocked suite
-  fails at login — every spec dies in `navigateToTab` waiting for a sidebar that never
-  renders. It looks exactly like a broken suite. It isn't.
-
-  ```bash
-  pkill -f "node_modules/.bin/vite"; pkill -f "node_modules/@esbuild"
-  bunx playwright test e2e/<spec>.spec.ts        # Playwright now starts its own on 5173
-  ```
-
-  Playwright stops its server when the run ends, so restart the dev one (`cd frontend &&
-  bun run dev &`) before resuming browser work. The `e2e-real/` suite is unaffected — it has
-  no `webServer` and talks to 8081 directly, so it can run against the live stack as-is.
+- **The mocked suite runs on port 5174, the dev stack on 5173 — leave both up.** You do not
+  need to stop anything the setup script started. This used to be a trap: the config reused an
+  existing server, so the sweep's own proxy-mode dev Vite got picked up instead of an
+  E2E-mode one, every unmocked request reached the live 8081, the real 401 on a fake token
+  logged the app out, and the whole suite died at login looking broken. The config now owns a
+  dedicated port with `reuseExistingServer: false`, so that cannot happen. If you ever see the
+  suite fail at login again, confirm which port the run bound to before suspecting the specs.
+- **Mock every endpoint the surface touches.** The corollary of the above: these specs are
+  only safe because unmocked requests go nowhere. A surface that fetches something you did not
+  stub will hang rather than fall back to a real server.
 - **Route before navigate.** `page.route` does not replay past requests.
 - **Onboarding gets in the way.** `setupDashboardMocks` defaults
   `needs_provider_connection: false`; the localStorage step flags

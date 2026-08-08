@@ -261,6 +261,10 @@ existence checks): **[reference/regression-tests.md](reference/regression-tests.
 
 ## Phase 9 — Validate and land
 
+Leave the stack from Phase 1 running. The mocked suite launches its own Vite on **5174**, so
+it does not collide with the dev server on 5173, and `test:e2e:real` needs the live stack
+anyway.
+
 ```bash
 cd frontend
 bunx playwright test e2e/<new-spec>.spec.ts        # the new tests, targeted
