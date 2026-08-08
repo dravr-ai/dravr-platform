@@ -275,6 +275,16 @@ Default credentials seeded by the script:
 
 Admin API token written to `logs/admin-token.txt` for tooling.
 
+These are **local** credentials, created by the setup script on your machine.
+The deployed dev environment seeds a different admin — `admin@dravr.ai`, set in
+`infra/environments/dev/main.tf` — so a login that works locally will not work
+against dev, and vice versa. Conflating the two costs an afternoon; they are
+separate databases with separate seeders.
+
+For exercising the coach on either environment, sign in as a regular user
+(`webtest@pierre.dev`) rather than the admin: the admin account has no provider
+connections and the onboarding gate rejects its chat requests.
+
 ## Connecting an AI assistant
 
 The same backend that serves web/mobile is an MCP server. Add to Claude Desktop's `claude_desktop_config.json`:
