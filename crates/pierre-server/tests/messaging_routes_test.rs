@@ -30,7 +30,6 @@ mod messaging_routes_tests {
     use pierre_core::models::ConnectionType;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
-    use std::env;
     use std::sync::Arc;
 
     // ════════════════════════════════════════════════════════════════

@@ -8,8 +8,9 @@
 //!
 //! `build_linking_url` used to default the bot handle to `PierreBot` whenever
 //! the channel config carried no `bot_username`. It always did: the config
-//! write path persists api_key, api_secret, webhook_secret, verify_token,
-//! account_id, phone_number and bot_token — there is no `bot_username` column,
+//! write path persists `api_key`, `api_secret`, `webhook_secret`,
+//! `verify_token`, `account_id`, `phone_number` and `bot_token` — there is no
+//! `bot_username` column,
 //! so the key could never be present and every link resolved to
 //! `https://t.me/PierreBot`.
 //!
@@ -162,7 +163,7 @@ fn the_url_builder_is_fallible() {
 /// "we do not know where this goes" has to be an error on every channel.
 ///
 /// The three arms satisfy it differently, and that is fine as long as each
-/// satisfies it. Telegram derives the bot from its token. WhatsApp requires a
+/// satisfies it. Telegram derives the bot from its token. `WhatsApp` requires a
 /// configured number. Slack, Discord and Messenger point at this service's own
 /// callback, so their destination is known by construction and cannot be a
 /// third party.
