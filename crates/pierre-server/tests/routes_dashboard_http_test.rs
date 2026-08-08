@@ -287,8 +287,11 @@ async fn test_dashboard_usage_default_days() {
 
     let body: serde_json::Value = response.json();
     assert!(body["time_series"].is_array());
-    assert!(body["error_rate"].is_number());
     assert!(body["average_response_time"].is_number());
+    // No `error_rate`: this analytic is derived from `llm_usage`, which has no
+    // status column and records nothing at all for a failed call, so the field
+    // was a hardcoded zero rather than a measurement.
+    assert!(body["error_rate"].is_null());
 }
 
 #[tokio::test]
