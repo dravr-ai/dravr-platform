@@ -134,3 +134,41 @@ fn the_prompt_carries_no_second_tool_list() {
          a missing capability should be admitted rather than invented"
     );
 }
+
+/// The surviving advertisement surface must be populated.
+///
+/// `TOOL_BOUNDARY` says "the tools available to you are the ones described
+/// elsewhere in this prompt". Deleting the prose list made that sentence
+/// load-bearing: if the declarations ever come back empty, the prompt points at
+/// a list that is not there and the coach is told it has tools it cannot see.
+/// The duplication used to mask that; it does not any more.
+///
+/// The rendering and injection downstream of here are covered in
+/// `chat_tool_loop_test` (`test_generate_tool_catalog_has_tools`,
+/// `test_inject_tool_catalog_appends_to_system`). What was untested is the
+/// input to that path — that `build_mcp_tools` yields real tools at all — which
+/// is the half that goes silent if a filter or a category list is wrong.
+///
+/// Counterpart to `the_prompt_carries_no_second_tool_list`: that one says the
+/// platform must not list tools, this says something else must.
+#[test]
+fn the_surviving_advertisement_surface_is_populated() {
+    let registry = full_registry();
+    let declared = declared_names(&registry, false);
+
+    assert!(
+        declared.len() > 20,
+        "the declarations are now the ONLY advertisement surface, and only {} \
+         tools reached it — an empty or near-empty set means the coach is told \
+         nothing about its tools while TOOL_BOUNDARY claims they are described",
+        declared.len()
+    );
+
+    for expected in ["get_activities", "get_athlete", "save_training_plan"] {
+        assert!(
+            declared.iter().any(|d| d == expected),
+            "{expected} must be advertised — with the prose list deleted, a tool \
+             missing from the declarations is invisible to the coach"
+        );
+    }
+}
