@@ -17,7 +17,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::sync::Arc;
 
 use pierre_database::database::MessageRecord;
 use pierre_memory::CompactionBlock;
@@ -31,10 +30,7 @@ use pierre_core::narration::scrub_replayed_narration;
 use pierre_llm::ChatMessage;
 use pierre_runtime_context::DataContext;
 use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
-use pierre_tool_runtime::registry::ToolRegistry;
-use pierre_tool_runtime::tool_execution::{
-    is_withheld_during_guided_flow, strip_simulation_artifacts,
-};
+use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
 
 use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 
@@ -408,48 +404,36 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
     context
 }
 
-/// Build the "Available Tools" section from the runtime tool registry.
+/// The closed-world statement about tools, carrying no tool names.
 ///
-/// Replaces the previously-static tool list that lived in
-/// `pierre_system.md`. Generating it from the registry at assembly time
-/// prevents the two from drifting as tools are added, renamed, or
-/// removed — a drift that historically led the LLM to invent
-/// capabilities (e.g. "look up Uber Eats menus") when the static list
-/// stopped reflecting reality. Each user-visible tool gets one line:
-/// `` - `name`: description ``. Admin-only tools are excluded.
+/// This is what survives the deletion of the generated "Available Tools"
+/// section, and it is the part that was doing the work. The list itself was a
+/// second copy: embacle renders the full schemas — names, parameters, types —
+/// into the prompt for text tool-calling, and native function-calling providers
+/// receive them through the API. Both are derived from the same registry, so
+/// the prose list restated ~58 tools the model was already being told about,
+/// at 11,763 characters of a ~82 KB prompt.
 ///
-/// When `guided_flow_active`, the tools withheld for the duration of a guided
-/// flow ([`GUIDED_FLOW_WITHHELD_TOOLS`]) are dropped from this list too. The
-/// prose list and the native declarations must move together: advertising a tool
-/// in prose that the function-calling surface does not expose is the exact
-/// advertised-vs-callable drift this generated section exists to prevent.
-#[must_use]
-pub fn build_tools_section(tool_registry: &Arc<ToolRegistry>, guided_flow_active: bool) -> String {
-    let schemas = tool_registry.user_visible_schemas();
-    let schemas = schemas
-        .into_iter()
-        .filter(|schema| !guided_flow_active || !is_withheld_during_guided_flow(&schema.name));
-
-    let mut out = String::with_capacity(2_048);
-    out.push_str("## Available Tools\n\n");
-    out.push_str("You have exactly the tools listed below. You do **not** have any tool that is not in this list: ");
-    out.push_str(
-        "you cannot browse the web, scrape menus, look up prices, use third-party services, ",
-    );
-    out.push_str(
-        "or run arbitrary code. If a request requires a capability not covered here, say so ",
-    );
-    out.push_str("honestly rather than inventing a plan. Call tools with the parameters described in their schemas.\n\n");
-
-    for schema in schemas {
-        // One line per tool: `- `name`: description (first line only)`.
-        // Multi-line descriptions exist for a handful of tools; the LLM
-        // sees the full schema via native function-calling, so trimming
-        // the prompt-side description to the lead sentence keeps the
-        // system prompt compact.
-        let description_lead = schema.description.lines().next().unwrap_or("").trim();
-        let _ = writeln!(out, "- `{}`: {}", schema.name, description_lead);
-    }
-
-    out
-}
+/// It also restated them from the WRONG set. `build_tools_section` read
+/// `user_visible_schemas()` while the declarations read
+/// `chat_callable_schemas()`, so every non-admin category outside
+/// `CHAT_CALLABLE_CATEGORIES` — coach CRUD, configuration writes, claim
+/// verification — was advertised in prose and callable on no path. Its own doc
+/// comment named that failure mode ("advertising a tool in prose that the
+/// function-calling surface does not expose is the exact drift this generated
+/// section exists to prevent") while committing it, because a generated list
+/// cannot protect against drift when it is generated from a different source
+/// than the thing it mirrors. Deleting one of the two lists is what actually
+/// closes it.
+///
+/// The boundary statement stays because nothing else says it. embacle's
+/// catalogue tells the model which tools exist; only this says that the set is
+/// closed and that a missing capability should be admitted rather than
+/// invented. It was written after the LLM offered to look up Uber Eats menus.
+/// No tool names appear here deliberately — a name would reintroduce a second
+/// list to drift.
+pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     The tools available to you are the ones described elsewhere in this prompt \
+     and nothing else. You cannot browse the web, scrape menus, look up prices, \
+     use third-party services, or run arbitrary code. If a request needs a \
+     capability you have not been given, say so honestly rather than inventing a \
+     plan. Call tools with the parameters described in their schemas.";

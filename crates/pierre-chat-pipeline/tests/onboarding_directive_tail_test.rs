@@ -147,13 +147,37 @@ fn structured_output_contract_is_suppressed_during_the_walk() {
     );
 }
 
+/// Stage 7a.2 states the tool boundary and lists nothing.
+///
+/// It used to generate a prose tool list that had to be kept in lockstep with
+/// the native declarations, and this test asserted it received the guided-flow
+/// flag so the two stayed aligned. The list is deleted — the declarations are
+/// the single advertisement surface — so what matters now is that the stage
+/// appends the boundary statement and does not reach for the registry again.
 #[test]
-fn tools_section_is_generated_with_the_guided_flow_flag() {
+fn the_tool_stage_states_the_boundary_without_listing_tools() {
     let source = prompt_assembly_source();
     assert!(
-        source.contains("build_tools_section(&ctx.tool_registry, onboarding.is_some())"),
-        "Stage 7a.2's prose tool list must know whether a guided flow owns the turn, \
-         so it stays in lockstep with the native declarations"
+        source.contains("{base_prompt}\\n\\n{TOOL_BOUNDARY}"),
+        "Stage 7a.2 must append the tool-boundary statement"
+    );
+    assert!(
+        !source.contains("build_tools_section"),
+        "the generated prose tool list must stay deleted — a second list built \
+         from a different schema set is what it was drifting against"
+    );
+    // Comments are stripped: the Stage 7a.2 comment names the old schema set
+    // deliberately, to record which drift the deletion closed.
+    let code: String = source
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !code.contains("user_visible_schemas"),
+        "prompt assembly must not read the registry for advertisement: the \
+         declarations at Stage 13 are the one surface, and they use \
+         chat_callable_schemas"
     );
 }
 

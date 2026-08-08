@@ -8,18 +8,20 @@
 #![allow(missing_docs)]
 
 //! While a guided conversational flow owns the turn — today the `/pillars`
-//! profile walk — the plan-writing tool is withheld from the model. Two
-//! advertisement surfaces have to move together: the prose list generated at
-//! Stage 7a.2 (`build_tools_section`) and the native function declarations
-//! handed to the provider at Stage 13 (`build_mcp_tools`). Advertising a tool in
-//! prose that the function-calling surface does not expose is exactly the drift
-//! the generated tools section exists to prevent, so each assertion below is
-//! made against both surfaces at once.
+//! profile walk — the plan-writing tool is withheld from the model.
+//!
+//! There is now ONE advertisement surface: the native declarations built by
+//! `build_mcp_tools` at Stage 13, which both the API providers and embacle's
+//! text catalogue derive from. These tests used to assert against two, because
+//! Stage 7a.2 also generated a prose list; keeping two surfaces in lockstep was
+//! the reason this file existed. The prose list is deleted, so the lockstep
+//! problem is gone rather than tested — and the last test here guards the
+//! deletion, since a reintroduced second list would need this coordination
+//! back.
 //!
 //! Enforcement — the server-side refusal that also covers the native-MCP path —
 //! is covered in `training_plan_tools_test.rs`.
 
-use pierre_chat_pipeline::stages::prompt_builder::build_tools_section;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_execution::{
@@ -53,7 +55,6 @@ fn declared_names(registry: &Arc<ToolRegistry>, guided_flow_active: bool) -> Vec
 fn withheld_tools_are_advertised_on_a_normal_turn() {
     let registry = full_registry();
 
-    let prose = build_tools_section(&registry, false);
     let declared = declared_names(&registry, false);
 
     assert!(
@@ -62,10 +63,6 @@ fn withheld_tools_are_advertised_on_a_normal_turn() {
     );
     for name in GUIDED_FLOW_WITHHELD_TOOLS {
         assert!(
-            prose.contains(&format!("`{name}`")),
-            "{name} must be in the prose tool list on a normal turn"
-        );
-        assert!(
             declared.iter().any(|d| d == name),
             "{name} must be natively declared on a normal turn"
         );
@@ -73,17 +70,11 @@ fn withheld_tools_are_advertised_on_a_normal_turn() {
 }
 
 #[test]
-fn withheld_tools_vanish_from_both_surfaces_during_a_guided_flow() {
+fn withheld_tools_vanish_during_a_guided_flow() {
     let registry = full_registry();
-
-    let prose = build_tools_section(&registry, true);
     let declared = declared_names(&registry, true);
 
     for name in GUIDED_FLOW_WITHHELD_TOOLS {
-        assert!(
-            !prose.contains(&format!("`{name}`")),
-            "{name} must be absent from the prose tool list during a guided flow"
-        );
         assert!(
             !declared.iter().any(|d| d == name),
             "{name} must not be natively declared during a guided flow"
@@ -110,10 +101,36 @@ fn only_the_withheld_tools_are_dropped() {
             walking.iter().any(|d| d == kept),
             "{kept} must stay available during a guided flow"
         );
-        let prose = build_tools_section(&registry, true);
+    }
+}
+
+/// The prompt must not grow a second tool list.
+///
+/// Stage 7a.2 generated one for months: a prose line per tool, 11,763
+/// characters beside embacle's 16,127-character catalogue of the same ~58
+/// tools. Worse than the size, it was built from `user_visible_schemas()` while
+/// the declarations came from `chat_callable_schemas()`, so it advertised
+/// categories the coach could not call on any path.
+///
+/// A second list cannot be kept in lockstep by discipline — this file is the
+/// evidence, since keeping the two surfaces aligned is what it was written to
+/// do. The boundary statement that replaced it names no tools, which is the
+/// property that keeps it from becoming a list again.
+#[test]
+fn the_prompt_carries_no_second_tool_list() {
+    use pierre_chat_pipeline::stages::prompt_builder::TOOL_BOUNDARY;
+
+    let registry = full_registry();
+    for name in declared_names(&registry, false) {
         assert!(
-            prose.contains(&format!("`{kept}`")),
-            "{kept} must stay in the prose list during a guided flow"
+            !TOOL_BOUNDARY.contains(&name),
+            "TOOL_BOUNDARY names {name} — it must state the boundary without \
+             listing tools, or it becomes the second list again"
         );
     }
+    assert!(
+        TOOL_BOUNDARY.contains("cannot browse the web"),
+        "the closed-world statement must survive: it is the only place that says \
+         a missing capability should be admitted rather than invented"
+    );
 }

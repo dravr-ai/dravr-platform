@@ -33,7 +33,7 @@ use super::memory::{inject_okf_bundle, inject_playbooks, inject_training_plan};
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{
-    build_llm_messages_with_blocks, build_provider_context, build_tools_section,
+    build_llm_messages_with_blocks, build_provider_context, TOOL_BOUNDARY,
 };
 use super::refresh::inject_refresh_context;
 
@@ -518,14 +518,21 @@ pub(crate) async fn assemble_prompt_and_messages(
         &base_prompt,
     );
 
-    // Stage 7a.2: Append the runtime-generated "Available Tools" section.
-    // Both the default Pierre system prompt and every coach's custom
-    // system_prompt flow through this stage so neither can drift from
-    // the actual tool registry. The registry is the single source of
-    // truth; if a tool is added, renamed, or removed, the prompt
-    // immediately reflects the change without a prompt edit.
-    let tools_section = build_tools_section(&ctx.tool_registry, onboarding.is_some());
-    let base_prompt = format!("{base_prompt}\n\n{tools_section}");
+    // Stage 7a.2: State that the tool set is closed. The tools themselves are
+    // advertised once, by the provider layer — embacle renders the full schemas
+    // for text tool-calling, and native providers receive them over the API.
+    //
+    // This stage used to generate a second list here: one prose line per tool,
+    // 11,763 characters, restating names the model was already given. It was
+    // built from `user_visible_schemas()` while the declarations were built
+    // from `chat_callable_schemas()`, so it advertised every non-chat-callable
+    // category — coach CRUD, config writes, claim verification — as though the
+    // coach could call them. Two lists from two sources cannot help drifting;
+    // deleting one is what stops it, not regenerating both.
+    //
+    // What the list was carrying that nothing else says is the boundary itself,
+    // so that stays.
+    let base_prompt = format!("{base_prompt}\n\n{TOOL_BOUNDARY}");
 
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.

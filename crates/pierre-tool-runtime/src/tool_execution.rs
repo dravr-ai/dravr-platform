@@ -2044,12 +2044,15 @@ pub fn build_mcp_tools(tool_registry: &ToolRegistry) -> Tool {
 /// moving to the second pillar. Read tools stay available so the athlete can
 /// still ask "what did I ride yesterday?" without leaving the walk.
 ///
-/// Single source of truth for the three surfaces that must agree: the native
-/// function declarations filtered in `tool_dispatch.rs`, the prose "Available
-/// Tools" list built by `build_tools_section`, and the server-side refusal in
-/// `SaveTrainingPlanTool::execute`. The first two are advertisement, which is
-/// not enforcement; the refusal is what covers the native-MCP path, where tool
-/// visibility comes from the `/mcp` endpoint rather than from these
+/// Single source of truth for the two surfaces that must agree: the native
+/// function declarations filtered in `tool_dispatch.rs`, and the server-side
+/// refusal in `SaveTrainingPlanTool::execute`. There used to be a third — a
+/// prose "Available Tools" list generated into the system prompt — and keeping
+/// three surfaces aligned is why this constant exists; that list is deleted, so
+/// advertisement is now one surface rather than two that could disagree.
+/// Declarations are advertisement, which is not enforcement; the refusal is
+/// what covers the native-MCP path, where tool visibility comes from the
+/// `/mcp` endpoint rather than from these
 /// declarations.
 pub const GUIDED_FLOW_WITHHELD_TOOLS: &[&str] = &["save_training_plan"];
 

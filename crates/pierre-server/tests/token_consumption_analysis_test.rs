@@ -342,11 +342,14 @@ mod axis2_prompt_sizes {
             println!("{turns:<8} {total_billed:>14} {total_output:>14} {cost_31lite:>15.6} {cost_25flash:>15.6}");
         }
 
-        // Sanity floor: the static compiled-in prompt lost ~800 tokens of
+        // Sanity floor on the STATIC compiled-in prompt. It lost ~800 tokens of
         // "Available Tools" listing when that section moved to runtime
-        // generation via `build_tools_section` (pipeline Stage 7a.2).
-        // Current size ~2800 tokens; the floor catches accidental truncation
-        // to near-empty without pinning the exact token count.
+        // generation at pipeline Stage 7a.2; that generated list has since been
+        // deleted outright, since embacle and the native declarations already
+        // advertise the same tools from the registry. Neither move changes this
+        // number — it measures the static file, not the assembled prompt. The
+        // floor catches accidental truncation to near-empty without pinning an
+        // exact count.
         assert!(
             system_tokens > 2500,
             "System prompt should be > 2500 tokens, got {system_tokens}"
