@@ -207,3 +207,52 @@ fn slice_between<'a>(source: &'a str, from: &str, to: &str) -> &'a str {
     assert!(start < end, "{from} must precede {to}");
     &source[start..end]
 }
+
+/// The re-ask must resolve its provider exactly the way dispatch does.
+///
+/// This is what makes the re-ask verifiable without waiting for a leak. Stage
+/// 11 resolves a provider through `chat_provider_from_resources_arc` and
+/// propagates failure with `?`, so a turn that produced a reply at all proves
+/// the resolution succeeded. The re-ask then calls the same function with the
+/// same two arguments on the same, unmutated context — so it cannot fail to
+/// find a provider on any turn that has a reply to re-ask.
+///
+/// That property is why the first implementation was dead in production: it
+/// read `ctx.llm_provider` directly, a DIFFERENT source than dispatch used, and
+/// the server binary leaves that field `None`. Two independent resolutions
+/// could disagree; one shared resolution cannot.
+///
+/// Asserted at source level because the alternative — proving it end to end —
+/// requires a leak to occur, which is stochastic at ~1.7% and therefore not
+/// something a test can arrange.
+#[test]
+fn the_reask_resolves_its_provider_the_same_way_dispatch_does() {
+    let pipeline = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+        .expect("read lib.rs");
+    let dispatch = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/stages/tool_dispatch.rs"),
+    )
+    .expect("read tool_dispatch.rs");
+
+    const RESOLVER: &str =
+        "chat_provider_from_resources_arc(ctx.chat_provider.as_ref(), ctx.llm_provider.as_ref())";
+
+    assert!(
+        dispatch.contains(RESOLVER),
+        "Stage 11 must resolve through the shared factory — this test compares \
+         the re-ask against it, so a change here invalidates the comparison"
+    );
+    assert!(
+        pipeline.contains(RESOLVER),
+        "the re-ask must resolve through the SAME factory call as Stage 11. \
+         Reading ctx.llm_provider directly is what made it dead code in \
+         production: the server binary sets that field to None and wires \
+         chat_provider instead"
+    );
+    assert!(
+        !pipeline.contains("let Some(provider) = ctx.llm_provider"),
+        "the re-ask must not read ctx.llm_provider directly — production leaves \
+         it None, so this returns early on every live turn while tests that \
+         inject through that field stay green"
+    );
+}
