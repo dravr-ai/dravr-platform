@@ -53,6 +53,10 @@ export {
 
 export type { NotificationCategoryMeta } from './notifications';
 
+// User-facing surface registry (what the product offers, and where per platform)
+export { USER_SURFACES, surfacesFor } from './surfaces';
+export type { UserSurface } from './surfaces';
+
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';
 export type { QueryKeys } from './query-keys';
