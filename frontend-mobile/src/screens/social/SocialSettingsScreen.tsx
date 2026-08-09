@@ -1,7 +1,7 @@
 // ABOUTME: Social and privacy settings screen for managing discoverability and sharing
 // ABOUTME: Controls visibility, notifications, and default share preferences
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  Alert,
   ActivityIndicator,
   type ViewStyle,
 } from 'react-native';
@@ -20,7 +21,7 @@ import type { ComponentProps } from 'react';
 import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 
 type FeatherIconName = ComponentProps<typeof Feather>['name'];
-import { socialApi } from '../../services/api';
+import { socialApi, userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { UserSocialSettings } from '../../types';
 // Glass card style with shadow (React Native shadows cannot use className)
@@ -69,12 +70,47 @@ function SettingRow({ icon, title, description, value, onValueChange, disabled, 
 export function SocialSettingsScreen() {
   const colors = useThemeColors();
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user, updateUser } = useAuth();
   const [settings, setSettings] = useState<UserSocialSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Analytics consent is stored on the user record, not in social settings, so
+  // it is seeded from the auth context rather than the social settings fetch.
+  const [analyticsConsent, setAnalyticsConsent] = useState(user?.analytics_consent ?? false);
+  const [isSavingConsent, setIsSavingConsent] = useState(false);
+
+  useEffect(() => {
+    if (user?.analytics_consent != null) {
+      setAnalyticsConsent(user.analytics_consent);
+    }
+  }, [user?.analytics_consent]);
+
+  /**
+   * Persist the analytics-consent toggle.
+   *
+   * Optimistic so the switch does not lag the tap, but reverted on failure —
+   * a switch that stays flipped after a failed write tells the user their data
+   * sharing is off when it is still on, which is the one place this screen must
+   * not be wrong.
+   */
+  const updateAnalyticsConsent = async (value: boolean) => {
+    const previous = analyticsConsent;
+    setAnalyticsConsent(value);
+    setIsSavingConsent(true);
+    try {
+      await userApi.updateAnalyticsConsent(value);
+      await updateUser({ analytics_consent: value });
+    } catch (err) {
+      setAnalyticsConsent(previous);
+      const message = err instanceof Error ? err.message : 'Failed to update analytics consent';
+      Alert.alert('Could not save preference', message);
+    } finally {
+      setIsSavingConsent(false);
+    }
+  };
 
   const loadSettings = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -211,6 +247,19 @@ export function SocialSettingsScreen() {
             value={settings.discoverable}
             onValueChange={(value) => updateSetting('discoverable', value)}
             testID="discoverable-switch"
+          />
+          {/* Analytics consent lives here rather than on its own screen: this
+              is already the app's privacy surface, and the web Privacy & Data
+              tab carries the same single toggle. Anonymised usage only — never
+              messages, fitness data, or an unhashed user id. */}
+          <SettingRow
+            icon="bar-chart-2"
+            title="Usage Analytics"
+            description="Share anonymised usage patterns to help improve Dravr. Never your messages, fitness data, or personal information."
+            value={analyticsConsent}
+            onValueChange={(value) => { void updateAnalyticsConsent(value); }}
+            disabled={isSavingConsent}
+            testID="analytics-consent-switch"
           />
         </View>
 

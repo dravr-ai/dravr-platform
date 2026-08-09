@@ -10,6 +10,7 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  Linking,
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +25,27 @@ import { useAuth } from '../../contexts/AuthContext';
 import { userApi, oauthApi } from '../../services/api';
 import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
 import type { McpToken, ExtendedProviderStatus } from '../../types';
+import { BILLING_ENABLED } from '../../constants/features';
+// Destinations for the About rows. Same targets the web Settings screen links
+// to, so the two surfaces cannot drift to different help or terms pages.
+const HELP_CENTER_URL = 'https://dravr.ai/help';
+const TERMS_PRIVACY_URL = 'https://dravr.ai/privacy';
+
+/**
+ * Open an external URL, telling the user when the device cannot.
+ *
+ * A bare `Linking.openURL` rejects on a device with no handler, and an
+ * unhandled rejection here would look identical to the row doing nothing —
+ * which is the defect these rows already had.
+ */
+async function openExternal(url: string): Promise<void> {
+  try {
+    await Linking.openURL(url);
+  } catch {
+    Alert.alert('Could not open link', `Open ${url} in your browser instead.`);
+  }
+}
+
 // Settings row style
 const settingsRowStyle: ViewStyle = {
   flexDirection: 'row',
@@ -303,6 +325,8 @@ export function SettingsScreen() {
               shadowRadius: 12,
               elevation: 6,
             }}
+            onPress={() => router.push('/(app)/(tabs)/(settings)/profile')}
+            testID="settings-edit-profile-button"
           >
             <Text style={{ fontSize: 14, fontWeight: '600', color: colors.tokens.onPrimary }}>Edit Profile</Text>
           </TouchableOpacity>
@@ -338,7 +362,7 @@ export function SettingsScreen() {
           <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Coaching</Text>
           <View style={glassCardStyle}>
             <TouchableOpacity
-              style={settingsRowStyle}
+              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
               onPress={() => router.push('/(app)/(tabs)/(settings)/coaching-style')}
               testID="settings-coaching-style-button"
             >
@@ -353,6 +377,36 @@ export function SettingsScreen() {
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
+
+            {/* Onboarding could link a chat app but nothing could show or undo
+                it afterwards. Web exposes this under Settings; mobile now does
+                too. */}
+            <TouchableOpacity
+              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
+              onPress={() => router.push('/(app)/(tabs)/(settings)/messaging')}
+              testID="settings-messaging-button"
+            >
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <Feather name="message-circle" size={20} color={colors.text.secondary} />
+              </View>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Messaging</Text>
+              <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+            </TouchableOpacity>
+
+            {/* Bring-your-own AI key. Web exposes this under Settings; without
+                it a mobile-only user cannot see which provider is serving them
+                or supply their own. */}
+            <TouchableOpacity
+              style={settingsRowStyle}
+              onPress={() => router.push('/(app)/(tabs)/(settings)/ai-provider')}
+              testID="settings-ai-provider-button"
+            >
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <Feather name="cpu" size={20} color={colors.text.secondary} />
+              </View>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>AI Provider</Text>
+              <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -360,7 +414,14 @@ export function SettingsScreen() {
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-account-section">
           <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Account</Text>
           <View style={glassCardStyle}>
-            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]} testID="settings-personal-info-button">
+            {/* Same destination as the header's Edit Profile. Web exposes a
+                single Profile tab, so two rows leading to two different places
+                would be the drift rather than the parity. */}
+            <TouchableOpacity
+              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
+              onPress={() => router.push('/(app)/(tabs)/(settings)/profile')}
+              testID="settings-personal-info-button"
+            >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="user" size={20} color={colors.text.secondary} />
               </View>
@@ -396,7 +457,7 @@ export function SettingsScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={settingsRowStyle}
+              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
               onPress={() => router.push('/(app)/(tabs)/(settings)/connected-apps')}
               testID="settings-connected-apps-button"
             >
@@ -409,6 +470,43 @@ export function SettingsScreen() {
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
+
+            {/* Memory — the screen and its route already existed but nothing
+                navigated to them, so the inspector was unreachable in the app. */}
+            <TouchableOpacity
+              style={BILLING_ENABLED ? [settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }] : settingsRowStyle}
+              onPress={() => router.push('/(app)/memory')}
+              testID="settings-memory-button"
+            >
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <Feather name="cpu" size={20} color={colors.text.secondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>Memory</Text>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>What your coach remembers</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+            </TouchableOpacity>
+
+            {/* Billing rides the same flag as the web Usage tab. The route
+                itself also redirects when disabled, so this row is the entry
+                point that was missing rather than a second gate. */}
+            {BILLING_ENABLED && (
+              <TouchableOpacity
+                style={settingsRowStyle}
+                onPress={() => router.push('/(app)/billing')}
+                testID="settings-billing-button"
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                  <Feather name="credit-card" size={20} color={colors.text.secondary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, color: colors.text.primary }}>Billing</Text>
+                  <Text style={{ fontSize: 14, color: colors.text.tertiary }}>Plan and usage</Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -545,7 +643,14 @@ export function SettingsScreen() {
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
           <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Privacy</Text>
           <View style={glassCardStyle}>
-            <TouchableOpacity style={settingsRowStyle}>
+            {/* Social settings is the app's privacy surface — discoverability,
+                default sharing, and analytics consent all live there, matching
+                what the web Privacy & Data tab covers. */}
+            <TouchableOpacity
+              style={settingsRowStyle}
+              onPress={() => router.push('/(app)/(tabs)/(social)/social-settings')}
+              testID="settings-privacy-button"
+            >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="shield" size={20} color={colors.text.secondary} />
               </View>
@@ -559,7 +664,9 @@ export function SettingsScreen() {
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
           <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>About</Text>
           <View style={glassCardStyle}>
-            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}>
+            {/* Informational only — rendered as a plain row so it does not
+                advertise a tap it cannot service. */}
+            <View style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]} testID="settings-version-row">
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="info" size={20} color={colors.text.secondary} />
               </View>
@@ -567,9 +674,13 @@ export function SettingsScreen() {
                 <Text style={{ fontSize: 16, color: colors.text.primary }}>Version</Text>
                 <Text style={{ fontSize: 14, color: colors.text.tertiary }}>1.0.0</Text>
               </View>
-            </TouchableOpacity>
+            </View>
 
-            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}>
+            <TouchableOpacity
+              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
+              onPress={() => { void openExternal(HELP_CENTER_URL); }}
+              testID="settings-help-center-button"
+            >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="help-circle" size={20} color={colors.text.secondary} />
               </View>
@@ -577,7 +688,11 @@ export function SettingsScreen() {
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={settingsRowStyle}>
+            <TouchableOpacity
+              style={settingsRowStyle}
+              onPress={() => { void openExternal(TERMS_PRIVACY_URL); }}
+              testID="settings-terms-privacy-button"
+            >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="file-text" size={20} color={colors.text.secondary} />
               </View>
