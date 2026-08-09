@@ -20,6 +20,23 @@ import {
 } from './dashboard/index';
 
 // Lazy load heavy components to reduce initial bundle size
+/**
+ * Tabs only an admin may open.
+ *
+ * The sidebar already offers a role-appropriate set, but the hash is
+ * user-editable and `applyRoute` accepted whatever was typed — so `#users` as a
+ * regular user mounted the admin pane. Kept as a literal set rather than derived
+ * from the tab arrays because those are built inside the component, after the
+ * route handler that needs them.
+ */
+const ADMIN_ONLY_TABS = new Set([
+  'users', 'coaches', 'coach-store', 'configuration', 'user-tools', 'prompts',
+  'platform-settings', 'claim-verdicts', 'harness-config', 'memory-worker',
+  'coach-followups', 'coach-notes-audit', 'myth-busting', 'coach-grading',
+  'eval-harness', 'activity', 'engagement', 'connections', 'analytics',
+  'admin-tokens', 'billing',
+]);
+
 const UsageAnalytics = lazy(() => import('./UsageAnalytics'));
 const ActivityTab = lazy(() => import('./ActivityTab'));
 const EngagementTab = lazy(() => import('./EngagementTab'));
@@ -89,7 +106,15 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const initialSlash = initialRoute.indexOf('/');
   const initialTabSeg = initialSlash === -1 ? initialRoute : initialRoute.slice(0, initialSlash);
   const initialSubSeg = initialSlash === -1 ? '' : initialRoute.slice(initialSlash + 1);
-  const initialTab = initialTabSeg || (isAdminUser ? 'users' : 'chat');
+  // Guard the first paint as well as later hash edits. A hand-typed or
+  // bookmarked `#users` arrives as a full page load, which never reaches
+  // `applyRoute`, so gating only there would leave the very path a user takes
+  // wide open.
+  const initialFallback = isAdminUser ? 'users' : 'chat';
+  const initialTab =
+    !isAdminUser && ADMIN_ONLY_TABS.has(initialTabSeg)
+      ? initialFallback
+      : initialTabSeg || initialFallback;
   const [activeTab, setActiveTab] = useState<string>(initialTab);
 
   // Hash-route mirroring + back/forward handling live below, after the
@@ -226,7 +251,15 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // `chat/<conversationId>` so the reply opens that thread.
   const applyRoute = useCallback((raw: string) => {
     const slash = raw.indexOf('/');
-    const tab = (slash === -1 ? raw : raw.slice(0, slash)) || (isAdminUser ? 'users' : 'chat');
+    const fallback = isAdminUser ? 'users' : 'chat';
+    const requested = (slash === -1 ? raw : raw.slice(0, slash)) || fallback;
+    // The sidebar only offers tabs for the caller's role, but the hash is
+    // user-editable: typing `#users` as a regular user mounted the admin
+    // UserManagement pane. The server refuses the data (every /api/admin call
+    // 403s), so nothing leaked — but the pane still rendered its filter chrome
+    // and then retried the 403 on a loop. Resolve an out-of-role tab back to
+    // the role's own default instead of mounting a surface it cannot use.
+    const tab = !isAdminUser && ADMIN_ONLY_TABS.has(requested) ? fallback : requested;
     const sub = slash === -1 ? '' : raw.slice(slash + 1);
     setActiveTab(tab);
     setSelectedGroupId(tab === 'groups' && sub ? decodeURIComponent(sub) : null);

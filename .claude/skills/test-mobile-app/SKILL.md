@@ -62,12 +62,21 @@ mistake available on mobile. `src/services/apiUrl.ts` gives `EXPO_PUBLIC_API_URL
 over every fallback, and `frontend-mobile/.env` is untracked and per-machine — it commonly holds
 a Cloud Run URL left behind by a tunnel run:
 
+Check **both** files. Expo loads `.env.local` as well, at higher precedence, so a URL there
+silently wins over the one you just corrected in `.env`:
+
 ```bash
-cat frontend-mobile/.env          # EXPO_PUBLIC_API_URL=...
+cat frontend-mobile/.env frontend-mobile/.env.local 2>/dev/null | grep EXPO_PUBLIC_API_URL
 ```
 
+Expo prints what it loaded — `env: load .env.local .env` — in `logs/expo.log` at startup. Read
+that line rather than trusting either file alone.
+
 If it is not your local server, the sweep is testing *deployed dev*, and every "stale data" or
-"missing seed" finding is an artefact. Point it at the local stack before starting:
+"missing seed" finding is an artefact. This is not hypothetical: on the first real run of this
+skill, `.env` held a Cloud Run URL. Point it at the local stack before starting, and restore
+the original afterwards — the file is gitignored and per-machine, so it is the developer's,
+not the repo's:
 
 ```
 EXPO_PUBLIC_API_URL="http://localhost:8081"      # iOS Simulator
@@ -165,18 +174,49 @@ Two toolsets are available; they see the same simulator.
 | Toolset | Use it for |
 |---|---|
 | `mcp__ios-simulator__*` | the accessibility tree (`ui_describe_all`, `ui_find_element`, `ui_describe_point`), precise `ui_tap` / `ui_type` / `ui_swipe`, `screenshot`, `record_video` / `stop_recording` |
-| `mcp__mobile-mcp__*` | device selection (`mobile_list_available_devices`), `mobile_launch_app` / `mobile_terminate_app`, `mobile_list_elements_on_screen`, `mobile_open_url` (deep links), `mobile_press_button`, `mobile_set_orientation`, `mobile_list_crashes` / `mobile_get_crash` |
+| `mcp__mobile-mcp__*` | device selection, app launch, deep links, crash reports — **verify it works before relying on it** |
 
-Bring-up:
+`mobile-mcp` is frequently unavailable: it fails with `mobilecli is not available or not working
+properly` and every call is a no-op. Probe it once with `mobile_list_available_devices`; if that
+errors, do the whole sweep through `mcp__ios-simulator__*` plus `xcrun simctl`, which is
+sufficient for everything below. Do not spend time diagnosing it.
 
-1. `mcp__ios-simulator__get_booted_sim_id` (or `open_simulator`, then
-   `mcp__mobile-mcp__mobile_list_available_devices`).
-2. `mcp__mobile-mcp__mobile_launch_app` on `host.exp.Exponent`, then
-   `mcp__mobile-mcp__mobile_open_url` with `exp://127.0.0.1:8082`.
-3. Expo Go v55 puts a native project-info sheet ("Dravr / Close / Reload / Go Home") over the RN
-   tree on first load. Dismiss it (tap **Close**) before trusting an empty accessibility tree —
-   `.maestro/helpers/launch-app.yaml` retries this three times for exactly this reason. An
-   "everything is blank" finding that turns out to be that sheet is not a finding.
+Bring-up. Every step here has failed in practice — none is a formality:
+
+1. **A simulator must be booted, and Expo's cached device id is often stale.**
+   `expo start --ios` dies with `Invalid device or device pair: <uuid>` and exit code 148 when
+   the id it remembers no longer exists. Boot one yourself first:
+   ```bash
+   xcrun simctl list devices available          # Dravr-Test is the project's device
+   xcrun simctl boot <udid> && open -a Simulator
+   ```
+   Confirm with `mcp__ios-simulator__get_booted_sim_id`.
+
+2. **Expo Go must be installed on that simulator.** A fresh or re-created device does not have
+   it, and `simctl openurl exp://…` then fails with `LSApplicationWorkspaceErrorDomain code=115`
+   because nothing handles the scheme. Check and install:
+   ```bash
+   xcrun simctl listapps <udid> | grep -c host.exp.Exponent   # 0 means not installed
+   ./bin/install-expo-go.sh
+   ```
+   Two traps in that script: it starts its own dev server, so it **fails while Metro already
+   holds 8082** (`Input is required, but 'npx expo' is in non-interactive mode`) — stop Metro
+   first; and its 60-second wait is too short, since the download took ~120s. If it times out,
+   run `npx expo start --ios --go --port 8082` directly and wait for `host.exp.Exponent` to
+   appear in `listapps`.
+
+3. **The first load is slow and the accessibility tree is empty while it bundles.** Metro shows
+   `Building JavaScript bundle... NN%` on the splash. Screenshot before concluding anything —
+   an empty tree here is the bundler, not a blank app.
+
+4. **Expo Go puts a native project-info sheet over the RN tree** ("Dravr / Runtime version:
+   exposdk:55.0.0 / Close / Reload / Go home"). Dismiss it by tapping **Close** (it carries
+   `AXUniqueId: "xmark"`) — `.maestro/helpers/launch-app.yaml` retries this three times for the
+   same reason. An "everything is blank" finding that turns out to be that sheet is not a
+   finding.
+
+5. **iOS offers to save the password after login.** Dismiss with **Not Now**; there is a
+   `.maestro/helpers/dismiss-save-password.yaml` for the Maestro path.
 
 **Interaction loop for every screen — do all four, every time:**
 

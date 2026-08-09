@@ -520,3 +520,41 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
   });
 
 });
+
+test.describe('Role routing — admin tabs are not reachable by hash', () => {
+  // The sidebar only offers role-appropriate tabs, but the hash is
+  // user-editable. Typing #users as a regular user mounted the admin
+  // UserManagement pane: the server refused every /api/admin call with 403 so
+  // no data leaked, but the pane rendered its filter chrome and then retried
+  // the 403 on a loop — eight requests for one page view.
+  test('a regular user typing #users lands on chat, not the admin pane', async ({ page }) => {
+    const adminCalls: string[] = [];
+    await page.route('**/api/admin/**', async (route) => {
+      adminCalls.push(route.request().url());
+      await route.fulfill({ status: 403, contentType: 'application/json', body: '{}' });
+    });
+
+    await loginAsUser(page, 'webtest');
+    await page.goto('/#users');
+    await page.waitForTimeout(1200);
+
+    // Assert the properties that matter, not the URL: the app deliberately
+    // leaves the typed hash alone, so checking it would pin an implementation
+    // detail rather than the guard. What must hold is that the admin pane never
+    // mounts and its endpoints are never called.
+    await expect(page.getByRole('button', { name: 'All Users' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Pending' })).toHaveCount(0);
+    // The chat composer proves we landed on the role's own default surface.
+    await expect(page.getByPlaceholder(/Message Dravr/i)).toBeVisible();
+    // And nothing should have hammered an endpoint this role cannot use.
+    expect(adminCalls, `regular user issued ${adminCalls.length} admin API calls`).toHaveLength(0);
+  });
+
+  test('an admin can still open #users', async ({ page }) => {
+    // The guard must deny the right people without denying the right people.
+    await loginAsUser(page, 'admin');
+    await page.goto('/#users');
+    await page.waitForTimeout(1200);
+    await expect(page.locator('h1')).toContainText('Users');
+  });
+});
