@@ -157,7 +157,9 @@ show ChefFamille, and the only durable evidence of a visual defect.
 
 ## Phase 3 — Admin-mode sweep
 
-Log in as `admin@example.com` / `AdminPassword123`. Landing tab is `users`.
+Log in as the `$ADMIN_EMAIL` / `$ADMIN_PASSWORD` you resolved in Phase 1 — **not** the
+`admin@example.com` default, which does not exist on a machine whose `.envrc` overrides it.
+Landing tab is `users`.
 
 Navigate **by clicking the sidebar** — that exercises the nav itself. Hash routes
 (`#users`, `#coaches`, `#groups/<id>`, `#chat/<conversationId>`) exist and `navigate_page`
@@ -184,6 +186,12 @@ re-run, set them.
 Landing tab is `chat`. Full checklist:
 **[reference/surfaces.md](reference/surfaces.md) → User surfaces** (7 tabs + Settings).
 
+**If a surface exists on mobile but not here, the registry decides whether that is a defect.**
+`packages/shared-constants/src/surfaces.ts` (`USER_SURFACES`) declares every user-facing surface
+and where each platform serves it. A `null` route means the absence is deliberate and carries a
+`why`; anything else is a gap. Fix the registry in the same change as the surface — it is the
+source both clients answer to, not a summary of them.
+
 ## Phase 5 — Cross-cutting passes
 
 Run these in both roles unless noted.
@@ -201,6 +209,12 @@ Run these in both roles unless noted.
 5. **Auth boundaries.** As `webtest`, hit an admin-only surface (`#users`, `#admin-tokens`)
    via `navigate_page`. It must not render admin data. A rendered admin panel for a
    non-admin is **P0 security**, filed and fixed first.
+
+   The guard is `ADMIN_ONLY_TABS` in `Dashboard.tsx`, and it is enforced in **two** places —
+   `applyRoute` (hashchange) *and* the initial `useState`. Test both: a typed URL is a full
+   page load and never touches the hashchange path, so a guard on `applyRoute` alone looks
+   correct while leaving the real hole open. That was the actual bug; a fix that only covers
+   one path is not a fix.
 6. **Accessibility.** `take_snapshot` already gives the tree; for a scored pass run
    `lighthouse_audit` on the 3–4 heaviest surfaces. Axe-based specs live in
    `frontend/e2e/accessibility/`.
@@ -222,6 +236,16 @@ Severity:
 
 Before filing, establish the root cause from **primary evidence** — server log, network
 body, source. A guessed cause produces a guessed fix and a test that proves nothing.
+
+**Known-intentional states — do not file these as defects:**
+
+| Observation | Why it is correct |
+|---|---|
+| No Garmin card on Data Providers, even for a Garmin-seeded user | `/api/providers` deliberately skips `garmin` (`compute_providers_status` in `crates/pierre-routes-auth/src/oauth.rs`) — Garmin's OAuth API is uncredentialed, so the supported Garmin path is the `sciotte_garmin` scrape card |
+| Admin **Billing** tab and user **Usage** tab absent | `BILLING_ENABLED = import.meta.env.VITE_BILLING_ENABLED === 'true'` in `frontend/src/constants/features.ts`; billing ships disabled. Restart Vite with `VITE_BILLING_ENABLED=true` to sweep it, or record it as *not visited, feature-flagged off* |
+| `#data-providers` renders nothing for an admin | Role-gated `!isAdminUser` by design — admins are pure operators with no personal provider data |
+| A non-admin typing `#users` lands on their default tab | `ADMIN_ONLY_TABS` in `Dashboard.tsx` doing its job. The *absence* of that redirect is the P0 |
+| An `@example.com` registration lands on Pending Approval | Only `dravr.ai` addresses auto-approve |
 
 Show ChefFamille the triage table **before** starting fixes. Scope decisions are theirs.
 

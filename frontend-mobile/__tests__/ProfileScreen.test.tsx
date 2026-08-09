@@ -46,6 +46,14 @@ describe('ProfileScreen', () => {
     });
   });
 
+  it('exposes the screen-level anchor the sweep docs and Maestro flows navigate by', () => {
+    // reference/surfaces.md advertises `profile-screen`, and Maestro anchors on ids
+    // rather than body text. Removing the testID would rot the doc and break flows
+    // with a "not visible" that reads like a navigation bug.
+    const { getByTestId } = render(<ProfileScreen />);
+    expect(getByTestId('profile-screen')).toBeTruthy();
+  });
+
   it('shows the current display name and the account email', () => {
     const { getByTestId, getAllByText } = render(<ProfileScreen />);
     expect(getByTestId('profile-display-name-input').props.value).toBe('Mobile Test User');

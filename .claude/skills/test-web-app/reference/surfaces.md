@@ -14,7 +14,7 @@ Anything below that renders empty **despite** these seeds is a finding, not an e
 
 | Seeded by | Data |
 |---|---|
-| `user create --super-admin` | `admin@example.com` |
+| `user create --super-admin` | the resolved `$ADMIN_EMAIL` (`admin@example.com` only when `.envrc` sets no override) |
 | `seed coaches` | full coach catalogue from `../dravr-contremaitre/prompts/coaches` |
 | `seed demo-data --days 30` | demo users incl. `webtest@pierre.dev`, `mobiletest@pierre.dev`, `alice@acme.com`, `bob@startup.io` |
 | `seed social` | friendships / social graph |
@@ -39,8 +39,8 @@ nothing either, the bug is in the backend (or the seed) — say which in the fin
 
 ## Admin surfaces (22)
 
-Logged in as `admin@example.com`. Because that account is `--super-admin`, all 21 admin tabs
-**plus** `admin-tokens` render.
+Logged in as the resolved `$ADMIN_EMAIL`. Because that account is created `--super-admin`, all
+21 admin tabs **plus** `admin-tokens` render.
 
 ### Platform
 

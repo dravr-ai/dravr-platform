@@ -22,8 +22,9 @@ thing Maestro replaced.
    (`jest.setup.js`) — it cannot find what it stubs out. Exploration runs a real Expo bundle on a
    real simulator against a live 8081.
 2. **Every surface gets visited, in both roles.** Regular user *and* operator (admin). Mobile has
-   no admin console; the role difference is a **gate** — `SettingsScreen.tsx:79` computes
-   `isAdminUser` and hides the personal Data Providers section for admins. A screen you did not
+   no admin console; the role difference is a **gate** — `SettingsScreen.tsx` computes
+   `isAdminUser` (grep the identifier; it guards the `settings-data-section` block) and hides
+   the personal Data Providers section for admins. A screen you did not
    open is a screen you did not test — say so in the report rather than implying coverage.
 3. **Collect first, fix second.** Do not stop the sweep at the first bug. A half-swept app
    produces a fix list that shifts under you.
@@ -276,13 +277,20 @@ nav as a finding.
 Full screen-by-screen checklist with routes, anchors and per-surface expectations:
 **[reference/surfaces.md](reference/surfaces.md)**.
 
+**If a surface exists on web but not here, the registry decides whether that is a defect.**
+`packages/shared-constants/src/surfaces.ts` (`USER_SURFACES`) declares every user-facing surface
+and where each platform serves it. A `null` route means the absence is deliberate and carries a
+`why`; anything else is a gap. `frontend-mobile/__tests__/SurfaceParity.test.ts` already fails
+when a declared mobile route has no expo-router file — so if it is green and you still found a
+dead end, the registry itself is wrong. Fix the registry in the same change as the screen.
+
 ## Phase 4 — Operator-mode pass
 
 Log out (Settings → `settings-logout-button`), then log in as the resolved `$ADMIN_EMAIL`.
 
 There is no admin console on mobile. What you are testing is the **pure-operator gate**: an
 `admin` / `super_admin` must **not** see the personal Data Providers section
-(`settings-data-section`, `SettingsScreen.tsx:312`), and a regular user must. Confirm both
+(grep `settings-data-section` in `SettingsScreen.tsx`), and a regular user must. Confirm both
 directions — the gate rendering for an admin is a finding; the gate hiding it from a plain user
 is a P0-adjacent regression of a shipped behaviour (`__tests__/SettingsScreenAdminGate.test.tsx`
 is its unit-level pin).
@@ -341,8 +349,7 @@ report, source line. A guessed cause produces a guessed fix and a test that prov
 | Observation | Why it is correct |
 |---|---|
 | No Garmin card on Connections, even for the Garmin-seeded `mobiletest` | `/api/providers` deliberately skips `garmin` (`crates/pierre-routes-auth/src/oauth.rs`, `if provider_name == oauth_providers::GARMIN { continue; }`) — Garmin's OAuth API is uncredentialed, so the supported Garmin path is the `sciotte_garmin` scrape card |
-| Billing screen unreachable / redirects to Settings | `BILLING_ENABLED = false` in `src/constants/features.ts`; `app/(app)/billing.tsx` redirects by design |
-| Memory screen has no in-app entry point | `app/(app)/memory.tsx` is deep-link-only today |
+| Billing row absent from Settings, and `/(app)/billing` redirects out | `BILLING_ENABLED = false` in `src/constants/features.ts` gates both the Settings row and the route itself. The entry point exists but is flag-gated — to sweep billing, flip the flag; otherwise record it as *not visited, feature-flagged off* |
 | `.maestro/onboarding/` never runs in the suite | Not registered in `config.yaml`; the flow header documents why (`mobiletest` has providers connected, so the forced-onboarding assertion needs a zero-provider user) |
 | Expo Go project-info sheet / dev menu over the app | Expo Go v55 startup, not the app |
 

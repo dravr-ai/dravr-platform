@@ -73,7 +73,7 @@ export function ProfileScreen() {
   const initial = (user?.display_name || user?.email || '?').charAt(0).toUpperCase();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background.primary }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background.primary }} edges={['top']} testID="profile-screen">
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
         <TouchableOpacity onPress={() => router.back()} testID="back-button" style={{ padding: 8, marginRight: 8 }}>
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
