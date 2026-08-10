@@ -71,7 +71,9 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # Also bump it when a pulled package is itself broken: 150.0.7871.46-1~deb13u1
 # SIGTRAPs on every headless launch (Debian packaging bug), killing sciotte
 # credential login; 150.0.7871.100-1~deb13u1 fixes it.
-ARG APT_SECURITY_EPOCH=2026-08-03
+# chromium 151.0.7922.108-1~deb13u1 closes CVE-2026-19155, a sandbox escape via
+# use-after-free in Payments that gated the dev deploy on 2026-08-10.
+ARG APT_SECURITY_EPOCH=2026-08-10
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
