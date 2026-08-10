@@ -171,6 +171,11 @@ pub const KEY_LINK_FALLBACK_PROMPT: &str = "messaging.link.fallback_prompt";
 /// Key: initial "link your account" prompt with clickable URL.
 /// `{0}` = full link URL.
 pub const KEY_LINK_INITIAL_PROMPT: &str = "messaging.link.initial_prompt";
+/// Key: opening prompt of the in-chat OTP flow, asking for the email address.
+///
+/// Distinct from [`KEY_LINK_OTP_PROMPT`], which asks for the 6-digit code one
+/// step later.
+pub const KEY_LINK_EMAIL_PROMPT: &str = "messaging.link.email_prompt";
 /// Key: logout confirmation sent after the channel link is torn down.
 pub const KEY_LINK_LOGOUT_COMPLETE: &str = "messaging.link.logout_complete";
 /// Key: user typed `cancel` during the OTP flow.
@@ -576,6 +581,8 @@ pub const FR_BACKFILL_LIST_MORE: &str = "… et {0} de plus";
 
 pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
 pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
+pub(crate) const FR_LINK_EMAIL_PROMPT: &str =
+    "Salut ! Pour relier ton compte Dravr, écris ton adresse e-mail.\nTape « cancel » pour arrêter.";
 pub(crate) const FR_LINK_LOGOUT_COMPLETE: &str =
     "Tu es déconnecté de Dravr. Envoie un message à tout moment pour relier ton compte.";
 pub(crate) const FR_LINK_CANCELLED: &str =
@@ -785,6 +792,8 @@ pub const EN_BACKFILL_LIST_MORE: &str = "… and {0} more";
 pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
     "Hi! To chat with Dravr, link your account first:\n{0}\n\nThis link expires in 10 minutes.";
+pub(crate) const EN_LINK_EMAIL_PROMPT: &str =
+    "Hi! To link your Dravr account, please type your email address.\nType \"cancel\" to stop.";
 pub(crate) const EN_LINK_LOGOUT_COMPLETE: &str =
     "You've been logged out from Dravr. Send a message anytime to link your account again.";
 pub(crate) const EN_LINK_CANCELLED: &str =
@@ -986,6 +995,7 @@ pub(crate) const ES_BACKFILL_LIST_MORE: &str = "… y {0} más";
 
 pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Dravr, primero vincula tu cuenta. Abre la app web de Dravr para conectar este canal.";
 pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Dravr, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
+pub(crate) const ES_LINK_EMAIL_PROMPT: &str = "¡Hola! Para vincular tu cuenta de Dravr, escribe tu correo electrónico.\nEscribe «cancel» para detener.";
 pub(crate) const ES_LINK_LOGOUT_COMPLETE: &str = "Has cerrado sesión en Dravr. Envía un mensaje cuando quieras para volver a vincular tu cuenta.";
 pub(crate) const ES_LINK_CANCELLED: &str =
     "Vinculación cancelada. Envía un mensaje cuando quieras para empezar de nuevo.";
@@ -1184,6 +1194,7 @@ pub(crate) const DE_BACKFILL_LIST_MORE: &str = "… und {0} weitere";
 
 pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Dravr zu chatten, verknüpfe zuerst dein Konto. Öffne die Dravr-Web-App, um diesen Kanal zu verbinden.";
 pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Dravr zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
+pub(crate) const DE_LINK_EMAIL_PROMPT: &str = "Hallo! Um dein Dravr-Konto zu verknüpfen, tippe deine E-Mail-Adresse.\nTippe „cancel\", um abzubrechen.";
 pub(crate) const DE_LINK_LOGOUT_COMPLETE: &str = "Du bist von Dravr abgemeldet. Schreib jederzeit eine Nachricht, um dein Konto erneut zu verknüpfen.";
 pub(crate) const DE_LINK_CANCELLED: &str =
     "Verknüpfung abgebrochen. Schreib jederzeit eine Nachricht, um neu zu beginnen.";
@@ -1384,6 +1395,8 @@ pub(crate) const PT_BACKFILL_LIST_MORE: &str = "… e mais {0}";
 
 pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.";
 pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
+pub(crate) const PT_LINK_EMAIL_PROMPT: &str =
+    "Olá! Para ligares a tua conta Dravr, escreve o teu e-mail.\nEscreve «cancel» para parar.";
 pub(crate) const PT_LINK_LOGOUT_COMPLETE: &str = "Saíste da sessão do Dravr. Envia uma mensagem a qualquer momento para ligar novamente a tua conta.";
 pub(crate) const PT_LINK_CANCELLED: &str =
     "Ligação cancelada. Envia uma mensagem a qualquer momento para começar de novo.";
@@ -1569,6 +1582,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_MORE, "fr", FR_BACKFILL_LIST_MORE),
     (KEY_LINK_FALLBACK_PROMPT, "fr", FR_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "fr", FR_LINK_INITIAL_PROMPT),
+    (KEY_LINK_EMAIL_PROMPT, "fr", FR_LINK_EMAIL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "fr", FR_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "fr", FR_LINK_GENERIC_ERROR),
@@ -1718,6 +1732,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_VERIFICATION_BLOCK_FALLBACK, "en", EN_VERIFICATION_BLOCK_FALLBACK),
     (KEY_LINK_FALLBACK_PROMPT, "en", EN_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "en", EN_LINK_INITIAL_PROMPT),
+    (KEY_LINK_EMAIL_PROMPT, "en", EN_LINK_EMAIL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "en", EN_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "en", EN_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "en", EN_LINK_GENERIC_ERROR),
@@ -1867,6 +1882,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_VERIFICATION_BLOCK_FALLBACK, "es", ES_VERIFICATION_BLOCK_FALLBACK),
     (KEY_LINK_FALLBACK_PROMPT, "es", ES_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "es", ES_LINK_INITIAL_PROMPT),
+    (KEY_LINK_EMAIL_PROMPT, "es", ES_LINK_EMAIL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "es", ES_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "es", ES_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "es", ES_LINK_GENERIC_ERROR),
@@ -2016,6 +2032,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_VERIFICATION_BLOCK_FALLBACK, "de", DE_VERIFICATION_BLOCK_FALLBACK),
     (KEY_LINK_FALLBACK_PROMPT, "de", DE_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "de", DE_LINK_INITIAL_PROMPT),
+    (KEY_LINK_EMAIL_PROMPT, "de", DE_LINK_EMAIL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "de", DE_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "de", DE_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "de", DE_LINK_GENERIC_ERROR),
@@ -2165,6 +2182,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_VERIFICATION_BLOCK_FALLBACK, "pt", PT_VERIFICATION_BLOCK_FALLBACK),
     (KEY_LINK_FALLBACK_PROMPT, "pt", PT_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "pt", PT_LINK_INITIAL_PROMPT),
+    (KEY_LINK_EMAIL_PROMPT, "pt", PT_LINK_EMAIL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "pt", PT_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "pt", PT_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "pt", PT_LINK_GENERIC_ERROR),

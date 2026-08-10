@@ -1544,7 +1544,7 @@ impl OAuth2Routes {
         let html = Self::OAUTH_ERROR_TEMPLATE
             .replace("{{error_title}}", &escape_html_attribute(error_title))
             .replace("{{ERROR}}", &escape_html_attribute(&error.error))
-            .replace("{{PROVIDER}}", "Pierre MCP Server")
+            .replace("{{PROVIDER}}", "Dravr")
             .replace(
                 "{{DESCRIPTION}}",
                 &format!(

@@ -165,7 +165,7 @@ Client: Display formatted output
 
 ### Special Tools Handled by Bridge
 
-**connect_to_pierre**
+**connect_to_dravr**
 - Initiates OAuth flow for Pierre authentication
 - Always available even when not connected
 - Opens browser for user login
@@ -208,8 +208,8 @@ interface BridgeConfig {
 2. Build SDK: `bun run build`
 3. Configure Claude Desktop config
 4. Launch Claude Desktop
-5. Bridge starts and shows connect_to_pierre tool
-6. User calls connect_to_pierre
+5. Bridge starts and shows connect_to_dravr tool
+6. User calls connect_to_dravr
 7. Browser opens for authentication
 8. Token saved, full tool list appears
 
@@ -217,7 +217,7 @@ interface BridgeConfig {
 1. Bridge loads expired token
 2. Validates with server (fails)
 3. Clears cached token
-4. Shows connect_to_pierre tool only
+4. Shows connect_to_dravr tool only
 5. User re-authenticates
 6. Full tool list restored
 
@@ -260,7 +260,7 @@ curl http://localhost:8081/mcp/tools/list
 
 ### Tools Not Showing Up
 
-**Symptom**: Claude Desktop doesn't show any tools or only shows connect_to_pierre
+**Symptom**: Claude Desktop doesn't show any tools or only shows connect_to_dravr
 
 **Causes**:
 1. Bridge not connected to Pierre server

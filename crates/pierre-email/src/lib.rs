@@ -108,13 +108,26 @@ struct ResendEmailPayload {
     html: String,
 }
 
+/// Subject line of the password-reset code email.
+pub const SUBJECT_PASSWORD_RESET: &str = "Your password reset code";
+/// Subject line of the "registration received, pending approval" email.
+pub const SUBJECT_REGISTRATION_PENDING: &str = "Welcome to Dravr — account pending review";
+/// Subject line of the account-approved email.
+pub const SUBJECT_REGISTRATION_APPROVED: &str = "Your Dravr account is approved";
+/// Subject line of the channel-linking verification code email.
+///
+/// Named constants because a subject is user-visible brand surface: as inline
+/// literals they escaped the rebrand pass, and this one shipped the internal
+/// codename to every user who linked a chat channel until 2026-08.
+pub const SUBJECT_CHANNEL_LINKING_CODE: &str = "Your Dravr verification code";
+
 /// Email service backed by the Resend transactional email API
 pub struct ResendEmailService {
     /// HTTP client for API requests
     client: &'static SharedHttpClient,
     /// Resend API key
     api_key: String,
-    /// Sender email address (e.g., "Pierre <noreply@pierre.dev>")
+    /// Sender email address (e.g., "Dravr <no-reply@dravr.ai>")
     from_email: String,
 }
 
@@ -195,7 +208,7 @@ impl ResendEmailService {
     /// Returns an error if email delivery fails.
     pub async fn send_password_reset_code(&self, to: &str, code: &str) -> AppResult<()> {
         let html = templates::password_reset_code_html(code);
-        self.send_email(to, "Your password reset code", &html).await
+        self.send_email(to, SUBJECT_PASSWORD_RESET, &html).await
     }
 
     /// Send a "registration received, pending approval" email
@@ -213,7 +226,7 @@ impl ResendEmailService {
         display_name: Option<&str>,
     ) -> AppResult<()> {
         let html = templates::registration_pending_html(display_name);
-        self.send_email(to, "Welcome to Dravr — account pending review", &html)
+        self.send_email(to, SUBJECT_REGISTRATION_PENDING, &html)
             .await
     }
 
@@ -234,7 +247,7 @@ impl ResendEmailService {
         sign_in_url: Option<&str>,
     ) -> AppResult<()> {
         let html = templates::registration_approved_html(display_name, sign_in_url);
-        self.send_email(to, "Your Dravr account is approved", &html)
+        self.send_email(to, SUBJECT_REGISTRATION_APPROVED, &html)
             .await
     }
 
@@ -250,7 +263,7 @@ impl ResendEmailService {
         channel_name: &str,
     ) -> AppResult<()> {
         let html = templates::channel_linking_code_html(code, channel_name);
-        self.send_email(to, "Your Pierre verification code", &html)
+        self.send_email(to, SUBJECT_CHANNEL_LINKING_CODE, &html)
             .await
     }
 }

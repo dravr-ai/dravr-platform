@@ -30,7 +30,7 @@ set -uo pipefail
 : "${PIERRE_SERVER_URL:?PIERRE_SERVER_URL must be set (deployed base URL)}"
 : "${PIERRE_JWT_TOKEN:?PIERRE_JWT_TOKEN must be set (API key or JWT)}"
 
-# An unauthenticated caller legitimately sees only connect_to_pierre, so a
+# An unauthenticated caller legitimately sees only connect_to_dravr, so a
 # result of 1 tool means the credential was rejected — the exact shape the
 # PostgreSQL API-key bug produced. Anything well below the real catalogue
 # (~94 tools) means auth silently degraded rather than failed loudly.

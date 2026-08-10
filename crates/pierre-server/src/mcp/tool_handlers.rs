@@ -1167,7 +1167,7 @@ impl ToolHandlers {
                 "content": [{
                     "type": "text",
                     "text": format!(
-                        "Starting unified authentication for {}. This will:\n\n1. First authenticate you with Pierre Fitness Server\n2. Then connect you to {} for your fitness data\n\nOpening browser for secure authentication...",
+                        "Starting unified authentication for {}. This will:\n\n1. First authenticate you with Dravr\n2. Then connect you to {} for your fitness data\n\nOpening browser for secure authentication...",
                         provider_name.to_uppercase(),
                         provider_name.to_uppercase()
                     )
@@ -1177,7 +1177,7 @@ impl ToolHandlers {
                 "authUrl": "oauth2/authorize",
                 "unifiedFlow": true,
                 "provider": provider_name,
-                "message": format!("Please complete unified authentication with Pierre and {} in your browser.", provider_name.to_uppercase())
+                "message": format!("Please complete unified authentication with Dravr and {} in your browser.", provider_name.to_uppercase())
             })),
             error: None,
         }

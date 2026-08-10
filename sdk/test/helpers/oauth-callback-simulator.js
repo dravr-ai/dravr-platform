@@ -39,8 +39,8 @@ class OAuthCallbackSimulator {
   async simulateCompleteOAuthFlow() {
     console.log('🔄 Starting OAuth callback simulation...');
 
-    // Step 1: Trigger connect_to_pierre tool (starts OAuth flow in bridge)
-    console.log('Step 1: Triggering connect_to_pierre tool...');
+    // Step 1: Trigger connect_to_dravr tool (starts OAuth flow in bridge)
+    console.log('Step 1: Triggering connect_to_dravr tool...');
     const connectPromise = this.triggerConnectToPierre();
 
     // Give bridge time to:
@@ -83,7 +83,7 @@ class OAuthCallbackSimulator {
   }
 
   /**
-   * Trigger the connect_to_pierre tool which starts OAuth flow
+   * Trigger the connect_to_dravr tool which starts OAuth flow
    */
   async triggerConnectToPierre() {
     const connectRequest = {
@@ -91,7 +91,7 @@ class OAuthCallbackSimulator {
       id: 1000,
       method: 'tools/call',
       params: {
-        name: 'connect_to_pierre',
+        name: 'connect_to_dravr',
         arguments: {}
       }
     };
@@ -101,10 +101,10 @@ class OAuthCallbackSimulator {
     try {
       // Don't await - let it run in background
       this.bridgeClient.send(connectRequest, 60000).catch(err => {
-        console.log('connect_to_pierre returned:', err.message || 'completed');
+        console.log('connect_to_dravr returned:', err.message || 'completed');
       });
     } catch (error) {
-      console.log('connect_to_pierre initiated:', error.message);
+      console.log('connect_to_dravr initiated:', error.message);
     }
   }
 
@@ -260,7 +260,7 @@ class OAuthCallbackSimulator {
         const toolCount = toolsList.result.tools.length;
         const toolNames = toolsList.result.tools.map(t => t.name);
 
-        // If we have more than just connect_to_pierre, token exchange completed
+        // If we have more than just connect_to_dravr, token exchange completed
         if (toolCount > 5 && toolNames.includes('connect_provider')) {
           console.log(`  ✓ Token exchange completed (${toolCount} tools available)`);
           return true;
@@ -283,7 +283,7 @@ class OAuthCallbackSimulator {
    * Verify that tools cache was actually refreshed after OAuth
    *
    * This is THE critical check for the regression:
-   * - Before OAuth: only connect_to_pierre
+   * - Before OAuth: only connect_to_dravr
    * - After OAuth: 30+ tools including connect_provider
    */
   async verifyToolsRefreshed() {

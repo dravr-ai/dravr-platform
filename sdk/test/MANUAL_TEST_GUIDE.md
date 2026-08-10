@@ -39,7 +39,7 @@ Before starting these tests:
 
 1. In the Inspector prompt, run:
    ```
-   tools/call connect_to_pierre {}
+   tools/call connect_to_dravr {}
    ```
 
 2. **Watch the bridge logs** (Inspector shows them) for:
@@ -55,7 +55,7 @@ Before starting these tests:
 
 5. **Success page** should display with callback URL showing the dynamic port
 
-6. **Inspector should show** success response from `connect_to_pierre`
+6. **Inspector should show** success response from `connect_to_dravr`
 
 ### Expected Results
 
@@ -102,7 +102,7 @@ Before starting these tests:
 
 Run in Inspector:
 ```
-tools/call connect_to_pierre {}
+tools/call connect_to_dravr {}
 ```
 
 #### **Step 2: OAuth Page Opens**
@@ -289,7 +289,7 @@ tools/call TOOL_NAME {"arg1": "value1", "arg2": "value2"}
 
 ### Example tool calls
 ```
-tools/call connect_to_pierre {}
+tools/call connect_to_dravr {}
 tools/call connect_provider {"provider": "strava"}
 tools/call get_connection_status {"provider": "strava"}
 tools/call get_activities {"limit": 10}
@@ -316,7 +316,7 @@ Use this checklist when running the manual tests:
 - [ ] No errors or crashes
 
 ### Scenario 8: Complete 7-Step Flow
-- [ ] Step 1: `connect_to_pierre` called
+- [ ] Step 1: `connect_to_dravr` called
 - [ ] Step 2: Browser opened for Pierre OAuth
 - [ ] Step 3: Authentication completed, success page shown
 - [ ] Step 5: `connect_provider` called for Strava

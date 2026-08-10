@@ -321,10 +321,10 @@ function shortenWait(bridge, ms) {
 
 const connectToPierreRequest = {
   method: 'tools/call',
-  params: { name: 'connect_to_pierre', arguments: {} },
+  params: { name: 'connect_to_dravr', arguments: {} },
 };
 
-describe('connect_to_pierre stays inside the host request budget', () => {
+describe('connect_to_dravr stays inside the host request budget', () => {
   test('the wait is shorter than the host deadline and carries the host cancel signal', async () => {
     const restoreEnv = allowInteractiveSignIn();
     const wired = await signInBridge();
@@ -387,7 +387,7 @@ describe('connect_to_pierre stays inside the host request budget', () => {
 
       expect(result.isError).toBe(false);
       expect(result.content[0].text).toMatch(/not confirmed yet/i);
-      expect(result.content[0].text).toMatch(/run connect_to_pierre again/i);
+      expect(result.content[0].text).toMatch(/run connect_to_dravr again/i);
       // The two claims that would be wrong: it did not fail, and it is not connected.
       expect(result.content[0].text).not.toMatch(/timed out/i);
       expect(result.content[0].text).not.toMatch(/successfully connected/i);
@@ -453,7 +453,7 @@ describe('connect_to_pierre stays inside the host request budget', () => {
       expect(notifications[0].method).toBe('notifications/progress');
       expect(notifications[0].params.progressToken).toBe(7);
       expect(notifications[0].params.total).toBe(120000);
-      expect(notifications[0].params.message).toMatch(/pierre sign-in/i);
+      expect(notifications[0].params.message).toMatch(/dravr sign-in/i);
 
       controller.abort();
       await pending;

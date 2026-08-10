@@ -73,7 +73,7 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
 
     // Bridge-side: the bridge cannot fetch the server catalog without a token, so
     // it discloses NO server tools. It may still surface its own synthetic
-    // `connect_to_pierre` affordance (a client-side OAuth trigger, not a server
+    // `connect_to_dravr` affordance (a client-side OAuth trigger, not a server
     // tool and carrying no fitness data) so an MCP host can start the login flow.
     // No PIERRE_JWT_TOKEN for this bridge: it runs unauthenticated
     bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl]);
@@ -85,7 +85,7 @@ describe('MCP Spec Compliance: tools/list Visibility', () => {
       const toolsList = await bridgeClient.send(MCPMessages.toolsList, 10000);
       const toolNames = toolsList.result?.tools?.map(t => t.name) ?? [];
       // No real server tools may leak; only the client-side connect affordance.
-      const serverTools = toolNames.filter(n => n !== 'connect_to_pierre');
+      const serverTools = toolNames.filter(n => n !== 'connect_to_dravr');
       expect(serverTools).toHaveLength(0);
     } catch (error) {
       // A surfaced 401 / closed stream is also an acceptable unauthenticated outcome.
@@ -232,7 +232,7 @@ describe('MCP Spec Compliance: Authentication at Call Time', () => {
     // Per MCP spec: Tools are visible without auth, but CALLING them requires auth
     // Bridge may either:
     // 1. Return authentication required error
-    // 2. Trigger OAuth flow (connect_to_pierre)
+    // 2. Trigger OAuth flow (connect_to_dravr)
 
     // No PIERRE_JWT_TOKEN for this bridge: it runs unauthenticated
     bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl]);

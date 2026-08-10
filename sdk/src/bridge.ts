@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Backward-compatible re-exports for Pierre MCP Client bridge components
+// ABOUTME: Backward-compatible re-exports for Dravr MCP Client bridge components
 // ABOUTME: Maintains existing import paths while code is organized into focused modules
 
 /**
- * Pierre MCP Client Bridge - Re-export Module
+ * Dravr MCP Client Bridge - Re-export Module
  *
  * This file provides backward compatibility for existing imports.
  * The implementation has been decomposed into focused modules:

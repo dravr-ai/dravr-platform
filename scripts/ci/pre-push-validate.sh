@@ -224,17 +224,40 @@ if [[ "$HAS_SDK_CHANGES" == "true" ]]; then
         # The test output is captured rather than piped, because a pipeline
         # reports the LAST command's status — `jest | tail` is always 0, so a
         # piped form reported success over failing tests.
-        echo "Running SDK unit tests..."
-        sdk_test_log="$(mktemp)"
-        if ! (cd "$PROJECT_ROOT/sdk" && bun run test:unit) > "$sdk_test_log" 2>&1; then
-            tail -25 "$sdk_test_log"
-            rm -f "$sdk_test_log"
-            echo "FAIL: SDK tests failed!"
-            exit 1
+        #
+        # jest is invoked through node rather than `bun run test:unit`: `bun run`
+        # puts its own `node` shim first on PATH, so everything a script spawns
+        # executes on bun's runtime, and jest cannot start there on macOS — all
+        # suites die in jest-runtime with "Attempted to assign to readonly
+        # property" and report 0 tests. Reproduced on bun 1.3.13 and 1.3.4, so it
+        # is the darwin runtime, not version drift. CI keeps using `bun run
+        # test:unit` on ubuntu, where it works; this runs the same jest with the
+        # same args, only on a runtime that can start it. Keep the args in sync
+        # with the `test:unit` script in sdk/package.json.
+        # `node` is commonly an nvm lazy-load shell function, which does not
+        # exist in a non-interactive script, so resolve a real binary first.
+        sdk_node="$(command -v node || true)"
+        if [[ -z "$sdk_node" && -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+            # shellcheck disable=SC1090,SC1091
+            . "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1 || true
+            sdk_node="$(command -v node || true)"
         fi
-        tail -5 "$sdk_test_log"
-        rm -f "$sdk_test_log"
-        echo "OK: SDK tests passed"
+
+        if [[ -z "$sdk_node" ]]; then
+            echo "SKIP: no node binary found to run jest. CI runs the SDK suite."
+        else
+            echo "Running SDK unit tests..."
+            sdk_test_log="$(mktemp)"
+            if ! (cd "$PROJECT_ROOT/sdk" && "$sdk_node" node_modules/.bin/jest --testPathPattern=test/unit) > "$sdk_test_log" 2>&1; then
+                tail -25 "$sdk_test_log"
+                rm -f "$sdk_test_log"
+                echo "FAIL: SDK tests failed!"
+                exit 1
+            fi
+            tail -5 "$sdk_test_log"
+            rm -f "$sdk_test_log"
+            echo "OK: SDK tests passed"
+        fi
     else
         echo "WARN: sdk/node_modules not found, skipping"
     fi

@@ -59,7 +59,7 @@ function activateMacOsBrowser(index: number, log: LaunchLogger): void {
  *
  * The URL is attacker-influenced input: the MCP SDK calls the OAuth provider's
  * redirectToAuthorization with an endpoint taken from the server's discovery
- * document (or a WWW-Authenticate header), so the host need not be Pierre. It is
+ * document (or a WWW-Authenticate header), so the host need not be Dravr. It is
  * therefore never interpolated into a command string — the launcher rejects any
  * scheme other than http/https and hands the URL to the platform opener as a single
  * argv element, so shell metacharacters (which survive URL serialization verbatim in

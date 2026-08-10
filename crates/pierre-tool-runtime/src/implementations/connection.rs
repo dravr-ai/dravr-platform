@@ -90,7 +90,7 @@ fn build_oauth_success_payload(provider: &str, authorization_url: &str, state: &
              1. Visit the authorization URL\n\
              2. Log in to {} and approve the connection\n\
              3. You will be redirected back to complete the connection\n\
-             4. Once connected, you can access your {} data through Pierre",
+             4. Once connected, you can access your {} data through Dravr",
             provider, provider, provider
         ),
         "expires_in_minutes": AUTHORIZATION_EXPIRES_MINUTES,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: OAuth 2.0 session management for Pierre MCP Client
+// ABOUTME: OAuth 2.0 session management for Dravr MCP Client
 // ABOUTME: Handles token storage, refresh, client registration, and callback server for OAuth flows
 
 import { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -322,7 +322,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
 
   private log(message: string, ...args: any[]): void {
     const timestamp = new Date().toISOString();
-    console.error(`[${timestamp}] [Pierre OAuth] ${message}`, ...args);
+    console.error(`[${timestamp}] [Dravr OAuth] ${message}`, ...args);
   }
 
   // Client-side token storage methods using secure keychain
@@ -337,10 +337,10 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       if (tokens) {
         this.allStoredTokens = tokens;
 
-        // Load Pierre tokens into memory for MCP SDK compatibility
+        // Load Dravr tokens into memory for MCP SDK compatibility
         if (this.allStoredTokens.pierre) {
           this.savedTokens = this.allStoredTokens.pierre;
-          this.log(`Loaded Pierre tokens from keychain`);
+          this.log(`Loaded Dravr tokens from keychain`);
         }
 
         if (this.allStoredTokens.providers) {
@@ -409,7 +409,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
 
   async clearTokens(): Promise<void> {
     try {
-      // Clear in-memory Pierre tokens
+      // Clear in-memory Dravr tokens
       this.savedTokens = undefined;
       delete this.allStoredTokens.pierre;
 
@@ -482,7 +482,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
 
   get clientMetadata(): OAuthClientMetadata {
     return {
-      client_name: "Pierre MCP Client",
+      client_name: "Dravr MCP Client",
       client_uri: "https://claude.ai",
       redirect_uris: [this.redirectUrl],
       grant_types: ["authorization_code"],
@@ -518,10 +518,10 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     clientInformation: OAuthClientInformationFull,
   ): Promise<void> {
     this.log(
-      `Registering client with Pierre OAuth server: ${clientInformation.client_id}`,
+      `Registering client with Dravr OAuth server: ${clientInformation.client_id}`,
     );
 
-    // Register this client with Pierre's OAuth server
+    // Register this client with Dravr's OAuth server
     await this.registerClientWithPierre(clientInformation);
 
     this.clientInfo = clientInformation;
@@ -583,13 +583,13 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
         `Client registration successful: ${JSON.stringify(sanitizedResponse)}`,
       );
 
-      // Update client info with the response from Pierre's server
+      // Update client info with the response from Dravr's server
       if (
         registrationResponse.client_id &&
         registrationResponse.client_secret
       ) {
         this.log(
-          `Updating client info to use Pierre's returned client ID: ${registrationResponse.client_id}`,
+          `Updating client info to use Dravr's returned client ID: ${registrationResponse.client_id}`,
         );
         clientInfo.client_id = registrationResponse.client_id;
         clientInfo.client_secret = registrationResponse.client_secret;
@@ -610,7 +610,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     };
     await this.saveStoredTokens();
 
-    this.log(`Saved Pierre tokens: expires_in=${tokens.expires_in}`);
+    this.log(`Saved Dravr tokens: expires_in=${tokens.expires_in}`);
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
@@ -658,7 +658,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       // nothing about whether the session is still good. The stored credentials stay
       // exactly as they are so a later call can retry; discarding them here would sign
       // the user out on a blip and leave memory and keychain disagreeing.
-      this.log(`Unable to validate your session with Pierre server`);
+      this.log(`Unable to validate your session with Dravr server`);
       this.log(`Keeping stored credentials - the next call retries validation`);
       return;
     }
@@ -682,7 +682,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       // validateAndRefreshToken has already adopted the renewed pair into memory and
       // secure storage, so there is nothing left to write here.
       this.log(
-        `Session renewed successfully - you can continue using Pierre tools`,
+        `Session renewed successfully - you can continue using Dravr tools`,
       );
       return;
     }
@@ -691,7 +691,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     // cleared together so no caller is left holding half of a dead session.
     this.log(`Your session has expired and cannot be renewed automatically`);
     this.log(`Reason: ${validationResult.reason || "Token validation failed"}`);
-    this.log(`Please use the "Connect to Pierre" tool to re-authenticate`);
+    this.log(`Please use the "Connect to Dravr" tool to re-authenticate`);
     this.savedTokens = undefined;
     delete this.allStoredTokens.pierre;
     await this.saveStoredTokens();
@@ -1066,7 +1066,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       providers: {} as Record<string, boolean>,
     };
 
-    // Check Pierre token
+    // Check Dravr token
     status.pierre = !!this.savedTokens;
 
     // Check provider tokens from client-side storage

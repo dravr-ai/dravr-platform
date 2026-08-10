@@ -120,7 +120,7 @@ export default function UnifiedConnections() {
   const getTabDescription = () => {
     switch (activeConnectionType) {
       case 'api-keys':
-        return 'Service tokens for scripts, CI/CD pipelines, and automated tools to access Pierre programmatically.';
+        return 'Service tokens for scripts, CI/CD pipelines, and automated tools to access Dravr programmatically.';
       case 'oauth-apps':
         return 'Third-party applications authorized to access your fitness data via OAuth.';
       default:

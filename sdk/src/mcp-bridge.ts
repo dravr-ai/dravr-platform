@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: MCP bridge connecting MCP host (stdio) to Pierre Server (HTTP)
+// ABOUTME: MCP bridge connecting MCP host (stdio) to Dravr Server (HTTP)
 // ABOUTME: Manages MCP message translation, tool forwarding, and OAuth flow integration
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -31,7 +31,7 @@ import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
 
-// Define custom notification schema for Pierre's OAuth completion notifications
+// Define custom notification schema for Dravr's OAuth completion notifications
 const OAuthCompletedNotificationSchema = z.object({
   method: z.literal("notifications/oauth_completed"),
   params: z
@@ -48,7 +48,7 @@ const OAuthCompletedNotificationSchema = z.object({
 type OAuthCompletedNotification = z.infer<typeof OAuthCompletedNotificationSchema>;
 
 /**
- * How long a tool call waits for a browser step only a human can finish - a Pierre
+ * How long a tool call waits for a browser step only a human can finish - a Dravr
  * sign-in or a provider authorization - when the host gave it nothing to report progress
  * against.
  *
@@ -131,7 +131,7 @@ export class PierreMcpClient {
 
   private log(message: string, ...args: any[]) {
     const timestamp = new Date().toISOString();
-    console.error(`[${timestamp}] [Pierre Bridge] ${message}`, ...args);
+    console.error(`[${timestamp}] [Dravr Bridge] ${message}`, ...args);
   }
 
   private async withTimeout<T>(
@@ -159,14 +159,14 @@ export class PierreMcpClient {
       // Step 2: Start the bridge (stdio transport)
       await this.startBridge();
 
-      // Step 3: Create MCP client connection to Pierre using Streamable HTTP
+      // Step 3: Create MCP client connection to Dravr using Streamable HTTP
       // Initialize in background so MCP server can respond immediately (critical for CI/validators)
       // Connection will complete asynchronously; tools will be available once connected
       // Store promise so tools/list can wait for completion
       this.proactiveConnectionPromise = this.initializePierreConnection()
         .catch((error) => {
           this.log(
-            "Pierre connection initialization failed (will retry on first tool call):",
+            "Dravr connection initialization failed (will retry on first tool call):",
             error,
           );
         })
@@ -176,7 +176,7 @@ export class PierreMcpClient {
         });
 
       this.log(
-        "Bridge started successfully (Pierre connection initializing in background)",
+        "Bridge started successfully (Dravr connection initializing in background)",
       );
     } catch (error) {
       this.log("Failed to start bridge:", error);
@@ -185,7 +185,7 @@ export class PierreMcpClient {
   }
 
   private async initializePierreConnection(): Promise<void> {
-    // Set up Pierre connection parameters
+    // Set up Dravr connection parameters
     this.mcpUrl = `${this.config.pierreServerUrl}/mcp`;
 
     // Create OAuth provider with callback to notify MCP host when provider OAuth completes
@@ -238,7 +238,7 @@ export class PierreMcpClient {
 
     // Initialize secure storage before any operations that might need it
     await this.oauthProvider.initializeSecureStorage();
-    this.log(`Pierre MCP URL configured: ${this.mcpUrl}`);
+    this.log(`Dravr MCP URL configured: ${this.mcpUrl}`);
 
     // Validate cached tokens and client registration at startup
     // This prevents wasting user time with invalid credentials
@@ -258,12 +258,12 @@ export class PierreMcpClient {
 
     try {
       this.log(
-        `Connecting to Pierre proactively to cache all tools for MCP host (timeout: ${connectionTimeoutMs}ms)`,
+        `Connecting to Dravr proactively to cache all tools for MCP host (timeout: ${connectionTimeoutMs}ms)`,
       );
       const connectionResult = await this.withTimeout(
         this.connectToPierre(),
         connectionTimeoutMs,
-        "proactive Pierre connection",
+        "proactive Dravr connection",
       );
 
       if (connectionResult === null) {
@@ -271,7 +271,7 @@ export class PierreMcpClient {
         this.log(
           `Proactive connection timed out after ${connectionTimeoutMs}ms - will connect on first tool use`,
         );
-        this.log("Bridge will start with connect_to_pierre tool only");
+        this.log("Bridge will start with connect_to_dravr tool only");
         return;
       }
 
@@ -287,7 +287,7 @@ export class PierreMcpClient {
         if (toolsResult) {
           this.cachedTools = toolsResult;
           this.log(
-            `Cached ${toolsResult.tools.length} tools from Pierre: ${JSON.stringify(toolsResult.tools.map((t: any) => t.name))}`,
+            `Cached ${toolsResult.tools.length} tools from Dravr: ${JSON.stringify(toolsResult.tools.map((t: any) => t.name))}`,
           );
         } else {
           this.log(
@@ -299,7 +299,7 @@ export class PierreMcpClient {
       // If proactive connection fails, continue anyway
       // The bridge should still start - provide minimal toolset
       this.log(`Proactive connection failed: ${error.message}`);
-      this.log("Bridge will start with connect_to_pierre tool only");
+      this.log("Bridge will start with connect_to_dravr tool only");
       // Don't propagate error - bridge should start successfully
     }
   }
@@ -312,25 +312,25 @@ export class PierreMcpClient {
     const connectionTimeoutMs =
       this.config.toolCallConnectionTimeoutMs || 10000;
     this.log(
-      `Connecting to Pierre MCP Server (timeout: ${connectionTimeoutMs}ms)...`,
+      `Connecting to Dravr MCP Server (timeout: ${connectionTimeoutMs}ms)...`,
     );
 
     const connectionResult = await this.withTimeout(
       this.connectToPierre(),
       connectionTimeoutMs,
-      "tool-triggered Pierre connection",
+      "tool-triggered Dravr connection",
     );
 
     if (connectionResult === null) {
       throw new PierreError(
         PierreErrorCode.TIMEOUT_ERROR,
-        `Failed to connect to Pierre within ${connectionTimeoutMs}ms. Please use the "Connect to Pierre" tool to establish a connection.`,
+        `Failed to connect to Dravr within ${connectionTimeoutMs}ms. Please use the "Connect to Dravr" tool to establish a connection.`,
       );
     }
   }
 
   private async connectToPierre(): Promise<void> {
-    this.log("Connecting to Pierre MCP Server...");
+    this.log("Connecting to Dravr MCP Server...");
 
     if (!this.oauthProvider) {
       throw new PierreError(
@@ -343,7 +343,7 @@ export class PierreMcpClient {
 
     // Always attempt connection to discover tools (initialize and tools/list don't require auth)
     // If tokens exist, the connection will be fully authenticated
-    // If no tokens, we can still discover tools but tool calls will require authentication via connect_to_pierre
+    // If no tokens, we can still discover tools but tool calls will require authentication via connect_to_dravr
     const existingTokens = await this.oauthProvider.tokens();
     if (existingTokens) {
       this.log("Found existing tokens - connecting with authentication");
@@ -401,7 +401,7 @@ export class PierreMcpClient {
           authProvider: hasTokens ? this.oauthProvider : undefined,
         });
 
-        // Connect to Pierre MCP Server
+        // Connect to Dravr MCP Server
         await this.pierreClient.connect(transport);
 
         // CRITICAL: Validate that the MCP handshake completed successfully
@@ -443,13 +443,13 @@ export class PierreMcpClient {
         connected = true;
 
         if (hasTokens) {
-          this.log("Connected to Pierre MCP Server (authenticated)");
+          this.log("Connected to Dravr MCP Server (authenticated)");
         } else {
           this.log(
-            "Connected to Pierre MCP Server (unauthenticated - tool discovery only)",
+            "Connected to Dravr MCP Server (unauthenticated - tool discovery only)",
           );
           this.log(
-            'Use "Connect to Pierre" tool to authenticate and access your fitness data',
+            'Use "Connect to Dravr" tool to authenticate and access your fitness data',
           );
         }
         this.log(`pierreClient is now set: ${!!this.pierreClient}`);
@@ -476,7 +476,7 @@ export class PierreMcpClient {
     if (!connected) {
       throw new PierreError(
         PierreErrorCode.NETWORK_ERROR,
-        `Failed to connect to Pierre MCP Server after ${maxRetries} attempts - authentication may be required`,
+        `Failed to connect to Dravr MCP Server after ${maxRetries} attempts - authentication may be required`,
       );
     }
   }
@@ -486,7 +486,7 @@ export class PierreMcpClient {
       throw new PierreError(PierreErrorCode.CONFIG_ERROR, "OAuth provider not initialized");
     }
 
-    this.log("Initiating OAuth connection to Pierre MCP Server");
+    this.log("Initiating OAuth connection to Dravr MCP Server");
 
     // Check if we already have tokens
     const existingTokens = await this.oauthProvider.tokens();
@@ -525,7 +525,7 @@ export class PierreMcpClient {
             client_secret_expires_at: 0, // Never expires
           };
 
-          // Save and register the client (this updates clientInfo with Pierre's assigned client_id)
+          // Save and register the client (this updates clientInfo with Dravr's assigned client_id)
           await this.oauthProvider.saveClientInformation(fullClientInfo);
 
           // Re-fetch client information to get the server-assigned client_id
@@ -572,7 +572,7 @@ export class PierreMcpClient {
         await this.attemptConnection();
 
         // Step 7: Refresh cached tools with authenticated toolset
-        // Before OAuth, we may have cached unauthenticated tools (just connect_to_pierre)
+        // Before OAuth, we may have cached unauthenticated tools (just connect_to_dravr)
         // After OAuth, we need to fetch and cache the FULL authenticated toolset
         try {
           if (this.pierreClient) {
@@ -620,7 +620,7 @@ export class PierreMcpClient {
   }
 
   /**
-   * Starts the Pierre sign-in flow, or hands back the one already running.
+   * Starts the Dravr sign-in flow, or hands back the one already running.
    *
    * The flow outlives the wait on it: it owns the callback listener and its own
    * authorization deadline, and closes that listener itself when it settles - so a caller
@@ -637,8 +637,8 @@ export class PierreMcpClient {
       // The waits on this flow are bounded, so it can settle with nobody listening.
       // Record the outcome where it happens rather than losing it.
       login.then(
-        () => this.log("Pierre sign-in flow completed"),
-        (error: any) => this.log(`Pierre sign-in flow ended: ${error.message}`),
+        () => this.log("Dravr sign-in flow completed"),
+        (error: any) => this.log(`Dravr sign-in flow ended: ${error.message}`),
       );
       this.pierreLoginInFlight = login;
     }
@@ -784,7 +784,7 @@ export class PierreMcpClient {
       },
     );
 
-    // Set up request handlers - bridge all requests to Pierre
+    // Set up request handlers - bridge all requests to Dravr
     this.setupRequestHandlers();
 
     // Create stdio transport for MCP host
@@ -847,13 +847,13 @@ export class PierreMcpClient {
             } catch (error: any) {
               this.log(`Failed to connect to fetch tools: ${error.message}`);
               // Even if connection fails, we must return something
-              // Return connect_to_pierre tool as fallback
+              // Return connect_to_dravr tool as fallback
               return {
                 tools: [
                   {
-                    name: "connect_to_pierre",
+                    name: "connect_to_dravr",
                     description:
-                      "Connect to Pierre - Authenticate with Pierre Fitness Server to access your fitness data. This will open a browser window for secure login. Use this when you're not connected or need to reconnect.",
+                      "Connect to Dravr - Authenticate with Dravr Fitness Server to access your fitness data. This will open a browser window for secure login. Use this when you're not connected or need to reconnect.",
                     inputSchema: {
                       type: "object",
                       properties: {},
@@ -867,23 +867,23 @@ export class PierreMcpClient {
 
           // Now we should have a connection - fetch tools from server
           if (this.pierreClient) {
-            this.log("Fetching tools from Pierre server");
+            this.log("Fetching tools from Dravr server");
             const client = this.pierreClient;
             const result = await client.listTools();
-            this.log(`Received ${result.tools.length} tools from Pierre`);
+            this.log(`Received ${result.tools.length} tools from Dravr`);
             // Cache the result for next time
             this.cachedTools = result;
             return result;
           }
 
           // Should not reach here, but safety fallback
-          this.log("Unexpected: no Pierre client after connection attempt");
+          this.log("Unexpected: no Dravr client after connection attempt");
           return {
             tools: [
               {
-                name: "connect_to_pierre",
+                name: "connect_to_dravr",
                 description:
-                  "Connect to Pierre - Authenticate with Pierre Fitness Server to access your fitness data. This will open a browser window for secure login. Use this when you're not connected or need to reconnect.",
+                  "Connect to Dravr - Authenticate with Dravr Fitness Server to access your fitness data. This will open a browser window for secure login. Use this when you're not connected or need to reconnect.",
                 inputSchema: {
                   type: "object",
                   properties: {},
@@ -899,9 +899,9 @@ export class PierreMcpClient {
           return {
             tools: [
               {
-                name: "connect_to_pierre",
+                name: "connect_to_dravr",
                 description:
-                  "Connect to Pierre - Authenticate with Pierre Fitness Server to access your fitness data. This will open a browser window for secure login. Use this when you're not connected or need to reconnect.",
+                  "Connect to Dravr - Authenticate with Dravr Fitness Server to access your fitness data. This will open a browser window for secure login. Use this when you're not connected or need to reconnect.",
                 inputSchema: {
                   type: "object",
                   properties: {},
@@ -919,7 +919,7 @@ export class PierreMcpClient {
       this.log("Bridging tool call:", request.params.name);
 
       // Handle special authentication tools
-      if (request.params.name === "connect_to_pierre") {
+      if (request.params.name === "connect_to_dravr") {
         // extra carries the host's abort signal and progress token: signing in waits on
         // a human, so it needs both to stay inside the host's request budget.
         return await this.handleConnectToPierre(request, extra);
@@ -978,7 +978,7 @@ export class PierreMcpClient {
           content: [
             {
               type: "text",
-              text: `Failed to connect to Pierre: ${error instanceof Error ? error.message : String(error)}. Please use the "Connect to Pierre" tool to authenticate.`,
+              text: `Failed to connect to Dravr: ${error instanceof Error ? error.message : String(error)}. Please use the "Connect to Dravr" tool to authenticate.`,
             },
           ],
           isError: true,
@@ -987,7 +987,7 @@ export class PierreMcpClient {
 
       try {
         this.log(
-          `Forwarding tool call ${request.params.name} to Pierre server...`,
+          `Forwarding tool call ${request.params.name} to Dravr server...`,
         );
         // Use callTool() instead of request() - Client.request() is for raw JSON-RPC,
         // but we want the higher-level callTool() method which handles the protocol correctly
@@ -1093,7 +1093,7 @@ export class PierreMcpClient {
                 content: [
                   {
                     type: "text",
-                    text: `Your session has expired and could not be refreshed. Please use the "Connect to Pierre" tool to re-authenticate.`,
+                    text: `Your session has expired and could not be refreshed. Please use the "Connect to Dravr" tool to re-authenticate.`,
                   },
                 ],
                 isError: true,
@@ -1121,7 +1121,7 @@ export class PierreMcpClient {
       async (_request) => {
         this.log("Bridging resources/list request");
 
-        // Pierre server doesn't provide resources, so always return empty list
+        // Dravr server doesn't provide resources, so always return empty list
         return { resources: [] };
       },
     );
@@ -1137,7 +1137,7 @@ export class PierreMcpClient {
             contents: [
               {
                 type: "text",
-                text: 'Not connected to Pierre. Please use the "Connect to Pierre" tool first to authenticate.',
+                text: 'Not connected to Dravr. Please use the "Connect to Dravr" tool first to authenticate.',
               },
             ],
           };
@@ -1156,7 +1156,7 @@ export class PierreMcpClient {
       async (_request) => {
         this.log("Bridging prompts/list request");
 
-        // Pierre server doesn't provide prompts, so always return empty list
+        // Dravr server doesn't provide prompts, so always return empty list
         return { prompts: [] };
       },
     );
@@ -1169,13 +1169,13 @@ export class PierreMcpClient {
 
         if (!this.pierreClient) {
           return {
-            description: "Not connected to Pierre",
+            description: "Not connected to Dravr",
             messages: [
               {
                 role: "user",
                 content: {
                   type: "text",
-                  text: 'Not connected to Pierre. Please use the "Connect to Pierre" tool first to authenticate.',
+                  text: 'Not connected to Dravr. Please use the "Connect to Dravr" tool first to authenticate.',
                 },
               },
             ],
@@ -1221,11 +1221,11 @@ export class PierreMcpClient {
   private async handleConnectToPierre(request: any, extra?: any): Promise<any> {
     // The retry instruction below names the tool the host actually called: the sign-in is
     // also started from connect_provider and from any tool call that finds no session, and
-    // telling that caller to run connect_to_pierre would send it somewhere it never was.
-    const toolName = request?.params?.name || "connect_to_pierre";
+    // telling that caller to run connect_to_dravr would send it somewhere it never was.
+    const toolName = request?.params?.name || "connect_to_dravr";
 
     try {
-      this.log("Handling connect_to_pierre tool call - initiating OAuth flow");
+      this.log("Handling connect_to_dravr tool call - initiating OAuth flow");
 
       if (!this.oauthProvider) {
         return {
@@ -1249,7 +1249,7 @@ export class PierreMcpClient {
           content: [
             {
               type: "text",
-              text: "Already connected to Pierre! You can now use all fitness tools to access your Strava and Fitbit data.",
+              text: "Already connected to Dravr! You can now use all fitness tools to access your Strava and Fitbit data.",
             },
           ],
           isError: false,
@@ -1296,7 +1296,7 @@ export class PierreMcpClient {
         extra,
         progressToken,
         waitMs,
-        "Waiting for Pierre sign-in in your browser",
+        "Waiting for Dravr sign-in in your browser",
       );
 
       let status: "connected" | "pending" | "cancelled";
@@ -1314,11 +1314,11 @@ export class PierreMcpClient {
         // Not a failure: the sign-in page is still open, its callback still lands, and
         // the tokens are still stored when it does - the session is unconfirmed rather
         // than broken, and calling that a failure is what tells users something broke
-        // while it is in fact completing. Nothing announces a finished Pierre sign-in to
+        // while it is in fact completing. Nothing announces a finished Dravr sign-in to
         // the host, so the honest instruction is to finish in the browser and run the
         // tool again, not to wait for a message.
         this.log(
-          `Pierre sign-in not confirmed within the host request budget (${status})`,
+          `Dravr sign-in not confirmed within the host request budget (${status})`,
         );
         return {
           content: [
@@ -1326,8 +1326,8 @@ export class PierreMcpClient {
               type: "text",
               text:
                 status === "cancelled"
-                  ? `Stopped waiting for Pierre sign-in, which is not confirmed yet. The page is still open in your browser - finish signing in there, then run ${toolName} again.`
-                  : `Pierre sign-in is still open in your browser and is not confirmed yet.\n\n` +
+                  ? `Stopped waiting for Dravr sign-in, which is not confirmed yet. The page is still open in your browser - finish signing in there, then run ${toolName} again.`
+                  : `Dravr sign-in is still open in your browser and is not confirmed yet.\n\n` +
                     `Finish signing in there, then run ${toolName} again. If you closed the page, running ${toolName} again starts a new sign-in.`,
             },
           ],
@@ -1342,7 +1342,7 @@ export class PierreMcpClient {
           const tools = await client.listTools();
           this.cachedTools = tools;
           this.log(
-            `Cached ${tools.tools.length} tools after connect_to_pierre: ${JSON.stringify(tools.tools.map((t: any) => t.name))}`,
+            `Cached ${tools.tools.length} tools after connect_to_dravr: ${JSON.stringify(tools.tools.map((t: any) => t.name))}`,
           );
         } catch (toolError: any) {
           this.log(`Failed to cache tools: ${toolError.message}`);
@@ -1370,7 +1370,7 @@ export class PierreMcpClient {
           {
             type: "text",
             text:
-              "Successfully connected to Pierre Fitness Server!\n\n" +
+              "Successfully connected to Dravr Fitness Server!\n\n" +
               "**Next step:** Connect to a fitness provider to access your activity data.\n\n" +
               "Available providers:\n" +
               "- **Strava** - Connect your Strava account to access activities, stats, and athlete profile\n" +
@@ -1381,13 +1381,13 @@ export class PierreMcpClient {
         isError: false,
       };
     } catch (error: any) {
-      this.log("Failed to connect to Pierre:", error.message);
+      this.log("Failed to connect to Dravr:", error.message);
 
       return {
         content: [
           {
             type: "text",
-            text: `Failed to connect to Pierre: ${error.message}. Please check that the Pierre server is running and try again.`,
+            text: `Failed to connect to Dravr: ${error.message}. Please check that the Dravr server is running and try again.`,
           },
         ],
         isError: true,
@@ -1415,20 +1415,20 @@ export class PierreMcpClient {
       const provider = request.params.arguments?.provider || "strava";
       this.log(`Unified flow for provider: ${provider}`);
 
-      // Step 1: Ensure Pierre authentication is complete. Signing in is itself an
+      // Step 1: Ensure Dravr authentication is complete. Signing in is itself an
       // interactive browser step, so it runs under the same bounded wait rather than
       // spending the host's whole budget before the provider flow has even started.
       if (!this.pierreClient) {
         this.log(
-          "Pierre not connected - initiating Pierre authentication first",
+          "Dravr not connected - initiating Dravr authentication first",
         );
         const connectResult = await this.handleConnectToPierre(request, extra);
         if (connectResult.isError || !(await this.oauthProvider.tokens())) {
           return connectResult;
         }
-        this.log("Pierre authentication completed");
+        this.log("Dravr authentication completed");
       } else {
-        this.log("Pierre already authenticated");
+        this.log("Dravr already authenticated");
       }
 
       // Step 2: Check if provider is already connected
@@ -1606,10 +1606,10 @@ export class PierreMcpClient {
           content: [
             {
               type: "text",
-              text: `Pierre authentication successful, but failed to open ${provider.toUpperCase()} OAuth: ${error.message}. You can manually visit the OAuth page in Pierre's web interface.`,
+              text: `Dravr authentication successful, but failed to open ${provider.toUpperCase()} OAuth: ${error.message}. You can manually visit the OAuth page in Dravr's web interface.`,
             },
           ],
-          isError: false, // Not a complete failure since Pierre auth worked
+          isError: false, // Not a complete failure since Dravr auth worked
         };
       }
     } catch (error: any) {
@@ -1619,7 +1619,7 @@ export class PierreMcpClient {
         content: [
           {
             type: "text",
-            text: `Unified authentication failed: ${error.message}. Please check that Pierre server is running and try again.`,
+            text: `Unified authentication failed: ${error.message}. Please check that Dravr server is running and try again.`,
           },
         ],
         isError: true,
@@ -1647,11 +1647,11 @@ export class PierreMcpClient {
       this.log.bind(this),
     );
 
-    // Set up notification forwarding from Pierre to Claude
+    // Set up notification forwarding from Dravr to Claude
     this.setupNotificationForwarding();
 
     this.log(
-      "Bridge is running - MCP host can now access Pierre Fitness tools",
+      "Bridge is running - MCP host can now access Dravr Fitness tools",
     );
   }
 
@@ -1662,11 +1662,11 @@ export class PierreMcpClient {
 
     // Set up error handler for visibility
     this.pierreClient.onerror = (error) => {
-      this.log("Pierre client error:", error);
+      this.log("Dravr client error:", error);
     };
 
     // Set up OAuth completion notification handler
-    // Listen for OAuth completion notifications from Pierre server
+    // Listen for OAuth completion notifications from Dravr server
     // and forward them to MCP host so users see the success message
     try {
       // Use explicit handler function to avoid deep type instantiation
@@ -1674,7 +1674,7 @@ export class PierreMcpClient {
         notification: OAuthCompletedNotification,
       ) => {
         this.log(
-          "Received OAuth completion notification from Pierre:",
+          "Received OAuth completion notification from Dravr:",
           JSON.stringify(notification),
         );
 
@@ -1715,7 +1715,7 @@ export class PierreMcpClient {
     this.log("Stopping bridge...");
 
     try {
-      // Close Pierre client connection
+      // Close Dravr client connection
       if (this.pierreClient) {
         await this.pierreClient.close();
         this.pierreClient = null;

@@ -364,7 +364,7 @@ describe('hasResponseSchema Coverage', () => {
   });
 
   test('should return false for internal/meta tools', () => {
-    expect(hasResponseSchema('connect_to_pierre')).toBe(false);
+    expect(hasResponseSchema('connect_to_dravr')).toBe(false);
     expect(hasResponseSchema('internal_tool')).toBe(false);
   });
 });

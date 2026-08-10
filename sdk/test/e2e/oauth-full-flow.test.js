@@ -57,12 +57,12 @@ describe('E2E: OAuth Full Flow Tests', () => {
       // /mcp is an OAuth 2.1 protected resource: unauthenticated tools/list is
       // rejected with 401 and discloses no server tools (public-discovery subset
       // retired). The bridge may still surface its own synthetic
-      // `connect_to_pierre` affordance (a client-side OAuth trigger, not a server
+      // `connect_to_dravr` affordance (a client-side OAuth trigger, not a server
       // tool) so a host can start the login flow.
       try {
         const response = await client.send(MCPMessages.toolsList, 10000);
         const toolNames = response.result?.tools?.map(t => t.name) ?? [];
-        const serverTools = toolNames.filter(n => n !== 'connect_to_pierre');
+        const serverTools = toolNames.filter(n => n !== 'connect_to_dravr');
         expect(serverTools).toHaveLength(0);
       } catch (error) {
         // A surfaced 401 / closed stream is the expected unauthenticated outcome.

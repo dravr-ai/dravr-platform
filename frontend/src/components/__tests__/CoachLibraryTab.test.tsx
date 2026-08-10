@@ -297,11 +297,11 @@ describe('CoachLibraryTab Component', () => {
 
     // Wait for form to appear
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/Pierre, an expert coach/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/an expert coach with deep knowledge/i)).toBeInTheDocument();
     });
 
     // Type in system prompt field
-    const systemPromptField = screen.getByPlaceholderText(/Pierre, an expert coach/i);
+    const systemPromptField = screen.getByPlaceholderText(/an expert coach with deep knowledge/i);
     await user.type(systemPromptField, 'You are a professional coach with expertise.');
 
     // Should show token estimate (text length / 4)

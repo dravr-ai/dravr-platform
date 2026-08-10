@@ -3,16 +3,16 @@
 // Copyright (c) 2026 dravr.ai
 
 
-// ABOUTME: Command-line interface for Pierre MCP Client
+// ABOUTME: Command-line interface for Dravr MCP Client
 // ABOUTME: Parses arguments, configures MCP client, and manages process lifecycle
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 // Copyright (c) 2026 dravr.ai
 
 /**
- * Pierre MCP Client CLI
+ * Dravr MCP Client CLI
  *
- * MCP-compliant client connecting MCP hosts to Pierre Fitness MCP Server (HTTP + OAuth 2.0)
+ * MCP-compliant client connecting MCP hosts to Dravr Fitness MCP Server (HTTP + OAuth 2.0)
  */
 
 import { Command } from 'commander';
@@ -45,9 +45,9 @@ const program = new Command();
 
 program
   .name('pierre-mcp-client')
-  .description('MCP client connecting to Pierre Fitness MCP Server')
+  .description('MCP client connecting to Dravr Fitness MCP Server')
   .version(packageVersion)
-  .option('-s, --server <url>', 'Pierre MCP server URL', process.env.PIERRE_SERVER_URL || 'http://localhost:8081')
+  .option('-s, --server <url>', 'Dravr MCP server URL', process.env.PIERRE_SERVER_URL || 'http://localhost:8081')
   .option('--oauth-client-id <id>', 'OAuth 2.0 client ID', process.env.PIERRE_OAUTH_CLIENT_ID)
   .option('--callback-port <port>', 'OAuth callback server port', process.env.PIERRE_CALLBACK_PORT || '35535')
   .option('--no-browser', 'Disable automatic browser opening for OAuth (testing mode)')

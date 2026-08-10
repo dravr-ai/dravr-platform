@@ -118,7 +118,7 @@ export default function ActivityDetailModal({
                 Share this activity with friends
               </h4>
               <p className="text-sm text-on-surface-variant mb-4">
-                Let Pierre create a coach-generated insight to share with your training partners.
+                Let Dravr create a coach-generated insight to share with your training partners.
                 Your private data stays private - only the insight is shared.
               </p>
               <Button

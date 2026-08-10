@@ -123,7 +123,7 @@ pub struct ServerConfig {
     pub monitoring: MonitoringConfig,
     /// Resend API key for transactional emails (optional — emails are skipped if unset)
     pub resend_api_key: Option<String>,
-    /// Sender email address for Resend (e.g., "Pierre <noreply@pierre.dev>")
+    /// Sender email address for Resend (e.g., "Dravr <no-reply@dravr.ai>")
     pub resend_from_email: Option<String>,
 }
 

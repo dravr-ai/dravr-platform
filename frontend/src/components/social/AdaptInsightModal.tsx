@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Modal for adapting a friend's insight to the user's training context
-// ABOUTME: Shows the adapted personalized content from Pierre AI coach
+// ABOUTME: Shows the adapted personalized content from the Dravr AI coach
 
 import { useState, useEffect } from 'react';
 import { socialApi } from '../../services/api';
@@ -75,7 +75,7 @@ export default function AdaptInsightModal({ insightId, onClose, onSuccess }: Ada
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="pierre-spinner mb-4"></div>
-            <p className="text-on-surface-variant text-sm">Pierre is personalizing this insight for you...</p>
+            <p className="text-on-surface-variant text-sm">Dravr is personalizing this insight for you...</p>
           </div>
         ) : error ? (
           <div className="text-center py-8">
@@ -132,7 +132,7 @@ export default function AdaptInsightModal({ insightId, onClose, onSuccess }: Ada
               </svg>
               <div>
                 <p className="text-sm text-on-surface">
-                  Pierre has analyzed your training history and goals to personalize this insight specifically for you.
+                  Dravr has analyzed your training history and goals to personalize this insight specifically for you.
                   This adaptation is saved to your library for future reference.
                 </p>
               </div>

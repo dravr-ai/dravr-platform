@@ -53,12 +53,12 @@ describe('E2E: MCP Client Bridge Integration', () => {
   test('unauthenticated tools/list discloses no tools (RFC 9728)', async () => {
     // /mcp is a protected resource: without a token, tools/list is rejected with
     // 401 and returns no server tools (the public-discovery subset is retired).
-    // The bridge may still surface its own synthetic `connect_to_pierre`
+    // The bridge may still surface its own synthetic `connect_to_dravr`
     // affordance (a client-side OAuth trigger, not a server tool).
     try {
       const response = await bridgeClient.send(MCPMessages.toolsList, 10000);
       const toolNames = response.result?.tools?.map(t => t.name) ?? [];
-      const serverTools = toolNames.filter(n => n !== 'connect_to_pierre');
+      const serverTools = toolNames.filter(n => n !== 'connect_to_dravr');
       expect(serverTools).toHaveLength(0);
     } catch (error) {
       // A surfaced 401 / closed stream is the expected unauthenticated outcome.

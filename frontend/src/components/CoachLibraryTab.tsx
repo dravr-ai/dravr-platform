@@ -997,7 +997,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               {favoritesOnly
                 ? 'Star some coaches to see them here.'
                 : (coachesData?.coaches || []).length === 0
-                ? 'Create your first coach to customize how Pierre helps you.'
+                ? 'Create your first coach to customize how Dravr helps you.'
                 : 'Try adjusting your filters.'}
             </p>
             {!favoritesOnly && (coachesData?.coaches || []).length === 0 && (
@@ -1427,7 +1427,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent font-mono text-sm"
                 rows={8}
                 maxLength={4000}
-                placeholder="You are Pierre, an expert coach with deep knowledge of..."
+                placeholder="You are an expert coach with deep knowledge of..."
                 required
               />
               <div className="mt-1 flex items-center justify-between text-xs text-outline">

@@ -77,7 +77,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
                 {providerDisplay} Connected
               </h1>
               <p className="text-sm text-on-surface-variant mb-6">
-                Your {providerDisplay} account has been successfully connected to Pierre.
+                Your {providerDisplay} account has been successfully connected to Dravr.
               </p>
             </>
           ) : (

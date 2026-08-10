@@ -10,7 +10,7 @@
 // TOOL PARAMETER TYPES
 // ============================================================================
 
-// Note: connect_to_pierre removed - SDK bridge handles authentication locally via RFC 8414 discovery
+// Note: connect_to_dravr removed - SDK bridge handles authentication locally via RFC 8414 discovery
 
 
 /**

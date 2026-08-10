@@ -838,6 +838,40 @@ else
     pass_validation "No config-struct debug formatting in log macros"
 fi
 
+echo ""
+echo -e "${BLUE}==== Brand Leak Enforcement ====${NC}"
+
+# "Pierre" is the internal codename; "Dravr" is the product. Crate names, module
+# paths, the X-Pierre-Signature header, seeder/CLI log lines and *.pierre.dev test
+# fixtures keep the codename. Anything an end user or an MCP host can read must
+# say Dravr. Regression this guards: the 2026-03 OTP flow shipped "Hi! To link
+# your Pierre account…" as a hardcoded literal and the rebrand pass walked past it,
+# so it greeted every new Telegram user until 2026-08.
+
+# Check 1: surfaces that are 100% user-facing — no occurrence is legitimate,
+# not even in a comment (HTML comments ship to the browser; the messaging
+# catalogue and the SDK are read verbatim by users and MCP hosts).
+BRAND_LEAK_FILES=$(rg '\bPierre\b' templates/ sdk/src/ crates/pierre-contremaitre/src/messaging_strings.rs 2>/dev/null | wc -l | tr -d ' ')
+if [ "$BRAND_LEAK_FILES" -gt 0 ]; then
+    echo -e "${RED}❌ Found $BRAND_LEAK_FILES occurrence(s) of the internal codename on a user-facing surface:${NC}"
+    rg '\bPierre\b' templates/ sdk/src/ crates/pierre-contremaitre/src/messaging_strings.rs -n 2>/dev/null | head -10
+    fail_validation "Rendered pages, the messaging string catalogue and the SDK must say Dravr, never Pierre"
+else
+    pass_validation "No brand leak in templates/, sdk/src/ or the messaging string catalogue"
+fi
+
+# Check 2: string literals in the onboarding + transactional-email paths. Matches
+# "…Pierre…" inside a quoted literal, so doc comments explaining the internal
+# codename ("the linked Pierre user id") stay legal without an exception list.
+BRAND_LEAK_LITERALS=$(rg '"[^"]*\bPierre\b' crates/pierre-server/src/services/messaging_ingress/ crates/pierre-email/src/ 2>/dev/null | wc -l | tr -d ' ')
+if [ "$BRAND_LEAK_LITERALS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $BRAND_LEAK_LITERALS user-facing string literal(s) containing the internal codename:${NC}"
+    rg '"[^"]*\bPierre\b' crates/pierre-server/src/services/messaging_ingress/ crates/pierre-email/src/ -n 2>/dev/null | head -10
+    fail_validation "Onboarding replies and email copy must say Dravr — route new copy through the messaging string catalogue"
+else
+    pass_validation "No brand leak in messaging-onboarding or email string literals"
+fi
+
 # ============================================================================
 # VALIDATION RESULTS TABLE
 # ============================================================================

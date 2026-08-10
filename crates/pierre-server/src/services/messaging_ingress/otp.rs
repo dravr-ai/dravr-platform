@@ -24,10 +24,11 @@ use crate::routes::messaging::linking::generate_link_code;
 use crate::services::outgoing::proactive_text;
 use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_LINK_CANCELLED, KEY_LINK_EMAIL_NOT_CONFIGURED,
-    KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_GENERIC_ERROR, KEY_LINK_IDENTITY_COLLISION,
-    KEY_LINK_INCORRECT_CODE, KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_ACCOUNT,
-    KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED,
-    KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
+    KEY_LINK_EMAIL_PROMPT, KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_GENERIC_ERROR,
+    KEY_LINK_IDENTITY_COLLISION, KEY_LINK_INCORRECT_CODE, KEY_LINK_INVALID_EMAIL,
+    KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_ACCOUNT, KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT,
+    KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED, KEY_LINK_TOO_MANY_ATTEMPTS,
+    KEY_LINK_VERIFICATION_ERROR,
 };
 
 /// Parameters for the OTP code verification step of the channel linking flow
@@ -700,8 +701,9 @@ pub(super) async fn start_otp_flow(
     otp_reply(
         channel_type,
         sender_id,
-        "Hi! To link your Pierre account, please type your email address.\n\
-         Type \"cancel\" to stop."
-            .to_owned(),
+        resources
+            .mcp
+            .messaging_strings_registry
+            .get(KEY_LINK_EMAIL_PROMPT, DEFAULT_LOCALE),
     )
 }
