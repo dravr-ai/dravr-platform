@@ -23,8 +23,9 @@
 //! This mirrors [`super::auth_recovery`] exactly: a special, out-of-band tool
 //! outcome is rendered deterministically rather than fed back to the LLM, so
 //! the security block can never be softened, misrepresented, or hallucinated
-//! away by a follow-up model turn. In `observe` mode (the default) the Guardian
-//! never denies, so `guardian_denied` stays `None` and this stage is a no-op.
+//! away by a follow-up model turn. In `off` and `observe` modes (`enforce` is
+//! the default) the Guardian never denies, so `guardian_denied` stays `None`
+//! and this stage is a no-op.
 
 use std::sync::Arc;
 

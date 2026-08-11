@@ -7,11 +7,10 @@
 //! Guardian policy and its environment-driven configuration.
 //!
 //! The policy is read once at startup from `GUARDIAN_*` env vars. The default
-//! is `observe`: the Guardian computes every decision and logs would-be denials
-//! but never blocks, so the layer ships security-neutral and gathers telemetry
-//! before enforcement is armed (Phase 2). The mode only changes how a decision
-//! is *applied*, never the decision logic, so observe and enforce exercise the
-//! same code path.
+//! is `enforce`: denials are applied, with `observe` (compute and log would-be
+//! denials, never block) available via `GUARDIAN_MODE` as the telemetry and
+//! rollback posture. The mode only changes how a decision is *applied*, never
+//! the decision logic, so observe and enforce exercise the same code path.
 
 use std::collections::HashSet;
 use std::env;

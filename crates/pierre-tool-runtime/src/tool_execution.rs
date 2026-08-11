@@ -173,8 +173,8 @@ pub struct ToolLoopParams<'a> {
 /// `pending_provider_auth_required`) so the chat pipeline can render a
 /// deterministic, localized "blocked for safety" reply instead of feeding the
 /// raw in-band denial back to the LLM and letting it paraphrase a refusal.
-/// Only ever set in `enforce` mode — `observe` (the default) logs and falls
-/// through to execution, so this stays `None`.
+/// Only ever set in `enforce` mode (the default) — `off` and `observe` log and
+/// fall through to execution, so this stays `None` there.
 #[derive(Debug, Clone)]
 pub struct GuardianDenial {
     /// Name of the tool the Guardian blocked.
