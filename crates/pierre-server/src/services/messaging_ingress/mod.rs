@@ -66,6 +66,7 @@ use pierre_messaging::channels::telegram::renderer::TelegramRenderer;
 use pierre_messaging::channels::whatsapp::renderer::WhatsAppRenderer;
 use pierre_messaging::renderer::ResponseRenderer;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
+use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
@@ -1139,11 +1140,10 @@ pub fn card_or_rich_text(
     } else {
         format!("**{title}**\n\n{body}")
     };
-    let action_lines: String = actions
-        .iter()
-        .map(|action| format!("\n\n{}: {}", action.label, action.value))
-        .collect();
-    text.push_str(&action_lines);
+    for action in &actions {
+        // Writing to a String is infallible; the discarded Result is fmt noise.
+        let _ = write!(text, "\n\n{}: {}", action.label, action.value);
+    }
     MessageContent::RichText { body: text }
 }
 
