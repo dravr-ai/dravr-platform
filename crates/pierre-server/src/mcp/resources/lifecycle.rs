@@ -32,7 +32,7 @@ use pierre_commands::{
     coach::{CoachAssignHandler, CoachListHandler, CoachSelectHandler},
     group::{
         GroupCoachHandler, GroupConsentHandler, GroupInviteHandler, GroupLeaveHandler,
-        GroupListHandler, GroupMembersHandler, GroupStatusHandler,
+        GroupListHandler, GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
     },
     help::HelpHandler,
     onboarding::PillarsHandler,
@@ -523,6 +523,7 @@ impl ServerContext {
         handler_reg.register("group-members", Arc::new(GroupMembersHandler));
         handler_reg.register("group-invite", Arc::new(GroupInviteHandler));
         handler_reg.register("group-coach", Arc::new(GroupCoachHandler));
+        handler_reg.register("group-respond", Arc::new(GroupRespondHandler));
         handler_reg.register("group-leave", Arc::new(GroupLeaveHandler));
         handler_reg.register("group-consent", Arc::new(GroupConsentHandler));
         handler_reg.register("coach", Arc::new(CoachListHandler));

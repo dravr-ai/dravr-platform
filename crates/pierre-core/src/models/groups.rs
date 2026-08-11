@@ -65,6 +65,47 @@ impl GroupRole {
     }
 }
 
+/// When the group's AI coach replies in the bound channel chat
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum GroupRespondMode {
+    /// Reply to every member message (the original behavior)
+    #[default]
+    All,
+    /// Reply only when the bot is explicitly addressed: an @-mention or a
+    /// reply to one of the bot's messages. Unaddressed member messages are
+    /// captured as ambient conversation context but trigger no reply.
+    Mentions,
+}
+
+impl GroupRespondMode {
+    /// String representation for database storage
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Mentions => "mentions",
+        }
+    }
+
+    /// Parse from database string
+    #[must_use]
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "all" => Some(Self::All),
+            "mentions" => Some(Self::Mentions),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for GroupRespondMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 impl fmt::Display for GroupRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -140,6 +181,11 @@ pub struct CoachingGroup {
     pub coach_user_id: Option<Uuid>,
     /// Whether peer data sharing is enabled for this group
     pub peer_data_sharing: bool,
+    /// When the AI coach replies in the bound channel chat: every message
+    /// or only explicitly-addressed ones. Serde defaults keep payloads
+    /// written before the field existed deserializable.
+    #[serde(default)]
+    pub respond_mode: GroupRespondMode,
     /// Maximum allowed members
     pub max_members: i32,
     /// Whether the group is active
@@ -246,6 +292,8 @@ pub struct UpdateGroupRequest {
     pub max_members: Option<i32>,
     /// Toggle peer data sharing
     pub peer_data_sharing: Option<bool>,
+    /// Change when the AI coach replies in the bound channel chat
+    pub respond_mode: Option<GroupRespondMode>,
     /// Toggle active status
     pub is_active: Option<bool>,
 }

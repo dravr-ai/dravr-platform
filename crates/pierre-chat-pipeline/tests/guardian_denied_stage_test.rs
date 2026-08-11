@@ -39,6 +39,7 @@ fn turn_input(locale: Option<&str>) -> TurnInput {
         content: "disconnect my strava".to_owned(),
         locale: locale.map(ToOwned::to_owned),
         turn_id: ConversationTurnId::new(),
+        ambient_context: None,
     }
 }
 

@@ -57,6 +57,15 @@ pub struct TurnInput {
     /// per-turn observability can attribute cost/latency/tools to the
     /// originating utterance.
     pub turn_id: ConversationTurnId,
+    /// Pre-rendered ambient-context block appended to the system prompt.
+    ///
+    /// Group messaging turns carry the room's recent speaker-labeled
+    /// transcript here (built by the messaging ingress from
+    /// `messaging_messages`, which spans every member's session) so the
+    /// coach can answer "what do you think of the plan above?" — each
+    /// member's `chat_messages` history holds only their own exchanges.
+    /// `None` for web chat and DM turns.
+    pub ambient_context: Option<String>,
 }
 
 /// Read-only view of the current turn available to hooks and stages.

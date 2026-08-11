@@ -353,6 +353,7 @@ async fn update_group_coach(
         coach_id: Some(coach_id.to_owned()),
         max_members: None,
         peer_data_sharing: None,
+        respond_mode: None,
         is_active: None,
     };
 

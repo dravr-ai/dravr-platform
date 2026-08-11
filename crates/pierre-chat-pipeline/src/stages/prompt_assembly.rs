@@ -668,6 +668,15 @@ pub(crate) async fn assemble_prompt_and_messages(
         None => base_prompt,
     };
 
+    // Stage 7f.4: Append the group ambient transcript supplied by the
+    // messaging ingress. Group chat history is per member, so without this
+    // block the coach never sees what OTHER members said — the transcript
+    // is the only cross-member view of the room's discussion.
+    let base_prompt = match input.ambient_context.as_deref() {
+        Some(ambient) => format!("{base_prompt}\n\n{ambient}"),
+        None => base_prompt,
+    };
+
     // Stage 7g: Append the channel-profile response-constraints prompt.
     let raw_system_prompt = match profile.response_constraints_prompt.as_deref() {
         Some(suffix) => format!("{base_prompt}\n\n{suffix}"),

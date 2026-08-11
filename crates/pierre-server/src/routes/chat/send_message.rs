@@ -280,6 +280,8 @@ pub async fn send_message(
         content: request.content.clone(),
         turn_id,
         locale: Some(turn_locale),
+        // Web chat conversations are single-user; no room transcript exists.
+        ambient_context: None,
     };
     let profile = pipeline::ChannelProfile::web_chat();
 

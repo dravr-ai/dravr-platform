@@ -242,6 +242,8 @@ impl ChatReentry for PipelineChatReentry {
             locale: Some(req.locale.to_owned()),
             // Fresh correlation id — this is a new (proactive) turn.
             turn_id: CoreTurnId::new(),
+            // Proactive pushes land in the user's own DM conversation.
+            ambient_context: None,
         };
         // No AG-UI hooks: this is a detached background turn, not a live
         // request with a status placeholder to edit.

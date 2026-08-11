@@ -33,7 +33,7 @@ mod cross_tenant_bot_tests {
         TokenUsage,
     };
     use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
-    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
@@ -481,6 +481,7 @@ mod cross_tenant_bot_tests {
                     owner_id: user_id,
                     coach_user_id: None,
                     peer_data_sharing: true,
+                    respond_mode: GroupRespondMode::default(),
                     max_members: 10,
                     is_active: true,
                     channel_type: None,

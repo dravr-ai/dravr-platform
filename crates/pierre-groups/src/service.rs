@@ -10,8 +10,8 @@ use std::sync::Arc;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
-    GroupInvite, GroupInviteKind, GroupMember, GroupRole, GroupSummary, GroupTrend,
-    GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag,
+    GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupSummary,
+    GroupTrend, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag,
     MemberGroupComparison, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
@@ -328,6 +328,9 @@ impl GroupService {
             // FALSE in group settings to disable everyone's sharing in
             // one move.
             peer_data_sharing: true,
+            // Coach answers every message until the owner narrows it via
+            // `/group respond mentions` or the group-settings UI.
+            respond_mode: GroupRespondMode::default(),
             // Clamp the requested member count to the tenant tier's
             // per-group cap (Professional=10, Enterprise=50).
             max_members: request.max_members.unwrap_or(20).clamp(2, tier_member_cap),

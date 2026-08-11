@@ -33,7 +33,7 @@
 
 use chrono::Utc;
 use pierre_core::errors::AppResult;
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::{AuthRepos, CoachRepos};
@@ -138,6 +138,10 @@ pub async fn resolve_or_create_channel_group(
         // owner intervention. Owner can flip to FALSE in the group
         // settings to disable everyone's sharing in one move.
         peer_data_sharing: true,
+        // Auto-bound groups start in answer-everything mode — the chat
+        // behaves exactly as before binding; the owner narrows it via
+        // `/group respond mentions`.
+        respond_mode: GroupRespondMode::All,
         max_members: 20,
         is_active: true,
         channel_type: Some(channel_type.to_owned()),

@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupInvite, GroupInviteKind, GroupMember, GroupRole, GroupSummary,
-    UpdateGroupRequest,
+    CoachingGroup, GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
+    GroupSummary, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
@@ -42,6 +42,13 @@ fn row_to_group(r: &PgRow) -> CoachingGroup {
         owner_id,
         coach_user_id: r.try_get::<Option<Uuid>, _>("coach_user_id").ok().flatten(),
         peer_data_sharing,
+        // try_get keeps SELECTs that predate the column (or omit it) valid;
+        // unknown/missing values fall back to the default 'all' mode.
+        respond_mode: r
+            .try_get::<String, _>("respond_mode")
+            .ok()
+            .and_then(|s| GroupRespondMode::from_str_opt(&s))
+            .unwrap_or_default(),
         max_members: r.get("max_members"),
         is_active,
         channel_type: r
@@ -124,8 +131,8 @@ impl CoachingGroupRepository for PostgresDatabase {
         sqlx::query(
             r"INSERT INTO coaching_groups (id, tenant_id, name, description, coach_id, owner_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
-              created_at, updated_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $11)",
+              respond_mode, created_at, updated_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $12)",
         )
         .bind(group.id)
         .bind(tenant_id.to_string())
@@ -137,6 +144,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         .bind(group.max_members)
         .bind(&group.channel_type)
         .bind(&group.channel_chat_id)
+        .bind(group.respond_mode.as_str())
         .bind(now)
         .execute(&self.pool)
         .await
@@ -159,7 +167,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         let row = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
-              created_at, updated_at
+              respond_mode, created_at, updated_at
               FROM coaching_groups WHERE id = $1",
         )
         .bind(group_uuid)
@@ -179,7 +187,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         let row = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
-              created_at, updated_at
+              respond_mode, created_at, updated_at
               FROM coaching_groups
               WHERE tenant_id = $1 AND channel_type = $2 AND channel_chat_id = $3
                 AND is_active = true",
@@ -242,7 +250,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         let rows = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
-              created_at, updated_at
+              respond_mode, created_at, updated_at
               FROM coaching_groups
               WHERE coach_id = $1 AND tenant_id = $2 AND is_active = true
               ORDER BY created_at DESC",
@@ -261,7 +269,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         let rows = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
-              created_at, updated_at
+              respond_mode, created_at, updated_at
               FROM coaching_groups
               WHERE coach_user_id = $1 AND is_active = true
               ORDER BY updated_at DESC",
@@ -281,7 +289,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         let rows = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
-              created_at, updated_at
+              respond_mode, created_at, updated_at
               FROM coaching_groups
               WHERE tenant_id = $1 AND is_active = true
               ORDER BY created_at DESC",
@@ -310,15 +318,17 @@ impl CoachingGroupRepository for PostgresDatabase {
               coach_id = COALESCE($3, coach_id),
               max_members = COALESCE($4, max_members),
               peer_data_sharing = COALESCE($5, peer_data_sharing),
-              is_active = COALESCE($6, is_active),
-              updated_at = $7
-              WHERE id = $8 AND tenant_id = $9",
+              respond_mode = COALESCE($6, respond_mode),
+              is_active = COALESCE($7, is_active),
+              updated_at = $8
+              WHERE id = $9 AND tenant_id = $10",
         )
         .bind(&request.name)
         .bind(&request.description)
         .bind(&request.coach_id)
         .bind(request.max_members)
         .bind(request.peer_data_sharing)
+        .bind(request.respond_mode.map(|m| m.as_str()))
         .bind(request.is_active)
         .bind(now)
         .bind(group_uuid)

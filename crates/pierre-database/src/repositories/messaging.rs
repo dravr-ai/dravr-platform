@@ -237,6 +237,22 @@ pub trait MessagingRepository: Send + Sync {
         offset: i64,
     ) -> AppResult<Vec<Value>>;
 
+    /// Recent messages for one shared channel chat across every member's
+    /// session, newest first (text-bearing rows only).
+    ///
+    /// A group chat is one `channel_conversation_id` but N per-member
+    /// sessions; this join reassembles the room's transcript so the
+    /// messaging dispatch can inject it as ambient context into group
+    /// turns. Each row carries `sender_id`, `user_id` (the session owner),
+    /// `direction`, `content_body`, `channel_message_id`, `created_at`.
+    async fn list_recent_chat_messages(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_conversation_id: &str,
+        limit: i64,
+    ) -> AppResult<Vec<Value>>;
+
     // ── Delivery Receipts ──
 
     /// Record a delivery status update for an outbound message

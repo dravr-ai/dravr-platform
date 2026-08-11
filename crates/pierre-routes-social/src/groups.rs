@@ -35,8 +35,8 @@ use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupHealthFlag, GroupInvite,
-    GroupInviteKind, GroupMember, GroupRole, GroupSummary, GroupWeeklyReport, JoinGroupRequest,
-    UpdateGroupRequest,
+    GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupSummary, GroupWeeklyReport,
+    JoinGroupRequest, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_groups::strategies::tier::tier_strategy_for;
@@ -67,6 +67,8 @@ pub struct GroupResponse {
     pub coach_user_id: Option<String>,
     /// Whether peer data sharing is enabled
     pub peer_data_sharing: bool,
+    /// When the AI coach replies in the bound channel chat
+    pub respond_mode: GroupRespondMode,
     /// Maximum members allowed
     pub max_members: i32,
     /// Whether the group is active
@@ -88,6 +90,7 @@ impl From<CoachingGroup> for GroupResponse {
             owner_id: g.owner_id.to_string(),
             coach_user_id: g.coach_user_id.map(|u| u.to_string()),
             peer_data_sharing: g.peer_data_sharing,
+            respond_mode: g.respond_mode,
             max_members: g.max_members,
             is_active: g.is_active,
             created_at: g.created_at.to_rfc3339(),

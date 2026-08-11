@@ -51,6 +51,7 @@ use slash::{try_handle_slash_command, SlashCommandContext};
 use dashmap::DashMap;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::ErrorCode;
+use pierre_core::models::groups::GroupRespondMode;
 use pierre_core::models::messaging::{
     CardAction, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
 };
@@ -184,6 +185,11 @@ pub(crate) struct PendingDispatch {
     pub(super) channel_message_id: String,
     /// Forum topic thread ID (Telegram Topics `message_thread_id`)
     pub(super) thread_id: Option<String>,
+    /// `true` when the turn originated in a shared group chat (not a DM).
+    /// Group turns get the room's recent ambient transcript injected into
+    /// the prompt, since each member's conversation history holds only
+    /// their own exchanges with the coach.
+    pub(super) is_group_chat: bool,
     /// Resolved BCP-47 locale for this turn.
     ///
     /// Threaded into `TurnInput` so the chat pipeline's guardrail /
@@ -517,6 +523,16 @@ async fn persist_single_message(
         return Ok(PersistOutcome::HandledNotStored);
     }
 
+    // Group respond-mode gate. Placed BEFORE the logout keyword check so
+    // ambient chatter ("logout", "reset"…) can never trigger account
+    // actions, and before `resolve_or_prompt` so an unlinked member's
+    // chatter draws no link prompt into a busy human room. Linking codes
+    // and active OTP flows stay above the gate — both are explicit
+    // interactions the sender started with the bot.
+    if is_ambient_group_message(resources, tenant_id, channel, message).await {
+        return handle_ambient_group_message(resources, channel, tenant_id, message).await;
+    }
+
     // Check for logout command: unlink channel and destroy session
     if is_logout_command(&message.content) {
         emit_messaging_intent(&pre_link_identity, tenant_id, channel, "logout");
@@ -669,6 +685,7 @@ async fn persist_single_message(
                     text_content: sanitized,
                     channel_message_id: message.channel_message_id.clone(),
                     thread_id,
+                    is_group_chat: !message.is_direct_message,
                     locale: turn_locale,
                     // Canot generates the turn id at the webhook boundary
                     // (see canot's IncomingMessage::turn_id); adopt it so
@@ -679,6 +696,152 @@ async fn persist_single_message(
             )))
         },
     )
+}
+
+/// Resolve the respond mode of the coaching group bound to a channel chat.
+///
+/// No chat id, no group binding, or a lookup failure all resolve to
+/// [`GroupRespondMode::All`] — the pre-feature behavior — so a transient DB
+/// error can only ever make the coach chattier, never mute it.
+async fn channel_group_respond_mode(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    conversation_id: Option<&str>,
+) -> GroupRespondMode {
+    let Some(chat_id) = conversation_id.filter(|c| !c.is_empty()) else {
+        return GroupRespondMode::All;
+    };
+    match resources
+        .common
+        .repos
+        .groups
+        .get_group_by_channel(tenant_id, channel, chat_id)
+        .await
+    {
+        Ok(Some(group)) => group.respond_mode,
+        Ok(None) => GroupRespondMode::All,
+        Err(e) => {
+            warn!(
+                error = %e,
+                channel = %channel,
+                "respond-mode lookup failed; answering (fail-open to pre-feature behavior)"
+            );
+            GroupRespondMode::All
+        }
+    }
+}
+
+/// `true` when this inbound is ambient room conversation the coach must not
+/// answer: a group-chat message in a mentions-mode group that neither
+/// addresses the bot nor invokes a slash command.
+async fn is_ambient_group_message(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    message: &IncomingMessage,
+) -> bool {
+    if message.is_direct_message || message.addressed_to_bot {
+        return false;
+    }
+    // Slash commands stay live unaddressed — `/group respond all` must work
+    // without a mention, or the owner could never leave mentions mode from
+    // inside the chat. Their replies are already delivered privately in
+    // shared rooms, so honoring them adds no room noise.
+    if content_body_text(&message.content).is_some_and(|t| t.trim_start().starts_with('/')) {
+        return false;
+    }
+    channel_group_respond_mode(
+        resources,
+        tenant_id,
+        channel,
+        message.conversation_id.as_deref(),
+    )
+    .await
+        == GroupRespondMode::Mentions
+}
+
+/// Silently capture an ambient group message for the room transcript.
+///
+/// Mirrors the normal path's session resolution (auto-enrolling the sender
+/// in the bound group) and inbound store, but sends NOTHING outbound and
+/// never dispatches to the LLM. Senders who cannot resolve — unlinked,
+/// pending, suspended, rate-limited, no session — are dropped silently: in
+/// mentions mode the bot must not inject prompts into a busy human room.
+/// The stored row later surfaces in the ambient transcript injected into
+/// addressed group turns.
+async fn handle_ambient_group_message(
+    resources: &Arc<ServerContext>,
+    channel: &str,
+    tenant_id: TenantId,
+    message: &IncomingMessage,
+) -> Result<PersistOutcome, ()> {
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+
+    let Ok(auth_result) = resources
+        .auth
+        .auth_middleware
+        .authenticate_channel(tenant_id, channel, &message.sender_id)
+        .await
+    else {
+        debug!(
+            sender_id = %message.sender_id,
+            channel = %channel,
+            "ambient group message from unresolvable sender; dropped silently"
+        );
+        return Ok(PersistOutcome::HandledNotStored);
+    };
+
+    let user_tenant_id = auth_result
+        .active_tenant_id
+        .map_or(tenant_id, TenantId::from_uuid);
+    let chat_ref = ChannelChatRef {
+        chat_id: message.conversation_id.as_deref(),
+        chat_title: message.chat_title.as_deref(),
+    };
+    let session = match resolve_linked_session(
+        resources,
+        tenant_id,
+        user_tenant_id,
+        channel,
+        &message.sender_id,
+        chat_ref,
+        message.is_direct_message,
+    )
+    .await
+    {
+        Ok(Some(session)) => session,
+        Ok(None) => return Ok(PersistOutcome::HandledNotStored),
+        Err(e) => {
+            // Warn, not error: no user-visible reply was owed on this turn,
+            // so this is a transcript gap rather than a dropped answer.
+            warn!(
+                error = %e,
+                sender_id = %message.sender_id,
+                channel = %channel,
+                "ambient group message: session resolution failed; transcript row lost"
+            );
+            return Ok(PersistOutcome::HandledNotStored);
+        }
+    };
+
+    // Group sessions live under the channel/bot tenant (`tenant_id` here) —
+    // same rule as the dispatching path's `session_tenant_id`.
+    if store_inbound_message(db, tenant_id, &session, channel, message)
+        .await
+        .is_err()
+    {
+        return Ok(PersistOutcome::HandledNotStored);
+    }
+
+    emit_message_received(
+        &session.user_id,
+        tenant_id,
+        channel,
+        content_type_label(&message.content),
+    );
+    emit_messaging_intent(&session.user_id, tenant_id, channel, "ambient_group");
+    Ok(PersistOutcome::StoredNoDispatch)
 }
 
 /// Phase C input sanitization wrapper.

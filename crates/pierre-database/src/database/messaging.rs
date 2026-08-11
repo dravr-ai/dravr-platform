@@ -1528,6 +1528,50 @@ impl MessagingRepository for Database {
             .await
     }
 
+    async fn list_recent_chat_messages(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_conversation_id: &str,
+        limit: i64,
+    ) -> AppResult<Vec<Value>> {
+        let rows = sqlx::query(
+            r"
+            SELECT m.sender_id, m.direction, m.content_body, m.channel_message_id,
+                   m.created_at, s.user_id
+            FROM messaging_messages m
+            JOIN messaging_sessions s ON s.id = m.session_id
+            WHERE m.tenant_id = ? AND s.tenant_id = ? AND s.channel_type = ?
+              AND COALESCE(s.channel_conversation_id, '') = ?
+              AND m.content_body IS NOT NULL AND m.content_body != ''
+            ORDER BY m.created_at DESC
+            LIMIT ?
+            ",
+        )
+        .bind(tenant_id)
+        .bind(tenant_id)
+        .bind(channel_type)
+        .bind(channel_conversation_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list recent chat messages: {e}")))?;
+
+        Ok(rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "sender_id": r.get::<String, _>("sender_id"),
+                    "user_id": r.get::<String, _>("user_id"),
+                    "direction": r.get::<String, _>("direction"),
+                    "content_body": r.get::<Option<String>, _>("content_body"),
+                    "channel_message_id": r.get::<String, _>("channel_message_id"),
+                    "created_at": r.get::<String, _>("created_at"),
+                })
+            })
+            .collect())
+    }
+
     async fn insert_delivery_receipt(
         &self,
         id: &str,

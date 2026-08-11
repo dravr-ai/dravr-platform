@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -277,6 +278,108 @@ async fn report_dispatch_failure(
     send_error_reply(dispatch, channel_config, &user_message).await;
 }
 
+/// Maximum ambient-transcript lines injected into a group turn's prompt.
+const AMBIENT_TRANSCRIPT_MAX_LINES: usize = 25;
+
+/// Maximum characters kept per ambient-transcript line (grapheme-unaware
+/// char truncation is fine for prompt context).
+const AMBIENT_TRANSCRIPT_MAX_LINE_CHARS: usize = 240;
+
+/// Build the speaker-labeled ambient transcript for a group turn.
+///
+/// Group chat history is per member — each member's `chat_messages` holds
+/// only their own exchanges with the coach — so this reassembles the room
+/// view from `messaging_messages` across every member's session: inbound
+/// rows labeled with the sender's display name, outbound rows labeled
+/// "Coach". The triggering message itself is excluded (it arrives as the
+/// turn's user content). Returns `None` when the room has no other recent
+/// messages, so DM-shaped groups cost no prompt tokens.
+async fn build_group_ambient_context(dispatch: &PendingDispatch) -> Option<String> {
+    let chat_id = dispatch
+        .conversation_id
+        .as_deref()
+        .filter(|c| !c.is_empty())?;
+    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
+
+    let limit = i64::try_from(AMBIENT_TRANSCRIPT_MAX_LINES).unwrap_or(25) + 1;
+    let rows = match db
+        .list_recent_chat_messages(
+            dispatch.channel_tenant_id,
+            &dispatch.channel,
+            chat_id,
+            limit,
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            warn!(error = %e, "ambient transcript load failed; dispatching without it");
+            return None;
+        }
+    };
+
+    // Newest-first from the query; drop the triggering message, restore
+    // chronological order, cap the line count.
+    let mut lines: Vec<String> = Vec::new();
+    let mut label_cache: HashMap<String, String> = HashMap::new();
+    for row in rows
+        .iter()
+        .filter(|r| r["channel_message_id"].as_str() != Some(dispatch.channel_message_id.as_str()))
+        .take(AMBIENT_TRANSCRIPT_MAX_LINES)
+    {
+        let Some(body) = row["content_body"].as_str().filter(|b| !b.is_empty()) else {
+            continue;
+        };
+        let label = if row["direction"].as_str() == Some("outbound") {
+            "Coach".to_owned()
+        } else {
+            let user_id = row["user_id"].as_str().unwrap_or_default();
+            speaker_label(dispatch, user_id, &mut label_cache).await
+        };
+        let truncated: String = body
+            .chars()
+            .take(AMBIENT_TRANSCRIPT_MAX_LINE_CHARS)
+            .collect();
+        lines.push(format!("{label}: {truncated}"));
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    lines.reverse();
+
+    Some(format!(
+        "## Recent group chat\n\
+         This conversation happens inside a group chat. The lines below are \
+         the room's most recent messages, oldest first, for context only — \
+         answer the current message, which follows the conversation history. \
+         Never prefix your reply with a name label.\n\n{}",
+        lines.join("\n")
+    ))
+}
+
+/// Resolve a member's display label for the ambient transcript, caching per
+/// build. Falls back to the email local-part, then a neutral "Member".
+async fn speaker_label(
+    dispatch: &PendingDispatch,
+    user_id: &str,
+    cache: &mut HashMap<String, String>,
+) -> String {
+    if let Some(cached) = cache.get(user_id) {
+        return cached.clone();
+    }
+    let label = match Uuid::parse_str(user_id) {
+        Ok(uuid) => match dispatch.resources.common.repos.users.get_global(uuid).await {
+            Ok(Some(user)) => user
+                .display_name
+                .unwrap_or_else(|| user.email.split('@').next().unwrap_or("Member").to_owned()),
+            _ => "Member".to_owned(),
+        },
+        Err(_) => "Member".to_owned(),
+    };
+    cache.insert(user_id.to_owned(), label.clone());
+    label
+}
+
 /// Dispatch a message through the LLM pipeline and send the response back via the channel
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
@@ -321,6 +424,13 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // message plus its full LLM/tool chain is one turn, and canot's
     // log spans already key off this id.
     let turn_id = dispatch.turn_id;
+    // Group turns get the room's recent cross-member transcript; DMs skip
+    // the lookup entirely.
+    let ambient_context = if dispatch.is_group_chat {
+        build_group_ambient_context(&dispatch).await
+    } else {
+        None
+    };
     let turn_input = TurnInput {
         conversation_id: dispatch.session.conversation.clone(),
         user_id: dispatch.session.user_id.clone(),
@@ -332,6 +442,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         content: dispatch.text_content.clone(),
         locale: Some(dispatch.locale.clone()),
         turn_id,
+        ambient_context,
     };
 
     // Load the per-tenant channel config exactly once per turn.

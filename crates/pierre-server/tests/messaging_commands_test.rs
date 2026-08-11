@@ -812,7 +812,9 @@ mod command_tests {
         use pierre_core::models::coaches::{
             CoachCategory, CoachVisibility, CreateSystemCoachRequest,
         };
-        use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+        use pierre_core::models::groups::{
+            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+        };
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -860,6 +862,7 @@ mod command_tests {
             owner_id: user_id,
             coach_user_id: None,
             peer_data_sharing: true,
+            respond_mode: GroupRespondMode::default(),
             max_members: 10,
             is_active: true,
             channel_type: None,
@@ -1104,7 +1107,9 @@ mod command_tests {
         use pierre_core::models::coaches::{
             CoachCategory, CoachVisibility, CreateSystemCoachRequest,
         };
-        use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+        use pierre_core::models::groups::{
+            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+        };
 
         let (user_id, member_tenant_id) =
             create_test_user(resources, "crosstenant-member@test.com").await;
@@ -1159,6 +1164,7 @@ mod command_tests {
             owner_id: user_id,
             coach_user_id: None,
             peer_data_sharing: true,
+            respond_mode: GroupRespondMode::default(),
             max_members: 10,
             is_active: true,
             channel_type: None,
@@ -1270,7 +1276,9 @@ mod command_tests {
         use pierre_core::models::coaches::{
             CoachCategory, CoachVisibility, CreateSystemCoachRequest,
         };
-        use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+        use pierre_core::models::groups::{
+            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+        };
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -1311,6 +1319,7 @@ mod command_tests {
             owner_id: user_id,
             coach_user_id: None,
             peer_data_sharing: true,
+            respond_mode: GroupRespondMode::default(),
             max_members: 10,
             is_active: true,
             channel_type: None,
@@ -1537,7 +1546,7 @@ mod command_tests {
         GroupStatusHandler,
     };
     use pierre_commands::{CommandHandler, PlatformCommandContext};
-    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 
     /// Create a bare active user (no tenant/provider) for use as an additional
     /// group member. `coaching_group_members.user_id` is a FK to `users(id)`,
@@ -1582,6 +1591,7 @@ mod command_tests {
             owner_id,
             coach_user_id: None,
             peer_data_sharing,
+            respond_mode: GroupRespondMode::default(),
             max_members: 10,
             is_active: true,
             channel_type: None,

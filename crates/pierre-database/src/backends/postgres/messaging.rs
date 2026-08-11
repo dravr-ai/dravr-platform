@@ -492,6 +492,53 @@ impl MessagingRepository for PostgresDatabase {
             .collect())
     }
 
+    async fn list_recent_chat_messages(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_conversation_id: &str,
+        limit: i64,
+    ) -> AppResult<Vec<Value>> {
+        // Casts mirror get_session_by_channel_identity: migration
+        // 20260417000001 converted messaging_sessions.tenant_id/user_id to
+        // UUID while messaging_messages.tenant_id stayed TEXT.
+        let rows = sqlx::query(
+            r"
+            SELECT m.sender_id, m.direction, m.content_body, m.channel_message_id,
+                   m.created_at, s.user_id::text AS user_id
+            FROM messaging_messages m
+            JOIN messaging_sessions s ON s.id = m.session_id
+            WHERE m.tenant_id = $1 AND s.tenant_id = $1::uuid AND s.channel_type = $2
+              AND COALESCE(s.channel_conversation_id, '') = $3
+              AND m.content_body IS NOT NULL AND m.content_body != ''
+            ORDER BY m.created_at DESC
+            LIMIT $4
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(channel_type)
+        .bind(channel_conversation_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list recent chat messages: {e}")))?;
+
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let created_at: DateTime<Utc> = r.get("created_at");
+                serde_json::json!({
+                    "sender_id": r.get::<String, _>("sender_id"),
+                    "user_id": r.get::<String, _>("user_id"),
+                    "direction": r.get::<String, _>("direction"),
+                    "content_body": r.get::<Option<String>, _>("content_body"),
+                    "channel_message_id": r.get::<String, _>("channel_message_id"),
+                    "created_at": created_at.to_rfc3339(),
+                })
+            })
+            .collect())
+    }
+
     // ── Delivery Receipts ──
 
     async fn insert_delivery_receipt(

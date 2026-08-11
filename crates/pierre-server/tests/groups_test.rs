@@ -207,6 +207,13 @@ async fn test_create_group() {
         body["peer_data_sharing"], true,
         "REST POST should default peer_data_sharing=true (kill-switch off, individual consent gates) — matches messaging_group_bind auto-bind default"
     );
+    // respond_mode must round-trip through GroupResponse — the 2026-08-11
+    // e2e found the hand-assembled response type silently dropping it, which
+    // made the web settings select revert on every reload.
+    assert_eq!(
+        body["respond_mode"], "all",
+        "GroupResponse must carry respond_mode (default 'all')"
+    );
 }
 
 #[tokio::test]
@@ -868,6 +875,52 @@ async fn test_toggle_group_peer_sharing() {
     assert_success(&resp, "request");
     let body: Value = resp.json();
     assert_eq!(body["peer_data_sharing"], true);
+}
+
+#[tokio::test]
+async fn test_update_group_respond_mode_round_trips() {
+    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+
+    let resp = AxumTestRequest::post("/api/groups")
+        .header("authorization", &auth)
+        .json(&json!({
+            "name": "Respond Mode Test",
+            "coach_id": &coach_id
+        }))
+        .send(router.clone())
+        .await;
+    let group: Value = resp.json();
+    let group_id = group["id"].as_str().unwrap();
+
+    // Flip to mentions-only via the same PUT the web settings form uses.
+    let resp = AxumTestRequest::put(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth)
+        .json(&json!({ "respond_mode": "mentions" }))
+        .send(router.clone())
+        .await;
+    assert_success(&resp, "request");
+    let body: Value = resp.json();
+    assert_eq!(body["respond_mode"], "mentions");
+
+    // A fresh GET must see the persisted value — this is exactly the reload
+    // path that regressed when GroupResponse dropped the field.
+    let resp = AxumTestRequest::get(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await;
+    assert_success(&resp, "request");
+    let body: Value = resp.json();
+    assert_eq!(body["respond_mode"], "mentions");
+
+    // An unrelated update must not clobber the stored mode (COALESCE path).
+    let resp = AxumTestRequest::put(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth)
+        .json(&json!({ "description": "unrelated change" }))
+        .send(router.clone())
+        .await;
+    assert_success(&resp, "request");
+    let body: Value = resp.json();
+    assert_eq!(body["respond_mode"], "mentions");
 }
 
 // ============================================================================

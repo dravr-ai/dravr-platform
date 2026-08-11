@@ -23,7 +23,8 @@ mod inject_tests {
     use chrono::Utc;
     use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupMember, GroupRole, MemberFitnessSnapshot, OvertrainingRiskLevel,
+        CoachingGroup, GroupMember, GroupRespondMode, GroupRole, MemberFitnessSnapshot,
+        OvertrainingRiskLevel,
     };
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_mcp_server::mcp::resources::ServerContext;
@@ -134,6 +135,7 @@ mod inject_tests {
             owner_id,
             coach_user_id: None,
             peer_data_sharing,
+            respond_mode: GroupRespondMode::default(),
             max_members: 20,
             is_active: true,
             channel_type: None,

@@ -11,7 +11,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { Card, Button, Tabs, TabPanel, Input, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import MemberList from './MemberList';
 import InviteManager from './InviteManager';
-import type { GroupRole, GroupTrend } from '@pierre/shared-types';
+import type { GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
 
 interface GroupDetailProps {
   groupId: string;
@@ -68,6 +68,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editPeerSharing, setEditPeerSharing] = useState(false);
+  const [editRespondMode, setEditRespondMode] = useState<GroupRespondMode>('all');
   const [settingsInitialized, setSettingsInitialized] = useState(false);
 
   // Initialize settings form from group data once loaded
@@ -75,6 +76,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
     setEditName(group.name);
     setEditDescription(group.description ?? '');
     setEditPeerSharing(group.peer_data_sharing);
+    setEditRespondMode(group.respond_mode ?? 'all');
     setSettingsInitialized(true);
   }
 
@@ -91,6 +93,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
         name: editName.trim() || undefined,
         description: editDescription.trim() || undefined,
         peer_data_sharing: editPeerSharing,
+        respond_mode: editRespondMode,
       });
       showSuccess('Settings saved', 'Group settings have been updated.');
     } catch (err) {
@@ -313,6 +316,24 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                     </p>
                   </div>
                 </label>
+                <div>
+                  <label className="block text-sm text-on-surface mb-1" htmlFor="group-respond-mode">
+                    Coach replies in the group chat
+                  </label>
+                  <select
+                    id="group-respond-mode"
+                    value={editRespondMode}
+                    onChange={(e) => setEditRespondMode(e.target.value as GroupRespondMode)}
+                    className="w-full rounded-lg ghost-border bg-surface-container-low px-3 py-2 text-sm text-on-surface focus:ring-primary"
+                  >
+                    <option value="all">To every message</option>
+                    <option value="mentions">Only when mentioned</option>
+                  </select>
+                  <p className="text-xs text-outline mt-0.5">
+                    "Only when mentioned" keeps the coach quiet unless someone @-mentions it or
+                    replies to one of its messages; it still follows the discussion for context.
+                  </p>
+                </div>
                 <div className="flex justify-end">
                   <Button variant="primary" onClick={handleSaveSettings} loading={isUpdating}>
                     Save Settings

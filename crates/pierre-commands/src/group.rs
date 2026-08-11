@@ -23,7 +23,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::coaches::ListCoachesFilter;
 #[cfg(feature = "tools-groups")]
 use pierre_core::models::groups::GroupInviteKind;
-use pierre_core::models::groups::{GroupRole, UpdateGroupRequest};
+use pierre_core::models::groups::{GroupRespondMode, GroupRole, UpdateGroupRequest};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -231,11 +231,28 @@ impl CommandHandler for GroupStatusHandler {
         let mc = member_count.to_string();
         let active = group.member_count.to_string();
 
-        let text = reg.render(
+        let mut text = reg.render(
             KEY_GROUP_STATUS_SUMMARY,
             locale,
             &[&group.name, &mc, &active, &peer_sharing],
         );
+
+        // Respond mode lives on the full group row (the summary omits it).
+        // Plain-text suffix, mirroring the /group coach and /group respond
+        // replies that stay outside the tools-groups-gated string registry.
+        if let Ok(Some(full)) = ctx
+            .ctx
+            .repos()
+            .groups
+            .get_group(&group.id.to_string(), ctx.tenant_id)
+            .await
+        {
+            if full.respond_mode == GroupRespondMode::Mentions {
+                text.push_str(
+                    "\nCoach replies only when mentioned (/group respond all to change).",
+                );
+            }
+        }
 
         Ok(CommandResponse::text(text))
     }
@@ -431,6 +448,7 @@ impl CommandHandler for GroupCoachHandler {
             coach_id: Some(found.coach.id.to_string()),
             max_members: None,
             peer_data_sharing: None,
+            respond_mode: None,
             is_active: None,
         };
         // Scoped to the tenant that owns the group row, which is the channel
@@ -452,6 +470,92 @@ impl CommandHandler for GroupCoachHandler {
             "{}'s coach is now {}.",
             updated.name, found.coach.title
         )))
+    }
+}
+
+/// Handler for `/group respond <mentions|all>` — set when the group's AI
+/// coach replies in the bound chat.
+///
+/// Owner/admin only. `mentions` restricts replies to explicitly-addressed
+/// messages (an @-mention of the bot or a reply to one of its messages);
+/// unaddressed chatter is captured silently as ambient context. `all`
+/// restores the answer-everything default. Replies in plain text so it does
+/// not depend on the `tools-groups`-gated messaging strings (mirrors
+/// `/group coach`).
+pub struct GroupRespondHandler;
+
+#[async_trait]
+impl CommandHandler for GroupRespondHandler {
+    async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        const USAGE: &str = "Usage: /group respond <mentions|all> — 'mentions' makes this group's coach reply only when @-mentioned (or replied to); 'all' restores replying to every message.";
+
+        let reg = ctx.ctx.messaging_strings_registry();
+        let locale = ctx.locale.as_str();
+
+        let mode = match ctx
+            .args
+            .first()
+            .map(|a| a.trim().to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("mentions" | "mention") => GroupRespondMode::Mentions,
+            Some("all" | "everything") => GroupRespondMode::All,
+            _ => return Ok(CommandResponse::text(USAGE.to_owned())),
+        };
+
+        // Resolve the chat-bound group (mirrors /group coach).
+        let group = resolve_target_group(ctx).await?;
+
+        // Owner/admin only — changing when the coach speaks is a settings change.
+        let member = ctx
+            .ctx
+            .repos()
+            .groups
+            .get_member(&group.id.to_string(), ctx.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("Membership not found"))?;
+        if !member.role.can_modify_settings() {
+            return Ok(CommandResponse::text(reg.render(
+                KEY_GROUP_INVITE_FORBIDDEN,
+                locale,
+                &[],
+            )));
+        }
+
+        let request = UpdateGroupRequest {
+            name: None,
+            description: None,
+            coach_id: None,
+            max_members: None,
+            peer_data_sharing: None,
+            respond_mode: Some(mode),
+            is_active: None,
+        };
+        // Scoped to the tenant that owns the group row, which is the channel
+        // tenant when the command came from a shared room.
+        let updated = ctx
+            .ctx
+            .group_service()
+            .update_group(&group.id.to_string(), group.tenant_id, &request)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group not found"))?;
+
+        info!(
+            group_id = %updated.id,
+            respond_mode = %mode,
+            "Group respond mode updated via /group respond"
+        );
+
+        let confirmation = match mode {
+            GroupRespondMode::Mentions => format!(
+                "{}'s coach now replies only when mentioned (@-mention it or reply to one of its messages).",
+                updated.name
+            ),
+            GroupRespondMode::All => {
+                format!("{}'s coach now replies to every message.", updated.name)
+            }
+        };
+        Ok(CommandResponse::text(confirmation))
     }
 }
 

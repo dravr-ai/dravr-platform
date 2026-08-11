@@ -23,7 +23,7 @@ mod peer_fetch_tests {
     use dravr_tronc::mcp::schema::ToolResponse;
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
-    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRole};
+    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
     };
@@ -115,6 +115,7 @@ mod peer_fetch_tests {
             owner_id,
             coach_user_id: None,
             peer_data_sharing,
+            respond_mode: GroupRespondMode::default(),
             max_members: 20,
             is_active: true,
             channel_type: None,

@@ -29,6 +29,9 @@ export type MemberFlag =
 /** Severity level for health flags */
 export type HealthFlagSeverity = 'info' | 'warning' | 'critical';
 
+/** When the group's AI coach replies in the bound channel chat */
+export type GroupRespondMode = 'all' | 'mentions';
+
 // ========== CORE TYPES ==========
 
 /** A coaching group binding a coach persona to multiple athletes */
@@ -42,6 +45,8 @@ export interface CoachingGroup {
   /** Human professional coach attached to oversee this group, if any */
   coach_user_id: string | null;
   peer_data_sharing: boolean;
+  /** 'all' answers every member message; 'mentions' only explicitly-addressed ones */
+  respond_mode: GroupRespondMode;
   max_members: number;
   is_active: boolean;
   created_at: string;
@@ -95,6 +100,7 @@ export interface UpdateGroupRequest {
   coach_id?: string;
   max_members?: number;
   peer_data_sharing?: boolean;
+  respond_mode?: GroupRespondMode;
   is_active?: boolean;
 }
 

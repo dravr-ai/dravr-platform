@@ -203,6 +203,7 @@ export type {
 // Group coaching types (groups, members, invites, analytics)
 export type {
   GroupRole,
+  GroupRespondMode,
   GroupInviteKind,
   OvertrainingRiskLevel,
   GroupTrend,
