@@ -471,3 +471,50 @@ fn headless_block_flag_records_takes_once_and_clears() {
         })
     );
 }
+
+/// Every `GateOutcome` a caller can see must be one it explicitly handles.
+///
+/// Regression guard for a live-stack finding: the `/mcp` disconnect carve-out
+/// matched only `Blocked` with an `if let`, so when `ConfirmRequired` was added
+/// the parked call fell through and **executed** — turning a refusal into an
+/// allow on that transport. `decide` is the source of those outcomes, so pin
+/// that a tainted destructive call under `Confirm` yields the confirm outcome
+/// (never `Proceed`) and that enforce mode surfaces it as a non-`Proceed` gate
+/// result every caller must branch on.
+#[test]
+fn confirm_policy_never_yields_proceed_for_a_tainted_destructive_call() {
+    let policy = GuardianPolicy {
+        tainted_destructive: TaintedDestructive::Confirm,
+        ..enforce_policy()
+    };
+    let guardian = Guardian::new(policy);
+
+    let mut tainted = TurnState::default();
+    tainted.add_taint("get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
+    assert_eq!(
+        guardian.decide(SecurityLabels::IRREVERSIBLE, true, None, &tainted),
+        Decision::ConfirmRequired,
+        "Confirm must park a tainted destructive call, not allow it"
+    );
+
+    // Through the shared gate in enforce mode the caller sees ConfirmRequired —
+    // NOT Proceed. A caller that only checks `Blocked` would execute here.
+    let turns = GuardianTurns::new();
+    let key = TurnKey::new(None, "confirm-outcome-turn");
+    turns.record_taint(&key, "get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
+    let (outcome, _reserved) = guardian_gate(
+        &guardian,
+        &turns,
+        &key,
+        "disconnect_provider",
+        SecurityLabels::IRREVERSIBLE,
+        true,
+        None,
+    );
+    assert_eq!(outcome, GateOutcome::ConfirmRequired);
+    assert_ne!(
+        outcome,
+        GateOutcome::Proceed,
+        "a parked call must never look like a green light to any dispatch path"
+    );
+}

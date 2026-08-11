@@ -1251,8 +1251,24 @@ impl ToolHandlers {
             writes_data,
             tenant_uuid,
         );
-        if let GateOutcome::Blocked(reason) = outcome {
-            return Self::guardian_denied_mcp(reason, request_id);
+        // Exhaustive on purpose: an `if let Blocked` here let `ConfirmRequired`
+        // fall through and execute the disconnect. One-shot MCP-direct calls each
+        // get their own turn bucket so they never reach that decision, but the
+        // Copilot-headless `/mcp` loopback threads a real ACP turn token — taint
+        // accumulates there, so a parked disconnect would have run. Matching every
+        // variant makes the compiler catch the next one.
+        match outcome {
+            GateOutcome::Proceed => {}
+            GateOutcome::Blocked(reason) => {
+                return Self::guardian_denied_mcp(reason, request_id);
+            }
+            // `/mcp` is a protocol transport with no in-band way to ask a human
+            // and no slash commands to resolve a parked action, so Confirm takes
+            // its documented degradation — deny where no human is present. The
+            // chat surfaces park and prompt instead.
+            GateOutcome::ConfirmRequired => {
+                return Self::guardian_denied_mcp(DenyReason::TaintedSink, request_id);
+            }
         }
         let response = Self::handle_disconnect_provider(args, request_id, ctx).await;
         if reserved && Self::mcp_response_is_error(&response) {
