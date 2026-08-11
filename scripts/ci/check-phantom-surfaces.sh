@@ -35,7 +35,7 @@
 # moment of authoring, which is the only moment the author has the context to
 # fix it. Clearing the existing stock is a deletion decision per surface (some
 # are superseded scaffolding, some are unfinished features) and is tracked in
-# the dravr-registre issues, not blessed by a list in this script.
+# the dravr-ai/carnet register (carnet#17), not blessed by a list in this script.
 
 set -uo pipefail
 

@@ -185,7 +185,7 @@ fi
 # authApi.refreshToken). Gates the diff: a NEW unimplemented trait or uncalled
 # api-client method fails here, while the author still has the context to wire
 # a consumer. The standing stock is reported, not blessed — clearing it is a
-# per-surface deletion decision tracked in dravr-registre.
+# per-surface deletion decision tracked in dravr-ai/carnet (carnet#17).
 if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_API_CLIENT_CHANGES" == "true" ]]; } \
     && [[ -x "$PROJECT_ROOT/scripts/ci/check-phantom-surfaces.sh" ]]; then
     echo "Tier 1c: Phantom Surface Detection"
