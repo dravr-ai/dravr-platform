@@ -56,6 +56,7 @@ fn loop_result(denied: Option<GuardianDenial>) -> ToolLoopResult {
         pending_provider_auth_required: None,
         guardian_denied: denied,
         guardian_confirm: None,
+        capability_claim_unverified: false,
     }
 }
 

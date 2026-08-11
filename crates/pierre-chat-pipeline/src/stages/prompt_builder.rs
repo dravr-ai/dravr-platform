@@ -25,7 +25,9 @@ use uuid::Uuid;
 #[cfg(feature = "tools-groups")]
 use crate::ChatPipelineContext;
 use pierre_core::models::ConnectionType;
-use pierre_core::models::WITHHELD_REPLY_FINISH_REASON;
+use pierre_core::models::{
+    UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
+};
 use pierre_core::narration::scrub_replayed_narration;
 use pierre_llm::ChatMessage;
 use pierre_runtime_context::DataContext;
@@ -270,6 +272,17 @@ fn push_history_row(
     // pattern-free way to recognize it. Only assistant rows ever carry it —
     // user rows and tool_call/tool_result rows persist `None`.
     if msg.finish_reason.as_deref() == Some(WITHHELD_REPLY_FINISH_REASON) {
+        return;
+    }
+
+    // Same contract, different origin: a data-access claim the verification
+    // stage could not stand behind, or the reconnect message that replaced it.
+    // Both are true only of the moment they were written — connection state is
+    // re-derived every turn — and replaying either teaches the model its tools
+    // are broken, which is exactly how one 2026-07-24 apology produced an
+    // identical one 18 days later. Dropped by stamp, so no phrasing mutation
+    // can slip past the way three of them slipped past the prose scrub.
+    if msg.finish_reason.as_deref() == Some(UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON) {
         return;
     }
 

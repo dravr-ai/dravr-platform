@@ -216,6 +216,20 @@ pub struct CoachRuntimeContext {
 /// a withheld row still reaches that one-shot prompt.
 pub const WITHHELD_REPLY_FINISH_REASON: &str = "reply_withheld";
 
+/// `finish_reason` stamped on an assistant row whose data-access claim the
+/// platform tried to verify and could not stand behind — the reply reached
+/// the athlete, but it must never re-enter a later prompt.
+///
+/// The replay scrub drops such claims by *phrase*, which means it only ever
+/// catches wordings someone has already catalogued: «je ne peux pas» (fixed
+/// 2026-07-23) mutated to «je ne suis pas capable» (07-24, unscrubbed for 18
+/// days) then to «je n'ai toujours pas accès» (08-11). Each escape replayed
+/// into every later prompt and taught the model its own tools were broken.
+/// A stamp set at write time by the verification stage cannot be mutated
+/// around: the row is dropped by [`build_llm_messages`] on its marker, in any
+/// language, whatever the sentence says.
+pub const UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON: &str = "capability_claim_unverified";
+
 /// Database representation of a chat message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageRecord {

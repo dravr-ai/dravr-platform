@@ -489,14 +489,33 @@ pub(crate) async fn assemble_prompt_and_messages(
     history: &[MessageRecord],
     onboarding: Option<&super::onboarding::OnboardingTurn>,
 ) -> AppResult<AssembledPrompt> {
-    // Stage 7a: Start from coach-defined or default Pierre system prompt.
+    // Stage 7a: Build the base prompt in two layers — platform contract, then
+    // persona.
     // For contremaitre-sourced coaches we consult the in-memory
     // `PromptRegistry` first so a webhook-driven hot-reload reaches the
     // next chat turn without a seeder re-run. Other sources (`"custom"`,
     // `"seed"`) read the DB `system_prompt` column as before.
-    let base_prompt = coach_ctx.map_or_else(
+    // The persona layer: a bound coach's voice, or the default Dravr voice.
+    // Voice only — every platform invariant lives in the contract below, which
+    // is why replacing this block is safe.
+    let persona_prompt = coach_ctx.map_or_else(
         || ctx.pierre_system_prompt.clone(),
         |c| resolve_coach_base_prompt(&ctx.prompt_registry, c, input.locale.as_deref()),
+    );
+
+    // The platform contract leads, unconditionally.
+    //
+    // Binding a coach REPLACES the persona block, and before the contract was
+    // split out of `pierre_system.md` that replacement took the platform rules
+    // with it: all 52 coach personas ran with no current date (so "hier" could
+    // not be resolved to an epoch window), no Available-Tools framing, and no
+    // "never refuse a question `get_activities` can answer" rule. The coach
+    // then declined data questions it had every means to answer — the
+    // 2026-07-24 and 2026-08-11 live incidents. Contract first, persona second,
+    // so a persona can shape the voice and never the capability.
+    let base_prompt = format!(
+        "{}\n\n{persona_prompt}",
+        ctx.prompt_registry.platform_contract_prompt()
     );
 
     // Stage 7a.1: Resolve `{{SCOPE_REFUSAL}}` / `{{CAPABILITY_REFUSAL}}` /

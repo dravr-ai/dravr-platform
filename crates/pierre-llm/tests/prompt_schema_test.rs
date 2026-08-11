@@ -14,17 +14,52 @@
 
 use pierre_llm::prompts::{
     missing_placeholders, required_placeholders_for_system_prompt, unsubstituted_placeholders,
-    PIERRE_SYSTEM_PROMPT, REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS,
+    PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT, REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS,
 };
 
+/// Every placeholder the assembly layer substitutes, and the prompt that must
+/// carry it. The requirement follows the content: the contract split moved
+/// four of the five out of the persona block, and a stale requirement here
+/// rejects the correctly-split prompt at sync time instead of catching a real
+/// regression (live alert 2026-08-11).
 #[test]
-fn pierre_system_required_placeholders_are_declared() {
-    let required = required_placeholders_for_system_prompt("pierre_system")
-        .expect("pierre_system must declare required placeholders");
-    assert!(required.contains(&"{{SCOPE_REFUSAL}}"));
-    assert!(required.contains(&"{{CAPABILITY_REFUSAL}}"));
-    assert!(required.contains(&"{{COACH_SCOPE_CARVE_OUT}}"));
-    assert!(required.contains(&"{{COACHING_PERSONA_RULES}}"));
+fn every_substituted_placeholder_is_required_of_exactly_one_prompt() {
+    let persona = required_placeholders_for_system_prompt("pierre_system")
+        .expect("the persona block must declare its placeholder");
+    let contract = required_placeholders_for_system_prompt("platform_contract")
+        .expect("the platform contract must declare its placeholders");
+
+    assert_eq!(
+        persona,
+        &["{{COACHING_PERSONA_RULES}}"],
+        "the persona block renders the persona rules and nothing else — a coach \
+         replaces this block, so anything else declared here is lost on coach turns"
+    );
+    for placeholder in [
+        "{{SCOPE_REFUSAL}}",
+        "{{CAPABILITY_REFUSAL}}",
+        "{{COACH_SCOPE_CARVE_OUT}}",
+        "{{CURRENT_DATE}}",
+    ] {
+        assert!(
+            contract.contains(&placeholder),
+            "{placeholder} belongs to the always-injected contract"
+        );
+        assert!(
+            !persona.contains(&placeholder),
+            "{placeholder} must not be required of the replaceable persona block"
+        );
+    }
+}
+
+#[test]
+fn compiled_platform_contract_satisfies_its_own_schema() {
+    let required = required_placeholders_for_system_prompt("platform_contract").unwrap();
+    let missing = missing_placeholders(PLATFORM_CONTRACT_PROMPT, required);
+    assert!(
+        missing.is_empty(),
+        "compiled-in PLATFORM_CONTRACT_PROMPT is missing placeholders: {missing:?}"
+    );
 }
 
 #[test]

@@ -38,6 +38,7 @@ use std::sync::Arc;
 use serde_json::json;
 use tracing::{info, warn};
 
+use super::prefetch::{needs_activity_grounding, REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 use pierre_core::errors::AppError;
@@ -96,15 +97,16 @@ pub async fn apply_capability_recovery(
     if result.pending_provider_auth_required.is_some() || result.guardian_denied.is_some() {
         return;
     }
-    if !narration::contains_capability_failure(&result.content) {
+
+    let Some(trigger) = recovery_trigger(&deps, input, result) else {
         return;
-    }
+    };
 
     info!(
+        trigger = trigger.as_str(),
         tool_calls = result.tool_calls_count,
         reply_len = result.content.len(),
-        "capability_failure_claimed: assistant reply claims broken data access; \
-         running a verification fetch"
+        "capability_recovery_triggered: running a verification fetch"
     );
 
     match run_verification_fetch(deps.ctx, input).await {
@@ -115,8 +117,16 @@ pub async fn apply_capability_recovery(
                  routing to the reconnect re-challenge"
             );
             result.pending_provider_auth_required = Some(provider_slug);
+            // The athlete gets an actionable reconnect link, but it describes
+            // this moment only — stamp it out of every later prompt.
+            result.capability_claim_unverified = true;
         }
-        VerificationOutcome::Unverifiable => {}
+        VerificationOutcome::Unverifiable => {
+            // The claim may be an honest outage report, so it still reaches the
+            // athlete — but the platform could not stand behind it, so it does
+            // not get to teach the model anything on a later turn.
+            result.capability_claim_unverified = matches!(trigger, RecoveryTrigger::ClaimedFailure);
+        }
         VerificationOutcome::Verified(payload) => {
             // The fetch succeeded, so the claim is disproven. Book the
             // verification call like any other tool call this turn —
@@ -124,9 +134,77 @@ pub async fn apply_capability_recovery(
             // tools ran".
             result.tool_calls_count += 1;
             result.tools_called.push(VERIFICATION_TOOL.to_owned());
+            let before = result.content.clone();
             reask_with_verified_data(&deps, payload, result).await;
+            // The re-ask replaces the reply on success. When it does not, the
+            // original text survives — and if that text was a data-access
+            // claim, the fetch just proved it false, so it must never replay.
+            let claim_survived =
+                result.content == before && matches!(trigger, RecoveryTrigger::ClaimedFailure);
+            result.capability_claim_unverified = claim_survived;
         }
     }
+}
+
+/// Why this turn is being verified.
+#[derive(Clone, Copy)]
+enum RecoveryTrigger {
+    /// The reply carries capability-failure vocabulary. Lexical, so it only
+    /// ever catches phrasings someone has already seen and catalogued — kept
+    /// as the cheap fast path, never relied on alone.
+    ClaimedFailure,
+    /// The athlete asked a question that needs real activities, the turn made
+    /// no tool call, and no activity block was injected for it. Structural:
+    /// it holds for any phrasing in any language, including the mutations the
+    /// vocabulary has always trailed (2026-07-24 → 08-11 → 08-11 14:15, three
+    /// escapes in three weeks). An answer built with no data behind it is the
+    /// failure, whatever words it wears.
+    UngroundedDataAsk,
+}
+
+impl RecoveryTrigger {
+    /// Stable telemetry label.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::ClaimedFailure => "claimed_failure",
+            Self::UngroundedDataAsk => "ungrounded_data_ask",
+        }
+    }
+}
+
+/// Decide whether this turn needs verification, and say why.
+///
+/// The structural arm is the load-bearing one. The 2026-08-11 root-cause
+/// review found the model answers data asks with no tool call and no injected
+/// data, then rationalises the gap in whatever words it likes; the words are a
+/// symptom the platform has chased three times. `needs_activity_grounding` is
+/// the same intent predicate the prefetch stage already trusts to decide a
+/// turn needs real activities, so a turn it flags that produced neither a tool
+/// call nor an injected block is ungrounded by construction.
+fn recovery_trigger(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+    result: &ToolLoopResult,
+) -> Option<RecoveryTrigger> {
+    if narration::contains_capability_failure(&result.content) {
+        return Some(RecoveryTrigger::ClaimedFailure);
+    }
+    let ungrounded = needs_activity_grounding(&input.content)
+        && result.tool_calls_count == 0
+        && !turn_carries_activity_block(deps.llm_messages);
+    ungrounded.then_some(RecoveryTrigger::UngroundedDataAsk)
+}
+
+/// Whether the prefetch stage put an activity block in this turn's messages.
+///
+/// Keys on the two lead sentences that stage prepends, so no extra plumbing is
+/// needed to learn what it decided. When a block is present the model HAS the
+/// data and is told to answer from it without re-fetching — a zero-tool turn
+/// is then correct, not ungrounded.
+fn turn_carries_activity_block(llm_messages: &[ChatMessage]) -> bool {
+    llm_messages.iter().any(|m| {
+        m.content.contains(STARTUP_GROUNDING_LEAD) || m.content.contains(REFRESH_GROUNDING_LEAD)
+    })
 }
 
 /// What one verification fetch concluded about the model's claim.

@@ -357,6 +357,29 @@ mod capability_recovery {
 
     /// Poll `chat_messages` until the pipeline persists an `assistant` row for
     /// the tenant, then return its (already post-processed) content.
+    /// The `finish_reason` persisted on the tenant's latest assistant row.
+    /// `build_llm_messages` drops a row stamped
+    /// `capability_claim_unverified` from every later prompt, so this is the
+    /// pin that a moment-in-time failure cannot replay.
+    async fn persisted_finish_reason(
+        resources: &Arc<ServerContext>,
+        tenant_id: TenantId,
+    ) -> Option<String> {
+        let pool = resources.coach.database.sqlite_pool().unwrap();
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT m.finish_reason \
+             FROM chat_messages m \
+             JOIN chat_conversations c ON m.conversation_id = c.id \
+             WHERE c.tenant_id = ?1 AND m.role = 'assistant' \
+             ORDER BY m.created_at DESC LIMIT 1",
+        )
+        .bind(tenant_id.to_string())
+        .fetch_optional(pool)
+        .await
+        .unwrap();
+        row.and_then(|(reason,)| reason)
+    }
+
     async fn wait_for_persisted_assistant_reply(
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
@@ -477,6 +500,137 @@ mod capability_recovery {
         assert!(
             !reply.contains("problème de connexion de mon côté"),
             "the fabricated apology must not be the durable reply, got: {reply:?}"
+        );
+
+        // The reconnect message is true of this moment only — connection state
+        // is re-derived every turn — so it is stamped out of later prompts.
+        // Replaying it is how a 07-24 apology produced an identical 08-11 one.
+        assert_eq!(
+            persisted_finish_reason(&resources, tenant_id)
+                .await
+                .as_deref(),
+            Some("capability_claim_unverified"),
+            "a moment-in-time capability reply must be stamped so it never replays"
+        );
+    }
+
+    /// Deterministic provider that never says it is broken — it just answers a
+    /// data question with no data behind it. This is the failure the lexical
+    /// detector structurally cannot see, and the reason the trigger stopped
+    /// depending on the model's choice of words.
+    struct UngroundedThenGroundedMockProvider;
+
+    /// Generic filler with zero capability-failure vocabulary in any locale.
+    const UNGROUNDED_REPLY: &str =
+        "Pour aujourd'hui je partirais sur quelque chose de tranquille, environ une heure, \
+         à l'aise. Écoute tes jambes et ajuste au feeling.";
+
+    #[async_trait]
+    impl LlmProvider for UngroundedThenGroundedMockProvider {
+        fn name(&self) -> &'static str {
+            "ungrounded_then_grounded_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Ungrounded-then-grounded Mock LLM (structural-trigger e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let is_reask = request
+                .messages
+                .iter()
+                .any(|m| m.content.contains(REASK_MARKER));
+            let content = if is_reask {
+                CLEAN_REPLY
+            } else {
+                UNGROUNDED_REPLY
+            };
+            Ok(ChatResponse {
+                content: content.to_owned(),
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 30,
+                    completion_tokens: 40,
+                    total_tokens: 70,
+                }),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            let chunk = StreamChunk {
+                delta: "streaming not used".to_owned(),
+                is_final: true,
+                finish_reason: Some("stop".to_owned()),
+            };
+            Ok(Box::pin(stream::iter(vec![Ok(chunk)])))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn an_ungrounded_data_answer_is_regrounded_without_any_refusal_wording() {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        let scraper_url = spawn_mock_scraper().await;
+        env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
+        env::remove_var("DRAVR_SCIOTTE_API_KEY");
+
+        let mock = Arc::new(UngroundedThenGroundedMockProvider);
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let (user_id, tenant_id) = create_user_with_connection(
+            &resources,
+            "capability-ungrounded@example.com",
+            "sciotte",
+            &ConnectionType::Manual,
+        )
+        .await;
+        seed_sciotte_session(&resources, user_id, tenant_id).await;
+
+        drive_slack_turn(
+            &resources,
+            tenant_id,
+            user_id,
+            "U_CAP_UNGROUNDED",
+            "capability_ungrounded_secret",
+            "Propose moi une sortie basée sur mon activité d'hier",
+        )
+        .await;
+
+        let reply = wait_for_persisted_assistant_reply(&resources, tenant_id)
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        assert!(
+            reply.contains("45 min"),
+            "a data ask answered with no tool call and no injected block must be \
+             re-asked against real activities, got: {reply:?}"
+        );
+        assert!(
+            !reply.contains("Écoute tes jambes"),
+            "the ungrounded filler must not survive as the durable reply, got: {reply:?}"
+        );
+        // Nothing here was stamped: the athlete got a grounded answer, so there
+        // is no moment-in-time failure to keep out of later prompts.
+        assert_ne!(
+            persisted_finish_reason(&resources, tenant_id)
+                .await
+                .as_deref(),
+            Some("capability_claim_unverified"),
+            "a successfully re-grounded turn is ordinary history"
         );
     }
 }

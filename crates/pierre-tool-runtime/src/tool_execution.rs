@@ -217,6 +217,15 @@ pub struct ToolLoopResult {
     /// short-circuits with the localized confirmation prompt
     /// (`KEY_GUARDIAN_CONFIRM_PROMPT`) carrying the claim token.
     pub guardian_confirm: Option<GuardianConfirmRequest>,
+    /// Set by the capability-recovery stage when the delivered reply carries a
+    /// data-access claim the platform could not stand behind — either an
+    /// unrefuted "I can't reach your data" or the reconnect message that
+    /// replaced it. The turn then persists with
+    /// `UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON` so the row never re-enters a
+    /// later prompt: connection state is re-derived every turn, and replaying a
+    /// moment-in-time failure is what turned one 2026-07-24 apology into an
+    /// identical one 18 days later.
+    pub capability_claim_unverified: bool,
 }
 
 /// A tool call the Guardian parked pending `/confirm`·`/deny` resolution.
@@ -413,6 +422,7 @@ pub async fn run_api_tool_loop(
                         pending_provider_auth_required: Some(provider),
                         guardian_denied: None,
                         guardian_confirm: None,
+                        capability_claim_unverified: false,
                     });
                 }
 
@@ -431,6 +441,7 @@ pub async fn run_api_tool_loop(
                         pending_provider_auth_required: None,
                         guardian_denied: Some(denial),
                         guardian_confirm: None,
+                        capability_claim_unverified: false,
                     });
                 }
 
@@ -448,6 +459,7 @@ pub async fn run_api_tool_loop(
                         pending_provider_auth_required: None,
                         guardian_denied: None,
                         guardian_confirm: Some(confirm),
+                        capability_claim_unverified: false,
                     });
                 }
 
@@ -532,6 +544,7 @@ pub async fn run_api_tool_loop(
                     pending_provider_auth_required: Some(provider),
                     guardian_denied: None,
                     guardian_confirm: None,
+                    capability_claim_unverified: false,
                 });
             }
             if let Some(denial) = guardian_denied {
@@ -545,6 +558,7 @@ pub async fn run_api_tool_loop(
                     pending_provider_auth_required: None,
                     guardian_denied: Some(denial),
                     guardian_confirm: None,
+                    capability_claim_unverified: false,
                 });
             }
             if let Some(confirm) = guardian_confirm {
@@ -558,6 +572,7 @@ pub async fn run_api_tool_loop(
                     pending_provider_auth_required: None,
                     guardian_denied: None,
                     guardian_confirm: Some(confirm),
+                    capability_claim_unverified: false,
                 });
             }
             let assistant_round_text =
@@ -600,6 +615,7 @@ pub async fn run_api_tool_loop(
             pending_provider_auth_required: None,
             guardian_denied: None,
             guardian_confirm: None,
+            capability_claim_unverified: false,
         });
     }
 
@@ -619,6 +635,7 @@ pub async fn run_api_tool_loop(
         pending_provider_auth_required: None,
         guardian_denied: None,
         guardian_confirm: None,
+        capability_claim_unverified: false,
     })
 }
 
@@ -783,6 +800,7 @@ pub async fn run_cli_tool_loop(
                 pending_provider_auth_required: None,
                 guardian_denied: None,
                 guardian_confirm: None,
+                capability_claim_unverified: false,
             });
         }
 
@@ -829,6 +847,7 @@ pub async fn run_cli_tool_loop(
                 pending_provider_auth_required: Some(provider),
                 guardian_denied: None,
                 guardian_confirm: None,
+                capability_claim_unverified: false,
             });
         }
 
@@ -846,6 +865,7 @@ pub async fn run_cli_tool_loop(
                 pending_provider_auth_required: None,
                 guardian_denied: Some(denial),
                 guardian_confirm: None,
+                capability_claim_unverified: false,
             });
         }
 
@@ -861,6 +881,7 @@ pub async fn run_cli_tool_loop(
                 pending_provider_auth_required: None,
                 guardian_denied: None,
                 guardian_confirm: Some(confirm),
+                capability_claim_unverified: false,
             });
         }
 
@@ -904,6 +925,7 @@ pub async fn run_cli_tool_loop(
         pending_provider_auth_required: None,
         guardian_denied: None,
         guardian_confirm: None,
+        capability_claim_unverified: false,
     })
 }
 
@@ -1602,6 +1624,7 @@ fn guardian_plan_denied(reason: &str) -> ToolLoopResult {
             reason: reason.to_owned(),
         }),
         guardian_confirm: None,
+        capability_claim_unverified: false,
     }
 }
 
@@ -1687,6 +1710,7 @@ fn plan_block_result(
                 tool_name: block.tool_name,
                 pending_id,
             }),
+            capability_claim_unverified: false,
         };
     }
     ToolLoopResult {
@@ -1702,6 +1726,7 @@ fn plan_block_result(
             reason: block.reason,
         }),
         guardian_confirm: None,
+        capability_claim_unverified: false,
     }
 }
 
@@ -1819,6 +1844,7 @@ pub async fn run_planned_tool_loop(
         pending_provider_auth_required: None,
         guardian_denied: None,
         guardian_confirm: None,
+        capability_claim_unverified: false,
     })
 }
 
@@ -2109,6 +2135,9 @@ async fn finalize_headless_turn(
         // surfaces the same deterministic refusal every other transport does.
         guardian_denied,
         guardian_confirm,
+        // Set downstream by the capability-recovery stage, which runs after
+        // every loop variant returns.
+        capability_claim_unverified: false,
     })
 }
 

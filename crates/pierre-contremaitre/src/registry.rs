@@ -15,8 +15,9 @@ use pierre_llm::prompts::{
     CASUAL_PERSONA_PROMPT, COACH_GENERATION_PROMPT, COACH_PERSONA_PROMPT,
     ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
     MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, PIERRE_SYSTEM_PROMPT,
-    POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT,
-    RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT,
+    PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT,
+    RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT,
+    TOOL_DISCIPLINE_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -101,6 +102,7 @@ impl PromptRegistry {
 
         let compiled_in_prompts: &[(&str, &str)] = &[
             ("pierre_system", PIERRE_SYSTEM_PROMPT),
+            ("platform_contract", PLATFORM_CONTRACT_PROMPT),
             ("coach_generation", COACH_GENERATION_PROMPT),
             ("insight_validation", INSIGHT_VALIDATION_PROMPT),
             ("insight_generation", INSIGHT_GENERATION_PROMPT),
@@ -163,6 +165,12 @@ impl PromptRegistry {
     /// Get the main Pierre fitness assistant system prompt.
     pub fn pierre_system_prompt(&self) -> String {
         self.get_system_prompt("pierre_system")
+    }
+
+    /// Get the platform contract — injected on EVERY turn, coach-bound or
+    /// not, because a bound coach replaces the Pierre system prompt.
+    pub fn platform_contract_prompt(&self) -> String {
+        self.get_system_prompt("platform_contract")
     }
 
     /// Get the coach generation prompt.

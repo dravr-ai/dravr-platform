@@ -21,6 +21,16 @@ use pierre_core::models::CoachingPersona;
 /// - Example interaction patterns
 pub const PIERRE_SYSTEM_PROMPT: &str = system::PIERRE;
 
+/// Platform contract — the rules that hold on every turn.
+///
+/// Tool framing, the current-date/epoch table, scope, capability discipline,
+/// ground-truth and anti-hallucination rules, regardless of which coach is
+/// bound.
+///
+/// Separate from [`PIERRE_SYSTEM_PROMPT`] because a bound coach REPLACES that
+/// prompt, which silently stripped all of these rules from all 52 personas.
+pub const PLATFORM_CONTRACT_PROMPT: &str = system::PLATFORM_CONTRACT;
+
 /// Coach generation system prompt
 ///
 /// Contains instructions for the LLM to analyze a conversation and generate
@@ -239,16 +249,25 @@ pub const fn get_coaching_persona_prompt(persona: CoachingPersona) -> &'static s
 /// runtime substitution silently turns into a no-op and the feature
 /// behind the placeholder (persona, scope refusal, …) disappears in
 /// production. See `crates/pierre-server/src/contremaitre/sync.rs`.
-pub const REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS: &[(&str, &[&str])] = &[(
-    "pierre_system",
-    &[
-        "{{SCOPE_REFUSAL}}",
-        "{{CAPABILITY_REFUSAL}}",
-        "{{COACH_SCOPE_CARVE_OUT}}",
-        "{{COACHING_PERSONA_RULES}}",
-        "{{CURRENT_DATE}}",
-    ],
-)];
+/// The requirement follows the content: four of the five placeholders moved
+/// to `platform_contract.md` when the contract was split out of
+/// `pierre_system.md`, so demanding them in the persona block would reject
+/// every future sync of a correctly-split prompt (live alert 2026-08-11,
+/// caught by this very gate keeping the prior content).
+pub const REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS: &[(&str, &[&str])] = &[
+    // Persona layer — voice only, and the persona-rules slot it renders into.
+    ("pierre_system", &["{{COACHING_PERSONA_RULES}}"]),
+    // Platform contract — injected on every turn, coach-bound or not.
+    (
+        "platform_contract",
+        &[
+            "{{SCOPE_REFUSAL}}",
+            "{{CAPABILITY_REFUSAL}}",
+            "{{COACH_SCOPE_CARVE_OUT}}",
+            "{{CURRENT_DATE}}",
+        ],
+    ),
+];
 
 /// Look up the placeholders that the given system-prompt manifest key
 /// must contain. Returns `None` for keys with no declared requirements.

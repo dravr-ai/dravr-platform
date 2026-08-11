@@ -68,7 +68,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{
     AddMessageParams, CoachRuntimeContext, ConversationTurnId, OnboardingState, TenantId,
-    WITHHELD_REPLY_FINISH_REASON,
+    UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_core::narration;
 use pierre_database::database::repositories::LlmUsageRepository;
@@ -1136,10 +1136,16 @@ pub async fn run(
 /// complexity budget; it adds no public API surface.
 const fn persisted_finish_reason(
     leak_replaced: bool,
+    capability_claim_unverified: bool,
     model_finish_reason: Option<&str>,
 ) -> Option<&str> {
     if leak_replaced {
         Some(WITHHELD_REPLY_FINISH_REASON)
+    } else if capability_claim_unverified {
+        // Ranked below the withhold: a withheld row holds platform text the
+        // model never wrote, which is the stronger reason to keep it out of a
+        // prompt. Both stamps drop the row at replay.
+        Some(UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON)
     } else {
         model_finish_reason
     }
@@ -1312,7 +1318,11 @@ async fn run_turn(
         role: "assistant",
         content: &persisted_assistant_content,
         token_count,
-        finish_reason: persisted_finish_reason(leak_replaced, result.finish_reason.as_deref()),
+        finish_reason: persisted_finish_reason(
+            leak_replaced,
+            result.capability_claim_unverified,
+            result.finish_reason.as_deref(),
+        ),
         prompt_tokens,
         model: Some(&active_model),
         structured_content: structured_content.as_deref(),

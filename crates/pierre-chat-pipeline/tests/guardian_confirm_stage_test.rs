@@ -50,6 +50,7 @@ fn loop_result(confirm: Option<GuardianConfirmRequest>) -> ToolLoopResult {
         pending_provider_auth_required: None,
         guardian_denied: None,
         guardian_confirm: confirm,
+        capability_claim_unverified: false,
     }
 }
 
