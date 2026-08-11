@@ -51,6 +51,7 @@ jobs:
   #   deadlock-analysis    — lockbud static deadlock detection (~10 min)
   #   security-audit       — cargo deny + dravr-* duplicate check (~3 min)
   #   doc-tests            — cargo test --doc + telemetry-feature tests (~5 min)
+  #   contremaitre-sync    — the 4 platform<->contremaitre coupling tests (~5 min)
   #   backend-tests        — SQLite shards, cron / workflow_dispatch only
   # PHASE 1: release-binary (depends on clippy)
   # ============================================================================
@@ -352,6 +353,53 @@ jobs:
         run: |
           cargo test -p pierre-core --features telemetry --test trace_propagation_test
           cargo test -p pierre-logging --features telemetry --test otel_pipeline_test
+
+  # The tests policing platform<->contremaitre coupling (tool list, notify
+  # catalogue, messaging locales) used to run ONLY in the full suite — cron
+  # SQLite shards, full-on-main ci-postgres, coverage. Since features merge by
+  # local squash with no PR, the branch never executed them: drift false-greened
+  # the branch and red main post-merge. Running the four files on every push
+  # moves that verdict before the merge. Four test binaries, not 325, and it
+  # runs alongside the ~10-12 min clippy job, so it costs no critical path.
+  contremaitre-sync:
+    name: Contremaitre Coupling Tests
+    runs-on: ubuntu-latest
+    needs: fast-gate
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
+
+      - name: Coupling tests (tool list, notify catalogue, locales)
+        run: |
+          cargo test \
+            --test contremaitre_test \
+            --test notify_catalogue_test \
+            --test messaging_locale_test \
+            --test configuration_mcp_integration_test \
+            -- --test-threads=4
+        env:
+          DATABASE_URL: "sqlite::memory:"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
 
   backend-tests:
     name: Backend Tests (SQLite ${{ matrix.shard }}/4)

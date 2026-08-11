@@ -43,6 +43,7 @@ HAS_SDK_CHANGES=false
 HAS_MOBILE_CHANGES=false
 HAS_INFRA_CHANGES=false
 HAS_INFRA_MODULE_CHANGES=false
+HAS_MCP_TYPES_CHANGES=false
 
 # Track which crates have changes (folder name under crates/)
 declare -A CHANGED_CRATES
@@ -65,6 +66,7 @@ while IFS= read -r file; do
             fi
             ;;
         frontend/*) HAS_FRONTEND_CHANGES=true ;;
+        packages/mcp-types/*) HAS_MCP_TYPES_CHANGES=true ;;
         sdk/*) HAS_SDK_CHANGES=true ;;
         frontend-mobile/*) HAS_MOBILE_CHANGES=true ;;
         infra/modules/*) HAS_INFRA_CHANGES=true; HAS_INFRA_MODULE_CHANGES=true ;;
@@ -82,6 +84,7 @@ echo "   Rust src: $HAS_RUST_SRC_CHANGES"
 echo "   Cargo config: $HAS_CARGO_CHANGES"
 echo "   Frontend: $HAS_FRONTEND_CHANGES"
 echo "   SDK: $HAS_SDK_CHANGES"
+echo "   MCP types: $HAS_MCP_TYPES_CHANGES"
 echo "   Mobile: $HAS_MOBILE_CHANGES"
 echo "   Infra: $HAS_INFRA_CHANGES"
 if [[ ${#CHANGED_CRATES[@]} -gt 0 ]]; then
@@ -151,10 +154,14 @@ fi
 # ============================================================================
 # TIER 1b: Contremaitre Coupling Sync (compile-free static drift check)
 # ============================================================================
-# Makes the two highest-frequency platform<->contremaitre drifts (messaging
-# locale completeness + notify-event catalogue) PREVENTIVE at pre-push, instead
-# of failing full-suite-only AFTER the squash lands on main. See AGENTS.md.
-if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/check-contremaitre-sync.sh" ]]; then
+# Makes the three platform<->contremaitre drifts (messaging locale completeness,
+# notify-event catalogue, MCP tool list) PREVENTIVE at pre-push. The same
+# coupling is tested for real by the contremaitre-sync CI job, but that costs a
+# Rust compile; this tier is the seconds-long grep that runs before the push.
+# Also fires on packages/mcp-types changes, since the tool check reads the
+# generated SDK types. See AGENTS.md.
+if { [[ "$HAS_RUST_CHANGES" == "true" ]] || [[ "$HAS_MCP_TYPES_CHANGES" == "true" ]]; } \
+    && [[ -f "$PROJECT_ROOT/scripts/ci/check-contremaitre-sync.sh" ]]; then
     echo "Tier 1b: Contremaitre Coupling Sync"
     echo "------------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-contremaitre-sync.sh"; then

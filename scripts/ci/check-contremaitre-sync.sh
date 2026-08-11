@@ -2,17 +2,16 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Compile-free static check that platform code stays in sync with the
-# ABOUTME: dravr-contremaitre catalogues (messaging locales + notify events).
+# ABOUTME: dravr-contremaitre catalogues (locales, notify events, MCP tool list).
 
 # WHY THIS EXISTS
 # ---------------
 # The integration tests that police platform<->contremaitre coupling
-# (contremaitre_test, notify_catalogue_test) live in pierre-server/tests and run
-# ONLY in the full suite (cron SQLite shards + full-on-main ci-postgres +
-# coverage). Because features merge via local squash with no PR, those tests
-# first run AFTER the squash is on main — so drift false-greens the branch and
-# reds main post-merge. This grep-only check makes the two highest-frequency
-# drifts PREVENTIVE at pre-push time, with no Rust compile.
+# (contremaitre_test, notify_catalogue_test, messaging_locale_test) live in
+# pierre-server/tests. They are also wired into the per-push `contremaitre-sync`
+# job in ci-backend.yml, but that job costs a Rust compile; this script is the
+# grep-only pre-push tier that catches the same drift in seconds, before the
+# push, with no compile at all.
 #
 # Covered:
 #   1. Locale invariant — every messaging-string key ships all 5 locales
@@ -21,11 +20,15 @@
 #   2. Notify catalogue — every info!(target:"notify", event="X") emitted in
 #      platform src exists as a key in contremaitre's notify-events.yaml.
 #      Mirrors notify_catalogue_test.
+#   3. MCP tool list — the tool names in src match all three of their mirrors:
+#      EXPECTED_TOOLS (contremaitre_test), the hardcoded count assertion
+#      (configuration_mcp_integration_test), and the generated TS SDK types
+#      (packages/mcp-types/src/tools.ts, whose staleness reds CI: TypeScript SDK).
 #
-# NOT covered (on purpose): the EXPECTED_TOOLS list. Tool names are produced by
-# name() methods, not string literals at a greppable call site, so a static scan
-# cannot enumerate them reliably; that drift stays guarded by the EXPECTED_TOOLS
-# full-suite test. See AGENTS.md.
+# Known blind spot: an event or tool whose name is built at runtime rather than
+# written as a literal is invisible to a static scan. Check 3 defends against
+# that by asserting its own completeness (one extracted name per call site) and
+# failing loudly if the assumption ever breaks. See AGENTS.md.
 
 set -euo pipefail
 
@@ -127,6 +130,102 @@ else
     else
         EMIT_COUNT="$(printf '%s\n' "$EMITTED" | grep -c . || true)"
         echo -e "${GREEN}✅ Notify catalogue: all ${EMIT_COUNT} emitted events are catalogued.${NC}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 3: MCP tool list vs its three mirrors
+# ---------------------------------------------------------------------------
+# Every McpTool::definition() builds its Tool through
+# tool_definition("<name>", ...) (pierre-tool-runtime/src/conversions.rs), so the
+# names ARE literals at a greppable call site and the full set is enumerable
+# without compiling. The scan proves its own completeness before comparing.
+EXPECTED_FILE="crates/pierre-server/tests/contremaitre_test.rs"
+COUNT_FILE="crates/pierre-server/tests/configuration_mcp_integration_test.rs"
+TS_FILE="packages/mcp-types/src/tools.ts"
+
+TOOL_FILES="$(grep -rl 'tool_definition(' crates --include='*.rs' 2>/dev/null | grep '/src/' || true)"
+
+if [[ -z "$TOOL_FILES" ]]; then
+    echo -e "${RED}❌ No tool_definition( call sites found in crates/*/src — this check is stale.${NC}"
+    FAILED=true
+else
+    # Join lines: a call site may wrap between the paren and the name literal.
+    BLOB="$(printf '%s\n' "$TOOL_FILES" | xargs cat 2>/dev/null | tr '\n' ' ')"
+    CALLS="$(printf '%s' "$BLOB" | grep -oE 'tool_definition\(' | grep -c . || true)"
+    HELPER="$(printf '%s' "$BLOB" | grep -oE 'fn[[:space:]]+tool_definition\(' | grep -c . || true)"
+    CALL_SITES=$(( CALLS - HELPER ))
+    SRC_TOOLS="$(printf '%s' "$BLOB" \
+        | grep -oE 'tool_definition\([[:space:]]*"[a-z0-9_]+"' \
+        | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u || true)"
+    SRC_COUNT="$(printf '%s\n' "$SRC_TOOLS" | grep -c . || true)"
+
+    if [[ "$SRC_COUNT" -ne "$CALL_SITES" ]]; then
+        # The scan's own assumption broke. Fail loudly rather than compare a
+        # silently-truncated set, which would read as "all tools in sync".
+        echo -e "${RED}❌ Tool scan incomplete: ${CALL_SITES} tool_definition( call site(s) but ${SRC_COUNT} literal name(s).${NC}"
+        echo -e "${YELLOW}   A tool is registered with a non-literal name, so this static scan can no longer see${NC}"
+        echo -e "${YELLOW}   every tool. Give the tool a literal name, or extend this check — never ignore it.${NC}"
+        FAILED=true
+    else
+        TOOL_DRIFT=false
+
+        # 3a. EXPECTED_TOOLS in contremaitre_test.rs
+        EXPECTED_LIST="$(awk '/EXPECTED_TOOLS/{f=1} f{print} f&&/^\];/{exit}' "$EXPECTED_FILE" 2>/dev/null \
+            | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u || true)"
+        if [[ -z "$EXPECTED_LIST" ]]; then
+            echo -e "${RED}❌ Could not parse EXPECTED_TOOLS in ${EXPECTED_FILE} — structure changed; update this check.${NC}"
+            TOOL_DRIFT=true
+        else
+            UNLISTED="$(comm -23 <(printf '%s\n' "$SRC_TOOLS") <(printf '%s\n' "$EXPECTED_LIST") || true)"
+            PHANTOM="$(comm -13 <(printf '%s\n' "$SRC_TOOLS") <(printf '%s\n' "$EXPECTED_LIST") || true)"
+            if [[ -n "$UNLISTED" ]]; then
+                echo -e "${RED}❌ Tool drift: registered in src but absent from EXPECTED_TOOLS:${NC}"
+                printf '%s\n' "$UNLISTED" | sed 's/^/   /'
+                TOOL_DRIFT=true
+            fi
+            if [[ -n "$PHANTOM" ]]; then
+                echo -e "${RED}❌ Tool drift: listed in EXPECTED_TOOLS but no longer registered in src:${NC}"
+                printf '%s\n' "$PHANTOM" | sed 's/^/   /'
+                TOOL_DRIFT=true
+            fi
+        fi
+
+        # 3b. hardcoded total in configuration_mcp_integration_test.rs
+        ASSERTED="$(grep -oE 'assert_eq!\([[:space:]]*tools\.len\(\),[[:space:]]*[0-9]+' "$COUNT_FILE" 2>/dev/null \
+            | grep -oE '[0-9]+$' | sort -u || true)"
+        ASSERT_LINES="$(printf '%s\n' "$ASSERTED" | grep -c . || true)"
+        if [[ "$ASSERT_LINES" -ne 1 ]]; then
+            echo -e "${RED}❌ Expected exactly one tools.len() assertion in ${COUNT_FILE}, found ${ASSERT_LINES} distinct value(s) — update this check.${NC}"
+            TOOL_DRIFT=true
+        elif [[ "$ASSERTED" -ne "$SRC_COUNT" ]]; then
+            echo -e "${RED}❌ Tool count drift: src registers ${SRC_COUNT} tools, ${COUNT_FILE} asserts ${ASSERTED}.${NC}"
+            TOOL_DRIFT=true
+        fi
+
+        # 3c. generated TS SDK types — stale types red CI: TypeScript SDK
+        if [[ ! -f "$TS_FILE" ]]; then
+            echo -e "${RED}❌ ${TS_FILE} not found — this check is stale.${NC}"
+            TOOL_DRIFT=true
+        else
+            TS_TOOLS="$(grep -oE '"[a-z0-9_]+"' "$TS_FILE" | tr -d '"' | sort -u || true)"
+            TS_HEADER="$(grep -oE '^// Tool count: [0-9]+' "$TS_FILE" | grep -oE '[0-9]+' || true)"
+            TS_DIFF="$(comm -3 <(printf '%s\n' "$SRC_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
+            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$SRC_COUNT" ]]; then
+                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${SRC_COUNT} tools in src (header says '${TS_HEADER}').${NC}"
+                [[ -n "$TS_DIFF" ]] && printf '%s\n' "$TS_DIFF" | sed 's/^/   /'
+                echo -e "${YELLOW}   Regenerate against a running server: cd packages/mcp-types && bun run generate${NC}"
+                TOOL_DRIFT=true
+            fi
+        fi
+
+        if [[ "$TOOL_DRIFT" == "true" ]]; then
+            echo -e "${YELLOW}   A new McpTool must land with EXPECTED_TOOLS (kept sorted), the count assertion,${NC}"
+            echo -e "${YELLOW}   and regenerated SDK types in the SAME change — else main reds post-merge.${NC}"
+            FAILED=true
+        else
+            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS, the count assertion, and the SDK types.${NC}"
+        fi
     fi
 fi
 
