@@ -1,5 +1,5 @@
 # ABOUTME: Weekly caller of the shared feature-phase-review workflow — opens a private
-# ABOUTME: dravr-registre issue for any feature-phases.yaml entry past its review date
+# ABOUTME: llm-registre issue for any feature-phases.yaml entry past its review date
 name: "Monitor: Feature Phase Review"
 
 on:
