@@ -2147,7 +2147,11 @@ mod command_tests {
         use pierre_mcp_server::services::messaging_ingress::slash_reply_should_be_private;
 
         // Non-DM context (group/supergroup/channel) on any platform → private.
-        assert!(slash_reply_should_be_private(false));
+        assert!(slash_reply_should_be_private(false, Some("status")));
+        assert!(slash_reply_should_be_private(false, Some("group consent")));
+        assert!(slash_reply_should_be_private(false, Some("group invite")));
+        // No command name (connect card, unknown-command body) keeps the default.
+        assert!(slash_reply_should_be_private(false, None));
     }
 
     #[test]
@@ -2155,6 +2159,48 @@ mod command_tests {
         use pierre_mcp_server::services::messaging_ingress::slash_reply_should_be_private;
 
         // A 1:1 DM is already private — nothing to redirect.
-        assert!(!slash_reply_should_be_private(true));
+        assert!(!slash_reply_should_be_private(true, Some("status")));
+        assert!(!slash_reply_should_be_private(true, None));
+    }
+
+    #[test]
+    fn group_setting_changes_are_announced_in_the_room() {
+        use pierre_commands::parser::load_command_definitions;
+        use pierre_mcp_server::services::messaging_ingress::slash_reply_should_be_private;
+        use std::path::Path;
+
+        // Regression (reported live 2026-08-11): `/group respond mentions` in a
+        // Telegram group answered the caller privately, so the other members
+        // watched the coach go silent with no idea why. A group-wide setting
+        // change belongs in the room — for both the respond mode and the
+        // group's AI coach persona.
+        //
+        // The names are read from the real `commands/` catalog rather than
+        // written as literals: the value that reaches the visibility rule is
+        // the definition's `name:` id (`group-respond`), and a literal spelled
+        // as the spaced trigger (`"group respond"`) would match the allowlist
+        // in this test while matching nothing in production.
+        let commands_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .map(|root| root.join("commands"))
+            .expect("repo root resolves from CARGO_MANIFEST_DIR"); // Safe: fixed repo layout
+        let defs = load_command_definitions(&commands_dir);
+        assert!(
+            !defs.is_empty(),
+            "commands/ catalog must load — otherwise this test asserts nothing"
+        );
+
+        for trigger in ["/group respond", "/group coach"] {
+            let def = defs
+                .iter()
+                .find(|d| d.command == trigger)
+                .unwrap_or_else(|| panic!("no command definition for {trigger}"));
+            assert!(
+                !slash_reply_should_be_private(false, Some(&def.name)),
+                "{trigger} (definition name {:?}) must be announced in the room",
+                def.name
+            );
+        }
     }
 }

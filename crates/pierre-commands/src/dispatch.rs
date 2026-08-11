@@ -107,7 +107,9 @@ pub enum DispatchOutcome {
     },
     /// A registered command handler ran and produced a response.
     Executed {
-        /// The canonical command name (e.g. `"coach"`, `"group status"`).
+        /// The command definition's `name:` id (e.g. `"coach"`,
+        /// `"group-status"`) — the handler-registry key, NOT the spaced
+        /// `/group status` trigger the user typed.
         command_name: String,
         /// Handler output. May be a plain text reply or a card with actions.
         response: CommandResponse,

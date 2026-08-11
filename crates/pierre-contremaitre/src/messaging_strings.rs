@@ -495,6 +495,14 @@ pub const KEY_GROUP_CONSENT_USAGE: &str = "commands.group.consent_usage";
 /// Key: `/group consent` confirmation. `{0}` = on/off (peer-sharing localized),
 /// `{1}` = group name.
 pub const KEY_GROUP_CONSENT_UPDATED: &str = "commands.group.consent_updated";
+/// Key: `/group respond` usage hint when the argument is missing or invalid.
+pub const KEY_GROUP_RESPOND_USAGE: &str = "commands.group.respond_usage";
+/// Key: `/group respond mentions` confirmation — coach answers only when addressed.
+pub const KEY_GROUP_RESPOND_MENTIONS: &str = "commands.group.respond_mentions";
+/// Key: `/group respond all` confirmation — coach answers every message.
+pub const KEY_GROUP_RESPOND_ALL: &str = "commands.group.respond_all";
+/// Key: `/group status` line shown when the group is in mentions-only mode.
+pub const KEY_GROUP_RESPOND_STATUS_MENTIONS: &str = "commands.group.respond_status_mentions";
 
 // ── /coach command keys ───────────────────────────────────────────────────
 
@@ -745,6 +753,12 @@ pub(crate) const FR_GROUP_INVITE_UNAVAILABLE: &str =
 pub(crate) const FR_GROUP_LEAVE_PROMPT: &str =
     "Veux-tu vraiment quitter {0} ?\nTape « YES » pour confirmer.";
 pub(crate) const FR_GROUP_CONSENT_USAGE: &str = "Usage : /group consent yes  ou  /group consent no";
+pub(crate) const FR_GROUP_RESPOND_USAGE: &str =
+    "Usage : /group respond mentions  ou  /group respond all";
+pub(crate) const FR_GROUP_RESPOND_MENTIONS: &str = "Le coach ne répond plus que lorsqu'on l'interpelle (mentionne-le avec @ ou réponds à l'un de ses messages). Il continue de suivre la discussion pour garder le contexte.";
+pub(crate) const FR_GROUP_RESPOND_ALL: &str =
+    "Le coach répond de nouveau à tous les messages du groupe.";
+pub(crate) const FR_GROUP_RESPOND_STATUS_MENTIONS: &str = "Le coach ne répond que lorsqu'on l'interpelle. Pour revenir à tous les messages : /group respond all";
 pub(crate) const FR_GROUP_CONSENT_UPDATED: &str =
     "Le partage de tes données avec les autres membres de {1} est maintenant {0}.";
 
@@ -977,6 +991,13 @@ pub(crate) const EN_GROUP_INVITE_UNAVAILABLE: &str = "Group invites are not avai
 pub(crate) const EN_GROUP_LEAVE_PROMPT: &str =
     "Are you sure you want to leave {0}?\nType \"YES\" to confirm.";
 pub(crate) const EN_GROUP_CONSENT_USAGE: &str = "Usage: /group consent yes  or  /group consent no";
+pub(crate) const EN_GROUP_RESPOND_USAGE: &str =
+    "Usage: /group respond mentions  or  /group respond all";
+pub(crate) const EN_GROUP_RESPOND_MENTIONS: &str = "The coach now replies only when addressed (@-mention it or reply to one of its messages). It keeps following the discussion for context.";
+pub(crate) const EN_GROUP_RESPOND_ALL: &str =
+    "The coach now replies to every message in the group again.";
+pub(crate) const EN_GROUP_RESPOND_STATUS_MENTIONS: &str =
+    "The coach replies only when addressed. To go back to every message: /group respond all";
 pub(crate) const EN_GROUP_CONSENT_UPDATED: &str =
     "Sharing your data with the other members of {1} is now {0}.";
 
@@ -1185,6 +1206,12 @@ pub(crate) const ES_GROUP_INVITE_UNAVAILABLE: &str =
 pub(crate) const ES_GROUP_LEAVE_PROMPT: &str =
     "¿Seguro que quieres salir de {0}?\nEscribe «YES» para confirmar.";
 pub(crate) const ES_GROUP_CONSENT_USAGE: &str = "Uso: /group consent yes  o  /group consent no";
+pub(crate) const ES_GROUP_RESPOND_USAGE: &str =
+    "Uso: /group respond mentions  o  /group respond all";
+pub(crate) const ES_GROUP_RESPOND_MENTIONS: &str = "El entrenador ahora solo responde cuando se le menciona (menciónalo con @ o responde a uno de sus mensajes). Sigue leyendo la conversación para mantener el contexto.";
+pub(crate) const ES_GROUP_RESPOND_ALL: &str =
+    "El entrenador vuelve a responder a todos los mensajes del grupo.";
+pub(crate) const ES_GROUP_RESPOND_STATUS_MENTIONS: &str = "El entrenador solo responde cuando se le menciona. Para volver a todos los mensajes: /group respond all";
 pub(crate) const ES_GROUP_CONSENT_UPDATED: &str =
     "Compartir tus datos con los demás miembros de {1} está ahora {0}.";
 
@@ -1392,6 +1419,12 @@ pub(crate) const DE_GROUP_LEAVE_PROMPT: &str =
     "Willst du {0} wirklich verlassen?\nTippe „YES\", um zu bestätigen.";
 pub(crate) const DE_GROUP_CONSENT_USAGE: &str =
     "Verwendung: /group consent yes  oder  /group consent no";
+pub(crate) const DE_GROUP_RESPOND_USAGE: &str =
+    "Verwendung: /group respond mentions  oder  /group respond all";
+pub(crate) const DE_GROUP_RESPOND_MENTIONS: &str = "Der Coach antwortet jetzt nur noch, wenn er angesprochen wird (mit @ erwähnen oder auf eine seiner Nachrichten antworten). Er verfolgt das Gespräch weiterhin als Kontext.";
+pub(crate) const DE_GROUP_RESPOND_ALL: &str =
+    "Der Coach antwortet wieder auf jede Nachricht in der Gruppe.";
+pub(crate) const DE_GROUP_RESPOND_STATUS_MENTIONS: &str = "Der Coach antwortet nur, wenn er angesprochen wird. Zurück zu jeder Nachricht: /group respond all";
 pub(crate) const DE_GROUP_CONSENT_UPDATED: &str =
     "Das Teilen deiner Daten mit den anderen Mitgliedern von {1} ist jetzt {0}.";
 
@@ -1600,6 +1633,12 @@ pub(crate) const PT_GROUP_INVITE_UNAVAILABLE: &str = "Convites de grupo não est
 pub(crate) const PT_GROUP_LEAVE_PROMPT: &str =
     "Tens a certeza que queres sair de {0}?\nEscreve «YES» para confirmar.";
 pub(crate) const PT_GROUP_CONSENT_USAGE: &str = "Uso: /group consent yes  ou  /group consent no";
+pub(crate) const PT_GROUP_RESPOND_USAGE: &str =
+    "Uso: /group respond mentions  ou  /group respond all";
+pub(crate) const PT_GROUP_RESPOND_MENTIONS: &str = "O treinador agora só responde quando é chamado (mencione-o com @ ou responda a uma das suas mensagens). Continua a acompanhar a conversa para manter o contexto.";
+pub(crate) const PT_GROUP_RESPOND_ALL: &str =
+    "O treinador volta a responder a todas as mensagens do grupo.";
+pub(crate) const PT_GROUP_RESPOND_STATUS_MENTIONS: &str = "O treinador só responde quando é chamado. Para voltar a todas as mensagens: /group respond all";
 pub(crate) const PT_GROUP_CONSENT_UPDATED: &str =
     "Partilhar os teus dados com os outros membros de {1} está agora {0}.";
 
@@ -1767,6 +1806,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_UNAVAILABLE, "fr", FR_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "fr", FR_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "fr", FR_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_RESPOND_USAGE, "fr", FR_GROUP_RESPOND_USAGE),
+    (KEY_GROUP_RESPOND_MENTIONS, "fr", FR_GROUP_RESPOND_MENTIONS),
+    (KEY_GROUP_RESPOND_ALL, "fr", FR_GROUP_RESPOND_ALL),
+    (KEY_GROUP_RESPOND_STATUS_MENTIONS, "fr", FR_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_CONSENT_UPDATED, "fr", FR_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "fr", FR_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "fr", FR_COACH_LIST_CARD_TITLE),
@@ -1923,6 +1966,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_UNAVAILABLE, "en", EN_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "en", EN_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "en", EN_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_RESPOND_USAGE, "en", EN_GROUP_RESPOND_USAGE),
+    (KEY_GROUP_RESPOND_MENTIONS, "en", EN_GROUP_RESPOND_MENTIONS),
+    (KEY_GROUP_RESPOND_ALL, "en", EN_GROUP_RESPOND_ALL),
+    (KEY_GROUP_RESPOND_STATUS_MENTIONS, "en", EN_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_CONSENT_UPDATED, "en", EN_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "en", EN_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "en", EN_COACH_LIST_CARD_TITLE),
@@ -2078,6 +2125,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_UNAVAILABLE, "es", ES_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "es", ES_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "es", ES_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_RESPOND_USAGE, "es", ES_GROUP_RESPOND_USAGE),
+    (KEY_GROUP_RESPOND_MENTIONS, "es", ES_GROUP_RESPOND_MENTIONS),
+    (KEY_GROUP_RESPOND_ALL, "es", ES_GROUP_RESPOND_ALL),
+    (KEY_GROUP_RESPOND_STATUS_MENTIONS, "es", ES_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_CONSENT_UPDATED, "es", ES_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "es", ES_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "es", ES_COACH_LIST_CARD_TITLE),
@@ -2234,6 +2285,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_UNAVAILABLE, "de", DE_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "de", DE_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "de", DE_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_RESPOND_USAGE, "de", DE_GROUP_RESPOND_USAGE),
+    (KEY_GROUP_RESPOND_MENTIONS, "de", DE_GROUP_RESPOND_MENTIONS),
+    (KEY_GROUP_RESPOND_ALL, "de", DE_GROUP_RESPOND_ALL),
+    (KEY_GROUP_RESPOND_STATUS_MENTIONS, "de", DE_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_CONSENT_UPDATED, "de", DE_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "de", DE_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "de", DE_COACH_LIST_CARD_TITLE),
@@ -2390,6 +2445,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_UNAVAILABLE, "pt", PT_GROUP_INVITE_UNAVAILABLE),
     (KEY_GROUP_LEAVE_PROMPT, "pt", PT_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "pt", PT_GROUP_CONSENT_USAGE),
+    (KEY_GROUP_RESPOND_USAGE, "pt", PT_GROUP_RESPOND_USAGE),
+    (KEY_GROUP_RESPOND_MENTIONS, "pt", PT_GROUP_RESPOND_MENTIONS),
+    (KEY_GROUP_RESPOND_ALL, "pt", PT_GROUP_RESPOND_ALL),
+    (KEY_GROUP_RESPOND_STATUS_MENTIONS, "pt", PT_GROUP_RESPOND_STATUS_MENTIONS),
     (KEY_GROUP_CONSENT_UPDATED, "pt", PT_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "pt", PT_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "pt", PT_COACH_LIST_CARD_TITLE),

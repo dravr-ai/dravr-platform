@@ -18,7 +18,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY, KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM,
     KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM, KEY_GROUP_MEMBERS_UNKNOWN,
     KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF, KEY_GROUP_PEER_SHARING_ON,
-    KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
+    KEY_GROUP_RESPOND_ALL, KEY_GROUP_RESPOND_MENTIONS, KEY_GROUP_RESPOND_STATUS_MENTIONS,
+    KEY_GROUP_RESPOND_USAGE, KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER,
+    KEY_GROUP_STATUS_SUMMARY,
 };
 use pierre_core::models::coaches::ListCoachesFilter;
 #[cfg(feature = "tools-groups")]
@@ -248,9 +250,8 @@ impl CommandHandler for GroupStatusHandler {
             .await
         {
             if full.respond_mode == GroupRespondMode::Mentions {
-                text.push_str(
-                    "\nCoach replies only when mentioned (/group respond all to change).",
-                );
+                text.push('\n');
+                text.push_str(&reg.render(KEY_GROUP_RESPOND_STATUS_MENTIONS, locale, &[]));
             }
         }
 
@@ -487,8 +488,6 @@ pub struct GroupRespondHandler;
 #[async_trait]
 impl CommandHandler for GroupRespondHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        const USAGE: &str = "Usage: /group respond <mentions|all> — 'mentions' makes this group's coach reply only when @-mentioned (or replied to); 'all' restores replying to every message.";
-
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
 
@@ -500,7 +499,13 @@ impl CommandHandler for GroupRespondHandler {
         {
             Some("mentions" | "mention") => GroupRespondMode::Mentions,
             Some("all" | "everything") => GroupRespondMode::All,
-            _ => return Ok(CommandResponse::text(USAGE.to_owned())),
+            _ => {
+                return Ok(CommandResponse::text(reg.render(
+                    KEY_GROUP_RESPOND_USAGE,
+                    locale,
+                    &[],
+                )))
+            }
         };
 
         // Resolve the chat-bound group (mirrors /group coach).
@@ -546,16 +551,15 @@ impl CommandHandler for GroupRespondHandler {
             "Group respond mode updated via /group respond"
         );
 
-        let confirmation = match mode {
-            GroupRespondMode::Mentions => format!(
-                "{}'s coach now replies only when mentioned (@-mention it or reply to one of its messages).",
-                updated.name
-            ),
-            GroupRespondMode::All => {
-                format!("{}'s coach now replies to every message.", updated.name)
-            }
+        // Deliberately no group name in the body: this reply is posted into the
+        // shared room, and an auto-bound group carries the synthetic
+        // "{channel} group {chat_id}" label, which would put a raw chat id in
+        // front of every member.
+        let key = match mode {
+            GroupRespondMode::Mentions => KEY_GROUP_RESPOND_MENTIONS,
+            GroupRespondMode::All => KEY_GROUP_RESPOND_ALL,
         };
-        Ok(CommandResponse::text(confirmation))
+        Ok(CommandResponse::text(reg.render(key, locale, &[])))
     }
 }
 

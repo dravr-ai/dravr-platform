@@ -413,7 +413,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
     let Some(text) = content_body_text(&message.content) else {
         return false;
     };
-    let Some(response) = try_handle_slash_command(
+    let Some(reply) = try_handle_slash_command(
         resources,
         SlashCommandContext {
             channel,
@@ -433,7 +433,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         return false;
     };
 
-    if slash_reply_should_be_private(message.is_direct_message) {
+    if slash_reply_should_be_private(message.is_direct_message, reply.command_name.as_deref()) {
         // Shared room (any channel): deliver the answer privately to the caller
         // and remove the command echo so other members see neither. Both are
         // best-effort and channel-specific inside canot (DM / Slack ephemeral /
@@ -443,7 +443,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
             tenant_id,
             channel,
             adapter,
-            response,
+            reply.message,
             &message.sender_id,
         )
         .await;
@@ -459,8 +459,11 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
             .await;
         }
     } else {
-        // Already a 1:1 DM — the conversation is the private chat.
-        send_channel_response(db, tenant_id, channel, adapter, response).await;
+        // Either a 1:1 DM (the conversation IS the private chat) or a
+        // room-visible command whose reply the whole room should see — a
+        // group-wide setting change. The command echo stays in place in that
+        // case, so the room reads as "<member> ran it → here is the effect".
+        send_channel_response(db, tenant_id, channel, adapter, reply.message).await;
     }
     true
 }

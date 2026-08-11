@@ -36,19 +36,59 @@ fn is_connect_command(text: &str) -> bool {
         .is_some_and(|tok| tok.eq_ignore_ascii_case("/connect"))
 }
 
+/// Commands whose reply belongs to the **room**, not to the caller alone.
+///
+/// The default is private (see [`slash_reply_should_be_private`]) because a
+/// slash reply usually carries the caller's own account state. These two are
+/// different in kind: they change a setting every member then experiences, so
+/// announcing the change in the room is the point — a member who watches the
+/// coach fall silent after someone ran `/group respond mentions` privately has
+/// no way to know why. Membership/consent/invite commands stay private: they
+/// expose one person's data or a redeemable code.
+///
+/// Entries are the command-definition `name:` values (hyphenated ids like
+/// `group-respond`), which is what `DispatchOutcome::Executed.command_name`
+/// carries — canot's matcher returns `def.name`, not the spaced `/group
+/// respond` trigger. Spelling these with a space silently matches nothing and
+/// the reply keeps going private; `group_setting_changes_are_announced_in_the_room`
+/// pins the real names against the loaded `commands/` catalog.
+const ROOM_VISIBLE_COMMANDS: [&str; 2] = ["group-respond", "group-coach"];
+
 /// Whether a slash-command reply should be delivered privately to the caller
 /// rather than posted back into the room it arrived from.
 ///
-/// A slash command is a personal request/response interaction: the caller
-/// asks, the bot answers *them*. Any non-DM context is a shared room where the
-/// answer (and the caller's account state) would otherwise be visible to every
-/// other member, so the reply is delivered privately on **every** channel. The
-/// per-channel mechanism lives in canot's `send_private_reply` — a 1:1 DM for
-/// Telegram/`WhatsApp`/Messenger, an ephemeral message for Slack, an opened DM
-/// channel for Discord. A 1:1 DM is already private, so nothing to redirect.
+/// A slash command is normally a personal request/response interaction: the
+/// caller asks, the bot answers *them*. Any non-DM context is a shared room
+/// where the answer (and the caller's account state) would otherwise be visible
+/// to every other member, so the reply is delivered privately on **every**
+/// channel. The per-channel mechanism lives in canot's `send_private_reply` — a
+/// 1:1 DM for Telegram/`WhatsApp`/Messenger, an ephemeral message for Slack, an
+/// opened DM channel for Discord. A 1:1 DM is already private, so nothing to
+/// redirect.
+///
+/// `command_name` opts a group-wide *setting change* out of that redirection
+/// (see [`ROOM_VISIBLE_COMMANDS`]). `None` — the `/connect` card and the
+/// unknown-command reply — keeps the private default.
 #[must_use]
-pub const fn slash_reply_should_be_private(is_direct_message: bool) -> bool {
-    !is_direct_message
+pub fn slash_reply_should_be_private(is_direct_message: bool, command_name: Option<&str>) -> bool {
+    if is_direct_message {
+        return false;
+    }
+    !command_name.is_some_and(|name| ROOM_VISIBLE_COMMANDS.contains(&name))
+}
+
+/// A slash-command reply plus the identity of the command that produced it.
+///
+/// The command name is what decides room-vs-private delivery
+/// ([`slash_reply_should_be_private`]), so it has to survive the trip back to
+/// `persist_single_message` instead of being dropped at the dispatch boundary.
+pub(super) struct SlashReply {
+    /// The outbound message, already addressed to the originating room.
+    pub(super) message: OutgoingMessage,
+    /// Canonical command name when a registered handler ran; `None` for the
+    /// `/connect` card, the unknown-command body, and the error funnel — all of
+    /// which keep the private default.
+    pub(super) command_name: Option<String>,
 }
 
 /// Bundled inputs for [`try_handle_slash_command`]. Combines the channel
@@ -84,18 +124,18 @@ pub(super) struct SlashCommandContext<'a> {
 
 /// Resolve and execute slash commands against [`pierre_commands::dispatch`].
 ///
-/// Returns `Some(OutgoingMessage)` if the message was a recognized command,
+/// Returns `Some(SlashReply)` if the message was a recognized command,
 /// `None` if it should be passed through to the LLM pipeline.
 ///
 /// Delegates parsing + handler execution + analytics to
 /// [`pierre_commands::dispatch::try_dispatch`] — the single
 /// authority for every chat surface. This function's remaining job is
 /// messaging-specific: resolving auth/tenant/locale from the channel link
-/// and wrapping the outcome into an [`OutgoingMessage`] for the renderer.
+/// and wrapping the outcome into a [`SlashReply`] for the renderer.
 pub(super) async fn try_handle_slash_command(
     resources: &Arc<ServerContext>,
     ctx: SlashCommandContext<'_>,
-) -> Option<OutgoingMessage> {
+) -> Option<SlashReply> {
     let SlashCommandContext {
         channel,
         channel_type,
@@ -166,7 +206,10 @@ pub(super) async fn try_handle_slash_command(
         )
         .await
         {
-            return Some(card);
+            return Some(SlashReply {
+                message: card,
+                command_name: None,
+            });
         }
         let web_url = format!(
             "{}/providers",
@@ -182,13 +225,16 @@ pub(super) async fn try_handle_slash_command(
             &locale,
             &[&web_url],
         );
-        return Some(OutgoingMessage {
-            channel_type,
-            recipient_id: reply_target,
-            content: MessageContent::Text { body },
-            turn_id: CanotTurnId::new(),
-            reply_to: None,
-            thread_id,
+        return Some(SlashReply {
+            message: OutgoingMessage {
+                channel_type,
+                recipient_id: reply_target,
+                content: MessageContent::Text { body },
+                turn_id: CanotTurnId::new(),
+                reply_to: None,
+                thread_id,
+            },
+            command_name: None,
         });
     }
 
@@ -235,26 +281,32 @@ pub(super) async fn try_handle_slash_command(
                 &locale,
                 "command",
             );
-            return Some(OutgoingMessage {
-                channel_type,
-                recipient_id: reply_target,
-                content: MessageContent::Text { body },
-                turn_id: CanotTurnId::new(),
-                reply_to: None,
-                thread_id,
+            return Some(SlashReply {
+                message: OutgoingMessage {
+                    channel_type,
+                    recipient_id: reply_target,
+                    content: MessageContent::Text { body },
+                    turn_id: CanotTurnId::new(),
+                    reply_to: None,
+                    thread_id,
+                },
+                command_name: None,
             });
         }
     };
 
     match outcome {
         DispatchOutcome::NotACommand => None,
-        DispatchOutcome::UnknownCommand { body } => Some(OutgoingMessage {
-            channel_type,
-            recipient_id: reply_target,
-            content: MessageContent::Text { body },
-            turn_id: CanotTurnId::new(),
-            reply_to: None,
-            thread_id,
+        DispatchOutcome::UnknownCommand { body } => Some(SlashReply {
+            message: OutgoingMessage {
+                channel_type,
+                recipient_id: reply_target,
+                content: MessageContent::Text { body },
+                turn_id: CanotTurnId::new(),
+                reply_to: None,
+                thread_id,
+            },
+            command_name: None,
         }),
         DispatchOutcome::Executed {
             command_name,
@@ -290,13 +342,16 @@ pub(super) async fn try_handle_slash_command(
                     body: response.text,
                 }
             };
-            Some(OutgoingMessage {
-                channel_type,
-                recipient_id: reply_target,
-                content,
-                turn_id: CanotTurnId::new(),
-                reply_to: None,
-                thread_id,
+            Some(SlashReply {
+                message: OutgoingMessage {
+                    channel_type,
+                    recipient_id: reply_target,
+                    content,
+                    turn_id: CanotTurnId::new(),
+                    reply_to: None,
+                    thread_id,
+                },
+                command_name: Some(command_name),
             })
         }
     }
