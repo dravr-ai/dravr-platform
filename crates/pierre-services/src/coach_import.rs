@@ -173,8 +173,8 @@ pub fn validate_url_security(url: &str) -> AppResult<()> {
 /// they short-circuit here.
 ///
 /// Note: this is resolve-then-connect, so a DNS-rebinding record that flips between the
-/// pre-flight lookup and reqwest's own connect-time lookup is a known residual; pinning
-/// the connection to the vetted IP (custom resolver) is the follow-up hardening.
+/// pre-flight lookup and reqwest's own connect-time lookup is a known residual.
+/// LIMITATION(registre#5): pinning the connection to the vetted IP (custom resolver) closes it.
 ///
 /// # Errors
 ///

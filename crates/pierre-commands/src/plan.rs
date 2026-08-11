@@ -32,15 +32,18 @@ const PLAN_WEEK_LIMIT: usize = 2;
 ///
 /// The cross-channel floor: Discord and Messenger both cap text at 2000
 /// characters, against Telegram/WhatsApp's 4096 and Slack's 40000 (canot's
-/// `ChannelDescriptor::max_message_length`). No chunking infrastructure exists
-/// anywhere in the send path, so a reply over the channel's limit is dropped by
-/// the platform rather than split — truncating at the floor is what makes
-/// `/plan` safe on all five channels.
+/// `ChannelDescriptor::max_message_length`).
 ///
-/// Deliberately the floor and not the per-channel value: the descriptor lookup
-/// is feature-gated per channel and the resolved limit belongs to the transport,
-/// not to this handler. Threading it through `PlatformCommandContext` is the
-/// follow-up that lets Telegram and Slack use their real headroom.
+/// LIMITATION(registre#2): no chunking infrastructure exists anywhere in the send
+/// path, so a reply over the channel's limit is dropped by the platform rather
+/// than split — truncating at the floor is what makes `/plan` safe on all five
+/// channels.
+///
+/// LIMITATION(registre#1): `ChannelDescriptor::max_message_length` is not threaded through
+/// `PlatformCommandContext`, so this is deliberately the floor and not the
+/// per-channel value — the descriptor lookup is feature-gated per channel and
+/// the resolved limit belongs to the transport, not to this handler. Threading
+/// it through lets Telegram and Slack use their real headroom.
 const PLAN_TEXT_BUDGET: usize = 2_000;
 
 /// What the athlete asked to see.

@@ -12,6 +12,16 @@
 //! messaging library. All types, traits, and channel adapters live in dravr-canot;
 //! this crate exists solely for workspace path compatibility.
 
+// Phantom-surface register for the canot capability API (the CI check
+// "Phantom Capability Surface Detection" keys on these marker lines; each
+// names its unconsumed item so the marker and the check stay in lockstep):
+// LIMITATION(registre#3): `ResponseRenderer::supports_media` has no production caller.
+// LIMITATION(registre#3): `MessageContent::Media` is never constructed in production.
+// LIMITATION(registre#3): `MessageContent::Location` is never constructed in production.
+// The media capability surface is library-complete with per-channel impls but
+// has never carried real traffic; wire real consumers when media publishing
+// ships, then delete the exhausted markers above.
+
 // Re-export all root-level items (traits, types)
 pub use dravr_canot::*;
 

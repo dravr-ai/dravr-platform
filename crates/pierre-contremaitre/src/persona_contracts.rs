@@ -183,8 +183,9 @@ pub struct PersonaContract {
     #[serde(default)]
     pub require_tenant_isolation: bool,
 
-    /// Notification cadence policy. Carried through the registry but
-    /// not yet wired into canot's push tier metadata.
+    /// Notification cadence policy.
+    /// LIMITATION(registre#7): carried through the registry but nothing consumes it —
+    /// canot's push tier metadata never receives it.
     #[serde(default)]
     pub notification: NotificationPolicy,
 

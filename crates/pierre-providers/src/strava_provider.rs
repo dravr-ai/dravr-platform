@@ -567,8 +567,8 @@ impl StravaProvider {
         let splits = Self::convert_strava_splits(detailed.splits_metric.as_deref());
         let laps = Self::convert_strava_laps(detailed.laps.as_deref());
 
-        // Time-series data requires a separate call to
-        // `/activities/{id}/streams` and is not yet wired. Kudos, comment,
+        // LIMITATION(registre#6): time-series data requires a separate call to
+        // `/activities/{id}/streams` that no code path performs. Kudos, comment,
         // athlete, photo, and achievement counts are surfaced only to the
         // Strava UI — not to coach reasoning — so we drop them rather than
         // growing cageux's [`Activity`] for purely social data.

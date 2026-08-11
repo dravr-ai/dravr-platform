@@ -753,41 +753,100 @@ else
 fi
 
 # ============================================================================
-# FUNCTIONAL STUB / CONFESSION COMMENT DETECTION
+# LIMITATION REGISTER GATES (shared — .build/validation/limitation-gates.sh)
 # ============================================================================
-# A stub that compiles (returns empty/default/fabricated data) is invisible to
-# clippy and to keyword-only greps, but it almost always confesses itself in a
-# comment. These phrasings are admissions of an unfinished implementation, not
-# descriptions, so they are flagged even inside comments — unlike the .build
-# placeholder check, which excludes comment lines and for exactly that reason
-# missed the entire 2026-07 stub audit (in-memory OAuth store, fabricated JWT
-# expiry, "return empty stats for now", broadcast webhook, etc.). A genuine,
-# documented limitation must be worded factually ("Terra exposes no
-# personal-records endpoint"), never "for now". See .claude/CLAUDE.md
-# "implementing a new function, handler, trait method, ...".
+# Deferral/confession prose ban, LIMITATION(registre#n) marker format, and the
+# feature-phases.yaml dark-launch ledger format are enforced by the shared
+# gates in dravr-build-config, so every dravr-* repo polices the same register
+# (see that script for the full policy and history). Platform passes its wider
+# scan scope (frontend + packages TS included) and requires the ledger file to
+# exist. Hard-required: a missing submodule fails, never skips — CI checks out
+# with submodules for exactly this reason.
 
 echo ""
-echo -e "${BLUE}==== Functional Stub / Confession Comment Detection ====${NC}"
-
-CONFESSION_PATTERNS='not yet implemented|in a real implementation|would be [a-z. ]*in production|would be database-backed|implement(ed)? later|for now, (return|store|trigger|set a default|we.?ll skip)|return empty[a-z. ]*for now'
-CONFESSION_HITS=$(rg -i "$CONFESSION_PATTERNS" \
-    crates frontend/src frontend-mobile/src packages \
-    -g '*.rs' -g '*.ts' -g '*.tsx' \
-    -g '!*/tests/*' -g '!*/benches/*' -g '!*/examples/*' \
-    -g '!*_test.rs' -g '!*.test.ts' -g '!*.test.tsx' -g '!*.spec.ts' -g '!*.spec.tsx' \
-    -g '!*/target/*' -g '!*/node_modules/*' -g '!*/dist/*' \
-    -n 2>/dev/null || true)
-CONFESSION_COUNT=$(printf '%s' "$CONFESSION_HITS" | grep -c . 2>/dev/null || true)
-
-if [ "${CONFESSION_COUNT:-0}" -gt 0 ]; then
-    echo -e "${RED}❌ FUNCTIONAL STUB: $CONFESSION_COUNT confession comment(s) admitting an unfinished implementation${NC}"
-    echo -e "${RED}Implement the real behavior, or word a genuine limitation factually (not \"for now\").${NC}"
-    echo ""
-    echo "Violations:"
-    printf '%s\n' "$CONFESSION_HITS" | head -20
-    fail_validation "Functional stub / confession comment detected - implement the real thing or STOP (see CLAUDE.md)"
+if [ -x ".build/validation/limitation-gates.sh" ]; then
+    if LIMITATION_GATES_LEDGER=require .build/validation/limitation-gates.sh \
+        crates frontend/src frontend-mobile/src packages; then
+        pass_validation "Limitation register gates passed"
+    else
+        fail_validation "Limitation register gates failed (see above)"
+    fi
 else
-    pass_validation "No functional-stub confession comments found"
+    fail_validation ".build/validation/limitation-gates.sh missing — run: git submodule update --init --recursive"
+fi
+
+# ============================================================================
+# PHANTOM CAPABILITY SURFACE DETECTION (canot messaging API)
+# ============================================================================
+# "Consume what you declare" — the dual of the phantom-dependency rule. The
+# canot capability surface (ResponseRenderer/ChannelDescriptor `supports_*` /
+# `max_*` predicates, MessageContent variants) is library-complete; this check
+# polices the platform actually CONSUMING it. A predicate with no production
+# call site, or a variant never constructed outside tests, is a phantom
+# surface: portability silently degrades to hardcoded floors (the /plan
+# 2000-char case, registre#1). Each phantom must either gain a production
+# consumer or be registered with a LIMITATION(registre#issue) marker line
+# NAMING it.
+# Checkout resolution mirrors check-contremaitre-sync.sh: cargo metadata,
+# warn-skip when unresolvable (fresh clone before the first fetch).
+
+echo ""
+echo -e "${BLUE}==== Phantom Capability Surface Detection ====${NC}"
+
+# --offline: resolves from the local cargo cache (present on any dev machine
+# that has built the workspace); on a cache-less CI runner it fails fast and
+# the check warn-skips instead of fetching the whole dep graph.
+CANOT_MANIFEST="$(cargo metadata --format-version 1 --offline 2>/dev/null \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((p["manifest_path"] for p in d["packages"] if p["name"]=="dravr-canot"), ""))' 2>/dev/null || true)"
+
+if [ -z "$CANOT_MANIFEST" ] || [ ! -f "$CANOT_MANIFEST" ]; then
+    warn_validation "dravr-canot checkout unresolvable — phantom-capability check skipped"
+else
+    CANOT_SRC="$(dirname "$CANOT_MANIFEST")/src"
+    PHANTOM_ITEMS=""
+
+    # Capability predicates declared on the renderer/descriptor traits.
+    CAPABILITY_FNS=$(rg -o 'fn (supports_[a-z_]+|max_[a-z_]+)' \
+        "$CANOT_SRC/renderer.rs" "$CANOT_SRC/descriptor.rs" -I -N 2>/dev/null \
+        | sed 's/^fn //' | sort -u || true)
+    for fn_name in $CAPABILITY_FNS; do
+        CALL_SITES=$(rg "\.${fn_name}\(" crates/*/src -g '*.rs' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$CALL_SITES" -eq 0 ]; then
+            MARKED=$(rg "LIMITATION\(registre#[0-9]+\):.*${fn_name}" crates/*/src -g '*.rs' 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$MARKED" -eq 0 ]; then
+                PHANTOM_ITEMS="$PHANTOM_ITEMS $fn_name"
+            fi
+        fi
+    done
+
+    # MessageContent variants: constructed in production, or registered.
+    MC_FILE=$(rg -l 'pub enum MessageContent' "$CANOT_SRC" 2>/dev/null | head -1)
+    if [ -n "$MC_FILE" ]; then
+        MC_VARIANTS=$(awk '/pub enum MessageContent/{f=1} f{print} f&&/^}/{exit}' "$MC_FILE" \
+            | rg -o '^    [A-Z][A-Za-z]+' | tr -d ' ' || true)
+        for variant in $MC_VARIANTS; do
+            # Heuristic: a match arm carries `=>` and a comment starts with //;
+            # any other reference to the variant counts as a construction site.
+            # Errs lenient (a multi-line match arm's first line passes), never
+            # red on legitimate code.
+            BUILD_SITES=$(rg "MessageContent::${variant}" crates/*/src -g '*.rs' --no-filename 2>/dev/null \
+                | grep -v '=>' | grep -v '^[[:space:]]*//' | wc -l | tr -d ' ')
+            if [ "$BUILD_SITES" -eq 0 ]; then
+                MARKED=$(rg "LIMITATION\(registre#[0-9]+\):.*MessageContent::${variant}" crates/*/src -g '*.rs' 2>/dev/null | wc -l | tr -d ' ')
+                if [ "$MARKED" -eq 0 ]; then
+                    PHANTOM_ITEMS="$PHANTOM_ITEMS MessageContent::$variant"
+                fi
+            fi
+        done
+    fi
+
+    if [ -n "$PHANTOM_ITEMS" ]; then
+        echo -e "${RED}❌ Phantom capability surface — declared but never consumed in production:${NC}"
+        for item in $PHANTOM_ITEMS; do echo "  - $item"; done
+        fail_validation "Wire a production consumer or add a LIMITATION(registre#issue) marker line naming each item (see CLAUDE.md 'Consume what you declare')"
+    else
+        pass_validation "Every declared capability is consumed or registered"
+    fi
 fi
 
 # ============================================================================

@@ -191,7 +191,7 @@ impl MasterEncryptionKey {
 /// KEK provider backed by the env-supplied [`MasterEncryptionKey`].
 ///
 /// This is the default provider for development, CI, tests, and any deployment
-/// not yet wired to a managed KMS. Behavior is identical to the historical
+/// not configured with a managed KMS. Behavior is identical to the historical
 /// MEK-wraps-DEK scheme.
 pub struct LocalKekProvider {
     mek: MasterEncryptionKey,

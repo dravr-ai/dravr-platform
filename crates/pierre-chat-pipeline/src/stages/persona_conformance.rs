@@ -28,9 +28,11 @@
 //!
 //! Per-persona `strict_mode` defaults to `false` — violations log and the
 //! reply ships unchanged. Once a rule has stabilised in shadow mode for a
-//! persona we can flip `strict_mode: true` in contremaitre, which (in a
-//! follow-up commit) will trigger a re-prompt-with-fix-delta loop. Today
-//! `strict_mode: true` is just a louder log level.
+//! persona we can flip `strict_mode: true` in contremaitre.
+//!
+//! LIMITATION(registre#4): `strict_mode: true` is just a louder log level (`error!`
+//! instead of `warn!`); the re-prompt-with-fix-delta recovery it is meant to
+//! trigger is unbuilt, so no persona has it flipped.
 
 use std::sync::Arc;
 

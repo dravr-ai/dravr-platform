@@ -1,0 +1,31 @@
+# ABOUTME: Dark-launch register — every feature shipped disarmed (flag off, shadow mode, Log-only phase)
+# ABOUTME: Fixed-shape file parsed by grep/awk in architectural-validation.sh and feature-phase-review.yml
+#
+# Format (fixed indentation, one line per key — the parsers depend on it):
+#   - name: kebab-case-feature-name
+#     surface: path/to/the/flag/or/mode.rs
+#     current: what ships today (the disarmed state)
+#     advance_when: the criterion that arms the next phase
+#     review_by: YYYY-MM-DD
+#
+# The weekly "Monitor: Feature Phase Review" workflow opens a GitHub issue for
+# any entry whose review_by has passed. Advancing a phase or re-dating the
+# review both happen by editing this file. Keep values free of ": " and " #"
+# so the unquoted scalars stay parseable.
+
+features:
+  - name: guardian-tainted-destructive-confirm
+    surface: crates/pierre-tool-runtime/src/guardian/policy.rs
+    current: tainted_destructive defaults to Log (Phase 1 base-rate measurement) — Confirm and Deny exist but are unarmed
+    advance_when: base rate of tainted-destructive sequences is measured and a Confirm UX exists for messaging channels
+    review_by: 2026-09-30
+  - name: guardian-plan-then-verify
+    surface: crates/pierre-tool-runtime/src/guardian/policy.rs
+    current: plan_mode defaults to Off — production messaging always runs the ReAct loop; the verified-plan path is built but unarmed
+    advance_when: plan-mode telemetry from staged API/CLI runs shows task-completion parity with ReAct
+    review_by: 2026-10-31
+  - name: persona-conformance-strict-mode
+    surface: crates/pierre-chat-pipeline/src/stages/persona_conformance.rs
+    current: all personas run shadow mode (strict_mode false) — violations are warn logs and replies ship unchanged
+    advance_when: a persona's rules are stable in shadow logs and the re-prompt-with-fix-delta recovery (registre 4) is built
+    review_by: 2026-09-30
