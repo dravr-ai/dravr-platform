@@ -44,6 +44,7 @@ HAS_MOBILE_CHANGES=false
 HAS_INFRA_CHANGES=false
 HAS_INFRA_MODULE_CHANGES=false
 HAS_MCP_TYPES_CHANGES=false
+HAS_API_CLIENT_CHANGES=false
 
 # Track which crates have changes (folder name under crates/)
 declare -A CHANGED_CRATES
@@ -67,6 +68,7 @@ while IFS= read -r file; do
             ;;
         frontend/*) HAS_FRONTEND_CHANGES=true ;;
         packages/mcp-types/*) HAS_MCP_TYPES_CHANGES=true ;;
+        packages/api-client/*) HAS_API_CLIENT_CHANGES=true ;;
         sdk/*) HAS_SDK_CHANGES=true ;;
         frontend-mobile/*) HAS_MOBILE_CHANGES=true ;;
         infra/modules/*) HAS_INFRA_CHANGES=true; HAS_INFRA_MODULE_CHANGES=true ;;
@@ -85,6 +87,7 @@ echo "   Cargo config: $HAS_CARGO_CHANGES"
 echo "   Frontend: $HAS_FRONTEND_CHANGES"
 echo "   SDK: $HAS_SDK_CHANGES"
 echo "   MCP types: $HAS_MCP_TYPES_CHANGES"
+echo "   API client: $HAS_API_CLIENT_CHANGES"
 echo "   Mobile: $HAS_MOBILE_CHANGES"
 echo "   Infra: $HAS_INFRA_CHANGES"
 if [[ ${#CHANGED_CRATES[@]} -gt 0 ]]; then
@@ -167,6 +170,29 @@ if { [[ "$HAS_RUST_CHANGES" == "true" ]] || [[ "$HAS_MCP_TYPES_CHANGES" == "true
     if ! "$PROJECT_ROOT/scripts/ci/check-contremaitre-sync.sh"; then
         echo ""
         echo "FAIL: Contremaitre coupling check failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
+# TIER 1c: Phantom Surface Detection (compile-free)
+# ============================================================================
+# The dual rule says a capability nothing implements or calls is a phantom
+# surface. Nothing breaks when a phantom is wrong — no test covers a branch
+# that never executes — so these are invisible to every regression gate and
+# surface only in a manual cold read months later (QuotaGate, UsageRecorder,
+# authApi.refreshToken). Gates the diff: a NEW unimplemented trait or uncalled
+# api-client method fails here, while the author still has the context to wire
+# a consumer. The standing stock is reported, not blessed — clearing it is a
+# per-surface deletion decision tracked in dravr-registre.
+if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_API_CLIENT_CHANGES" == "true" ]]; } \
+    && [[ -x "$PROJECT_ROOT/scripts/ci/check-phantom-surfaces.sh" ]]; then
+    echo "Tier 1c: Phantom Surface Detection"
+    echo "------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-phantom-surfaces.sh" "$BASE_REF"; then
+        echo ""
+        echo "FAIL: Phantom surface check failed!"
         exit 1
     fi
     echo ""
