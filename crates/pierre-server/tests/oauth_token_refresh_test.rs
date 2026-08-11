@@ -158,6 +158,7 @@ use pierre_config::environment::{
     PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig,
     ServerConfig, SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
+use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -1304,31 +1305,15 @@ async fn test_oauth_provider_init_failure() {
         progress_reporter: None,
     };
 
-    // Execute - should handle provider initialization failure gracefully
-    let response = executor.execute_tool(request).await.unwrap();
-
-    // Should fail with proper error message about missing OAuth credentials
-    println!("Response: {:?}", response);
-    println!("Success: {}", response.success);
-    if let Some(ref err) = response.error {
-        println!("Error: {}", err);
-    }
+    // Execute — a token-less provider short-circuits as the typed
+    // auth-required error (the reconnect re-challenge path), never an
+    // in-band error payload the LLM would have to rephrase.
+    let err = executor
+        .execute_tool(request)
+        .await
+        .expect_err("get_activities without an OAuth token must short-circuit as auth-required");
     assert!(
-        !response.success,
-        "Tool execution should fail when no OAuth token"
-    );
-    assert!(
-        response.error.is_some(),
-        "Should have error message about missing OAuth token"
-    );
-
-    // Check that the error contains information about missing OAuth token
-    let error_msg = response.error.unwrap();
-    assert!(
-        (error_msg.contains("No") && error_msg.contains("token"))
-            || error_msg.contains("Connect your")
-            || error_msg.contains("Please connect your"),
-        "Error should contain OAuth connection message: {}",
-        error_msg
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        "unexpected error shape: {err:?}"
     );
 }

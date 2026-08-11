@@ -14,6 +14,7 @@
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::*;
+use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::{Tenant, User, UserOAuthToken};
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
@@ -295,24 +296,16 @@ async fn test_oauth_configuration_errors() -> Result<()> {
         progress_reporter: None,
     };
 
-    let response = executor.execute_tool(request).await?;
-    // Should fail with proper error about missing OAuth credentials
+    // A token-less provider short-circuits as the typed auth-required error —
+    // the chat pipeline turns this into a localized reconnect link, instead of
+    // an in-band error payload the LLM would have to rephrase.
+    let err = executor
+        .execute_tool(request)
+        .await
+        .expect_err("get_activities without OAuth credentials must short-circuit as auth-required");
     assert!(
-        !response.success,
-        "Tool execution should fail without OAuth credentials"
-    );
-    assert!(
-        response.error.is_some(),
-        "Should have error about missing OAuth credentials"
-    );
-
-    // Check that the error contains information about missing OAuth token
-    let error = response.error.unwrap();
-    assert!(
-        (error.contains("No") && error.contains("token"))
-            || error.contains("Connect your")
-            || error.contains("Please connect your"),
-        "Error should contain OAuth connection message: {error}"
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        "unexpected error shape: {err:?}"
     );
 
     Ok(())
@@ -363,18 +356,19 @@ async fn test_invalid_provider_tokens() -> Result<()> {
         progress_reporter: None,
     };
 
-    let response = executor.execute_tool(request).await?;
-    // Should either succeed after refresh attempt or fail with OAuth error
-    if response.success {
-        // If successful, continue with any additional checks
-    } else {
-        assert!(response.error.is_some());
-        let error = response.error.unwrap();
-        assert!(
-            error.contains("OAuth")
-                || error.contains("token")
-                || error.contains("Failed to get activities")
-        );
+    // An expired token whose refresh cannot succeed short-circuits as the
+    // typed auth-required error (the reconnect re-challenge path). A refresh
+    // that somehow succeeds is also acceptable — the athlete keeps their data.
+    match executor.execute_tool(request).await {
+        Ok(response) => assert!(
+            response.success,
+            "an in-band failure must not survive: auth failures are typed now, got {:?}",
+            response.error
+        ),
+        Err(err) => assert!(
+            matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+            "unexpected error shape: {err:?}"
+        ),
     }
 
     Ok(())
@@ -475,20 +469,25 @@ async fn test_invalid_tool_parameters() -> Result<()> {
         progress_reporter: None,
     };
 
-    let response = executor.execute_tool(request).await?;
-    // Should handle invalid parameters gracefully
-    if response.success {
-        // If successful, continue with any additional checks
-    } else {
-        assert!(response.error.is_some());
-        let error = response.error.unwrap();
-        println!("Error from get_activities with invalid limit: {error}");
-        assert!(
-            error.contains("Invalid parameters")
-                || error.contains("limit")
-                || error.contains("not_a_number")
-                || error.contains("No") && error.contains("token")
-        );
+    // The auth gate runs before parameter validation for provider-backed
+    // tools, and this user holds no strava token — so the invalid limit is
+    // never reached and the typed auth-required short-circuit fires. An
+    // in-band parameter rejection is also acceptable should ordering change.
+    match executor.execute_tool(request).await {
+        Ok(response) => {
+            assert!(!response.success, "an invalid limit must not succeed");
+            let error = response.error.unwrap_or_default();
+            println!("Error from get_activities with invalid limit: {error}");
+            assert!(
+                error.contains("Invalid parameters")
+                    || error.contains("limit")
+                    || error.contains("not_a_number")
+            );
+        }
+        Err(err) => assert!(
+            matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+            "unexpected error shape: {err:?}"
+        ),
     }
 
     // Test set_goal with invalid goal data

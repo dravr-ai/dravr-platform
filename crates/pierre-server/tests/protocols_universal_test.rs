@@ -15,6 +15,7 @@ use anyhow::Result;
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{self, *};
+use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::{Tenant, User};
 use pierre_intelligence::insights::{Insight, InsightType};
 use pierre_intelligence::{
@@ -423,16 +424,16 @@ async fn test_connect_strava_tool() -> Result<()> {
         progress_reporter: None,
     };
 
-    let response = executor.execute_tool(request).await?;
-    // Should fail without OAuth token for Strava
-    assert!(!response.success, "Expected failure without OAuth token");
-    assert!(response.error.is_some());
-
-    // Error should mention missing token or authentication
-    let error = response.error.unwrap();
+    // A token-less provider short-circuits as the typed auth-required error —
+    // the chat pipeline turns this into a localized reconnect link, instead of
+    // an in-band error payload the LLM would have to rephrase.
+    let err = executor
+        .execute_tool(request)
+        .await
+        .expect_err("get_activities without an OAuth token must short-circuit as auth-required");
     assert!(
-        (error.contains("No") && error.contains("token")) || error.contains("Connect"),
-        "Unexpected error message: {error}"
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        "unexpected error shape: {err:?}"
     );
 
     Ok(())
@@ -1528,14 +1529,16 @@ async fn test_get_activities_async_no_token() -> Result<()> {
         progress_reporter: None,
     };
 
-    let response = executor.execute_tool(request).await?;
-    // Should fail without OAuth token
-    assert!(!response.success);
-    assert!(response.error.is_some());
-
-    // Error should mention missing token
-    let error = response.error.unwrap();
-    assert!(error.contains("No") && error.contains("token") || error.contains("Connect"));
+    // A token-less provider short-circuits as the typed auth-required error
+    // (the reconnect re-challenge path), not an in-band error payload.
+    let err = executor
+        .execute_tool(request)
+        .await
+        .expect_err("get_activities without an OAuth token must short-circuit as auth-required");
+    assert!(
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        "unexpected error shape: {err:?}"
+    );
 
     Ok(())
 }
