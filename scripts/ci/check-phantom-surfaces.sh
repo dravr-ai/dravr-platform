@@ -122,16 +122,22 @@ else
         echo -e "${RED}❌ Parsed zero api-client methods or zero production files — this scan is stale.${NC}"
         FAILED=true
     else
-        # One pass: every method name that appears as a whole word anywhere in
-        # production sources. Matching the bare identifier (not `.name(`) keeps
-        # by-reference uses — `queryFn: api.user.getProfile` — out of the
-        # report. That costs sensitivity for names that collide with local
-        # variables, and buys a report with no false positives.
+        # One pass: every method reached by member access anywhere in production
+        # sources. Matching `.name` rather than the bare identifier keeps
+        # by-reference uses in — `queryFn: api.user.getProfile` still carries the
+        # dot — while not counting an unrelated local variable of the same name
+        # as a caller. `authApi.refreshToken` is exactly that case: the bare
+        # identifier appears all over the auth code as a local, so an
+        # identifier-level scan called it used when nothing calls it.
+        # The trailing (non-word|end-of-line) group stops `.getVersion` from
+        # matching `.getVersionDiff`.
+        sed -E 's/^/\\./; s/$/([^a-zA-Z0-9_]|$)/' "$TMP/methods.txt" > "$TMP/patterns.txt"
         # NUL-delimited xargs from stdin: `xargs -a` is GNU-only and BSD xargs
         # rejects it, which silently produced an empty match set on macOS and
         # reported every method as an orphan.
         tr '\n' '\0' < "$TMP/prod_files.txt" \
-            | xargs -0 grep -ohwFf "$TMP/methods.txt" 2>/dev/null \
+            | xargs -0 grep -ohEf "$TMP/patterns.txt" 2>/dev/null \
+            | sed -E 's/^\.//; s/[^a-zA-Z0-9_]$//' \
             | sort -u > "$TMP/used.txt"
         comm -23 "$TMP/methods.txt" "$TMP/used.txt" > "$TMP/orphan_methods.txt"
 
