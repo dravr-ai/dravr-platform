@@ -29,3 +29,8 @@ features:
     current: all personas run shadow mode (strict_mode false) — violations are warn logs and replies ship unchanged
     advance_when: a persona's rules are stable in shadow logs and the re-prompt-with-fix-delta recovery (registre 4) is built
     review_by: 2026-09-30
+  - name: firing-path-proof
+    surface: .github/workflows/feature-phase-review.yml
+    current: temporary entry with a past review date, proving the review workflow actually opens an issue
+    advance_when: the proof issue exists in carnet and this entry is removed in the same session
+    review_by: 2026-08-01
