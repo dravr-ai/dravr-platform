@@ -1,5 +1,5 @@
-# ABOUTME: Weekly caller of the shared feature-phase-review workflow — opens a private
-# ABOUTME: llm-registre issue for any feature-phases.yaml entry past its review date
+# ABOUTME: Weekly caller of the llm-registre phase-review workflow — opens a private
+# ABOUTME: carnet issue for any feature-phases.yaml entry past its review date
 name: "Monitor: Feature Phase Review"
 
 on:
@@ -12,9 +12,10 @@ permissions:
 
 jobs:
   review:
-    uses: dravr-ai/dravr-build-config/.github/workflows/feature-phase-review-reusable.yml@main
+    uses: dravr-ai/llm-registre/.github/workflows/feature-phase-review-reusable.yml@main
     with:
+      tracker: dravr-ai/carnet
       repo_label: dravr-platform
       title_prefix: platform
     secrets:
-      registre_token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+      tracker_token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}

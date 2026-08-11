@@ -753,26 +753,27 @@ else
 fi
 
 # ============================================================================
-# LIMITATION REGISTER GATES (shared — .build/validation/limitation-gates.sh)
+# LIMITATION REGISTER GATES (llm-registre, vendored through .build)
 # ============================================================================
 # Deferral/confession prose ban, LIMITATION(registre#n) marker format, and the
-# feature-phases.yaml dark-launch ledger format are enforced by the shared
-# gates in dravr-build-config, so every dravr-* repo polices the same register
-# (see that script for the full policy and history). Platform passes its wider
-# scan scope (frontend + packages TS included) and requires the ledger file to
-# exist. Hard-required: a missing submodule fails, never skips — CI checks out
-# with submodules for exactly this reason.
+# feature-phases.yaml dark-launch ledger format come from the Apache-2.0 tool
+# at github.com/dravr-ai/llm-registre, vendored as a submodule of
+# dravr-build-config so every consumer gets the same gates. registre.toml at
+# the repo root points it at the private tracker and requires the ledger;
+# platform passes a wider scan scope than the default (frontend + packages TS).
+# Hard-required: a missing submodule fails, never skips — CI checks out
+# recursively for exactly this reason.
 
 echo ""
-if [ -x ".build/validation/limitation-gates.sh" ]; then
-    if LIMITATION_GATES_LEDGER=require .build/validation/limitation-gates.sh \
-        crates frontend/src frontend-mobile/src packages; then
+LIMITATION_GATES=".build/vendor/llm-registre/limitation-gates.sh"
+if [ -x "$LIMITATION_GATES" ]; then
+    if "$LIMITATION_GATES" crates frontend/src frontend-mobile/src packages; then
         pass_validation "Limitation register gates passed"
     else
         fail_validation "Limitation register gates failed (see above)"
     fi
 else
-    fail_validation ".build/validation/limitation-gates.sh missing — run: git submodule update --init --recursive"
+    fail_validation "$LIMITATION_GATES missing — run: git submodule update --init --recursive"
 fi
 
 # ============================================================================
