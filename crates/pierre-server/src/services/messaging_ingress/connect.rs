@@ -19,7 +19,9 @@
 //! tokenized link in a direct message (never a shared group), and the caller
 //! falls back to the plain web link for group contexts.
 
-use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
+use pierre_core::models::messaging::{CardAction, ChannelType, OutgoingMessage};
+
+use super::card_or_rich_text;
 use pierre_core::models::TenantId;
 use pierre_database::backends::TenantRepository;
 use pierre_database::repositories::shorten_url;
@@ -113,8 +115,10 @@ async fn mint_connect_url(
 /// fails (the caller falls back to the plain web link).
 ///
 /// `body` is the localized prompt; the URL rides a `url` [`CardAction`], which
-/// renders as a native button on Telegram/Slack/Discord/Messenger and degrades
-/// to a tappable link on `WhatsApp`.
+/// renders as a native button on Telegram/Slack/Discord/Messenger. On
+/// `WhatsApp` (no native cards — [`super::card_or_rich_text`] consults the
+/// channel renderer's `supports_cards`) the reply is shaped at build time as
+/// rich text with the link as an autolinked `label: url` line.
 #[allow(clippy::too_many_arguments)]
 pub async fn build_connect_card_direct(
     resources: &ServerContext,
@@ -149,15 +153,16 @@ pub async fn build_connect_card_direct(
     Some(OutgoingMessage {
         channel_type,
         recipient_id: recipient_id.to_owned(),
-        content: MessageContent::Card {
+        content: card_or_rich_text(
+            channel_type,
             title,
             body,
-            actions: vec![CardAction {
+            vec![CardAction {
                 label: button_label,
                 action_type: "url".to_owned(),
                 value: connect_url,
             }],
-        },
+        ),
         turn_id: CanotTurnId::new(),
         reply_to: None,
         thread_id,

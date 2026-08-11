@@ -20,6 +20,7 @@ use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_services::channel_error_reply::ChannelErrorReply;
 
 use super::addressing::reply_recipient;
+use super::card_or_rich_text;
 use super::connect::build_connect_card_direct;
 use super::locale::resolve_messaging_locale;
 use super::ResolvedSession;
@@ -263,10 +264,11 @@ pub(super) async fn try_handle_slash_command(
                 "Slash command executed"
             );
             let content = if response.is_card() {
-                MessageContent::Card {
-                    title: response.card_title.unwrap_or_default(),
-                    body: response.text,
-                    actions: response
+                card_or_rich_text(
+                    channel_type,
+                    response.card_title.unwrap_or_default(),
+                    response.text,
+                    response
                         .actions
                         .into_iter()
                         .map(|a| CardAction {
@@ -275,7 +277,7 @@ pub(super) async fn try_handle_slash_command(
                             value: a.value,
                         })
                         .collect(),
-                }
+                )
             } else if response.is_rich_text {
                 MessageContent::RichText {
                     body: response.text,

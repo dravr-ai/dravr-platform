@@ -52,12 +52,18 @@ use dashmap::DashMap;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::messaging::{
-    ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
+    CardAction, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
 };
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
 use pierre_messaging::channel::MessagingChannel;
+use pierre_messaging::channels::discord::renderer::DiscordRenderer;
+use pierre_messaging::channels::messenger::renderer::MessengerRenderer;
+use pierre_messaging::channels::slack::renderer::SlackRenderer;
+use pierre_messaging::channels::telegram::renderer::TelegramRenderer;
+use pierre_messaging::channels::whatsapp::renderer::WhatsAppRenderer;
+use pierre_messaging::renderer::ResponseRenderer;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex as TokioMutex;
@@ -927,6 +933,54 @@ async fn store_inbound_message(
 /// different conversations to proceed in parallel.
 pub(super) static CONVERSATION_DISPATCH_LOCKS: LazyLock<DashMap<String, Arc<TokioMutex<()>>>> =
     LazyLock::new(DashMap::new);
+
+/// Whether `channel_type`'s renderer lays out [`MessageContent::Card`]
+/// natively (buttons, blocks, templates) rather than degrading it to text.
+///
+/// Card-emitting paths consult this to pick the content shape up front:
+/// canot's renderers do degrade an unsupported Card, but only generically —
+/// the emitter can do better (rich-text emphasis, each action on its own
+/// line) because it knows what the card means.
+fn renders_cards_natively(channel_type: ChannelType) -> bool {
+    match channel_type {
+        ChannelType::WhatsApp => WhatsAppRenderer.supports_cards(),
+        ChannelType::Messenger => MessengerRenderer.supports_cards(),
+        ChannelType::Discord => DiscordRenderer.supports_cards(),
+        ChannelType::Slack => SlackRenderer.supports_cards(),
+        ChannelType::Telegram => TelegramRenderer.supports_cards(),
+    }
+}
+
+/// Shape a card-intent reply for `channel_type`.
+///
+/// Returns a native [`MessageContent::Card`] where the channel renders cards,
+/// otherwise a [`MessageContent::RichText`] fallback: bold title (when
+/// non-empty), the body, then one `label: value` line per action — a bare URL
+/// value stays tappable as autolinked text on channels without buttons.
+#[must_use]
+pub fn card_or_rich_text(
+    channel_type: ChannelType,
+    title: String,
+    body: String,
+    actions: Vec<CardAction>,
+) -> MessageContent {
+    if renders_cards_natively(channel_type) {
+        return MessageContent::Card {
+            title,
+            body,
+            actions,
+        };
+    }
+    let mut text = if title.is_empty() {
+        body
+    } else {
+        format!("**{title}**\n\n{body}")
+    };
+    for action in &actions {
+        text.push_str(&format!("\n\n{}: {}", action.label, action.value));
+    }
+    MessageContent::RichText { body: text }
+}
 
 /// Extract a content type label from the message content variant
 fn content_type_label(content: &MessageContent) -> &'static str {
