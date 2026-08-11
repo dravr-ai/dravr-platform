@@ -11,6 +11,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_messaging::commands::{CommandMatcher, CommandRegistry, CommandResponse};
 use pierre_runtime_context::CommandCtx;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
 use uuid::Uuid;
 
@@ -79,6 +80,12 @@ pub struct DispatchRequest<'a> {
     /// Raw user input. The dispatcher inspects it for the `/` prefix and
     /// routes accordingly.
     pub text: &'a str,
+    /// Tool-dispatch runtime handed through to
+    /// [`PlatformCommandContext::tool_runtime`] for handlers that execute
+    /// MCP tools (`/confirm`). Same concrete `ServerContext` as `ctx`,
+    /// behind a separate trait to avoid a crate cycle through
+    /// `pierre-runtime-context`.
+    pub tool_runtime: &'a Arc<dyn ToolRuntime>,
 }
 
 /// Outcome of a single dispatch attempt.
@@ -173,6 +180,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         conversation_id: req.conversation_id.map(ToOwned::to_owned),
         conversation_tenant_id: req.conversation_tenant_id,
         sender_id: req.sender_id.map(ToOwned::to_owned),
+        tool_runtime: Arc::clone(req.tool_runtime),
     };
 
     let result = handler.execute(&ctx).await;

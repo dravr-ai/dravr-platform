@@ -24,6 +24,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_services::user_approval::UserApprovalNotifier;
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use tracing::info;
 
 use crate::auth::service::AdminAuthService;
@@ -64,6 +65,10 @@ pub struct AdminApiContext {
     /// pick up the new compaction / Tier 6 guardrail values without a
     /// server restart.
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
+    /// Shared Guardian policy registry, mutated by the
+    /// `PUT /admin/settings/guardian` handler so subsequent tool dispatches
+    /// enforce the new policy without a server restart.
+    pub guardian_config_registry: Arc<GuardianConfigRegistry>,
     /// Hot-reloadable system + coach prompt registry consumed by
     /// `/api/admin/contremaitre/prompts*` and the manual sync endpoint.
     pub prompt_registry: Arc<PromptRegistry>,
@@ -103,6 +108,8 @@ pub struct AdminApiContextInit {
     pub admin_token_cache_ttl_secs: u64,
     /// Harness config registry surfaced to admin eval flows
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
+    /// Guardian policy registry behind `PUT /admin/settings/guardian`
+    pub guardian_config_registry: Arc<GuardianConfigRegistry>,
     /// Hot-reloadable system + coach prompt registry
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description overlay registry
@@ -141,6 +148,7 @@ impl AdminApiContext {
             frontend_url: None,
             approval_notifier: None,
             harness_config_registry: init.harness_config_registry,
+            guardian_config_registry: init.guardian_config_registry,
             prompt_registry: init.prompt_registry,
             tool_description_registry: init.tool_description_registry,
             evidence_registry: init.evidence_registry,

@@ -100,6 +100,25 @@ impl Default for HarnessGuardrailsConfig {
     }
 }
 
+/// Verification-stage (Stage 17) tunables.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HarnessVerificationConfig {
+    /// Whether Stage 17 may call the live chat provider as the Layer-5
+    /// claim judge for claims the deterministic layers leave inconclusive.
+    /// Off keeps production claim verification fully deterministic; the
+    /// judge always fails open (a provider error settles on the evidence
+    /// layer's verdict, never the turn).
+    pub runtime_judge: bool,
+}
+
+impl Default for HarnessVerificationConfig {
+    fn default() -> Self {
+        Self {
+            runtime_judge: true,
+        }
+    }
+}
+
 /// Top-level document persisted under [`HARNESS_CONFIG_SETTING_KEY`].
 ///
 /// Round-tripped to JSON in `system_settings.value`. Versioned via the
@@ -113,6 +132,10 @@ pub struct HarnessConfigDocument {
     pub compaction: HarnessCompactionConfig,
     /// Text guardrail tunables.
     pub guardrails: HarnessGuardrailsConfig,
+    /// Verification-stage tunables. Additive (serde-defaulted) so documents
+    /// persisted before the field existed still deserialize.
+    #[serde(default)]
+    pub verification: HarnessVerificationConfig,
 }
 
 impl Default for HarnessConfigDocument {
@@ -128,6 +151,7 @@ impl Default for HarnessConfigDocument {
             schema_version: 2,
             compaction: HarnessCompactionConfig::default(),
             guardrails: HarnessGuardrailsConfig::default(),
+            verification: HarnessVerificationConfig::default(),
         }
     }
 }

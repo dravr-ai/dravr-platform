@@ -164,6 +164,18 @@ fn tainted_irreversible_respects_policy() {
         ),
         VerifyOutcome::Reject(VerifyError::TaintedSink { .. })
     ));
+    // Under Confirm, the static verifier deliberately passes: the runtime
+    // chokepoint parks the step for human confirmation at execution time,
+    // keeping Confirm uniform across the ReAct and planned paths.
+    assert_eq!(
+        verify(
+            &wf,
+            &fake_registry(),
+            &policy(TaintedDestructive::Confirm, ExternalSendAllowlist::None),
+            None
+        ),
+        VerifyOutcome::Accept
+    );
 }
 
 #[test]

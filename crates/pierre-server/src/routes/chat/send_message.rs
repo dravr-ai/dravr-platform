@@ -33,6 +33,7 @@ use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 use pierre_services::onboarding_gate::require_connected_provider;
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::common::get_tenant_id;
 use super::dto::{ChatCompletionResponse, ChatMessageAction, MessageResponse, SendMessageRequest};
@@ -696,6 +697,7 @@ async fn try_handle_chat_command(
         .ok_or_else(|| AppError::internal("Command handler registry not configured"))?;
     let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
         Arc::<ServerContext>::clone(resources);
+    let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
 
     let outcome = try_dispatch(DispatchRequest {
         ctx: &ctx_dyn,
@@ -715,6 +717,7 @@ async fn try_handle_chat_command(
         // Web/mobile have no channel link to unlink.
         sender_id: None,
         text: &request.content,
+        tool_runtime: &tool_runtime,
     })
     .await?;
 

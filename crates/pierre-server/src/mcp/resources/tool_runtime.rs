@@ -23,6 +23,7 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::DataContext;
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
+use pierre_tool_runtime::guardian::Guardian;
 use pierre_tool_runtime::registry::ToolRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_tool_runtime::runtime::BackfillNotifier;
@@ -57,6 +58,10 @@ impl ToolRuntime for ServerContext {
 
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry> {
         &self.fitness.cageux_config_registry
+    }
+
+    fn guardian(&self) -> Arc<Guardian> {
+        self.fitness.guardian_config_registry.current_guardian()
     }
 
     fn activity_intelligence(&self) -> &Arc<ActivityIntelligence> {

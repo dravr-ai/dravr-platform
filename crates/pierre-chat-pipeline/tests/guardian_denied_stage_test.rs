@@ -55,6 +55,7 @@ fn loop_result(denied: Option<GuardianDenial>) -> ToolLoopResult {
         tools_called: vec!["disconnect_provider".to_owned()],
         pending_provider_auth_required: None,
         guardian_denied: denied,
+        guardian_confirm: None,
     }
 }
 

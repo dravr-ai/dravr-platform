@@ -26,6 +26,7 @@ use pierre_routes_admin::handlers::device_auth::{
     handle_device_approve, handle_device_authorization, handle_device_token,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -48,6 +49,7 @@ async fn build_context() -> Arc<AdminApiContext> {
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),

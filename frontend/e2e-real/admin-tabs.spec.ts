@@ -146,6 +146,16 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
     await ctx.dispose();
   });
 
+  test('guardian config GET returns 200 with the effective policy', async () => {
+    const { ctx } = await loginAndAuthedRequest();
+    const r = await ctx.get('/api/admin/settings/guardian');
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.effective.mode).toBeDefined();
+    expect(body.sources.mode).toBeDefined();
+    expect(Array.isArray(body.env_pinned)).toBe(true);
+  });
+
   test('cookie-auth rejects unauthenticated requests with 401', async () => {
     const anon = await apiRequest.newContext({ baseURL: PIERRE_URL });
     const r = await anon.get('/api/admin/claim-verdicts?limit=10');

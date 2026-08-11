@@ -1243,7 +1243,7 @@ impl ToolHandlers {
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let turn_key = TurnKey::new(tenant_uuid, turn_token);
         let (outcome, reserved) = guardian::guardian_gate(
-            ctx.resources.guardian(),
+            &ctx.resources.guardian(),
             ctx.resources.guardian_turns(),
             &turn_key,
             DISCONNECT_PROVIDER,

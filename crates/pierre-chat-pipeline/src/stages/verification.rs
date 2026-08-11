@@ -18,6 +18,7 @@
 
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
+use std::sync::Arc;
 
 use futures_util::FutureExt;
 use pierre_core::error_helpers::panic_payload_str;
@@ -33,11 +34,46 @@ use pierre_contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_core::models::TenantId;
+use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_runtime_context::DataContext;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
+use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::claim_verification::resolve_corpus;
 use pierre_services::claim_verification::verify_reply_with_config_and_judge;
 use uuid::Uuid;
+
+/// Resolve the Layer-5 claim-judge provider, or `None` when the runtime
+/// judge is disabled in the harness config or no provider is wired.
+///
+/// Goes through [`chat_provider_from_resources_arc`], the same factory
+/// Stage 11 dispatch and the identity-leak re-ask use. Pub so integration
+/// tests can pin the production resolution seam — the previous direct
+/// `ctx.llm_provider` read was dead code on every live turn while tests
+/// stayed green, because they injected through the seam production leaves
+/// empty.
+///
+/// A resolution failure is a wiring bug, so it warns; the stage then stays
+/// deterministic-only rather than failing the turn.
+#[must_use]
+pub fn resolve_claim_judge(
+    runtime_judge: bool,
+    chat_provider: Option<&Arc<ChatProvider>>,
+    llm_provider: Option<&Arc<dyn LlmProvider>>,
+) -> Option<Arc<ChatProvider>> {
+    if !runtime_judge {
+        return None;
+    }
+    match chat_provider_from_resources_arc(chat_provider, llm_provider) {
+        Ok(provider) => Some(provider),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "runtime claim judge found no provider; verification stays deterministic-only"
+            );
+            None
+        }
+    }
+}
 
 /// Localizes the verification warn / block-fallback strings.
 ///
@@ -403,10 +439,21 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     }
 
     let corpus = resolve_corpus(&ctx.evidence_registry);
-    // The LLM-judge layer runs only when a provider is configured; otherwise the
-    // pipeline stays fully deterministic and inconclusive claims settle on the
-    // evidence layer's verdict.
-    let judge = ctx.llm_provider.as_deref();
+    // The LLM-judge layer (Layer 5), resolved through the same provider
+    // factory Stage 11 dispatch and the identity-leak re-ask use — reading
+    // `ctx.llm_provider` directly made the judge dead code in production,
+    // where the binary wires `chat_provider` and leaves `llm_provider: None`
+    // (the exact trap documented on `resolve_reask_provider`). Gated by the
+    // hot-reloadable harness config so operators can drop back to
+    // deterministic-only at runtime.
+    let judge_provider = resolve_claim_judge(
+        ctx.harness_config_registry
+            .current_verification()
+            .runtime_judge,
+        ctx.chat_provider.as_ref(),
+        ctx.llm_provider.as_ref(),
+    );
+    let judge: Option<&dyn LlmProvider> = judge_provider.as_deref().map(|p| p as &dyn LlmProvider);
 
     // The personalized layer — build the athlete snapshot + tolerance strategy when the coach
     // enabled personalized verification. The snapshot owns its data so its

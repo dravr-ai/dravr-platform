@@ -7,15 +7,17 @@
 use super::auth::AuthService;
 use crate::context::{AuthMethod, CONVERSATION_ID, GUARDIAN_TURN_TOKEN};
 use crate::conversions::RAISED_ERROR_CODE_KEY;
-use crate::guardian::{self, DenyReason, GateOutcome, TurnKey};
+use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
+use chrono::{Duration, Utc};
 use dravr_tronc::mcp::schema::{Content, ToolResponse};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_database::repositories::PendingGuardianAction;
 use pierre_intelligence::physiological_constants::business_thresholds::{
     DEFAULT_HR_EFFORT_SCORE, DISTANCE_SCORE_DIVISOR, DURATION_SCORE_FACTOR, MAX_SCORE,
     MIN_VALID_DISTANCE,
@@ -333,7 +335,7 @@ impl UniversalExecutor {
         // sharing one turn token) cannot both read a pre-state and both pass a
         // cap (the E2 TOCTOU fix).
         let (outcome, reserved) = guardian::guardian_gate(
-            self.resources.guardian(),
+            &self.resources.guardian(),
             self.resources.guardian_turns(),
             &turn_key,
             &tool_name,
@@ -341,17 +343,34 @@ impl UniversalExecutor {
             writes_data,
             tenant_uuid,
         );
-        if let GateOutcome::Blocked(reason) = outcome {
-            // #10: record the denial under the (tenant, user) headless key so the
-            // Copilot-headless loop surfaces a deterministic refusal for a block
-            // that fired inside its ACP subprocess loopback (a separate HTTP task
-            // that can't return this out-of-band). Harmless for other transports —
-            // only the headless loop consumes it, and it clears the key first.
-            self.resources
-                .guardian_turns()
-                .record_denial(&TurnKey::new(tenant_uuid, request.user_id.clone()), reason);
-            // Blocked before execution: nothing ran, nothing was reserved.
-            return Ok(guardian_denied_response(&tool_name, reason));
+        match outcome {
+            GateOutcome::Proceed => {}
+            GateOutcome::Blocked(reason) => {
+                // #10: record the block under the (tenant, user) headless key so
+                // the Copilot-headless loop surfaces a deterministic refusal for a
+                // block that fired inside its ACP subprocess loopback (a separate
+                // HTTP task that can't return this out-of-band). Harmless for
+                // other transports — only the headless loop consumes it, and it
+                // clears the key first.
+                self.resources.guardian_turns().record_block(
+                    &TurnKey::new(tenant_uuid, request.user_id.clone()),
+                    HeadlessBlock::Denied(reason),
+                );
+                // Blocked before execution: nothing ran, nothing was reserved.
+                return Ok(guardian_denied_response(&tool_name, reason));
+            }
+            GateOutcome::ConfirmRequired => {
+                // `args` owns the parameters (moved out of `request` above);
+                // clone them into the parked row — the tool will not run now.
+                return Ok(self
+                    .park_for_confirmation(
+                        args.clone(),
+                        request.user_id.clone(),
+                        &tool_name,
+                        tenant_uuid,
+                    )
+                    .await);
+            }
         }
 
         // Scope the originating conversation id into the task-local for the
@@ -411,6 +430,103 @@ impl UniversalExecutor {
     #[must_use]
     pub fn has_tool(&self, tool_name: &str) -> bool {
         self.resources.tool_registry().get(tool_name).is_some()
+    }
+}
+
+/// Confirmation TTL for a parked destructive call. Short by design: the
+/// prompt and the resolution normally happen within the same conversation
+/// exchange, and a stale consent to a destructive action must not linger.
+const CONFIRM_TTL_MINUTES: i64 = 5;
+
+impl UniversalExecutor {
+    /// Park a confirm-required call and build the in-band confirmation ask.
+    ///
+    /// On a storage failure this FAILS CLOSED as a denial: an unparkable call
+    /// must not execute, and must not pretend a confirmation is pending.
+    async fn park_for_confirmation(
+        &self,
+        parameters: serde_json::Value,
+        user_id: String,
+        tool_name: &str,
+        tenant_uuid: Option<Uuid>,
+    ) -> UniversalResponse {
+        let pending_id = Uuid::new_v4().simple().to_string();
+        let action = PendingGuardianAction {
+            id: pending_id.clone(),
+            tenant_id: tenant_uuid.map(|t| t.to_string()).unwrap_or_default(),
+            user_id: user_id.clone(),
+            conversation_id: self.conversation_id.clone(),
+            tool_name: tool_name.to_owned(),
+            arguments: parameters,
+            deny_reason: DenyReason::TaintedSink.as_str().to_owned(),
+        };
+        let expires_at = Utc::now() + Duration::minutes(CONFIRM_TTL_MINUTES);
+        let headless_key = TurnKey::new(tenant_uuid, user_id);
+
+        if let Err(e) = self
+            .resources
+            .repos()
+            .guardian_actions
+            .create_pending_action(&action, expires_at)
+            .await
+        {
+            warn!(
+                tool_name = %tool_name,
+                error = %e,
+                "guardian confirm: failed to park the call; failing closed as a denial"
+            );
+            self.resources.guardian_turns().record_block(
+                &headless_key,
+                HeadlessBlock::Denied(DenyReason::TaintedSink),
+            );
+            return guardian_denied_response(tool_name, DenyReason::TaintedSink);
+        }
+
+        warn!(
+            tool_name = %tool_name,
+            pending_id = %pending_id,
+            "guardian confirm: parked tool call pending user confirmation"
+        );
+        // #10 analog: a park that fires inside the ACP subprocess loopback
+        // surfaces through the headless block channel so the ask is rendered
+        // deterministically, never paraphrased by the model.
+        self.resources.guardian_turns().record_block(
+            &headless_key,
+            HeadlessBlock::ConfirmRequired {
+                tool_name: tool_name.to_owned(),
+                pending_id: pending_id.clone(),
+            },
+        );
+        guardian_confirm_response(tool_name, &pending_id)
+    }
+}
+
+/// Build the in-band response for a confirm-required tool call.
+///
+/// Shaped like [`guardian_denied_response`] but with its own machine code and
+/// `blocked_reason` so the tool-loop detector renders a confirmation ask, not
+/// a refusal. Carries the opaque claim token — never the arguments, which can
+/// hold the very injected content the taint rule fired on.
+fn guardian_confirm_response(tool_name: &str, pending_id: &str) -> UniversalResponse {
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        "blocked_reason".to_owned(),
+        serde_json::Value::String("guardian_confirm".to_owned()),
+    );
+    metadata.insert(
+        "pending_id".to_owned(),
+        serde_json::Value::String(pending_id.to_owned()),
+    );
+    UniversalResponse {
+        success: false,
+        result: Some(serde_json::json!({
+            "error_code": "guardian_confirm_required",
+            "pending_id": pending_id,
+        })),
+        error: Some(format!(
+            "Tool '{tool_name}' requires user confirmation before it can run"
+        )),
+        metadata: Some(metadata),
     }
 }
 

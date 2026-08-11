@@ -25,6 +25,7 @@ use pierre_database::backends::factory::Database;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::Value;
 use std::{env, fs, sync::Arc};
 
@@ -73,6 +74,7 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         admin_api_key_monthly_limit,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
@@ -288,6 +290,7 @@ async fn test_admin_token_management_workflow() -> Result<()> {
         admin_api_key_monthly_limit,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
@@ -432,6 +435,7 @@ async fn test_admin_workflow_error_handling() -> Result<()> {
         admin_api_key_monthly_limit,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
@@ -612,6 +616,7 @@ async fn test_user_approval_with_tenant_creation() -> Result<()> {
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),

@@ -27,6 +27,8 @@ pub mod device_web;
 #[cfg(feature = "tools-verification")]
 pub mod eval_harness;
 pub mod feature_flags;
+/// Admin endpoints for the Guardian security-policy configuration.
+pub mod guardian_config;
 pub mod harness_config;
 pub mod impersonation;
 pub mod llm_consumption;

@@ -102,6 +102,7 @@ use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::protocol::types::CancellationToken;
 use pierre_tool_runtime::registry::ToolRegistry;
 #[cfg(feature = "client-messaging")]
@@ -244,6 +245,8 @@ pub struct FitnessSlice {
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// Hot-swappable coaching harness config snapshot.
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
+    /// Hot-swappable Guardian policy snapshot (defaults ← DB doc ← env).
+    pub guardian_config_registry: Arc<GuardianConfigRegistry>,
     /// Hot-swappable per-persona output-format conformance contracts.
     pub persona_contract_registry: Arc<PersonaContractRegistry>,
     /// Fitness-domain repository view (projection of [`CommonSlice::repos`]).

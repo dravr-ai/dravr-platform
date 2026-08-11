@@ -508,6 +508,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         let response = PrivacyOnHandler.execute(&ctx).await.unwrap();
@@ -564,6 +565,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         let response = PrivacyOffHandler.execute(&ctx).await.unwrap();
@@ -670,6 +672,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         let response = CoachSelectHandler.execute(&ctx).await.unwrap();
@@ -725,6 +728,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         CoachSelectHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
@@ -780,6 +784,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         let response = CoachListHandler.execute(&ctx).await.unwrap();
@@ -948,6 +953,7 @@ mod command_tests {
             conversation_id: Some(conversation.id.clone()),
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         let response = GroupConsentHandler.execute(&ctx).await.unwrap();
@@ -1024,6 +1030,7 @@ mod command_tests {
             is_direct_message: false,
             conversation_id: Some(fixture.conversation.clone()),
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         let response = GroupConsentHandler.execute(&ctx).await.unwrap();
@@ -1069,6 +1076,7 @@ mod command_tests {
             // No such conversation anywhere.
             conversation_id: Some(Uuid::new_v4().to_string()),
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         let err = GroupConsentHandler
@@ -1366,6 +1374,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
         let response = GroupCoachHandler.execute(&ctx).await.unwrap();
         assert!(
@@ -1435,6 +1444,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         // Default state: consent disabled
@@ -1488,6 +1498,7 @@ mod command_tests {
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
         // Valid IANA name persists and is echoed in the confirmation.
@@ -1659,6 +1670,7 @@ mod command_tests {
             conversation_id,
             conversation_tenant_id: tenant_id,
             sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(resources),
         }
     }
 

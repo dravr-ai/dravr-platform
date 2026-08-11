@@ -35,6 +35,7 @@ const LOCALE_LABELS: Record<string, string> = {
 function defaultDocument(): HarnessConfigDocument {
   return {
     schema_version: 2,
+    verification: { runtime_judge: true },
     compaction: {
       window_tokens: 128_000,
       warn_threshold: 0.7,
@@ -430,6 +431,36 @@ export default function HarnessConfigTab() {
             </label>
           </div>
         </div>
+      </Card>
+
+      <Card className="p-6">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Claim verification
+        </h3>
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            checked={draft.verification?.runtime_judge ?? true}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                verification: { runtime_judge: e.target.checked },
+              })
+            }
+            className="mt-1 h-4 w-4"
+          />
+          <span>
+            <span className="block font-medium text-gray-700 dark:text-gray-300">
+              Runtime LLM judge (Layer 5)
+            </span>
+            <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+              Lets claim verification consult the live chat provider for claims the
+              deterministic layers leave inconclusive. The judge only runs as a tiebreaker,
+              fails open on provider errors, and rides the cheap-tier provider chain.
+              Unchecked keeps verification fully deterministic.
+            </span>
+          </span>
+        </label>
       </Card>
 
       {validationErrors.length > 0 ? (

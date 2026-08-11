@@ -723,16 +723,24 @@ async fn run_recovery_and_post_process(
         llm_messages,
         active_model,
     } = inputs;
-    // Guardian-denied short-circuit takes precedence over re-auth: a tool
-    // blocked by the runtime Guardian (enforce mode) is rendered as a
-    // deterministic "blocked for safety" reply, bypassing both LLM
-    // post-processing and the re-auth mint below.
+    // Guardian short-circuits take precedence over re-auth: a tool blocked by
+    // the runtime Guardian (enforce mode) renders the deterministic "blocked
+    // for safety" reply, and a parked confirm-required call renders the
+    // deterministic confirmation ask — both bypassing LLM post-processing and
+    // the re-auth mint below. Mutually exclusive by construction (the tool
+    // loop short-circuits on whichever fires first).
     let guardian_denied = stages::guardian_denied::apply_guardian_denied(
         &ctx.messaging_strings_registry,
         input,
         result,
     );
-    if guardian_denied {
+    let guardian_confirm = !guardian_denied
+        && stages::guardian_confirm::apply_guardian_confirm(
+            &ctx.messaging_strings_registry,
+            input,
+            result,
+        );
+    if guardian_denied || guardian_confirm {
         return stages::post_process::PostProcessedReply {
             content: mem::take(&mut result.content),
             #[cfg(feature = "tools-verification")]

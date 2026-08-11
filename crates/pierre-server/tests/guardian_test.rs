@@ -17,7 +17,8 @@ use std::collections::HashSet;
 
 use pierre_tool_runtime::guardian::{
     guardian_gate, Decision, DenyReason, ExternalSendAllowlist, GateOutcome, Guardian,
-    GuardianMode, GuardianPolicy, GuardianTurns, PlanMode, TaintedDestructive, TurnKey, TurnState,
+    GuardianMode, GuardianPolicy, GuardianTurns, HeadlessBlock, PlanMode, TaintedDestructive,
+    TurnKey, TurnState,
 };
 use pierre_tool_runtime::SecurityLabels;
 use uuid::Uuid;
@@ -433,21 +434,40 @@ fn turn_scoped_claim_gates_the_guardian_turn_token() {
 // deterministic refusal. Recorded under the headless key, taken exactly once,
 // and clearable so a stale denial can't leak into the next turn.
 #[test]
-fn headless_denial_flag_records_takes_once_and_clears() {
+fn headless_block_flag_records_takes_once_and_clears() {
     let store = GuardianTurns::new();
     let key = TurnKey::new(None, "tenant:user");
 
     // Nothing recorded yet.
-    assert_eq!(store.take_denial(&key), None);
+    assert_eq!(store.take_block(&key), None);
 
     // The chokepoint records a block; the headless loop takes it once.
-    store.record_denial(&key, DenyReason::BudgetExceeded);
-    assert_eq!(store.take_denial(&key), Some(DenyReason::BudgetExceeded));
+    store.record_block(&key, HeadlessBlock::Denied(DenyReason::BudgetExceeded));
+    assert_eq!(
+        store.take_block(&key),
+        Some(HeadlessBlock::Denied(DenyReason::BudgetExceeded))
+    );
     // Single consumption — a second take sees nothing.
-    assert_eq!(store.take_denial(&key), None);
+    assert_eq!(store.take_block(&key), None);
 
-    // Clearing (before a turn) drops a stale denial so it can't leak.
-    store.record_denial(&key, DenyReason::TaintedSink);
-    store.clear_denial(&key);
-    assert_eq!(store.take_denial(&key), None);
+    // Clearing (before a turn) drops a stale block so it can't leak.
+    store.record_block(&key, HeadlessBlock::Denied(DenyReason::TaintedSink));
+    store.clear_block(&key);
+    assert_eq!(store.take_block(&key), None);
+
+    // A confirm-required park travels the same channel with its claim token.
+    store.record_block(
+        &key,
+        HeadlessBlock::ConfirmRequired {
+            tool_name: "disconnect_provider".to_owned(),
+            pending_id: "abc123".to_owned(),
+        },
+    );
+    assert_eq!(
+        store.take_block(&key),
+        Some(HeadlessBlock::ConfirmRequired {
+            tool_name: "disconnect_provider".to_owned(),
+            pending_id: "abc123".to_owned(),
+        })
+    );
 }

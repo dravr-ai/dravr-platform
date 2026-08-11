@@ -194,6 +194,7 @@ fn ctx(
         conversation_id: Some(conversation_id.to_owned()),
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        tool_runtime: Arc::<ServerContext>::clone(resources),
     }
 }
 

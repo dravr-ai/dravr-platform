@@ -30,6 +30,8 @@ pub mod errors;
 pub mod feature_flags;
 /// User fitness configuration storage and retrieval
 pub mod fitness_configurations;
+/// Guardian pending actions (`SQLite`) backing `GuardianPendingActionsRepository`.
+pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
 /// Impersonation session management for super admin user impersonation

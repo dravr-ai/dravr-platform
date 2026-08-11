@@ -255,3 +255,56 @@ fn test_cli_database_url_option() {
         "Help should work with database-url option"
     );
 }
+
+#[test]
+fn test_settings_help_shows_both_surfaces() {
+    let (exit_code, stdout, _stderr) = run_cli(&["settings", "--help"]);
+
+    assert_eq!(exit_code, 0, "Settings help should exit with 0");
+    assert!(
+        stdout.contains("guardian"),
+        "Settings help should mention 'guardian'"
+    );
+    assert!(
+        stdout.contains("harness"),
+        "Settings help should mention 'harness'"
+    );
+}
+
+#[test]
+fn test_settings_guardian_help_shows_verbs() {
+    let (exit_code, stdout, _stderr) = run_cli(&["settings", "guardian", "--help"]);
+
+    assert_eq!(exit_code, 0, "Guardian settings help should exit with 0");
+    assert!(stdout.contains("show"), "should list the 'show' verb");
+    assert!(stdout.contains("set"), "should list the 'set' verb");
+}
+
+#[test]
+fn test_settings_guardian_set_help_lists_every_policy_flag() {
+    let (exit_code, stdout, _stderr) = run_cli(&["settings", "guardian", "set", "--help"]);
+
+    assert_eq!(exit_code, 0, "Guardian set help should exit with 0");
+    for flag in [
+        "--mode",
+        "--tainted-destructive",
+        "--plan-mode",
+        "--max-destructive-per-turn",
+        "--max-writes-per-turn",
+        "--external-send",
+        "--clear",
+    ] {
+        assert!(stdout.contains(flag), "set help should list {flag}");
+    }
+}
+
+#[test]
+fn test_settings_harness_set_requires_the_json_argument() {
+    let (exit_code, _stdout, stderr) = run_cli(&["settings", "harness", "set"]);
+
+    assert_ne!(exit_code, 0, "harness set without JSON must fail");
+    assert!(
+        stderr.contains("JSON") || stderr.contains("json") || stderr.contains("required"),
+        "error should point at the missing document argument, got: {stderr}"
+    );
+}

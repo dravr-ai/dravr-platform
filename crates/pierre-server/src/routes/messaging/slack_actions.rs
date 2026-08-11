@@ -13,6 +13,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use pierre_core::models::TenantId;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -248,6 +249,7 @@ pub async fn execute_postback_command(
 
     let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
         Arc::<ServerContext>::clone(resources);
+    let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
     let ctx = PlatformCommandContext {
         user_id,
         tenant_id: user_tenant,
@@ -268,6 +270,7 @@ pub async fn execute_postback_command(
         // No conversation to scope, so this tracks the caller's tenant.
         conversation_tenant_id: user_tenant,
         sender_id: Some(slack_user_id.to_owned()),
+        tool_runtime,
     };
 
     let response = handler.execute(&ctx).await?;

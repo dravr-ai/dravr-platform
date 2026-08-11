@@ -24,6 +24,8 @@ pub mod data_source;
 pub mod feature_flags;
 /// Repository traits for fitness configuration persistence.
 pub mod fitness_config;
+/// Repository trait for Guardian pending actions (Confirm human-in-the-loop).
+pub mod guardian_actions;
 /// Repository traits for coaching harness memory (Tier 0 foundations).
 pub mod harness_memory;
 /// Repository traits for health, sleep, recovery, time-series persistence and sync cursors.
@@ -77,6 +79,7 @@ pub use coaches::*;
 pub use data_source::*;
 pub use feature_flags::*;
 pub use fitness_config::*;
+pub use guardian_actions::*;
 pub use harness_memory::*;
 pub use health::*;
 pub use messaging::*;

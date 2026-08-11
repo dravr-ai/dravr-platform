@@ -164,9 +164,13 @@ pub fn verify(
         }
 
         // Irreversible sink with arguments derived from an untrusted source:
-        // the precise dataflow rule (the plan-verify value-add). Gated by policy.
+        // the precise dataflow rule (the plan-verify value-add). Gated by
+        // policy: only `Deny` rejects statically. `Confirm` deliberately
+        // passes here — the runtime chokepoint parks the step for human
+        // confirmation at execution time, so Confirm behaves uniformly
+        // across the ReAct and planned paths; `Log` records.
         if class.is_irreversible()
-            && !matches!(policy.tainted_destructive, TaintedDestructive::Log)
+            && matches!(policy.tainted_destructive, TaintedDestructive::Deny)
             && arg_tainted
         {
             let (source_step, source_tool) = tainted_ref

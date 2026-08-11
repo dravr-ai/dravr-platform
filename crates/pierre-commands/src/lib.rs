@@ -32,6 +32,8 @@ pub mod coach;
 pub mod dispatch;
 /// Group coaching commands (status, invite, members, leave)
 pub mod group;
+/// Handlers for /confirm and /deny — Guardian pending-action resolution.
+pub mod guardian_confirm;
 /// Help command listing available commands
 pub mod help;
 /// Guided pillar-onboarding command (`/pillars`)
@@ -57,6 +59,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_messaging::commands::CommandResponse;
 use pierre_runtime_context::CommandCtx;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use uuid::Uuid;
 
 /// Platform-specific command execution context
@@ -115,6 +118,12 @@ pub struct PlatformCommandContext {
     /// messaging surfaces; `None` on web/mobile and synthetic dispatch.
     /// `/logout` uses it to unlink the exact channel sender.
     pub sender_id: Option<String>,
+    /// Tool-dispatch runtime for handlers that execute MCP tools (`/confirm`
+    /// re-dispatches a Guardian-parked call). Deliberately a separate handle
+    /// from [`Self::ctx`]: widening [`CommandCtx`] would cycle
+    /// `pierre-runtime-context` → `pierre-tool-runtime` →
+    /// `pierre-runtime-context`. Concrete type is the same `ServerContext`.
+    pub tool_runtime: Arc<dyn ToolRuntime>,
 }
 
 /// Handler for a slash command.

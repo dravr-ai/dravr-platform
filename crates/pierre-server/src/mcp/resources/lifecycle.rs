@@ -34,6 +34,7 @@ use pierre_commands::{
         GroupCoachHandler, GroupConsentHandler, GroupInviteHandler, GroupLeaveHandler,
         GroupListHandler, GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
     },
+    guardian_confirm::{ConfirmHandler, DenyHandler},
     help::HelpHandler,
     onboarding::PillarsHandler,
     plan::PlanShowHandler,
@@ -84,6 +85,7 @@ use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::collections::HashMap;
@@ -162,6 +164,14 @@ impl ServerContext {
         // after persisting a new document.
         let harness_config_registry =
             Arc::new(HarnessConfigRegistry::from_database(&database_arc).await);
+
+        // Load the Guardian policy snapshot from `system_settings.guardian_config`
+        // (defaults ← persisted document ← GUARDIAN_* env, env wins per field).
+        // Every dispatch point reads the effective Arc<Guardian> through the
+        // ServerContext ToolRuntime override, and `PUT /admin/settings/guardian`
+        // calls `install` on it after persisting a new document.
+        let guardian_config_registry =
+            Arc::new(GuardianConfigRegistry::from_database(&database_arc).await);
 
         // Create activity intelligence once for shared use
         let activity_intelligence = Self::create_default_intelligence();
@@ -392,6 +402,7 @@ impl ServerContext {
             sync_scheduler_abort_handle: Some(sync_scheduler_abort_handle),
             cageux_config_registry,
             harness_config_registry,
+            guardian_config_registry,
             persona_contract_registry,
             repos: fitness_repos_view,
         };
@@ -533,6 +544,8 @@ impl ServerContext {
         handler_reg.register("privacy-on", Arc::new(PrivacyOnHandler));
         handler_reg.register("privacy-off", Arc::new(PrivacyOffHandler));
         handler_reg.register("timezone", Arc::new(TimezoneHandler));
+        handler_reg.register("confirm", Arc::new(ConfirmHandler));
+        handler_reg.register("deny", Arc::new(DenyHandler));
         handler_reg.register("pillars", Arc::new(PillarsHandler));
         handler_reg.register("plan", Arc::new(PlanShowHandler));
         handler_reg.register("calibrate", Arc::new(CalibrateHandler));

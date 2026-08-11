@@ -226,6 +226,7 @@ async fn status_handler_renders_french_by_default() {
         conversation_id: None,
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        tool_runtime: Arc::<ServerContext>::clone(&resources),
     };
 
     let response = StatusHandler.execute(&ctx).await.expect("status FR");
@@ -256,6 +257,7 @@ async fn status_handler_switches_to_english_when_locale_set() {
         conversation_id: None,
         conversation_tenant_id: tenant_id,
         sender_id: None,
+        tool_runtime: Arc::<ServerContext>::clone(&resources),
     };
 
     let response = StatusHandler.execute(&ctx).await.expect("status EN");

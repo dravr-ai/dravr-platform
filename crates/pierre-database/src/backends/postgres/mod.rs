@@ -28,6 +28,8 @@ pub mod coaching_groups;
 pub mod encryption;
 /// Tenant defaults + per-user overrides (`Postgres`) backing `FeatureFlagsRepository`.
 pub mod feature_flags;
+/// Guardian pending actions (`Postgres`) backing `GuardianPendingActionsRepository`.
+pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
 /// Coaching harness memory (compaction, facts, notes, followups, sessions)

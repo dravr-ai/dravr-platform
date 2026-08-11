@@ -156,11 +156,13 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest, GeneratedAdminToken};
+use pierre_core::admin::TokenScope;
 use pierre_core::models::{User, UserStatus};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
 use std::{str, sync::Arc};
 use tokio::time::{sleep, Duration};
@@ -204,6 +206,7 @@ impl AdminTestSetup {
             admin_api_key_monthly_limit,
             admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
             harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+            guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
             prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
             tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
             evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
@@ -239,7 +242,7 @@ impl AdminTestSetup {
             &admin_token_id,
             "test_admin_service",
             &admin_permissions,
-            &pierre_core::admin::TokenScope {
+            &TokenScope {
                 is_super_admin: false,
                 expires_at: Some(chrono::Utc::now() + chrono::Duration::days(365)),
                 tenant_id: None,
@@ -269,7 +272,7 @@ impl AdminTestSetup {
             &super_admin_token_id,
             "test_super_admin_service",
             &super_admin_permissions,
-            &pierre_core::admin::TokenScope {
+            &TokenScope {
                 is_super_admin: true,
                 expires_at: None,
                 tenant_id: None,
@@ -302,7 +305,7 @@ impl AdminTestSetup {
             &expired_token_id,
             "expired_service",
             &expired_permissions,
-            &pierre_core::admin::TokenScope {
+            &TokenScope {
                 is_super_admin: false,
                 expires_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
                 tenant_id: None,

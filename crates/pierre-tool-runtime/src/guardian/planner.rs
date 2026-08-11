@@ -51,10 +51,15 @@ pub struct StepOutput {
 /// stays feature-independent; the chat loop maps it to a `GuardianDenial`.
 #[derive(Debug, Clone)]
 pub struct PlanDenial {
-    /// The plan step's tool that was denied.
+    /// The plan step's tool that was denied (or parked).
     pub tool_name: String,
-    /// The machine reason slug (`DenyReason::as_str`), e.g. `budget_exceeded`.
+    /// The machine reason slug (`DenyReason::as_str`), e.g. `budget_exceeded`;
+    /// `confirm_required` for a parked step.
     pub reason: String,
+    /// Claim token when the step was PARKED for user confirmation
+    /// (`TaintedDestructive::Confirm`) rather than denied — the caller renders
+    /// the confirmation ask instead of the block reply.
+    pub pending_id: Option<String>,
 }
 
 /// Runs a verified [`Workflow`] against the shared executor.
@@ -118,28 +123,35 @@ impl<'a> WorkflowExecutor<'a> {
                 progress_reporter: None,
             };
 
-            // A runtime Guardian denial is stamped `success:false` +
-            // `metadata.blocked_reason == "guardian"` (operator-set, not
-            // tool-forgeable). Capture it before folding the result.
-            let (result, success, guardian_reason) = match self.executor.execute_tool(request).await
+            // A runtime Guardian block is stamped `success:false` +
+            // `metadata.blocked_reason` of `"guardian"` (denied) or
+            // `"guardian_confirm"` (parked pending user confirmation) —
+            // operator-set, not tool-forgeable. Capture it before folding
+            // the result.
+            let (result, success, guardian_block) = match self.executor.execute_tool(request).await
             {
                 Ok(response) => {
-                    let reason = if response.success {
+                    let block = if response.success {
                         None
                     } else {
-                        response
-                            .metadata
-                            .as_ref()
-                            .filter(|m| {
-                                m.get("blocked_reason").and_then(Value::as_str) == Some("guardian")
-                            })
-                            .and_then(|m| m.get("guardian_reason").and_then(Value::as_str))
-                            .map(ToOwned::to_owned)
+                        response.metadata.as_ref().and_then(|m| {
+                            match m.get("blocked_reason").and_then(Value::as_str) {
+                                Some("guardian") => m
+                                    .get("guardian_reason")
+                                    .and_then(Value::as_str)
+                                    .map(|r| (r.to_owned(), None)),
+                                Some("guardian_confirm") => m
+                                    .get("pending_id")
+                                    .and_then(Value::as_str)
+                                    .map(|p| ("confirm_required".to_owned(), Some(p.to_owned()))),
+                                _ => None,
+                            }
+                        })
                     };
                     (
                         response.result.unwrap_or(Value::Null),
                         response.success,
-                        reason,
+                        block,
                     )
                 }
                 Err(e) => (json!({ "error": e.to_string() }), false, None),
@@ -153,16 +165,17 @@ impl<'a> WorkflowExecutor<'a> {
                 success,
             });
 
-            if let Some(reason) = guardian_reason {
+            if let Some((reason, pending_id)) = guardian_block {
                 warn!(
                     step = step.id,
                     tool = %step.tool_name,
                     reason = %reason,
-                    "guardian denied a plan step at runtime; stopping the plan"
+                    "guardian blocked a plan step at runtime; stopping the plan"
                 );
                 denial = Some(PlanDenial {
                     tool_name: step.tool_name.clone(),
                     reason,
+                    pending_id,
                 });
                 break;
             }

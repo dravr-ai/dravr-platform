@@ -22,6 +22,7 @@ const { adminApi } = await import('../../services/api/admin');
 function sampleDoc(): HarnessConfigDocument {
   return {
     schema_version: 2,
+    verification: { runtime_judge: true },
     compaction: {
       window_tokens: 100_000,
       warn_threshold: 0.6,
@@ -130,5 +131,25 @@ describe('HarnessConfigTab', () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue(/100000/)).toBeInTheDocument();
     });
+  });
+
+  it('unchecking the runtime judge sends runtime_judge false', async () => {
+    vi.mocked(adminApi.getHarnessConfig).mockResolvedValueOnce(sampleResponse());
+    vi.mocked(adminApi.putHarnessConfig).mockResolvedValueOnce(sampleResponse());
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/100000/)).toBeInTheDocument();
+    });
+    const judgeToggle = screen.getByRole('checkbox', {
+      name: /runtime llm judge/i,
+    });
+    expect(judgeToggle).toBeChecked();
+    fireEvent.click(judgeToggle);
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => {
+      expect(adminApi.putHarnessConfig).toHaveBeenCalled();
+    });
+    const [payload] = vi.mocked(adminApi.putHarnessConfig).mock.calls[0];
+    expect(payload.verification).toEqual({ runtime_judge: false });
   });
 });

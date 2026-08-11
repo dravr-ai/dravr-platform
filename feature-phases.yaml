@@ -16,13 +16,13 @@
 features:
   - name: guardian-tainted-destructive-confirm
     surface: crates/pierre-tool-runtime/src/guardian/policy.rs
-    current: tainted_destructive defaults to Log (Phase 1 base-rate measurement) — Confirm and Deny exist but are unarmed
-    advance_when: base rate of tainted-destructive sequences is measured and a Confirm UX exists for messaging channels
+    current: tainted_destructive defaults to Log (Phase 1 base-rate measurement) — Confirm HITL (/confirm·/deny) is fully implemented and runtime-armable via the guardian settings surface
+    advance_when: base rate of tainted-destructive sequences is measured in the Log telemetry, then an operator flips the mode via pierre-cli settings guardian set
     review_by: 2026-09-30
   - name: guardian-plan-then-verify
     surface: crates/pierre-tool-runtime/src/guardian/policy.rs
-    current: plan_mode defaults to Off — production messaging always runs the ReAct loop; the verified-plan path is built but unarmed
-    advance_when: plan-mode telemetry from staged API/CLI runs shows task-completion parity with ReAct
+    current: plan_mode defaults to Off — runtime-armable via the guardian settings surface and covers every provider class incl. the headless ACP path when armed
+    advance_when: plan-mode telemetry from staged runs shows task-completion parity with ReAct, then an operator flips the mode via pierre-cli settings guardian set
     review_by: 2026-10-31
   - name: persona-conformance-strict-mode
     surface: crates/pierre-chat-pipeline/src/stages/persona_conformance.rs

@@ -29,17 +29,24 @@
 //!   gated by [`GuardianMode`]: `observe` logs would-be denials, `enforce`
 //!   blocks.
 
+pub mod config;
 pub mod planner;
 pub mod policy;
 pub mod state;
 pub mod verify;
 pub mod workflow;
 
-pub use planner::{planner_system_prompt, StepOutput, WorkflowExecutor};
-pub use policy::{
-    validate_env, ExternalSendAllowlist, GuardianMode, GuardianPolicy, PlanMode, TaintedDestructive,
+pub use config::{
+    validate_document, GuardianConfigDocument, GuardianConfigRegistry, GuardianConfigSnapshot,
+    GuardianConfigSource, GuardianFieldSource, GuardianFieldSources,
+    GUARDIAN_CONFIG_SCHEMA_VERSION, GUARDIAN_CONFIG_SETTING_KEY,
 };
-pub use state::{GuardianTurns, TurnKey, TurnState};
+pub use planner::{planner_system_prompt, PlanDenial, StepOutput, WorkflowExecutor};
+pub use policy::{
+    validate_env, ExternalSendAllowlist, GuardianEnvOverrides, GuardianMode, GuardianPolicy,
+    PlanMode, TaintedDestructive,
+};
+pub use state::{GuardianTurns, HeadlessBlock, TurnKey, TurnState};
 pub use verify::{verify, ToolLabels, VerifyError, VerifyOutcome};
 pub use workflow::{ArgValue, PlanParseError, StepId, SymRef, Workflow, WorkflowStep};
 
@@ -62,6 +69,12 @@ pub enum Decision {
     /// The tool is denied; the reason drives logging and (in enforce) the
     /// in-band error surfaced to the LLM.
     Deny(DenyReason),
+    /// The tool needs explicit user consent before it may run
+    /// (`TaintedDestructive::Confirm` on a tainted destructive call): the
+    /// executor parks the call and the user resolves it with `/confirm` or
+    /// `/deny`. Blocks only in enforce mode — observe/off log and proceed,
+    /// exactly like a would-deny.
+    ConfirmRequired,
 }
 
 impl Decision {
@@ -69,7 +82,7 @@ impl Decision {
     #[must_use]
     pub const fn denied(self) -> Option<DenyReason> {
         match self {
-            Self::Allow => None,
+            Self::Allow | Self::ConfirmRequired => None,
             Self::Deny(reason) => Some(reason),
         }
     }
@@ -109,6 +122,10 @@ pub enum GateOutcome {
     /// Blocked: `enforce` mode saw a denial. Carries the reason so the caller
     /// renders the transport-appropriate refusal.
     Blocked(DenyReason),
+    /// Held: `enforce` mode saw a confirm-required decision. The caller parks
+    /// the call for `/confirm`·`/deny` resolution and renders the
+    /// transport-appropriate confirmation ask.
+    ConfirmRequired,
 }
 
 /// Run the taint/budget/egress decision + atomic budget reserve for one
@@ -137,19 +154,33 @@ pub fn guardian_gate(
         labels,
         writes_data,
         |turn_state| guardian.decide(labels, writes_data, tenant, turn_state),
-        // Reserve budget when the call WILL run: on an allow, and on a would-deny
-        // in a non-blocking mode (observe/off execute anyway).
+        // Reserve budget when the call WILL run: on an allow, and on a
+        // would-deny/would-confirm in a non-blocking mode (observe/off execute
+        // anyway).
         |decision| matches!(decision, Decision::Allow) || !mode_blocks,
     );
-    if let Some(reason) = decision.denied() {
-        warn!(
-            tool_name = %tool_name,
-            reason = reason.as_str(),
-            mode = guardian.mode().as_str(),
-            "guardian flagged tool dispatch"
-        );
-        if mode_blocks {
-            return (GateOutcome::Blocked(reason), reserved);
+    match decision {
+        Decision::Allow => {}
+        Decision::Deny(reason) => {
+            warn!(
+                tool_name = %tool_name,
+                reason = reason.as_str(),
+                mode = guardian.mode().as_str(),
+                "guardian flagged tool dispatch"
+            );
+            if mode_blocks {
+                return (GateOutcome::Blocked(reason), reserved);
+            }
+        }
+        Decision::ConfirmRequired => {
+            warn!(
+                tool_name = %tool_name,
+                mode = guardian.mode().as_str(),
+                "guardian requires user confirmation for tool dispatch"
+            );
+            if mode_blocks {
+                return (GateOutcome::ConfirmRequired, reserved);
+            }
         }
     }
     (GateOutcome::Proceed, reserved)
@@ -222,10 +253,14 @@ impl Guardian {
                 // outbound send. Hard-deny — near-zero false positives.
                 return Decision::Deny(DenyReason::TaintedSink);
             }
-            if labels.is_irreversible()
-                && !matches!(self.policy.tainted_destructive, TaintedDestructive::Log)
-            {
-                return Decision::Deny(DenyReason::TaintedSink);
+            if labels.is_irreversible() {
+                match self.policy.tainted_destructive {
+                    TaintedDestructive::Log => {}
+                    TaintedDestructive::Confirm => return Decision::ConfirmRequired,
+                    TaintedDestructive::Deny => {
+                        return Decision::Deny(DenyReason::TaintedSink);
+                    }
+                }
             }
         }
 

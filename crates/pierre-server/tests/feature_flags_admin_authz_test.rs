@@ -43,6 +43,7 @@ use pierre_routes_admin::handlers::feature_flags::{
     handle_admin_set_tenant_default, SetFeatureFlagRequest,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use uuid::Uuid;
 
 /// Build a fully-wired [`AdminApiContext`] backed by a fresh test database,
@@ -67,6 +68,7 @@ async fn build_context() -> (
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),

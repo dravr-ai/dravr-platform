@@ -175,14 +175,30 @@ impl TurnState {
 #[derive(Debug)]
 pub struct GuardianTurns {
     inner: Mutex<Store>,
-    /// Most-recent enforce-mode denial per `(tenant, user)` headless key, set by
+    /// Most-recent enforce-mode block per `(tenant, user)` headless key, set by
     /// the dispatch chokepoint and consumed by the headless loop. A block that
     /// fires inside the Copilot ACP subprocess's `/mcp` loopback (a separate HTTP
     /// task) can't surface back through the subprocess, so the loop reads this to
-    /// render a deterministic refusal instead of letting the model paraphrase the
-    /// block (#10). Separate lock from `inner` — it is touched only on the rare
-    /// deny path and the headless turn boundaries, never on the hot allow path.
-    denials: Mutex<HashMap<TurnKey, DenyReason>>,
+    /// render a deterministic refusal or confirmation ask instead of letting the
+    /// model paraphrase it (#10). Separate lock from `inner` — it is touched only
+    /// on the rare block path and the headless turn boundaries, never on the hot
+    /// allow path.
+    blocks: Mutex<HashMap<TurnKey, HeadlessBlock>>,
+}
+
+/// A block the dispatch chokepoint recorded for the headless loop to render
+/// deterministically instead of the model's paraphrase.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeadlessBlock {
+    /// An enforce-mode denial (rendered as the localized denied reply).
+    Denied(DenyReason),
+    /// A parked confirm-required call (rendered as the confirmation prompt).
+    ConfirmRequired {
+        /// Registry identifier of the parked tool.
+        tool_name: String,
+        /// Opaque claim token the user resolves with `/confirm`·`/deny`.
+        pending_id: String,
+    },
 }
 
 /// Locked interior: the per-turn map plus the last stale-sweep time.
@@ -206,40 +222,40 @@ impl GuardianTurns {
                 map: HashMap::new(),
                 last_sweep: Instant::now(),
             }),
-            denials: Mutex::new(HashMap::new()),
+            blocks: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Record an enforce-mode denial under `key` (a `(tenant, user)` headless
-    /// key), so the headless loop can detect a block that occurred inside the ACP
-    /// subprocess's loopback (#10). Overwrites any prior unconsumed denial for the
+    /// Record an enforce-mode block under `key` (a `(tenant, user)` headless
+    /// key), so the headless loop can detect one that occurred inside the ACP
+    /// subprocess's loopback (#10). Overwrites any prior unconsumed block for the
     /// key. A poisoned lock is skipped — the turn then falls back to the model's
     /// paraphrase (today's behaviour), never a panic.
-    pub fn record_denial(&self, key: &TurnKey, reason: DenyReason) {
-        if let Ok(mut denials) = self.denials.lock() {
+    pub fn record_block(&self, key: &TurnKey, block: HeadlessBlock) {
+        if let Ok(mut blocks) = self.blocks.lock() {
             // Bound memory: only the headless loop consumes/clears entries, so a
             // chat/direct block whose user never runs a headless turn would linger.
             // Blocks are rare, so this cap is effectively unreachable; if it is hit
-            // the entries are abandoned anyway, and a dropped pending denial just
+            // the entries are abandoned anyway, and a dropped pending block just
             // falls back to the model's paraphrase (safe).
-            if denials.len() >= DENIAL_CAP {
-                denials.clear();
+            if blocks.len() >= DENIAL_CAP {
+                blocks.clear();
             }
-            denials.insert(key.clone(), reason);
+            blocks.insert(key.clone(), block);
         }
     }
 
-    /// Consume and return the denial recorded under `key`, if any.
+    /// Consume and return the block recorded under `key`, if any.
     #[must_use]
-    pub fn take_denial(&self, key: &TurnKey) -> Option<DenyReason> {
-        self.denials.lock().ok()?.remove(key)
+    pub fn take_block(&self, key: &TurnKey) -> Option<HeadlessBlock> {
+        self.blocks.lock().ok()?.remove(key)
     }
 
-    /// Drop any stale denial for `key` before a headless turn starts, so only a
-    /// denial raised during *this* turn's subprocess is later taken.
-    pub fn clear_denial(&self, key: &TurnKey) {
-        if let Ok(mut denials) = self.denials.lock() {
-            denials.remove(key);
+    /// Drop any stale block for `key` before a headless turn starts, so only a
+    /// block raised during *this* turn's subprocess is later taken.
+    pub fn clear_block(&self, key: &TurnKey) {
+        if let Ok(mut blocks) = self.blocks.lock() {
+            blocks.remove(key);
         }
     }
 

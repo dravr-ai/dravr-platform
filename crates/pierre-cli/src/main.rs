@@ -148,6 +148,12 @@ enum Command {
         action: StravaPoolCommand,
     },
 
+    /// Remote server settings (Guardian security policy, chat harness)
+    Settings {
+        #[command(subcommand)]
+        action: commands::settings::SettingsCommand,
+    },
+
     /// Tenant administration (set plan)
     Tenant {
         #[command(subcommand)]
@@ -744,6 +750,11 @@ async fn main() -> Result<()> {
     if let Command::StravaPool { action } = cli.command {
         return dispatch_strava_pool(action).await;
     }
+    // Settings shares the remote posture: GET/PUT against the admin-token
+    // twins of /admin/settings/{guardian,harness} with the cached login.
+    if let Command::Settings { action } = cli.command {
+        return commands::settings::dispatch(action).await;
+    }
 
     // Initialize two-tier key management system
     let (mut key_manager, database_encryption_key) = KeyManager::bootstrap()?;
@@ -785,6 +796,9 @@ async fn main() -> Result<()> {
         Command::Auth { .. } => unreachable!("Auth is handled in the early return above"),
         Command::StravaPool { .. } => {
             unreachable!("StravaPool is handled in the early return above")
+        }
+        Command::Settings { .. } => {
+            unreachable!("Settings is handled in the early return above")
         }
         Command::User { action } => match action {
             UserCommand::Create {

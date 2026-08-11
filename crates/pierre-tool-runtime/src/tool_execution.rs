@@ -24,7 +24,7 @@ use pierre_core::llm::tool_simulation;
 use pierre_core::tokens::estimate_chat_tokens;
 use tracing::{info, warn};
 
-use crate::guardian::{StepOutput, TurnKey};
+use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
 use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::registry::ToolRegistry;
@@ -212,6 +212,25 @@ pub struct ToolLoopResult {
     /// localized "blocked for safety" reply (`KEY_GUARDIAN_DENIED`). `None`
     /// when no tool was denied (always, in `observe`).
     pub guardian_denied: Option<GuardianDenial>,
+    /// The first tool the Guardian parked pending user confirmation this turn
+    /// (`TaintedDestructive::Confirm`, `enforce` mode only). The chat pipeline
+    /// short-circuits with the localized confirmation prompt
+    /// (`KEY_GUARDIAN_CONFIRM_PROMPT`) carrying the claim token.
+    pub guardian_confirm: Option<GuardianConfirmRequest>,
+}
+
+/// A tool call the Guardian parked pending `/confirm`·`/deny` resolution.
+///
+/// Surfaced out of the tool loop as an out-of-band signal (parallel to
+/// [`GuardianDenial`]) so the chat pipeline renders a deterministic,
+/// localized confirmation ask instead of letting the LLM paraphrase it.
+#[derive(Debug, Clone)]
+pub struct GuardianConfirmRequest {
+    /// Name of the parked tool (a static registry identifier — shown to the
+    /// user so consent is meaningful; arguments are never echoed).
+    pub tool_name: String,
+    /// Opaque claim token resolving the parked row.
+    pub pending_id: String,
 }
 
 // ============================================================================
@@ -361,6 +380,7 @@ pub async fn run_api_tool_loop(
                     responses: function_responses,
                     auth_required_provider,
                     guardian_denied,
+                    guardian_confirm,
                 } = execute_function_calls(
                     &params.executor,
                     function_calls,
@@ -392,6 +412,7 @@ pub async fn run_api_tool_loop(
                         tools_called,
                         pending_provider_auth_required: Some(provider),
                         guardian_denied: None,
+                        guardian_confirm: None,
                     });
                 }
 
@@ -409,6 +430,24 @@ pub async fn run_api_tool_loop(
                         tools_called,
                         pending_provider_auth_required: None,
                         guardian_denied: Some(denial),
+                        guardian_confirm: None,
+                    });
+                }
+
+                // Guardian confirm-required short-circuit (enforce mode): the
+                // chokepoint parked a destructive call; exit so the chat
+                // pipeline renders the deterministic confirmation ask.
+                if let Some(confirm) = guardian_confirm {
+                    return Ok(ToolLoopResult {
+                        content: String::new(),
+                        usage: Some(cumulative_usage),
+                        finish_reason: Some("guardian_confirm".to_owned()),
+                        activity_list: captured_activity_list,
+                        tool_calls_count,
+                        tools_called,
+                        pending_provider_auth_required: None,
+                        guardian_denied: None,
+                        guardian_confirm: Some(confirm),
                     });
                 }
 
@@ -469,6 +508,7 @@ pub async fn run_api_tool_loop(
                 responses: function_responses,
                 auth_required_provider,
                 guardian_denied,
+                guardian_confirm,
             } = execute_function_calls(
                 &params.executor,
                 &text_tool_calls,
@@ -491,6 +531,7 @@ pub async fn run_api_tool_loop(
                     tools_called,
                     pending_provider_auth_required: Some(provider),
                     guardian_denied: None,
+                    guardian_confirm: None,
                 });
             }
             if let Some(denial) = guardian_denied {
@@ -503,6 +544,20 @@ pub async fn run_api_tool_loop(
                     tools_called,
                     pending_provider_auth_required: None,
                     guardian_denied: Some(denial),
+                    guardian_confirm: None,
+                });
+            }
+            if let Some(confirm) = guardian_confirm {
+                return Ok(ToolLoopResult {
+                    content: String::new(),
+                    usage: Some(cumulative_usage),
+                    finish_reason: Some("guardian_confirm".to_owned()),
+                    activity_list: captured_activity_list,
+                    tool_calls_count,
+                    tools_called,
+                    pending_provider_auth_required: None,
+                    guardian_denied: None,
+                    guardian_confirm: Some(confirm),
                 });
             }
             let assistant_round_text =
@@ -544,6 +599,7 @@ pub async fn run_api_tool_loop(
             tools_called,
             pending_provider_auth_required: None,
             guardian_denied: None,
+            guardian_confirm: None,
         });
     }
 
@@ -562,6 +618,7 @@ pub async fn run_api_tool_loop(
         tools_called,
         pending_provider_auth_required: None,
         guardian_denied: None,
+        guardian_confirm: None,
     })
 }
 
@@ -725,6 +782,7 @@ pub async fn run_cli_tool_loop(
                 tools_called,
                 pending_provider_auth_required: None,
                 guardian_denied: None,
+                guardian_confirm: None,
             });
         }
 
@@ -742,6 +800,7 @@ pub async fn run_cli_tool_loop(
             responses: function_responses,
             auth_required_provider,
             guardian_denied,
+            guardian_confirm,
         } = execute_function_calls(
             &params.executor,
             &parsed_tool_calls,
@@ -769,6 +828,7 @@ pub async fn run_cli_tool_loop(
                 tools_called,
                 pending_provider_auth_required: Some(provider),
                 guardian_denied: None,
+                guardian_confirm: None,
             });
         }
 
@@ -785,6 +845,22 @@ pub async fn run_cli_tool_loop(
                 tools_called,
                 pending_provider_auth_required: None,
                 guardian_denied: Some(denial),
+                guardian_confirm: None,
+            });
+        }
+
+        // Guardian confirm-required short-circuit (mirror of the API loop).
+        if let Some(confirm) = guardian_confirm {
+            return Ok(ToolLoopResult {
+                content: String::new(),
+                usage: response.usage,
+                finish_reason: Some("guardian_confirm".to_owned()),
+                activity_list: captured_activity_list,
+                tool_calls_count,
+                tools_called,
+                pending_provider_auth_required: None,
+                guardian_denied: None,
+                guardian_confirm: Some(confirm),
             });
         }
 
@@ -827,6 +903,7 @@ pub async fn run_cli_tool_loop(
         tools_called,
         pending_provider_auth_required: None,
         guardian_denied: None,
+        guardian_confirm: None,
     })
 }
 
@@ -1160,6 +1237,7 @@ pub async fn execute_function_calls(
     let mut responses = Vec::with_capacity(function_calls.len());
     let mut auth_required_provider: Option<String> = None;
     let mut guardian_denied: Option<GuardianDenial> = None;
+    let mut guardian_confirm: Option<GuardianConfirmRequest> = None;
     for function_call in function_calls {
         info!(
             tool_name = %function_call.name,
@@ -1190,25 +1268,43 @@ pub async fn execute_function_calls(
         // `result.error_code`, so attacker-influenced tool output carrying
         // `{"error_code":"guardian_denied"}` cannot spuriously abort the turn
         // (S12: data-plane must not drive the control-plane). First to trip wins.
-        if guardian_denied.is_none() && !tool_response.success {
-            let blocked_by_guardian = tool_response
+        if guardian_denied.is_none() && guardian_confirm.is_none() && !tool_response.success {
+            let blocked_reason = tool_response
                 .metadata
                 .as_ref()
                 .and_then(|m| m.get("blocked_reason"))
-                .and_then(serde_json::Value::as_str)
-                == Some("guardian");
-            if blocked_by_guardian {
-                let reason = tool_response
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.get("guardian_reason"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("denied")
-                    .to_owned();
-                guardian_denied = Some(GuardianDenial {
-                    tool_name: function_call.name.clone(),
-                    reason,
-                });
+                .and_then(serde_json::Value::as_str);
+            match blocked_reason {
+                Some("guardian") => {
+                    let reason = tool_response
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.get("guardian_reason"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("denied")
+                        .to_owned();
+                    guardian_denied = Some(GuardianDenial {
+                        tool_name: function_call.name.clone(),
+                        reason,
+                    });
+                }
+                // A parked confirm-required call, stamped by the chokepoint's
+                // `guardian_confirm_response` — same operator-set channel, so
+                // the same S12 guarantee applies.
+                Some("guardian_confirm") => {
+                    if let Some(pending_id) = tool_response
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.get("pending_id"))
+                        .and_then(serde_json::Value::as_str)
+                    {
+                        guardian_confirm = Some(GuardianConfirmRequest {
+                            tool_name: function_call.name.clone(),
+                            pending_id: pending_id.to_owned(),
+                        });
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -1232,10 +1328,11 @@ pub async fn execute_function_calls(
 
         responses.push(func_response);
 
-        // P4: once the Guardian denies a tool in this batch, stop — do not
-        // execute the remaining siblings (they would commit side effects while
-        // the user is shown a "blocked" reply). The turn short-circuits anyway.
-        if guardian_denied.is_some() {
+        // P4: once the Guardian denies or parks a tool in this batch, stop —
+        // do not execute the remaining siblings (they would commit side
+        // effects while the user is shown a "blocked"/"confirm" reply). The
+        // turn short-circuits anyway.
+        if guardian_denied.is_some() || guardian_confirm.is_some() {
             break;
         }
     }
@@ -1243,6 +1340,7 @@ pub async fn execute_function_calls(
         responses,
         auth_required_provider,
         guardian_denied,
+        guardian_confirm,
     })
 }
 
@@ -1284,6 +1382,10 @@ pub struct ExecutedFunctionCalls {
     /// Travels separately from `responses` because the in-band denial would
     /// otherwise be fed back to the LLM as an ordinary failed tool result.
     pub guardian_denied: Option<GuardianDenial>,
+    /// The first tool the Guardian parked pending user confirmation, or
+    /// `None`. Same out-of-band contract as `guardian_denied`; the chat
+    /// pipeline renders the localized confirmation ask.
+    pub guardian_confirm: Option<GuardianConfirmRequest>,
 }
 
 /// Execute a single MCP tool call and return the response.
@@ -1431,18 +1533,33 @@ pub async fn run_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
-    let capabilities = params.provider.capabilities();
-
-    // Plan-then-verify (Phase 3): when enabled, the LLM emits a verified up-front
-    // plan instead of the interleaved ReAct loop. API/CLI providers only — the
-    // headless ACP loop owns its own tool loop inside the subprocess.
+    // Plan-then-verify (Phase 3): when armed, the LLM emits a verified up-front
+    // plan instead of the interleaved ReAct loop — for EVERY provider class,
+    // including SDK-tool-calling (Copilot ACP). The planner and synthesis calls
+    // are plain completions every provider serves, and a verified plan's steps
+    // dispatch through the UniversalExecutor chokepoint directly, so the ACP
+    // subprocess loop is simply bypassed while the mode is armed.
     {
         use crate::guardian::PlanMode;
         let plan_mode = params.executor.resources.guardian().policy().plan_mode;
-        if matches!(plan_mode, PlanMode::Enforce) && !capabilities.supports_sdk_tool_calling() {
+        if matches!(plan_mode, PlanMode::Enforce) {
             return run_planned_tool_loop(params, llm_messages).await;
         }
     }
+    run_react_tool_loop(params, llm_messages).await
+}
+
+/// Route one `ReAct` turn by provider capability: native function calling →
+/// API loop; SDK tool calling → headless (Copilot ACP) loop with retryable
+/// fallback; otherwise the text-simulation CLI loop. Also the degrade target
+/// when an armed planner emits an unparseable plan, so that fallback keeps
+/// the capability routing instead of forcing the API loop onto a provider
+/// that cannot serve it.
+async fn run_react_tool_loop(
+    params: &ToolLoopParams<'_>,
+    llm_messages: &mut Vec<ChatMessage>,
+) -> Result<ToolLoopResult, AppError> {
+    let capabilities = params.provider.capabilities();
 
     if capabilities.supports_function_calling() {
         run_api_tool_loop(params, llm_messages).await
@@ -1484,6 +1601,107 @@ fn guardian_plan_denied(reason: &str) -> ToolLoopResult {
             tool_name: "(plan)".to_owned(),
             reason: reason.to_owned(),
         }),
+        guardian_confirm: None,
+    }
+}
+
+/// Disposition of a model-emitted plan after parsing.
+enum ParsedPlan {
+    /// A parseable, within-cap plan — run it.
+    Run(Workflow),
+    /// Unparseable (weak-model artifact) — degrade to the `ReAct` loop.
+    Degrade,
+    /// Over the step cap (S15) — fail closed, no `ReAct` fallback.
+    TooLarge,
+}
+
+/// Parse the planner's JSON and log the disposition. Extracted from
+/// [`run_planned_tool_loop`] to keep that loop under the cognitive bar.
+fn parse_plan(plan_json: &str, model: &str) -> ParsedPlan {
+    use crate::guardian::PlanParseError;
+    match Workflow::from_json(plan_json) {
+        Ok(workflow) => ParsedPlan::Run(workflow),
+        Err(PlanParseError::Unparseable(error)) => {
+            warn!(
+                %error,
+                model,
+                "guardian plan: unparseable workflow JSON; degrading to the capability-routed ReAct loop"
+            );
+            ParsedPlan::Degrade
+        }
+        Err(PlanParseError::TooManySteps { steps, max }) => {
+            warn!(
+                steps,
+                max,
+                "guardian plan: over the step cap (S15); rejecting the turn (no ReAct fallback)"
+            );
+            ParsedPlan::TooLarge
+        }
+    }
+}
+
+/// Statically verify the frozen plan, returning the rejection result when the
+/// verifier refuses it (`None` = verified, execute). Extracted from
+/// [`run_planned_tool_loop`] to keep that loop under the cognitive bar.
+fn plan_rejection(workflow: &Workflow, params: &ToolLoopParams<'_>) -> Option<ToolLoopResult> {
+    use crate::guardian::{verify, VerifyOutcome};
+    let resources = &params.executor.resources;
+    let outcome = verify(
+        workflow,
+        resources.tool_registry().as_ref(),
+        resources.guardian().policy(),
+        Some(params.tenant_id.as_uuid()),
+    );
+    if let VerifyOutcome::Reject(reason) = outcome {
+        warn!(reason = ?reason, "guardian plan: REJECTED before execution");
+        return Some(guardian_plan_denied("plan_rejected"));
+    }
+    info!(
+        steps = workflow.steps.len(),
+        model = params.model,
+        "guardian plan: verified; executing frozen plan"
+    );
+    None
+}
+
+/// Map a mid-plan Guardian block into its short-circuit [`ToolLoopResult`]:
+/// a parked step (Confirm) renders the confirmation ask, a denial renders the
+/// block reply. Extracted from [`run_planned_tool_loop`] to keep that loop
+/// under the cognitive-complexity bar.
+fn plan_block_result(
+    block: PlanDenial,
+    tool_calls_count: u32,
+    tools_called: Vec<String>,
+) -> ToolLoopResult {
+    if let Some(pending_id) = block.pending_id {
+        return ToolLoopResult {
+            content: String::new(),
+            usage: None,
+            finish_reason: Some("guardian_confirm".to_owned()),
+            activity_list: None,
+            tool_calls_count,
+            tools_called,
+            pending_provider_auth_required: None,
+            guardian_denied: None,
+            guardian_confirm: Some(GuardianConfirmRequest {
+                tool_name: block.tool_name,
+                pending_id,
+            }),
+        };
+    }
+    ToolLoopResult {
+        content: String::new(),
+        usage: None,
+        finish_reason: Some("guardian_denied".to_owned()),
+        activity_list: None,
+        tool_calls_count,
+        tools_called,
+        pending_provider_auth_required: None,
+        guardian_denied: Some(GuardianDenial {
+            tool_name: block.tool_name,
+            reason: block.reason,
+        }),
+        guardian_confirm: None,
     }
 }
 
@@ -1532,8 +1750,8 @@ fn with_planner_prompt(messages: &[ChatMessage], planner_prompt: &str) -> Vec<Ch
 /// plan runs. Because the plan is fixed before any tool result is seen, a
 /// malicious result cannot inject a new tool call.
 ///
-/// Falls back to [`run_api_tool_loop`] when the model does not emit a parseable
-/// plan (graceful degrade for weaker models).
+/// Falls back to the capability-routed `ReAct` loop when the model does not
+/// emit a parseable plan (graceful degrade for weaker models).
 ///
 /// # Errors
 /// Returns error if the LLM plan/synthesis call fails or a verified plan hits an
@@ -1542,9 +1760,7 @@ pub async fn run_planned_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
-    use crate::guardian::{
-        planner_system_prompt, verify, PlanParseError, VerifyOutcome, Workflow, WorkflowExecutor,
-    };
+    use crate::guardian::{planner_system_prompt, WorkflowExecutor};
 
     // 1. Plan call — ask for the whole plan up front (no tool-calling needed).
     let plan_messages = with_planner_prompt(llm_messages, &planner_system_prompt());
@@ -1556,33 +1772,15 @@ pub async fn run_planned_tool_loop(
     //    An over-cap plan is the S15 cost-amplification vector → FAIL CLOSED
     //    (reject the turn); it must NOT drop to the unbudgeted ReAct loop, which
     //    would reopen exactly what the step cap closes.
-    let workflow = match Workflow::from_json(&plan_json) {
-        Ok(workflow) => workflow,
-        Err(PlanParseError::Unparseable(error)) => {
-            warn!(%error, "guardian plan: unparseable workflow JSON; falling back to ReAct loop");
-            return run_api_tool_loop(params, llm_messages).await;
-        }
-        Err(PlanParseError::TooManySteps { steps, max }) => {
-            warn!(
-                steps,
-                max,
-                "guardian plan: over the step cap (S15); rejecting the turn (no ReAct fallback)"
-            );
-            return Ok(guardian_plan_denied("plan_too_large"));
-        }
+    let workflow = match parse_plan(&plan_json, params.model) {
+        ParsedPlan::Run(workflow) => workflow,
+        ParsedPlan::Degrade => return run_react_tool_loop(params, llm_messages).await,
+        ParsedPlan::TooLarge => return Ok(guardian_plan_denied("plan_too_large")),
     };
 
     // 3. Verify the frozen plan before anything executes.
-    let resources = &params.executor.resources;
-    let outcome = verify(
-        &workflow,
-        resources.tool_registry().as_ref(),
-        resources.guardian().policy(),
-        Some(params.tenant_id.as_uuid()),
-    );
-    if let VerifyOutcome::Reject(reason) = outcome {
-        warn!(reason = ?reason, "guardian plan: REJECTED before execution");
-        return Ok(guardian_plan_denied("plan_rejected"));
+    if let Some(rejection) = plan_rejection(&workflow, params) {
+        return Ok(rejection);
     }
 
     // 4. Execute the verified plan (each call still passes the runtime Guardian).
@@ -1592,23 +1790,11 @@ pub async fn run_planned_tool_loop(
     let tools_called: Vec<String> = outputs.iter().map(|o| o.tool_name.clone()).collect();
     let tool_calls_count = u32::try_from(outputs.len()).unwrap_or(u32::MAX);
 
-    // S9: a runtime Guardian denial mid-plan short-circuits with a deterministic
-    // block reply — the denied step's JSON must NOT be fed to the synthesis LLM
-    // to paraphrase (the exact softened-refusal the guard exists to prevent).
-    if let Some(denial) = plan_denial {
-        return Ok(ToolLoopResult {
-            content: String::new(),
-            usage: None,
-            finish_reason: Some("guardian_denied".to_owned()),
-            activity_list: None,
-            tool_calls_count,
-            tools_called,
-            pending_provider_auth_required: None,
-            guardian_denied: Some(GuardianDenial {
-                tool_name: denial.tool_name,
-                reason: denial.reason,
-            }),
-        });
+    // S9: a runtime Guardian block mid-plan short-circuits with a deterministic
+    // reply — the blocked step's JSON must NOT be fed to the synthesis LLM to
+    // paraphrase (the exact softened-refusal the guard exists to prevent).
+    if let Some(block) = plan_denial {
+        return Ok(plan_block_result(block, tool_calls_count, tools_called));
     }
 
     // 5. Synthesis — feed the bound results back as evidence (never as new tool
@@ -1616,6 +1802,12 @@ pub async fn run_planned_tool_loop(
     append_plan_results(llm_messages, &outputs);
     let synth_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
     let synth_response = params.provider.complete(&synth_request).await?;
+    info!(
+        steps = workflow.steps.len(),
+        tools_called = tool_calls_count,
+        model = params.model,
+        "guardian plan: completed with synthesis"
+    );
 
     Ok(ToolLoopResult {
         content: synth_response.content,
@@ -1626,6 +1818,7 @@ pub async fn run_planned_tool_loop(
         tools_called,
         pending_provider_auth_required: None,
         guardian_denied: None,
+        guardian_confirm: None,
     })
 }
 
@@ -1730,13 +1923,13 @@ async fn run_headless_tool_loop(
 
     // Copilot Headless handles tool execution internally via ACP — and, when
     // mcp_servers are present, calls Dravr tools natively over those servers.
-    // #10: clear any stale denial for this (tenant, user) so only a block raised
+    // #10: clear any stale block for this (tenant, user) so only one raised
     // during THIS turn's ACP subprocess is surfaced by finalize_headless_turn.
     params
         .executor
         .resources
         .guardian_turns()
-        .clear_denial(&headless_denial_key(params));
+        .clear_block(&headless_denial_key(params));
 
     let call_start = Instant::now();
     let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
@@ -1866,18 +2059,35 @@ async fn finalize_headless_turn(
     }
 
     // #10: surface a Guardian block that fired inside the ACP subprocess's `/mcp`
-    // loopback as a deterministic denial (the chat pipeline renders it as the
-    // localized KEY_GUARDIAN_DENIED) instead of the model's paraphrase. Consumed
-    // once at the end of the turn — after any degenerate-turn retry.
-    let guardian_denied = params
+    // loopback as a deterministic reply (the chat pipeline renders the localized
+    // KEY_GUARDIAN_DENIED or KEY_GUARDIAN_CONFIRM_PROMPT) instead of the model's
+    // paraphrase. Consumed once at the end of the turn — after any
+    // degenerate-turn retry.
+    let (guardian_denied, guardian_confirm) = match params
         .executor
         .resources
         .guardian_turns()
-        .take_denial(&headless_denial_key(params))
-        .map(|reason| GuardianDenial {
-            tool_name: "(headless)".to_owned(),
-            reason: reason.as_str().to_owned(),
-        });
+        .take_block(&headless_denial_key(params))
+    {
+        Some(HeadlessBlock::Denied(reason)) => (
+            Some(GuardianDenial {
+                tool_name: "(headless)".to_owned(),
+                reason: reason.as_str().to_owned(),
+            }),
+            None,
+        ),
+        Some(HeadlessBlock::ConfirmRequired {
+            tool_name,
+            pending_id,
+        }) => (
+            None,
+            Some(GuardianConfirmRequest {
+                tool_name,
+                pending_id,
+            }),
+        ),
+        None => (None, None),
+    };
 
     Ok(ToolLoopResult {
         content,
@@ -1898,6 +2108,7 @@ async fn finalize_headless_turn(
         // above (keyed by this turn's (tenant, user)), so the headless path now
         // surfaces the same deterministic refusal every other transport does.
         guardian_denied,
+        guardian_confirm,
     })
 }
 

@@ -1197,6 +1197,7 @@ impl ProviderToolRouter {
                 admin_api_key_monthly_limit: admin_api_key_limit,
                 admin_token_cache_ttl_secs: admin_token_cache_ttl,
                 harness_config_registry: resources.fitness.harness_config_registry.clone(),
+                guardian_config_registry: resources.fitness.guardian_config_registry.clone(),
                 prompt_registry: resources.mcp.prompt_registry.clone(),
                 tool_description_registry: resources.mcp.tool_description_registry.clone(),
                 evidence_registry: resources.mcp.evidence_registry.clone(),

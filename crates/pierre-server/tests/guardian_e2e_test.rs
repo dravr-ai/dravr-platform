@@ -49,10 +49,9 @@ fn guardian_error_code(response: &UniversalResponse) -> Option<String> {
 
 #[tokio::test]
 async fn guardian_enforce_chokepoint_denies_irreversible_allows_reads_e2e() {
-    // Arrange enforce mode with a zero destructive budget BEFORE the Guardian
-    // policy singleton is first read (it initializes on the first tool dispatch).
-    // Set before the Guardian policy singleton is first read (single-threaded
-    // setup in this test's own process, before any tool dispatch).
+    // Arrange enforce mode with a zero destructive budget BEFORE the server
+    // resources are created — the guardian config registry captures the
+    // GUARDIAN_* env overrides once at construction.
     env::set_var("GUARDIAN_MODE", "enforce");
     env::set_var("GUARDIAN_MAX_DESTRUCTIVE_PER_TURN", "0");
 

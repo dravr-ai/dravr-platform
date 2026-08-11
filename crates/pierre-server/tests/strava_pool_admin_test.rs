@@ -25,6 +25,7 @@ use pierre_routes_admin::handlers::strava_pool::{
     handle_set_strava_pool_app_enabled, handle_upsert_strava_pool_app,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -48,6 +49,7 @@ async fn build_context() -> (
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
         admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
         tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
         evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),

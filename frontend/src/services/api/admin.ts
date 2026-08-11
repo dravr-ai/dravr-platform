@@ -1064,6 +1064,17 @@ export const adminApi = {
     return response.data;
   },
 
+  // ==================== GUARDIAN CONFIG ====================
+  async getGuardianConfig(): Promise<GuardianConfigResponse> {
+    const response = await axios.get('/api/admin/settings/guardian');
+    return response.data;
+  },
+
+  async putGuardianConfig(config: GuardianConfigDocument): Promise<GuardianConfigResponse> {
+    const response = await axios.put('/api/admin/settings/guardian', config);
+    return response.data;
+  },
+
   // ==================== TIER 5.5 CLAIM VERDICTS ====================
   async listClaimVerdicts(params: {
     tenant_id: string;
@@ -1344,16 +1355,92 @@ export interface HarnessGuardrailsConfig {
   locales: Record<string, LocaleGuardrails>;
 }
 
+/** Verification-stage (Stage 17) tunables. */
+export interface HarnessVerificationConfig {
+  /**
+   * Whether Stage 17 may call the live chat provider as the Layer-5 claim
+   * judge for claims the deterministic layers leave inconclusive. Off keeps
+   * production claim verification fully deterministic.
+   */
+  runtime_judge: boolean;
+}
+
 /** Top-level harness config document persisted under `system_settings`. */
 export interface HarnessConfigDocument {
   schema_version: number;
   compaction: HarnessCompactionConfig;
   guardrails: HarnessGuardrailsConfig;
+  /** Serde-defaulted server-side; absent on documents persisted before it existed. */
+  verification?: HarnessVerificationConfig;
 }
 
 /** Wire response wrapper for harness config GET / PUT. */
 export interface HarnessConfigResponse {
   config: HarnessConfigDocument;
+  source: 'persisted' | 'default';
+  updated_at: string | null;
+}
+
+/** Guardian enforcement mode wire form. */
+export type GuardianMode = 'off' | 'observe' | 'enforce';
+
+/** Severity for a destructive tool call in a tainted turn. */
+export type GuardianTaintedDestructive = 'log' | 'confirm' | 'deny';
+
+/** Plan-then-verify posture. */
+export type GuardianPlanMode = 'off' | 'enforce';
+
+/**
+ * External-send tenant allowlist wire form: the keyword `none` / `all`, or
+ * an explicit array of tenant UUIDs.
+ */
+export type GuardianExternalSend = 'none' | 'all' | string[];
+
+/**
+ * Guardian config document persisted under `system_settings.guardian_config`.
+ * Every policy field is optional — an unset field follows the compiled-in
+ * default (the server omits unset fields entirely on the wire).
+ */
+export interface GuardianConfigDocument {
+  schema_version: number;
+  mode?: GuardianMode | null;
+  max_destructive_per_turn?: number | null;
+  max_writes_per_turn?: number | null;
+  external_send?: GuardianExternalSend | null;
+  tainted_destructive?: GuardianTaintedDestructive | null;
+  plan_mode?: GuardianPlanMode | null;
+}
+
+/** Which resolution layer supplied a field: compiled default, DB doc, or env pin. */
+export type GuardianFieldSource = 'default' | 'database' | 'env';
+
+/** Per-field source map for the effective Guardian policy. */
+export interface GuardianFieldSources {
+  mode: GuardianFieldSource;
+  max_destructive_per_turn: GuardianFieldSource;
+  max_writes_per_turn: GuardianFieldSource;
+  external_send: GuardianFieldSource;
+  tainted_destructive: GuardianFieldSource;
+  plan_mode: GuardianFieldSource;
+}
+
+/** The policy actually enforcing right now (defaults ← config ← env). */
+export interface GuardianEffectivePolicy {
+  mode: GuardianMode;
+  max_destructive_per_turn: number;
+  max_writes_per_turn: number;
+  external_send: GuardianExternalSend;
+  tainted_destructive: GuardianTaintedDestructive;
+  plan_mode: GuardianPlanMode;
+}
+
+/** Wire response wrapper for guardian config GET / PUT. */
+export interface GuardianConfigResponse {
+  config: GuardianConfigDocument;
+  effective: GuardianEffectivePolicy;
+  sources: GuardianFieldSources;
+  /** Fields pinned by GUARDIAN_* env vars — edits persist but stay shadowed. */
+  env_pinned: string[];
   source: 'persisted' | 'default';
   updated_at: string | null;
 }

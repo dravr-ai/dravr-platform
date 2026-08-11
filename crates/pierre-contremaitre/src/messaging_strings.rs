@@ -62,6 +62,25 @@ pub const DEFAULT_LOCALE: &str = "fr";
 pub const KEY_ERROR_GENERIC: &str = "messaging.error.generic";
 /// Key: a tool action was blocked by the security guardian, user-facing denial.
 pub const KEY_GUARDIAN_DENIED: &str = "messaging.guardian.denied";
+
+/// Key: the guardian parked a destructive action pending user confirmation.
+/// Args: `{0}` tool name, `{1}` claim token.
+pub const KEY_GUARDIAN_CONFIRM_PROMPT: &str = "messaging.guardian.confirm_prompt";
+
+/// Key: a confirmed action executed successfully. Args: `{0}` tool name.
+pub const KEY_GUARDIAN_CONFIRM_DONE: &str = "messaging.guardian.confirm_done";
+
+/// Key: a confirmed action failed to execute. Args: `{0}` tool name.
+pub const KEY_GUARDIAN_CONFIRM_FAILED: &str = "messaging.guardian.confirm_failed";
+
+/// Key: the user denied a parked action. No format placeholders.
+pub const KEY_GUARDIAN_CONFIRM_DENIED: &str = "messaging.guardian.confirm_denied";
+
+/// Key: the parked action's confirmation window elapsed. No format placeholders.
+pub const KEY_GUARDIAN_CONFIRM_EXPIRED: &str = "messaging.guardian.confirm_expired";
+
+/// Key: no claimable pending action matches the given code. No format placeholders.
+pub const KEY_GUARDIAN_CONFIRM_NOT_FOUND: &str = "messaging.guardian.confirm_not_found";
 /// Key: LLM returned an empty reply, reformulation request.
 pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
 /// Key: reply withheld at the response boundary — the canary scan proved it
@@ -514,6 +533,26 @@ pub const KEY_COACH_ASSIGN_FORBIDDEN: &str = "commands.coach.assign_forbidden";
 pub const FR_ERROR_GENERIC: &str = "Dravr est temporairement indisponible. L'équipe a été notifiée — réessaie dans quelques minutes. (ref: {0})";
 /// French default for [`KEY_GUARDIAN_DENIED`]. No format placeholders.
 pub const FR_GUARDIAN_DENIED: &str = "Cette action a été bloquée par sécurité. Reformule ta demande ou réessaie sans le contexte précédent.";
+
+/// French default for [`KEY_GUARDIAN_CONFIRM_PROMPT`]. Args: `{0}` tool, `{1}` token.
+pub const FR_GUARDIAN_CONFIRM_PROMPT: &str = "Par sécurité, l'action {0} doit être confirmée avant de s'exécuter. Réponds /confirm {1} pour l'approuver ou /deny {1} pour l'annuler (expire dans 5 minutes).";
+
+/// French default for [`KEY_GUARDIAN_CONFIRM_DONE`]. Args: `{0}` tool.
+pub const FR_GUARDIAN_CONFIRM_DONE: &str = "C'est fait — l'action {0} a été exécutée.";
+
+/// French default for [`KEY_GUARDIAN_CONFIRM_FAILED`]. Args: `{0}` tool.
+pub const FR_GUARDIAN_CONFIRM_FAILED: &str = "L'action {0} a été confirmée mais son exécution a échoué. Reformule ta demande pour réessayer.";
+
+/// French default for [`KEY_GUARDIAN_CONFIRM_DENIED`]. No format placeholders.
+pub const FR_GUARDIAN_CONFIRM_DENIED: &str = "Compris — l'action a été annulée.";
+
+/// French default for [`KEY_GUARDIAN_CONFIRM_EXPIRED`]. No format placeholders.
+pub const FR_GUARDIAN_CONFIRM_EXPIRED: &str =
+    "Cette confirmation a expiré. Reformule ta demande pour relancer l'action.";
+
+/// French default for [`KEY_GUARDIAN_CONFIRM_NOT_FOUND`]. No format placeholders.
+pub const FR_GUARDIAN_CONFIRM_NOT_FOUND: &str =
+    "Aucune action en attente ne correspond à ce code. Elle a peut-être déjà été traitée.";
 /// French default for [`KEY_EMPTY_REPLY`].
 pub const FR_EMPTY_REPLY: &str =
     "Hmm, je n'ai pas réussi à formuler une réponse. Peux-tu reformuler ta question?";
@@ -734,6 +773,27 @@ pub(crate) const FR_COACH_ASSIGN_FORBIDDEN: &str =
 pub const EN_ERROR_GENERIC: &str = "Dravr is temporarily unavailable. The team has been notified — please try again in a few minutes. (ref: {0})";
 /// English default for [`KEY_GUARDIAN_DENIED`]. No format placeholders.
 pub const EN_GUARDIAN_DENIED: &str = "That action was blocked for safety. Try rephrasing your request, or retry without the earlier context.";
+
+/// English default for [`KEY_GUARDIAN_CONFIRM_PROMPT`]. Args: `{0}` tool, `{1}` token.
+pub const EN_GUARDIAN_CONFIRM_PROMPT: &str = "For safety, the action {0} needs your confirmation before it runs. Reply /confirm {1} to approve or /deny {1} to cancel (expires in 5 minutes).";
+
+/// English default for [`KEY_GUARDIAN_CONFIRM_DONE`]. Args: `{0}` tool.
+pub const EN_GUARDIAN_CONFIRM_DONE: &str = "Done — the action {0} has been executed.";
+
+/// English default for [`KEY_GUARDIAN_CONFIRM_FAILED`]. Args: `{0}` tool.
+pub const EN_GUARDIAN_CONFIRM_FAILED: &str =
+    "The action {0} was confirmed but failed to execute. Rephrase your request to try again.";
+
+/// English default for [`KEY_GUARDIAN_CONFIRM_DENIED`]. No format placeholders.
+pub const EN_GUARDIAN_CONFIRM_DENIED: &str = "Understood — the action has been cancelled.";
+
+/// English default for [`KEY_GUARDIAN_CONFIRM_EXPIRED`]. No format placeholders.
+pub const EN_GUARDIAN_CONFIRM_EXPIRED: &str =
+    "That confirmation has expired. Rephrase your request to run the action again.";
+
+/// English default for [`KEY_GUARDIAN_CONFIRM_NOT_FOUND`]. No format placeholders.
+pub const EN_GUARDIAN_CONFIRM_NOT_FOUND: &str =
+    "No pending action matches that code. It may already have been resolved.";
 /// English default for [`KEY_EMPTY_REPLY`].
 pub const EN_EMPTY_REPLY: &str =
     "Hmm, I couldn't put a reply together. Can you rephrase your question?";
@@ -943,6 +1003,14 @@ pub(crate) const EN_COACH_ASSIGN_FORBIDDEN: &str =
 
 pub(crate) const ES_ERROR_GENERIC: &str = "Dravr no está disponible temporalmente. El equipo ha sido notificado — inténtalo de nuevo en unos minutos. (ref: {0})";
 pub(crate) const ES_GUARDIAN_DENIED: &str = "Esa acción fue bloqueada por seguridad. Reformula tu solicitud o inténtalo de nuevo sin el contexto anterior.";
+pub(crate) const ES_GUARDIAN_CONFIRM_PROMPT: &str = "Por seguridad, la acción {0} necesita tu confirmación antes de ejecutarse. Responde /confirm {1} para aprobarla o /deny {1} para cancelarla (caduca en 5 minutos).";
+pub(crate) const ES_GUARDIAN_CONFIRM_DONE: &str = "Hecho — la acción {0} se ha ejecutado.";
+pub(crate) const ES_GUARDIAN_CONFIRM_FAILED: &str = "La acción {0} fue confirmada pero su ejecución falló. Reformula tu solicitud para intentarlo de nuevo.";
+pub(crate) const ES_GUARDIAN_CONFIRM_DENIED: &str = "Entendido — la acción ha sido cancelada.";
+pub(crate) const ES_GUARDIAN_CONFIRM_EXPIRED: &str =
+    "Esa confirmación ha caducado. Reformula tu solicitud para relanzar la acción.";
+pub(crate) const ES_GUARDIAN_CONFIRM_NOT_FOUND: &str =
+    "Ninguna acción pendiente coincide con ese código. Puede que ya se haya resuelto.";
 pub(crate) const ES_EMPTY_REPLY: &str =
     "Hmm, no pude armar una respuesta. ¿Puedes reformular tu pregunta?";
 pub(crate) const ES_REPLY_WITHHELD: &str = "Mi respuesta no salió — mezclaba detalles técnicos que no tienen lugar aquí. Envíame de nuevo tu último mensaje y retomamos donde estábamos.";
@@ -1143,6 +1211,13 @@ pub(crate) const ES_COACH_ASSIGN_FORBIDDEN: &str =
 
 pub(crate) const DE_ERROR_GENERIC: &str = "Dravr ist vorübergehend nicht verfügbar. Das Team wurde benachrichtigt — versuch es in ein paar Minuten erneut. (Ref: {0})";
 pub(crate) const DE_GUARDIAN_DENIED: &str = "Diese Aktion wurde aus Sicherheitsgründen blockiert. Formuliere deine Anfrage um oder versuch es ohne den vorherigen Kontext erneut.";
+pub(crate) const DE_GUARDIAN_CONFIRM_PROMPT: &str = "Aus Sicherheitsgründen muss die Aktion {0} bestätigt werden, bevor sie ausgeführt wird. Antworte /confirm {1} zum Bestätigen oder /deny {1} zum Abbrechen (läuft in 5 Minuten ab).";
+pub(crate) const DE_GUARDIAN_CONFIRM_DONE: &str = "Erledigt — die Aktion {0} wurde ausgeführt.";
+pub(crate) const DE_GUARDIAN_CONFIRM_FAILED: &str = "Die Aktion {0} wurde bestätigt, aber die Ausführung ist fehlgeschlagen. Formuliere deine Anfrage neu, um es erneut zu versuchen.";
+pub(crate) const DE_GUARDIAN_CONFIRM_DENIED: &str = "Verstanden — die Aktion wurde abgebrochen.";
+pub(crate) const DE_GUARDIAN_CONFIRM_EXPIRED: &str = "Diese Bestätigung ist abgelaufen. Formuliere deine Anfrage neu, um die Aktion erneut anzustoßen.";
+pub(crate) const DE_GUARDIAN_CONFIRM_NOT_FOUND: &str =
+    "Keine ausstehende Aktion passt zu diesem Code. Möglicherweise wurde sie bereits bearbeitet.";
 pub(crate) const DE_EMPTY_REPLY: &str =
     "Hmm, ich konnte keine Antwort formulieren. Kannst du deine Frage umformulieren?";
 pub(crate) const DE_REPLY_WITHHELD: &str = "Meine Antwort ging nicht raus — sie enthielt technische Details, die hier nicht hingehören. Schick mir deine letzte Nachricht noch einmal und wir machen dort weiter, wo wir waren.";
@@ -1343,6 +1418,15 @@ pub(crate) const DE_COACH_ASSIGN_FORBIDDEN: &str =
 
 pub(crate) const PT_ERROR_GENERIC: &str = "O Dravr está temporariamente indisponível. A equipa foi notificada — tenta de novo em alguns minutos. (ref: {0})";
 pub(crate) const PT_GUARDIAN_DENIED: &str = "Essa ação foi bloqueada por segurança. Reformula o teu pedido ou tenta de novo sem o contexto anterior.";
+pub(crate) const PT_GUARDIAN_CONFIRM_PROMPT: &str = "Por segurança, a ação {0} precisa da tua confirmação antes de ser executada. Responde /confirm {1} para aprovar ou /deny {1} para cancelar (expira em 5 minutos).";
+pub(crate) const PT_GUARDIAN_CONFIRM_DONE: &str = "Feito — a ação {0} foi executada.";
+pub(crate) const PT_GUARDIAN_CONFIRM_FAILED: &str =
+    "A ação {0} foi confirmada mas a execução falhou. Reformula o teu pedido para tentar de novo.";
+pub(crate) const PT_GUARDIAN_CONFIRM_DENIED: &str = "Entendido — a ação foi cancelada.";
+pub(crate) const PT_GUARDIAN_CONFIRM_EXPIRED: &str =
+    "Essa confirmação expirou. Reformula o teu pedido para relançar a ação.";
+pub(crate) const PT_GUARDIAN_CONFIRM_NOT_FOUND: &str =
+    "Nenhuma ação pendente corresponde a esse código. Talvez já tenha sido resolvida.";
 pub(crate) const PT_EMPTY_REPLY: &str =
     "Hmm, não consegui formular uma resposta. Podes reformular a tua pergunta?";
 pub(crate) const PT_REPLY_WITHHELD: &str = "A minha resposta não seguiu — misturava detalhes técnicos que não têm lugar aqui. Envia de novo a tua última mensagem e retomamos onde estávamos.";
@@ -1545,6 +1629,12 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── French (DEFAULT_LOCALE) ─────────────────────────────────────────
     (KEY_ERROR_GENERIC, "fr", FR_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "fr", FR_GUARDIAN_DENIED),
+    (KEY_GUARDIAN_CONFIRM_PROMPT, "fr", FR_GUARDIAN_CONFIRM_PROMPT),
+    (KEY_GUARDIAN_CONFIRM_DONE, "fr", FR_GUARDIAN_CONFIRM_DONE),
+    (KEY_GUARDIAN_CONFIRM_FAILED, "fr", FR_GUARDIAN_CONFIRM_FAILED),
+    (KEY_GUARDIAN_CONFIRM_DENIED, "fr", FR_GUARDIAN_CONFIRM_DENIED),
+    (KEY_GUARDIAN_CONFIRM_EXPIRED, "fr", FR_GUARDIAN_CONFIRM_EXPIRED),
+    (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "fr", FR_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "fr", FR_EMPTY_REPLY),
     (KEY_REPLY_WITHHELD, "fr", FR_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "fr", FR_GUARDRAIL_TOO_LONG),
@@ -1724,6 +1814,12 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_MORE, "en", EN_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "en", EN_GUARDIAN_DENIED),
+    (KEY_GUARDIAN_CONFIRM_PROMPT, "en", EN_GUARDIAN_CONFIRM_PROMPT),
+    (KEY_GUARDIAN_CONFIRM_DONE, "en", EN_GUARDIAN_CONFIRM_DONE),
+    (KEY_GUARDIAN_CONFIRM_FAILED, "en", EN_GUARDIAN_CONFIRM_FAILED),
+    (KEY_GUARDIAN_CONFIRM_DENIED, "en", EN_GUARDIAN_CONFIRM_DENIED),
+    (KEY_GUARDIAN_CONFIRM_EXPIRED, "en", EN_GUARDIAN_CONFIRM_EXPIRED),
+    (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "en", EN_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_REPLY_WITHHELD, "en", EN_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
@@ -1874,6 +1970,12 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_MORE, "es", ES_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "es", ES_GUARDIAN_DENIED),
+    (KEY_GUARDIAN_CONFIRM_PROMPT, "es", ES_GUARDIAN_CONFIRM_PROMPT),
+    (KEY_GUARDIAN_CONFIRM_DONE, "es", ES_GUARDIAN_CONFIRM_DONE),
+    (KEY_GUARDIAN_CONFIRM_FAILED, "es", ES_GUARDIAN_CONFIRM_FAILED),
+    (KEY_GUARDIAN_CONFIRM_DENIED, "es", ES_GUARDIAN_CONFIRM_DENIED),
+    (KEY_GUARDIAN_CONFIRM_EXPIRED, "es", ES_GUARDIAN_CONFIRM_EXPIRED),
+    (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "es", ES_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
     (KEY_REPLY_WITHHELD, "es", ES_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
@@ -2024,6 +2126,12 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_MORE, "de", DE_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "de", DE_GUARDIAN_DENIED),
+    (KEY_GUARDIAN_CONFIRM_PROMPT, "de", DE_GUARDIAN_CONFIRM_PROMPT),
+    (KEY_GUARDIAN_CONFIRM_DONE, "de", DE_GUARDIAN_CONFIRM_DONE),
+    (KEY_GUARDIAN_CONFIRM_FAILED, "de", DE_GUARDIAN_CONFIRM_FAILED),
+    (KEY_GUARDIAN_CONFIRM_DENIED, "de", DE_GUARDIAN_CONFIRM_DENIED),
+    (KEY_GUARDIAN_CONFIRM_EXPIRED, "de", DE_GUARDIAN_CONFIRM_EXPIRED),
+    (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "de", DE_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
     (KEY_REPLY_WITHHELD, "de", DE_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
@@ -2174,6 +2282,12 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_BACKFILL_LIST_MORE, "pt", PT_BACKFILL_LIST_MORE),
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "pt", PT_GUARDIAN_DENIED),
+    (KEY_GUARDIAN_CONFIRM_PROMPT, "pt", PT_GUARDIAN_CONFIRM_PROMPT),
+    (KEY_GUARDIAN_CONFIRM_DONE, "pt", PT_GUARDIAN_CONFIRM_DONE),
+    (KEY_GUARDIAN_CONFIRM_FAILED, "pt", PT_GUARDIAN_CONFIRM_FAILED),
+    (KEY_GUARDIAN_CONFIRM_DENIED, "pt", PT_GUARDIAN_CONFIRM_DENIED),
+    (KEY_GUARDIAN_CONFIRM_EXPIRED, "pt", PT_GUARDIAN_CONFIRM_EXPIRED),
+    (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "pt", PT_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
     (KEY_REPLY_WITHHELD, "pt", PT_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),

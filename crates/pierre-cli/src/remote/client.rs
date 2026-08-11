@@ -106,6 +106,19 @@ impl RemoteClient {
         Self::json_or_error(path, resp).await
     }
 
+    /// PUT JSON, requiring a 2xx; returns the parsed body.
+    ///
+    /// # Errors
+    /// Returns an error on transport failure or a non-2xx status.
+    pub async fn put_json<B: Serialize + Sync>(&self, path: &str, body: &B) -> AppResult<Value> {
+        let resp = self
+            .authed(self.http.put(self.url(path)).json(body))
+            .send()
+            .await
+            .map_err(|e| Self::transport_error(path, &e))?;
+        Self::json_or_error(path, resp).await
+    }
+
     /// PATCH JSON, requiring a 2xx; returns the parsed body.
     ///
     /// # Errors

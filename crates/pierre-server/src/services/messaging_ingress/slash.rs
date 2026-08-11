@@ -18,6 +18,7 @@ use pierre_auth::auth::AuthResult;
 use crate::mcp::resources::ServerContext;
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_services::channel_error_reply::ChannelErrorReply;
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::addressing::reply_recipient;
 use super::card_or_rich_text;
@@ -204,6 +205,7 @@ pub(super) async fn try_handle_slash_command(
     let handler_registry = resources.common.command_handler_registry.as_ref()?;
     let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
         Arc::<ServerContext>::clone(resources);
+    let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
 
     let outcome = match try_dispatch(DispatchRequest {
         ctx: &ctx_dyn,
@@ -218,6 +220,7 @@ pub(super) async fn try_handle_slash_command(
         conversation_tenant_id: conversation_tenant,
         sender_id: Some(sender_id),
         text,
+        tool_runtime: &tool_runtime,
     })
     .await
     {

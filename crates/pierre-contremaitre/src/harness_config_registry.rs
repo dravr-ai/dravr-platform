@@ -30,7 +30,7 @@ use pierre_core::config::CompactionConfig;
 
 use crate::harness_config_document::{
     HarnessCompactionConfig, HarnessConfigDocument, HarnessGuardrailsConfig,
-    HARNESS_CONFIG_SETTING_KEY,
+    HarnessVerificationConfig, HARNESS_CONFIG_SETTING_KEY,
 };
 use crate::text_guardrails::TextGuardrails;
 
@@ -59,6 +59,8 @@ pub struct HarnessConfigSnapshot {
     pub compaction: CompactionConfig,
     /// Runtime projection consumed by [`crate::text_guardrails::TextGuardrails::apply`].
     pub guardrails: Arc<TextGuardrails>,
+    /// Verification-stage tunables (`Copy`, read per turn by Stage 17).
+    pub verification: HarnessVerificationConfig,
     /// Where the snapshot was sourced from.
     pub source: HarnessConfigSource,
     /// When the snapshot was installed.
@@ -163,6 +165,13 @@ impl HarnessConfigRegistry {
         Arc::clone(&self.read().guardrails)
     }
 
+    /// Verification-stage config for the current snapshot. Returned by value
+    /// because [`HarnessVerificationConfig`] is `Copy`.
+    #[must_use]
+    pub fn current_verification(&self) -> HarnessVerificationConfig {
+        self.read().verification
+    }
+
     /// Replace the current snapshot with a fresh document.
     ///
     /// Called by the admin PUT handler after
@@ -193,10 +202,12 @@ fn build_snapshot(
 ) -> HarnessConfigSnapshot {
     let compaction = compaction_from(&document.compaction);
     let guardrails = Arc::new(guardrails_from(&document.guardrails));
+    let verification = document.verification;
     HarnessConfigSnapshot {
         document: Arc::new(document),
         compaction,
         guardrails,
+        verification,
         source,
         loaded_at: Utc::now(),
     }

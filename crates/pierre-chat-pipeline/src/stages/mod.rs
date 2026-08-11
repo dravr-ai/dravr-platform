@@ -34,6 +34,9 @@ pub mod compaction;
 /// check and the platform-rendered wrap-up.
 pub mod completion;
 pub mod followups;
+/// Guardian confirm-required recovery: short-circuit a turn with the
+/// localized confirmation ask when the Guardian parked a destructive call.
+pub mod guardian_confirm;
 /// Guardian-denied recovery: short-circuit a turn with a localized "blocked
 /// for safety" reply when the runtime Guardian blocked a tool in enforce mode.
 pub mod guardian_denied;

@@ -12,19 +12,19 @@ use crate::database::Database as SqliteDatabase;
 use crate::repositories::{
     A2ARepository, ActivityCacheRepository, AdminRepository, ApiKeyRepository, ChatRepository,
     ClaimVerdictRepository, CoachesRepository, CoachingGroupRepository, DataSourceRepository,
-    DossierRepository, FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
-    HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
-    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
-    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, PlaybookRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, ShortLinkRepository, SleepRepository, SocialRepository,
-    StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
-    ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
-    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
-    WorkoutTemplateRepository,
+    DossierRepository, FeatureFlagsRepository, FitnessConfigRepository,
+    GuardianPendingActionsRepository, HarnessMemoryRepository, HealthSnapshotRepository,
+    ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, MessagingRepository,
+    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, PlaybookRepository, PrescribedWorkoutRepository,
+    ProfileRepository, ProviderConnectionRepository, RecipeRepository, RecoveryRepository,
+    RosterRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
+    ShortLinkRepository, SleepRepository, SocialRepository, StoreListingsRepository,
+    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
+    TrainingHistoryRepository, TrainingPlanRepository, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
+    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
+    UserToolOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -155,6 +155,9 @@ pub struct RepositoryRegistry {
     /// Runtime feature-flag storage. Backs `/api/me/features` and the admin
     /// per-tenant/per-user toggle endpoints.
     pub feature_flags: Arc<dyn FeatureFlagsRepository>,
+    /// Guardian pending actions parked by `TaintedDestructive::Confirm`,
+    /// claimed single-use by the `/confirm` and `/deny` slash commands.
+    pub guardian_actions: Arc<dyn GuardianPendingActionsRepository>,
     /// Provider-agnostic activity cache. Backs stale-while-revalidate reads on
     /// the chat path so a slow scrape (Garmin/sciotte) or redundant API call
     /// never blocks a turn.
@@ -224,7 +227,8 @@ impl RepositoryRegistry {
             user_tier_overrides: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
-            feature_flags: db,
+            feature_flags: db.clone(),
+            guardian_actions: db,
         }
     }
 
@@ -288,7 +292,8 @@ impl RepositoryRegistry {
             user_tier_overrides: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
-            feature_flags: db,
+            feature_flags: db.clone(),
+            guardian_actions: db,
         }
     }
 }
