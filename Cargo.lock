@@ -1452,7 +1452,7 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=0082361321c7a64408ec5cf29eb9188214813143#0082361321c7a64408ec5cf29eb9188214813143"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=08acedd08af897a8a395a2e445bb6a3b56fd9009#08acedd08af897a8a395a2e445bb6a3b56fd9009"
 
 [[package]]
 name = "dravr-enforme"
