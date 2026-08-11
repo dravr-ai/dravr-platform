@@ -1,10 +1,10 @@
 # ABOUTME: llm-registre configuration — where this repo's limitation issues are filed
 # ABOUTME: The tracker is PRIVATE because this repo is public (see the gates' README)
 
-# dravr-ai/carnet is the private register shared by every project. This repo is
+# dravr-ai/dravr-carnet is the private register for the dravr-* family. This repo is
 # PUBLIC: a limitation issue states precisely where a defence is incomplete, so
 # it never goes on this repo's own tracker.
-tracker = "dravr-ai/carnet"
+tracker = "dravr-ai/dravr-carnet"
 
 # Every dark-launched feature must be ledgered here, so an unarmed phase always
 # carries a review date.

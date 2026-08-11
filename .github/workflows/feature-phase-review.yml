@@ -14,7 +14,7 @@ jobs:
   review:
     uses: dravr-ai/llm-registre/.github/workflows/feature-phase-review-reusable.yml@main
     with:
-      tracker: dravr-ai/carnet
+      tracker: dravr-ai/dravr-carnet
       repo_label: dravr-platform
       title_prefix: platform
     secrets:
