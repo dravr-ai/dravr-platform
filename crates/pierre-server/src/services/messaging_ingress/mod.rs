@@ -976,9 +976,11 @@ pub fn card_or_rich_text(
     } else {
         format!("**{title}**\n\n{body}")
     };
-    for action in &actions {
-        text.push_str(&format!("\n\n{}: {}", action.label, action.value));
-    }
+    let action_lines: String = actions
+        .iter()
+        .map(|action| format!("\n\n{}: {}", action.label, action.value))
+        .collect();
+    text.push_str(&action_lines);
     MessageContent::RichText { body: text }
 }
 
