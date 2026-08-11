@@ -40,7 +40,7 @@
 //! Islands training camps) or "XML" alone are legitimate coaching
 //! vocabulary and must pass through.
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, RwLock};
 
 /// Lowercase multiword vocabulary that marks a sentence as internal
 /// narration. Matched against the lowercased sentence, all five locales
@@ -661,6 +661,24 @@ const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "my tools are broken",
     "my tools are unavailable",
     "my tools are down",
+    // "not able to" mutations of the "can't/unable" family above, same
+    // anchoring ("if you're not able to access your Garmin account" is app
+    // help — the leading i/i'm keeps it out).
+    "i'm not able to access your data",
+    "i am not able to access your data",
+    "i'm not able to access your activities",
+    "i am not able to access your activities",
+    "i'm not able to fetch your",
+    "i am not able to fetch your",
+    "i'm not able to retrieve your",
+    "i am not able to retrieve your",
+    // Self-anchored connection excuse ("on my side/end"): the coach blaming
+    // its own connection is never legitimate coaching; "connection problem"
+    // alone (user wifi, watch sync) must pass.
+    "connection problem on my side",
+    "connection problem on my end",
+    "connection issue on my side",
+    "connection issue on my end",
     // English, third-person summary register — compaction summaries restate
     // the coach's failure as "the coach was unable to fetch the user's
     // data", which no first-person pattern sees. Anchored on "the user" so
@@ -707,6 +725,38 @@ const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "mes outils sont hors service",
     "mes outils ne répondent pas",
     "mes outils ne repondent pas",
+    // «être capable»/«arriver à» mutations — live incidents 2026-07-24 and
+    // 2026-08-11 («Je ne suis pas capable de récupérer tes activités en ce
+    // moment (problème de connexion de mon côté)»): the model rephrased the
+    // scrubbed «je ne peux pas» family and the mutation replayed for 18 days,
+    // re-teaching helplessness. «je ne suis/j'arrive» keeps the first-person
+    // anchor («si tu n'arrives pas à accéder à tes données dans l'appli» is
+    // app help and must pass); «tes données/activités» keeps the object
+    // anchor (— «à tes messages privés» is privacy reassurance).
+    "je ne suis pas capable de récupérer tes activités",
+    "je ne suis pas capable de recuperer tes activites",
+    "je ne suis pas capable de récupérer tes données",
+    "je ne suis pas capable de recuperer tes donnees",
+    "je ne suis pas capable d'accéder à tes données",
+    "je ne suis pas capable d'acceder a tes donnees",
+    "je ne suis pas capable d'accéder à tes activités",
+    "je ne suis pas capable d'acceder a tes activites",
+    "je ne suis pas capable d'aller chercher tes données",
+    "je ne suis pas capable d'aller chercher tes donnees",
+    "je n'arrive pas à récupérer tes activités",
+    "je n'arrive pas a recuperer tes activites",
+    "je n'arrive pas à récupérer tes données",
+    "je n'arrive pas a recuperer tes donnees",
+    "je n'arrive pas à accéder à tes données",
+    "je n'arrive pas a acceder a tes donnees",
+    "je n'arrive pas à accéder à tes activités",
+    "je n'arrive pas a acceder a tes activites",
+    // The fabricated excuse that rode along both incidents — «de mon côté»
+    // is the self-anchor: the coach blaming its own connection can never be
+    // legitimate coaching, while «problème de connexion» alone (the user's
+    // wifi, the watch's sync) must pass.
+    "problème de connexion de mon côté",
+    "probleme de connexion de mon cote",
     // Spanish — object-anchored («no tengo acceso a tus mensajes privados»
     // is privacy reassurance and must pass)
     "no tengo acceso a tus datos",
@@ -721,6 +771,17 @@ const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "mis herramientas no responden",
     "mis herramientas no están disponibles",
     "mis herramientas no estan disponibles",
+    // "no soy capaz" mutations + self-anchored connection excuse, mirroring
+    // the FR/EN families.
+    "no soy capaz de acceder a tus datos",
+    "no soy capaz de acceder a tus actividades",
+    "no soy capaz de recuperar tus datos",
+    "no soy capaz de recuperar tus actividades",
+    "no soy capaz de obtener tus datos",
+    "problema de conexión de mi lado",
+    "problema de conexion de mi lado",
+    "problema de conexión por mi parte",
+    "problema de conexion por mi parte",
     // German — ich-anchored pairs cover verb-second inversion ("leider kann
     // ich …"); object-anchored so password/privacy reassurance («ich habe
     // keinen Zugriff auf dein Garmin-Passwort») and third-party privacy
@@ -736,6 +797,14 @@ const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "meine werkzeuge funktionieren nicht",
     "meine tools sind nicht verfügbar",
     "meine tools sind nicht verfuegbar",
+    // "nicht in der Lage" mutations + self-anchored connection excuse. The
+    // separator fold keeps commas, so the standard comma-after-Lage form
+    // needs its own entry beside the comma-less one.
+    "nicht in der lage, auf deine daten zuzugreifen",
+    "nicht in der lage auf deine daten zuzugreifen",
+    "nicht in der lage, deine daten abzurufen",
+    "nicht in der lage deine daten abzurufen",
+    "verbindungsproblem auf meiner seite",
     // Portuguese — BR acessar + PT aceder, object-anchored («não consigo
     // aceder aos teus treinos privados — só vejo o que partilhas» is
     // privacy reassurance and must pass)
@@ -755,6 +824,20 @@ const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "minhas ferramentas nao funcionam",
     "minhas ferramentas não estão funcionando",
     "minhas ferramentas nao estao funcionando",
+    // "não sou capaz" mutations (BR acessar + PT aceder) + self-anchored
+    // connection excuse (BR conexão + PT ligação).
+    "não sou capaz de acessar os teus dados",
+    "nao sou capaz de acessar os teus dados",
+    "não sou capaz de acessar seus dados",
+    "nao sou capaz de acessar seus dados",
+    "não sou capaz de aceder aos teus dados",
+    "nao sou capaz de aceder aos teus dados",
+    "não sou capaz de recuperar os teus dados",
+    "nao sou capaz de recuperar os teus dados",
+    "problema de conexão do meu lado",
+    "problema de conexao do meu lado",
+    "problema de ligação do meu lado",
+    "problema de ligacao do meu lado",
 ];
 
 /// Separator-folded copy of [`INTERNAL_NARRATION_PATTERNS`], built once.
@@ -782,6 +865,178 @@ static FOLDED_IDENTITY: LazyLock<Vec<String>> = LazyLock::new(|| {
         .map(|p| fold_separators(p.text))
         .collect()
 });
+
+// ===========================================================================
+// Runtime vocabulary overlay (contremaitre-synced)
+// ===========================================================================
+
+/// Shortest folded pattern the overlay accepts, in characters. The whole
+/// apply is rejected below this — a typo'd two-word entry like «de mon»
+/// would scrub half of every French reply, and last-good-wins means a
+/// rejected overlay costs nothing.
+const OVERLAY_MIN_FOLDED_CHARS: usize = 10;
+
+/// Most entries one overlay class accepts — a runaway-file backstop far
+/// above any plausible vocabulary size (the compiled-in tables sit under
+/// 200 entries each).
+const OVERLAY_MAX_ENTRIES: usize = 500;
+
+/// Typed narration-vocabulary overlay.
+///
+/// The YAML lives in dravr-contremaitre (`config/narration.yaml`) and is
+/// parsed by `pierre-contremaitre`, which owns the platform's YAML tooling —
+/// this leaf crate only receives the typed lists.
+///
+/// Semantics are **additive**: entries extend the compiled-in tables, never
+/// replace them, so a new phrasing mutation observed in production can start
+/// matching on the next sync (≤60s) without a deploy — the incident cadence
+/// that motivated this (2026-07-22 → 07-23 → 07-24 → 08-11 was four
+/// deploy-gated pattern iterations). Each successful apply replaces the
+/// *previous overlay* wholesale, so removing a bad overlay entry is just a
+/// contremaitre edit too.
+#[derive(Debug, Clone, Default)]
+pub struct NarrationVocabOverlay {
+    /// Extends [`CAPABILITY_FAILURE_PATTERNS`]: replay scrub AND the
+    /// outbound [`contains_capability_failure`] boundary detector.
+    pub capability_failure: Vec<String>,
+    /// Extends [`INTERNAL_NARRATION_PATTERNS`]: outbound scrub and replay.
+    pub internal_narration: Vec<String>,
+    /// Extends the identity vocabulary on the REPLAY path only
+    /// ([`scrub_replayed_narration`]). Deliberately NOT the outbound
+    /// withhold: [`identity_leak_match`] carries negation-lookbehind and
+    /// class/locale/index telemetry semantics that plain strings cannot
+    /// express, so the withhold contract stays compiled-in.
+    pub identity: Vec<String>,
+}
+
+/// Entry counts a successful apply installed, for the sync log line.
+#[derive(Debug, Clone, Copy)]
+pub struct NarrationOverlayCounts {
+    /// Installed `capability_failure` entries.
+    pub capability_failure: usize,
+    /// Installed `internal_narration` entries.
+    pub internal_narration: usize,
+    /// Installed replay-only `identity` entries.
+    pub identity: usize,
+}
+
+/// One immutable, pre-folded overlay generation.
+#[derive(Default)]
+struct NarrationVocabSnapshot {
+    capability: Vec<String>,
+    internal: Vec<String>,
+    identity: Vec<String>,
+    sha256: Option<String>,
+}
+
+/// Registry holding the live overlay snapshot.
+///
+/// Mirrors the `GLOBAL_PRICING_REGISTRY` / `NOTIFY_ROUTING_PROVIDER` house
+/// pattern: the static lives in the leaf crate beside its consumers (the
+/// matchers below), the writer is the contremaitre sync engine in a higher
+/// crate. Swap is atomic (`Arc` behind an `RwLock`); a failed apply leaves
+/// the previous snapshot untouched (last-good-wins, like every other
+/// contremaitre overlay).
+pub struct NarrationVocabRegistry {
+    /// Current overlay generation. `Arc<RwLock>`-free: the registry itself
+    /// is a process-wide static, so the lock alone suffices.
+    snapshot: RwLock<Arc<NarrationVocabSnapshot>>,
+}
+
+impl NarrationVocabRegistry {
+    fn new() -> Self {
+        Self {
+            snapshot: RwLock::new(Arc::new(NarrationVocabSnapshot::default())),
+        }
+    }
+
+    /// Validate, fold, and atomically install `overlay`, recording `sha256`
+    /// (of the downloaded file) for the sync engine's skip check.
+    ///
+    /// # Errors
+    ///
+    /// Rejects the WHOLE overlay — keeping the previous snapshot live — when
+    /// any class exceeds [`OVERLAY_MAX_ENTRIES`] or any entry folds below
+    /// [`OVERLAY_MIN_FOLDED_CHARS`] characters: a half-installed vocabulary
+    /// would be harder to reason about than a rejected one.
+    pub fn apply_overlay(
+        &self,
+        overlay: &NarrationVocabOverlay,
+        sha256: String,
+    ) -> Result<NarrationOverlayCounts, String> {
+        let capability = fold_overlay_entries("capability_failure", &overlay.capability_failure)?;
+        let internal = fold_overlay_entries("internal_narration", &overlay.internal_narration)?;
+        let identity = fold_overlay_entries("identity", &overlay.identity)?;
+
+        let counts = NarrationOverlayCounts {
+            capability_failure: capability.len(),
+            internal_narration: internal.len(),
+            identity: identity.len(),
+        };
+        let next = Arc::new(NarrationVocabSnapshot {
+            capability,
+            internal,
+            identity,
+            sha256: Some(sha256),
+        });
+        self.snapshot.write().map_or_else(
+            |_| Err("narration vocabulary lock poisoned; overlay not installed".to_owned()),
+            |mut guard| {
+                *guard = next;
+                Ok(counts)
+            },
+        )
+    }
+
+    /// SHA-256 of the currently installed overlay file, or `None` before the
+    /// first successful apply. The sync engine compares this against the
+    /// manifest entry to skip an unchanged file.
+    #[must_use]
+    pub fn current_overlay_sha256(&self) -> Option<String> {
+        self.snapshot.read().ok().and_then(|s| s.sha256.clone())
+    }
+
+    /// Whether the already-folded sentence matches an overlay entry of the
+    /// given class. Read-lock per call: the scrub walks sentences through
+    /// `fn`-pointer matchers, so there is no seam to thread a snapshot
+    /// through — and an uncontended read lock is nanoseconds against the
+    /// milliseconds a chat turn costs.
+    fn matches(&self, folded: &str, class: impl Fn(&NarrationVocabSnapshot) -> &[String]) -> bool {
+        self.snapshot
+            .read()
+            .is_ok_and(|s| class(&s).iter().any(|p| folded.contains(p.as_str())))
+    }
+}
+
+/// Fold one overlay class, rejecting entries that would over-match.
+fn fold_overlay_entries(class: &str, entries: &[String]) -> Result<Vec<String>, String> {
+    if entries.len() > OVERLAY_MAX_ENTRIES {
+        return Err(format!(
+            "narration overlay class `{class}` has {} entries (max {OVERLAY_MAX_ENTRIES})",
+            entries.len()
+        ));
+    }
+    entries
+        .iter()
+        .map(|raw| {
+            let folded = fold_separators(raw);
+            if folded.chars().count() < OVERLAY_MIN_FOLDED_CHARS {
+                Err(format!(
+                    "narration overlay class `{class}` entry `{raw}` folds to fewer than \
+                     {OVERLAY_MIN_FOLDED_CHARS} characters and would over-match"
+                ))
+            } else {
+                Ok(folded)
+            }
+        })
+        .collect()
+}
+
+/// Process-wide narration-vocabulary overlay, seeded empty; the contremaitre
+/// sync engine installs downloaded generations via
+/// [`NarrationVocabRegistry::apply_overlay`].
+pub static GLOBAL_NARRATION_VOCAB: LazyLock<NarrationVocabRegistry> =
+    LazyLock::new(NarrationVocabRegistry::new);
 
 /// Telemetry label for a matched identity-leak pattern.
 ///
@@ -999,19 +1254,43 @@ impl NarrationScrub {
 /// vocabulary.
 fn matches_internal(folded: &str) -> bool {
     FOLDED_INTERNAL.iter().any(|p| folded.contains(p.as_str()))
+        || GLOBAL_NARRATION_VOCAB.matches(folded, |s| &s.internal)
 }
 
 /// `true` when the already-folded sentence carries model-identity vocabulary.
 fn matches_identity(folded: &str) -> bool {
     FOLDED_IDENTITY.iter().any(|p| folded.contains(p.as_str()))
+        || GLOBAL_NARRATION_VOCAB.matches(folded, |s| &s.identity)
 }
 
 /// `true` when the already-folded sentence carries capability-failure
-/// vocabulary.
+/// vocabulary — compiled-in table plus the runtime overlay.
 fn matches_capability(folded: &str) -> bool {
     FOLDED_CAPABILITY
         .iter()
         .any(|p| folded.contains(p.as_str()))
+        || GLOBAL_NARRATION_VOCAB.matches(folded, |s| &s.capability)
+}
+
+/// `true` when the reply anywhere claims the coach's own data access is
+/// broken.
+///
+/// Matches the [`CAPABILITY_FAILURE_PATTERNS`] vocabulary over the folded
+/// whole reply, the same way [`contains_identity_leak`] matches identity
+/// vocabulary.
+///
+/// This is the OUTBOUND detection twin of the replay-side scrub. The replay
+/// scrub stops yesterday's claim from teaching helplessness tomorrow; this
+/// predicate lets the response boundary catch today's claim while the turn
+/// is still open, so the pipeline can verify the claim against the provider
+/// and either re-ask with real data or hand the athlete a reconnect link
+/// (live incidents 2026-07-24/2026-08-11: the coach claimed «problème de
+/// connexion de mon côté» on turns where no tool was ever invoked and every
+/// provider was healthy). Detection only — the outbound scrub still never
+/// drops these sentences from a delivered reply.
+#[must_use]
+pub fn contains_capability_failure(text: &str) -> bool {
+    matches_capability(&fold_separators(text))
 }
 
 /// `true` when the sentence references internal scaffolding vocabulary.
@@ -1138,8 +1417,9 @@ pub fn scrub_replayed_narration(text: &str) -> NarrationScrub {
 #[cfg(test)]
 mod tests {
     use super::{
-        contains_identity_leak, identity_leak_match, scrub_internal_narration,
-        scrub_replayed_narration, IdentityLeakMatch, IdentityPatternClass,
+        contains_capability_failure, contains_identity_leak, identity_leak_match,
+        scrub_internal_narration, scrub_replayed_narration, IdentityLeakMatch,
+        IdentityPatternClass,
     };
 
     /// The three replies that reached the live user on 2026-07-10.
@@ -1404,6 +1684,96 @@ mod tests {
             // user — only history replay drops it.
             let outbound = scrub_internal_narration(incident);
             assert!(!outbound.fired(), "outbound must keep: {incident}");
+        }
+    }
+
+    /// Verbatim first sentences of the 2026-07-24 and 2026-08-11 live
+    /// incidents (Telegram, conversation e3c22580): the model mutated the
+    /// scrubbed «je ne peux pas» family into «je ne suis pas capable», the
+    /// mutation escaped the table, replayed for 18 days, and the 08-11 reply
+    /// came out a near-verbatim copy of the 07-24 one — with zero tool calls
+    /// and every sciotte scrape in the window green.
+    const CAPABILITY_LEAK_2026_07_24: &str =
+        "Je ne suis pas capable de récupérer tes activités en ce moment (problème de \
+         connexion de mon côté) — je ne veux pas inventer des chiffres.";
+    const CAPABILITY_LEAK_2026_08_11: &str =
+        "Je ne suis pas capable d'accéder à tes données d'activité en ce moment (problème \
+         de connexion de mon côté) — je ne veux pas inventer des chiffres sur ta sortie du \
+         10 juillet.";
+
+    #[test]
+    fn pas_capable_mutation_scrubbed_on_replay_but_kept_outbound() {
+        for incident in [CAPABILITY_LEAK_2026_07_24, CAPABILITY_LEAK_2026_08_11] {
+            let replay = scrub_replayed_narration(incident);
+            assert!(replay.fired(), "replay must drop: {incident}");
+            assert!(replay.cleaned.is_empty());
+            let outbound = scrub_internal_narration(incident);
+            assert!(!outbound.fired(), "outbound must keep: {incident}");
+        }
+    }
+
+    #[test]
+    fn outbound_detector_fires_on_the_live_incidents() {
+        for incident in [
+            CAPABILITY_LEAK_2026_07_24,
+            CAPABILITY_LEAK_2026_08_11,
+            CAPABILITY_LEAK_2026_07_22,
+            CAPABILITY_LEAK_2026_07_23,
+        ] {
+            assert!(
+                contains_capability_failure(incident),
+                "detector must fire on: {incident}"
+            );
+        }
+        // A clean coaching reply must not trip the boundary detector.
+        assert!(!contains_capability_failure(
+            "Sortie facile de 45 min aujourd'hui, puis bol de riz et tofu ce soir."
+        ));
+    }
+
+    #[test]
+    fn not_capable_family_detected_in_all_five_locales_on_replay() {
+        let fr = "Je n'arrive pas à récupérer tes données ce matin.";
+        let en = "I'm not able to fetch your latest rides right now.";
+        let es = "No soy capaz de acceder a tus datos en este momento.";
+        let de = "Ich bin leider nicht in der Lage, auf deine Daten zuzugreifen.";
+        let pt = "Não sou capaz de acessar os teus dados agora.";
+        for reply in [fr, en, es, de, pt] {
+            assert!(
+                scrub_replayed_narration(reply).fired(),
+                "replay should drop: {reply}"
+            );
+        }
+    }
+
+    #[test]
+    fn connection_excuse_is_self_anchored() {
+        // The coach blaming its own connection is scrubbed on replay in every
+        // locale…
+        for reply in [
+            "Petit problème de connexion de mon côté.",
+            "There's a connection problem on my end.",
+            "Hay un problema de conexión de mi lado.",
+            "Es gibt ein Verbindungsproblem auf meiner Seite.",
+            "Há um problema de conexão do meu lado.",
+        ] {
+            assert!(
+                scrub_replayed_narration(reply).fired(),
+                "replay should drop: {reply}"
+            );
+        }
+        // …while connection trouble on the ATHLETE's side is coaching content
+        // and must pass.
+        for reply in [
+            "Ta montre a un problème de connexion — vérifie le Bluetooth.",
+            "If Strava shows a connection problem, toggle airplane mode.",
+            "Si tu n'arrives pas à accéder à tes données dans l'appli Garmin, réinstalle-la.",
+            "If you're not able to access your Garmin account, tap 'Forgot password'.",
+        ] {
+            assert!(
+                !scrub_replayed_narration(reply).fired(),
+                "replay must keep: {reply}"
+            );
         }
     }
 

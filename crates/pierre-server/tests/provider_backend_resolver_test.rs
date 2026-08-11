@@ -890,6 +890,52 @@ async fn create_authenticated_provider_signals_reauth_for_dead_connection() {
     );
 }
 
+/// The drift case: a connection whose row still reads Active but whose token
+/// is gone must ALSO signal auth-required. Sciotte sessions never refresh, so
+/// no refresh failure ever flips their status — gating the tag on
+/// `needs_reauth` left the athlete a generic error instead of the reconnect
+/// link (live incident 2026-08-11). `Ok(None)` from the token lookup is
+/// definitive: (re)connecting is the only action that can fix it.
+#[tokio::test]
+async fn create_authenticated_provider_signals_reauth_for_active_but_tokenless_connection() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    // Registered and Active — but no token row is ever seeded.
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            oauth_providers::WHOOP,
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let auth_service = AuthService::new(runtime);
+    let tenant_str = tenant_id.to_string();
+    let response = auth_service
+        .create_authenticated_provider(oauth_providers::WHOOP, user_id, Some(&tenant_str))
+        .await
+        .err()
+        .expect("a tokenless connection must fail provider creation");
+
+    let signalled = response
+        .metadata
+        .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER).cloned());
+    assert_eq!(
+        signalled,
+        Some(json!(oauth_providers::WHOOP)),
+        "an Active-but-tokenless connection must still tag the auth-required provider"
+    );
+}
+
 // ============================================================================
 // Provider-connection consistency: symmetric disconnect + orphan reconciliation
 // ============================================================================

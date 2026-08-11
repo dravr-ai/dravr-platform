@@ -1,0 +1,482 @@
+// ABOUTME: Full-pipeline e2e for capability-failure recovery — a fabricated "can't access your data"
+// ABOUTME: reply is either re-asked away with verified data or replaced by the reconnect re-challenge
+
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! Regression guard for the live 2026-07-24 / 2026-08-11 Telegram incidents:
+//! the coach answered « Je ne suis pas capable d'accéder à tes données
+//! d'activité en ce moment (problème de connexion de mon côté) » on turns
+//! with **zero tool calls** while every scrape in the surrounding weeks was
+//! green. The fabricated apology reached the user, was persisted, and
+//! replayed — teaching the model its data access was broken.
+//!
+//! The capability-recovery stage adjudicates such a claim with one real
+//! read-only `get_activities` fetch:
+//!
+//! - fetch succeeds → the claim is disproven; one re-ask with the fetched
+//!   data replaces the apology (`fabricated_claim_with_working_provider…`).
+//! - fetch needs re-auth → the claim was right but useless; the auth-recovery
+//!   stage replaces it with the localized reconnect link so the athlete gets
+//!   an actionable re-challenge (`fabricated_claim_with_dead_provider…`).
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+mod common;
+mod helpers;
+
+#[cfg(feature = "client-messaging")]
+mod capability_recovery {
+    use crate::common::create_test_server_resources_with_llm;
+    use crate::helpers::axum_test::AxumTestRequest;
+    use async_trait::async_trait;
+    use axum::http::StatusCode;
+    use chrono::Utc;
+    use futures_util::stream;
+    use hmac::{Hmac, Mac};
+    use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
+    use pierre_core::errors::AppError;
+    use pierre_core::llm::{
+        ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
+        TokenUsage,
+    };
+    use pierre_core::models::ConnectionType;
+    use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus};
+    use pierre_core::permissions::UserRole;
+    use pierre_database::backends::{
+        CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
+    };
+    use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_mcp_server::routes::messaging::MessagingRoutes;
+    use serde_json::json;
+    use serial_test::serial;
+    use sha2::Sha256;
+    use std::env;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::task::spawn_blocking;
+    use tokio::time::sleep;
+    use uuid::Uuid;
+
+    /// The verbatim first sentence of the 2026-08-11 live incident.
+    const FABRICATED_CLAIM: &str =
+        "Je ne suis pas capable d'accéder à tes données d'activité en ce moment (problème de \
+         connexion de mon côté) — je ne veux pas inventer des chiffres.";
+
+    /// The clean coaching reply the re-ask must surface instead.
+    const CLEAN_REPLY: &str =
+        "Parfait — basé sur tes 5 dernières sorties: 45 min de vélo facile ce soir, bol de riz \
+         au tofu après.";
+
+    /// A substring of the stage's re-ask instruction; seeing it in the request
+    /// proves the verification data actually reached the wire.
+    const REASK_MARKER: &str = "fetched successfully on your behalf";
+
+    /// Deterministic provider reproducing the incident shape: the main turn
+    /// fabricates the access-failure apology; the recovery re-ask (recognised
+    /// by the instruction appended after the verified tool result) answers
+    /// cleanly, as the live model does once real data is in hand.
+    struct ClaimThenCleanMockProvider;
+
+    #[async_trait]
+    impl LlmProvider for ClaimThenCleanMockProvider {
+        fn name(&self) -> &'static str {
+            "claim_then_clean_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Claim-then-clean Mock LLM (capability-recovery e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let is_reask = request
+                .messages
+                .iter()
+                .any(|m| m.content.contains(REASK_MARKER));
+            let content = if is_reask {
+                CLEAN_REPLY
+            } else {
+                FABRICATED_CLAIM
+            };
+            Ok(ChatResponse {
+                content: content.to_owned(),
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 30,
+                    completion_tokens: 40,
+                    total_tokens: 70,
+                }),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            let chunk = StreamChunk {
+                delta: "streaming not used".to_owned(),
+                is_final: true,
+                finish_reason: Some("stop".to_owned()),
+            };
+            Ok(Box::pin(stream::iter(vec![Ok(chunk)])))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    /// Spawn a local stand-in for the `dravr-sciotte` scraper service: session
+    /// import always succeeds and the activity list serves one canned ride.
+    /// Returns the base URL for `DRAVR_SCIOTTE_REMOTE_URL`.
+    async fn spawn_mock_scraper() -> String {
+        use axum::routing::{get, post};
+        use axum::{Json, Router};
+        use tokio::net::TcpListener;
+
+        let app = Router::new()
+            .route(
+                "/auth/import-session",
+                post(|| async { Json(json!({ "session_id": "cap-verified-session" })) }),
+            )
+            .route(
+                "/api/athlete",
+                get(|| async { Json(json!({ "display_name": "Cap Tester" })) }),
+            )
+            .route(
+                "/api/activities",
+                get(|| async {
+                    Json(json!({
+                        "count": 1,
+                        "activities": [{
+                            "id": "15551234567",
+                            "name": "Sortie vélo matinale",
+                            "sport_type": "ride",
+                            "start_date": "2026-08-10T12:00:00Z",
+                            "duration_seconds": 2700,
+                            "provider": "strava",
+                            "distance_meters": 21000.0,
+                            "elevation_gain": 250.0
+                        }]
+                    }))
+                }),
+            );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    /// Seed a live sciotte scrape session the way the hosted login stores it:
+    /// a `UserOAuthToken` row whose `access_token` is the serialized
+    /// `AuthSession` (the provider deserializes it in `set_credentials`).
+    async fn seed_sciotte_session(
+        resources: &Arc<ServerContext>,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) {
+        let session_json = json!({
+            "session_id": "cap-verified-session",
+            "cookies": [{
+                "name": "_strava4_session",
+                "value": "test-cookie",
+                "domain": ".strava.com",
+                "path": "/",
+                "secure": true,
+                "http_only": true
+            }],
+            "created_at": Utc::now().to_rfc3339(),
+            "expires_at": (Utc::now() + chrono::Duration::hours(6)).to_rfc3339(),
+        })
+        .to_string();
+
+        let mut token = UserOAuthToken::new(
+            user_id,
+            tenant_id.to_string(),
+            "sciotte".to_owned(),
+            session_json,
+            None,
+            Some(Utc::now() + chrono::Duration::hours(6)),
+            None,
+        );
+        TOKEN_TYPE_SESSION.clone_into(&mut token.token_type);
+        resources
+            .common
+            .repos
+            .oauth_tokens
+            .upsert_token(&token)
+            .await
+            .expect("upsert sciotte session token");
+    }
+
+    /// Compute the Slack webhook signature (`v0=<hex-hmac-sha256>` over
+    /// `v0:{ts}:{body}`).
+    fn compute_slack_sig(secret: &str, timestamp: &str, body: &str) -> String {
+        let basestring = format!("v0:{timestamp}:{body}");
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(basestring.as_bytes());
+        format!("v0={}", hex::encode(mac.finalize().into_bytes()))
+    }
+
+    /// Seed an active admin user + tenant with a provider connection of the
+    /// caller's choice — `synthetic` serves activities in the test env (the
+    /// verified path); `sciotte` with no stored session is auth-dead (the
+    /// re-challenge path).
+    async fn create_user_with_connection(
+        resources: &Arc<ServerContext>,
+        email: &str,
+        provider: &str,
+        connection_type: &ConnectionType,
+    ) -> (Uuid, TenantId) {
+        let password_hash =
+            spawn_blocking(|| bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap())
+                .await
+                .unwrap();
+        let mut user = User::new(
+            email.to_owned(),
+            password_hash,
+            Some("Cap Admin".to_owned()),
+        );
+        user.is_admin = true;
+        user.role = UserRole::Admin;
+        user.user_status = UserStatus::Active;
+        user.approved_by = Some(user.id);
+        user.approved_at = Some(Utc::now());
+        let user_id = user.id;
+        resources.common.repos.users.create(&user).await.unwrap();
+
+        let tenant_id = TenantId::new();
+        let tenant = Tenant {
+            id: tenant_id,
+            name: format!("Cap Tenant {email}"),
+            slug: format!("cap-tenant-{tenant_id}"),
+            domain: None,
+            plan: "starter".to_owned(),
+            owner_user_id: user_id,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        resources
+            .common
+            .repos
+            .tenants
+            .create(&tenant)
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .users
+            .update_tenant_id(user_id, tenant_id)
+            .await
+            .unwrap();
+
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(user_id, tenant_id, provider, connection_type, None)
+            .await
+            .unwrap();
+
+        (user_id, tenant_id)
+    }
+
+    /// Wire a Slack channel + link for the user, post one inbound message, and
+    /// return once the webhook was accepted.
+    async fn drive_slack_turn(
+        resources: &Arc<ServerContext>,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        slack_sender_id: &str,
+        signing_secret: &str,
+        text: &str,
+    ) {
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            channel_type: "slack",
+            api_key: Some("xoxb-capability-recovery"),
+            api_secret: None,
+            webhook_secret: Some(signing_secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        })
+        .await
+        .unwrap();
+        db.create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: &user_id.to_string(),
+            channel_type: "slack",
+            channel_user_id: slack_sender_id,
+            display_name: Some("Cap Sender"),
+        })
+        .await
+        .unwrap();
+
+        let body = json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "user": slack_sender_id,
+                "text": text,
+                "channel": "C_CAPABILITY_RECOVERY",
+                "ts": "1700000005.000001"
+            }
+        })
+        .to_string();
+        let timestamp = Utc::now().timestamp().to_string();
+        let sig = compute_slack_sig(signing_secret, &timestamp, &body);
+
+        let router = MessagingRoutes::routes(Arc::clone(resources));
+        let resp = AxumTestRequest::post("/api/messaging/webhook/slack")
+            .header("content-type", "application/json")
+            .header("x-slack-request-timestamp", &timestamp)
+            .header("x-slack-signature", &sig)
+            .text(&body)
+            .send(router)
+            .await;
+        assert_eq!(resp.status_code(), StatusCode::OK);
+    }
+
+    /// Poll `chat_messages` until the pipeline persists an `assistant` row for
+    /// the tenant, then return its (already post-processed) content.
+    async fn wait_for_persisted_assistant_reply(
+        resources: &Arc<ServerContext>,
+        tenant_id: TenantId,
+    ) -> Option<String> {
+        let pool = resources
+            .coach
+            .database
+            .sqlite_pool()
+            .expect("test fixture runs against SQLite");
+        let tenant_str = tenant_id.to_string();
+
+        for _ in 0..150 {
+            let row: Option<(String,)> = sqlx::query_as(
+                "SELECT m.content \
+                 FROM chat_messages m \
+                 JOIN chat_conversations c ON m.conversation_id = c.id \
+                 WHERE c.tenant_id = ?1 AND m.role = 'assistant' \
+                 ORDER BY m.created_at DESC LIMIT 1",
+            )
+            .bind(&tenant_str)
+            .fetch_optional(pool)
+            .await
+            .unwrap();
+            if let Some((content,)) = row {
+                return Some(content);
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        None
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn fabricated_claim_with_working_provider_is_reasked_away() {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        let scraper_url = spawn_mock_scraper().await;
+        env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
+        env::remove_var("DRAVR_SCIOTTE_API_KEY");
+
+        let mock = Arc::new(ClaimThenCleanMockProvider);
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let (user_id, tenant_id) = create_user_with_connection(
+            &resources,
+            "capability-verified@example.com",
+            "sciotte",
+            &ConnectionType::Manual,
+        )
+        .await;
+        seed_sciotte_session(&resources, user_id, tenant_id).await;
+
+        drive_slack_turn(
+            &resources,
+            tenant_id,
+            user_id,
+            "U_CAP_VERIFIED",
+            "capability_verified_secret",
+            "Propose-moi une sortie basée sur mes activités récentes",
+        )
+        .await;
+
+        let reply = wait_for_persisted_assistant_reply(&resources, tenant_id)
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        assert!(
+            reply.contains("45 min"),
+            "the re-asked coaching reply must be the delivered/durable one, got: {reply:?}"
+        );
+        assert!(
+            !reply.contains("problème de connexion"),
+            "the fabricated access-failure claim must not survive a working provider, \
+             got: {reply:?}"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn fabricated_claim_with_dead_provider_becomes_a_reconnect_challenge() {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+
+        let mock = Arc::new(ClaimThenCleanMockProvider);
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        // A sciotte connection with no stored scrape session: the verification
+        // fetch fails auth-shaped, which must route to the reconnect link.
+        let (user_id, tenant_id) = create_user_with_connection(
+            &resources,
+            "capability-dead@example.com",
+            "sciotte",
+            &ConnectionType::Manual,
+        )
+        .await;
+
+        drive_slack_turn(
+            &resources,
+            tenant_id,
+            user_id,
+            "U_CAP_DEAD",
+            "capability_dead_secret",
+            "Propose-moi une sortie basée sur mon activité d'hier",
+        )
+        .await;
+
+        let reply = wait_for_persisted_assistant_reply(&resources, tenant_id)
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        // The localized re-challenge (FR default locale): imperative reconnect
+        // copy plus an actionable link — not the dead-end apology.
+        assert!(
+            reply.contains("Reconnecte"),
+            "the reply must be the localized reconnect re-challenge, got: {reply:?}"
+        );
+        assert!(
+            reply.contains("/r/"),
+            "the re-challenge must carry the shortened login link (test env base_url is \
+             relative; production prefixes the host), got: {reply:?}"
+        );
+        assert!(
+            !reply.contains("problème de connexion de mon côté"),
+            "the fabricated apology must not be the durable reply, got: {reply:?}"
+        );
+    }
+}

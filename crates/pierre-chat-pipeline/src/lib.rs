@@ -743,6 +743,25 @@ async fn run_recovery_and_post_process(
         };
     }
 
+    // Capability-failure verification: a reply claiming broken data access is
+    // adjudicated against one real read-only fetch BEFORE auth recovery runs,
+    // so a fetch that fails auth-shaped raises `pending_provider_auth_required`
+    // and lands on the same reconnect re-challenge a failed in-loop tool call
+    // does, while a fabricated claim is disproven and re-asked away with the
+    // fetched data attached (live incidents 2026-07-24/2026-08-11, where the
+    // coach claimed «problème de connexion de mon côté» on turns with zero
+    // tool calls against a healthy provider).
+    stages::capability_recovery::apply_capability_recovery(
+        stages::capability_recovery::CapabilityRecoveryDeps {
+            ctx,
+            llm_messages,
+            active_model,
+        },
+        input,
+        result,
+    )
+    .await;
+
     let recovery_dispatched = AtomicBool::new(false);
     let recovery_active = stages::auth_recovery::apply_auth_recovery(
         stages::auth_recovery::AuthRecoveryDeps {

@@ -46,6 +46,8 @@ pub mod harness_config_registry;
 pub mod manifest;
 /// Hot-reloadable user-facing messaging strings (channel replies, errors)
 pub mod messaging_strings;
+/// Hot-reloadable narration-vocabulary overlay feeding `pierre_core::narration`
+pub mod narration_vocab;
 /// Hot-reloadable per-event Slack routing rules for `dravr-tronc::notify`
 pub mod notify_routing;
 /// Hot-reloadable coaching-persona contract registry — populated by the sync engine.

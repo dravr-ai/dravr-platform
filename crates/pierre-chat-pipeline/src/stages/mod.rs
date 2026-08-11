@@ -26,6 +26,9 @@
 pub mod acronym_expansion;
 /// Re-auth recovery: short-circuit a turn with a hosted-login URL.
 pub mod auth_recovery;
+/// Capability-failure recovery: verify a "my data access is broken" claim
+/// with a real fetch, then re-ask with the data or route to re-auth.
+pub mod capability_recovery;
 pub mod compaction;
 /// Deterministic completion for the calibration interview — the facts-landed
 /// check and the platform-rendered wrap-up.

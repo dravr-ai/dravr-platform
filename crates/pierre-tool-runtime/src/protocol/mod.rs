@@ -19,4 +19,7 @@ pub mod types;
 
 pub use auth::AuthService;
 pub use executor::UniversalExecutor;
-pub use types::{UniversalRequest, UniversalResponse, UniversalTool, UniversalToolExecutor};
+pub use types::{
+    UniversalRequest, UniversalResponse, UniversalTool, UniversalToolExecutor,
+    META_AUTH_REQUIRED_PROVIDER,
+};

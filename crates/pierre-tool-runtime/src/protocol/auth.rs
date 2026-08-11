@@ -14,7 +14,7 @@ use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_config::environment::get_oauth_config;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client;
-use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
+use pierre_core::models::{TenantId, UserOAuthToken};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::models::NotificationCategory;
 #[cfg(feature = "client-notifications")]
@@ -466,27 +466,6 @@ impl AuthService {
         }
     }
 
-    /// Whether the user's connection for `provider` is flipped to `needs_reauth`/`revoked`.
-    ///
-    /// Reads the persisted `provider_connections.status`. Best-effort: a read failure
-    /// returns `false` so a DB blip never spuriously short-circuits a turn.
-    async fn connection_needs_reauth(
-        &self,
-        user_id: Uuid,
-        tenant_id: Option<&str>,
-        provider: &str,
-    ) -> bool {
-        let tenant = tenant_id.and_then(|t| t.parse::<TenantId>().ok());
-        let connections = self
-            .resources
-            .repos()
-            .provider_connections
-            .get_for_user(user_id, tenant)
-            .await
-            .unwrap_or_default();
-        connection_needs_reauth(&connections, provider)
-    }
-
     /// Create authenticated provider with proper tenant-aware credentials
     /// Returns configured provider ready for API calls
     ///
@@ -541,34 +520,42 @@ impl AuthService {
                     .await
             }
             Ok(None) => {
-                // Report the failure in terms of the user-facing provider
-                // so the LLM never mentions "sciotte" in an error it
-                // forwards to the user.
+                // The error STRING reports the user-facing provider so the
+                // LLM never mentions "sciotte" in text it forwards to the
+                // user.
                 let user_facing = backend_resolver::user_facing_name(provider_name);
-                // When the connection died non-recoverably (needs_reauth), tag the response
-                // with the auth-required provider so the chat tool loop short-circuits the
-                // turn and the auth_recovery stage renders a localized reconnect message +
-                // minted OAuth link — instead of letting the LLM rephrase a generic error.
-                let metadata = if self
-                    .connection_needs_reauth(user_id, tenant_id, provider_name)
-                    .await
-                {
-                    let mut map = HashMap::new();
-                    map.insert(
-                        META_AUTH_REQUIRED_PROVIDER.to_owned(),
-                        JsonValue::String(user_facing.to_owned()),
-                    );
-                    Some(map)
-                } else {
-                    None
-                };
+                // No usable token and nothing left to refresh: whatever the
+                // connection row's status says, (re)connecting is the only
+                // action that can fix this. The tag is unconditional because
+                // gating it on a `needs_reauth` status missed the drift case
+                // where the row still reads Active but the token/session is
+                // gone — sciotte sessions never refresh, so no refresh
+                // failure ever flips their status (live incident 2026-08-11:
+                // the athlete's dead scrape session produced a generic error
+                // and never the reconnect link). The tag makes the chat tool
+                // loop short-circuit so auth_recovery renders a localized
+                // reconnect message + minted login link instead of letting
+                // the LLM rephrase a generic error.
+                //
+                // The tag carries the BACKEND slug, never the user-facing
+                // name: auth_recovery branches on `sciotte`/`sciotte_garmin`
+                // to pick the hosted-login mint over the OAuth mint, and the
+                // metadata never reaches the LLM (`FunctionResponse` drops
+                // it), so there is nothing to sanitise. Tagging "strava" for
+                // a dead sciotte session sent the athlete to a Strava OAuth
+                // flow their tenant may not even have credentials for.
+                let mut map = HashMap::new();
+                map.insert(
+                    META_AUTH_REQUIRED_PROVIDER.to_owned(),
+                    JsonValue::String(provider_name.to_owned()),
+                );
                 Err(UniversalResponse {
                     success: false,
                     result: None,
                     error: Some(format!(
                         "No valid {user_facing} token found. Please reconnect your {user_facing} account."
                     )),
-                    metadata,
+                    metadata: Some(map),
                 })
             }
             Err(e) => Err(UniversalResponse {

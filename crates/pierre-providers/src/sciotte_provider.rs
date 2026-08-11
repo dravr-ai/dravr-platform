@@ -114,6 +114,22 @@ impl SciotteProvider {
     fn auth_required_no_session(&self) -> AppError {
         AppError::provider_auth_required(self.provider_name)
     }
+
+    /// Re-tag an auth-shaped remote-service error with this backend's
+    /// provider name.
+    ///
+    /// The remote client only knows the generic `sciotte` slug — it can't
+    /// tell which backend (`sciotte` vs `sciotte_garmin`) owns the session,
+    /// and the reconnect link minted downstream branches on that name to
+    /// pick the hosted-login target. Without the re-tag, a dead
+    /// `sciotte_garmin` session would send the athlete to a Strava login.
+    fn tag_remote_auth(&self, e: AppError) -> AppError {
+        if e.provider_auth_required_provider().is_some() {
+            AppError::provider_auth_required(self.provider_name)
+        } else {
+            e
+        }
+    }
 }
 
 /// Direct sciotte → cageux `SportType` conversion. Both enums share variant
@@ -309,7 +325,10 @@ impl FitnessProvider for SciotteProvider {
                 SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
             )
             .await?;
-        let profile = remote.get_athlete(&session.session_id).await?;
+        let profile = remote
+            .get_athlete(&session.session_id)
+            .await
+            .map_err(|e| self.tag_remote_auth(e))?;
         let display_name = profile
             .display_name
             .clone()
@@ -364,7 +383,10 @@ impl FitnessProvider for SciotteProvider {
                 SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
             )
             .await?;
-        let sciotte_activities = remote.get_activities(&session.session_id, &query).await?;
+        let sciotte_activities = remote
+            .get_activities(&session.session_id, &query)
+            .await
+            .map_err(|e| self.tag_remote_auth(e))?;
         let activities: Vec<Activity> = sciotte_activities.iter().map(convert_activity).collect();
         info!(
             count = activities.len(),
@@ -404,7 +426,10 @@ impl FitnessProvider for SciotteProvider {
                 SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
             )
             .await?;
-        let sciotte_activity = remote.get_activity(&session.session_id, id).await?;
+        let sciotte_activity = remote
+            .get_activity(&session.session_id, id)
+            .await
+            .map_err(|e| self.tag_remote_auth(e))?;
         Ok(convert_activity(&sciotte_activity))
     }
 

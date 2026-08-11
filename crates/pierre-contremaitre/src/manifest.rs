@@ -133,6 +133,15 @@ pub struct ManifestConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub notify_routing: Option<ManifestEntry>,
+    /// Narration-vocabulary overlay consumed by
+    /// `pierre_core::narration::GLOBAL_NARRATION_VOCAB`. Additive pattern
+    /// vocabulary for the reply scrubs and the capability-failure boundary
+    /// detector, so a phrasing mutation observed live starts matching on
+    /// the next sync tick — no platform redeploy (the 2026-07/08 incident
+    /// class took four deploy-gated pattern iterations). Absent from the
+    /// manifest = compiled-in tables only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narration: Option<ManifestEntry>,
 }
 
 /// A single prompt entry in the manifest.

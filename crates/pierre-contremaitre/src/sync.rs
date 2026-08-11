@@ -14,6 +14,7 @@ use super::errors::ContremaitreError;
 use super::evidence_registry::{parse_evidence_markdown, EvidenceRegistry};
 use super::manifest::{compute_sha256, ManifestConfig, ManifestEntry};
 use super::messaging_strings::MessagingStringsRegistry;
+use super::narration_vocab;
 use super::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use super::registry::PromptRegistry;
 use super::store::{PromptStore, StoredFile};
@@ -25,6 +26,70 @@ use crate::persona_contracts::PersonaContractRegistry;
 /// evidence tree. Aliased to keep [`sync_all_evidence`] and
 /// [`sync_changed_evidence`] signatures under the `type_complexity` threshold.
 type EvidenceTree = HashMap<String, HashMap<String, HashMap<String, ManifestEntry>>>;
+
+/// Sum per-section results into the run's total.
+fn total_sync_result(sections: &[&SyncResult]) -> SyncResult {
+    SyncResult {
+        synced: sections.iter().map(|s| s.synced).sum(),
+        skipped: sections.iter().map(|s| s.skipped).sum(),
+        failed: sections.iter().map(|s| s.failed).sum(),
+    }
+}
+
+/// Per-section results for the `manifest.config` overlay family, so the two
+/// entry points aggregate one bundle instead of four inline awaits each.
+struct ConfigOverlayResults {
+    cageux: SyncResult,
+    contracts: SyncResult,
+    notify_routing: SyncResult,
+    narration: SyncResult,
+}
+
+/// Sync every `manifest.config` overlay (full-sync path). None of these can
+/// fail the run — each section is last-good-wins on its own registry.
+async fn sync_config_overlays(
+    cageux_config_registry: &CageuxConfigRegistry,
+    persona_contract_registry: &PersonaContractRegistry,
+    store: &dyn PromptStore,
+    config: &ManifestConfig,
+) -> ConfigOverlayResults {
+    ConfigOverlayResults {
+        cageux: sync_cageux_config(cageux_config_registry, store, config).await,
+        contracts: sync_persona_contracts(persona_contract_registry, store, config).await,
+        notify_routing: sync_notify_routing(&NOTIFY_ROUTING_PROVIDER, store, config).await,
+        narration: sync_narration_vocab(store, config).await,
+    }
+}
+
+/// Sync the `manifest.config` overlays whose paths appear in `changed_set`
+/// (selective / webhook sync path).
+async fn sync_changed_config_overlays(
+    cageux_config_registry: &CageuxConfigRegistry,
+    persona_contract_registry: &PersonaContractRegistry,
+    store: &dyn PromptStore,
+    config: &ManifestConfig,
+    changed_set: &HashSet<&str>,
+) -> ConfigOverlayResults {
+    ConfigOverlayResults {
+        cageux: sync_changed_cageux_config(cageux_config_registry, store, config, changed_set)
+            .await,
+        contracts: sync_changed_persona_contracts(
+            persona_contract_registry,
+            store,
+            config,
+            changed_set,
+        )
+        .await,
+        notify_routing: sync_changed_notify_routing(
+            &NOTIFY_ROUTING_PROVIDER,
+            store,
+            config,
+            changed_set,
+        )
+        .await,
+        narration: sync_changed_narration_vocab(store, config, changed_set).await,
+    }
+}
 
 /// Results of a sync operation.
 #[derive(Debug, Clone)]
@@ -361,43 +426,28 @@ pub async fn full_sync(
     let tool_result =
         sync_all_tool_descriptions(tool_desc_registry, store, &manifest.tools.0).await?;
     let evidence_result = sync_all_evidence(evidence_registry, store, &manifest.evidence.0).await?;
-    let cageux_result = sync_cageux_config(cageux_config_registry, store, &manifest.config).await;
-    let contracts_result =
-        sync_persona_contracts(persona_contract_registry, store, &manifest.config).await;
     let strings_result =
         sync_all_messaging_strings(messaging_strings_registry, store, &manifest.strings.0).await?;
-    let notify_routing_result =
-        sync_notify_routing(&NOTIFY_ROUTING_PROVIDER, store, &manifest.config).await;
+    let overlays = sync_config_overlays(
+        cageux_config_registry,
+        persona_contract_registry,
+        store,
+        &manifest.config,
+    )
+    .await;
 
-    let result = SyncResult {
-        synced: system_result.synced
-            + coach_result.synced
-            + persona_result.synced
-            + tool_result.synced
-            + evidence_result.synced
-            + cageux_result.synced
-            + contracts_result.synced
-            + strings_result.synced
-            + notify_routing_result.synced,
-        skipped: system_result.skipped
-            + coach_result.skipped
-            + persona_result.skipped
-            + tool_result.skipped
-            + evidence_result.skipped
-            + cageux_result.skipped
-            + contracts_result.skipped
-            + strings_result.skipped
-            + notify_routing_result.skipped,
-        failed: system_result.failed
-            + coach_result.failed
-            + persona_result.failed
-            + tool_result.failed
-            + evidence_result.failed
-            + cageux_result.failed
-            + contracts_result.failed
-            + strings_result.failed
-            + notify_routing_result.failed,
-    };
+    let result = total_sync_result(&[
+        &system_result,
+        &coach_result,
+        &persona_result,
+        &tool_result,
+        &evidence_result,
+        &overlays.cageux,
+        &overlays.contracts,
+        &strings_result,
+        &overlays.notify_routing,
+        &overlays.narration,
+    ]);
 
     info!(
         synced = result.synced,
@@ -406,10 +456,11 @@ pub async fn full_sync(
         tools_synced = tool_result.synced,
         personas_synced = persona_result.synced,
         evidence_synced = evidence_result.synced,
-        cageux_synced = cageux_result.synced,
-        persona_contracts_synced = contracts_result.synced,
+        cageux_synced = overlays.cageux.synced,
+        persona_contracts_synced = overlays.contracts.synced,
         strings_synced = strings_result.synced,
-        notify_routing_synced = notify_routing_result.synced,
+        notify_routing_synced = overlays.notify_routing.synced,
+        narration_synced = overlays.narration.synced,
         "Contremaitre full sync complete"
     );
 
@@ -613,22 +664,6 @@ pub async fn selective_sync(
     let evidence_result =
         sync_changed_evidence(evidence_registry, store, &manifest.evidence.0, &changed_set).await?;
 
-    let cageux_result = sync_changed_cageux_config(
-        cageux_config_registry,
-        store,
-        &manifest.config,
-        &changed_set,
-    )
-    .await;
-
-    let contracts_result = sync_changed_persona_contracts(
-        persona_contract_registry,
-        store,
-        &manifest.config,
-        &changed_set,
-    )
-    .await;
-
     let strings_result = sync_changed_messaging_strings(
         messaging_strings_registry,
         store,
@@ -637,51 +672,36 @@ pub async fn selective_sync(
     )
     .await?;
 
-    let notify_routing_result = sync_changed_notify_routing(
-        &NOTIFY_ROUTING_PROVIDER,
+    let overlays = sync_changed_config_overlays(
+        cageux_config_registry,
+        persona_contract_registry,
         store,
         &manifest.config,
         &changed_set,
     )
     .await;
 
-    let result = SyncResult {
-        synced: system_result.synced
-            + coach_result.synced
-            + persona_result.synced
-            + tool_result.synced
-            + evidence_result.synced
-            + cageux_result.synced
-            + contracts_result.synced
-            + strings_result.synced
-            + notify_routing_result.synced,
-        skipped: system_result.skipped
-            + coach_result.skipped
-            + persona_result.skipped
-            + tool_result.skipped
-            + evidence_result.skipped
-            + cageux_result.skipped
-            + contracts_result.skipped
-            + strings_result.skipped
-            + notify_routing_result.skipped,
-        failed: system_result.failed
-            + coach_result.failed
-            + persona_result.failed
-            + tool_result.failed
-            + evidence_result.failed
-            + cageux_result.failed
-            + contracts_result.failed
-            + strings_result.failed
-            + notify_routing_result.failed,
-    };
+    let result = total_sync_result(&[
+        &system_result,
+        &coach_result,
+        &persona_result,
+        &tool_result,
+        &evidence_result,
+        &overlays.cageux,
+        &overlays.contracts,
+        &strings_result,
+        &overlays.notify_routing,
+        &overlays.narration,
+    ]);
 
     info!(
         synced = result.synced,
         skipped = result.skipped,
         failed = result.failed,
         personas_synced = persona_result.synced,
-        persona_contracts_synced = contracts_result.synced,
-        notify_routing_synced = notify_routing_result.synced,
+        persona_contracts_synced = overlays.contracts.synced,
+        notify_routing_synced = overlays.notify_routing.synced,
+        narration_synced = overlays.narration.synced,
         "Contremaitre selective sync complete"
     );
 
@@ -1342,6 +1362,112 @@ async fn fetch_and_apply_notify_routing(
                 path = %entry.path,
                 error = %e,
                 "failed to download notify-routing overlay"
+            );
+            SyncOutcome::Failed
+        }
+    }
+}
+
+/// Sync the narration-vocabulary overlay into
+/// `pierre_core::narration::GLOBAL_NARRATION_VOCAB` (full-sync path).
+async fn sync_narration_vocab(
+    store: &dyn PromptStore,
+    manifest_config: &ManifestConfig,
+) -> SyncResult {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    let Some(entry) = manifest_config.narration.as_ref() else {
+        debug!("No narration entry in manifest, compiled-in vocabulary only");
+        return result;
+    };
+
+    if narration_vocab::current_sha256().as_deref() == Some(&entry.sha256) {
+        debug!("narration overlay unchanged, skipping");
+        result.skipped += 1;
+        return result;
+    }
+
+    accumulate_outcome(&mut result, fetch_and_apply_narration(store, entry).await);
+    result
+}
+
+/// Sync the narration-vocabulary overlay if its path appears in
+/// `changed_set` (selective / webhook sync path).
+async fn sync_changed_narration_vocab(
+    store: &dyn PromptStore,
+    manifest_config: &ManifestConfig,
+    changed_set: &HashSet<&str>,
+) -> SyncResult {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    let Some(entry) = manifest_config.narration.as_ref() else {
+        return result;
+    };
+
+    if !changed_set.contains(entry.path.as_str()) {
+        return result;
+    }
+
+    accumulate_outcome(&mut result, fetch_and_apply_narration(store, entry).await);
+    result
+}
+
+/// Apply a downloaded narration YAML to the global vocabulary registry,
+/// logging the outcome. A parse/validation failure leaves the previous
+/// snapshot live so a bad push to contremaitre cannot blunt the scrubs or
+/// teach the boundary detector to over-match.
+fn apply_narration_overlay(entry: &ManifestEntry, file: &StoredFile) -> SyncOutcome {
+    let actual_sha = compute_sha256(file.content.as_bytes());
+    if actual_sha != entry.sha256 {
+        warn!(
+            expected = entry.sha256,
+            actual = actual_sha,
+            "manifest hash mismatch for narration, using downloaded content"
+        );
+    }
+    match narration_vocab::reload_narration_vocab(&file.content, actual_sha.clone()) {
+        Ok(counts) => {
+            info!(
+                path = %entry.path,
+                sha256 = actual_sha,
+                capability_failure = counts.capability_failure,
+                internal_narration = counts.internal_narration,
+                identity = counts.identity,
+                "synced narration vocabulary overlay"
+            );
+            SyncOutcome::Synced
+        }
+        Err(e) => {
+            warn!(
+                path = %entry.path,
+                error = %e,
+                "failed to apply narration overlay — keeping previous snapshot"
+            );
+            SyncOutcome::Failed
+        }
+    }
+}
+
+/// Download the narration YAML and install it via
+/// [`narration_vocab::reload_narration_vocab`], which parses the document
+/// and atomically swaps the vocabulary snapshot. On any failure (network,
+/// parse, validation) the previous snapshot stays live.
+async fn fetch_and_apply_narration(store: &dyn PromptStore, entry: &ManifestEntry) -> SyncOutcome {
+    match store.read_file(&entry.path).await {
+        Ok(file) => apply_narration_overlay(entry, &file),
+        Err(e) => {
+            warn!(
+                path = %entry.path,
+                error = %e,
+                "failed to download narration overlay"
             );
             SyncOutcome::Failed
         }

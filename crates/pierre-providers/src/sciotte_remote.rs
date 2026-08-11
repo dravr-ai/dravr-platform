@@ -201,15 +201,52 @@ pub fn shed_retry_after_secs(error: &AppError) -> Option<u64> {
         .as_u64()
 }
 
+/// Body `error` markers on a scraper-service `401` that mean the ATHLETE's
+/// session is gone or dead: `session_not_found` (no session held) and
+/// `session_expired` (the upstream provider rejected the session's cookies).
+/// Deliberately NOT `authentication_error` — that is the service's
+/// bad-`DRAVR_SCIOTTE_API_KEY` answer, an operator misconfiguration that
+/// must keep alerting as an internal fault instead of sending the athlete
+/// on a pointless re-login.
+const SESSION_AUTH_ERROR_MARKERS: &[&str] = &["session_not_found", "session_expired"];
+
+/// The auth-shaped error for a scraper-service `401` whose body carries a
+/// session-death marker, or `None` for anything else.
+///
+/// A session-shaped `401` means the athlete must re-login, so it surfaces
+/// as [`ErrorCode::ProviderAuthRequired`] — the chat pipeline's
+/// auth-recovery stage turns that into a hosted-login reconnect link, where
+/// an `internal` error would have left the coach apologising with nothing
+/// actionable (live gap behind the 2026-08-11 "problème de connexion"
+/// incident). The provider slug here is the generic `sciotte`; the provider
+/// layer re-tags it with the owning backend name so a `sciotte_garmin`
+/// session reconnects to Garmin, not Strava.
+#[must_use]
+pub fn auth_required_error(http_status: StatusCode, body: &Value) -> Option<AppError> {
+    if http_status != StatusCode::UNAUTHORIZED {
+        return None;
+    }
+    let marker = body.get("error").and_then(Value::as_str)?;
+    SESSION_AUTH_ERROR_MARKERS
+        .contains(&marker)
+        .then(|| AppError::provider_auth_required("sciotte"))
+}
+
 /// Map a non-success scrape response to an error, classifying the service's
-/// designed load-shed as retryable backpressure rather than a system failure.
+/// designed load-shed as retryable backpressure and its `401` as an
+/// auth-shaped failure rather than a system failure. Backpressure wins over
+/// the status match: a shed carries its own body marker and must not be
+/// misread as anything else.
 ///
 /// `operation` names the endpoint in the internal message only — neither
 /// message reaches a client verbatim.
 async fn scrape_failure(operation: &str, resp: reqwest::Response) -> AppError {
     let status = resp.status();
     let body = resp.json::<Value>().await.unwrap_or_default();
-    backpressure_error(status, &body)
+    if let Some(shed) = backpressure_error(status, &body) {
+        return shed;
+    }
+    auth_required_error(status, &body)
         .unwrap_or_else(|| AppError::internal(format!("sciotte {operation} returned {status}")))
 }
 

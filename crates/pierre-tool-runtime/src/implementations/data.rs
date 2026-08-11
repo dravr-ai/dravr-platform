@@ -49,7 +49,7 @@ use crate::implementations::fitness_support::{
 };
 use crate::implementations::handler_bridge;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
-use crate::protocol::UniversalExecutor;
+use crate::protocol::{UniversalExecutor, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -949,6 +949,19 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 {
                     Ok(provider) => provider,
                     Err(response) => {
+                        // An auth-shaped creation failure surfaces as the typed
+                        // provider_auth_required error: the executor re-raises
+                        // it and the chat pipeline answers with the localized
+                        // reconnect link. A plain error payload here strands
+                        // the athlete with a generic failure the model can
+                        // only apologise about (live incident 2026-08-11).
+                        if let Some(serde_json::Value::String(provider)) = response
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER))
+                        {
+                            return Err(AppError::provider_auth_required(provider.clone()));
+                        }
                         let fallback_error = response
                             .error
                             .clone()

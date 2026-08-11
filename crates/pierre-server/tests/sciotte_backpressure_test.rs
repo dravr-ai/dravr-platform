@@ -30,7 +30,9 @@ use std::sync::{Arc, Mutex};
 use axum::body::to_bytes;
 use axum::http::{header, StatusCode};
 use pierre_core::errors::AppError;
-use pierre_providers::sciotte_remote::{backpressure_error, shed_retry_after_secs};
+use pierre_providers::sciotte_remote::{
+    auth_required_error, backpressure_error, shed_retry_after_secs,
+};
 use pierre_routes_auth::{friendly_login_failure_message, login_failure_response};
 use serde_json::{json, Value};
 use tracing::field::{Field, Visit};
@@ -170,6 +172,44 @@ fn a_shed_without_a_wait_still_advertises_one() {
         (1..=300).contains(&retry_after),
         "the fallback wait must be a usable retry window, got {retry_after}s"
     );
+}
+
+// ── Classification: a dead session is auth-shaped, a bad key is not ─────────
+
+#[test]
+fn a_session_death_401_is_classified_as_provider_auth_required() {
+    for marker in ["session_not_found", "session_expired"] {
+        let error = auth_required_error(
+            StatusCode::UNAUTHORIZED,
+            &json!({ "error": marker, "message": "login first" }),
+        )
+        .unwrap_or_else(|| panic!("a 401 with `{marker}` means the athlete must re-login"));
+        assert_eq!(
+            error.provider_auth_required_provider().as_deref(),
+            Some("sciotte"),
+            "the auth-recovery stage needs the provider slug to mint a reconnect link"
+        );
+    }
+}
+
+#[test]
+fn a_bad_api_key_401_is_not_an_athlete_relogin() {
+    // `authentication_error` is tronc's bad-`DRAVR_SCIOTTE_API_KEY` answer:
+    // operator misconfiguration, which must keep alerting as an internal
+    // fault instead of sending the athlete on a pointless re-login.
+    assert!(auth_required_error(
+        StatusCode::UNAUTHORIZED,
+        &json!({ "error": "authentication_error", "message": "Invalid API key" }),
+    )
+    .is_none());
+    // A markerless 401 body is unclassifiable and must stay internal too.
+    assert!(auth_required_error(StatusCode::UNAUTHORIZED, &json!({})).is_none());
+    // A session marker on a non-401 status never reads as auth-shaped.
+    assert!(auth_required_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        &json!({ "error": "session_expired" }),
+    )
+    .is_none());
 }
 
 #[test]
