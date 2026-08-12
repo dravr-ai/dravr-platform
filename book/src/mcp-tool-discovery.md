@@ -3,143 +3,113 @@
 
 # MCP Tool Discovery & Visibility
 
-Pierre gates which tools appear in MCP `tools/list` responses based on the caller's authentication state. This prevents sensitive tools from being exposed to unauthenticated clients while still letting MCP clients discover Pierre's capabilities.
+Pierre gates which tools a caller can discover on that caller's authenticated identity. Discovery is not a preview surface: a tool schema names the capability, spells out every argument, and describes what the tool does, so an ungated list tells an anonymous caller exactly which admin operations exist and how to shape a call against them.
 
-## Why Gated Discovery
+Two surfaces expose the catalog, and both run the same gate:
 
-MCP clients (Claude Desktop, VS Code extensions, Cursor, etc.) call `tools/list` to discover what a server can do. Without gating, every tool -- including admin operations, connection management, and social features -- would appear to any caller, even unauthenticated ones.
+| surface | shape | who serves it |
+|---|---|---|
+| `POST /mcp` + `tools/list` | MCP JSON-RPC (what MCP clients speak) | the `dravr-tronc` engine, through the platform's host seams |
+| `GET /mcp/tools` | plain REST, `{"tools": [...]}` | `routes/mcp.rs`, calling those same host seams directly |
 
-Gated discovery solves this by returning different tool sets depending on who is asking:
-
-- Unauthenticated callers see a curated public subset that describes Pierre's core capabilities
-- Authenticated users see the full set of tools available to them based on tenant plan and role
-- Admin users see everything, including admin-only tools
-
-Tools in the public set are *discoverable but not executable*. Calling them without authentication returns an authentication error. The public list exists so MCP clients can present Pierre's value proposition before the user authenticates.
+`GET /mcp/tools` exists so SDK type generation can pull the catalog over plain HTTP without speaking JSON-RPC. It is a convenience twin, not a second policy: it authenticates through `PierreAuthHook` and lists through `PierreToolDispatcher`, so for any given bearer it returns exactly what `tools/list` would.
 
 ## Visibility Tiers
 
 ```
-tools/list request
+tools/list  ·  GET /mcp/tools
       │
       ▼
-┌─────────────┐
-│ Has auth     │──── no ──── PUBLIC_DISCOVERY_TOOLS (17 tools)
-│ token?       │
-└──────┬──────┘
+┌──────────────┐
+│ Valid bearer? │──── no ──── 401 + WWW-Authenticate (RFC 9728). No tools.
+└──────┬───────┘
        │ yes
        ▼
-┌─────────────┐
-│ Token valid? │──── no ──── PUBLIC_DISCOVERY_TOOLS (graceful fallback)
-└──────┬──────┘
+┌──────────────┐
+│ Tenant        │──── no ──── 403 Forbidden. No tools.
+│ membership?   │
+└──────┬───────┘
        │ yes
        ▼
-┌─────────────┐
-│ Has tenant   │──── no ──── user_visible_schemas (all non-admin tools)
-│ context?     │
-└──────┬──────┘
-       │ yes
-       ▼
-┌─────────────┐
-│ Is admin or  │──── yes ─── all_schemas (every registered tool)
-│ owner?       │
-└──────┬──────┘
+┌──────────────┐
+│ Global admin  │──── yes ─── all_schemas (every registered tool)
+│ (User.is_admin)│
+└──────┬───────┘
        │ no
        ▼
-tenant_filtered_tools
-(ToolSelectionService + uncatalogued feature-flag tools, minus admin tools)
+tenant_filtered_schemas
+(ToolSelectionService + uncatalogued feature-flag tools, minus ADMIN_ONLY)
 ```
 
-| auth state | what tools/list returns | source |
+| auth state | what discovery returns | source |
 |---|---|---|
-| no token | `PUBLIC_DISCOVERY_TOOLS` (17 tools) | hardcoded const in `src/constants/tools/identifiers.rs` |
-| invalid/expired token | `PUBLIC_DISCOVERY_TOOLS` (graceful fallback) | same const, no error returned |
-| authenticated, no tenant | all non-admin tools from registry | `ToolRegistry::user_visible_schemas()` |
-| authenticated + tenant (member) | tenant-filtered tools minus admin tools | `ToolSelectionService` + uncatalogued tools |
-| authenticated + tenant (admin/owner) | every registered tool | `ToolRegistry::all_schemas()` |
+| no bearer | `401` + `WWW-Authenticate` challenge | `PierreAuthHook::authenticate` |
+| invalid/expired bearer | `401` + challenge carrying `error="invalid_token"` | same — no downgrade to a public subset |
+| valid bearer, no tenant membership | `403` | `extract_tenant_context_internal` |
+| authenticated tenant member | tenant-filtered tools minus `ADMIN_ONLY` | `ToolSelectionService` + uncatalogued tools |
+| authenticated global admin | every registered tool | `ToolRegistry::all_schemas()` |
 
-## Public Discovery Tools
+There is no unauthenticated tier. An invalid token is a rejection, not a downgrade — per the MCP authorization spec and RFC 6750, a present-but-bad credential must fail rather than silently resolve to a lesser identity.
 
-The `PUBLIC_DISCOVERY_TOOLS` constant (`src/constants/tools/identifiers.rs`) defines the 17 tools visible without authentication:
-
-**Core data retrieval** (4 tools):
-`get_activities`, `get_athlete`, `get_stats`, `get_activity_intelligence`
-
-**Analytics** (5 tools):
-`analyze_activity`, `calculate_metrics`, `analyze_performance_trends`, `compare_activities`, `detect_patterns`
-
-**Goal suggestions** (1 tool):
-`suggest_goals`
-
-**Nutrition** (4 tools):
-`calculate_daily_nutrition`, `search_food`, `get_food_details`, `analyze_meal_nutrition`
-
-**Configuration** (3 tools):
-`get_configuration_catalog`, `get_configuration_profiles`, `validate_configuration`
-
-### What is excluded from public discovery
-
-- **Connection management** (`connect_provider`, `get_connection_status`, `disconnect_provider`) -- these manage OAuth tokens and are sensitive
-- **Admin tools** (`admin_*` prefix) -- system administration
-- **Write/mutation tools** (`set_goal`, `save_recipe`, `update_*`, `delete_*`) -- state-changing operations
-- **Social/friends tools** -- not yet implemented, will require auth when added
-
-### Rationale for specific inclusions
-
-The three configuration tools (`get_configuration_catalog`, `get_configuration_profiles`, `validate_configuration`) are included because they are auth-exempt per `ToolId::requires_auth()` -- they can be called without authentication to let clients discover Pierre's configuration schema.
+Admin status is the **global** `User.is_admin` flag, resolved from the database at request time. A tenant owner is admin *of their tenant*; that does not grant system-wide admin powers, so owners do not see `ADMIN_ONLY` tools.
 
 ## Token Extraction
 
-The auth token is extracted from two sources, in priority order:
+The bearer comes from the HTTP `Authorization` header. The tronc HTTP transport strips the `Bearer ` prefix and populates `JsonRpcRequest::auth_token`; `routes/mcp.rs` mirrors that extraction for `GET /mcp/tools` so both surfaces accept the same credential forms. `PierreAuthHook` then reconstructs the header the auth middleware expects — `Bearer <jwt>` for JWTs, a bare `pk_live_<key>` for API keys.
 
-1. **HTTP Authorization header** -- set by the MCP HTTP transport layer (`src/routes/mcp.rs`) from the `Authorization: Bearer <token>` header
-2. **MCP params.token** -- read from `request.params.token` in the JSON-RPC request body, useful for MCP transports that don't support HTTP headers (e.g., stdio)
-
-If both are present, the HTTP header takes precedence.
-
-Implementation: `src/mcp/mcp_request_processor.rs`, `resolve_tools_for_request()`.
+Implementation: `crates/pierre-server/src/mcp/host_seams.rs` (`PierreAuthHook`), `crates/pierre-server/src/routes/mcp.rs` (`bearer_token`).
 
 ## Tenant-Filtered Tools
 
-For authenticated non-admin users with a tenant context, the tool list comes from two sources combined:
+For authenticated non-admin users, the tool list comes from two sources combined:
 
 ### 1. ToolSelectionService (catalog-based)
 
-`ToolSelectionService` (`src/mcp/tool_selection.rs`) computes the effective tool list for a tenant by applying rules in precedence order:
+`ToolSelectionService` (`crates/pierre-server/src/mcp/tool_selection.rs`) computes the effective tool list for a tenant by applying rules in precedence order:
 
 1. **Global Disabled** -- `PIERRE_DISABLED_TOOLS` environment variable disables tools for all tenants
 2. **Plan Restriction** -- tools require a minimum plan level (starter, professional, enterprise)
 3. **Tenant Override** -- admin-configured per-tenant enable/disable with optional reason
 4. **Catalog Default** -- default enablement from the `tool_catalog` database table
 
-Only tools where `is_enabled` is true after this cascade are included.
+Only tools where `is_enabled` is true after this cascade are included. When a `user_id` is present, per-user overrides are overlaid on top of the tenant computation, so a tool disabled for one user is hidden from that user's discovery.
 
 ### 2. Uncatalogued feature-flag tools
 
-Tools registered via feature flags (`tools-coaches`, `tools-mobility`) exist in the `ToolRegistry` but may not have entries in `tool_catalog`. The `uncatalogued_user_schemas()` method on `ToolRegistry` returns these tools so they are not lost when filtering through the catalog.
+Tools registered via feature flags (`tools-coaches`, `tools-mobility`) exist in the `ToolRegistry` but may not have entries in `tool_catalog`. `ToolRegistry::uncatalogued_user_schemas()` returns these so they are not lost when filtering through the catalog.
 
-Admin-only tools are excluded from both paths for non-admin users.
+`ADMIN_ONLY` tools are excluded from both paths for non-admin users.
 
 ### Fallback behavior
 
-If `ToolSelectionService` fails (e.g., database error), the system falls back to `user_visible_schemas()` -- all non-admin tools from the registry, without tenant filtering. This ensures tools/list always returns a usable response.
+If `ToolSelectionService` fails (e.g., database error), discovery falls back to `user_visible_schemas()` -- all non-admin tools from the registry, without tenant filtering. The fallback never widens visibility past the non-admin tier.
+
+## Generating SDK Types
+
+`packages/mcp-types` is generated from the live catalog, so generation authenticates as a global admin. `scripts/sdk/generate-sdk-types.js` resolves a bearer in this order:
+
+1. `PIERRE_ADMIN_TOKEN` — used by CI, which mints one with `pierre-cli user create` plus a password-grant login.
+2. `ADMIN_EMAIL` + `ADMIN_PASSWORD` — a fresh `POST /oauth/token` password-grant login. `.envrc` exports both on a dev machine.
+3. `logs/admin-token.txt` — written by `bin/setup-db-with-seeds-and-oauth-and-start-servers.sh`.
+
+Run it with `cd packages/mcp-types && bun run generate` against a running server.
 
 ## Implementation References
 
-- Public tool list constant: `src/constants/tools/identifiers.rs` (`PUBLIC_DISCOVERY_TOOLS`)
-- Visibility gating logic: `src/mcp/mcp_request_processor.rs` (`resolve_tools_for_request`, `resolve_tools_for_authenticated_user`, `tenant_filtered_tools`, `public_discovery_tools`)
-- Tool selection service: `src/mcp/tool_selection.rs` (`ToolSelectionService`)
-- Registry methods: `src/tools/registry.rs` (`list_schemas_by_names`, `list_schemas_by_name_set`, `uncatalogued_user_schemas`, `user_visible_schemas`, `all_schemas`)
-- Auth extraction from HTTP: `src/routes/mcp.rs` (line 331-337)
-- Tenant context resolution: `src/mcp/tenant_isolation.rs` (`extract_tenant_context_internal`)
+- Auth seam: `crates/pierre-server/src/mcp/host_seams.rs` (`PierreAuthHook`)
+- Tool-listing seam: `crates/pierre-server/src/mcp/host_seams.rs` (`PierreToolDispatcher::list_tools`, `tenant_filtered_schemas`)
+- REST discovery endpoint: `crates/pierre-server/src/routes/mcp.rs` (`McpRoutes::handle_tools`)
+- Tool selection service: `crates/pierre-server/src/mcp/tool_selection.rs` (`ToolSelectionService`)
+- Registry methods: `crates/pierre-tool-runtime/src/registry.rs` (`list_schemas_by_name_set`, `uncatalogued_user_schemas`, `user_visible_schemas`, `admin_tool_schemas`, `all_schemas`)
+- Tenant context resolution: `crates/pierre-mcp-transport/src/tenant_isolation.rs` (`extract_tenant_context_internal`)
 
 ## Tests
 
+- `tests/mcp_tools_list_count_e2e_test.rs` (real HTTP server):
+  - `test_tools_list_unauthenticated_returns_401` / `test_tools_list_invalid_token_returns_401` -- no bearer and a bad bearer both reject, and disclose no tools
+  - `test_discovery_endpoint_unauthenticated_returns_401` -- the same posture for `GET /mcp/tools`
+  - `test_tools_list_admin_matches_registry_discovery_endpoint` -- the two surfaces return an identical set for one admin bearer
+  - `test_tools_list_authenticated_owner_exceeds_floor` / `test_tools_list_tenant_member_non_admin_path_no_collapse` -- count floors that catch silent tool loss
 - `tests/routes_mcp_http_test.rs`:
-  - `test_tools_list_unauthenticated_returns_public_tools_only` -- verifies only public tools returned, no sensitive tools leak
-  - `test_tools_list_authenticated_returns_more_tools` -- verifies authenticated users see more than the public set
-  - `test_tools_list_invalid_token_falls_back_to_public` -- verifies graceful fallback on invalid JWT
-  - `test_tools_list_admin_user_sees_all_tools_including_admin` -- verifies admin users see `admin_*` tools
-  - `test_tools_list_params_token_auth_path` -- verifies token via `params.token` works for discovery
-- `tests/mcp_multitenant_complete_test.rs`:
-  - `test_mcp_authentication_required` -- verifies unauthenticated tools/list returns only public subset
+  - `test_mcp_tools_requires_auth` -- `GET /mcp/tools` 401s with the RFC 9728 challenge and returns no `tools` key
+  - `test_mcp_tools_withholds_admin_tools_from_non_admin` -- an authenticated member's set contains none of `admin_tool_schemas()`

@@ -122,7 +122,10 @@ async fn test_mcp_tools_discovery_success() {
     let setup = McpTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/mcp/tools").send(routes).await;
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
 
     assert_eq!(response.status(), 200);
 
@@ -130,15 +133,79 @@ async fn test_mcp_tools_discovery_success() {
     assert!(body["tools"].is_array());
 }
 
+/// The discovery endpoint is tiered exactly like JSON-RPC `tools/list`: with no
+/// bearer it returns the RFC 9728 401 challenge, never the tool catalog. It used
+/// to dump every registered schema — admin tools included — to anonymous
+/// callers, protected only by `mcp` being absent from the deployed nginx
+/// alternation (registre#12).
 #[tokio::test]
-async fn test_mcp_tools_no_auth_required() {
+async fn test_mcp_tools_requires_auth() {
     let setup = McpTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    // Tools endpoint should work without authentication
     let response = AxumTestRequest::get("/mcp/tools").send(routes).await;
 
+    assert_eq!(response.status(), 401);
+    assert!(
+        response
+            .header("www-authenticate")
+            .is_some_and(|v| v.contains("oauth-protected-resource")),
+        "401 must carry the RFC 9728 resource-metadata challenge"
+    );
+
+    let body: serde_json::Value = response.json();
+    assert!(
+        body.get("tools").is_none(),
+        "an unauthenticated response must not carry any tool schemas: {body}"
+    );
+}
+
+/// An authenticated non-admin caller must not see `ADMIN_ONLY` tools, matching
+/// what `tools/list` withholds for the same bearer.
+#[tokio::test]
+async fn test_mcp_tools_withholds_admin_tools_from_non_admin() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let admin_only: Vec<String> = setup
+        .resources
+        .mcp
+        .tool_registry
+        .admin_tool_schemas()
+        .into_iter()
+        .map(|schema| schema.name)
+        .collect();
+    assert!(
+        !admin_only.is_empty(),
+        "registry must register admin-only tools for this test to mean anything"
+    );
+
+    let routes = setup.routes();
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
+
     assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value = response.json();
+    let returned: Vec<&str> = body["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(
+        !returned.is_empty(),
+        "a tenant member must still see their own tools"
+    );
+
+    let leaked: Vec<&&str> = returned
+        .iter()
+        .filter(|name| admin_only.iter().any(|admin| admin == *name))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "GET /mcp/tools leaked admin-only tools to a non-admin caller: {leaked:?}"
+    );
 }
 
 #[tokio::test]
@@ -146,7 +213,10 @@ async fn test_mcp_tools_response_structure() {
     let setup = McpTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/mcp/tools").send(routes).await;
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
 
     assert_eq!(response.status(), 200);
 
@@ -167,7 +237,10 @@ async fn test_mcp_tools_returns_available_tools() {
     let setup = McpTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/mcp/tools").send(routes).await;
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
 
     assert_eq!(response.status(), 200);
 
@@ -187,8 +260,13 @@ async fn test_mcp_tools_concurrent_requests() {
 
     for _ in 0..5 {
         let routes = setup.routes();
-        let handle =
-            tokio::spawn(async move { AxumTestRequest::get("/mcp/tools").send(routes).await });
+        let auth = setup.auth_header();
+        let handle = tokio::spawn(async move {
+            AxumTestRequest::get("/mcp/tools")
+                .header("authorization", &auth)
+                .send(routes)
+                .await
+        });
 
         handles.push(handle);
     }

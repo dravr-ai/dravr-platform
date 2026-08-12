@@ -65,8 +65,8 @@ jobs:
             ${{ runner.os }}-cargo-sdk-types-1.96.0-
             ${{ runner.os }}-cargo-
 
-      - name: Build Pierre server
-        run: cargo build --quiet
+      - name: Build Pierre server and CLI
+        run: cargo build --quiet --bin pierre-mcp-server --bin pierre-cli
         env:
           CARGO_INCREMENTAL: 0
 
@@ -90,6 +90,24 @@ jobs:
             sleep 1
           done
 
+          # GET /mcp/tools is tiered exactly like JSON-RPC tools/list, so only a
+          # global admin sees the complete registry the generated types describe.
+          # The server has applied the migrations by now, so the CLI can write to
+          # the same on-disk database.
+          ./target/debug/pierre-cli user create \
+            --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --force
+
+          PIERRE_ADMIN_TOKEN="$(curl -s -X POST http://localhost:8081/oauth/token \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            -d "grant_type=password&username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD" \
+            | jq -r '.access_token // empty')"
+          if [ -z "$PIERRE_ADMIN_TOKEN" ]; then
+            echo "::error::Failed to mint an admin token for SDK type generation"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+          export PIERRE_ADMIN_TOKEN
+
           # Generate types
           cd packages/mcp-types && bun run generate
           cd ../..
@@ -107,7 +125,11 @@ jobs:
 
           echo "SDK types are up to date"
         env:
-          DATABASE_URL: "sqlite::memory:"
+          # File-backed (not sqlite::memory:) so pierre-cli can create the admin
+          # user in the same database the running server reads.
+          DATABASE_URL: "sqlite:./sdk-types-ci.db?mode=rwc"
+          ADMIN_EMAIL: "sdk-types-ci@pierre.dev"
+          ADMIN_PASSWORD: "SdkTypesCi123!"
           AUTO_APPROVE_USERS: "true"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"

@@ -3,7 +3,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Auto-generates TypeScript type definitions from Pierre server tool schemas
-// ABOUTME: Fetches MCP tool schemas and converts them to TypeScript interfaces for SDK usage
+// ABOUTME: Fetches MCP tool schemas as a global admin and converts them to TypeScript interfaces
 
 const http = require('http');
 const fs = require('fs');
@@ -16,59 +16,143 @@ const SERVER_URL = process.env.PIERRE_SERVER_URL || 'http://localhost:8081';
 const SERVER_PORT = process.env.HTTP_PORT || '8081';
 // Output to shared mcp-types package (SDK re-exports from there). The script
 // lives in scripts/sdk/, so the package is two levels up at <repo>/packages/.
-const OUTPUT_DIR = path.join(__dirname, '../../packages/mcp-types/src');
+const REPO_ROOT = path.join(__dirname, '../..');
+const OUTPUT_DIR = path.join(REPO_ROOT, 'packages/mcp-types/src');
 const OUTPUT_TOOLS_FILE = path.join(OUTPUT_DIR, 'tools.ts');
 const OUTPUT_COMMON_FILE = path.join(OUTPUT_DIR, 'common.ts');
+// Written by bin/setup-db-with-seeds-and-oauth-and-start-servers.sh, so a local
+// dev stack needs no extra configuration to regenerate types.
+const ADMIN_TOKEN_FILE = path.join(REPO_ROOT, 'logs/admin-token.txt');
 
 /**
- * Fetch tool schemas from the Pierre server's discovery endpoint.
+ * Issue an HTTP request against the local Pierre server.
  *
- * Uses the unauthenticated `GET /mcp/tools` discovery endpoint, which returns
- * the full tool registry (every tool's schema). The MCP protocol `POST /mcp`
- * `tools/list` method is an authenticated, per-session call; type generation
- * needs the complete catalog with no credentials, which is exactly what this
- * discovery endpoint provides.
+ * Resolves `{ statusCode, body }`; the caller decides what a non-200 means.
  */
-async function fetchToolSchemas() {
+function httpRequest({ method, requestPath, headers = {}, body }) {
   return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'localhost',
-      port: SERVER_PORT,
-      path: '/mcp/tools',
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
+    const req = http.request(
+      { hostname: 'localhost', port: SERVER_PORT, path: requestPath, method, headers },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
       }
-    };
-
-    const req = http.request(options, (res) => {
-      let data = '';
-
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-
-      res.on('end', () => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`Server returned ${res.statusCode}: ${data}`));
-          return;
-        }
-
-        try {
-          const parsed = JSON.parse(data);
-          resolve(parsed.tools || []);
-        } catch (err) {
-          reject(new Error(`Failed to parse response: ${err.message}`));
-        }
-      });
-    });
+    );
 
     req.on('error', (err) => {
       reject(new Error(`Failed to connect to server: ${err.message}`));
     });
 
+    if (body) {
+      req.write(body);
+    }
     req.end();
   });
+}
+
+/**
+ * Exchange admin credentials for a JWT via the OAuth2 password grant.
+ */
+async function loginAsAdmin(email, password) {
+  const form = new URLSearchParams({
+    grant_type: 'password',
+    username: email,
+    password
+  }).toString();
+
+  const { statusCode, body } = await httpRequest({
+    method: 'POST',
+    requestPath: '/oauth/token',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(form)
+    },
+    body: form
+  });
+
+  if (statusCode !== 200) {
+    throw new Error(`Admin login failed (${statusCode}): ${body}`);
+  }
+
+  const token = JSON.parse(body).access_token;
+  if (!token) {
+    throw new Error('Admin login response carried no access_token');
+  }
+  return token;
+}
+
+/**
+ * Resolve a bearer token for a global admin.
+ *
+ * `GET /mcp/tools` is tiered exactly like JSON-RPC `tools/list`, so only a
+ * global admin (`User.is_admin`) sees the complete registry — which is what the
+ * generated types must describe. Resolution order, most explicit first:
+ *
+ *   1. `PIERRE_ADMIN_TOKEN` — CI and any caller minting its own token.
+ *   2. `ADMIN_EMAIL` + `ADMIN_PASSWORD` — a fresh password-grant login (both
+ *      are exported by `.envrc` on a dev machine).
+ *   3. `logs/admin-token.txt` — written by the dev-stack setup script.
+ */
+async function resolveAdminToken() {
+  if (process.env.PIERRE_ADMIN_TOKEN) {
+    console.log('🔑 Using PIERRE_ADMIN_TOKEN from the environment');
+    return process.env.PIERRE_ADMIN_TOKEN;
+  }
+
+  const email = process.env.ADMIN_EMAIL;
+  const password = process.env.ADMIN_PASSWORD;
+  if (email && password) {
+    console.log(`🔑 Logging in as ${email} for a fresh admin token`);
+    return loginAsAdmin(email, password);
+  }
+
+  if (fs.existsSync(ADMIN_TOKEN_FILE)) {
+    console.log(`🔑 Using the admin token at ${ADMIN_TOKEN_FILE}`);
+    return fs.readFileSync(ADMIN_TOKEN_FILE, 'utf8').trim();
+  }
+
+  throw new Error(
+    'No admin credentials available. Set PIERRE_ADMIN_TOKEN, or ADMIN_EMAIL + ' +
+      `ADMIN_PASSWORD, or run the dev-stack setup script so ${ADMIN_TOKEN_FILE} exists.`
+  );
+}
+
+/**
+ * Fetch tool schemas from the Pierre server's discovery endpoint.
+ *
+ * `GET /mcp/tools` applies the same capability tiering as JSON-RPC
+ * `tools/list`: an anonymous caller gets a 401, a tenant member gets their
+ * filtered set, and a global admin gets every registered tool. Type generation
+ * needs the complete catalog, so it authenticates as an admin.
+ */
+async function fetchToolSchemas(token) {
+  const { statusCode, body } = await httpRequest({
+    method: 'GET',
+    requestPath: '/mcp/tools',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (statusCode === 401 || statusCode === 403) {
+    throw new Error(
+      `Discovery endpoint rejected the admin token (${statusCode}): ${body}. ` +
+        'The token must belong to a user with the global is_admin flag.'
+    );
+  }
+  if (statusCode !== 200) {
+    throw new Error(`Server returned ${statusCode}: ${body}`);
+  }
+
+  try {
+    return JSON.parse(body).tools || [];
+  } catch (err) {
+    throw new Error(`Failed to parse response: ${err.message}`);
+  }
 }
 
 /**
@@ -463,10 +547,12 @@ async function main() {
   console.log('🔧 Pierre MCP Types Generator');
   console.log('==============================\n');
 
-  console.log(`📡 Fetching tool schemas from ${SERVER_URL}:${SERVER_PORT}/mcp/tools...`);
-
   try {
-    const tools = await fetchToolSchemas();
+    const token = await resolveAdminToken();
+
+    console.log(`📡 Fetching tool schemas from ${SERVER_URL}:${SERVER_PORT}/mcp/tools...`);
+
+    const tools = await fetchToolSchemas(token);
     console.log(`✅ Fetched ${tools.length} tool schemas\n`);
 
     // Ensure output directory exists
@@ -500,7 +586,10 @@ async function main() {
     console.error('\n🔍 Troubleshooting:');
     console.error('   1. Ensure Pierre server is running on port', SERVER_PORT);
     console.error('   2. Verify the discovery endpoint is reachable at', `${SERVER_URL}:${SERVER_PORT}/mcp/tools`);
-    console.error('\n💡 Start server with: cargo run --bin pierre-mcp-server');
+    console.error('   3. The endpoint is admin-gated: supply PIERRE_ADMIN_TOKEN, or');
+    console.error('      ADMIN_EMAIL + ADMIN_PASSWORD, or run the dev-stack setup script');
+    console.error('      so logs/admin-token.txt holds a fresh global-admin JWT');
+    console.error('\n💡 Start the full dev stack with: ./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh');
     process.exit(1);
   }
 }
@@ -510,4 +599,10 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { fetchToolSchemas, generateToolsTypeScript, generateCommonTypeScript };
+module.exports = {
+  fetchToolSchemas,
+  generateToolsTypeScript,
+  generateCommonTypeScript,
+  resolveAdminToken,
+  loginAsAdmin
+};

@@ -311,19 +311,66 @@ async fn test_tools_list_authenticated_owner_exceeds_floor() -> Result<()> {
     Ok(())
 }
 
+/// `GET /mcp/tools` must refuse an anonymous caller over real HTTP.
+///
+/// The endpoint used to answer 200 with `tool_registry.all_schemas()` — every admin
+/// tool's name, description and input schema — to anyone who asked. It was reachable
+/// only because `mcp` was missing from the deployed nginx alternation; once that
+/// routing was fixed the dump became publicly reachable (registre#12). This asserts
+/// the tier on the wire, where the deployment actually lives.
+#[tokio::test]
+async fn test_discovery_endpoint_unauthenticated_returns_401() -> Result<()> {
+    let resources = common::create_test_server_resources().await?;
+    let server = common::spawn_http_mcp_server(&resources).await?;
+    let client = Client::new();
+
+    for auth in [None, Some("Bearer bogus_token_xyz")] {
+        let mut request = client.get(format!("{}/mcp/tools", server.base_url()));
+        if let Some(header) = auth {
+            request = request.header("authorization", header);
+        }
+        let response = request.send().await?;
+
+        assert_eq!(
+            response.status().as_u16(),
+            401,
+            "GET /mcp/tools with auth={auth:?} must be 401"
+        );
+        let challenge = response
+            .headers()
+            .get("www-authenticate")
+            .expect("401 must carry a WWW-Authenticate header")
+            .to_str()?
+            .to_owned();
+        assert!(
+            challenge.contains("resource_metadata=")
+                && challenge.contains("oauth-protected-resource"),
+            "WWW-Authenticate must point at the protected resource metadata: {challenge}"
+        );
+
+        let body: Value = response.json().await?;
+        assert!(
+            body.get("tools").is_none(),
+            "rejected discovery must not disclose any tools: {body}"
+        );
+    }
+
+    println!("✓ GET /mcp/tools: 401 + WWW-Authenticate for missing and invalid bearers");
+    Ok(())
+}
+
 /// HTTP parity: `POST /mcp` (admin) and `GET /mcp/tools` must expose the same tool set.
 ///
-/// `GET /mcp/tools` is the discovery endpoint that bypasses the tiered visibility logic
-/// and returns `tool_registry.all_schemas()`. An admin caller going through JSON-RPC
-/// `tools/list` must receive the same set — otherwise a branch has diverged from the
-/// registry source of truth.
+/// `GET /mcp/tools` is the REST-shaped twin of JSON-RPC `tools/list`: it runs the same
+/// auth hook and tool dispatcher, so the same admin bearer must yield the same set from
+/// both — otherwise a branch has diverged from the registry source of truth.
 #[tokio::test]
 async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (mut user, token) =
         common::create_test_tenant(&resources, "parity-admin@example.com").await?;
-    // The discovery endpoint returns the unfiltered registry, so the JSON-RPC caller must
-    // be a genuine GLOBAL admin (`User.is_admin`) — not just a tenant owner — for parity.
+    // Both surfaces return the unfiltered registry only for a genuine GLOBAL admin
+    // (`User.is_admin`) — not just a tenant owner — so parity is asserted at that tier.
     // The wire gate resolves the flag from the DB at request time, and create() upserts the
     // existing user, so flipping it here makes the already-issued token an admin caller.
     user.is_admin = true;
@@ -347,9 +394,10 @@ async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<(
     .await?;
     let rpc_tools = extract_tool_names(&rpc_body);
 
-    // Discovery endpoint (no tiered filtering).
+    // Discovery endpoint, same admin bearer.
     let discovery_resp = client
         .get(format!("{}/mcp/tools", server.base_url()))
+        .header("authorization", format!("Bearer {token}"))
         .send()
         .await?;
     assert_eq!(discovery_resp.status().as_u16(), 200);
