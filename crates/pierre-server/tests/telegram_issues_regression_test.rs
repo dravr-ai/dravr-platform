@@ -13,7 +13,24 @@ use pierre_core::models::{ActivityBuilder, SportType};
 use pierre_intelligence::MetricType;
 use pierre_llm::prompts::{
     get_messaging_context_prompt, get_pierre_system_prompt, get_tool_discipline_prompt,
+    PLATFORM_CONTRACT_PROMPT,
 };
+
+/// The base prompt the chat pipeline actually assembles: the platform contract
+/// followed by the persona block.
+///
+/// These regression tests assert what the model is TOLD, not which file says
+/// it. The 2026-08-11 contract split moved the tool-deflection and
+/// connection-check rules out of the persona (a bound coach replaces that
+/// block) and into the always-injected contract; asserting against one file
+/// would have made them pass or fail on where a rule lives rather than on
+/// whether the model receives it.
+fn assembled_base_prompt() -> String {
+    format!(
+        "{PLATFORM_CONTRACT_PROMPT}\n\n{}",
+        get_pierre_system_prompt()
+    )
+}
 
 // =============================================================================
 // Issue #6: analyze_performance_trends missing elevation metric
@@ -92,7 +109,7 @@ fn test_all_trend_metrics_supported() {
 
 #[test]
 fn test_system_prompt_does_not_mandate_connection_check() {
-    let prompt = get_pierre_system_prompt();
+    let prompt = assembled_base_prompt();
 
     // The old prompt had: "Always check connection status first"
     // This MUST NOT be present — it causes the bot to spam connection status
@@ -116,7 +133,7 @@ fn test_system_prompt_does_not_mandate_connection_check() {
 
 #[test]
 fn test_system_prompt_forbids_deflecting_to_provider() {
-    let prompt = get_pierre_system_prompt();
+    let prompt = assembled_base_prompt();
 
     assert!(
         prompt.contains("Never tell the user to check Strava"),
@@ -131,7 +148,7 @@ fn test_system_prompt_forbids_deflecting_to_provider() {
 
 #[test]
 fn test_system_prompt_forbids_claiming_tool_absent() {
-    let prompt = get_pierre_system_prompt();
+    let prompt = assembled_base_prompt();
 
     assert!(
         prompt.contains("do not claim the tool doesn't exist"),

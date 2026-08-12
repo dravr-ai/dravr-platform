@@ -12,7 +12,7 @@ use pierre_formatters::{format_output, OutputFormat, TokenEfficiencyMetrics};
 use pierre_llm::pricing::calculate_cost;
 use pierre_llm::prompts::{
     COACH_GENERATION_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
-    PIERRE_SYSTEM_PROMPT,
+    PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
 };
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
@@ -252,13 +252,23 @@ mod axis1_toon_efficiency {
     }
 }
 
+/// The base system prompt as the wire sees it: platform contract + persona.
+///
+/// The 2026-08-11 split moved the invariants into `platform_contract.md`, so
+/// measuring `PIERRE_SYSTEM_PROMPT` alone now reports only the persona voice
+/// and understates the real per-turn budget by the whole contract.
+fn assembled_system_prompt() -> String {
+    format!("{PLATFORM_CONTRACT_PROMPT}\n\n{PIERRE_SYSTEM_PROMPT}")
+}
+
 mod axis2_prompt_sizes {
     use super::*;
 
     #[test]
     fn test_static_prompt_token_sizes() {
+        let assembled = assembled_system_prompt();
         let prompts: &[(&str, &str)] = &[
-            ("PIERRE_SYSTEM_PROMPT", PIERRE_SYSTEM_PROMPT),
+            ("PIERRE_SYSTEM_PROMPT", assembled.as_str()),
             ("COACH_GENERATION_PROMPT", COACH_GENERATION_PROMPT),
             ("INSIGHT_VALIDATION_PROMPT", INSIGHT_VALIDATION_PROMPT),
             ("INSIGHT_GENERATION_PROMPT", INSIGHT_GENERATION_PROMPT),
@@ -304,7 +314,7 @@ mod axis2_prompt_sizes {
 
     #[test]
     fn test_conversation_token_growth_projection() {
-        let system_tokens = TokenEfficiencyMetrics::estimate_tokens(PIERRE_SYSTEM_PROMPT);
+        let system_tokens = TokenEfficiencyMetrics::estimate_tokens(&assembled_system_prompt());
         // Per-turn token budget: user message + assistant response + tool call/response
         let user_tokens_per_turn: usize = 30;
         let assistant_tokens_per_turn: usize = 200;
@@ -368,7 +378,7 @@ mod axis2_cost_projections {
 
     #[test]
     fn test_per_user_monthly_cost_projection() {
-        let system_tokens = TokenEfficiencyMetrics::estimate_tokens(PIERRE_SYSTEM_PROMPT);
+        let system_tokens = TokenEfficiencyMetrics::estimate_tokens(&assembled_system_prompt());
         let per_turn: usize = 730; // user(30) + assistant(200) + tools(500)
         let assistant_per_turn: usize = 200;
 
@@ -477,7 +487,7 @@ mod axis2_cost_projections {
 
     #[test]
     fn test_cache_opportunity_analysis() {
-        let system_tokens = TokenEfficiencyMetrics::estimate_tokens(PIERRE_SYSTEM_PROMPT);
+        let system_tokens = TokenEfficiencyMetrics::estimate_tokens(&assembled_system_prompt());
         let activity_data_tokens: usize = 500;
 
         // Typical monthly usage: 75 conversations, each sends system prompt
