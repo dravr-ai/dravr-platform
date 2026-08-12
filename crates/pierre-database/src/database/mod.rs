@@ -185,12 +185,7 @@ impl Database {
     /// - Migration process fails
     /// - Encryption key is invalid
     async fn new_impl(database_url: &str, encryption_key: Vec<u8>) -> AppResult<Self> {
-        // Ensure SQLite creates the database file if it doesn't exist
-        let connection_options = if database_url.starts_with("sqlite:") {
-            format!("{database_url}?mode=rwc")
-        } else {
-            database_url.to_owned()
-        };
+        let connection_options = shared::connection_url::sqlite_connection_options(database_url);
 
         let pool = SqlitePool::connect(&connection_options)
             .await

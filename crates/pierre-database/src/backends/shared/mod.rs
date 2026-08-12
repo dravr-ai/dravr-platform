@@ -5,6 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 /// Enum conversion utilities (`UserTier`, `UserStatus`, `TaskStatus`, etc.)
+/// SQLite connection-string construction
+pub mod connection_url;
+
 pub mod enums;
 
 /// Input validation logic (email, tenant ownership, expiration, scopes)
