@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `Database::new` appends `?mode=rwc` so SQLite creates the file when missing.
+//! `Database::new` appends `?mode=rwc` so `SQLite` creates the file when missing.
 //! It used to append unconditionally, so a caller that spelled out its own
 //! parameters got them mangled: `sqlite:x.db?mode=rwc` became
-//! `sqlite:x.db?mode=rwc?mode=rwc`, which SQLx rejects with
+//! `sqlite:x.db?mode=rwc?mode=rwc`, which `SQLx` rejects with
 //! `unknown value "rwc?mode=rwc" for mode`.
 //!
 //! That is a startup failure, not a query failure — the process dies before
@@ -40,7 +40,7 @@ async fn sqlite_url_with_other_query_params_connects() {
 }
 
 /// The original behaviour still holds: no query string means we add the one
-/// that makes SQLite create a missing file.
+/// that makes `SQLite` create a missing file.
 #[tokio::test]
 async fn sqlite_url_without_query_params_still_connects() {
     let key = generate_encryption_key().to_vec();
