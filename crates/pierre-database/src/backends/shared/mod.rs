@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// Enum conversion utilities (`UserTier`, `UserStatus`, `TaskStatus`, etc.)
 /// SQLite connection-string construction
 pub mod connection_url;
 
+/// Enum conversion utilities (`UserTier`, `UserStatus`, `TaskStatus`, etc.)
 pub mod enums;
 
 /// Input validation logic (email, tenant ownership, expiration, scopes)
