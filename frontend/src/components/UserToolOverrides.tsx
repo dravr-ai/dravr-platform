@@ -25,7 +25,7 @@ interface SourceBadgeSpec {
 const SOURCE_BADGES: Record<UserToolSource, SourceBadgeSpec> = {
   user_override: {
     label: 'User Override',
-    classes: 'bg-purple-500/15 text-purple-500',
+    classes: 'bg-info/15 text-info',
     title: 'Per-user admin override — takes precedence over plan and tenant settings',
   },
   plan_restriction: {
@@ -40,7 +40,7 @@ const SOURCE_BADGES: Record<UserToolSource, SourceBadgeSpec> = {
   },
   tenant_override: {
     label: 'Tenant Override',
-    classes: 'bg-blue-500/15 text-blue-500',
+    classes: 'bg-info/15 text-info',
     title: 'Set by a tenant-level override (Tool Management tab)',
   },
   default: {

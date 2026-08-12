@@ -390,7 +390,7 @@ export default function HarnessConfigTab() {
                   onClick={() => setActiveLocale(loc)}
                   className={`rounded px-3 py-1 text-xs font-medium ${
                     activeLocale === loc
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-primary text-on-primary'
                       : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container'
                   }`}
                 >

@@ -13,12 +13,12 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Coach category colors (dark theme)
 const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: 'bg-success/20 text-success',
-  nutrition: 'bg-warning/20 text-warning',
-  recovery: 'bg-indigo-500/20 text-indigo-400',
-  recipes: 'bg-warning/20 text-warning',
-  mobility: 'bg-pink-500/20 text-pink-400',
-  custom: 'bg-violet-500/20 text-violet-400',
+  training: 'bg-activity/20 text-activity',
+  nutrition: 'bg-nutrition/20 text-nutrition',
+  recovery: 'bg-recovery/20 text-recovery',
+  recipes: 'bg-nutrition/20 text-nutrition',
+  mobility: 'bg-mobility/20 text-mobility',
+  custom: 'bg-surface-container-high text-on-surface-variant',
 };
 
 interface StoreCoachDetailProps {

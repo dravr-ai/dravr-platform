@@ -39,7 +39,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 # lost ground.
 # ============================================================================
 BASELINE_WEB_RAW_INPUT=59
-BASELINE_WEB_RAW_PALETTE=82
+BASELINE_WEB_RAW_PALETTE=2
 BASELINE_MOBILE_RAW_PALETTE=28
 BASELINE_MOBILE_RAW_TEXTINPUT=17
 BASELINE_WEB_LEGACY_PIERRE=0

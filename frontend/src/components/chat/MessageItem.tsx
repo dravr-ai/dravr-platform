@@ -106,7 +106,7 @@ function chipClassForTone(tone: WorstStrengthTone): string {
     case 'error':
       return 'bg-error/15 text-error hover:bg-error/25';
     case 'info':
-      return 'bg-sky-500/15 text-sky-300 hover:bg-sky-500/25';
+      return 'bg-info/15 text-info hover:bg-info/25';
     case 'secondary':
     default:
       return 'bg-surface-container-high/15 text-on-surface hover:bg-surface-container-high/25';

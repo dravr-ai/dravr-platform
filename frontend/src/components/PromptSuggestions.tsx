@@ -235,7 +235,7 @@ function CoachesSection({
       {/* Header with help button */}
       <div className="flex items-center gap-2 mb-3 relative">
         <div
-          className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center shadow-ambient"
+          className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary-container flex items-center justify-center shadow-ambient"
           role="img"
           aria-label="Coaches"
         >
@@ -589,11 +589,11 @@ const HiddenCoachCard = memo(function HiddenCoachCard({
 // Helper functions for category styling (dark theme)
 function getCategoryBadgeClass(category: string): string {
   const classes: Record<string, string> = {
-    training: 'bg-success/20 text-success',
-    nutrition: 'bg-warning/20 text-warning',
-    recovery: 'bg-indigo-500/20 text-indigo-400',
-    recipes: 'bg-warning/20 text-warning',
-    mobility: 'bg-pink-500/20 text-pink-400',
+    training: 'bg-activity/20 text-activity',
+    nutrition: 'bg-nutrition/20 text-nutrition',
+    recovery: 'bg-recovery/20 text-recovery',
+    recipes: 'bg-nutrition/20 text-nutrition',
+    mobility: 'bg-mobility/20 text-mobility',
     analysis: 'bg-primary/20 text-primary',
     custom: 'bg-surface-container-high text-on-surface-variant',
   };

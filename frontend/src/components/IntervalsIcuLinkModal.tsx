@@ -74,6 +74,9 @@ export default function IntervalsIcuLinkModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
           <div className="flex items-center gap-3">
+            {/* Intervals.icu brand colours, not Boreal tokens. This is the
+                provider mark next to its name; recolouring it would
+                misrepresent which service is being connected. */}
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center flex-shrink-0">
               <svg className="w-4 h-4 text-on-surface" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M3 13h4l3 7 4-14 3 7h4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -178,7 +181,7 @@ export default function IntervalsIcuLinkModal({
               <button
                 type="submit"
                 disabled={isLoading || !athleteId.trim() || !apiKey.trim()}
-                className="w-full py-3 bg-gradient-to-r from-sky-500 to-blue-600 rounded-lg text-on-surface font-medium hover:shadow-lg hover:shadow-sky-500/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                className="w-full py-3 bg-primary rounded-lg text-on-primary font-medium hover:shadow-lg hover:shadow-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 {isLoading ? 'Verifying…' : 'Connect'}
               </button>

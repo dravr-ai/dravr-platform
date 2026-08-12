@@ -69,17 +69,17 @@ interface FeedItem {
 type ReactionType = 'like' | 'celebrate' | 'inspire' | 'support';
 
 const REACTION_CONFIG: Record<ReactionType, { icon: string; color: string; label: string }> = {
-  like: { icon: '👍', color: 'text-blue-400', label: 'Like' },
+  like: { icon: '👍', color: 'text-info', label: 'Like' },
   celebrate: { icon: '🎉', color: 'text-warning', label: 'Celebrate' },
-  inspire: { icon: '💪', color: 'text-purple-400', label: 'Inspire' },
+  inspire: { icon: '💪', color: 'text-primary', label: 'Inspire' },
   support: { icon: '🤗', color: 'text-error', label: 'Support' },
 };
 
 const INSIGHT_TYPE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
   achievement: { icon: '🏆', color: 'bg-success/20 text-success border-success/30', label: 'Achievement' },
   milestone: { icon: '🚩', color: 'bg-warning/20 text-warning border-warning/30', label: 'Milestone' },
-  training_tip: { icon: '⚡', color: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', label: 'Training Tip' },
-  recovery: { icon: '🌙', color: 'bg-violet-500/20 text-violet-400 border-violet-500/30', label: 'Recovery' },
+  training_tip: { icon: '⚡', color: 'bg-activity/20 text-activity border-activity/30', label: 'Training Tip' },
+  recovery: { icon: '🌙', color: 'bg-recovery/20 text-recovery border-recovery/30', label: 'Recovery' },
   motivation: { icon: '☀️', color: 'bg-warning/20 text-warning border-warning/30', label: 'Motivation' },
 };
 
@@ -273,7 +273,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
     <div className="h-full flex flex-col bg-surface">
       <TabHeader
         icon={<TrendingUp className="w-5 h-5" />}
-        gradient="from-primary to-purple-600"
+        gradient="from-primary to-primary-container"
         description="Coach insights from your friends"
         actions={
           <>

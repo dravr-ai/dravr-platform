@@ -440,7 +440,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                     type="checkbox"
                     checked={allSelected}
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="rounded border-outline-variant bg-surface-container text-primary focus:ring-primary accent-violet-600"
+                    className="rounded border-outline-variant bg-surface-container text-primary focus:ring-primary accent-primary"
                   />
                 </th>
                 <th className="text-left py-3 px-3 font-medium text-on-surface-variant">Tool</th>
@@ -466,7 +466,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                         checked={selectedTools.has(tool.tool_name)}
                         onChange={(e) => handleSelectTool(tool.tool_name, e.target.checked)}
                         disabled={globallyDisabled}
-                        className="rounded border-outline-variant bg-surface-container text-primary focus:ring-primary accent-violet-600 disabled:opacity-50"
+                        className="rounded border-outline-variant bg-surface-container text-primary focus:ring-primary accent-primary disabled:opacity-50"
                       />
                     </td>
                     <td className="py-3 px-3">

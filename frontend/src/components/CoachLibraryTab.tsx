@@ -1447,13 +1447,13 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   type="checkbox"
                   checked={formData.prefetch_enabled}
                   onChange={(e) => setFormData({ ...formData, prefetch_enabled: e.target.checked })}
-                  className="w-4 h-4 rounded ghost-border text-purple-500 focus:ring-purple-500 bg-surface-container-low"
+                  className="w-4 h-4 rounded ghost-border text-primary focus:ring-primary bg-surface-container-low"
                 />
                 <span className="text-sm text-on-surface/70">Pre-fetch activity data when conversation starts</span>
               </label>
 
               {formData.prefetch_enabled && (
-                <div className="space-y-3 pl-4 border-l-2 border-purple-500/20">
+                <div className="space-y-3 pl-4 border-l-2 border-primary/20">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs text-on-surface/50 mb-1">Activity count</label>
@@ -1463,7 +1463,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         max={200}
                         value={formData.activity_count}
                         onChange={(e) => setFormData({ ...formData, activity_count: Math.max(1, Math.min(200, Number(e.target.value))) })}
-                        className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm focus:border-purple-500/50 focus:outline-none"
+                        className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm focus:border-primary/50 focus:outline-none"
                       />
                     </div>
                     <Select
@@ -1490,7 +1490,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       placeholder="Run, Ride, Swim"
                       value={formData.sport_types}
                       onChange={(e) => setFormData({ ...formData, sport_types: e.target.value })}
-                      className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm placeholder-white/30 focus:border-purple-500/50 focus:outline-none"
+                      className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm placeholder-white/30 focus:border-primary/50 focus:outline-none"
                     />
                   </div>
 
@@ -1514,7 +1514,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       type="checkbox"
                       checked={formData.athlete_profile}
                       onChange={(e) => setFormData({ ...formData, athlete_profile: e.target.checked })}
-                      className="w-3.5 h-3.5 rounded ghost-border text-purple-500 focus:ring-purple-500 bg-surface-container-low"
+                      className="w-3.5 h-3.5 rounded ghost-border text-primary focus:ring-primary bg-surface-container-low"
                     />
                     <span className="text-xs text-on-surface/60">Also fetch athlete profile</span>
                   </label>

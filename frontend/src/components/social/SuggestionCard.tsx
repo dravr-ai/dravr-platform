@@ -26,8 +26,8 @@ interface SuggestionCardProps {
 const INSIGHT_TYPE_CONFIG: Record<InsightType, { icon: string; color: string; label: string }> = {
   achievement: { icon: '🏆', color: 'bg-success/20 text-success border-success/30', label: 'Achievement' },
   milestone: { icon: '🚩', color: 'bg-warning/20 text-warning border-warning/30', label: 'Milestone' },
-  training_tip: { icon: '⚡', color: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', label: 'Training Tip' },
-  recovery: { icon: '🌙', color: 'bg-violet-500/20 text-violet-400 border-violet-500/30', label: 'Recovery' },
+  training_tip: { icon: '⚡', color: 'bg-activity/20 text-activity border-activity/30', label: 'Training Tip' },
+  recovery: { icon: '🌙', color: 'bg-recovery/20 text-recovery border-recovery/30', label: 'Recovery' },
   motivation: { icon: '☀️', color: 'bg-warning/20 text-warning border-warning/30', label: 'Motivation' },
   coaching_insight: { icon: '🎯', color: 'bg-primary/20 text-primary border-primary/30', label: 'Coaching Insight' },
 };

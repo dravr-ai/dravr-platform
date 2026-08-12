@@ -34,7 +34,7 @@ function statusToneClass(status: ChatVerdictRow['status']): string {
     case 'contradicted':
       return 'bg-error/15 text-error';
     case 'rhetorical':
-      return 'bg-sky-500/15 text-sky-300';
+      return 'bg-info/15 text-info';
     case 'unverifiable':
     default:
       return 'bg-surface-container-high/15 text-on-surface';

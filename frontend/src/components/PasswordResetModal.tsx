@@ -184,8 +184,8 @@ export default function PasswordResetModal({
                 </p>
               </div>
 
-              <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-md">
-                <p className="text-sm text-blue-400">
+              <div className="mb-4 p-3 bg-info/10 border border-info/30 rounded-md">
+                <p className="text-sm text-info">
                   Please securely share this temporary password with the user. They will be required to change it upon their next login.
                 </p>
               </div>

@@ -183,15 +183,15 @@ export function CoachVersionHistory({
 
           {/* Compare mode indicator */}
           {(compareFrom !== null || compareTo !== null) && (
-            <div className="flex items-center justify-between px-4 py-2 bg-blue-50 rounded-lg">
-              <span className="text-sm text-blue-700">
+            <div className="flex items-center justify-between px-4 py-2 bg-info/10 rounded-lg">
+              <span className="text-sm text-info">
                 {compareFrom !== null && compareTo === null
                   ? `Select second version to compare with v${compareFrom}`
                   : `Comparing v${compareFrom} with v${compareTo}`}
               </span>
               <button
                 onClick={clearComparison}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                className="text-sm text-info hover:opacity-80 font-medium"
               >
                 Clear
               </button>
@@ -238,7 +238,7 @@ export function CoachVersionHistory({
                         ? 'border-primary bg-primary/5'
                         : 'ghost-border hover:ghost-border',
                       compareFrom === version.version || compareTo === version.version
-                        ? 'ring-2 ring-blue-500 ring-offset-1'
+                        ? 'ring-2 ring-primary ring-offset-1'
                         : ''
                     )}
                   >
@@ -271,7 +271,7 @@ export function CoachVersionHistory({
                             className={clsx(
                               'px-2 py-1 text-xs rounded',
                               compareFrom === version.version || compareTo === version.version
-                                ? 'bg-blue-100 text-blue-700'
+                                ? 'bg-info/15 text-info'
                                 : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest'
                             )}
                           >

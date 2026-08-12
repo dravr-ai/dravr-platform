@@ -500,8 +500,8 @@ export default function SciotteLoginModal({
           {phase === 'number-match' && matchNumber && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 border-2 border-blue-500/40 flex items-center justify-center">
-                  <span className="text-5xl font-bold text-blue-400">{matchNumber}</span>
+                <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-info/20 to-info/10 border-2 border-info/40 flex items-center justify-center">
+                  <span className="text-5xl font-bold text-info">{matchNumber}</span>
                 </div>
                 <p className="text-on-surface font-medium mb-1">Tap this number on your phone</p>
                 <p className="text-on-surface/50 text-sm mb-4">Check the Google notification on your device</p>

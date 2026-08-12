@@ -110,7 +110,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-container flex items-center justify-center">
             <Bell className="w-5 h-5 text-on-surface" />
           </div>
           <div>
@@ -126,7 +126,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
           <button
             onClick={() => markAllAsRead()}
             disabled={isMarkingAllRead}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-400 bg-violet-500/10 hover:bg-violet-500/20 rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors disabled:opacity-50"
           >
             <CheckCheck className="w-3.5 h-3.5" />
             Mark all read
@@ -146,7 +146,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors',
                 isActive
-                  ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+                  ? 'bg-primary/20 text-primary border border-primary/30'
                   : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface border border-transparent',
               )}
             >
@@ -185,7 +185,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                   key={item.id}
                   className={clsx(
                     'flex items-start gap-3 sm:gap-4 px-4 sm:px-6 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors group',
-                    isUnread && 'bg-violet-500/[0.03]',
+                    isUnread && 'bg-primary/[0.03]',
                   )}
                   onClick={() => handleNotificationClick(item)}
                 >
@@ -240,7 +240,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                               e.stopPropagation();
                               handleActionClick(item, action);
                             }}
-                            className="text-xs font-medium px-2.5 py-1 rounded-md bg-violet-500/15 text-violet-300 hover:bg-violet-500/25 transition-colors"
+                            className="text-xs font-medium px-2.5 py-1 rounded-md bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
                           >
                             {action.title}
                           </button>
