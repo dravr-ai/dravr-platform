@@ -54,7 +54,7 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
-use pierre_core::config::fitness::activity_detail_threshold;
+use pierre_core::config::fitness::{activity_detail_threshold, EXPENSIVE_DETAIL_PROMOTION_BUDGET};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_fitness_compute::weather::build_provider as build_weather_provider;
@@ -67,6 +67,7 @@ use pierre_intelligence::physiological_constants::api_limits::{
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::spi::ProviderCapabilities;
 use pierre_services::weather_backfill;
 use pierre_tools_core::ToolResult;
 use pierre_weather::WeatherProvider;
@@ -689,9 +690,35 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // detailed mode — the provider list endpoint only returns a shallow
             // summary, so we round-trip each id through get_activity_detailed.
             // Callers who explicitly pass mode=summary retain the compact payload.
+            // ...bounded by what a round-trip costs on THIS provider. On an
+            // HTTP API a detail fetch is milliseconds; on a headless-browser
+            // provider it is a full page navigation. A live 2026-08-12
+            // Telegram turn returned its list in 37s and then spent 3m41s
+            // scraping 30 detail pages one at a time — 4m37s for an answer
+            // the list already supported.
+            //
+            // Detail is NOT dropped on expensive providers: it carries HR
+            // streams, laps and the real UTC start time the date-only list
+            // page lacks. It is rationed instead. The list is newest-first, so
+            // the budget spends itself on the activities a coach reasons
+            // about ("hier", "ma dernière sortie") and leaves the tail as
+            // summaries, which already carry HR, elevation, cadence and power.
+            let detail_is_cheap = context
+                .resources
+                .provider_registry()
+                .get_descriptor(&provider_name)
+                .is_some_and(|d| {
+                    d.capabilities()
+                        .contains(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
+                });
             let detail_threshold = activity_detail_threshold();
             let auto_promote_to_detail =
                 !mode_explicit && detail_threshold > 0 && limit <= detail_threshold;
+            let detail_budget = if detail_is_cheap {
+                usize::MAX
+            } else {
+                EXPENSIVE_DETAIL_PROMOTION_BUDGET
+            };
 
             // Weather provider constructed once per request — both cache and
             // live response paths reuse it for the temperature backfill pass.
@@ -1046,7 +1073,13 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             ) {
                 let mut detailed = Vec::with_capacity(filtered_activities.len());
                 let original_count = filtered_activities.len();
-                for activity in &filtered_activities {
+                for (rank, activity) in filtered_activities.iter().enumerate() {
+                    if rank >= detail_budget {
+                        // Past the budget: keep the summary. Rationing, not
+                        // truncation — every activity is still returned.
+                        detailed.push(activity.clone());
+                        continue;
+                    }
                     match provider.get_activity_detailed(activity.id()).await {
                         Ok(detail) => detailed.push(detail),
                         Err(err) => {

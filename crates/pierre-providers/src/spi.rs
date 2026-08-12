@@ -111,6 +111,17 @@ bitflags::bitflags! {
         const HEALTH_METRICS = 0b0001_0000;
         /// Provider supports continuous 24/7 data sync (sleep, recovery, HR, steps)
         const CONTINUOUS_DATA = 0b0010_0000;
+        /// Fetching one activity's DETAIL costs about as much as fetching the
+        /// list — true for HTTP APIs, false for a headless-browser scrape
+        /// where each detail is a full page navigation.
+        ///
+        /// `get_activities` auto-promotes small result sets to detailed, an
+        /// N+1 that is milliseconds on an API and minutes on a scrape: a live
+        /// 2026-08-12 Telegram turn spent 3m41s of its 4m37s scraping 30
+        /// detail pages one at a time, after the list had already returned in
+        /// 37s. Absent by default, so a new provider is assumed expensive and
+        /// stays fast until it opts in.
+        const CHEAP_ACTIVITY_DETAIL = 0b0100_0000;
     }
 }
 
@@ -118,7 +129,9 @@ impl ProviderCapabilities {
     /// Create capabilities for an activity-only provider (like Strava)
     #[must_use]
     pub const fn activity_only() -> Self {
-        Self::OAUTH.union(Self::ACTIVITIES)
+        Self::OAUTH
+            .union(Self::ACTIVITIES)
+            .union(Self::CHEAP_ACTIVITY_DETAIL)
     }
 
     /// Create capabilities for a full health provider (like Garmin, Fitbit)
@@ -130,6 +143,7 @@ impl ProviderCapabilities {
             .union(Self::RECOVERY_METRICS)
             .union(Self::HEALTH_METRICS)
             .union(Self::CONTINUOUS_DATA)
+            .union(Self::CHEAP_ACTIVITY_DETAIL)
     }
 
     /// Check if OAuth is required
@@ -692,8 +706,13 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        // Activities + wellness (HRV / resting HR / weight). API-key auth, not OAuth.
-        ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::HEALTH_METRICS)
+        // Activities + wellness (HRV / resting HR / weight). API-key auth, not
+        // OAuth — which is why this builds its own set rather than reusing
+        // `full_health()`, and why the cheap-detail flag has to be named here
+        // too: detail is one more HTTP GET, not a browser page load.
+        ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::HEALTH_METRICS)
+            .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {

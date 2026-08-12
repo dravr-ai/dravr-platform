@@ -444,6 +444,16 @@ impl Default for WeatherApiConfig {
 /// reason about load without the N+1 cost.
 pub const DEFAULT_ACTIVITY_DETAIL_THRESHOLD: usize = 20;
 
+/// How many activities may be promoted to detail on a provider whose detail
+/// fetch is expensive (a headless-browser page navigation rather than an HTTP
+/// GET).
+///
+/// Three covers the asks that actually want detail — "ma dernière sortie",
+/// "hier", "compare mes deux derniers runs" — against a newest-first list,
+/// while capping the N+1 at roughly 20s instead of the 3m41s a live
+/// 2026-08-12 Telegram turn spent enriching all twenty.
+pub const EXPENSIVE_DETAIL_PROMOTION_BUDGET: usize = 3;
+
 /// Resolve the activity detail threshold from the environment.
 ///
 /// Reads `ACTIVITY_DETAIL_THRESHOLD`, falling back to

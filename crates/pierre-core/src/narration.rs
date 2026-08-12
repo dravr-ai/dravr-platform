@@ -870,11 +870,15 @@ static FOLDED_IDENTITY: LazyLock<Vec<String>> = LazyLock::new(|| {
 // Runtime vocabulary overlay (contremaitre-synced)
 // ===========================================================================
 
-/// Shortest folded pattern the overlay accepts, in characters. The whole
-/// apply is rejected below this — a typo'd two-word entry like «de mon»
-/// would scrub half of every French reply, and last-good-wins means a
-/// rejected overlay costs nothing.
-const OVERLAY_MIN_FOLDED_CHARS: usize = 10;
+/// Shortest folded pattern the overlay accepts, in characters.
+///
+/// This catches truncation and fat-finger entries, not semantic over-match.
+/// Length cannot tell the two apart: `openai` (6) and `raw xml` (7) are
+/// legitimate vocabulary while `de mon` (6) would scrub half of every French
+/// reply. Judging that is review's job — the authored file lives in a
+/// reviewed repo. The floor was 10 while the overlay only carried
+/// hand-written deltas; the full vocabulary contains real entries below it.
+const OVERLAY_MIN_FOLDED_CHARS: usize = 4;
 
 /// Most entries one overlay class accepts — a runaway-file backstop far
 /// above any plausible vocabulary size (the compiled-in tables sit under

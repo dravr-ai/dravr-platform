@@ -123,12 +123,14 @@ fn overmatching_entry_rejects_the_whole_overlay() {
     let good = "version: 1\ncapability_failure:\n  - \"impossible d'interroger tes plateformes\"\n";
     reload_narration_vocab(good, "sha-before-overmatch".to_owned()).expect("v1 applies");
 
-    // «de mon» folds to 6 characters — it would match half of every French
-    // reply, so the WHOLE document is rejected, not just the entry.
-    let bad = "version: 1\ncapability_failure:\n  - \"de mon\"\n  - \"une entrée parfaitement valide ici\"\n";
+    // A truncated entry folds below the floor, so the WHOLE document is
+    // rejected rather than the single entry — a half-installed vocabulary is
+    // harder to reason about than a rejected one.
+    let bad =
+        "version: 1\ncapability_failure:\n  - \"de\"\n  - \"une entrée parfaitement valide ici\"\n";
     let err = reload_narration_vocab(bad, "sha-overmatch".to_owned())
         .expect_err("an over-matching entry must reject the apply");
-    assert!(err.contains("de mon"), "error names the entry: {err}");
+    assert!(err.contains("`de`"), "error names the entry: {err}");
 
     assert!(
         contains_capability_failure("C'est impossible d'interroger tes plateformes aujourd'hui."),

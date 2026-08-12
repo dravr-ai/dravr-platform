@@ -39,7 +39,42 @@ struct NarrationYaml {
     internal_narration: Vec<String>,
     /// Extends the identity vocabulary on the replay path only.
     #[serde(default)]
-    identity: Vec<String>,
+    identity: Vec<IdentityEntry>,
+}
+
+/// An identity entry in either shape.
+///
+/// Contremaitre is live config — a push reaches production on the next 60s
+/// sync — while a reader change needs a deploy, so the two are never in step.
+/// A shape change pushed to the YAML first makes serde reject the WHOLE
+/// document and silently keep the previous snapshot: that is how the
+/// «toujours pas accès» scrub stopped being active on 2026-08-11 without
+/// anything looking broken. Accepting both shapes means the ordering can
+/// never bite again.
+///
+/// Only `text` is taken from the rich form; serde ignores the sibling keys.
+/// The overlay feeds plain replay matching, and the outbound withhold keeps
+/// its compiled table, where a negation lookbehind decides whether a denial
+/// is a leak — a judgement `class`/`locale` would have to carry, and plain
+/// overlay strings cannot. Declaring them here just to drop them would be
+/// dead weight pretending to be forward compatibility.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum IdentityEntry {
+    /// `- "github copilot"`
+    Plain(String),
+    /// `- {text: "github copilot", class: Product, locale: "any"}` — sibling
+    /// keys are ignored.
+    Rich { text: String },
+}
+
+impl IdentityEntry {
+    /// The matchable phrase, whichever shape carried it.
+    fn text(self) -> String {
+        match self {
+            Self::Plain(text) | Self::Rich { text } => text,
+        }
+    }
 }
 
 /// Parse `yaml` and install it into [`GLOBAL_NARRATION_VOCAB`], recording
@@ -65,7 +100,11 @@ pub fn reload_narration_vocab(
     let overlay = NarrationVocabOverlay {
         capability_failure: parsed.capability_failure,
         internal_narration: parsed.internal_narration,
-        identity: parsed.identity,
+        identity: parsed
+            .identity
+            .into_iter()
+            .map(IdentityEntry::text)
+            .collect(),
     };
     GLOBAL_NARRATION_VOCAB.apply_overlay(&overlay, sha256)
 }
