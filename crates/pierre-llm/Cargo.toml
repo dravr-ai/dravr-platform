@@ -27,7 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.20.0", features = ["copilot-headless", "openai-api"] }
 # Compiled-in prompt/config baseline (replaces the vendor/contremaitre submodule).
 # Pinned by rev — the contremaitre-bump workflow advances this to contremaitre main.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "ea3657d3e974a0793fd342f3ec71efaa338e9bd8" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "7876f94773c90770a0d8995de3b41fe1f647c65b" }
 
 [lints]
 workspace = true
