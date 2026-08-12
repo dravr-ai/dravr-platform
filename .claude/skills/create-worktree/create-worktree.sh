@@ -33,6 +33,22 @@ echo "Worktree path: $WORKTREE_PATH"
 # Create the worktree and branch
 git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH"
 
+# Populate submodules. NOT optional: core.hooksPath is the relative path
+# .build/hooks, which git resolves against each worktree's own root. A fresh
+# worktree gets an empty .build/, so git finds no hooks directory and silently
+# runs NO hooks at all — commit-msg, pre-commit, and pre-push alike. That reads
+# exactly like hooks passing, so an unvalidated push looks clean. The nested
+# vendor/llm-registre submodule carries limitation-gates.sh, which
+# architectural-validation.sh fails without.
+echo "Initializing submodules (hooks + validation)..."
+git -C "$WORKTREE_PATH" submodule update --init --recursive
+
+if [[ ! -x "$WORKTREE_PATH/.build/hooks/commit-msg" ]]; then
+    echo "ERROR: .build/hooks/commit-msg missing after submodule init." >&2
+    echo "       This worktree would run with NO git hooks. Fix before committing." >&2
+    exit 1
+fi
+
 # Copy environment files
 echo "Copying environment files..."
 cp "$MAIN_WORKTREE/.envrc" "$WORKTREE_PATH/.envrc"
