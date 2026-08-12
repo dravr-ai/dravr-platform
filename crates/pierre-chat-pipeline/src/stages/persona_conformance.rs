@@ -30,9 +30,13 @@
 //! reply ships unchanged. Once a rule has stabilised in shadow mode for a
 //! persona we can flip `strict_mode: true` in contremaitre.
 //!
-//! LIMITATION(registre#4): `strict_mode: true` is just a louder log level (`error!`
-//! instead of `warn!`); the re-prompt-with-fix-delta recovery it is meant to
-//! trigger is unbuilt, so no persona has it flipped.
+//! `strict_mode: true` is fully armed on the platform side: it raises the log
+//! to `error!` **and** runs the re-prompt recovery in [`enforce_conformance`],
+//! which asks the model to rewrite the reply against the violated rules while
+//! preserving every fact, and fails open on any error. What keeps the stage
+//! advisory today is data, not code — no shipped persona sets `strict_mode` in
+//! contremaitre's `persona_contracts.yaml`, and the shadow logs that would
+//! justify flipping one have not been reviewed.
 
 use std::sync::Arc;
 

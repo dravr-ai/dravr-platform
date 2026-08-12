@@ -26,6 +26,6 @@ features:
     review_by: 2026-10-31
   - name: persona-conformance-strict-mode
     surface: crates/pierre-chat-pipeline/src/stages/persona_conformance.rs
-    current: all personas run shadow mode (strict_mode false) — violations are warn logs and replies ship unchanged
-    advance_when: a persona's rules are stable in shadow logs and the re-prompt-with-fix-delta recovery (registre 4) is built
+    current: all personas run shadow mode (strict_mode false) — violations are warn logs and replies ship unchanged; the re-prompt recovery strict mode triggers is built and wired, so arming is a per-persona data change in contremaitre
+    advance_when: shadow logs show a persona's rules are stable, then set strict_mode true for that persona in contremaitre persona_contracts.yaml
     review_by: 2026-09-30
