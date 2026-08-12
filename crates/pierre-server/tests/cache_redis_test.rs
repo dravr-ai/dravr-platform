@@ -24,7 +24,7 @@ struct TestData {
 /// Helper: Create test cache key
 fn test_cache_key(resource: CacheResource) -> CacheKey {
     CacheKey::new(
-        TenantId::new(),
+        TenantId::generate(),
         Uuid::new_v4(),
         "strava".to_owned(),
         resource,
@@ -249,7 +249,7 @@ async fn test_redis_cache_invalidate_pattern() -> Result<()> {
     let cache = require_redis!(create_redis_cache().await?);
 
     // Use unique IDs for this test to avoid conflicts
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data = TestData {
@@ -309,8 +309,8 @@ async fn test_redis_cache_invalidate_pattern() -> Result<()> {
 async fn test_redis_cache_tenant_isolation() -> Result<()> {
     let cache = require_redis!(create_redis_cache().await?);
 
-    let tenant1 = TenantId::new();
-    let tenant2 = TenantId::new();
+    let tenant1 = TenantId::generate();
+    let tenant2 = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data1 = TestData {
@@ -367,7 +367,7 @@ async fn test_redis_cache_clear_all() -> Result<()> {
     let cache = require_redis!(create_redis_cache().await?);
 
     // Use unique IDs for this test
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data = TestData {
@@ -416,7 +416,7 @@ async fn test_redis_cache_clear_all() -> Result<()> {
 #[tokio::test]
 async fn test_redis_cache_different_resource_types() -> Result<()> {
     let cache = require_redis!(create_redis_cache().await?);
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data = TestData {
@@ -536,7 +536,7 @@ async fn test_redis_cache_large_value() -> Result<()> {
 #[tokio::test]
 async fn test_redis_cache_concurrent_operations() -> Result<()> {
     let cache = require_redis!(create_redis_cache().await?);
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     // Run concurrent set/get operations
@@ -600,7 +600,7 @@ async fn test_redis_cache_invalidate_pattern_no_matches() -> Result<()> {
 async fn test_redis_cache_tenant_pattern_invalidation() -> Result<()> {
     let cache = require_redis!(create_redis_cache().await?);
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user1_id = Uuid::new_v4();
     let user2_id = Uuid::new_v4();
 

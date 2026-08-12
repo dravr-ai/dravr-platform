@@ -38,7 +38,7 @@ const CLIMBS_JSON: &str = r#"[{"start_index":0,"end_index":50,"length_meters":15
 #[tokio::test]
 async fn upsert_and_get_route_summary_round_trips() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let activity_id = "act-42";
     let hash = "deadbeef";
@@ -70,7 +70,7 @@ async fn upsert_and_get_route_summary_round_trips() {
 #[tokio::test]
 async fn get_returns_none_when_hash_mismatch() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let activity_id = "act-7";
     db.repositories()
@@ -97,8 +97,8 @@ async fn get_returns_none_when_hash_mismatch() {
 #[tokio::test]
 async fn route_summary_is_tenant_scoped() {
     let db = make_test_db().await;
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
     let user_id = Uuid::new_v4();
     let activity_id = "act-xx";
     let repos = db.repositories();
@@ -155,7 +155,7 @@ async fn route_summary_is_tenant_scoped() {
 #[tokio::test]
 async fn upsert_overwrites_existing_row() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let activity_id = "act-9";
     let repos = db.repositories();

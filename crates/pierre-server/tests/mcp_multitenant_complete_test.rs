@@ -210,7 +210,7 @@ impl MultiTenantMcpClient {
         display_name: &str,
     ) -> Result<String> {
         // Store tenant OAuth credentials for testing
-        let tenant_uuid = TenantId::new();
+        let tenant_uuid = TenantId::generate();
 
         // Create the actual test user first (will be tenant owner)
         let user_id = uuid::Uuid::new_v4();

@@ -1483,6 +1483,25 @@ else
     echo -e "${YELLOW}⚠️  scripts/ci/check-cpu-idle-adr.sh not found or not executable${NC}"
 fi
 
+# HARD FAIL: Rust source file-size ratchet. Files at or under the ceiling stay
+# under it; files already over it are frozen at their current size and may
+# shrink but never grow. Only files this change touched are considered.
+if [ -x "$SCRIPT_DIR/check-file-sizes.sh" ]; then
+    "$SCRIPT_DIR/check-file-sizes.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${YELLOW}⚠️  scripts/ci/check-file-sizes.sh not found or not executable${NC}"
+fi
+
+# HARD FAIL: deny.toml advisory suppressions expire. Every ignored RUSTSEC id
+# needs a "Next Review" date in its own comment block, and a date in the past
+# fails — a suppression is a decision against a snapshot of the dependency
+# graph, and the graph moves even when the decision does not.
+if [ -x "$SCRIPT_DIR/check-advisory-reviews.sh" ]; then
+    "$SCRIPT_DIR/check-advisory-reviews.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${YELLOW}⚠️  scripts/ci/check-advisory-reviews.sh not found or not executable${NC}"
+fi
+
 # ADVISORY (warning-only): SDK path vs mounted-route contract, ungated mobile
 # polls, and stream senders with no production caller. These surface candidates
 # without failing the build because their detection is heuristic.

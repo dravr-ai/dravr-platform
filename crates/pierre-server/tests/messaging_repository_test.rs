@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 /// Fresh tenant id for tables that have no FK to tenants (e.g. `messaging_channel_configs`).
 fn test_tenant_id() -> TenantId {
-    TenantId::new()
+    TenantId::generate()
 }
 
 /// Create a session for FK relationships (messages reference sessions)

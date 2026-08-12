@@ -123,7 +123,7 @@ async fn create_test_user_with_tenant(database: &Database, email: &str) -> User 
 
     // Create tenant with user as owner - this adds user to tenant_users table
     let tenant = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Test Tenant".to_owned(),
         slug: format!("tenant-{}", user.id),
         domain: None,

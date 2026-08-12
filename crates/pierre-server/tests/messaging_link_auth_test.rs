@@ -38,7 +38,7 @@ async fn seed_tenant_with_owner(resources: &ServerContext) -> (Uuid, TenantId) {
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: "Link Auth Test Tenant".to_owned(),

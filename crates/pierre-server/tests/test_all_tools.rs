@@ -321,7 +321,7 @@ async fn find_or_create_test_user_with_token(
 async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Tenant)> {
     // Create a unique test user and tenant for this test run
     let user_id = Uuid::new_v4();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
 
     let user = User {
         id: user_id,

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_auth::oauth2_client::OAuthClientState;
-use pierre_auth::tenant::{TenantContext, TenantRole};
+use pierre_auth::tenant::TenantContext;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionStatus, TenantId};
 use serde_json::{json, Map, Value};
@@ -134,13 +134,10 @@ pub async fn mint_oauth_authorize_url(
         .get_by_id(tenant_id)
         .await
         .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
-    let tenant_context = TenantContext {
-        tenant_id,
-        user_id,
-        tenant_name,
-        user_role: TenantRole::Member,
-        session_id: None,
-    };
+    // Minting an authorize URL for a caller that already holds both ids; no
+    // membership lookup happened, so no role is asserted.
+    let tenant_context =
+        TenantContext::for_tenant_scoped_operation(tenant_id, tenant_name, user_id);
 
     let state = build_oauth_state(user_id, redirect_url);
 

@@ -226,7 +226,7 @@ impl A2ATestSetup {
             .expect("Failed to create test user");
 
         // Provision a tenant so A2A handlers can resolve tenant context
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant = Tenant {
             id: tenant_id,
             name: "A2A Test Tenant".to_owned(),

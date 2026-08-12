@@ -151,7 +151,7 @@ pub async fn seed_user(resources: &ServerContext, email: &str) -> (User, TenantI
     let repos = resources.coach.database.repositories();
     repos.users.create(&user).await.unwrap();
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Bench Tenant for {email}"),

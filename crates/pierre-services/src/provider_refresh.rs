@@ -1044,7 +1044,7 @@ async fn dispatch_sync_push_notification(
 
     let request = DispatchRequest {
         user_id,
-        tenant_id: CommTenantId(tenant_id.0),
+        tenant_id: CommTenantId(tenant_id.as_uuid()),
         category: CommNotifCategory::Training,
         notification_type: "data_synced".to_owned(),
         title: "Data Synced".to_owned(),

@@ -89,7 +89,7 @@ mod messaging_e2e_tests {
         resources.common.repos.users.create(&user).await.unwrap();
 
         // Create a tenant with this user as owner
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant = Tenant {
             id: tenant_id,
             name: format!("E2E Tenant {email}"),

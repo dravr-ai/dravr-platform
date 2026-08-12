@@ -400,7 +400,7 @@ fn test_user_serialization_roundtrip() {
 #[test]
 fn test_tenant_creation() {
     let now = Utc::now();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
 
     let tenant = Tenant {
         id: tenant_id,
@@ -424,7 +424,7 @@ fn test_tenant_creation() {
 fn test_tenant_serialization_roundtrip() {
     let now = Utc::now();
     let original_tenant = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Acme Corp".to_owned(),
         slug: "acme-corp".to_owned(),
         domain: Some("acme.com".to_owned()),

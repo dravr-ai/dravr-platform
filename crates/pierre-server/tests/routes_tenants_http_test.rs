@@ -235,7 +235,7 @@ async fn test_create_tenant_duplicate_slug() {
 
     // Create first tenant
     let tenant = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "First Tenant".to_owned(),
         slug: "duplicate-slug".to_owned(),
         domain: None,
@@ -284,7 +284,7 @@ async fn test_list_tenants_success() {
 
     // Create a tenant
     let tenant = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Test Tenant".to_owned(),
         slug: "test-tenant".to_owned(),
         domain: None,
@@ -421,7 +421,7 @@ async fn test_tenant_ownership() {
 
     // Create a tenant owned by the test user
     let tenant = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Owned Tenant".to_owned(),
         slug: "owned-tenant".to_owned(),
         domain: None,
@@ -465,7 +465,7 @@ async fn test_switch_tenant_success() {
 
     // Create a tenant and add user as member
     let tenant = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Switch Target Tenant".to_owned(),
         slug: "switch-target".to_owned(),
         domain: None,
@@ -585,7 +585,7 @@ async fn test_switch_tenant_non_member() {
     // create_tenant() auto-adds owner_user_id to tenant_users as owner
     // Our test user is NOT added to tenant_users
     let tenant = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Other User Tenant".to_owned(),
         slug: "other-user-tenant".to_owned(),
         domain: None,
@@ -645,7 +645,7 @@ async fn test_switch_between_multiple_tenants() {
 
     // Create two tenants owned by test user
     let tenant1 = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Tenant One".to_owned(),
         slug: "tenant-one".to_owned(),
         domain: None,
@@ -656,7 +656,7 @@ async fn test_switch_between_multiple_tenants() {
     };
 
     let tenant2 = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Tenant Two".to_owned(),
         slug: "tenant-two".to_owned(),
         domain: None,

@@ -23,7 +23,7 @@ async fn backfill_coverage_round_trips_overwrites_and_isolates() {
     let repos = db.repositories();
     let cache = &repos.activity_cache;
     let user = Uuid::new_v4();
-    let tenant = TenantId::new();
+    let tenant = TenantId::generate();
 
     // Nothing recorded yet.
     assert!(cache
@@ -76,7 +76,7 @@ async fn backfill_coverage_round_trips_overwrites_and_isolates() {
 
     // Isolation: a different tenant or provider has no coverage.
     assert!(cache
-        .get_backfill_coverage(user, &TenantId::new(), "strava")
+        .get_backfill_coverage(user, &TenantId::generate(), "strava")
         .await
         .unwrap()
         .is_none());

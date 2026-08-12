@@ -333,7 +333,7 @@ async fn build_tenant_context(
     // Fetch user's role in this tenant
     let user_role = fetch_user_role(user_id, tenant_id, repos).await;
 
-    Some(TenantContext::new(
+    Some(TenantContext::from_verified_membership(
         tenant_id,
         tenant_name,
         user_id,

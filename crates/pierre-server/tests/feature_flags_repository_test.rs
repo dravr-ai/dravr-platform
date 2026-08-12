@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 async fn build_user(repos: &pierre_database::RepositoryRegistry) -> (Uuid, TenantId) {
     let user_id = Uuid::new_v4();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let now = Utc::now();
     let user = User {
         id: user_id,
@@ -73,7 +73,7 @@ async fn tenant_default_set_then_list_round_trips() {
     assert!(
         repos
             .feature_flags
-            .list_tenant_defaults(tenant_id.0)
+            .list_tenant_defaults(tenant_id.as_uuid())
             .await
             .unwrap()
             .is_empty(),
@@ -82,13 +82,18 @@ async fn tenant_default_set_then_list_round_trips() {
 
     repos
         .feature_flags
-        .set_tenant_default(tenant_id.0, FeatureKey::ApiTokens, true, Some(admin_id))
+        .set_tenant_default(
+            tenant_id.as_uuid(),
+            FeatureKey::ApiTokens,
+            true,
+            Some(admin_id),
+        )
         .await
         .unwrap();
 
     let rows = repos
         .feature_flags
-        .list_tenant_defaults(tenant_id.0)
+        .list_tenant_defaults(tenant_id.as_uuid())
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -105,18 +110,28 @@ async fn tenant_default_upsert_overwrites_value() {
 
     repos
         .feature_flags
-        .set_tenant_default(tenant_id.0, FeatureKey::ApiTokens, true, Some(admin_id))
+        .set_tenant_default(
+            tenant_id.as_uuid(),
+            FeatureKey::ApiTokens,
+            true,
+            Some(admin_id),
+        )
         .await
         .unwrap();
     repos
         .feature_flags
-        .set_tenant_default(tenant_id.0, FeatureKey::ApiTokens, false, Some(admin_id))
+        .set_tenant_default(
+            tenant_id.as_uuid(),
+            FeatureKey::ApiTokens,
+            false,
+            Some(admin_id),
+        )
         .await
         .unwrap();
 
     let rows = repos
         .feature_flags
-        .list_tenant_defaults(tenant_id.0)
+        .list_tenant_defaults(tenant_id.as_uuid())
         .await
         .unwrap();
     assert_eq!(rows.len(), 1, "still one row after upsert");
@@ -131,14 +146,19 @@ async fn tenant_default_clear_is_idempotent() {
 
     repos
         .feature_flags
-        .set_tenant_default(tenant_id.0, FeatureKey::BillingHeader, true, Some(admin_id))
+        .set_tenant_default(
+            tenant_id.as_uuid(),
+            FeatureKey::BillingHeader,
+            true,
+            Some(admin_id),
+        )
         .await
         .unwrap();
 
     assert!(
         repos
             .feature_flags
-            .clear_tenant_default(tenant_id.0, FeatureKey::BillingHeader)
+            .clear_tenant_default(tenant_id.as_uuid(), FeatureKey::BillingHeader)
             .await
             .unwrap(),
         "first clear returns true"
@@ -146,7 +166,7 @@ async fn tenant_default_clear_is_idempotent() {
     assert!(
         !repos
             .feature_flags
-            .clear_tenant_default(tenant_id.0, FeatureKey::BillingHeader)
+            .clear_tenant_default(tenant_id.as_uuid(), FeatureKey::BillingHeader)
             .await
             .unwrap(),
         "second clear returns false (idempotent)"
@@ -196,7 +216,7 @@ async fn resolve_returns_compile_defaults_when_no_rows() {
 
     let resolved = repos
         .feature_flags
-        .resolve_for_user(tenant_id.0, user_id)
+        .resolve_for_user(tenant_id.as_uuid(), user_id)
         .await
         .unwrap();
 
@@ -219,13 +239,13 @@ async fn resolve_tenant_default_beats_compile_default() {
     // on and confirm resolve picks it up.
     repos
         .feature_flags
-        .set_tenant_default(tenant_id.0, FeatureKey::ApiTokens, true, None)
+        .set_tenant_default(tenant_id.as_uuid(), FeatureKey::ApiTokens, true, None)
         .await
         .unwrap();
 
     let resolved = repos
         .feature_flags
-        .resolve_for_user(tenant_id.0, user_id)
+        .resolve_for_user(tenant_id.as_uuid(), user_id)
         .await
         .unwrap();
     assert!(*resolved.get(&FeatureKey::ApiTokens).unwrap());
@@ -241,7 +261,7 @@ async fn resolve_user_override_beats_tenant_default() {
     // Tenant default ON, user override OFF — user wins.
     repos
         .feature_flags
-        .set_tenant_default(tenant_id.0, FeatureKey::ApiTokens, true, None)
+        .set_tenant_default(tenant_id.as_uuid(), FeatureKey::ApiTokens, true, None)
         .await
         .unwrap();
     repos
@@ -252,7 +272,7 @@ async fn resolve_user_override_beats_tenant_default() {
 
     let resolved = repos
         .feature_flags
-        .resolve_for_user(tenant_id.0, user_id)
+        .resolve_for_user(tenant_id.as_uuid(), user_id)
         .await
         .unwrap();
     assert!(
@@ -270,14 +290,14 @@ async fn cross_tenant_defaults_are_isolated() {
 
     repos
         .feature_flags
-        .set_tenant_default(tenant_a.0, FeatureKey::ApiTokens, true, None)
+        .set_tenant_default(tenant_a.as_uuid(), FeatureKey::ApiTokens, true, None)
         .await
         .unwrap();
 
     // User B is in tenant B — should NOT see tenant A's flag.
     let resolved = repos
         .feature_flags
-        .resolve_for_user(tenant_b.0, user_b)
+        .resolve_for_user(tenant_b.as_uuid(), user_b)
         .await
         .unwrap();
     assert!(

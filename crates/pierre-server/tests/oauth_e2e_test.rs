@@ -486,7 +486,7 @@ async fn test_oauth_callback_error_handling() {
         .await
         .unwrap();
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: "Test Tenant".to_owned(),
@@ -801,7 +801,7 @@ async fn test_oauth_state_csrf_protection() {
         .unwrap();
 
     // Create tenant
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: "Test Tenant".to_owned(),

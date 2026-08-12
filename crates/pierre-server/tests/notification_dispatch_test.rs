@@ -51,7 +51,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         // Use the notification service from resources if available, else create a new one
         let service = resources
@@ -139,7 +139,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -184,7 +184,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -232,7 +232,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -315,7 +315,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -365,7 +365,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -446,7 +446,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -494,7 +494,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -526,7 +526,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -558,7 +558,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -589,7 +589,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -629,7 +629,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -664,7 +664,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -707,7 +707,7 @@ mod dispatch_tests {
             .list_for_user(user_a.id)
             .await
             .unwrap();
-        let tenant_id_a = TenantId(tenants_a[0].id.0);
+        let tenant_id_a = TenantId(tenants_a[0].id.as_uuid());
         let tenants_b = resources
             .common
             .repos
@@ -715,7 +715,7 @@ mod dispatch_tests {
             .list_for_user(user_b.id)
             .await
             .unwrap();
-        let tenant_id_b = TenantId(tenants_b[0].id.0);
+        let tenant_id_b = TenantId(tenants_b[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -761,7 +761,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -815,7 +815,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -861,7 +861,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -905,7 +905,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -949,7 +949,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -995,7 +995,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -1037,7 +1037,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -1078,7 +1078,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -1126,7 +1126,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -1221,7 +1221,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -1279,7 +1279,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -1336,7 +1336,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = TenantId(tenants[0].id.0);
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));

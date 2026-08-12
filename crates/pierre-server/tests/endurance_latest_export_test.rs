@@ -129,8 +129,8 @@ async fn empty_window_returns_200_with_zero_activities() {
 async fn user_physiological_profile_is_tenant_scoped() {
     let db = make_test_db().await;
     let user_id = Uuid::new_v4();
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
 
     let profile_a = make_profile(user_id, Some(250), None);
     let profile_b = make_profile(user_id, Some(300), None);
@@ -175,7 +175,7 @@ async fn user_physiological_profile_is_tenant_scoped() {
 #[tokio::test]
 async fn upsert_rejects_mismatched_user_id() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let row_user = Uuid::new_v4();
     let profile_user = Uuid::new_v4();
     let profile = make_profile(profile_user, Some(250), None);
@@ -196,7 +196,7 @@ async fn upsert_rejects_mismatched_user_id() {
 #[tokio::test]
 async fn profile_round_trips_endurance_fields() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
     let profile = make_profile(user_id, Some(275), Some(zones));

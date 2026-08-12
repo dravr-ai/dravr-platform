@@ -114,9 +114,6 @@ pub mod sse;
 /// Unified tool execution engine for fitness analysis and data processing
 pub mod tools;
 
-/// Common type definitions and shared types
-pub mod types;
-
 /// Utility functions and helpers (extracted to `pierre_config::utils`,
 /// re-exported here so `crate::utils::*` keeps resolving for in-crate callers and tests).
 pub use pierre_config::utils;

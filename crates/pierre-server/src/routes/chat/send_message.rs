@@ -825,7 +825,7 @@ fn notify_coach_response(
             notification_triggers::trigger_coach_message(
                 service,
                 user_id,
-                pierre_notifications::TenantId(tenant_id.0),
+                pierre_notifications::TenantId(tenant_id.as_uuid()),
                 conversation_id,
                 &coach_title,
             );

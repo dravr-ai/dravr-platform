@@ -192,7 +192,7 @@ impl IntegrationTestServer {
 
         // Create tenant for user
         // Use enterprise plan to enable all tools for integration testing
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant = Tenant {
             id: tenant_id,
             name: format!("Tenant for {email}"),
@@ -263,7 +263,7 @@ impl IntegrationTestServer {
         let repos = self.resources.coach.database.repositories();
         repos.users.create(&user).await?;
 
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant = Tenant {
             id: tenant_id,
             name: format!("Tenant for {email}"),

@@ -19,7 +19,7 @@ use uuid::Uuid;
 /// Synthetic owner for sink-level tests — real runs bind to the
 /// authenticated `user_id` and JWT `active_tenant_id`.
 fn test_owner() -> RunOwner {
-    RunOwner::new(Uuid::new_v4(), TenantId::new())
+    RunOwner::new(Uuid::new_v4(), TenantId::generate())
 }
 
 /// Events serialize with the AG-UI spec's screaming-snake-case `type` tag

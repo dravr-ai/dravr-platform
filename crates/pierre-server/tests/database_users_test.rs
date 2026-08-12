@@ -492,7 +492,7 @@ async fn test_provider_last_sync() {
     let sync_time = Utc::now();
 
     // First, create an OAuth token record (last_sync lives in user_oauth_tokens)
-    let test_tenant_id = TenantId::new();
+    let test_tenant_id = TenantId::generate();
     let token_data = UserOAuthToken::new(
         user.id,
         test_tenant_id.to_string(),
@@ -528,7 +528,7 @@ async fn test_get_provider_last_sync_nonexistent() {
     let non_existent_id = Uuid::new_v4();
 
     let result = db
-        .get_provider_last_sync(non_existent_id, TenantId::new(), "strava")
+        .get_provider_last_sync(non_existent_id, TenantId::generate(), "strava")
         .await
         .unwrap();
     assert!(result.is_none());
@@ -546,7 +546,7 @@ async fn test_get_provider_last_sync_never_synced_row_is_none() {
     // last_sync column is NULL. The read must return Ok(None), not a decode
     // error ("unexpected null") — on-demand providers like sciotte sit in this
     // state until their first successful fetch.
-    let test_tenant_id = TenantId::new();
+    let test_tenant_id = TenantId::generate();
     let token_data = UserOAuthToken::new(
         user.id,
         test_tenant_id.to_string(),
@@ -621,7 +621,7 @@ async fn test_user_with_encrypted_tokens() {
     UserRepository::create(&db, &user).await.unwrap();
 
     // Tokens are stored in user_oauth_tokens table, not in users table
-    let test_tenant_id = TenantId::new();
+    let test_tenant_id = TenantId::generate();
     let token_data = UserOAuthToken::new(
         user.id,
         test_tenant_id.to_string(),

@@ -219,7 +219,7 @@ impl TestServer {
         // every MCP request and rejects a tenant-less caller with 403. Create the
         // tenant with this user as owner (which also inserts the owner into
         // `tenant_users`) so the auth hook can resolve the default tenant.
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant = Tenant {
             id: tenant_id,
             name: "Test Tenant".to_owned(),

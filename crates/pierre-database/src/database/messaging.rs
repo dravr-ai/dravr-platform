@@ -1677,7 +1677,7 @@ impl MessagingRepository for Database {
             WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
             ",
         )
-        .bind(tenant_id.0.to_string())
+        .bind(tenant_id.as_uuid().to_string())
         .bind(channel_type)
         .bind(channel_user_id)
         .fetch_optional(&self.pool)
@@ -1702,7 +1702,7 @@ impl MessagingRepository for Database {
             ",
         )
         .bind(locale)
-        .bind(tenant_id.0.to_string())
+        .bind(tenant_id.as_uuid().to_string())
         .bind(user_id)
         .bind(channel_type)
         .execute(&self.pool)
@@ -1731,7 +1731,7 @@ impl MessagingRepository for Database {
             WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
             ",
         )
-        .bind(tenant_id.0.to_string())
+        .bind(tenant_id.as_uuid().to_string())
         .bind(channel_type)
         .bind(channel_user_id)
         .fetch_optional(&self.pool)
@@ -1754,7 +1754,7 @@ impl MessagingRepository for Database {
              WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
             ",
         )
-        .bind(tenant_id.0.to_string())
+        .bind(tenant_id.as_uuid().to_string())
         .bind(channel_type)
         .bind(channel_user_id)
         .execute(&self.pool)

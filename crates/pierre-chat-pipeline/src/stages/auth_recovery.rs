@@ -150,7 +150,7 @@ async fn mint_reconnect_url(
         let token = match mint_link_token(
             &MintProviderLinkTokenArgs {
                 user_id,
-                tenant_id: input.tool_tenant_id.0,
+                tenant_id: input.tool_tenant_id.as_uuid(),
                 provider: "sciotte",
                 target,
                 channel: profile.channel.as_str(),
@@ -181,7 +181,7 @@ async fn mint_reconnect_url(
                 deps.short_links.as_ref(),
                 deps.base_url,
                 &full_url,
-                &input.tool_tenant_id.0.to_string(),
+                &input.tool_tenant_id.as_uuid().to_string(),
                 &user_id.to_string(),
             )
             .await,

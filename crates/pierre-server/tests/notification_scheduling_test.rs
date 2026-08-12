@@ -367,7 +367,7 @@ mod notification_scheduling_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = CommereTenantId(tenants[0].id.0);
+        let tenant_id = CommereTenantId(tenants[0].id.as_uuid());
 
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);

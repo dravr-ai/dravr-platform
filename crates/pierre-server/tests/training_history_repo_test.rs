@@ -54,7 +54,7 @@ fn synthetic_state(day_offset: i64, ctl: f64, atl: f64, daily_load: f64) -> Dail
 #[tokio::test]
 async fn upsert_and_fetch_single_day_round_trips() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let state = synthetic_state(0, 45.0, 50.0, 80.0);
     db.repositories()
@@ -79,7 +79,7 @@ async fn upsert_and_fetch_single_day_round_trips() {
 #[tokio::test]
 async fn upsert_overwrites_existing_day() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let v1 = synthetic_state(0, 40.0, 45.0, 70.0);
     let v2 = synthetic_state(0, 50.0, 55.0, 90.0);
@@ -107,7 +107,7 @@ async fn upsert_overwrites_existing_day() {
 #[tokio::test]
 async fn batch_upsert_and_range_query_return_chronological_order() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let states: Vec<DailyTrainingState> = (0..30)
         .map(|i| {
@@ -144,7 +144,7 @@ async fn batch_upsert_and_range_query_return_chronological_order() {
 #[tokio::test]
 async fn range_query_excludes_rows_outside_window() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let states: Vec<DailyTrainingState> = (0..20)
         .map(|i| synthetic_state(i, 40.0, 45.0, 80.0))
@@ -173,8 +173,8 @@ async fn range_query_excludes_rows_outside_window() {
 #[tokio::test]
 async fn training_history_is_tenant_scoped() {
     let db = make_test_db().await;
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
     let user_id = Uuid::new_v4();
     let state_a = synthetic_state(0, 30.0, 35.0, 60.0);
     let state_b = synthetic_state(0, 70.0, 65.0, 120.0);
@@ -220,7 +220,7 @@ async fn empty_history_returns_none_for_latest() {
     let latest = db
         .repositories()
         .training_history
-        .latest_training_history(TenantId::new(), Uuid::new_v4())
+        .latest_training_history(TenantId::generate(), Uuid::new_v4())
         .await
         .expect("read");
     assert!(latest.is_none());

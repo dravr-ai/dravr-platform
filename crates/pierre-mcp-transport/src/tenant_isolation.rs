@@ -57,15 +57,12 @@ impl TenantIsolation {
         let tenant_name = self.get_tenant_name(tenant_id).await;
         let user_role = self.get_user_role_for_tenant(user_id, tenant_id).await?;
 
-        Ok(TenantContext {
-            tenant_id,
-            tenant_name,
-            user_id,
-            user_role,
-            // The JWT `jti` is the Guardian turn token (the ACP bridge mints one
-            // token per turn, so all of a turn's native tool calls share it).
-            session_id: Some(claims.jti.clone()),
-        })
+        // The JWT `jti` is the Guardian turn token (the ACP bridge mints one
+        // token per turn, so all of a turn's native tool calls share it).
+        Ok(
+            TenantContext::from_verified_membership(tenant_id, tenant_name, user_id, user_role)
+                .with_session_id(Some(claims.jti.clone())),
+        )
     }
 
     /// Extract tenant ID from JWT claims or get user's default tenant
@@ -233,15 +230,15 @@ impl TenantIsolation {
 
             let tenant_name = self.get_tenant_name(tenant_id).await;
 
-            // For header-based tenant context, we don't have user info
-            // This should only be used for tenant-scoped operations that don't require user context
-            return Ok(Some(TenantContext {
+            // Header-derived: there is no user and no membership lookup, so no
+            // role is established. The constructor says so, rather than filling
+            // the field with a placeholder role the type would then present as
+            // verified.
+            return Ok(Some(TenantContext::for_tenant_scoped_operation(
                 tenant_id,
-                user_id: Uuid::nil(), // No user context available from headers
                 tenant_name,
-                user_role: TenantRole::Member, // Default role when user is unknown
-                session_id: None,
-            }));
+                Uuid::nil(), // No user context available from headers
+            )));
         }
 
         Ok(None)
@@ -256,13 +253,12 @@ impl TenantIsolation {
         let tenant_name = self.get_tenant_name(tenant_id).await;
         let user_role = self.get_user_role_for_tenant(user_id, tenant_id).await?;
 
-        Ok(TenantContext {
+        Ok(TenantContext::from_verified_membership(
             tenant_id,
             tenant_name,
             user_id,
             user_role,
-            session_id: None,
-        })
+        ))
     }
 
     /// Extract tenant context from user with a specific tenant ID
@@ -281,13 +277,12 @@ impl TenantIsolation {
         let tenant_name = self.get_tenant_name(tenant_id).await;
         let user_role = self.get_user_role_for_tenant(user_id, tenant_id).await?;
 
-        Ok(TenantContext {
+        Ok(TenantContext::from_verified_membership(
             tenant_id,
             tenant_name,
             user_id,
             user_role,
-            session_id: None,
-        })
+        ))
     }
 
     /// Check if user has access to a specific resource
@@ -446,14 +441,10 @@ pub async fn validate_jwt_token_for_mcp(
             TenantRole::from_db_string(&role_str)
         });
 
-    let tenant_context = TenantContext {
-        tenant_id,
-        tenant_name,
-        user_id,
-        user_role,
-        // JWT `jti` as the Guardian turn token for the MCP/headless path.
-        session_id: Some(claims.jti.clone()),
-    };
+    // JWT `jti` as the Guardian turn token for the MCP/headless path.
+    let tenant_context =
+        TenantContext::from_verified_membership(tenant_id, tenant_name, user_id, user_role)
+            .with_session_id(Some(claims.jti.clone()));
 
     // Expiry is the JWT's own `exp` claim (unix seconds), already verified by validate_token.
     let expires_at = chrono::DateTime::from_timestamp(claims.exp, 0)
@@ -484,7 +475,7 @@ pub async fn extract_tenant_context_internal(
     // Try to extract from explicit tenant ID first
     if let Some(tenant_id) = tenant_id {
         // If user_id is provided, verify membership and get role
-        let (user_role, verified_user_id) = if let Some(uid) = user_id {
+        let resolved_role = if let Some(uid) = user_id {
             let role_str = repos
                 .tenants
                 .get_user_role(uid, tenant_id)
@@ -493,10 +484,12 @@ pub async fn extract_tenant_context_internal(
                     AppError::database(format!("Failed to check tenant membership: {e}"))
                 })?;
 
-            let role = role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r));
-            (role, uid)
+            Some((
+                role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r)),
+                uid,
+            ))
         } else {
-            (TenantRole::Member, Uuid::nil())
+            None
         };
 
         let tenant_name = match repos.tenants.get_by_id(tenant_id).await {
@@ -504,13 +497,20 @@ pub async fn extract_tenant_context_internal(
             _ => "Unknown Tenant".to_owned(),
         };
 
-        return Ok(Some(TenantContext {
-            tenant_id,
-            user_id: verified_user_id,
-            tenant_name,
-            user_role,
-            session_id: None,
-        }));
+        // With no user there is no membership to look up, so the context is
+        // tenant-scoped and carries no role — rather than a placeholder one.
+        return Ok(Some(resolved_role.map_or_else(
+            || {
+                TenantContext::for_tenant_scoped_operation(
+                    tenant_id,
+                    tenant_name.clone(),
+                    Uuid::nil(),
+                )
+            },
+            |(role, uid)| {
+                TenantContext::from_verified_membership(tenant_id, tenant_name.clone(), uid, role)
+            },
+        )));
     }
 
     // Try to extract from headers
@@ -519,7 +519,7 @@ pub async fn extract_tenant_context_internal(
             if let Ok(tenant_id_str) = tenant_id_header.to_str() {
                 if let Ok(header_tenant_id) = tenant_id_str.parse::<TenantId>() {
                     // If user_id is provided, verify membership
-                    let (user_role, verified_user_id) = if let Some(uid) = user_id {
+                    let resolved_role = if let Some(uid) = user_id {
                         let role_str = repos
                             .tenants
                             .get_user_role(uid, header_tenant_id)
@@ -530,11 +530,12 @@ pub async fn extract_tenant_context_internal(
                                 ))
                             })?;
 
-                        let role =
-                            role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r));
-                        (role, uid)
+                        Some((
+                            role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r)),
+                            uid,
+                        ))
                     } else {
-                        (TenantRole::Member, Uuid::nil())
+                        None
                     };
 
                     let tenant_name = match repos.tenants.get_by_id(header_tenant_id).await {
@@ -542,13 +543,24 @@ pub async fn extract_tenant_context_internal(
                         _ => "Unknown Tenant".to_owned(),
                     };
 
-                    return Ok(Some(TenantContext {
-                        tenant_id: header_tenant_id,
-                        user_id: verified_user_id,
-                        tenant_name,
-                        user_role,
-                        session_id: None,
-                    }));
+                    // No user means no membership lookup, so no role.
+                    return Ok(Some(resolved_role.map_or_else(
+                        || {
+                            TenantContext::for_tenant_scoped_operation(
+                                header_tenant_id,
+                                tenant_name.clone(),
+                                Uuid::nil(),
+                            )
+                        },
+                        |(role, uid)| {
+                            TenantContext::from_verified_membership(
+                                header_tenant_id,
+                                tenant_name.clone(),
+                                uid,
+                                role,
+                            )
+                        },
+                    )));
                 }
             }
         }
@@ -579,13 +591,12 @@ pub async fn extract_tenant_context_internal(
                 .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
                 .map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r));
 
-            return Ok(Some(TenantContext {
-                tenant_id: default_tenant.id,
-                tenant_name: default_tenant.name.clone(),
+            return Ok(Some(TenantContext::from_verified_membership(
+                default_tenant.id,
+                default_tenant.name.clone(),
                 user_id,
                 user_role,
-                session_id: None,
-            }));
+            )));
         }
     }
 

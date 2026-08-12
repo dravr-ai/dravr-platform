@@ -56,7 +56,7 @@ fn make_profile(user_id: Uuid) -> UserPhysiologicalProfile {
 #[tokio::test]
 async fn dossier_with_no_underlying_data_returns_empty_shell() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let dossier = db
         .repositories()
@@ -76,7 +76,7 @@ async fn dossier_with_no_underlying_data_returns_empty_shell() {
 #[tokio::test]
 async fn dossier_pulls_physiology_and_zones_when_present() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let repos = db.repositories();
     repos
@@ -100,8 +100,8 @@ async fn dossier_pulls_physiology_and_zones_when_present() {
 #[tokio::test]
 async fn dossier_is_tenant_scoped() {
     let db = make_test_db().await;
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let mut profile_a = make_profile(user_id);
@@ -144,7 +144,7 @@ async fn dossier_compose_tolerates_missing_goals_and_nutrition() {
     // recorded, the composer must still return a 200 with empty / None
     // slots rather than failing — this guards endpoint UX for fresh accounts.
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     db.repositories()
         .user_physiological_profile
@@ -175,7 +175,7 @@ async fn dossier_compose_tolerates_missing_goals_and_nutrition() {
 #[tokio::test]
 async fn dossier_serialises_to_endurance_conformant_json() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     db.repositories()
         .user_physiological_profile

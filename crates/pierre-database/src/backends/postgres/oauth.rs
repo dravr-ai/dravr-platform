@@ -9,8 +9,8 @@ use super::super::{
     PasswordResetRepository, ProviderConnectionRepository,
 };
 use super::PostgresDatabase;
-use crate::backends::shared;
-use crate::backends::shared::encryption::HasEncryption;
+use crate::backends::shared::{self, encryption::HasEncryption};
+use crate::column_decode::uuid_column;
 use crate::database::password_reset_tokens::RESET_MAX_VERIFY_ATTEMPTS;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -1628,7 +1628,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
             let last_used_at: Option<DateTime<Utc>> = row.try_get("last_used_at").ok().flatten();
 
             let user_id_from_db: String = row.get("user_id");
-            let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
+            let parsed_user_id = uuid_column("provider_connections.user_id", &user_id_from_db)?;
 
             connections.push(ProviderConnection {
                 id: row.get("id"),
@@ -1724,7 +1724,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         let connected_at: DateTime<Utc> = row.get("connected_at");
         let last_used_at: Option<DateTime<Utc>> = row.try_get("last_used_at").ok().flatten();
         let user_id_from_db: String = row.get("user_id");
-        let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
+        let parsed_user_id = uuid_column("provider_connections.user_id", &user_id_from_db)?;
 
         Ok(Some(ProviderConnection {
             id: row.get("id"),

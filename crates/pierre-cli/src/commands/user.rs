@@ -175,7 +175,7 @@ async fn create_and_link_personal_tenant(
     name: &str,
     slug_prefix: &str,
 ) -> Result<()> {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant_slug = format!("{slug_prefix}-{}", user_id.as_simple());
     let tenant = Tenant {
         id: tenant_id,

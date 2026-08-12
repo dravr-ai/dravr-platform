@@ -83,7 +83,7 @@ impl TenantRepository for PostgresDatabase {
             WHERE t.id = $1 AND t.is_active = true
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
 
         match row {
@@ -255,7 +255,7 @@ impl TenantRepository for PostgresDatabase {
             ORDER BY provider
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
@@ -303,7 +303,7 @@ impl TenantRepository for PostgresDatabase {
             WHERE tenant_id = $1 AND provider = $2 AND is_active = true
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .bind(provider)
         .fetch_optional(&self.pool)
         .await
@@ -556,7 +556,7 @@ impl TenantRepository for PostgresDatabase {
             "SELECT role FROM tenant_users WHERE user_id = $1 AND tenant_id = $2",
         )
         .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
@@ -571,7 +571,7 @@ impl TenantRepository for PostgresDatabase {
             ",
         )
         .bind(plan)
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to set tenant plan: {e}")))?;
@@ -691,7 +691,7 @@ impl ToolSelectionRepository for PostgresDatabase {
             ORDER BY tool_name
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch tenant tool overrides: {e}")))?;
@@ -716,7 +716,7 @@ impl ToolSelectionRepository for PostgresDatabase {
             WHERE tenant_id = $1 AND tool_name = $2
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .bind(tool_name)
         .fetch_optional(&self.pool)
         .await
@@ -749,7 +749,7 @@ impl ToolSelectionRepository for PostgresDatabase {
             ",
         )
         .bind(id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .bind(tool_name)
         .bind(is_enabled)
         .bind(enabled_by_user_id)
@@ -772,7 +772,7 @@ impl ToolSelectionRepository for PostgresDatabase {
             WHERE tenant_id = $1 AND tool_name = $2
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .bind(tool_name)
         .execute(&self.pool)
         .await

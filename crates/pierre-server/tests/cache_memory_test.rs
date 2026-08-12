@@ -26,7 +26,7 @@ struct TestData {
 /// Helper: Create test cache key
 fn test_cache_key(resource: CacheResource) -> CacheKey {
     CacheKey::new(
-        TenantId::new(),
+        TenantId::generate(),
         Uuid::new_v4(),
         "strava".to_owned(),
         resource,
@@ -140,7 +140,7 @@ async fn test_cache_invalidate() -> Result<()> {
 #[tokio::test]
 async fn test_cache_invalidate_pattern() -> Result<()> {
     let cache = create_test_cache(100, 300).await?;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data = TestData {
@@ -194,8 +194,8 @@ async fn test_cache_invalidate_pattern() -> Result<()> {
 async fn test_cache_tenant_isolation() -> Result<()> {
     let cache = create_test_cache(100, 300).await?;
 
-    let tenant1 = TenantId::new();
-    let tenant2 = TenantId::new();
+    let tenant1 = TenantId::generate();
+    let tenant2 = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data1 = TestData {
@@ -278,7 +278,7 @@ async fn test_cache_capacity_eviction() -> Result<()> {
 async fn test_cache_background_cleanup() -> Result<()> {
     // Create cache with short cleanup interval
     let cache = create_test_cache(100, 1).await?;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data = TestData {
@@ -322,7 +322,7 @@ async fn test_cache_background_cleanup() -> Result<()> {
 #[tokio::test]
 async fn test_cache_clear_all() -> Result<()> {
     let cache = create_test_cache(100, 300).await?;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data = TestData {
@@ -376,7 +376,7 @@ async fn test_cache_health_check() -> Result<()> {
 #[tokio::test]
 async fn test_cache_different_resource_types() -> Result<()> {
     let cache = create_test_cache(100, 300).await?;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let data = TestData {

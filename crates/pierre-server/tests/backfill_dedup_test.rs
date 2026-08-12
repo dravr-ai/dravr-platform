@@ -25,7 +25,7 @@ use uuid::Uuid;
 async fn claim_is_single_use_per_window() {
     let db = create_test_db().await;
     let repos = db.repositories();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4().to_string();
 
     let first = repos
@@ -52,7 +52,7 @@ async fn claim_is_single_use_per_window() {
 async fn different_after_ts_claims_independently() {
     let db = create_test_db().await;
     let repos = db.repositories();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4().to_string();
 
     assert!(
@@ -79,7 +79,7 @@ async fn different_after_ts_claims_independently() {
 async fn different_provider_claims_independently() {
     let db = create_test_db().await;
     let repos = db.repositories();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4().to_string();
 
     assert!(
@@ -107,8 +107,8 @@ async fn different_provider_claims_independently() {
 async fn claim_is_tenant_isolated() {
     let db = create_test_db().await;
     let repos = db.repositories();
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
     let user_id = Uuid::new_v4().to_string();
 
     assert!(

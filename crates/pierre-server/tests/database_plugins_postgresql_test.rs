@@ -191,7 +191,7 @@ async fn test_pg_tenant_tool_overrides() {
     let repos = db.repositories();
 
     // Create a test tenant
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = create_pg_test_user(&db).await;
     create_pg_test_tenant(&db, tenant_id, user_id).await;
 
@@ -269,7 +269,7 @@ async fn test_pg_count_enabled_tools() {
     let repos = db.repositories();
 
     // Create a test tenant with starter plan
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = create_pg_test_user(&db).await;
     create_pg_test_tenant(&db, tenant_id, user_id).await;
 

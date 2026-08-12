@@ -543,15 +543,23 @@ jobs:
           BINARY_SIZE_BYTES=$(ls -l target/release/pierre-mcp-server | awk '{print $5}')
           BINARY_SIZE_MB=$((BINARY_SIZE_BYTES / 1024 / 1024))
           MAX_SIZE_MB=80
+          # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
+          # signal until the build is already broken, and the binary sits close
+          # enough to 80MB that a single fat dependency can cross it in one PR.
+          WARN_SIZE_MB=$(( MAX_SIZE_MB * 95 / 100 ))
 
           echo "Binary size: ${BINARY_SIZE_MB}MB"
 
-          if [ "$BINARY_SIZE_MB" -le "$MAX_SIZE_MB" ]; then
-            echo "Binary size (${BINARY_SIZE_MB}MB) within limit (<${MAX_SIZE_MB}MB)"
-          else
-            echo "Binary size (${BINARY_SIZE_MB}MB) exceeds limit (${MAX_SIZE_MB}MB)"
+          if [ "$BINARY_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
+            echo "::error::Binary size (${BINARY_SIZE_MB}MB) exceeds limit (${MAX_SIZE_MB}MB)"
             exit 1
           fi
+
+          if [ "$BINARY_SIZE_MB" -ge "$WARN_SIZE_MB" ]; then
+            echo "::warning::Binary size ${BINARY_SIZE_MB}MB is within 5% of the ${MAX_SIZE_MB}MB ceiling. Check what this change pulled in (cargo tree, feature flags) before it becomes a hard failure for whoever pushes next."
+          fi
+
+          echo "Binary size (${BINARY_SIZE_MB}MB) within limit (<${MAX_SIZE_MB}MB)"
 
       - name: Basic smoke test of release binary
         run: |

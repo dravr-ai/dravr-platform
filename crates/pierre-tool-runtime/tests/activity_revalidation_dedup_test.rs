@@ -20,7 +20,7 @@ use pierre_tool_runtime::group_fitness::RevalidationRegistry;
 use uuid::Uuid;
 
 fn key() -> (Uuid, TenantId) {
-    (Uuid::new_v4(), TenantId(Uuid::new_v4()))
+    (Uuid::new_v4(), TenantId::generate())
 }
 
 #[test]
@@ -76,8 +76,8 @@ fn distinct_keys_do_not_block_each_other() {
 fn same_user_different_tenant_is_independent() {
     let registry = RevalidationRegistry::new();
     let user = Uuid::new_v4();
-    let tenant_a = (user, TenantId(Uuid::new_v4()));
-    let tenant_b = (user, TenantId(Uuid::new_v4()));
+    let tenant_a = (user, TenantId::generate());
+    let tenant_b = (user, TenantId::generate());
 
     let guard_a = registry.try_claim(tenant_a);
     let guard_b = registry.try_claim(tenant_b);

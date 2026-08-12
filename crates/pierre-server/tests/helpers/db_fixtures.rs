@@ -55,7 +55,7 @@ pub async fn seed_user(db: &Database) -> (Uuid, TenantId) {
     let user_id = user.id;
     db.repositories().users.create(&user).await.unwrap();
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let now = Utc::now();
     let tenant = Tenant {
         id: tenant_id,

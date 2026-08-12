@@ -65,7 +65,7 @@ mod command_tests {
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant = Tenant {
             id: tenant_id,
             name: "Cmd Test Tenant".to_owned(),
@@ -1121,7 +1121,7 @@ mod command_tests {
 
         let (user_id, member_tenant_id) =
             create_test_user(resources, "crosstenant-member@test.com").await;
-        let channel_tenant_id = TenantId::new();
+        let channel_tenant_id = TenantId::generate();
         let bot_tenant = Tenant {
             id: channel_tenant_id,
             name: "Bot Tenant".to_owned(),

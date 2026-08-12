@@ -322,7 +322,7 @@ async fn the_write_is_tenant_scoped() {
         .await
         .unwrap();
 
-    let other_tenant = TenantId::new();
+    let other_tenant = TenantId::generate();
     let wrote = repos
         .chat
         .compare_and_set_conversation_onboarding_state(

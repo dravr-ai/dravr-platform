@@ -86,7 +86,7 @@ fn sample_template(tenant_id: TenantId, user_id: Uuid, slug: &str) -> WorkoutTem
 #[tokio::test]
 async fn upsert_then_list_round_trips() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let template = sample_template(tenant_id, user_id, "custom_long_run");
 
@@ -124,7 +124,7 @@ async fn upsert_then_list_round_trips() {
 #[tokio::test]
 async fn get_user_workout_template_returns_match_or_none() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let template = sample_template(tenant_id, user_id, "tempo_pyramid");
 
@@ -154,7 +154,7 @@ async fn get_user_workout_template_returns_match_or_none() {
 #[tokio::test]
 async fn upsert_with_same_id_updates_in_place() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let mut template = sample_template(tenant_id, user_id, "ramped_intervals");
 
@@ -187,8 +187,8 @@ async fn upsert_with_same_id_updates_in_place() {
 #[tokio::test]
 async fn templates_are_tenant_and_user_scoped() {
     let db = make_test_db().await;
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
     let user_alpha = Uuid::new_v4();
     let user_beta = Uuid::new_v4();
 
@@ -249,7 +249,7 @@ async fn templates_are_tenant_and_user_scoped() {
 #[tokio::test]
 async fn list_orders_newest_first() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let repos = db.repositories();
@@ -284,7 +284,7 @@ async fn list_orders_newest_first() {
 #[tokio::test]
 async fn upsert_rejects_missing_tenant_or_user() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let mut without_tenant = sample_template(tenant_id, user_id, "missing_tenant");

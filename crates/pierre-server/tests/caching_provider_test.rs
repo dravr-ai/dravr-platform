@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 #[test]
 fn test_cache_key_generation() {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let provider = "strava";
 
@@ -33,7 +33,7 @@ fn test_cache_key_generation() {
 
 #[test]
 fn test_activity_list_cache_key_with_time_filters() {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let key = CacheKey::new(

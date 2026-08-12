@@ -22,7 +22,7 @@ async fn aggregates_by_user_isolates_users_in_same_tenant() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_a = Uuid::new_v4();
     let user_b = Uuid::new_v4();
     let since = (Utc::now() - Duration::days(7)).to_rfc3339();
@@ -77,7 +77,7 @@ async fn daily_series_by_user_filters_to_owner_only() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let owner = Uuid::new_v4();
     let other = Uuid::new_v4();
     let since = (Utc::now() - Duration::days(2)).to_rfc3339();

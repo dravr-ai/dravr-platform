@@ -87,7 +87,7 @@ impl UserRepository for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get user by ID+tenant: {e}")))?;
@@ -473,7 +473,7 @@ impl UserRepository for PostgresDatabase {
                 ",
             )
             .bind(status_enum)
-            .bind(tid.0)
+            .bind(tid.as_uuid())
             .fetch_all(&self.pool)
             .await
         } else {

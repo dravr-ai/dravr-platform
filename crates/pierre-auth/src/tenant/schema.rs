@@ -11,7 +11,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 /// Tenant role within an organization
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TenantRole {
     /// Organization owner (full permissions)
     Owner,
@@ -86,7 +86,7 @@ impl Tenant {
     pub fn new(name: String, slug: String) -> Self {
         let now = Utc::now();
         Self {
-            id: TenantId::new(),
+            id: TenantId::generate(),
             name,
             slug,
             domain: None,

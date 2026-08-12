@@ -139,8 +139,8 @@ async fn test_tenant_credential_isolation() -> Result<()> {
     let mut oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Create two tenants
-    let env_tenant_id = TenantId::new();
-    let db_tenant_id = TenantId::new();
+    let env_tenant_id = TenantId::generate();
+    let db_tenant_id = TenantId::generate();
 
     // Create tenant A (uses server-level credentials)
     let env_tenant_owner = create_test_user(&database, "owner_a@example.com").await?;
@@ -260,8 +260,8 @@ async fn test_rate_limit_tracking_per_tenant() -> Result<()> {
     let mut oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Create two tenants
-    let first_tenant_id = TenantId::new();
-    let second_tenant_id = TenantId::new();
+    let first_tenant_id = TenantId::generate();
+    let second_tenant_id = TenantId::generate();
 
     let first_owner = create_test_user(&database, "owner_a@example.com").await?;
     let second_owner = create_test_user(&database, "owner_b@example.com").await?;
@@ -369,7 +369,7 @@ async fn create_tenant_with_token(
     user_email: &str,
     access_token: &str,
 ) -> Result<(TenantId, Uuid)> {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = create_test_user(database, user_email).await?;
 
     let tenant = make_tenant(
@@ -517,7 +517,7 @@ async fn test_oauth_callback_tenant_preservation() -> Result<()> {
     let database = setup_test_database().await?;
 
     // Create tenant and user
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = create_test_user(&database, "user@example.com").await?;
 
     let tenant = make_tenant(
@@ -576,7 +576,7 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
     let mut oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Create tenant
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = create_test_user(&database, "user@example.com").await?;
 
     let tenant = make_tenant(
@@ -644,8 +644,8 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
     let mut oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Create two tenants with different rate limit needs
-    let tenant_standard_id = TenantId::new();
-    let tenant_enterprise_id = TenantId::new();
+    let tenant_standard_id = TenantId::generate();
+    let tenant_enterprise_id = TenantId::generate();
 
     // Standard tenant owner (uses environment credentials)
     let owner_standard = create_test_user(&database, "standard@example.com").await?;
@@ -745,7 +745,7 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
         let manager = oauth_manager.clone();
 
         let task = tokio::spawn(async move {
-            let tenant_id = TenantId::new();
+            let tenant_id = TenantId::generate();
             let user_id = create_test_user(&db, &format!("user{i}@example.com")).await?;
 
             let tenant = make_tenant(

@@ -18,7 +18,7 @@ use tracing::{debug, error, field, field::Empty, info, warn, Span};
 
 use crate::AuthRoutesContext;
 use pierre_auth::oauth2_client::{OAuthClientState, PkceParams};
-use pierre_auth::tenant::{TenantContext, TenantRole};
+use pierre_auth::tenant::TenantContext;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
@@ -585,13 +585,9 @@ pub async fn handle_mobile_oauth_init(
         .await
         .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
 
-    let ctx = TenantContext {
-        tenant_id,
-        user_id,
-        tenant_name,
-        user_role: TenantRole::Member,
-        session_id: None,
-    };
+    // Generating an OAuth authorize URL for an already-identified user and
+    // tenant; no membership lookup happened, so no role is asserted.
+    let ctx = TenantContext::for_tenant_scoped_operation(tenant_id, tenant_name, user_id);
 
     // Check if the provider supports PKCE for enhanced security
     let use_pkce = resources

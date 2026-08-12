@@ -118,7 +118,7 @@ pub(super) async fn handle_admin_update<C: CoachesCtx + MiddlewareCtx>(
                     notification_triggers::trigger_plan_updated(
                         service,
                         user_uuid,
-                        pierre_notifications::TenantId(tenant_id.0),
+                        pierre_notifications::TenantId(tenant_id.as_uuid()),
                         &coach_name,
                     );
                 }
@@ -191,7 +191,7 @@ pub(super) async fn handle_admin_assign<C: CoachesCtx + MiddlewareCtx>(
                 notification_triggers::trigger_plan_updated(
                     service,
                     user_uuid,
-                    pierre_notifications::TenantId(tenant_id.0),
+                    pierre_notifications::TenantId(tenant_id.as_uuid()),
                     &coach_name,
                 );
             }

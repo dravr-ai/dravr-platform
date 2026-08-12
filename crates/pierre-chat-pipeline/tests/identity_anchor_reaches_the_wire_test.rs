@@ -90,7 +90,7 @@ fn the_anchor_survives_canary_hardening() {
     // truncated or rewrote the tail, the anchor would vanish from the prompt the
     // model actually receives while every string-level test kept passing.
     let assembled = close_with_identity_anchor("## Your coaching style\nShort, punchy sessions.");
-    let guard = harden_system_prompt(TenantId::new(), Some("coach-123"), &assembled);
+    let guard = harden_system_prompt(TenantId::generate(), Some("coach-123"), &assembled);
 
     assert!(
         guard.hardened_prompt.contains("You are Dravr"),
@@ -120,7 +120,7 @@ fn the_anchor_survives_the_conditions_where_leaks_were_actually_observed() {
     );
 
     let assembled = close_with_identity_anchor(&bulky_coach_prompt);
-    let guard = harden_system_prompt(TenantId::new(), Some("coach-123"), &assembled);
+    let guard = harden_system_prompt(TenantId::generate(), Some("coach-123"), &assembled);
 
     assert!(
         guard.hardened_prompt.contains("You are Dravr"),

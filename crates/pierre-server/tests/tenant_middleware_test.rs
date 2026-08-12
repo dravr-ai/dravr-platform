@@ -31,9 +31,9 @@ fn test_extracted_tenant_context_none() {
 /// Test that `ExtractedTenantContext` correctly handles Some case
 #[test]
 fn test_extracted_tenant_context_some() {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
-    let tenant_ctx = TenantContext::new(
+    let tenant_ctx = TenantContext::from_verified_membership(
         tenant_id,
         "Test Tenant".to_owned(),
         user_id,
@@ -58,9 +58,9 @@ fn test_require_tenant_context_none() {
 /// Test `require_tenant_context` returns Ok when context is present
 #[test]
 fn test_require_tenant_context_some() {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
-    let tenant_ctx = TenantContext::new(
+    let tenant_ctx = TenantContext::from_verified_membership(
         tenant_id,
         "Test Tenant".to_owned(),
         user_id,
@@ -78,46 +78,78 @@ fn test_require_tenant_context_some() {
 /// Test `TenantContext` role checks
 #[test]
 fn test_tenant_context_role_checks() {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     // Admin role
-    let admin_ctx = TenantContext::new(
+    let admin_ctx = TenantContext::from_verified_membership(
         tenant_id,
         "Test Tenant".to_owned(),
         user_id,
         TenantRole::Admin,
     );
     assert!(admin_ctx.is_admin());
-    assert!(admin_ctx.can_configure_oauth());
+    assert_eq!(admin_ctx.role(), Some(TenantRole::Admin));
 
     // Owner role
-    let owner_ctx = TenantContext::new(
+    let owner_ctx = TenantContext::from_verified_membership(
         tenant_id,
         "Test Tenant".to_owned(),
         user_id,
         TenantRole::Owner,
     );
     assert!(owner_ctx.is_admin());
-    assert!(owner_ctx.can_configure_oauth());
+    assert_eq!(owner_ctx.role(), Some(TenantRole::Owner));
 
     // Member role
-    let member_ctx = TenantContext::new(
+    let member_ctx = TenantContext::from_verified_membership(
         tenant_id,
         "Test Tenant".to_owned(),
         user_id,
         TenantRole::Member,
     );
     assert!(!member_ctx.is_admin());
-    assert!(!member_ctx.can_configure_oauth());
+    assert_eq!(member_ctx.role(), Some(TenantRole::Member));
+}
+
+/// A tenant-scoped context never resolved a membership, so it carries no role
+/// and can never read as admin.
+///
+/// This is the whole point of splitting the two constructors: the OAuth-mint
+/// paths used to write `user_role: TenantRole::Member` as a filler to satisfy
+/// the struct literal, which made the type present an unverified role as a
+/// verified one. `is_admin()` happened to be false for that filler — but by
+/// coincidence of which role was picked, not by construction.
+#[test]
+fn tenant_scoped_context_has_no_role_and_is_never_admin() {
+    let tenant_id = TenantId::generate();
+    let user_id = Uuid::new_v4();
+
+    let scoped =
+        TenantContext::for_tenant_scoped_operation(tenant_id, "Test Tenant".to_owned(), user_id);
+
+    assert_eq!(
+        scoped.role(),
+        None,
+        "no membership was looked up, so no role may be reported"
+    );
+    assert!(
+        !scoped.is_admin(),
+        "an unresolved context must never read as admin"
+    );
+    // The identifying fields are still carried — this context is usable for
+    // tenant-scoped work, it just makes no authorization claim.
+    assert_eq!(scoped.tenant_id, tenant_id);
+    assert_eq!(scoped.user_id, user_id);
+    assert_eq!(scoped.tenant_name, "Test Tenant");
 }
 
 /// Test `ExtractedTenantContext` Clone implementation
 #[test]
 fn test_extracted_tenant_context_clone() {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
-    let tenant_ctx = TenantContext::new(
+    let tenant_ctx = TenantContext::from_verified_membership(
         tenant_id,
         "Test Tenant".to_owned(),
         user_id,
@@ -139,9 +171,9 @@ fn test_extracted_tenant_context_debug() {
     assert!(debug_str.contains("ExtractedTenantContext"));
     assert!(debug_str.contains("None"));
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
-    let tenant_ctx = TenantContext::new(
+    let tenant_ctx = TenantContext::from_verified_membership(
         tenant_id,
         "Test Tenant".to_owned(),
         user_id,

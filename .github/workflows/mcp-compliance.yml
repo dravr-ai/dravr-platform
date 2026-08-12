@@ -1,10 +1,16 @@
 name: "CI: MCP Protocol Compliance"
 
 on:
+  # pierre-mcp-transport is in scope even though it is a separate crate: it
+  # holds the MCP path's JWT validation and tenant resolution
+  # (tenant_isolation.rs), so a change there alters MCP behaviour without
+  # touching pierre-server/src/mcp/. Watching only the latter let a
+  # tenant-resolution change ship without the compliance suite ever running.
   push:
     branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
     paths:
       - 'crates/pierre-server/src/mcp/**'
+      - 'crates/pierre-mcp-transport/**'
       - 'sdk/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/mcp-compliance.yml'
@@ -12,6 +18,7 @@ on:
     branches: [ main ]
     paths:
       - 'crates/pierre-server/src/mcp/**'
+      - 'crates/pierre-mcp-transport/**'
       - 'sdk/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/mcp-compliance.yml'

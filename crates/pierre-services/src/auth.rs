@@ -359,7 +359,7 @@ impl AuthService {
         display_name: &str,
         plan: &str,
     ) -> AppResult<TenantId> {
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant_name = format!("{display_name}'s Workspace");
         let tenant_slug = format!("user-{}", user_id.as_simple());
         let now = Utc::now();

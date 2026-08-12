@@ -514,7 +514,7 @@ async fn test_context_require_tenant_with_tenant() {
         .await
         .expect("Failed to create test user");
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let context = create_test_context(&resources, user_id, Some(tenant_id), false);
 
     let result = context.require_tenant();

@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use pierre_auth::oauth2_client::client::fitbit::refresh_fitbit_token;
 use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
 use pierre_auth::oauth2_client::client::whoop::refresh_whoop_token;
-use pierre_auth::tenant::{TenantContext, TenantRole};
+use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::get_oauth_config;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client;
@@ -195,13 +195,13 @@ impl AuthService {
             return;
         };
 
-        let tenant_context = TenantContext {
-            tenant_id: tenant_uuid,
-            tenant_name: tenant.name.clone(), // Safe: String ownership needed for tenant context
+        // Resolving per-tenant OAuth credentials — no membership was looked up
+        // here, so this context asserts a tenant and user, not a role.
+        let tenant_context = TenantContext::for_tenant_scoped_operation(
+            tenant_uuid,
+            tenant.name.clone(), // Safe: String ownership needed for tenant context
             user_id,
-            user_role: TenantRole::Member,
-            session_id: None,
-        };
+        );
 
         // Get tenant-specific OAuth credentials - result is unused but initializes context
         let _ = self
@@ -417,7 +417,7 @@ impl AuthService {
         .collect();
         let request = DispatchRequest {
             user_id,
-            tenant_id: CommTenantId(tenant_id.0),
+            tenant_id: CommTenantId(tenant_id.as_uuid()),
             category: NotificationCategory::System,
             notification_type: "provider_needs_reauth".to_owned(),
             title: "Reconnect needed".to_owned(),

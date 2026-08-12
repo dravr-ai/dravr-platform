@@ -64,7 +64,7 @@ struct HistoryResponseShape {
 #[tokio::test]
 async fn history_response_serialises_with_endurance_keys() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let states: Vec<DailyTrainingState> = (0..7)
         .map(|i| synthetic_state(i, 60.0 + i as f64))
@@ -105,8 +105,8 @@ async fn history_response_serialises_with_endurance_keys() {
 #[tokio::test]
 async fn history_query_is_tenant_scoped() {
     let db = make_test_db().await;
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
     let user_id = Uuid::new_v4();
     let state_a = synthetic_state(0, 80.0);
     let state_b = synthetic_state(0, 120.0);

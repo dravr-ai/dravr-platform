@@ -401,7 +401,7 @@ async fn primary_tenant_for_user(
         .list_for_user(user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to look up user tenants: {e}")))?;
-    Ok(tenants.first().map(|t| t.id.0))
+    Ok(tenants.first().map(|t| t.id.as_uuid()))
 }
 
 /// Admin: list stored tenant defaults. Empty vec when nothing is configured.

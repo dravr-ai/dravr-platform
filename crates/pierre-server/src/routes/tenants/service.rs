@@ -96,7 +96,7 @@ pub async fn create_tenant(
         .map_err(|e| AppError::database(e.to_string()))?;
 
     // Generate tenant ID and validate slug uniqueness
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let slug = tenant_request.slug.trim().to_lowercase();
 
     // Check if slug already exists

@@ -206,7 +206,7 @@ impl NotificationRoutes {
 
         info!(
             user_id = %auth.user_id,
-            tenant_id = %tenant_id.0,
+            tenant_id = %tenant_id.as_uuid(),
             platform = %token.platform,
             "Device token registered"
         );

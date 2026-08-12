@@ -30,7 +30,7 @@ async fn create_authenticated_user(
     auth_manager: &AuthManager,
     jwks_manager: &Arc<JwksManager>,
 ) -> Result<(Uuid, String)> {
-    let tenant_uuid = TenantId::new(); // Configuration tools require tenant context with valid UUID
+    let tenant_uuid = TenantId::generate(); // Configuration tools require tenant context with valid UUID
     let user_id = Uuid::new_v4();
 
     // First create the user (without tenant_id initially)
@@ -70,7 +70,7 @@ async fn create_authenticated_user_with_different_tenant(
     jwks_manager: &Arc<JwksManager>,
     email: &str,
 ) -> Result<(Uuid, String)> {
-    let tenant_uuid = TenantId::new(); // Different tenant UUID
+    let tenant_uuid = TenantId::generate(); // Different tenant UUID
     let user_id = Uuid::new_v4();
 
     // First create the user (without tenant_id initially)

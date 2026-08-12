@@ -91,7 +91,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
     let admin_id = database.repositories().users.create(&admin_user).await?;
 
     // Create tenant
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: "Test Tenant".to_owned(),

@@ -846,7 +846,7 @@ async fn setup_with_admin_flag(
     repos.users.create(&user).await?;
 
     // Always create the user as the OWNER of its own tenant.
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Wire Tenant for {email}"),

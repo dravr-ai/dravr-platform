@@ -18,6 +18,9 @@
 //! [`DatabaseProvider`](repositories::DatabaseProvider) handles lifecycle only
 //! (`new` + `migrate`). Data access goes through individual repository traits.
 
+/// Column decoders that fail closed on unparseable stored values.
+pub mod column_decode;
+
 /// Repository trait definitions for each database domain.
 pub mod repositories;
 

@@ -27,17 +27,33 @@ fn parse_role(s: &str) -> GroupRole {
 }
 
 /// Parse a `DateTime<Utc>` from an ISO 8601 string stored in `SQLite`
-fn parse_dt(s: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(s).map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc))
+/// Fails rather than substituting `Utc::now()`. A stored timestamp that will not
+/// parse is a data-integrity fault, and quietly returning "now" mints a
+/// plausible value no reader can tell apart from a real one.
+fn parse_dt(column: &str, s: &str) -> AppResult<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| {
+            AppError::database(format!(
+                "coaching_groups column `{column}` is not a valid RFC 3339 timestamp: {e}"
+            ))
+        })
 }
 
-/// Parse a `Uuid` from a TEXT column
-fn parse_uuid_col(s: &str) -> Uuid {
-    Uuid::parse_str(s).unwrap_or_default()
+/// Parse a `Uuid` from a TEXT column.
+///
+/// Fails rather than defaulting to the nil UUID, which would be a valid-looking
+/// identifier that silently matches nothing — or, worse, matches another nil.
+fn parse_uuid_col(column: &str, s: &str) -> AppResult<Uuid> {
+    Uuid::parse_str(s).map_err(|e| {
+        AppError::database(format!(
+            "coaching_groups column `{column}` is not a valid UUID: {e}"
+        ))
+    })
 }
 
 /// Map a `SQLite` row to `CoachingGroup`
-fn row_to_group(r: &SqliteRow) -> CoachingGroup {
+fn row_to_group(r: &SqliteRow) -> AppResult<CoachingGroup> {
     let id_str: String = r.get("id");
     let owner_str: String = r.get("owner_id");
     let created: String = r.get("created_at");
@@ -45,18 +61,19 @@ fn row_to_group(r: &SqliteRow) -> CoachingGroup {
     let peer_sharing: i32 = r.get("peer_data_sharing");
     let active: i32 = r.get("is_active");
 
-    CoachingGroup {
-        id: parse_uuid_col(&id_str),
+    Ok(CoachingGroup {
+        id: parse_uuid_col("id", &id_str)?,
         tenant_id: r.get("tenant_id"),
         name: r.get("name"),
         description: r.get("description"),
         coach_id: r.get("coach_id"),
-        owner_id: parse_uuid_col(&owner_str),
+        owner_id: parse_uuid_col("owner_id", &owner_str)?,
         coach_user_id: r
             .try_get::<Option<String>, _>("coach_user_id")
             .ok()
             .flatten()
-            .map(|s| parse_uuid_col(&s)),
+            .map(|s| parse_uuid_col("coach_user_id", &s))
+            .transpose()?,
         peer_data_sharing: peer_sharing != 0,
         // try_get keeps SELECTs that predate the column (or omit it) valid;
         // unknown/missing values fall back to the default 'all' mode.
@@ -75,13 +92,13 @@ fn row_to_group(r: &SqliteRow) -> CoachingGroup {
             .try_get::<Option<String>, _>("channel_chat_id")
             .ok()
             .flatten(),
-        created_at: parse_dt(&created),
-        updated_at: parse_dt(&updated),
-    }
+        created_at: parse_dt("created_at", &created)?,
+        updated_at: parse_dt("updated_at", &updated)?,
+    })
 }
 
 /// Map a `SQLite` row to `GroupMember`
-fn row_to_member(r: &SqliteRow) -> GroupMember {
+fn row_to_member(r: &SqliteRow) -> AppResult<GroupMember> {
     let id_str: String = r.get("id");
     let group_str: String = r.get("group_id");
     let user_str: String = r.get("user_id");
@@ -91,22 +108,22 @@ fn row_to_member(r: &SqliteRow) -> GroupMember {
     let joined: String = r.get("joined_at");
     let left: Option<String> = r.get("left_at");
 
-    GroupMember {
-        id: parse_uuid_col(&id_str),
-        group_id: parse_uuid_col(&group_str),
-        user_id: parse_uuid_col(&user_str),
+    Ok(GroupMember {
+        id: parse_uuid_col("id", &id_str)?,
+        group_id: parse_uuid_col("group_id", &group_str)?,
+        user_id: parse_uuid_col("user_id", &user_str)?,
         tenant_id: r.get("tenant_id"),
         role: parse_role(&role_str),
         peer_sharing_consent: consent != 0,
-        consent_given_at: parse_dt(&consent_at),
-        joined_at: parse_dt(&joined),
-        left_at: left.map(|s| parse_dt(&s)),
+        consent_given_at: parse_dt("consent_given_at", &consent_at)?,
+        joined_at: parse_dt("joined_at", &joined)?,
+        left_at: left.map(|s| parse_dt("left_at", &s)).transpose()?,
         display_name: r.try_get("display_name").ok(),
-    }
+    })
 }
 
 /// Map a `SQLite` row to `GroupInvite`
-fn row_to_invite(r: &SqliteRow) -> GroupInvite {
+fn row_to_invite(r: &SqliteRow) -> AppResult<GroupInvite> {
     let id_str: String = r.get("id");
     let group_str: String = r.get("group_id");
     let creator_str: String = r.get("created_by");
@@ -114,9 +131,9 @@ fn row_to_invite(r: &SqliteRow) -> GroupInvite {
     let expires: Option<String> = r.get("expires_at");
     let active: i32 = r.get("is_active");
 
-    GroupInvite {
-        id: parse_uuid_col(&id_str),
-        group_id: parse_uuid_col(&group_str),
+    Ok(GroupInvite {
+        id: parse_uuid_col("id", &id_str)?,
+        group_id: parse_uuid_col("group_id", &group_str)?,
         tenant_id: r.get("tenant_id"),
         code: r.get("code"),
         kind: r
@@ -124,13 +141,13 @@ fn row_to_invite(r: &SqliteRow) -> GroupInvite {
             .ok()
             .and_then(|s| GroupInviteKind::from_str_opt(&s))
             .unwrap_or_default(),
-        created_by: parse_uuid_col(&creator_str),
-        expires_at: expires.map(|s| parse_dt(&s)),
+        created_by: parse_uuid_col("created_by", &creator_str)?,
+        expires_at: expires.map(|s| parse_dt("expires_at", &s)).transpose()?,
         max_uses: r.get("max_uses"),
         use_count: r.get("use_count"),
         is_active: active != 0,
-        created_at: parse_dt(&created),
-    }
+        created_at: parse_dt("created_at", &created)?,
+    })
 }
 
 #[async_trait]
@@ -193,7 +210,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to get group: {e}")))?;
 
-        Ok(row.as_ref().map(row_to_group))
+        row.as_ref().map(row_to_group).transpose()
     }
 
     async fn get_group_by_channel(
@@ -217,7 +234,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to get group by channel: {e}")))?;
 
-        Ok(row.as_ref().map(row_to_group))
+        row.as_ref().map(row_to_group).transpose()
     }
 
     async fn list_groups_for_user(&self, user_id: Uuid) -> AppResult<Vec<GroupSummary>> {
@@ -236,8 +253,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list groups: {e}")))?;
 
-        Ok(rows
-            .iter()
+        rows.iter()
             .map(|r| {
                 let id_str: String = r.get("id");
                 let role_str: String = r.get("role");
@@ -245,8 +261,8 @@ impl CoachingGroupRepository for Database {
                 let active: i32 = r.get("is_active");
                 let peer: i32 = r.get("peer_data_sharing");
 
-                GroupSummary {
-                    id: parse_uuid_col(&id_str),
+                Ok(GroupSummary {
+                    id: parse_uuid_col("id", &id_str)?,
                     name: r.get("name"),
                     description: r.get("description"),
                     coach_id: r.get("coach_id"),
@@ -254,10 +270,10 @@ impl CoachingGroupRepository for Database {
                     is_active: active != 0,
                     peer_data_sharing: peer != 0,
                     my_role: parse_role(&role_str),
-                    created_at: parse_dt(&created),
-                }
+                    created_at: parse_dt("created_at", &created)?,
+                })
             })
-            .collect())
+            .collect()
     }
 
     async fn list_groups_for_coach(
@@ -278,7 +294,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list groups for coach: {e}")))?;
 
-        Ok(rows.iter().map(row_to_group).collect())
+        rows.iter().map(row_to_group).collect()
     }
 
     async fn list_groups_coached_by(&self, coach_user_id: Uuid) -> AppResult<Vec<CoachingGroup>> {
@@ -296,7 +312,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list groups coached by user: {e}")))?;
 
-        Ok(rows.iter().map(row_to_group).collect())
+        rows.iter().map(row_to_group).collect()
     }
 
     async fn list_active_groups_for_tenant(
@@ -315,7 +331,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list active groups for tenant: {e}")))?;
 
-        Ok(rows.iter().map(row_to_group).collect())
+        rows.iter().map(row_to_group).collect()
     }
 
     async fn update_group(
@@ -456,7 +472,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to get member: {e}")))?;
 
-        Ok(row.as_ref().map(row_to_member))
+        row.as_ref().map(row_to_member).transpose()
     }
 
     async fn list_members(&self, group_id: &str) -> AppResult<Vec<GroupMember>> {
@@ -475,7 +491,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list members: {e}")))?;
 
-        Ok(rows.iter().map(row_to_member).collect())
+        rows.iter().map(row_to_member).collect()
     }
 
     async fn update_member_role(
@@ -568,7 +584,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch invite after creation: {e}")))?;
 
-        Ok(row_to_invite(&row))
+        row_to_invite(&row)
     }
 
     async fn get_invite_by_code(&self, code: &str) -> AppResult<Option<GroupInvite>> {
@@ -582,7 +598,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to get invite by code: {e}")))?;
 
-        Ok(row.as_ref().map(row_to_invite))
+        row.as_ref().map(row_to_invite).transpose()
     }
 
     async fn increment_invite_use_count(&self, invite_id: &str) -> AppResult<bool> {
@@ -624,7 +640,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list invites: {e}")))?;
 
-        Ok(rows.iter().map(row_to_invite).collect())
+        rows.iter().map(row_to_invite).collect()
     }
 
     // -- Context queries --
@@ -650,7 +666,7 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to find groups for user+coach: {e}")))?;
 
-        Ok(rows.iter().map(row_to_group).collect())
+        rows.iter().map(row_to_group).collect()
     }
 
     async fn count_groups_for_owner(&self, owner_id: Uuid, tenant_id: TenantId) -> AppResult<i64> {

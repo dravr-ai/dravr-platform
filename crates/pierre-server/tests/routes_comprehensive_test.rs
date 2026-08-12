@@ -132,7 +132,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
     let admin_id = database.repositories().users.create(&admin_user).await?;
 
     // Create tenant
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: "Test Tenant".to_owned(),
@@ -1389,7 +1389,7 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
 
     // Create tenant so disconnect_provider can resolve user's tenant
     let tenant = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Test Tenant".to_owned(),
         slug: "test-disconnect-comprehensive".to_owned(),
         domain: None,
@@ -1402,7 +1402,7 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
 
     // Disconnecting a provider that wasn't connected should succeed (idempotent)
     let result = oauth_routes
-        .disconnect_provider(user_id, "strava", Some(tenant.id.0))
+        .disconnect_provider(user_id, "strava", Some(tenant.id.as_uuid()))
         .await;
 
     assert!(result.is_ok());
@@ -1817,7 +1817,7 @@ async fn test_complete_auth_flow() -> Result<()> {
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: "Integration Test Tenant".to_owned(),

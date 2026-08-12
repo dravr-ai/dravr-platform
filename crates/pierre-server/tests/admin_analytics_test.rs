@@ -57,7 +57,7 @@ async fn create_admin_user_and_token(
     resources.common.repos.users.create(&user).await.unwrap();
 
     // Create tenant for the admin user
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Admin Tenant for {email}"),
@@ -104,7 +104,7 @@ async fn create_regular_user_and_token(resources: &Arc<ServerContext>, email: &s
     resources.common.repos.users.create(&user).await.unwrap();
 
     // Create tenant for the regular user
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Tenant for {email}"),

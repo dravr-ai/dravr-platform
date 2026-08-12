@@ -1520,7 +1520,7 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         .await
         .expect("Failed to create user");
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Parity Test Tenant for {user_id}"),

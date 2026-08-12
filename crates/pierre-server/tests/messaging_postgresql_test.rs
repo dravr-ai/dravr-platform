@@ -64,7 +64,7 @@ async fn seed_pg_user(db: &Database) -> Uuid {
 }
 
 async fn seed_pg_tenant(db: &Database, owner: Uuid) -> TenantId {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Messaging Tenant {tenant_id}"),
@@ -474,7 +474,7 @@ async fn test_pg_create_channel_link_rejects_orphan_tenant() {
     };
     let user_uuid = seed_pg_user(&db).await;
     let user_id = user_uuid.to_string();
-    let orphan_tenant = TenantId::new(); // never inserted
+    let orphan_tenant = TenantId::generate(); // never inserted
 
     let err = db
         .repositories()
@@ -501,7 +501,7 @@ async fn test_pg_create_link_state_rejects_orphan_tenant() {
     let Some((_isolated, db)) = try_pg_db().await else {
         return;
     };
-    let orphan_tenant = TenantId::new();
+    let orphan_tenant = TenantId::generate();
     let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
 
     let err = db

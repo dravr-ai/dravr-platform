@@ -58,7 +58,7 @@ async fn user_with_role(
     let user_id = user.id;
     resources.common.repos.users.create(&user).await?;
 
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Tenant for {email}"),

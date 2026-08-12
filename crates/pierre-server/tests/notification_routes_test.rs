@@ -466,7 +466,7 @@ mod notification_routes_tests {
             service
                 .create_notification(&CreateNotificationParams {
                     user_id: user_a.id,
-                    tenant_id: CommereTenantId(tenant_a.0),
+                    tenant_id: CommereTenantId(tenant_a.as_uuid()),
                     category: NotificationCategory::Training,
                     notification_type: format!("training_a_{i}"),
                     title: format!("User A training {i}"),
@@ -483,7 +483,7 @@ mod notification_routes_tests {
         service
             .create_notification(&CreateNotificationParams {
                 user_id: user_b.id,
-                tenant_id: CommereTenantId(tenant_b.0),
+                tenant_id: CommereTenantId(tenant_b.as_uuid()),
                 category: NotificationCategory::Training,
                 notification_type: "training_b_0".to_owned(),
                 title: "User B training".to_owned(),
@@ -552,7 +552,7 @@ mod notification_routes_tests {
             service
                 .create_notification(&CreateNotificationParams {
                     user_id: user.id,
-                    tenant_id: CommereTenantId(tenant_id.0),
+                    tenant_id: CommereTenantId(tenant_id.as_uuid()),
                     category: NotificationCategory::Training,
                     notification_type: format!("badge_test_{i}"),
                     title: format!("Badge test {i}"),

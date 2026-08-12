@@ -54,7 +54,7 @@ mod snapshot_tenant_tests {
     /// `tenant_users`, so `tenants.list_for_user(owner_id)` then includes it —
     /// the mechanism that makes a member belong to multiple tenants.
     async fn create_tenant_owned_by(resources: &ServerContext, owner_id: Uuid) -> TenantId {
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let now = Utc::now();
         let tenant = Tenant {
             id: tenant_id,
@@ -120,7 +120,7 @@ mod snapshot_tenant_tests {
             .unwrap();
 
         // Fallback = the group-host/requester tenant the member is NOT in.
-        let fallback_tenant = TenantId::new();
+        let fallback_tenant = TenantId::generate();
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
 
         let snapshots = fetch_member_snapshots(&runtime, &[member], fallback_tenant).await;
@@ -166,7 +166,7 @@ mod snapshot_tenant_tests {
             .await
             .unwrap();
 
-        let fallback_tenant = TenantId::new();
+        let fallback_tenant = TenantId::generate();
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
 
         let snapshots = fetch_member_snapshots(&runtime, &[member], fallback_tenant).await;

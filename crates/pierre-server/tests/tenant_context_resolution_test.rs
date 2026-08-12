@@ -35,7 +35,7 @@ async fn test_tenant_operations_work_through_factory() {
         .await
         .unwrap();
     // Create test tenant
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: "Test Tenant".to_owned(),

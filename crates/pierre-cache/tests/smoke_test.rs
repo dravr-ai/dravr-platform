@@ -36,8 +36,8 @@ fn redact_url_strips_credentials() {
 
 #[test]
 fn cache_key_distinguishes_tenants() {
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let key_a = CacheKey {
@@ -66,7 +66,7 @@ async fn in_memory_cache_round_trips_a_value() {
         .expect("in-memory cache should initialize with defaults");
 
     let key = CacheKey {
-        tenant_id: TenantId::new(),
+        tenant_id: TenantId::generate(),
         user_id: Uuid::new_v4(),
         provider: "strava".to_owned(),
         resource: CacheResource::AthleteProfile,

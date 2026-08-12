@@ -85,24 +85,39 @@ impl LlmCredentialRepository for Database {
         }
         .map_err(|e| AppError::database(format!("Failed to get LLM credentials: {e}")))?;
 
-        Ok(row.map(|r| LlmCredentialRecord {
-            id: Uuid::parse_str(r.get::<&str, _>("id")).unwrap_or_default(),
-            tenant_id: r
-                .get::<&str, _>("tenant_id")
-                .parse()
-                .unwrap_or_else(|_| TenantId::nil()),
-            user_id: r
-                .get::<Option<&str>, _>("user_id")
-                .and_then(|s| Uuid::parse_str(s).ok()),
-            provider: r.get::<String, _>("provider"),
-            api_key_encrypted: r.get::<String, _>("api_key_encrypted"),
-            base_url: r.get::<Option<String>, _>("base_url"),
-            default_model: r.get::<Option<String>, _>("default_model"),
-            is_active: r.get::<bool, _>("is_active"),
-            created_at: r.get::<String, _>("created_at"),
-            updated_at: r.get::<String, _>("updated_at"),
-            created_by: Uuid::parse_str(r.get::<&str, _>("created_by")).unwrap_or_default(),
-        }))
+        // A malformed identifier column is a data-integrity fault, not a value.
+        // Decoding it to a nil/default id produces something that looks valid
+        // and then quietly matches no rows anywhere downstream — for
+        // `tenant_id` that means silently leaving the tenant's own scope. Fail
+        // the read instead, naming the column so the bad row can be found.
+        row.map(|r| -> AppResult<LlmCredentialRecord> {
+            Ok(LlmCredentialRecord {
+                id: Uuid::parse_str(r.get::<&str, _>("id")).map_err(|e| {
+                    AppError::database(format!("user_llm_credentials.id is not a valid UUID: {e}"))
+                })?,
+                tenant_id: r.get::<&str, _>("tenant_id").parse().map_err(|e| {
+                    AppError::database(format!(
+                        "user_llm_credentials.tenant_id is not a valid UUID: {e}"
+                    ))
+                })?,
+                user_id: r
+                    .get::<Option<&str>, _>("user_id")
+                    .and_then(|s| Uuid::parse_str(s).ok()),
+                provider: r.get::<String, _>("provider"),
+                api_key_encrypted: r.get::<String, _>("api_key_encrypted"),
+                base_url: r.get::<Option<String>, _>("base_url"),
+                default_model: r.get::<Option<String>, _>("default_model"),
+                is_active: r.get::<bool, _>("is_active"),
+                created_at: r.get::<String, _>("created_at"),
+                updated_at: r.get::<String, _>("updated_at"),
+                created_by: Uuid::parse_str(r.get::<&str, _>("created_by")).map_err(|e| {
+                    AppError::database(format!(
+                        "user_llm_credentials.created_by is not a valid UUID: {e}"
+                    ))
+                })?,
+            })
+        })
+        .transpose()
     }
 
     async fn list_credentials(&self, tenant_id: TenantId) -> AppResult<Vec<LlmCredentialSummary>> {

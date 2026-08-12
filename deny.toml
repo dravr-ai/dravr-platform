@@ -18,7 +18,8 @@ ignore = [
     # Advisory: https://rustsec.org/advisories/RUSTSEC-2023-0071
     #
     # Risk Assessment: LOW for our usage
-    # - Only used for JWT signing/verification (RS256) in src/admin/jwks.rs
+    # - Only used for JWT signing/verification (RS256) in
+    #   crates/pierre-auth/src/admin/jwks.rs
     # - NOT used for decryption operations (primary attack vector)
     # - Admin-only feature with limited attack surface
     # - 4096-bit RSA keys provide additional security margin
@@ -29,18 +30,25 @@ ignore = [
     # - Consider Ed25519 migration for future admin tokens (faster, smaller keys)
     #
     # Status: Accepted risk until stable fix available
-    # Review Date: 2025-11-15
-    # Next Review: 2026-01-15 or when rsa 0.10.0 stable released
+    # Reviewed: 2026-08-12 — Cargo.lock still pins rsa 0.9.10, so 0.10 stable
+    #   has not been adopted; the assessment above is unchanged.
+    # Next Review: 2026-11-12
     "RUSTSEC-2023-0071",
 
     # -------------------------------------------------------------------------
     # RUSTSEC-2026-0097: rand unsound with a custom `log` logger using rand::rng()
     # -------------------------------------------------------------------------
     # Severity: Unsound (UB only under very specific conditions)
-    # Affected in-tree version: rand 0.8.5 (transitive via jsonwebtoken, rsa,
+    # Affected in-tree version: rand 0.8.6 (transitive via jsonwebtoken, rsa,
     # dravr-enforme). We use `tracing` + `tracing-subscriber`, not a custom
     # `log::Log` impl, so the preconditions for the unsoundness are not met.
     # Upgrade blocked on upstream crates (jsonwebtoken rand-0.9, rsa 0.10 stable).
+    #
+    # Reviewed: 2026-08-12 — `cargo tree -i rand@0.8.6` still shows jsonwebtoken
+    #   (now 10.3.0) as the sole first-hop dependent, so the named blocker is
+    #   unchanged despite the major-version bump. rand 0.9.4 and 0.10.2 are also
+    #   in the lock for other consumers; only the 0.8.x line is affected.
+    # Next Review: 2026-11-12
     "RUSTSEC-2026-0097",
 
     # -------------------------------------------------------------------------
@@ -56,6 +64,11 @@ ignore = [
     # Upgrade blocked on upstream: fix is quick-xml >= 0.41; pprof 0.15 (latest)
     # still pins inferno 0.11, which requires quick-xml ^0.26.
     # Remove when pprof ships an inferno with quick-xml >= 0.41.
+    #
+    # Reviewed: 2026-08-12 — lock still shows quick-xml 0.26.0 under
+    #   pprof 0.15.0 -> inferno 0.11.21, i.e. the upstream chain is unchanged
+    #   and the dep is still dev-only (never in the shipped binary).
+    # Next Review: 2026-11-12
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 ]

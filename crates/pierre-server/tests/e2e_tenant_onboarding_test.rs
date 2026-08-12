@@ -75,8 +75,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     // Step 2: Create admin users first (required for tenant foreign key constraints)
     let acme_admin_id = Uuid::new_v4();
     let beta_admin_id = Uuid::new_v4();
-    let acme_tenant_id = TenantId::new();
-    let beta_tenant_id = TenantId::new();
+    let acme_tenant_id = TenantId::generate();
+    let beta_tenant_id = TenantId::generate();
 
     let acme_admin = User {
         id: acme_admin_id,
@@ -293,7 +293,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     let executor = UniversalToolExecutor::new(server_resources);
 
     // Step 8: Test tenant-aware tool execution for Acme
-    let acme_context = TenantContext::new(
+    let acme_context = TenantContext::from_verified_membership(
         acme_tenant_id,
         "Acme Fitness Co.".to_owned(),
         acme_admin_id,
@@ -316,7 +316,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     println!("Acme tenant tool execution successful");
 
     // Step 9: Test tenant-aware tool execution for Beta
-    let beta_context = TenantContext::new(
+    let beta_context = TenantContext::from_verified_membership(
         beta_tenant_id,
         "Beta Health Inc.".to_owned(),
         beta_admin_id,
@@ -449,8 +449,8 @@ async fn create_tenant_test_database() -> Result<Arc<Database>> {
 async fn setup_multitenant_scenario(
     database: &Arc<Database>,
 ) -> Result<(TenantId, TenantId, Uuid)> {
-    let tenant1_id = TenantId::new();
-    let tenant2_id = TenantId::new();
+    let tenant1_id = TenantId::generate();
+    let tenant2_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let user = User {
@@ -553,14 +553,14 @@ async fn test_tenant_context_switching() -> Result<()> {
         .await?;
 
     // Test that the same user gets different OAuth clients for different tenants
-    let tenant1_context = TenantContext::new(
+    let tenant1_context = TenantContext::from_verified_membership(
         tenant1_id,
         "Tenant One".to_owned(),
         user_id,
         TenantRole::Member,
     );
 
-    let tenant2_context = TenantContext::new(
+    let tenant2_context = TenantContext::from_verified_membership(
         tenant2_id,
         "Tenant Two".to_owned(),
         user_id,

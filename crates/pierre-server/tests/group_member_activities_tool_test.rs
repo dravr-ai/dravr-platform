@@ -52,7 +52,7 @@ mod peer_fetch_tests {
     }
 
     async fn create_tenant_owned_by(resources: &ServerContext, owner_id: Uuid) -> TenantId {
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let now = Utc::now();
         let tenant = Tenant {
             id: tenant_id,

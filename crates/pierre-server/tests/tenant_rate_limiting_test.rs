@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 fn create_test_tenant(plan: &str) -> Tenant {
     Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: "Test Tenant".to_owned(),
         slug: "test-tenant".to_owned(),
         domain: None,
@@ -124,7 +124,7 @@ fn test_tenant_rate_limit_tier_effective_limits() {
 #[test]
 fn test_tenant_config_management() {
     let mut config = TenantRateLimitConfig::new();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
 
     // Test default configuration
     let default_config = config.get_tenant_config(tenant_id);
@@ -187,7 +187,7 @@ fn test_tenant_rate_limiting_with_multiplier() {
 fn test_tenant_aware_api_key_rate_limiting() {
     let mut calculator = UnifiedRateLimitCalculator::new();
     let api_key = create_test_api_key(&ApiKeyTier::Professional);
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
 
     // Configure tenant with 1.5x multiplier
     calculator.set_tenant_multiplier(tenant_id, 1.5);
@@ -210,7 +210,7 @@ fn test_tenant_aware_api_key_rate_limiting() {
 fn test_tenant_aware_jwt_rate_limiting() {
     let mut calculator = UnifiedRateLimitCalculator::new();
     let user = create_test_user(UserTier::Professional);
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
 
     // Configure tenant with 0.5x multiplier (reduced limits)
     calculator.set_tenant_multiplier(tenant_id, 0.5);
@@ -248,7 +248,7 @@ fn test_enterprise_tenant_unlimited() {
 #[test]
 fn test_tenant_config_by_plan() {
     let mut calculator = UnifiedRateLimitCalculator::new();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
 
     // Test different plan configurations
     calculator.configure_tenant_by_plan(tenant_id, "starter");

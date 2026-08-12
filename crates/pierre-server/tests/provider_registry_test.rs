@@ -43,7 +43,7 @@ fn test_create_provider() {
 #[tokio::test]
 async fn test_create_tenant_provider() {
     common::init_test_http_clients();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
     let tenant_provider = create_tenant_provider(oauth_providers::STRAVA, tenant_id, user_id);

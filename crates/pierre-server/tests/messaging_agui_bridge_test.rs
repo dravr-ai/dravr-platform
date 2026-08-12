@@ -115,7 +115,7 @@ async fn bridge_drives_slack_edits_through_registry() {
 
     let run_id = Uuid::new_v4().to_string();
     let registry = Arc::new(RunRegistry::default());
-    let owner = RunOwner::new(Uuid::new_v4(), TenantId::new());
+    let owner = RunOwner::new(Uuid::new_v4(), TenantId::generate());
     let scope = registry.register_scoped(&run_id, owner);
 
     // Publish two events BEFORE the consumer subscribes — they must

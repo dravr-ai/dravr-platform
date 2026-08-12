@@ -84,7 +84,7 @@ mod messaging_otp_linking_tests {
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant = Tenant {
             id: tenant_id,
             name: format!("OTP Tenant {email}"),

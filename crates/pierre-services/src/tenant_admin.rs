@@ -102,7 +102,7 @@ pub async fn create_tenant_for_user(
     }
 
     let tenant_data = Tenant {
-        id: TenantId::new(),
+        id: TenantId::generate(),
         name: tenant_name.to_owned(),
         slug,
         domain: None,

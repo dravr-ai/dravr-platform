@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::column_decode::uuid_column;
 use crate::database::Database;
 use crate::repositories::ProviderConnectionRepository;
 use async_trait::async_trait;
@@ -146,7 +147,7 @@ impl Database {
             });
 
             let user_id_from_db: String = row.get("user_id");
-            let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
+            let parsed_user_id = uuid_column("provider_connections.user_id", &user_id_from_db)?;
 
             connections.push(ProviderConnection {
                 id: row.get("id"),
@@ -259,7 +260,7 @@ impl Database {
                 .map(|dt| dt.with_timezone(&Utc))
         });
         let user_id_from_db: String = row.get("user_id");
-        let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
+        let parsed_user_id = uuid_column("provider_connections.user_id", &user_id_from_db)?;
 
         Ok(Some(ProviderConnection {
             id: row.get("id"),

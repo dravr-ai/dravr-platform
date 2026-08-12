@@ -257,7 +257,7 @@ pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
 
     // Create the tenant with this user as owner
     // The create_tenant function automatically adds the owner to tenant_users
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: "Test Tenant".to_owned(),
@@ -312,7 +312,7 @@ pub async fn create_test_user_with_plan(
 
     // Create the tenant with this user as owner
     // The create_tenant function automatically adds the owner to tenant_users
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Test Tenant for {}", email),

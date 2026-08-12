@@ -65,7 +65,7 @@ fn make_prescribed(
 #[tokio::test]
 async fn upsert_and_list_round_trips() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let prescribed = make_prescribed(tenant_id, user_id, "long_run_z2", anchor_date());
     db.repositories()
@@ -88,7 +88,7 @@ async fn upsert_and_list_round_trips() {
 #[tokio::test]
 async fn upsert_replays_with_same_id_to_update_provider_event_id() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let mut prescribed = make_prescribed(tenant_id, user_id, "threshold_4x8", anchor_date());
     db.repositories()
@@ -124,8 +124,8 @@ async fn upsert_replays_with_same_id_to_update_provider_event_id() {
 #[tokio::test]
 async fn prescriptions_are_tenant_scoped() {
     let db = make_test_db().await;
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
     let user_id = Uuid::new_v4();
     let p_a = make_prescribed(tenant_a, user_id, "long_run_z2", anchor_date());
     let p_b = make_prescribed(tenant_b, user_id, "vo2_5x3", anchor_date());
@@ -168,7 +168,7 @@ async fn prescriptions_are_tenant_scoped() {
 #[tokio::test]
 async fn list_orders_newest_first_and_respects_limit() {
     let db = make_test_db().await;
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
     let repos = db.repositories();
     for i in 0..5 {

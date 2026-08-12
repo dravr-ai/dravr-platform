@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 async fn make_user_and_tenant(db: &Arc<Database>) -> (Uuid, TenantId, String) {
     let (user_id, _user) = common::create_test_user(db).await.unwrap();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     // sleep_sessions.data_source_id has FK to data_sources(id) — seed a row.
     let data_source_id = format!("ds-{}", Uuid::new_v4());
     sqlx::query(
@@ -223,7 +223,7 @@ async fn sleep_delete_by_id_rejects_wrong_tenant() {
     let database = common::create_test_database().await.unwrap();
     let repos = Arc::new(database.repositories());
     let (user_id, owner_tenant, ds) = make_user_and_tenant(&database).await;
-    let other_tenant = TenantId::new();
+    let other_tenant = TenantId::generate();
 
     let session = sleep_session(user_id, "strava", &ds);
     let id = session.id.clone();

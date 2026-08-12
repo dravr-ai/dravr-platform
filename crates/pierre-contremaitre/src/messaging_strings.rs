@@ -3,6 +3,10 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+//
+// file-size-ok: string table, not logic — the invariant is `entries == keys × 5`,
+// so every new user-facing string is required to add five lines here. Length is
+// a function of how much the product says, not of this module's complexity.
 
 //! # Messaging Strings Registry
 //!

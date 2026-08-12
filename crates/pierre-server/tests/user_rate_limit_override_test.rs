@@ -21,7 +21,7 @@ async fn build_user(
     tier: UserTier,
 ) -> (Uuid, TenantId) {
     let user_id = Uuid::new_v4();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let now = Utc::now();
     let user = User {
         id: user_id,

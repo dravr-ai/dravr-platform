@@ -81,7 +81,7 @@ async fn seed_admin(db: &Database) -> String {
 /// override cannot reference an invented uuid — it fails with `SQLite` error 787
 /// rather than exercising the upsert this test is about.
 async fn seed_tenant(db: &Database, owner_user_id: &str) -> String {
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let owner = Uuid::parse_str(owner_user_id).expect("seeded admin id is a uuid");
     let tenant = Tenant {
         id: tenant_id,

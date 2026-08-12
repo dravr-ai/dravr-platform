@@ -72,7 +72,7 @@ mod tool_called_happy_path {
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
-        let tenant_id = TenantId::new();
+        let tenant_id = TenantId::generate();
         let tenant = Tenant {
             id: tenant_id,
             name: format!("Tool-Called Tenant {email}"),

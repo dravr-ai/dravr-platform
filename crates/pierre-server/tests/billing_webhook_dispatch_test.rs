@@ -51,7 +51,7 @@ fn upsert_payload(
 async fn seed_starter_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
     let repos = db.repositories();
     let user_id = Uuid::new_v4();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let now = Utc::now();
 
     let user = User {

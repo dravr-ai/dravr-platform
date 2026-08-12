@@ -4,23 +4,66 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! Multi-tenant organization models, and the tenant-identity fence.
+//!
+//! # The fence
+//!
+//! Every scoped query in this codebase carries a [`TenantId`] in its `WHERE`
+//! clause. That makes the type the load-bearing part of tenant isolation, so
+//! it is deliberately awkward to produce one by accident:
+//!
+//! - The inner UUID is **private**. A `TenantId` cannot be built by tuple
+//!   construction, and `.0` is not reachable from other crates — callers go
+//!   through [`TenantId::from_uuid`] and [`TenantId::as_uuid`], which read as
+//!   deliberate conversions at the call site.
+//! - There is **no `Default`**. A defaulted tenant id used to mean
+//!   `Uuid::new_v4()`, so a `..Default::default()` or a derived `Default`
+//!   silently minted a tenant that exists in no table — and every
+//!   `WHERE tenant_id = $1` against it then returned *empty* rather than
+//!   failing. Minting is now spelled [`TenantId::generate`], which reads as
+//!   the act it is and appears only at real tenant-creation sites.
+//!
+//! # What this fence does NOT give you
+//!
+//! State this plainly rather than overclaim, because the gap is where bugs
+//! live:
+//!
+//! - **`From<Uuid>` and `FromStr` still exist**, so any UUID or string can
+//!   still become a `TenantId` explicitly. They are load-bearing for decoding
+//!   database rows and JWT claims. The fence removes the *accidental* paths,
+//!   not the deliberate ones.
+//! - **`Deserialize` still exists**, so a `TenantId` can be parsed from a
+//!   payload. Splitting wire models from domain models is the real fix and is
+//!   a separate change.
+//! - **Holding a `TenantId` proves nothing about authorization.** It does not
+//!   mean the caller belongs to that tenant. Membership is verified in
+//!   `pierre_middleware::tenant` (`verify_tenant_membership`), and this type
+//!   does not carry that verdict. Do not read a `TenantId` parameter as
+//!   "already authorized".
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use uuid::Uuid;
 
-/// Type-safe wrapper for tenant identifiers
+/// Type-safe wrapper for tenant identifiers.
 ///
-/// Provides compile-time distinction between tenant IDs and other UUIDs.
+/// Provides compile-time distinction between tenant IDs and other UUIDs. See
+/// the module documentation for what this fence does and does not guarantee.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct TenantId(pub Uuid);
+pub struct TenantId(Uuid);
 
 impl TenantId {
-    /// Create a new random `TenantId`
+    /// Mint a brand-new random `TenantId` for a tenant being created.
+    ///
+    /// This allocates a fresh identity — call it only where a tenant is
+    /// genuinely being brought into existence, never as a fallback for a
+    /// value that failed to parse or was not supplied. There is deliberately
+    /// no `Default` impl for exactly that reason.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn generate() -> Self {
         Self(Uuid::new_v4())
     }
 
@@ -36,7 +79,16 @@ impl TenantId {
         self.0
     }
 
-    /// Create a nil (all zeros) `TenantId`
+    /// The nil (all-zeros) `TenantId`, used as the explicit "not tenant-scoped"
+    /// marker in cache keys for genuinely global resources.
+    ///
+    /// `CacheKey` requires a tenant, so deliberately global entries — the
+    /// link-token replay burn-list and the per-user mint rate limiter, neither
+    /// of which belongs to a tenant — name this sentinel to say so out loud.
+    ///
+    /// It is **not** a fallback for a tenant that failed to parse. Returning
+    /// nil on a decode error turns a data-integrity fault into a valid-looking
+    /// value that quietly matches nothing; propagate the error instead.
     #[must_use]
     pub const fn nil() -> Self {
         Self(Uuid::nil())
@@ -46,12 +98,6 @@ impl TenantId {
     #[must_use]
     pub fn is_nil(&self) -> bool {
         self.0.is_nil()
-    }
-}
-
-impl Default for TenantId {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -190,7 +236,7 @@ impl Tenant {
     ) -> Self {
         let now = Utc::now();
         Self {
-            id: TenantId::new(),
+            id: TenantId::generate(),
             name,
             slug,
             domain,

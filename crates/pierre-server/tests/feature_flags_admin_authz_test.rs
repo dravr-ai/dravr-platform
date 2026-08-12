@@ -84,7 +84,7 @@ async fn build_context() -> (
 /// Seed a tenant (and its owner user) and return the tenant id.
 async fn seed_tenant(repos: &pierre_database::RepositoryRegistry) -> TenantId {
     let user_id = Uuid::new_v4();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let now = Utc::now();
     let user = User {
         id: user_id,
@@ -158,7 +158,7 @@ fn tenant_scoped_token(tenant_id: TenantId) -> ValidatedAdminToken {
             AdminPermission::ManageConfiguration,
         ]),
         is_super_admin: false,
-        tenant_id: Some(tenant_id.0.to_string()),
+        tenant_id: Some(tenant_id.as_uuid().to_string()),
         user_info: None,
     }
 }
@@ -169,14 +169,14 @@ async fn super_admin_lists_any_tenant_defaults() {
     let tenant = seed_tenant(&repos).await;
     repos
         .feature_flags
-        .set_tenant_default(tenant.0, FeatureKey::ApiTokens, true, None)
+        .set_tenant_default(tenant.as_uuid(), FeatureKey::ApiTokens, true, None)
         .await
         .unwrap();
 
     let resp = handle_admin_list_tenant_defaults(
         State(context),
         Extension(super_admin_token()),
-        Path(tenant.0.to_string()),
+        Path(tenant.as_uuid().to_string()),
     )
     .await
     .expect("super-admin should list any tenant's defaults");
@@ -191,7 +191,7 @@ async fn tenant_admin_lists_own_tenant_defaults() {
     let resp = handle_admin_list_tenant_defaults(
         State(context),
         Extension(tenant_scoped_token(tenant)),
-        Path(tenant.0.to_string()),
+        Path(tenant.as_uuid().to_string()),
     )
     .await
     .expect("tenant admin should list its own tenant's defaults");
@@ -207,7 +207,7 @@ async fn tenant_admin_denied_cross_tenant_defaults() {
     let err = handle_admin_list_tenant_defaults(
         State(context),
         Extension(tenant_scoped_token(tenant_a)),
-        Path(tenant_b.0.to_string()),
+        Path(tenant_b.as_uuid().to_string()),
     )
     .await
     .expect_err("tenant admin must not read another tenant's defaults");
@@ -224,7 +224,7 @@ async fn tenant_admin_denied_cross_tenant_default_write() {
         State(context),
         Extension(tenant_scoped_token(tenant_a)),
         Path((
-            tenant_b.0.to_string(),
+            tenant_b.as_uuid().to_string(),
             FeatureKey::ApiTokens.as_str().to_owned(),
         )),
         Json(SetFeatureFlagRequest { enabled: true }),

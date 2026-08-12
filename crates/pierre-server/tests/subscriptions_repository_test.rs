@@ -21,7 +21,7 @@ const TEST_PROVIDER: &str = "dummy";
 fn sample_subscription() -> Subscription {
     Subscription {
         id: Uuid::new_v4(),
-        tenant_id: TenantId::new(),
+        tenant_id: TenantId::generate(),
         user_id: Uuid::new_v4(),
         provider: TEST_PROVIDER.to_owned(),
         provider_customer_id: format!("cus_test_{}", Uuid::new_v4().simple()),

@@ -50,7 +50,7 @@ async fn activity_cache_upsert_read_filter_prune_round_trip() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let repo = &repos.activity_cache;
 
     let window_start = Utc::now() - Duration::days(90);
@@ -138,8 +138,8 @@ async fn activity_cache_is_tenant_isolated() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
-    let tenant_a = TenantId::new();
-    let tenant_b = TenantId::new();
+    let tenant_a = TenantId::generate();
+    let tenant_b = TenantId::generate();
 
     let acts = vec![activity("a1", "strava", 1)];
     repos
@@ -178,7 +178,7 @@ async fn activity_cache_upsert_count_is_distinct_not_input_length() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let repo = &repos.activity_cache;
 
     // Five input rows but only THREE distinct activity_ids — "d1" appears three
@@ -227,7 +227,7 @@ async fn activity_cache_historical_window_read_is_deterministic_and_complete() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let repo = &repos.activity_cache;
 
     // Seed K=50 distinct rows spread across the 2022 season [2022-01-01,
@@ -308,7 +308,7 @@ async fn activity_cache_other_sport_type_populates_indexed_column() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
-    let tenant_id = TenantId::new();
+    let tenant_id = TenantId::generate();
     let repo = &repos.activity_cache;
 
     let start = Utc.with_ymd_and_hms(2022, 7, 1, 8, 0, 0).unwrap();
