@@ -72,7 +72,7 @@ jsonschema = { version = "0.46.5", default-features = false }
 # Assets crate (git): provides the structured-workout schema for the
 # extraction/validation stage test. Redirected to the local checkout by the
 # workspace [patch] during co-development.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "0106a13b637d4459a927b84a2d6effe6c745c524" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "ea3657d3e974a0793fd342f3ec71efaa338e9bd8" }
 
 [lints]
 workspace = true
