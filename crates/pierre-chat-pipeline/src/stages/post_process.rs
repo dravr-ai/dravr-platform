@@ -4,20 +4,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::models::CoachRuntimeContext;
+use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
 use pierre_database::database::ConversationRecord;
 use pierre_services::prompt_leak;
+use uuid::Uuid;
 
 use crate::hooks::PipelineHooks;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
 use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_EMPTY_REPLY, KEY_REPLY_WITHHELD};
+use pierre_contremaitre::persona_contracts::PersonaContractsSnapshot;
 use pierre_core::narration::{scrub_internal_narration, IdentityLeakMatch};
 
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
-use super::persona_conformance::{check_reply_conformance, enforce_conformance};
+use super::persona_conformance::{check_reply_conformance, enforce_conformance, RosterScope};
 use super::prompt_assembly::resolve_user_persona;
 use super::structured_output;
 #[cfg(feature = "tools-verification")]
@@ -69,6 +71,44 @@ pub(crate) struct PostProcessInputs<'a> {
     /// Whether this turn is on a messaging channel (no plan-card renderer);
     /// gates structured-output extraction.
     pub is_messaging: bool,
+}
+
+/// Resolve the coach's roster so the conformance stage can tell a cited athlete
+/// apart from a stranger.
+///
+/// Queried only when the persona's contract sets `require_tenant_isolation` —
+/// every other persona would pay a roster lookup that no rule reads. A failed
+/// or empty lookup yields `None`, and the check fails open on it.
+async fn resolve_roster_scope(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    snapshot: &PersonaContractsSnapshot,
+    persona: CoachingPersona,
+) -> Option<RosterScope> {
+    if !snapshot
+        .contract(persona)
+        .is_some_and(|c| c.require_tenant_isolation)
+    {
+        return None;
+    }
+    let coach_id = Uuid::parse_str(&input.user_id).ok()?;
+    match ctx
+        .repos
+        .roster
+        .list_athletes_for_coach(coach_id, input.conversation_tenant_id)
+        .await
+    {
+        Ok(assignments) => Some(RosterScope::from_athlete_ids(
+            assignments.iter().map(|a| a.athlete_user_id.to_string()),
+        )),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "roster lookup failed; tenant-isolation conformance will fail open"
+            );
+            None
+        }
+    }
 }
 
 /// Run post-LLM content processing over the raw assistant reply.
@@ -229,8 +269,13 @@ pub(crate) async fn post_process_assistant_reply(
     // reply is re-prompted into compliance before verification; otherwise the
     // violations are logged only (shadow mode).
     let persona = resolve_user_persona(ctx.repos.users.as_ref(), &input.user_id).await;
-    let conformance_violations =
-        check_reply_conformance(&ctx.persona_contract_registry, persona, &content);
+    let roster = resolve_roster_scope(ctx, input, &contracts_snapshot, persona).await;
+    let conformance_violations = check_reply_conformance(
+        &ctx.persona_contract_registry,
+        persona,
+        &content,
+        roster.as_ref(),
+    );
     tracing::debug!(
         persona = persona.as_str(),
         violations = conformance_violations.len(),

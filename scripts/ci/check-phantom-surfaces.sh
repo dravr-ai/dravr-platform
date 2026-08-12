@@ -170,6 +170,82 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Scan 3: deserialized config fields with zero read sites
+# ---------------------------------------------------------------------------
+# The quietest phantom of the three. An operator sets the key, the file parses,
+# validation passes — and the value is discarded, so the config surface lies
+# about what it controls. The 2026-06-03 due-diligence review found eight on
+# PersonaContract alone; every one had survived two months of green CI.
+#
+# A read site is a `.field` access OUTSIDE the declaring file. Both exclusions
+# are load-bearing: the declaration `pub field:` carries no dot, and the
+# parent/child merge function sits beside the struct and touches every field —
+# counting it would mark the whole struct consumed.
+#
+# The trade-off that buys: a field consumed only by a same-file method reads as
+# orphaned (`inherits` is the standing example — the merge resolves it in
+# place). Reporting those is deliberate, because the alternative misses real
+# gaps: NotificationPolicy's tier_floor/digest are merged in-file and consumed
+# nowhere, which is exactly the registered limitation this scan should surface.
+# The gate below only fails on fields ADDED by the current diff, so a
+# same-file-only consumer is a one-line explanation at review time, never a
+# silent block.
+#
+# Scoped to structs parsed from YAML/TOML — operator-editable config. Provider
+# wire DTOs also derive Deserialize, but an unread field there mirrors an
+# upstream payload we don't control and is not a lie about our own config
+# surface; including them buried the real signal under ~500 entries.
+grep -rl 'serde_yaml\|serde_yml\|toml::from_str' crates/*/src --include='*.rs' 2>/dev/null \
+    | while IFS= read -r file; do
+        awk -v f="$file" '
+            /^#\[derive\(/            { derive_line = $0; derive_at = NR }
+            /^pub struct [A-Za-z0-9_]+[[:space:]]*\{/ {
+                inside = (derive_at && NR - derive_at <= 4 && derive_line ~ /Deserialize/)
+                next
+            }
+            inside && /^\}/           { inside = 0 }
+            inside && /^[[:space:]]+pub [a-z_0-9]+:/ {
+                match($0, /pub [a-z_0-9]+:/)
+                print substr($0, RSTART + 4, RLENGTH - 5) "\t" f
+            }
+        ' "$file"
+    done | sort -u > "$TMP/config_fields.txt"
+
+# Every `.field` access in the tree, as `FILE:field`, collected in one pass.
+grep -roE '\.[a-z_0-9]+' crates/*/src --include='*.rs' 2>/dev/null \
+    | sed 's/:\./:/' | sort -u > "$TMP/field_reads.txt"
+
+awk -F'\t' '
+    NR == FNR {
+        p = index($0, ":")
+        if (p == 0) next
+        file = substr($0, 1, p - 1); fld = substr($0, p + 1)
+        if (!((fld, file) in seen)) { seen[fld, file] = 1; nfiles[fld]++ }
+        next
+    }
+    {
+        n = nfiles[$1] + 0
+        if (n == 0 || (n == 1 && (($1, $2) in seen))) print $1 "\t" $2
+    }
+' "$TMP/field_reads.txt" "$TMP/config_fields.txt" > "$TMP/orphan_config_fields.txt"
+
+CONFIG_N=$(grep -c . < "$TMP/config_fields.txt" || true)
+ORPHAN_CONFIG_N=$(grep -c . < "$TMP/orphan_config_fields.txt" || true)
+
+if [[ "$CONFIG_N" -eq 0 ]]; then
+    echo -e "${RED}❌ Parsed zero deserialized config fields — this scan is stale.${NC}"
+    FAILED=true
+elif [[ "$ORPHAN_CONFIG_N" -eq 0 ]]; then
+    echo -e "${GREEN}✅ Config fields: all ${CONFIG_N} deserialized fields have a read site.${NC}"
+else
+    echo -e "${YELLOW}⚠️  Deserialized config fields with zero read sites (${ORPHAN_CONFIG_N} of ${CONFIG_N}):${NC}"
+    while IFS=$'\t' read -r fld file; do
+        [[ -z "$fld" ]] && continue
+        echo "   $fld  ($file)"
+    done < "$TMP/orphan_config_fields.txt"
+fi
+
+# ---------------------------------------------------------------------------
 # Gate: fail when THIS change introduces a new phantom surface
 # ---------------------------------------------------------------------------
 if [[ -n "$BASE_REF" ]]; then
@@ -196,6 +272,16 @@ if [[ -n "$BASE_REF" ]]; then
                 NEW_FOUND=true
             fi
         done < "$TMP/orphan_methods.txt"
+    fi
+
+    if [[ -f "$TMP/orphan_config_fields.txt" ]]; then
+        while IFS=$'\t' read -r fld _file; do
+            [[ -z "$fld" ]] && continue
+            if printf '%s\n' "$ADDED" | grep -qE "pub ${fld}:"; then
+                echo -e "${RED}❌ New deserialized config field with no read site: ${fld}${NC}"
+                NEW_FOUND=true
+            fi
+        done < "$TMP/orphan_config_fields.txt"
     fi
 
     if [[ "$NEW_FOUND" == "true" ]]; then
