@@ -81,7 +81,7 @@ export default function PendingUsersList() {
   if (error) {
     return (
       <Card variant="dark" className="p-6 text-center">
-        <div className="text-pierre-red-400 mb-4">
+        <div className="text-error mb-4">
           <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 18.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
@@ -154,7 +154,7 @@ export default function PendingUsersList() {
                 <Button
                   onClick={() => handleApprove(user)}
                   size="sm"
-                  className="bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
+                  className="bg-activity hover:bg-activity/80 text-on-primary"
                 >
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -165,7 +165,7 @@ export default function PendingUsersList() {
                   onClick={() => handleSuspend(user)}
                   size="sm"
                   variant="outline"
-                  className="border-pierre-red-500/30 text-pierre-red-400 hover:bg-pierre-red-500/10"
+                  className="border-error/30 text-error hover:bg-error/10"
                 >
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />

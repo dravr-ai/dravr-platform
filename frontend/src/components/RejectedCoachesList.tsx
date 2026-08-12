@@ -12,12 +12,12 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-pierre-activity/10 text-pierre-activity border-pierre-activity/20',
-  Nutrition: 'bg-pierre-nutrition/10 text-pierre-nutrition border-pierre-nutrition/20',
-  Recovery: 'bg-pierre-recovery/10 text-pierre-recovery border-pierre-recovery/20',
-  Recipes: 'bg-pierre-yellow-500/10 text-pierre-yellow-600 border-pierre-yellow-500/20',
-  Mobility: 'bg-pierre-mobility/10 text-pierre-mobility border-pierre-mobility/20',
-  Custom: 'bg-pierre-violet/10 text-pierre-violet-light border-pierre-violet/20',
+  Training: 'bg-activity/10 text-activity border-activity/20',
+  Nutrition: 'bg-nutrition/10 text-nutrition border-nutrition/20',
+  Recovery: 'bg-recovery/10 text-recovery border-recovery/20',
+  Recipes: 'bg-warning/10 text-warning border-warning/20',
+  Mobility: 'bg-mobility/10 text-mobility border-mobility/20',
+  Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 
 function getCategoryColorClass(category: string): string {
@@ -66,8 +66,8 @@ export default function RejectedCoachesList() {
   if (error) {
     return (
       <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-red-500/20 flex items-center justify-center">
-          <svg className="w-8 h-8 text-pierre-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/20 flex items-center justify-center">
+          <svg className="w-8 h-8 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
@@ -118,7 +118,7 @@ export default function RejectedCoachesList() {
                       className="w-10 h-10 rounded-lg object-cover border ghost-border flex-shrink-0"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-pierre-violet/50 to-pierre-cyan/50 flex items-center justify-center flex-shrink-0 opacity-60">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/50 to-primary-container/50 flex items-center justify-center flex-shrink-0 opacity-60">
                       <span className="text-sm font-bold text-on-surface">
                         {coach.title.charAt(0).toUpperCase()}
                       </span>
@@ -141,14 +141,14 @@ export default function RejectedCoachesList() {
                 </div>
 
                 {/* Rejection Info */}
-                <div className="mt-3 p-3 bg-pierre-red-500/10 border border-pierre-red-500/20 rounded-lg">
+                <div className="mt-3 p-3 bg-error/10 border border-error/20 rounded-lg">
                   <div className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-pierre-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-error flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-pierre-red-300">
+                        <span className="text-sm font-medium text-error">
                           {getReasonLabel(coach.rejection_reason)}
                         </span>
                         <span className="text-xs text-outline flex-shrink-0">

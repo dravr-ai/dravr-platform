@@ -83,8 +83,8 @@ export default function PromptSuggestions({ onSelectPrompt, onEditCoach, onDelet
   if (error) {
     return (
       <div className="mt-4 text-center">
-        <Card variant="dark" className="p-6 border-red-500/30 bg-red-500/10">
-          <div className="text-red-400 mb-2">
+        <Card variant="dark" className="p-6 border-error/30 bg-error/10">
+          <div className="text-error mb-2">
             <svg
               className="w-8 h-8 mx-auto mb-2"
               fill="none"
@@ -99,7 +99,7 @@ export default function PromptSuggestions({ onSelectPrompt, onEditCoach, onDelet
               />
             </svg>
             <p className="font-medium">Failed to load coaches</p>
-            <p className="text-sm text-red-400/80 mt-1">
+            <p className="text-sm text-error/80 mt-1">
               {error instanceof Error ? error.message : 'Please try refreshing the page'}
             </p>
           </div>
@@ -235,7 +235,7 @@ function CoachesSection({
       {/* Header with help button */}
       <div className="flex items-center gap-2 mb-3 relative">
         <div
-          className="w-8 h-8 rounded-lg bg-gradient-to-br from-pierre-violet to-purple-600 flex items-center justify-center shadow-ambient"
+          className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center shadow-ambient"
           role="img"
           aria-label="Coaches"
         >
@@ -259,7 +259,7 @@ function CoachesSection({
             onClick={onToggleShowHidden}
             className={`ml-auto flex items-center gap-1.5 px-2 py-1 text-xs rounded-lg transition-colors ${
               showHidden
-                ? 'bg-pierre-violet/20 text-pierre-violet-light'
+                ? 'bg-primary/20 text-primary'
                 : 'bg-surface-container-high text-on-surface-variant hover:bg-white/15 hover:text-on-surface'
             }`}
             title={showHidden ? 'Hide hidden coaches' : 'Show hidden coaches'}
@@ -425,7 +425,7 @@ const CoachCard = memo(function CoachCard({
 }: CoachCardProps) {
   return (
     <div
-      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-pierre-violet/50 hover:bg-pierre-violet/10 px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-opacity-50 group hover:shadow-ambient"
+      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-primary/50 hover:bg-primary/10 px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-opacity-50 group hover:shadow-ambient"
     >
       {/* Action buttons container */}
       <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-surface-container-low/90 backdrop-blur-sm rounded-lg px-1 py-0.5 shadow-sm border ghost-border">
@@ -437,7 +437,7 @@ const CoachCard = memo(function CoachCard({
               e.stopPropagation();
               onEditCoach(coach);
             }}
-            className="p-1 text-on-surface-variant hover:text-primary hover:bg-pierre-violet/20 rounded transition-colors"
+            className="p-1 text-on-surface-variant hover:text-primary hover:bg-primary/20 rounded transition-colors"
             title="Edit coach"
             aria-label="Edit coach"
           >
@@ -451,7 +451,7 @@ const CoachCard = memo(function CoachCard({
               e.stopPropagation();
               onDeleteCoach(coach);
             }}
-            className="p-1 text-on-surface-variant hover:text-red-400 hover:bg-red-500/20 rounded transition-colors"
+            className="p-1 text-on-surface-variant hover:text-error hover:bg-error/20 rounded transition-colors"
             title="Delete coach"
             aria-label="Delete coach"
           >
@@ -501,7 +501,7 @@ const CoachCard = memo(function CoachCard({
           </span>
           <div className="flex items-center gap-1">
             {coach.is_favorite && (
-              <span className="text-amber-400">★</span>
+              <span className="text-warning">★</span>
             )}
             <span className={`text-xs px-1.5 py-0.5 rounded ${getCategoryBadgeClass(coach.category)}`}>
               {getCategoryIcon(coach.category)}
@@ -515,7 +515,7 @@ const CoachCard = memo(function CoachCard({
         )}
         <div className="flex items-center gap-2 mt-1 text-xs text-outline">
           {coach.is_system && (
-            <span className="bg-pierre-violet/20 text-pierre-violet-light px-1.5 py-0.5 rounded">
+            <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded">
               System
             </span>
           )}
@@ -553,7 +553,7 @@ const HiddenCoachCard = memo(function HiddenCoachCard({
             onShowCoach(coach);
           }}
           disabled={isShowing}
-          className="p-1 text-on-surface-variant hover:text-emerald-400 hover:bg-emerald-500/20 rounded transition-colors disabled:opacity-50"
+          className="p-1 text-on-surface-variant hover:text-success hover:bg-success/20 rounded transition-colors disabled:opacity-50"
           title="Show coach"
           aria-label="Show coach"
         >
@@ -589,12 +589,12 @@ const HiddenCoachCard = memo(function HiddenCoachCard({
 // Helper functions for category styling (dark theme)
 function getCategoryBadgeClass(category: string): string {
   const classes: Record<string, string> = {
-    training: 'bg-emerald-500/20 text-emerald-400',
-    nutrition: 'bg-amber-500/20 text-amber-400',
+    training: 'bg-success/20 text-success',
+    nutrition: 'bg-warning/20 text-warning',
     recovery: 'bg-indigo-500/20 text-indigo-400',
-    recipes: 'bg-orange-500/20 text-orange-400',
+    recipes: 'bg-warning/20 text-warning',
     mobility: 'bg-pink-500/20 text-pink-400',
-    analysis: 'bg-pierre-violet/20 text-pierre-violet-light',
+    analysis: 'bg-primary/20 text-primary',
     custom: 'bg-surface-container-high text-on-surface-variant',
   };
   return classes[category.toLowerCase()] || classes.custom;

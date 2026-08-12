@@ -211,8 +211,8 @@ export default function ToolUsageBreakdownComponent({
                       <div className="ml-2 w-16 bg-surface-container-high rounded-full h-2">
                         <div
                           className={`h-2 rounded-full ${
-                            tool.success_rate >= 95 ? 'bg-pierre-activity' :
-                            tool.success_rate >= 90 ? 'bg-pierre-nutrition' : 'bg-pierre-red-400'
+                            tool.success_rate >= 95 ? 'bg-activity' :
+                            tool.success_rate >= 90 ? 'bg-nutrition' : 'bg-error'
                           }`}
                           style={{ width: `${tool.success_rate}%` }}
                         />
@@ -228,10 +228,10 @@ export default function ToolUsageBreakdownComponent({
                       return (
                         <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
                           errorCount === 0
-                            ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
+                            ? 'bg-activity/20 text-activity border border-activity/30'
                             : errorCount < 10
-                            ? 'bg-pierre-nutrition/20 text-pierre-nutrition border border-pierre-nutrition/30'
-                            : 'bg-pierre-red-500/20 text-pierre-red-400 border border-pierre-red-500/30'
+                            ? 'bg-nutrition/20 text-nutrition border border-nutrition/30'
+                            : 'bg-error/20 text-error border border-error/30'
                         }`}>
                           {errorCount}
                         </span>
@@ -267,7 +267,7 @@ export default function ToolUsageBreakdownComponent({
           <div className="text-sm text-on-surface-variant">Total Requests</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-pierre-activity">
+          <div className="text-2xl font-bold text-activity">
             {(toolUsage.reduce((sum, tool) => sum + tool.success_rate * tool.request_count, 0) /
              toolUsage.reduce((sum, tool) => sum + tool.request_count, 0)).toFixed(1)}%
           </div>

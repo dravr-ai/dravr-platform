@@ -89,7 +89,7 @@ export default function LlmConsumptionPanel() {
   if (error) {
     return (
       <div className="card-dark">
-        <div className="text-center py-8 text-pierre-red-400">
+        <div className="text-center py-8 text-error">
           <p className="text-lg mb-2">Failed to load consumption data</p>
           <p className="text-sm text-outline">Check admin permissions and try again.</p>
         </div>
@@ -284,7 +284,7 @@ export default function LlmConsumptionPanel() {
           <div className="text-sm text-on-surface-variant">Total Calls</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-pierre-activity">
+          <div className="text-2xl font-bold text-activity">
             {formatCost(summary.estimated_cost_usd)}
           </div>
           <div className="text-sm text-on-surface-variant">Estimated Cost (USD)</div>
@@ -362,9 +362,9 @@ export default function LlmConsumptionPanel() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
                         item.call_type === 'chat'
-                          ? 'bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30'
+                          ? 'bg-primary/20 text-primary border border-primary/30'
                           : item.call_type === 'insight'
-                          ? 'bg-pierre-cyan/20 text-pierre-cyan-light border border-pierre-cyan/30'
+                          ? 'bg-primary-container/20 text-primary-fixed-dim border border-primary-container/30'
                           : 'bg-surface-container-high text-on-surface border ghost-border'
                       }`}>
                         {item.call_type.replace(/_/g, ' ')}

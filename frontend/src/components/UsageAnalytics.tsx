@@ -185,13 +185,13 @@ export default function UsageAnalytics() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="stat-card-dark">
-            <div className="text-2xl font-bold text-pierre-violet-light">
+            <div className="text-2xl font-bold text-primary">
               {analytics?.time_series?.reduce((sum: number, point: TimeSeriesPoint) => sum + point.request_count, 0) || 0}
             </div>
             <div className="text-sm text-on-surface-variant">Total Requests</div>
           </div>
           <div className="stat-card-dark">
-            <div className="text-2xl font-bold text-pierre-activity">
+            <div className="text-2xl font-bold text-activity">
               {analytics?.average_response_time?.toFixed(0) || 0}ms
             </div>
             <div className="text-sm text-on-surface-variant">Avg Response Time</div>
@@ -257,7 +257,7 @@ export default function UsageAnalytics() {
                     </span>
                   </div>
                   <div className="text-right">
-                    <div className="font-bold text-pierre-violet-light">{tool.request_count.toLocaleString()}</div>
+                    <div className="font-bold text-primary">{tool.request_count.toLocaleString()}</div>
                     <div className="text-sm text-outline">
                       {(tool.average_response_time || 0).toFixed(0)}ms avg
                     </div>

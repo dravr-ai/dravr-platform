@@ -97,13 +97,13 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
   const getTierBadgeColor = (tier: string) => {
     switch (tier.toLowerCase()) {
       case 'trial':
-        return 'bg-pierre-nutrition/20 text-pierre-nutrition border border-pierre-nutrition/30';
+        return 'bg-nutrition/20 text-nutrition border border-nutrition/30';
       case 'standard':
-        return 'bg-pierre-cyan/20 text-primary-container border border-pierre-cyan/30';
+        return 'bg-primary-container/20 text-primary-container border border-primary-container/30';
       case 'professional':
-        return 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30';
+        return 'bg-activity/20 text-activity border border-activity/30';
       case 'enterprise':
-        return 'bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30';
+        return 'bg-primary/20 text-primary border border-primary/30';
       default:
         return 'bg-surface-container-high text-on-surface-variant border ghost-border';
     }
@@ -111,12 +111,12 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
   const getCapabilityBadgeColor = (capability: string) => {
     const colorMap: { [key: string]: string } = {
-      'fitness-data-analysis': 'bg-pierre-cyan/20 text-primary-container border border-pierre-cyan/30',
-      'activity-intelligence': 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30',
-      'goal-management': 'bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30',
-      'performance-prediction': 'bg-pierre-nutrition/20 text-pierre-nutrition border border-pierre-nutrition/30',
-      'training-analytics': 'bg-pierre-cyan/20 text-primary-container border border-pierre-cyan/30',
-      'provider-integration': 'bg-pierre-recovery/20 text-pierre-recovery border border-pierre-recovery/30',
+      'fitness-data-analysis': 'bg-primary-container/20 text-primary-container border border-primary-container/30',
+      'activity-intelligence': 'bg-activity/20 text-activity border border-activity/30',
+      'goal-management': 'bg-primary/20 text-primary border border-primary/30',
+      'performance-prediction': 'bg-nutrition/20 text-nutrition border border-nutrition/30',
+      'training-analytics': 'bg-primary-container/20 text-primary-container border border-primary-container/30',
+      'provider-integration': 'bg-recovery/20 text-recovery border border-recovery/30',
     };
     return colorMap[capability] || 'bg-surface-container-high text-on-surface-variant border ghost-border';
   };
@@ -157,7 +157,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
     return (
       <Card variant="dark">
         <div className="text-center py-8">
-          <div className="text-pierre-red-400 mb-4">❌</div>
+          <div className="text-error mb-4">❌</div>
           <h3 className="text-lg font-medium text-on-surface mb-2">Failed to load A2A clients</h3>
           <p className="text-on-surface-variant mb-4">There was an error loading your A2A clients.</p>
           <Button onClick={() => window.location.reload()}>
@@ -213,7 +213,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
               key={client.id}
               className={`border rounded-lg p-4 cursor-pointer transition-colors ${
                 selectedClient === client.id
-                  ? 'border-primary bg-pierre-violet/10'
+                  ? 'border-primary bg-primary/10'
                   : 'ghost-border hover:ghost-border'
               }`}
               onClick={() => setSelectedClient(selectedClient === client.id ? null : client.id)}
@@ -227,7 +227,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       size="sm"
                     />
                     {client.is_verified && (
-                      <Badge variant="success" className="bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30">
+                      <Badge variant="success" className="bg-activity/20 text-activity border border-activity/30">
                         Verified
                       </Badge>
                     )}
@@ -357,8 +357,8 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       <span className="text-on-surface-variant">Remaining:</span>
                       <span className={`font-medium ${
                         clientRateLimit.remaining && clientRateLimit.remaining < clientRateLimit.limit * 0.1
-                          ? 'text-pierre-red-400'
-                          : 'text-pierre-activity'
+                          ? 'text-error'
+                          : 'text-activity'
                       }`}>
                         {clientRateLimit.remaining?.toLocaleString() || 0}
                       </span>

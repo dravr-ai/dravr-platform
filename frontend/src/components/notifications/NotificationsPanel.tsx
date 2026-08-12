@@ -260,7 +260,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                         e.stopPropagation();
                         deleteNotification(item.id);
                       }}
-                      className="text-on-surface-variant hover:text-red-400 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded hover:bg-surface-container-low min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0"
+                      className="text-on-surface-variant hover:text-error opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded hover:bg-surface-container-low min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0"
                       aria-label="Delete notification"
                       title="Delete"
                     >

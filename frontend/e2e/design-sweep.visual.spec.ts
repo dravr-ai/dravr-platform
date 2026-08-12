@@ -1,0 +1,111 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+// ABOUTME: Renders every top-level surface in both themes for design review
+// ABOUTME: Machine gates prove token mechanics; only a rendered screen proves it looks right
+
+import { test, expect, type Page } from '@playwright/test';
+import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+
+// A colour or primitive change touches dozens of files at once. Type-checks and
+// lint prove the classes exist; they cannot show that a status chip still reads
+// as a status chip. This sweep exists so that review has pixels to look at, and
+// so a reviewer can diff two runs instead of trusting a summary.
+const USER_SURFACES = [
+  'Chat',
+  'Coaches',
+  'Discover',
+  'Data Providers',
+  'Groups',
+  'Insights',
+  'Notifications',
+  'Usage',
+] as const;
+
+// Admin surfaces are where the dense-data patterns live — tables, filter rows,
+// status chips, verdict badges. They carry more colour per pixel than anything
+// a regular user sees, so a palette change lands hardest here.
+const ADMIN_SURFACES = [
+  'Users',
+  'Analytics',
+  'Coach Store',
+  'Tool Management',
+  'Platform Settings',
+  'Service Tokens',
+  'Harness Config',
+  'Coach Notes Audit',
+] as const;
+
+const THEMES = ['light', 'dark'] as const;
+
+async function setTheme(page: Page, theme: (typeof THEMES)[number]) {
+  // The app switches on a `.dark` class, not prefers-color-scheme, so
+  // emulateMedia does nothing here — driving the class is the only honest way
+  // to see the dark palette.
+  await page.evaluate((t) => {
+    document.documentElement.classList.toggle('dark', t === 'dark');
+  }, theme);
+  // Swapping the variables re-triggers every `transition-all duration-base`
+  // on screen. Sampling before they land reads as a contrast bug that isn't
+  // there — a 400ms wait had two CTAs showing interpolated mid-transition
+  // colours that looked like a failed on-primary pairing.
+  await page.waitForTimeout(1500);
+}
+
+async function sweep(
+  page: Page,
+  opts: { role: 'user' | 'admin'; surfaces: readonly string[]; theme: (typeof THEMES)[number] },
+) {
+  const { role, surfaces, theme } = opts;
+  await setupDashboardMocks(page, { role });
+  await loginToDashboard(page);
+
+  // navigateToTab tries four selector strategies in turn. Against a tab that is
+  // not present, each one burns the full default timeout, so a couple of
+  // unreachable surfaces cost more than the whole sweep's budget. Everything
+  // here runs against mocks on localhost; 5s is generous.
+  page.setDefaultTimeout(5_000);
+
+  const missed: string[] = [];
+  for (const surface of surfaces) {
+    try {
+      await navigateToTab(page, surface);
+    } catch {
+      // A surface the mocks cannot reach is worth naming, not worth failing
+      // on — a sweep that aborts halfway captures nothing for what follows.
+      missed.push(surface);
+      continue;
+    }
+    // Entrance animation is 500ms (DESIGN.md §7); capturing inside it yields a
+    // half-faded screen that reads as a contrast bug.
+    await page.waitForTimeout(700);
+    await setTheme(page, theme);
+    await page.screenshot({
+      path: `design-sweep/${theme}/${role}-${surface.replace(/\s+/g, '-').toLowerCase()}.png`,
+      fullPage: true,
+    });
+  }
+
+  // Silence would let the sweep look complete while covering half the app.
+  if (missed.length) {
+    console.log(`design-sweep(${role}/${theme}): could not reach ${missed.join(', ')}`);
+  }
+  expect(missed.length).toBeLessThan(surfaces.length);
+}
+
+test.describe('design sweep', () => {
+  // Each surface carries an entrance animation, a theme-transition settle and a
+  // full-page capture. The default 30s cap is sized for a single interaction,
+  // not a walk of the whole app.
+  test.describe.configure({ timeout: 180_000 });
+
+  for (const theme of THEMES) {
+    test(`user surfaces render in ${theme}`, async ({ page }) => {
+      await sweep(page, { role: 'user', surfaces: USER_SURFACES, theme });
+    });
+
+    test(`admin surfaces render in ${theme}`, async ({ page }) => {
+      await sweep(page, { role: 'admin', surfaces: ADMIN_SURFACES, theme });
+    });
+  }
+});

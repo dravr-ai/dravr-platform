@@ -11,6 +11,7 @@ import type { CoachFormData } from './types';
 import { DEFAULT_COACH_FORM_DATA } from './types';
 import { Sparkles, RefreshCw, AlertCircle, MessageSquareText } from 'lucide-react';
 import { QUERY_KEYS } from '../../constants/queryKeys';
+import { Select, Textarea } from '../ui';
 
 interface CreateCoachFromConversationModalProps {
   isOpen: boolean;
@@ -151,8 +152,8 @@ export default function CreateCoachFromConversationModal({
           {analysisState === 'analyzing' && (
             <div className="text-center py-8">
               <div className="w-16 h-16 mx-auto mb-4 relative">
-                <div className="absolute inset-0 bg-pierre-violet/10 rounded-full animate-ping" />
-                <div className="relative w-16 h-16 bg-pierre-violet/10 rounded-full flex items-center justify-center">
+                <div className="absolute inset-0 bg-primary/10 rounded-full animate-ping" />
+                <div className="relative w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
                   <MessageSquareText className="w-8 h-8 text-primary animate-pulse" />
                 </div>
               </div>
@@ -166,14 +167,14 @@ export default function CreateCoachFromConversationModal({
           {/* Error State */}
           {analysisState === 'error' && (
             <div className="text-center py-8">
-              <div className="w-16 h-16 mx-auto mb-4 bg-red-50 rounded-full flex items-center justify-center">
-                <AlertCircle className="w-8 h-8 text-red-500" />
+              <div className="w-16 h-16 mx-auto mb-4 bg-error/10 rounded-full flex items-center justify-center">
+                <AlertCircle className="w-8 h-8 text-error" />
               </div>
               <p className="text-on-surface-variant font-medium mb-2">Analysis Failed</p>
               <p className="text-on-surface-variant text-sm mb-4">{errorMessage}</p>
               <button
                 onClick={handleRegenerate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-pierre-violet/90 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-primary/90 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 Try Again
@@ -185,7 +186,7 @@ export default function CreateCoachFromConversationModal({
           {analysisState === 'ready' && (
             <>
               {/* Analysis Info Banner */}
-              <div className="mb-4 p-3 bg-pierre-violet/5 border border-pierre-violet/10 rounded-lg">
+              <div className="mb-4 p-3 bg-primary/5 border border-primary/10 rounded-lg">
                 <div className="flex items-center gap-2 text-sm text-primary">
                   <MessageSquareText className="w-4 h-4" />
                   <span>
@@ -194,7 +195,7 @@ export default function CreateCoachFromConversationModal({
                   <button
                     onClick={handleRegenerate}
                     disabled={generateMutation.isPending}
-                    className="ml-auto p-1.5 hover:bg-pierre-violet/10 rounded-lg transition-colors disabled:opacity-50"
+                    className="ml-auto p-1.5 hover:bg-primary/10 rounded-lg transition-colors disabled:opacity-50"
                     title="Regenerate suggestions"
                   >
                     <RefreshCw className={`w-4 h-4 ${generateMutation.isPending ? 'animate-spin' : ''}`} />
@@ -230,43 +231,34 @@ export default function CreateCoachFromConversationModal({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-on-surface-variant mb-1">
-                    System Prompt
-                  </label>
-                  <textarea
-                    placeholder="Define your coach's personality, expertise, and communication style..."
-                    value={formData.system_prompt}
-                    onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-                    rows={6}
-                    className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
-                    required
-                  />
-                  {formData.system_prompt && (
-                    <p className="text-xs text-on-surface-variant mt-1">
-                      ~{Math.ceil(formData.system_prompt.length / 4)} tokens ({((Math.ceil(formData.system_prompt.length / 4) / 128000) * 100).toFixed(1)}% of context)
-                    </p>
-                  )}
-                </div>
+                <Textarea
+                  label="System Prompt"
+                  placeholder="Define your coach's personality, expertise, and communication style..."
+                  value={formData.system_prompt}
+                  onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
+                  rows={6}
+                  required
+                  helpText={
+                    formData.system_prompt
+                      ? `~${Math.ceil(formData.system_prompt.length / 4)} tokens (${((Math.ceil(formData.system_prompt.length / 4) / 128000) * 100).toFixed(1)}% of context)`
+                      : undefined
+                  }
+                />
 
-                <div>
-                  <label className="block text-sm font-medium text-on-surface-variant mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface"
-                  >
-                    <option value="Training">Training</option>
-                    <option value="Nutrition">Nutrition</option>
-                    <option value="Recovery">Recovery</option>
-                    <option value="Recipes">Recipes</option>
-                    <option value="Mobility">Mobility</option>
-                    <option value="Analysis">Analysis</option>
-                    <option value="Custom">Custom</option>
-                  </select>
-                </div>
+                <Select
+                  label="Category"
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  options={[
+                    { value: 'Training', label: 'Training' },
+                    { value: 'Nutrition', label: 'Nutrition' },
+                    { value: 'Recovery', label: 'Recovery' },
+                    { value: 'Recipes', label: 'Recipes' },
+                    { value: 'Mobility', label: 'Mobility' },
+                    { value: 'Analysis', label: 'Analysis' },
+                    { value: 'Custom', label: 'Custom' },
+                  ]}
+                />
 
                 <div className="flex gap-3 pt-2">
                   <button
@@ -279,14 +271,14 @@ export default function CreateCoachFromConversationModal({
                   <button
                     type="submit"
                     disabled={createMutation.isPending || !formData.title.trim() || !formData.system_prompt.trim()}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-pierre-violet/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex-1 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {createMutation.isPending ? 'Saving...' : 'Save Coach'}
                   </button>
                 </div>
 
                 {createMutation.isError && (
-                  <p className="text-xs text-pierre-red-500 text-center">
+                  <p className="text-xs text-error text-center">
                     Failed to create coach. Please try again.
                   </p>
                 )}

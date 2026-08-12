@@ -40,7 +40,7 @@ export default function PendingApproval() {
               <DravrLogo size={64} />
 
               <div className="mt-6 mb-4">
-                <ClockIcon className="w-16 h-16 text-pierre-nutrition mx-auto" />
+                <ClockIcon className="w-16 h-16 text-nutrition mx-auto" />
               </div>
 
               <h1 className="text-xl font-bold text-on-surface">
@@ -83,15 +83,15 @@ export default function PendingApproval() {
               </h2>
               <ul className="text-sm text-on-surface-variant space-y-2">
                 <li className="flex items-start gap-2">
-                  <span className="text-pierre-activity mt-0.5">•</span>
+                  <span className="text-activity mt-0.5">•</span>
                   <span>An administrator will review your registration</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-pierre-activity mt-0.5">•</span>
+                  <span className="text-activity mt-0.5">•</span>
                   <span>You&apos;ll receive an email when approved</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-pierre-activity mt-0.5">•</span>
+                  <span className="text-activity mt-0.5">•</span>
                   <span>Once approved, you can access Dravr&apos;s fitness intelligence</span>
                 </li>
               </ul>

@@ -5,6 +5,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { CoachVersionHistory } from './CoachVersionHistory';
+import { Textarea } from '../ui';
 
 // Types
 interface CoachWizardProps {
@@ -298,7 +299,7 @@ ${formData.successCriteria}
                 index === currentStep
                   ? 'bg-primary text-on-primary'
                   : index < currentStep
-                  ? 'bg-pierre-activity text-on-primary'
+                  ? 'bg-activity text-on-primary'
                   : 'bg-surface-container-highest text-on-surface-variant'
               }`}
             >
@@ -309,7 +310,7 @@ ${formData.successCriteria}
             </span>
           </button>
           {index < STEPS.length - 1 && (
-            <div className={`flex-1 h-0.5 mx-2 ${index < currentStep ? 'bg-pierre-activity' : 'bg-surface-container-highest'}`} />
+            <div className={`flex-1 h-0.5 mx-2 ${index < currentStep ? 'bg-activity' : 'bg-surface-container-highest'}`} />
           )}
         </React.Fragment>
       ))}
@@ -327,28 +328,25 @@ ${formData.successCriteria}
           onChange={(e) => updateField('title', e.target.value)}
           placeholder="Enter coach title"
           className={`w-full px-4 py-3 bg-surface border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 ${
-            errors.title ? 'border-pierre-red-500' : 'ghost-border'
+            errors.title ? 'border-error' : 'ghost-border'
           }`}
           maxLength={100}
         />
         <div className="flex justify-between mt-1">
-          {errors.title && <span className="text-pierre-red-500 text-xs">{errors.title}</span>}
+          {errors.title && <span className="text-error text-xs">{errors.title}</span>}
           <span className="text-on-surface-variant text-xs ml-auto">{formData.title.length}/100</span>
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-on-surface-variant mb-2">Description</label>
-        <textarea
-          value={formData.description}
-          onChange={(e) => updateField('description', e.target.value)}
-          placeholder="Brief description of what this coach does"
-          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
-          rows={3}
-          maxLength={500}
-        />
-        <span className="text-on-surface-variant text-xs float-right">{formData.description.length}/500</span>
-      </div>
+      <Textarea
+        label="Description"
+        value={formData.description}
+        onChange={(e) => updateField('description', e.target.value)}
+        placeholder="Brief description of what this coach does"
+        rows={3}
+        maxLength={500}
+        helpText={`${formData.description.length}/500`}
+      />
 
       <div>
         <label className="block text-sm font-medium text-on-surface-variant mb-2">Category</label>
@@ -359,7 +357,7 @@ ${formData.successCriteria}
               onClick={() => updateField('category', cat.key)}
               className={`px-4 py-3 rounded-lg border-2 transition-colors ${
                 formData.category === cat.key
-                  ? 'border-primary bg-pierre-violet/10'
+                  ? 'border-primary bg-primary/10'
                   : 'ghost-border hover:ghost-border'
               }`}
             >
@@ -404,28 +402,22 @@ ${formData.successCriteria}
   // Step 2: Purpose
   const renderPurpose = () => (
     <div className="space-y-6">
-      <div>
-        <label className="block text-sm font-medium text-on-surface-variant mb-2">Purpose</label>
-        <textarea
-          value={formData.purpose}
-          onChange={(e) => updateField('purpose', e.target.value)}
-          placeholder="Describe what this coach helps users accomplish..."
-          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
-          rows={5}
-        />
-        <span className="text-on-surface-variant text-xs float-right">~{tokenCounts.purpose} tokens</span>
-      </div>
+      <Textarea
+        label="Purpose"
+        value={formData.purpose}
+        onChange={(e) => updateField('purpose', e.target.value)}
+        placeholder="Describe what this coach helps users accomplish..."
+        rows={5}
+        helpText={`~${tokenCounts.purpose} tokens`}
+      />
 
-      <div>
-        <label className="block text-sm font-medium text-on-surface-variant mb-2">When to Use</label>
-        <textarea
-          value={formData.whenToUse}
-          onChange={(e) => updateField('whenToUse', e.target.value)}
-          placeholder="Describe scenarios when users should activate this coach..."
-          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
-          rows={4}
-        />
-      </div>
+      <Textarea
+        label="When to Use"
+        value={formData.whenToUse}
+        onChange={(e) => updateField('whenToUse', e.target.value)}
+        placeholder="Describe scenarios when users should activate this coach..."
+        rows={4}
+      />
     </div>
   );
 
@@ -455,18 +447,14 @@ ${formData.successCriteria}
       </div>
 
       <div className={`grid ${showPreview ? 'grid-cols-2 gap-4' : 'grid-cols-1'}`}>
-        <div>
-          <textarea
-            value={formData.systemPrompt}
-            onChange={(e) => updateField('systemPrompt', e.target.value)}
-            placeholder="Define how this coach should behave, what expertise it has, and how it should respond to users..."
-            className={`w-full px-4 py-3 bg-surface border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none font-mono ${
-              errors.systemPrompt ? 'border-pierre-red-500' : 'ghost-border'
-            }`}
-            rows={15}
-          />
-          {errors.systemPrompt && <span className="text-pierre-red-500 text-xs">{errors.systemPrompt}</span>}
-        </div>
+        <Textarea
+          value={formData.systemPrompt}
+          onChange={(e) => updateField('systemPrompt', e.target.value)}
+          placeholder="Define how this coach should behave, what expertise it has, and how it should respond to users..."
+          className="font-mono"
+          rows={15}
+          error={errors.systemPrompt}
+        />
         {showPreview && (
           <div className="px-4 py-3 bg-surface-container-low border ghost-border rounded-lg overflow-auto max-h-[400px]">
             <div className="prose prose-sm">
@@ -493,27 +481,21 @@ ${formData.successCriteria}
   // Step 4: Examples
   const renderExamples = () => (
     <div className="space-y-6">
-      <div>
-        <label className="block text-sm font-medium text-on-surface-variant mb-2">Example Inputs</label>
-        <textarea
-          value={formData.exampleInputs}
-          onChange={(e) => updateField('exampleInputs', e.target.value)}
-          placeholder="List example prompts users might ask this coach..."
-          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
-          rows={6}
-        />
-      </div>
+      <Textarea
+        label="Example Inputs"
+        value={formData.exampleInputs}
+        onChange={(e) => updateField('exampleInputs', e.target.value)}
+        placeholder="List example prompts users might ask this coach..."
+        rows={6}
+      />
 
-      <div>
-        <label className="block text-sm font-medium text-on-surface-variant mb-2">Example Outputs</label>
-        <textarea
-          value={formData.exampleOutputs}
-          onChange={(e) => updateField('exampleOutputs', e.target.value)}
-          placeholder="Show example responses the coach should provide..."
-          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
-          rows={6}
-        />
-      </div>
+      <Textarea
+        label="Example Outputs"
+        value={formData.exampleOutputs}
+        onChange={(e) => updateField('exampleOutputs', e.target.value)}
+        placeholder="Show example responses the coach should provide..."
+        rows={6}
+      />
 
       <div className="text-sm text-on-surface-variant">
         Examples contribute ~{tokenCounts.examples.toLocaleString()} tokens
@@ -534,7 +516,7 @@ ${formData.successCriteria}
               onClick={() => toggleProvider(provider)}
               className={`px-4 py-2 rounded-lg border transition-colors ${
                 formData.prerequisites.providers.includes(provider)
-                  ? 'border-primary bg-pierre-violet/10 text-pierre-violet-light'
+                  ? 'border-primary bg-primary/10 text-primary'
                   : 'ghost-border text-on-surface-variant hover:ghost-border'
               }`}
             >
@@ -568,7 +550,7 @@ ${formData.successCriteria}
               onClick={() => toggleActivityType(type)}
               className={`px-4 py-2 rounded-lg border transition-colors ${
                 formData.prerequisites.activityTypes.includes(type)
-                  ? 'border-pierre-activity bg-pierre-activity/10 text-pierre-activity'
+                  ? 'border-activity bg-activity/10 text-activity'
                   : 'ghost-border text-on-surface-variant hover:ghost-border'
               }`}
             >
@@ -583,16 +565,13 @@ ${formData.successCriteria}
   // Step 6: Advanced
   const renderAdvanced = () => (
     <div className="space-y-6">
-      <div>
-        <label className="block text-sm font-medium text-on-surface-variant mb-2">Success Criteria</label>
-        <textarea
-          value={formData.successCriteria}
-          onChange={(e) => updateField('successCriteria', e.target.value)}
-          placeholder="Define what successful coaching looks like..."
-          className="w-full px-4 py-3 bg-surface border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50 resize-none"
-          rows={4}
-        />
-      </div>
+      <Textarea
+        label="Success Criteria"
+        value={formData.successCriteria}
+        onChange={(e) => updateField('successCriteria', e.target.value)}
+        placeholder="Define what successful coaching looks like..."
+        rows={4}
+      />
 
       <div>
         <label className="block text-sm font-medium text-on-surface-variant mb-2">Related Coaches</label>
@@ -777,7 +756,7 @@ ${formData.successCriteria}
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className="px-6 py-2 bg-pierre-activity text-on-primary rounded-lg hover:bg-pierre-activity-dark transition-colors disabled:opacity-50"
+            className="px-6 py-2 bg-activity text-on-primary rounded-lg hover:bg-activity transition-colors disabled:opacity-50"
           >
             {isSaving ? 'Saving...' : isEditMode ? 'Save Changes' : 'Create Coach'}
           </button>

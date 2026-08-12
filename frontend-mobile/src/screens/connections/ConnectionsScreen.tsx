@@ -265,8 +265,11 @@ export function ConnectionsScreen() {
             </View>
           ) : canConnect ? (
             <TouchableOpacity
-              className="px-5 py-2 rounded-full"
-              style={{ backgroundColor: config.color }}
+              // The provider's brand colour identifies the provider and lives on
+              // the icon tile above. This is an action, so it wears the app's
+              // primary like every other CTA — four saturated brand buttons in
+              // one list read as four competing primaries.
+              className="px-5 py-2 rounded-full bg-primary"
               onPress={() => {
                 if (isSciotte) {
                   // The `sciotte` card is the user-facing "Strava" card. OAuth is
@@ -296,9 +299,11 @@ export function ConnectionsScreen() {
               activeOpacity={0.7}
             >
               {isConnecting ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                // on-primary flips with the theme (white on light, near-black on
+                // dark); a hardcoded #FFFFFF vanishes on the dark-mode primary.
+                <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
               ) : (
-                <Text className="text-sm font-semibold text-on-surface">
+                <Text className="text-sm font-semibold text-on-primary">
                   {needsReauth ? 'Reconnect' : 'Connect'}
                 </Text>
               )}

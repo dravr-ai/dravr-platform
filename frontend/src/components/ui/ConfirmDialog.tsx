@@ -25,18 +25,18 @@ export interface ConfirmDialogProps {
 
 const variantStyles: Record<ConfirmDialogVariant, { iconBg: string; iconColor: string; buttonVariant: 'danger' | 'primary' | 'secondary' }> = {
   danger: {
-    iconBg: 'bg-pierre-red-100',
-    iconColor: 'text-pierre-red-600',
+    iconBg: 'bg-error',
+    iconColor: 'text-error',
     buttonVariant: 'danger',
   },
   warning: {
-    iconBg: 'bg-pierre-yellow-100',
-    iconColor: 'text-pierre-yellow-600',
+    iconBg: 'bg-warning',
+    iconColor: 'text-warning',
     buttonVariant: 'primary',
   },
   info: {
-    iconBg: 'bg-pierre-blue-100',
-    iconColor: 'text-pierre-blue-600',
+    iconBg: 'bg-info',
+    iconColor: 'text-info',
     buttonVariant: 'primary',
   },
 };

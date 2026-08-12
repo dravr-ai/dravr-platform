@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User, UserManagementResponse } from '../types/api';
-import { Button, Card } from './ui';
+import { Button, Card, Textarea } from './ui';
 import { Badge } from './ui/Badge';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -64,7 +64,7 @@ export default function UserApprovalModal({
   if (!isOpen || !user) return null;
 
   const actionTitle = action === 'approve' ? 'Approve User' : 'Suspend User';
-  const actionColor = action === 'approve' ? 'bg-pierre-activity hover:bg-pierre-activity/80' : 'bg-pierre-red-500 hover:bg-pierre-red-600';
+  const actionColor = action === 'approve' ? 'bg-activity hover:bg-activity/80' : 'bg-error hover:bg-error';
   const actionVerb = action === 'approve' ? 'approve' : 'suspend';
 
   return (
@@ -111,13 +111,10 @@ export default function UserApprovalModal({
           </Card>
 
           <div className="mb-4">
-            <label htmlFor="reason" className="block text-sm font-medium text-on-surface mb-2">
-              Reason {action === 'approve' ? '(optional)' : '(recommended)'}
-            </label>
-            <textarea
+            <Textarea
               id="reason"
+              label={`Reason ${action === 'approve' ? '(optional)' : '(recommended)'}`}
               rows={3}
-              className="input-dark"
               placeholder={`Explain why you are ${action === 'approve' ? 'approving' : 'suspending'} this user...`}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -150,8 +147,8 @@ export default function UserApprovalModal({
           </div>
 
           {approvalMutation.isError && (
-            <div className="mt-3 p-3 bg-pierre-red-500/15 border border-pierre-red-500/30 rounded-md">
-              <p className="text-sm text-pierre-red-400">
+            <div className="mt-3 p-3 bg-error/15 border border-error/30 rounded-md">
+              <p className="text-sm text-error">
                 Failed to {actionVerb} user. Please try again.
               </p>
             </div>

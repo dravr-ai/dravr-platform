@@ -5,6 +5,7 @@
 // ABOUTME: Provides user-friendly language selection with flags and names
 
 import { useLanguageSwitcher, SUPPORTED_LANGUAGES, LANGUAGE_NAMES, type SupportedLanguage } from '@pierre/i18n';
+import { Select } from './ui';
 
 const LANGUAGE_FLAGS: Record<SupportedLanguage, string> = {
   en: '🇺🇸',
@@ -16,24 +17,16 @@ export function LanguageSwitcher() {
   const { currentLanguage, changeLanguage } = useLanguageSwitcher();
 
   return (
-    <div className="relative inline-block">
-      <select
+    <div className="inline-block w-44">
+      <Select
         value={currentLanguage}
         onChange={(e) => changeLanguage(e.target.value as SupportedLanguage)}
-        className="appearance-none bg-surface-container-high text-on-surface px-4 py-2 pr-10 rounded-lg border border-pierre-gray-700 hover:border-primary focus:outline-none focus:border-primary transition-colors cursor-pointer"
         aria-label="Select language"
-      >
-        {SUPPORTED_LANGUAGES.map((lang) => (
-          <option key={lang} value={lang}>
-            {LANGUAGE_FLAGS[lang]} {LANGUAGE_NAMES[lang]}
-          </option>
-        ))}
-      </select>
-      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-pierre-gray-400">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </div>
+        options={SUPPORTED_LANGUAGES.map((lang) => ({
+          value: lang,
+          label: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_NAMES[lang]}`,
+        }))}
+      />
     </div>
   );
 }

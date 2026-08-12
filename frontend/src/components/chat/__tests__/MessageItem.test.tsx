@@ -209,7 +209,7 @@ describe('MessageItem', () => {
       );
 
       const thumbsDownButton = screen.getByTitle('Poor response');
-      expect(thumbsDownButton).toHaveClass('text-red-500');
+      expect(thumbsDownButton).toHaveClass('text-error');
     });
 
     it('should show both buttons as inactive when feedback is null', () => {
@@ -264,7 +264,7 @@ describe('MessageItem', () => {
       );
 
       const contentDiv = screen.getByText('This is a test response from Dravr.').closest('div');
-      expect(contentDiv).toHaveClass('text-red-400');
+      expect(contentDiv).toHaveClass('text-error');
     });
 
     it('should call onRetry when error retry button is clicked', async () => {

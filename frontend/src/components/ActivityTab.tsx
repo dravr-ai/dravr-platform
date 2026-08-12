@@ -225,13 +225,13 @@ export default function ActivityTab() {
                     {/* Type icon */}
                     <div className="col-span-1">
                       {entry.type === 'llm' ? (
-                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-pierre-violet/20">
-                          <svg className="w-4 h-4 text-pierre-violet-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-primary/20">
+                          <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                           </svg>
                         </span>
                       ) : (
-                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-pierre-cyan/20">
+                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-primary-container/20">
                           <svg className="w-4 h-4 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                           </svg>
@@ -249,8 +249,8 @@ export default function ActivityTab() {
                     <div className="col-span-2">
                       <span className={`text-xs px-2 py-1 rounded-full ${
                         entry.type === 'llm'
-                          ? 'bg-pierre-violet/20 text-pierre-violet-light'
-                          : 'bg-pierre-cyan/20 text-primary-container'
+                          ? 'bg-primary/20 text-primary'
+                          : 'bg-primary-container/20 text-primary-container'
                       }`}>
                         {entry.category}
                       </span>
@@ -343,19 +343,19 @@ function SummaryStats({ summary }: { summary: RecentActivityResponse['summary'] 
         <div className="text-sm text-on-surface-variant">Active Conversations (15m)</div>
       </div>
       <div className="stat-card-dark">
-        <div className="text-2xl font-bold text-pierre-violet-light">
+        <div className="text-2xl font-bold text-primary">
           {summary?.llm_calls_today ?? 0}
         </div>
         <div className="text-sm text-on-surface-variant">LLM Calls Today</div>
       </div>
       <div className="stat-card-dark">
-        <div className="text-2xl font-bold text-pierre-activity">
+        <div className="text-2xl font-bold text-activity">
           {formatTokens(summary?.total_tokens_today ?? 0)}
         </div>
         <div className="text-sm text-on-surface-variant">Tokens Today</div>
       </div>
       <div className="stat-card-dark">
-        <div className="text-2xl font-bold text-pierre-nutrition">
+        <div className="text-2xl font-bold text-nutrition">
           {formatCost(summary?.estimated_cost_today ?? 0)}
         </div>
         <div className="text-sm text-on-surface-variant">Est. Cost Today</div>

@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { Button, Card } from './ui';
+import { Button, Card, Textarea, Select } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 const REJECTION_REASONS = [
@@ -79,7 +79,7 @@ export default function CoachRejectionModal({
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]">
       <div className="bg-surface-container-lowest shadow-ambient rounded-xl border ghost-border max-w-md w-full mx-4 shadow-2xl">
         {/* Red accent bar */}
-        <div className="h-1 bg-gradient-to-r from-pierre-red-500 to-pierre-red-400 rounded-t-xl" />
+        <div className="h-1 bg-gradient-to-r from-error to-error rounded-t-xl" />
 
         <div className="p-6">
           {/* Header */}
@@ -102,12 +102,12 @@ export default function CoachRejectionModal({
           </div>
 
           {/* Warning Card */}
-          <Card variant="dark" className="mb-4 p-3 bg-pierre-red-500/10 border-pierre-red-500/30">
+          <Card variant="dark" className="mb-4 p-3 bg-error/10 border-error/30">
             <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-pierre-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-error flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <p className="text-sm text-pierre-red-300">
+              <p className="text-sm text-error">
                 This action will reject the coach submission. The author will be notified of the rejection reason.
               </p>
             </div>
@@ -115,35 +115,27 @@ export default function CoachRejectionModal({
 
           {/* Reason Select */}
           <div className="mb-4">
-            <label htmlFor="rejection-reason" className="block text-sm font-medium text-on-surface mb-2">
-              Rejection Reason <span className="text-pierre-red-400">*</span>
-            </label>
-            <select
+            <Select
               id="rejection-reason"
+              label="Rejection Reason *"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="select-dark w-full"
-            >
-              <option value="">Select a reason...</option>
-              {REJECTION_REASONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              placeholder="Select a reason..."
+              options={REJECTION_REASONS.map((option) => ({
+                value: option.value,
+                label: option.label,
+              }))}
+            />
           </div>
 
           {/* Notes Textarea */}
           <div className="mb-6">
-            <label htmlFor="rejection-notes" className="block text-sm font-medium text-on-surface mb-2">
-              Additional Notes <span className="text-outline">(optional)</span>
-            </label>
-            <textarea
+            <Textarea
               id="rejection-notes"
+              label="Additional Notes (optional)"
               rows={3}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="input-dark w-full"
               placeholder="Provide additional context for the rejection..."
             />
           </div>
@@ -161,7 +153,7 @@ export default function CoachRejectionModal({
             <Button
               onClick={handleSubmit}
               disabled={!reason || rejectMutation.isPending}
-              className="flex-1 bg-pierre-red-500 hover:bg-pierre-red-600 text-on-primary"
+              className="flex-1 bg-error hover:bg-error text-on-primary"
             >
               {rejectMutation.isPending ? (
                 <span className="flex items-center justify-center">
@@ -176,8 +168,8 @@ export default function CoachRejectionModal({
 
           {/* Error Message */}
           {rejectMutation.isError && (
-            <div className="mt-4 p-3 bg-pierre-red-500/15 border border-pierre-red-500/30 rounded-md">
-              <p className="text-sm text-pierre-red-400">
+            <div className="mt-4 p-3 bg-error/15 border border-error/30 rounded-md">
+              <p className="text-sm text-error">
                 Failed to reject coach. Please try again.
               </p>
             </div>

@@ -4477,7 +4477,6 @@ dependencies = [
  "html-escape",
  "http",
  "jsonwebtoken",
- "lru",
  "num-traits",
  "pierre-a2a",
  "pierre-agui",

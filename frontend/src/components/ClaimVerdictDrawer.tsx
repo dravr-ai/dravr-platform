@@ -49,16 +49,16 @@ export default function ClaimVerdictDrawer({ verdict, onClose }: ClaimVerdictDra
       onClick={onClose}
     >
       <div
-        className="h-full w-full max-w-xl overflow-y-auto bg-white shadow-xl dark:bg-gray-900"
+        className="h-full w-full max-w-xl overflow-y-auto bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 border-b border-gray-200 bg-white px-6 py-4 dark:border-gray-700 dark:bg-gray-900">
+        <div className="sticky top-0 border-b border-outline-variant bg-white px-6 py-4">
           <div className="flex items-start justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-on-surface">
+              <h3 className="text-lg font-semibold text-on-surface">
                 Verdict detail
               </h3>
-              <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mt-0.5 text-xs text-on-surface-variant">
                 {verdict.id}
               </p>
             </div>
@@ -79,33 +79,33 @@ export default function ClaimVerdictDrawer({ verdict, onClose }: ClaimVerdictDra
 
         <div className="space-y-6 px-6 py-6 text-sm">
           <section>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
               Claim text
             </h4>
-            <blockquote className="border-l-4 border-primary bg-gray-50 p-3 text-gray-900 dark:bg-gray-800 dark:text-gray-100">
+            <blockquote className="border-l-4 border-primary bg-surface-container p-3 text-on-surface">
               {verdict.claim_text}
             </blockquote>
           </section>
 
           {verdict.explanation ? (
             <section>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
                 Explanation
               </h4>
-              <p className="text-gray-700 dark:text-gray-300">{verdict.explanation}</p>
+              <p className="text-on-surface-variant">{verdict.explanation}</p>
             </section>
           ) : null}
 
           {references.length > 0 ? (
             <section>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
                 Evidence references
               </h4>
               <ul className="space-y-1">
                 {references.map((ref) => (
                   <li
                     key={ref}
-                    className="font-mono text-xs text-gray-700 dark:text-gray-300"
+                    className="font-mono text-xs text-on-surface-variant"
                   >
                     {ref}
                   </li>
@@ -115,38 +115,38 @@ export default function ClaimVerdictDrawer({ verdict, onClose }: ClaimVerdictDra
           ) : null}
 
           <section>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
               Provenance
             </h4>
             <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1 text-xs">
-              <dt className="text-gray-500 dark:text-gray-400">User</dt>
-              <dd className="font-mono text-gray-900 dark:text-gray-100">{verdict.user_id}</dd>
+              <dt className="text-on-surface-variant">User</dt>
+              <dd className="font-mono text-on-surface">{verdict.user_id}</dd>
               {verdict.coach_id ? (
                 <>
-                  <dt className="text-gray-500 dark:text-gray-400">Coach</dt>
-                  <dd className="font-mono text-gray-900 dark:text-gray-100">
+                  <dt className="text-on-surface-variant">Coach</dt>
+                  <dd className="font-mono text-on-surface">
                     {verdict.coach_id}
                   </dd>
                 </>
               ) : null}
               {verdict.conversation_id ? (
                 <>
-                  <dt className="text-gray-500 dark:text-gray-400">Conversation</dt>
-                  <dd className="font-mono text-gray-900 dark:text-gray-100">
+                  <dt className="text-on-surface-variant">Conversation</dt>
+                  <dd className="font-mono text-on-surface">
                     {verdict.conversation_id}
                   </dd>
                 </>
               ) : null}
               {verdict.message_id ? (
                 <>
-                  <dt className="text-gray-500 dark:text-gray-400">Message</dt>
-                  <dd className="font-mono text-gray-900 dark:text-gray-100">
+                  <dt className="text-on-surface-variant">Message</dt>
+                  <dd className="font-mono text-on-surface">
                     {verdict.message_id}
                   </dd>
                 </>
               ) : null}
-              <dt className="text-gray-500 dark:text-gray-400">Emitted</dt>
-              <dd className="text-gray-900 dark:text-gray-100">
+              <dt className="text-on-surface-variant">Emitted</dt>
+              <dd className="text-on-surface">
                 {formatTimestamp(verdict.created_at)}
               </dd>
             </dl>

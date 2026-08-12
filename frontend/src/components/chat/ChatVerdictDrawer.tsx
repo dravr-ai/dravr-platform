@@ -28,16 +28,16 @@ function formatTimestamp(iso: string): string {
 function statusToneClass(status: ChatVerdictRow['status']): string {
   switch (status) {
     case 'supported':
-      return 'bg-green-500/15 text-green-300';
+      return 'bg-success/15 text-success';
     case 'unsupported':
-      return 'bg-amber-500/15 text-amber-300';
+      return 'bg-warning/15 text-warning';
     case 'contradicted':
-      return 'bg-red-500/15 text-red-300';
+      return 'bg-error/15 text-error';
     case 'rhetorical':
       return 'bg-sky-500/15 text-sky-300';
     case 'unverifiable':
     default:
-      return 'bg-zinc-500/15 text-on-surface';
+      return 'bg-surface-container-high/15 text-on-surface';
   }
 }
 
@@ -68,10 +68,10 @@ export default function ChatVerdictDrawer({
       onClick={onClose}
     >
       <div
-        className="h-full w-full max-w-md overflow-y-auto bg-zinc-950 shadow-xl text-zinc-100"
+        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest shadow-xl text-on-surface"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 border-b ghost-border bg-zinc-950/90 px-5 py-4 backdrop-blur">
+        <div className="sticky top-0 border-b ghost-border bg-surface-container-lowest/90 px-5 py-4 backdrop-blur">
           <div className="flex items-start justify-between">
             <div>
               <h3 className="text-lg font-semibold text-on-surface">About this claim</h3>
@@ -114,7 +114,7 @@ export default function ChatVerdictDrawer({
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
               The claim
             </h4>
-            <blockquote className="border-l-2 border-primary bg-surface-container-low p-3 text-zinc-100">
+            <blockquote className="border-l-2 border-primary bg-surface-container-low p-3 text-on-surface">
               {verdict.claim_text}
             </blockquote>
           </section>
@@ -151,7 +151,7 @@ export default function ChatVerdictDrawer({
             <button
               type="button"
               onClick={onAskAboutClaim}
-              className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-pierre-violet/90"
+              className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary/90"
             >
               Ask me about this claim
             </button>

@@ -11,7 +11,7 @@ import { Users, Plus, LogIn } from 'lucide-react';
 import { useMyGroups, useCreateGroup, useGroupPermissions } from '../../hooks/useGroups';
 import { coachesApi } from '../../services/api';
 import { track } from '../../services/analytics';
-import { Button, Card, Input, Select, Modal, ModalActions, useErrorToast, useSuccessToast } from '../ui';
+import { Button, Card, Input, Select, Modal, ModalActions, useErrorToast, useSuccessToast, Textarea } from '../ui';
 import GroupCard from './GroupCard';
 import JoinGroupModal from './JoinGroupModal';
 import type { SelectOption } from '../ui';
@@ -145,8 +145,8 @@ export default function GroupManagement({ onSelectGroup, pendingInviteCode, onIn
       ) : groups.length === 0 ? (
         <Card variant="dark" className="!p-10">
           <div className="text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-violet/20 flex items-center justify-center">
-              <Users className="w-8 h-8 text-pierre-violet-light" />
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/20 flex items-center justify-center">
+              <Users className="w-8 h-8 text-primary" />
             </div>
             <h3 className="text-lg font-semibold text-on-surface mb-2">No groups yet</h3>
             <p className="text-on-surface-variant mb-6 max-w-md mx-auto">
@@ -203,19 +203,14 @@ export default function GroupManagement({ onSelectGroup, pendingInviteCode, onIn
             onChange={(e) => setFormName(e.target.value)}
             maxLength={100}
           />
-          <div className="w-full">
-            <label className="block text-sm font-medium text-on-surface mb-1.5">
-              Description
-            </label>
-            <textarea
-              className="w-full px-4 py-2.5 text-sm bg-surface-container-low text-on-surface placeholder:text-outline border ghost-border rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary resize-none"
-              placeholder="What is this group about?"
-              rows={3}
-              value={formDescription}
-              onChange={(e) => setFormDescription(e.target.value)}
-              maxLength={500}
-            />
-          </div>
+          <Textarea
+            label="Description"
+            placeholder="What is this group about?"
+            rows={3}
+            value={formDescription}
+            onChange={(e) => setFormDescription(e.target.value)}
+            maxLength={500}
+          />
           <Select
             label="Coach"
             options={coachOptions}

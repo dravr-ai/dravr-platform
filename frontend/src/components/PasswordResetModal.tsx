@@ -102,14 +102,14 @@ export default function PasswordResetModal({
 
           {!resetResult ? (
             <>
-              <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-md">
+              <div className="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-md">
                 <div className="flex items-start">
-                  <svg className="w-5 h-5 text-pierre-nutrition mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-nutrition mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
                   <div>
-                    <p className="text-sm font-medium text-yellow-400">Warning</p>
-                    <p className="text-sm text-yellow-400/80">
+                    <p className="text-sm font-medium text-warning">Warning</p>
+                    <p className="text-sm text-warning/80">
                       This will generate a temporary password for the user. They must change it on their next login.
                     </p>
                   </div>
@@ -143,14 +143,14 @@ export default function PasswordResetModal({
             </>
           ) : (
             <>
-              <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-md">
+              <div className="mb-4 p-3 bg-success/10 border border-success/30 rounded-md">
                 <div className="flex items-center mb-2">
-                  <svg className="w-5 h-5 text-green-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-success mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <p className="text-sm font-medium text-green-400">Password Reset Successful</p>
+                  <p className="text-sm font-medium text-success">Password Reset Successful</p>
                 </div>
-                <p className="text-sm text-green-400/80 mb-3">
+                <p className="text-sm text-success/80 mb-3">
                   A temporary password has been generated for <strong>{resetResult.user_email}</strong>.
                 </p>
               </div>
@@ -169,7 +169,7 @@ export default function PasswordResetModal({
                     className="px-3"
                   >
                     {copied ? (
-                      <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     ) : (
@@ -200,8 +200,8 @@ export default function PasswordResetModal({
           )}
 
           {resetMutation.isError && !resetResult && (
-            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-md">
-              <p className="text-sm text-red-400">
+            <div className="mt-3 p-3 bg-error/10 border border-error/30 rounded-md">
+              <p className="text-sm text-error">
                 Failed to reset password. Please try again.
               </p>
             </div>

@@ -13,10 +13,10 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Coach category colors (dark theme)
 const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: 'bg-emerald-500/20 text-emerald-400',
-  nutrition: 'bg-amber-500/20 text-amber-400',
+  training: 'bg-success/20 text-success',
+  nutrition: 'bg-warning/20 text-warning',
   recovery: 'bg-indigo-500/20 text-indigo-400',
-  recipes: 'bg-orange-500/20 text-orange-400',
+  recipes: 'bg-warning/20 text-warning',
   mobility: 'bg-pink-500/20 text-pink-400',
   custom: 'bg-violet-500/20 text-violet-400',
 };
@@ -107,7 +107,7 @@ export default function StoreCoachDetail({ coachId, onBack, onNavigateToLibrary 
         <p className="text-sm text-on-surface-variant mt-1">This coach may have been removed or is no longer available.</p>
         <button
           onClick={onBack}
-          className="mt-4 px-4 py-2 bg-primary text-on-primary rounded-lg hover:bg-pierre-violet/90 transition-colors shadow-ambient"
+          className="mt-4 px-4 py-2 bg-primary text-on-primary rounded-lg hover:bg-primary/90 transition-colors shadow-ambient"
         >
           Go Back
         </button>
@@ -134,16 +134,16 @@ export default function StoreCoachDetail({ coachId, onBack, onNavigateToLibrary 
 
       {/* Success Message */}
       {successMessage && (
-        <div className="mx-6 mt-4 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg flex items-start gap-3">
-          <svg className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="mx-6 mt-4 p-4 bg-success/10 border border-success/30 rounded-lg flex items-start gap-3">
+          <svg className="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div className="flex-1">
-            <p className="text-sm text-emerald-300">{successMessage}</p>
+            <p className="text-sm text-success">{successMessage}</p>
             {successMessage.includes('added') && onNavigateToLibrary && (
               <button
                 onClick={onNavigateToLibrary}
-                className="text-sm text-emerald-400 hover:text-emerald-300 font-medium mt-1"
+                className="text-sm text-success hover:text-success font-medium mt-1"
               >
                 View My Coaches →
               </button>
@@ -151,7 +151,7 @@ export default function StoreCoachDetail({ coachId, onBack, onNavigateToLibrary 
           </div>
           <button
             onClick={() => setSuccessMessage(null)}
-            className="text-emerald-400 hover:text-emerald-300"
+            className="text-success hover:text-success"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -259,7 +259,7 @@ export default function StoreCoachDetail({ coachId, onBack, onNavigateToLibrary 
               className="px-6 py-2.5 bg-surface-container-high text-on-surface rounded-lg font-medium hover:bg-surface-container-highest transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {uninstallMutation.isPending ? (
-                <div className="w-5 h-5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-outline-variant border-t-transparent rounded-full animate-spin" />
               ) : (
                 'Remove'
               )}
@@ -268,7 +268,7 @@ export default function StoreCoachDetail({ coachId, onBack, onNavigateToLibrary 
             <button
               onClick={handleInstall}
               disabled={installMutation.isPending}
-              className="px-6 py-2.5 bg-primary text-on-primary rounded-lg font-medium hover:bg-pierre-violet/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-ambient"
+              className="px-6 py-2.5 bg-primary text-on-primary rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-ambient"
             >
               {installMutation.isPending ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

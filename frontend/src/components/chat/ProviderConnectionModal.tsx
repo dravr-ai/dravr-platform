@@ -47,7 +47,7 @@ export default function ProviderConnectionModal({
           </button>
 
           <div className="text-center mb-8">
-            <div className="w-14 h-14 bg-pierre-violet/20 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-ambient">
+            <div className="w-14 h-14 bg-primary/20 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-ambient">
               <svg className="w-7 h-7 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>

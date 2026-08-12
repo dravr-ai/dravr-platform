@@ -110,7 +110,7 @@ export default function ResetPassword({
           <div className="px-8 py-10 space-y-6">
             <div className="flex flex-col items-center">
               <svg
-                className="w-12 h-12 text-pierre-activity"
+                className="w-12 h-12 text-activity"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -136,7 +136,7 @@ export default function ResetPassword({
                 <div
                   role="alert"
                   aria-live="polite"
-                  className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg text-sm"
+                  className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded-lg text-sm"
                 >
                   {error}
                 </div>
@@ -200,14 +200,14 @@ export default function ResetPassword({
                 <button
                   type="button"
                   onClick={onResendCode}
-                  className="text-on-surface-variant hover:text-pierre-violet-light transition-colors"
+                  className="text-on-surface-variant hover:text-primary transition-colors"
                 >
                   Resend code
                 </button>
                 <button
                   type="button"
                   onClick={onNavigateToLogin}
-                  className="text-pierre-violet-light hover:text-pierre-cyan-light font-medium transition-colors"
+                  className="text-primary hover:text-primary-fixed-dim font-medium transition-colors"
                 >
                   Back to sign in
                 </button>

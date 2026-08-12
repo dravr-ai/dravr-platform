@@ -162,10 +162,10 @@ export default function LlmSettingsTab() {
   const systemProvider = settings?.system_provider;
 
   const SystemProviderBanner = ({ provider }: { provider: { name: string; display_name: string; model?: string } }) => (
-    <div className="p-4 bg-pierre-activity-light/20 border border-pierre-activity/30 rounded-lg">
+    <div className="p-4 bg-activity/20 border border-activity/30 rounded-lg">
       <div className="flex items-center gap-2 mb-2">
         <svg
-          className="w-5 h-5 text-pierre-activity"
+          className="w-5 h-5 text-activity"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -177,7 +177,7 @@ export default function LlmSettingsTab() {
             d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
           />
         </svg>
-        <span className="text-sm font-medium text-pierre-activity">
+        <span className="text-sm font-medium text-activity">
           Active for chat: {provider.display_name}
         </span>
         <Badge variant="warning">System</Badge>
@@ -226,10 +226,10 @@ export default function LlmSettingsTab() {
 
         {/* Stored credential indicator — only meaningful when no system override is in effect */}
         {!systemProvider && currentProvider && (
-          <div className="mb-6 p-4 bg-pierre-activity-light/20 border border-pierre-activity/30 rounded-lg">
+          <div className="mb-6 p-4 bg-activity/20 border border-activity/30 rounded-lg">
             <div className="flex items-center gap-2">
               <svg
-                className="w-5 h-5 text-pierre-activity"
+                className="w-5 h-5 text-activity"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -241,7 +241,7 @@ export default function LlmSettingsTab() {
                   d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <span className="text-sm font-medium text-pierre-activity">
+              <span className="text-sm font-medium text-activity">
                 Active Provider:{' '}
                 {providers.find((p) => p.name === currentProvider)?.display_name || currentProvider}
               </span>
@@ -257,7 +257,7 @@ export default function LlmSettingsTab() {
               className={clsx(
                 'p-4 rounded-lg border transition-all',
                 provider.has_credentials
-                  ? 'border-pierre-activity/30 bg-pierre-activity-light/10'
+                  ? 'border-activity/30 bg-activity/10'
                   : 'ghost-border bg-surface-container-low hover:ghost-border'
               )}
             >
@@ -373,13 +373,13 @@ export default function LlmSettingsTab() {
                 className={clsx(
                   'p-4 rounded-lg',
                   validationResult.valid
-                    ? 'bg-pierre-activity-light/30 border border-pierre-activity/30'
-                    : 'bg-pierre-red-50 border border-pierre-red-200'
+                    ? 'bg-activity/30 border border-activity/30'
+                    : 'bg-error border border-error'
                 )}
               >
                 {validationResult.valid ? (
                   <div>
-                    <div className="flex items-center gap-2 text-pierre-activity font-medium mb-2">
+                    <div className="flex items-center gap-2 text-activity font-medium mb-2">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
                           strokeLinecap="round"
@@ -398,7 +398,7 @@ export default function LlmSettingsTab() {
                     )}
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 text-pierre-red-600">
+                  <div className="flex items-center gap-2 text-error">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
@@ -443,8 +443,8 @@ export default function LlmSettingsTab() {
             className={clsx(
               'p-3 rounded-lg text-sm',
               message.type === 'success'
-                ? 'bg-pierre-activity-light/30 text-pierre-activity'
-                : 'bg-pierre-red-50 text-pierre-red-600'
+                ? 'bg-activity/30 text-activity'
+                : 'bg-error text-error'
             )}
           >
             {message.text}

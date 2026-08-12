@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User } from '../types/api';
-import { Button, Card, Badge } from './ui';
+import { Button, Card, Badge, Input } from './ui';
 import PendingUsersList from './PendingUsersList';
 import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
@@ -160,8 +160,8 @@ export default function UserManagement() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                   activeTab === tab.id
-                    ? 'border-primary text-pierre-violet-light'
-                    : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-zinc-600'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline-variant'
                 }`}
               >
                 {tab.icon}
@@ -198,8 +198,8 @@ export default function UserManagement() {
               onClick={() => setActiveTab(tab.id)}
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                 activeTab === tab.id
-                  ? 'border-primary text-pierre-violet-light'
-                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-zinc-600'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline-variant'
               }`}
             >
               {tab.icon}
@@ -220,21 +220,18 @@ export default function UserManagement() {
       {/* Search Bar - Dark Theme */}
       <div className="flex justify-between items-center">
         <div className="flex-1 max-w-lg">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-5 w-5 text-outline" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <Input
+            type="search"
+            leftIcon={
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-            </div>
-            <input
-              type="search"
-              className="input-dark pl-10"
-              placeholder="Search users by email or name..."
-              aria-label="Search users by email or name"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
+            }
+            placeholder="Search users by email or name..."
+            aria-label="Search users by email or name"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
         <div className="ml-4 text-sm text-outline">
           {filteredUsers.length} users
@@ -311,7 +308,7 @@ export default function UserManagement() {
                     <Button
                       onClick={() => handleUserAction(user, 'approve')}
                       size="sm"
-                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-on-primary"
+                      className="bg-success hover:bg-success text-on-primary"
                     >
                       Approve
                     </Button>
@@ -321,7 +318,7 @@ export default function UserManagement() {
                       onClick={() => handleUserAction(user, 'suspend')}
                       size="sm"
                       variant="outline"
-                      className="border-pierre-red-500/50 text-pierre-red-400 hover:bg-pierre-red-500/10"
+                      className="border-error/50 text-error hover:bg-error/10"
                     >
                       Suspend
                     </Button>
@@ -330,7 +327,7 @@ export default function UserManagement() {
                     <Button
                       onClick={() => handleUserAction(user, 'approve')}
                       size="sm"
-                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-on-primary"
+                      className="bg-success hover:bg-success text-on-primary"
                     >
                       Reactivate
                     </Button>

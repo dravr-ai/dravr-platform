@@ -100,10 +100,10 @@ export default function TenantPlanCard({ tenantId }: TenantPlanCardProps) {
         </div>
       </div>
       {setPlanMutation.isError && (
-        <p className="text-sm text-red-400 mt-2">Failed to set tenant plan. Please try again.</p>
+        <p className="text-sm text-error mt-2">Failed to set tenant plan. Please try again.</p>
       )}
       {setPlanMutation.isSuccess && (
-        <p className="text-sm text-green-400 mt-2">
+        <p className="text-sm text-success mt-2">
           Plan set to {setPlanMutation.data.plan}.
         </p>
       )}

@@ -8,7 +8,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { adminApi, type ClaimVerdictRow } from '../services/api/admin';
-import { Card, Button, Badge } from './ui';
+import { Card, Button, Badge, Select , Input } from './ui';
 import ClaimVerdictDrawer from './ClaimVerdictDrawer';
 import { useAuth } from '../hooks/useAuth';
 
@@ -112,7 +112,7 @@ export default function ClaimVerdictsTab() {
   if (!tenantId) {
     return (
       <Card className="p-6">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-on-surface-variant">
           Tenant id not available on your session. Reload the page and try again.
         </p>
       </Card>
@@ -124,10 +124,10 @@ export default function ClaimVerdictsTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
+            <h2 className="text-xl font-semibold text-on-surface">
               Claim verdicts
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-on-surface-variant">
               Every claim a coach makes is evaluated by the claim verifier and
               recorded here. Filter, drill into the source message, and
               course-correct coaches that ship unsupported or contradicted
@@ -143,12 +143,12 @@ export default function ClaimVerdictsTab() {
           {(Object.entries(statusCounts) as [StatusKey, number][]).map(([key, count]) => (
             <div
               key={key}
-              className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800"
+              className="rounded-lg border border-outline-variant bg-surface-container p-3"
             >
-              <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
                 {key}
               </div>
-              <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+              <div className="mt-1 text-2xl font-semibold text-on-surface">
                 {count}
               </div>
             </div>
@@ -158,58 +158,25 @@ export default function ClaimVerdictsTab() {
 
       <Card className="p-6">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Status</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Category</span>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            >
-              {CATEGORY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Coach ID</span>
-            <input
-              type="text"
-              value={coachFilter}
-              onChange={(e) => setCoachFilter(e.target.value.trim())}
-              placeholder="filter by coach id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Rows</span>
-            <select
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            >
-              {LIMIT_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label="Status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
+          <Select
+            label="Category"
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            options={CATEGORY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
+          <Input label="Coach ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value.trim())} placeholder="filter by coach id" />
+          <Select
+            label="Rows"
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            options={LIMIT_OPTIONS.map((n) => ({ value: String(n), label: String(n) }))}
+          />
         </div>
       </Card>
 
@@ -219,55 +186,55 @@ export default function ClaimVerdictsTab() {
             <div className="pierre-spinner" />
           </div>
         ) : isError ? (
-          <div className="p-6 text-sm text-red-600 dark:text-red-400">
+          <div className="p-6 text-sm text-error">
             Failed to load verdicts: {error instanceof Error ? error.message : String(error)}
           </div>
         ) : verdicts.length === 0 ? (
           <div className="p-12 text-center">
-            <p className="text-gray-500 dark:text-gray-400">
+            <p className="text-on-surface-variant">
               No claim verdicts matching these filters.
             </p>
-            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            <p className="mt-1 text-xs text-outline">
               Verdicts are written when a coach reply passes through the claim
               verifier and produces claims that need evidence.
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-800">
+            <table className="min-w-full divide-y divide-outline-variant">
+              <thead className="bg-surface-container">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Claim
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Status
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Strength
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Category
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Layer
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     When
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
+              <tbody className="divide-y divide-outline-variant bg-white">
                 {verdicts.map((v) => (
                   <tr
                     key={v.id}
                     className={clsx(
-                      'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800',
-                      selectedVerdict?.id === v.id && 'bg-pierre-violet/10',
+                      'cursor-pointer hover:bg-surface-container dark:hover:bg-surface-container',
+                      selectedVerdict?.id === v.id && 'bg-primary/10',
                     )}
                     onClick={() => setSelectedVerdict(v)}
                   >
-                    <td className="max-w-md px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                    <td className="max-w-md px-4 py-3 text-sm text-on-surface">
                       <span className="line-clamp-2">{v.claim_text}</span>
                     </td>
                     <td className="px-4 py-3">
@@ -278,13 +245,13 @@ export default function ClaimVerdictsTab() {
                         {v.evidence_strength}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                    <td className="px-4 py-3 text-sm text-on-surface-variant">
                       {humanizeCategory(v.category)}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-500">
+                    <td className="px-4 py-3 text-xs text-on-surface-variant">
                       {v.layer_fired}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-500">
+                    <td className="px-4 py-3 text-xs text-on-surface-variant">
                       {formatTimestamp(v.created_at)}
                     </td>
                   </tr>
@@ -294,7 +261,7 @@ export default function ClaimVerdictsTab() {
           </div>
         )}
         {total > 0 ? (
-          <div className="border-t border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+          <div className="border-t border-outline-variant bg-surface-container px-4 py-2 text-xs text-on-surface-variant">
             Showing {total} verdict{total === 1 ? '' : 's'}
           </div>
         ) : null}

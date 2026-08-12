@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { Coach, User } from '../types/api';
-import { Card, Button } from './ui';
+import { Card, Button, Select, Textarea, Input } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -17,12 +17,12 @@ const COACH_CATEGORIES = ['Training', 'Nutrition', 'Recovery', 'Recipes', 'Mobil
 
 // Category colors for visual differentiation
 const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-pierre-activity/10 text-pierre-activity border-pierre-activity/20',
-  Nutrition: 'bg-pierre-nutrition/10 text-pierre-nutrition border-pierre-nutrition/20',
-  Recovery: 'bg-pierre-recovery/10 text-pierre-recovery border-pierre-recovery/20',
-  Recipes: 'bg-pierre-yellow-500/10 text-pierre-yellow-600 border-pierre-yellow-500/20',
-  Mobility: 'bg-pierre-mobility/10 text-pierre-mobility border-pierre-mobility/20',
-  Custom: 'bg-pierre-violet/10 text-pierre-violet-light border-pierre-violet/20',
+  Training: 'bg-activity/10 text-activity border-activity/20',
+  Nutrition: 'bg-nutrition/10 text-nutrition border-nutrition/20',
+  Recovery: 'bg-recovery/10 text-recovery border-recovery/20',
+  Recipes: 'bg-warning/10 text-warning border-warning/20',
+  Mobility: 'bg-mobility/10 text-mobility border-mobility/20',
+  Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 
 // Helper to get category color class with case-insensitive lookup
@@ -279,8 +279,8 @@ export default function SystemCoachesTab() {
                         <span className={clsx(
                           'inline-block px-1.5 py-0.5 text-[10px] font-medium rounded',
                           coach.source === 'contremaitre'
-                            ? 'bg-pierre-activity/10 text-pierre-activity'
-                            : 'bg-pierre-text-secondary/10 text-pierre-text-secondary'
+                            ? 'bg-activity/10 text-activity'
+                            : 'bg-on-surface-variant/10 text-on-surface-variant'
                         )}>
                           {coach.source === 'contremaitre' ? 'git' : coach.source}
                         </span>
@@ -344,7 +344,7 @@ export default function SystemCoachesTab() {
             setIsEditing(false);
             setFormData(defaultFormData);
           }}
-          className="flex items-center gap-2 text-on-surface-variant hover:text-pierre-violet-light transition-colors"
+          className="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -359,97 +359,64 @@ export default function SystemCoachesTab() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Title */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                Title <span className="text-pierre-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="input-dark"
-                placeholder="e.g., Marathon Training Coach"
-                required
-              />
-            </div>
+            <Input
+              label="Title *"
+              type="text"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              placeholder="e.g., Marathon Training Coach"
+              required
+            />
 
             {/* Description */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                Description
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="input-dark"
-                rows={2}
-                placeholder="Brief description of the coach's specialty..."
-              />
-            </div>
+            <Textarea
+              label="Description"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={2}
+              placeholder="Brief description of the coach's specialty..."
+            />
 
             {/* System Prompt */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                System Prompt <span className="text-pierre-red-400">*</span>
-              </label>
-              <textarea
-                value={formData.system_prompt}
-                onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-                className="input-dark font-mono text-sm"
-                rows={8}
-                placeholder="You are a professional marathon coach with expertise in..."
-                required
-              />
-              <p className="mt-1 text-xs text-outline">
-                Estimated tokens: {estimateTokenCount(formData.system_prompt).toLocaleString()}
-              </p>
-            </div>
+            <Textarea
+              label="System Prompt *"
+              value={formData.system_prompt}
+              onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
+              className="font-mono"
+              rows={8}
+              placeholder="You are a professional marathon coach with expertise in..."
+              required
+              helpText={`Estimated tokens: ${estimateTokenCount(formData.system_prompt).toLocaleString()}`}
+            />
 
             {/* Category and Visibility */}
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-on-surface mb-1">
-                  Category
-                </label>
-                <select
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="select-dark"
-                >
-                  {COACH_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-on-surface mb-1">
-                  Visibility
-                </label>
-                <select
-                  value={formData.visibility}
-                  onChange={(e) => setFormData({ ...formData, visibility: e.target.value })}
-                  className="select-dark"
-                  disabled={isEditing}
-                >
-                  <option value="tenant">Tenant Only</option>
-                  <option value="global">Global (All Tenants)</option>
-                </select>
-              </div>
+              <Select
+                label="Category"
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                options={COACH_CATEGORIES.map((cat) => ({ value: cat, label: cat }))}
+              />
+              <Select
+                label="Visibility"
+                value={formData.visibility}
+                onChange={(e) => setFormData({ ...formData, visibility: e.target.value })}
+                disabled={isEditing}
+                options={[
+                  { value: 'tenant', label: 'Tenant Only' },
+                  { value: 'global', label: 'Global (All Tenants)' },
+                ]}
+              />
             </div>
 
             {/* Tags */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                Tags
-              </label>
-              <input
-                type="text"
-                value={formData.tags}
-                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                className="input-dark"
-                placeholder="marathon, endurance, beginner (comma-separated)"
-              />
-            </div>
+            <Input
+              label="Tags"
+              type="text"
+              value={formData.tags}
+              onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+              placeholder="marathon, endurance, beginner (comma-separated)"
+            />
 
             {/* Actions */}
             <div className="flex items-center gap-3 pt-4 border-t ghost-border">
@@ -494,7 +461,7 @@ export default function SystemCoachesTab() {
       {/* Back button */}
       <button
         onClick={() => setSelectedCoach(null)}
-        className="flex items-center gap-2 text-on-surface-variant hover:text-pierre-violet-light transition-colors"
+        className="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -542,15 +509,15 @@ export default function SystemCoachesTab() {
         {/* Stats */}
         <div className="grid grid-cols-4 gap-4 mb-6 p-4 bg-surface-container-low rounded-lg border ghost-border">
           <div className="text-center">
-            <div className="text-2xl font-bold text-pierre-violet-light">{selectedCoach.token_count.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-primary">{selectedCoach.token_count.toLocaleString()}</div>
             <div className="text-xs text-outline">Tokens</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-pierre-activity">{selectedCoach.use_count}</div>
+            <div className="text-2xl font-bold text-activity">{selectedCoach.use_count}</div>
             <div className="text-xs text-outline">Uses</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-pierre-nutrition">{assignments.length}</div>
+            <div className="text-2xl font-bold text-nutrition">{assignments.length}</div>
             <div className="text-xs text-outline">Assigned Users</div>
           </div>
           <div className="text-center">
@@ -627,7 +594,7 @@ export default function SystemCoachesTab() {
                 </div>
                 <button
                   onClick={() => handleUnassign(assignment.user_id)}
-                  className="text-pierre-red-400 hover:text-pierre-red-300 transition-colors p-2"
+                  className="text-error hover:text-error transition-colors p-2"
                   title="Remove assignment"
                   disabled={unassignMutation.isPending}
                 >
@@ -665,7 +632,7 @@ export default function SystemCoachesTab() {
                         className={clsx(
                           'flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors',
                           selectedUserIds.includes(user.id)
-                            ? 'bg-pierre-violet/20 border-2 border-primary'
+                            ? 'bg-primary/20 border-2 border-primary'
                             : 'bg-surface-container-low border-2 border-transparent hover:bg-surface-container'
                         )}
                       >
@@ -689,7 +656,7 @@ export default function SystemCoachesTab() {
                         </div>
                         <span className={clsx(
                           'px-2 py-0.5 text-xs rounded-full',
-                          user.user_status === 'active' ? 'bg-pierre-activity/20 text-pierre-activity' : 'bg-surface-container-high text-on-surface-variant'
+                          user.user_status === 'active' ? 'bg-activity/20 text-activity' : 'bg-surface-container-high text-on-surface-variant'
                         )}>
                           {user.user_status}
                         </span>

@@ -226,9 +226,21 @@ export const BORDER_COLORS = {
 /** Feedback states, tuned to read correctly on the light surface. */
 export const SEMANTIC_COLORS = {
   success: '#2e7d5b',  // forest-leaning green (on light)
-  warning: '#8f6a2e',  // warm bronze — matches nutrition pillar
+  warning: '#b08326',  // warm bronze, Product Tier lift (DESIGN.md §2)
   error: BOREAL_LIGHT.error,  // #BA1A1A from MD3 token set
-  info: '#3c6658',     // surface_tint sage
+  info: '#3e7283',     // slate (DESIGN.md §2)
+} as const;
+
+/**
+ * Dark-theme counterparts. DESIGN.md §2 gives every feedback token a light and
+ * a dark value; only the light half was ever exported here, so native surfaces
+ * that could not read a CSS variable had nothing to switch to.
+ */
+export const SEMANTIC_COLORS_DARK = {
+  success: '#79a694',
+  warning: '#d6b87a',
+  error: BOREAL_DARK.error,  // #FFB4AB
+  info: '#9bb6bd',
 } as const;
 
 /**

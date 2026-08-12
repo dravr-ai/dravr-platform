@@ -117,13 +117,13 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
 
   if (error) {
     return (
-      <div className="bg-pierre-red-500/15 border border-pierre-red-500/30 rounded-lg p-6">
+      <div className="bg-error/15 border border-error/30 rounded-lg p-6">
         <div className="flex items-center gap-3">
-          <svg className="w-6 h-6 text-pierre-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-6 h-6 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <h3 className="text-lg font-medium text-pierre-red-400">Failed to load API tokens</h3>
+            <h3 className="text-lg font-medium text-error">Failed to load API tokens</h3>
             <p className="text-on-surface mt-1">
               {error instanceof Error ? error.message : 'An unknown error occurred'}
             </p>
@@ -162,7 +162,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                   onClick={handleBulkRevoke}
                   disabled={revokeTokenMutation.isPending}
                   variant="secondary"
-                  className="text-pierre-red-400 hover:bg-pierre-red-500/10"
+                  className="text-error hover:bg-error/10"
                   size="sm"
                 >
                   Revoke Selected
@@ -248,7 +248,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                             onClick={() => handleSingleRevoke(token)}
                             disabled={revokeTokenMutation.isPending}
                             variant="secondary"
-                            className="text-pierre-red-400 hover:bg-pierre-red-500/10"
+                            className="text-error hover:bg-error/10"
                             size="sm"
                           >
                             Revoke

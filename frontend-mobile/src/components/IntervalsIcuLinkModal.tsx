@@ -8,16 +8,16 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   Modal,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Activity, Eye, EyeOff, X, CheckCircle2 } from 'lucide-react-native';
+import { Activity, X, CheckCircle2 } from 'lucide-react-native';
 import { useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
+import { Input } from './ui';
 
 interface IntervalsIcuLinkModalProps {
   visible: boolean;
@@ -37,7 +37,6 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
   const colors = useThemeColors();
   const [athleteId, setAthleteId] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -46,7 +45,6 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
     if (visible) {
       setAthleteId('');
       setApiKey('');
-      setShowKey(false);
       setIsLoading(false);
       setError(null);
       setSuccess(null);
@@ -116,11 +114,12 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
                 Find your athlete id and API key under Settings → Developer on intervals.icu.
               </Text>
 
-              <Text className="text-sm text-text-secondary mb-1.5">Athlete ID</Text>
-              <TextInput
-                className="bg-background-secondary rounded-xl px-4 py-3.5 mb-4 text-base text-text-primary border border-border-default"
+              {/* These were hand-rolled boxed fields, so the Input primitive's
+                  editorial underline never reached them — the same bypass that
+                  put a boxed textarea beside an underline on web. */}
+              <Input
+                label="Athlete ID"
                 placeholder="i123456"
-                placeholderTextColor={colors.text.tertiary}
                 value={athleteId}
                 onChangeText={setAthleteId}
                 autoCapitalize="none"
@@ -128,32 +127,17 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
                 testID="intervals-athlete-id"
               />
 
-              <Text className="text-sm text-text-secondary mb-1.5">API Key</Text>
-              <View className="flex-row items-center bg-background-secondary rounded-xl border border-border-default mb-4">
-                <TextInput
-                  className="flex-1 px-4 py-3.5 text-base text-text-primary"
-                  placeholder="API key"
-                  placeholderTextColor={colors.text.tertiary}
-                  value={apiKey}
-                  onChangeText={setApiKey}
-                  secureTextEntry={!showKey}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  testID="intervals-api-key"
-                />
-                <TouchableOpacity
-                  className="px-3"
-                  onPress={() => setShowKey(!showKey)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  {showKey ? (
-                    <EyeOff size={20} color={colors.text.tertiary} />
-                  ) : (
-                    <Eye size={20} color={colors.text.tertiary} />
-                  )}
-                </TouchableOpacity>
-              </View>
-
+              <Input
+                label="API Key"
+                placeholder="API key"
+                value={apiKey}
+                onChangeText={setApiKey}
+                secureTextEntry
+                showPasswordToggle
+                autoCapitalize="none"
+                autoCorrect={false}
+                testID="intervals-api-key"
+              />
               {error && (
                 <Text className="text-sm text-error mb-3" testID="intervals-error">
                   {error}
@@ -161,17 +145,18 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
               )}
 
               <TouchableOpacity
-                className="py-3.5 rounded-xl items-center"
-                style={{ backgroundColor: canSubmit ? '#1273DE' : '#1273DE80' }}
+                // Intervals' brand blue belongs on the provider mark, not on the
+                // submit action — see ConnectionsScreen for the same split.
+                className={`py-3.5 rounded-xl items-center bg-primary ${canSubmit ? '' : 'opacity-50'}`}
                 onPress={handleSubmit}
                 disabled={!canSubmit}
                 activeOpacity={0.8}
                 testID="intervals-submit"
               >
                 {isLoading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
                 ) : (
-                  <Text className="text-base font-semibold text-on-surface">Connect</Text>
+                  <Text className="text-base font-semibold text-on-primary">Connect</Text>
                 )}
               </TouchableOpacity>
             </>

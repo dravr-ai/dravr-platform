@@ -273,10 +273,10 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
 
   if (error) {
     return (
-      <Card variant="dark" className="border-red-500/30">
+      <Card variant="dark" className="border-error/30">
         <div className="text-center py-8">
           <svg
-            className="w-12 h-12 text-red-400 mx-auto mb-4"
+            className="w-12 h-12 text-error mx-auto mb-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -288,7 +288,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
               d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
             />
           </svg>
-          <p className="text-red-400">Failed to load tool availability.</p>
+          <p className="text-error">Failed to load tool availability.</p>
           <p className="text-sm text-on-surface-variant mt-2">Please check your permissions and try again.</p>
         </div>
       </Card>
@@ -299,10 +299,10 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
     <div className="space-y-6">
       {/* Global Disabled Banner */}
       {globalDisabled?.data && globalDisabled.data.count > 0 && (
-        <Card variant="dark" className="!bg-red-900/20 border-red-500/30">
+        <Card variant="dark" className="!bg-error/20 border-error/30">
           <div className="flex items-start gap-3">
             <svg
-              className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0"
+              className="w-5 h-5 text-error mt-0.5 flex-shrink-0"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -315,9 +315,9 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
               />
             </svg>
             <div>
-              <h3 className="font-medium text-red-300">Globally Disabled Tools</h3>
-              <p className="text-sm text-red-400 mt-1">
-                {globalDisabled.data.count} tool(s) are disabled via <code className="bg-red-900/50 px-1 rounded">PIERRE_DISABLED_TOOLS</code> environment variable.
+              <h3 className="font-medium text-error">Globally Disabled Tools</h3>
+              <p className="text-sm text-error mt-1">
+                {globalDisabled.data.count} tool(s) are disabled via <code className="bg-error/50 px-1 rounded">PIERRE_DISABLED_TOOLS</code> environment variable.
                 These cannot be enabled through the admin UI.
               </p>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -340,11 +340,11 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             <div className="text-sm text-on-surface-variant">Total Tools</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-green-400">{summaryData.data.enabled_tools}</div>
+            <div className="text-2xl font-bold text-success">{summaryData.data.enabled_tools}</div>
             <div className="text-sm text-on-surface-variant">Enabled</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-red-400">{summaryData.data.total_tools - summaryData.data.enabled_tools}</div>
+            <div className="text-2xl font-bold text-error">{summaryData.data.total_tools - summaryData.data.enabled_tools}</div>
             <div className="text-sm text-on-surface-variant">Disabled</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
@@ -352,7 +352,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             <div className="text-sm text-on-surface-variant">Overrides</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-orange-400">{summaryData.data.globally_disabled_count}</div>
+            <div className="text-2xl font-bold text-warning">{summaryData.data.globally_disabled_count}</div>
             <div className="text-sm text-on-surface-variant">Global Blocks</div>
           </Card>
         </div>
@@ -440,7 +440,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                     type="checkbox"
                     checked={allSelected}
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="rounded border-zinc-600 bg-zinc-800 text-primary focus:ring-primary accent-violet-600"
+                    className="rounded border-outline-variant bg-surface-container text-primary focus:ring-primary accent-violet-600"
                   />
                 </th>
                 <th className="text-left py-3 px-3 font-medium text-on-surface-variant">Tool</th>
@@ -466,7 +466,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                         checked={selectedTools.has(tool.tool_name)}
                         onChange={(e) => handleSelectTool(tool.tool_name, e.target.checked)}
                         disabled={globallyDisabled}
-                        className="rounded border-zinc-600 bg-zinc-800 text-primary focus:ring-primary accent-violet-600 disabled:opacity-50"
+                        className="rounded border-outline-variant bg-surface-container text-primary focus:ring-primary accent-violet-600 disabled:opacity-50"
                       />
                     </td>
                     <td className="py-3 px-3">
@@ -483,7 +483,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                     </td>
                     <td className="py-3 px-3">
                       {tool.is_enabled ? (
-                        <span className="inline-flex items-center gap-1 text-green-600">
+                        <span className="inline-flex items-center gap-1 text-success">
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                             <path
                               fillRule="evenodd"
@@ -494,7 +494,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                           Enabled
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-red-600">
+                        <span className="inline-flex items-center gap-1 text-error">
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                             <path
                               fillRule="evenodd"
@@ -514,7 +514,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                           onClick={() => handleToggleTool(tool)}
                           disabled={globallyDisabled}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                            tool.is_enabled ? 'bg-green-500' : 'bg-zinc-600'
+                            tool.is_enabled ? 'bg-success' : 'bg-outline'
                           } ${globallyDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                           role="switch"
                           aria-checked={tool.is_enabled}
@@ -575,12 +575,12 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             placeholder="e.g., Security concern, Maintenance, Feature deprecation..."
           />
 
-          <div className="p-3 bg-orange-900/20 text-orange-300 rounded-lg text-sm">
+          <div className="p-3 bg-warning/20 text-warning rounded-lg text-sm">
             <strong>Note:</strong> This override can be removed later to restore the tool to its default state.
           </div>
 
           {setOverrideMutation.isError && (
-            <div className="p-3 bg-red-900/20 text-red-400 rounded-lg text-sm">
+            <div className="p-3 bg-error/20 text-error rounded-lg text-sm">
               Failed to update tool settings. Please try again.
             </div>
           )}
@@ -626,7 +626,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           />
 
           {setOverrideMutation.isError && (
-            <div className="p-3 bg-red-900/20 text-red-400 rounded-lg text-sm">
+            <div className="p-3 bg-error/20 text-error rounded-lg text-sm">
               Failed to update tool settings. Please try again.
             </div>
           )}

@@ -17,17 +17,17 @@ interface GroupCardProps {
 const ROLE_CONFIG: Record<GroupRole, { label: string; color: string; Icon: typeof Crown }> = {
   owner: {
     label: 'Owner',
-    color: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    color: 'bg-warning/20 text-warning border-warning/30',
     Icon: Crown,
   },
   admin: {
     label: 'Admin',
-    color: 'bg-pierre-violet/20 text-pierre-violet-light border-pierre-violet/30',
+    color: 'bg-primary/20 text-primary border-primary/30',
     Icon: Shield,
   },
   member: {
     label: 'Member',
-    color: 'bg-zinc-500/20 text-on-surface-variant border-zinc-500/30',
+    color: 'bg-surface-container-high/20 text-on-surface-variant border-outline-variant/30',
     Icon: User,
   },
 };
@@ -51,7 +51,7 @@ export default function GroupCard({ group, onClick }: GroupCardProps) {
           <div className="flex items-center gap-3 mb-2">
             <h3 className="text-lg font-semibold text-on-surface truncate">{group.name}</h3>
             {!group.is_active && (
-              <span className="px-2 py-0.5 text-xs font-medium bg-zinc-700/50 text-on-surface-variant rounded-full">
+              <span className="px-2 py-0.5 text-xs font-medium bg-surface-container/50 text-on-surface-variant rounded-full">
                 Inactive
               </span>
             )}
@@ -72,7 +72,7 @@ export default function GroupCard({ group, onClick }: GroupCardProps) {
               {group.member_count} {group.member_count === 1 ? 'member' : 'members'}
             </span>
             {group.peer_data_sharing && (
-              <span className="flex items-center gap-1.5 text-pierre-activity">
+              <span className="flex items-center gap-1.5 text-activity">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                 </svg>

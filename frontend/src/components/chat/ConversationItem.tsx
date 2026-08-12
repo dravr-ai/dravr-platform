@@ -127,7 +127,7 @@ const ConversationItem = memo(function ConversationItem({
         </button>
         <button
           onClick={onDelete}
-          className="p-2.5 rounded transition-colors text-outline hover:text-pierre-red-500 hover:bg-surface-container"
+          className="p-2.5 rounded transition-colors text-outline hover:text-error hover:bg-surface-container"
           title="Delete"
           aria-label="Delete conversation"
         >

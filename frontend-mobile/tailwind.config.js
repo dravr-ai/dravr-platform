@@ -152,6 +152,13 @@ module.exports = {
 
         success: 'rgb(var(--color-success) / <alpha-value>)',
         warning: 'rgb(var(--color-warning) / <alpha-value>)',
+        info: 'rgb(var(--color-info) / <alpha-value>)',
+
+        // DESIGN.md §2 pillar accents — semantic, so they flip with the theme.
+        activity: 'rgb(var(--color-activity) / <alpha-value>)',
+        nutrition: 'rgb(var(--color-nutrition) / <alpha-value>)',
+        recovery: 'rgb(var(--color-recovery) / <alpha-value>)',
+        mobility: 'rgb(var(--color-mobility) / <alpha-value>)',
 
         // Provider brand colors — belong to third parties, unchanged across modes.
         providers: {

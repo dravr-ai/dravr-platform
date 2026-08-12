@@ -224,10 +224,10 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <Link2 className="w-4 h-4 text-pierre-violet-light flex-shrink-0" />
+                    <Link2 className="w-4 h-4 text-primary flex-shrink-0" />
                     <code className="text-sm text-on-surface font-mono truncate">{invite.code}</code>
                     {invite.kind === 'coach' && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-pierre-violet/20 text-pierre-violet-light rounded-full">
+                      <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-primary/20 text-primary rounded-full">
                         <UserCog className="w-3 h-3" />
                         Coach
                       </span>
@@ -252,7 +252,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                     aria-label="Copy invite link to clipboard"
                   >
                     {copiedId === invite.id ? (
-                      <Check className="w-4 h-4 text-pierre-activity" />
+                      <Check className="w-4 h-4 text-activity" />
                     ) : (
                       <Copy className="w-4 h-4" />
                     )}

@@ -65,7 +65,7 @@ export default function ChatSidebar({
         <button
           onClick={onNewChat}
           disabled={isCreatingConversation}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-on-primary hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 shadow-ambient"
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-on-primary hover:bg-primary/80 transition-colors disabled:opacity-50 shadow-ambient"
           title="New chat"
           aria-label="New chat"
         >
@@ -85,7 +85,7 @@ export default function ChatSidebar({
           className={clsx(
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             !selectedConversation && !showMyCoachesPanel && !showStorePanel
-              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
+              ? 'bg-primary/10 border border-primary/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
               : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
@@ -104,7 +104,7 @@ export default function ChatSidebar({
           className={clsx(
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             showMyCoachesPanel
-              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
+              ? 'bg-primary/10 border border-primary/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
               : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
@@ -123,7 +123,7 @@ export default function ChatSidebar({
           className={clsx(
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             showStorePanel
-              ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
+              ? 'bg-primary/10 border border-primary/20 text-primary shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
               : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
@@ -171,7 +171,7 @@ export default function ChatSidebar({
       </div>
 
       {/* Footer Area - Gradient fade + user profile */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-pierre-dark via-pierre-dark/95 to-transparent">
+      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-on-surface via-on-surface/95 to-transparent">
         {/* User Profile Pill */}
         <button
           onClick={onOpenSettings}

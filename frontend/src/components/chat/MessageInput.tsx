@@ -67,13 +67,18 @@ export default function MessageInput({
           </div>
         )}
         <div className="relative">
+          {/* The composer is a chat surface, not a form field — DESIGN.md §5
+              lists the two separately. It keeps its enclosing rounded field so
+              the embedded 44x44 send button has something to sit inside; the
+              editorial underline has no box to host it. */}
+          {/* eslint-disable-next-line no-restricted-syntax */}
           <textarea
             ref={inputRef}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Message Dravr..."
-            className="w-full resize-none rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-16 py-3 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-primary text-sm transition-colors overflow-hidden"
+            className="w-full resize-none rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-16 py-3 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-colors overflow-hidden"
             rows={1}
             disabled={isStreaming || disabled}
           />
@@ -84,7 +89,7 @@ export default function MessageInput({
             className={clsx(
               'absolute right-2 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg transition-colors',
               value.trim() && !isStreaming && !disabled
-                ? 'bg-primary text-on-primary hover:bg-pierre-violet/90 shadow-ambient'
+                ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-ambient'
                 : 'text-on-surface-variant cursor-not-allowed'
             )}
           >
@@ -100,7 +105,7 @@ export default function MessageInput({
           <span className="text-on-surface-variant hidden sm:inline">|</span>
           <button
             onClick={onToggleIdeas}
-            className="text-xs text-pierre-violet-light hover:text-pierre-cyan-light flex items-center gap-1 transition-colors"
+            className="text-xs text-primary hover:text-primary-fixed-dim flex items-center gap-1 transition-colors"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />

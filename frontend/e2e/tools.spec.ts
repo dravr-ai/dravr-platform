@@ -253,8 +253,10 @@ test.describe('Engagement Tab - Time Range Interaction', () => {
     await thirtyDayButton.click();
     await page.waitForTimeout(300);
 
-    // The button should now have the active styling
-    await expect(thirtyDayButton).toHaveClass(/pierre-violet/);
+    // Active styling is the primary token. Asserting the token rather than a
+    // literal colour name means this survives a palette rename but still
+    // fails if the button stops looking selected.
+    await expect(thirtyDayButton).toHaveClass(/bg-primary\/20/);
   });
 
   test('clicking 90 Days changes selection', async ({ page }) => {
@@ -265,8 +267,8 @@ test.describe('Engagement Tab - Time Range Interaction', () => {
     await ninetyDayButton.click();
     await page.waitForTimeout(300);
 
-    // The button should now have the active styling
-    await expect(ninetyDayButton).toHaveClass(/pierre-violet/);
+    // Active styling is the primary token — see the 30 Days case above.
+    await expect(ninetyDayButton).toHaveClass(/bg-primary\/20/);
   });
 });
 

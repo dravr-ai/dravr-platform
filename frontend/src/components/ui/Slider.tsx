@@ -57,7 +57,7 @@ export const Slider: React.FC<SliderProps> = ({
       {/* Label and Value */}
       <div className="flex items-center justify-between mb-2">
         {label && (
-          <label className="text-sm font-medium text-pierre-gray-700">{label}</label>
+          <label className="text-sm font-medium text-on-surface">{label}</label>
         )}
         {showValue && (
           <span className="text-sm font-semibold text-primary">
@@ -69,7 +69,7 @@ export const Slider: React.FC<SliderProps> = ({
       {/* Slider Track */}
       <div className="relative pt-1 pb-6">
         {/* Background track */}
-        <div className="absolute top-1/2 left-0 right-0 h-2 -translate-y-1/2 bg-pierre-gray-200 rounded-full">
+        <div className="absolute top-1/2 left-0 right-0 h-2 -translate-y-1/2 bg-surface-container-high rounded-full">
           {/* Filled track with gradient */}
           <div
             className="absolute top-0 left-0 h-full boreal-hero-gradient rounded-full transition-all duration-150"
@@ -91,11 +91,11 @@ export const Slider: React.FC<SliderProps> = ({
                 className={`w-3 h-3 rounded-full border-2 transition-colors ${
                   isActive
                     ? 'bg-primary border-primary'
-                    : 'bg-white border-pierre-gray-300'
+                    : 'bg-white border-outline-variant'
                 }`}
               />
               {markerLabels[marker] && (
-                <span className="absolute top-5 left-1/2 -translate-x-1/2 text-xs text-pierre-gray-500 whitespace-nowrap">
+                <span className="absolute top-5 left-1/2 -translate-x-1/2 text-xs text-on-surface-variant whitespace-nowrap">
                   {markerLabels[marker]}
                 </span>
               )}
@@ -147,7 +147,7 @@ export const Slider: React.FC<SliderProps> = ({
 
       {/* Help Text */}
       {helpText && (
-        <p className="text-sm text-pierre-gray-500">{helpText}</p>
+        <p className="text-sm text-on-surface-variant">{helpText}</p>
       )}
     </div>
   );

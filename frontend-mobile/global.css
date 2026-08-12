@@ -87,7 +87,12 @@
     --color-border: 192 200 195;
 
     --color-success: 46 125 91;
-    --color-warning: 143 106 46;
+    --color-warning: 176 131 38;
+    --color-info: 62 114 131;
+    --color-activity: 15 125 104;
+    --color-nutrition: 176 131 38;
+    --color-recovery: 62 114 131;
+    --color-mobility: 155 70 102;
   }
 
   /* ──────────────────────────────────────────────────────────────────────
@@ -167,6 +172,11 @@
 
     --color-success: 121 166 148;
     --color-warning: 214 184 122;
+    --color-info: 155 182 189;
+    --color-activity: 121 166 148;
+    --color-nutrition: 214 184 122;
+    --color-recovery: 155 182 189;
+    --color-mobility: 196 146 158;
   }
 }
 

@@ -66,7 +66,7 @@ export const Tabs: React.FC<TabsProps> = ({
       case 'bordered':
         return `${baseClasses} border-2 rounded-lg ${
           isActive
-            ? 'border-primary text-primary bg-pierre-violet/5'
+            ? 'border-primary text-primary bg-primary/5'
             : 'border-transparent text-on-surface-variant hover:ghost-border hover:text-on-surface'
         }`;
 
@@ -75,7 +75,7 @@ export const Tabs: React.FC<TabsProps> = ({
         return `${baseClasses} border-b-2 ${
           isActive
             ? 'border-primary text-primary'
-            : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-zinc-600'
+            : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline-variant'
         }`;
     }
   };
@@ -112,7 +112,7 @@ export const Tabs: React.FC<TabsProps> = ({
                   tab.id === activeTab
                     ? variant === 'pills'
                       ? 'bg-surface-container-highest text-on-surface'
-                      : 'bg-pierre-violet/10 text-pierre-violet-light'
+                      : 'bg-primary/10 text-primary'
                     : 'bg-surface-container-high text-on-surface-variant'
                 }
               `}

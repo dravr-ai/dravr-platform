@@ -288,7 +288,10 @@ export default function SciotteLoginModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0">
+            {/* Strava orange, not a Boreal token. This is a third-party brand
+                mark next to Strava's own logo path — recolouring it to
+                `warning` would misrepresent the provider being connected. */}
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-warning to-warning flex items-center justify-center flex-shrink-0">
               <svg className="w-4 h-4 text-on-surface" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
               </svg>
@@ -430,7 +433,7 @@ export default function SciotteLoginModal({
                     </button>
                   </div>
                 </div>
-                <button type="submit" disabled={isLoading || !email || !password} className="w-full py-3 bg-gradient-to-r from-pierre-nutrition to-orange-600 rounded-lg text-on-surface font-medium hover:shadow-lg hover:shadow-pierre-nutrition/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                <button type="submit" disabled={isLoading || !email || !password} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium hover:shadow-lg hover:shadow-nutrition/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                   {isLoading ? 'Logging in...' : 'Log In'}
                 </button>
               </form>
@@ -459,8 +462,8 @@ export default function SciotteLoginModal({
           {phase === 'two-factor' && (
             <div>
               <div className="text-center mb-4">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-amber-500/10 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-warning/10 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </div>
@@ -512,8 +515,8 @@ export default function SciotteLoginModal({
           {phase === 'otp' && (
             <div>
               <div className="text-center mb-4">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-amber-500/10 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-warning/10 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 </div>
@@ -522,7 +525,7 @@ export default function SciotteLoginModal({
               </div>
               <form onSubmit={handleOtpSubmit} className="space-y-4">
                 <input type="text" placeholder="Verification code" value={otpCode} onChange={(e) => setOtpCode(e.target.value)} className="input-glass w-full text-center text-lg tracking-widest" required autoFocus autoComplete="one-time-code" inputMode="numeric" />
-                <button type="submit" disabled={isLoading || !otpCode} className="w-full py-3 bg-gradient-to-r from-pierre-nutrition to-orange-600 rounded-lg text-on-surface font-medium hover:shadow-lg hover:shadow-pierre-nutrition/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                <button type="submit" disabled={isLoading || !otpCode} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium hover:shadow-lg hover:shadow-nutrition/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                   Verify
                 </button>
               </form>
@@ -533,10 +536,10 @@ export default function SciotteLoginModal({
           {phase === 'success' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-activity/10 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-pierre-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-activity/10 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
-                <p className="text-pierre-activity text-lg font-medium">Connected!</p>
+                <p className="text-activity text-lg font-medium">Connected!</p>
                 <p className="text-on-surface/50 text-sm mt-1">Your {providerLabel} data is now available</p>
               </div>
             </div>
@@ -546,10 +549,10 @@ export default function SciotteLoginModal({
           {phase === 'error' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/10 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
                 </div>
-                <p className="text-red-400 text-lg font-medium mb-2">Login Failed</p>
+                <p className="text-error text-lg font-medium mb-2">Login Failed</p>
                 <p className="text-on-surface/50 text-sm max-w-sm mb-4">{error}</p>
                 <button onClick={() => { setPhase(target === 'garmin' ? 'credentials' : 'choose'); setError(null); }} className="px-4 py-2 bg-surface-container-high border ghost-border hover:bg-surface-container-highest hover:border-white/30 rounded-lg text-on-surface text-sm transition-all">
                   Try Again

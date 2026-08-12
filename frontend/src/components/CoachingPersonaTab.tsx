@@ -138,8 +138,8 @@ export default function CoachingPersonaTab() {
               disabled={mutation.isPending}
               className={`text-left p-4 rounded-xl border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary ${
                 isSelected
-                  ? 'border-primary bg-pierre-violet/10 ring-1 ring-pierre-violet/40'
-                  : 'border-zinc-700/60 bg-surface-container-low hover:border-zinc-500'
+                  ? 'border-primary bg-primary/10 ring-1 ring-primary/40'
+                  : 'border-outline-variant/60 bg-surface-container-low hover:border-outline-variant'
               } ${mutation.isPending ? 'opacity-70 cursor-wait' : ''}`}
             >
               <div className="flex items-center justify-between gap-3 mb-2">
@@ -150,7 +150,7 @@ export default function CoachingPersonaTab() {
                   </span>
                 )}
               </div>
-              <p className="text-sm text-pierre-violet/90 mb-2">{option.tagline}</p>
+              <p className="text-sm text-primary/90 mb-2">{option.tagline}</p>
               <p className="text-sm text-on-surface-variant mb-3 leading-relaxed">
                 {option.description}
               </p>
@@ -160,7 +160,7 @@ export default function CoachingPersonaTab() {
                     key={bullet}
                     className="text-xs text-on-surface-variant/90 flex items-start gap-2"
                   >
-                    <span className="text-pierre-violet/70 mt-0.5">›</span>
+                    <span className="text-primary/70 mt-0.5">›</span>
                     <span>{bullet}</span>
                   </li>
                 ))}
@@ -176,8 +176,8 @@ export default function CoachingPersonaTab() {
           data-testid="persona-status"
           className={`mt-4 p-3 rounded-lg text-sm ${
             message.type === 'success'
-              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-              : 'bg-red-500/10 text-red-400 border border-red-500/20'
+              ? 'bg-success/10 text-success border border-success/20'
+              : 'bg-error/10 text-error border border-error/20'
           }`}
         >
           {message.text}

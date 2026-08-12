@@ -39,7 +39,7 @@ const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }
 // Default style for unknown providers
 const DEFAULT_STYLE = {
   brandColor: 'bg-surface-container-low0',
-  hoverColor: 'hover:border-pierre-gray-500',
+  hoverColor: 'hover:border-on-surface-variant',
 };
 
 // Get description based on capabilities
@@ -317,7 +317,7 @@ export default function ProviderConnectionCards({
             type="button"
             onClick={() => handleConnect(provider)}
             disabled={provider.connected || isConnecting || !!connectingProvider}
-            className="w-full text-left focus:outline-none focus:ring-2 focus:ring-pierre-violet/50 rounded-xl disabled:cursor-default group"
+            className="w-full text-left focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl disabled:cursor-default group"
             aria-label={
               provider.connected
                 ? `${provider.display_name} is connected`
@@ -330,7 +330,7 @@ export default function ProviderConnectionCards({
               variant="dark"
               className={`px-5 py-4 transition-all duration-200 border ${
                 provider.connected
-                  ? 'border-emerald-500/40'
+                  ? 'border-success/40'
                   : isConnecting
                     ? 'border-primary'
                     : isNonOAuth
@@ -393,7 +393,7 @@ export default function ProviderConnectionCards({
           type="button"
           onClick={onSkip}
           disabled={isSkipPending}
-          className="w-full text-left focus:outline-none focus:ring-2 focus:ring-pierre-violet/50 rounded-xl group"
+          className="w-full text-left focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl group"
           aria-label="Skip and start chatting"
         >
           <Card

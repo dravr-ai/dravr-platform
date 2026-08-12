@@ -12,37 +12,44 @@
    config so a single `.dark` toggle flips every surface in the app.
    ========================================================================== */
 :root {
-  --color-primary: #00241a;
-  --color-on-primary: #ffffff;
-  --color-primary-container: #0d3b2e;
-  --color-on-primary-container: #79a694;
-  --color-primary-fixed-dim: #a3d0be;
+  --color-primary: 0 36 26;
+  --color-on-primary: 255 255 255;
+  --color-primary-container: 13 59 46;
+  --color-on-primary-container: 121 166 148;
+  --color-primary-fixed-dim: 163 208 190;
 
-  --color-tertiary: #03231d;
-  --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #1b3932;
-  --color-on-tertiary-container: #83a399;
+  --color-tertiary: 3 35 29;
+  --color-on-tertiary: 255 255 255;
+  --color-tertiary-container: 27 57 50;
+  --color-on-tertiary-container: 131 163 153;
 
-  --color-error: #ba1a1a;
-  --color-on-error: #ffffff;
-  --color-error-container: #ffdad6;
-  --color-on-error-container: #93000a;
+  --color-error: 186 26 26;
+  --color-on-error: 255 255 255;
+  --color-error-container: 255 218 214;
+  --color-on-error-container: 147 0 10;
+  --color-success: 46 125 91;
+  --color-warning: 176 131 38;
+  --color-info: 62 114 131;
+  --color-activity: 15 125 104;
+  --color-nutrition: 176 131 38;
+  --color-recovery: 62 114 131;
+  --color-mobility: 155 70 102;
 
-  --color-surface: #f9f9f6;
-  --color-surface-dim: #dadad7;
-  --color-surface-bright: #f9f9f6;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f4f4f1;
-  --color-surface-container: #eeeeeb;
-  --color-surface-container-high: #e8e8e5;
-  --color-surface-container-highest: #e2e3e0;
-  --color-surface-variant: #e2e3e0;
-  --color-surface-tint: #3c6658;
-  --color-on-surface: #1a1c1b;
-  --color-on-surface-variant: #414845;
+  --color-surface: 249 249 246;
+  --color-surface-dim: 218 218 215;
+  --color-surface-bright: 249 249 246;
+  --color-surface-container-lowest: 255 255 255;
+  --color-surface-container-low: 244 244 241;
+  --color-surface-container: 238 238 235;
+  --color-surface-container-high: 232 232 229;
+  --color-surface-container-highest: 226 227 224;
+  --color-surface-variant: 226 227 224;
+  --color-surface-tint: 60 102 88;
+  --color-on-surface: 26 28 27;
+  --color-on-surface-variant: 65 72 69;
 
-  --color-outline: #717974;
-  --color-outline-variant: #c0c8c3;
+  --color-outline: 113 121 116;
+  --color-outline-variant: 192 200 195;
 
   /* Ghost border — visible enough to anchor cards on the light canvas
      without becoming a hard rule. 0.40 is the product-tier baseline; the
@@ -60,37 +67,44 @@
 }
 
 html.dark {
-  --color-primary: #a3d0be;
-  --color-on-primary: #002117;
-  --color-primary-container: #234e40;
-  --color-on-primary-container: #beedd9;
-  --color-primary-fixed-dim: #a3d0be;
+  --color-primary: 163 208 190;
+  --color-on-primary: 0 33 23;
+  --color-primary-container: 35 78 64;
+  --color-on-primary-container: 190 237 217;
+  --color-primary-fixed-dim: 163 208 190;
 
-  --color-tertiary: #adcdc3;
-  --color-on-tertiary: #01201a;
-  --color-tertiary-container: #2f4c45;
-  --color-on-tertiary-container: #c8eadf;
+  --color-tertiary: 173 205 195;
+  --color-on-tertiary: 1 32 26;
+  --color-tertiary-container: 47 76 69;
+  --color-on-tertiary-container: 200 234 223;
 
-  --color-error: #ffb4ab;
-  --color-on-error: #690005;
-  --color-error-container: #93000a;
-  --color-on-error-container: #ffdad6;
+  --color-error: 255 180 171;
+  --color-on-error: 105 0 5;
+  --color-error-container: 147 0 10;
+  --color-on-error-container: 255 218 214;
+  --color-success: 121 166 148;
+  --color-warning: 214 184 122;
+  --color-info: 155 182 189;
+  --color-activity: 121 166 148;
+  --color-nutrition: 214 184 122;
+  --color-recovery: 155 182 189;
+  --color-mobility: 196 146 158;
 
-  --color-surface: #11130f;
-  --color-surface-dim: #11130f;
-  --color-surface-bright: #363a35;
-  --color-surface-container-lowest: #0b0e0b;
-  --color-surface-container-low: #191c19;
-  --color-surface-container: #1d201d;
-  --color-surface-container-high: #272b27;
-  --color-surface-container-highest: #323532;
-  --color-surface-variant: #414845;
-  --color-surface-tint: #a3d0be;
-  --color-on-surface: #e1e3de;
-  --color-on-surface-variant: #c0c8c3;
+  --color-surface: 17 19 15;
+  --color-surface-dim: 17 19 15;
+  --color-surface-bright: 54 58 53;
+  --color-surface-container-lowest: 11 14 11;
+  --color-surface-container-low: 25 28 25;
+  --color-surface-container: 29 32 29;
+  --color-surface-container-high: 39 43 39;
+  --color-surface-container-highest: 50 53 50;
+  --color-surface-variant: 65 72 69;
+  --color-surface-tint: 163 208 190;
+  --color-on-surface: 225 227 222;
+  --color-on-surface-variant: 192 200 195;
 
-  --color-outline: #8a9389;
-  --color-outline-variant: #414845;
+  --color-outline: 138 147 137;
+  --color-outline-variant: 65 72 69;
 
   /* Dark canvas needs more shadow opacity to read elevation against near-black. */
   --ghost-border: rgba(192, 200, 195, 0.22);
@@ -104,8 +118,8 @@ html.dark {
 @layer base {
   html {
     font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    background-color: var(--color-surface);
-    color: var(--color-on-surface);
+    background-color: rgb(var(--color-surface));
+    color: rgb(var(--color-on-surface));
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     color-scheme: light;
@@ -211,15 +225,15 @@ html.dark {
   /* Pillar-flavored buttons map to their retuned pillar color. Used sparingly
      for fitness data CTAs; default CTA is always btn-primary. */
   .btn-activity {
-    @apply btn-base bg-pierre-activity text-on-primary hover:opacity-90;
+    @apply btn-base bg-activity text-on-primary hover:opacity-90;
   }
 
   .btn-nutrition {
-    @apply btn-base bg-pierre-nutrition text-on-primary hover:opacity-90;
+    @apply btn-base bg-nutrition text-on-primary hover:opacity-90;
   }
 
   .btn-recovery {
-    @apply btn-base bg-pierre-recovery text-on-primary hover:opacity-90;
+    @apply btn-base bg-recovery text-on-primary hover:opacity-90;
   }
 
   .btn-sm {
@@ -373,9 +387,9 @@ html.dark {
   .input-glass:-webkit-autofill:hover,
   .input-glass:-webkit-autofill:focus,
   .input-glass:-webkit-autofill:active {
-    -webkit-text-fill-color: var(--color-on-surface) !important;
+    -webkit-text-fill-color: rgb(var(--color-on-surface)) !important;
     -webkit-box-shadow: 0 0 0 1000px rgba(40, 42, 41, 1) inset !important;
-    caret-color: var(--color-on-surface) !important;
+    caret-color: rgb(var(--color-on-surface)) !important;
     transition: background-color 9999s ease-in-out 0s;
   }
 
@@ -520,13 +534,13 @@ html.dark {
      any surface tone (light card, dark card, photographic background). */
   .focus-ring:focus {
     box-shadow:
-      0 0 0 2px var(--color-primary),
+      0 0 0 2px rgb(var(--color-primary)),
       0 0 0 4px rgba(255, 255, 255, 0.95);
   }
 
   html.dark .focus-ring:focus {
     box-shadow:
-      0 0 0 2px var(--color-primary),
+      0 0 0 2px rgb(var(--color-primary)),
       0 0 0 4px rgba(0, 0, 0, 0.85);
   }
 
@@ -667,9 +681,10 @@ html.dark {
   }
 
   /* ==========================================================================
-     Admin surfaces — card-admin / stat-card-dark / input-dark / select-dark /
-     table-dark / badge-dark-*. Rebuilt on the light palette — the "dark"
-     suffix is legacy; the system is light.
+     Admin surfaces — card-admin / stat-card-dark / table-dark / badge-dark-*.
+     Rebuilt on the light palette — the "dark" suffix is legacy; the system is
+     light. Form fields are NOT here: they come from the ui/ primitives, which
+     own the editorial underline of DESIGN.md §5.
      ========================================================================== */
 
   .card-admin {
@@ -687,19 +702,6 @@ html.dark {
   .stat-card-dark:hover {
     transform: translateY(-1px);
     box-shadow: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
-  }
-
-  .input-dark,
-  .select-dark {
-    @apply input-field;
-  }
-
-  .select-dark {
-    padding-right: 2.5rem;
-    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23717974' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-    background-position: right 0.5rem center;
-    background-repeat: no-repeat;
-    background-size: 1.5em 1.5em;
   }
 
   .badge-dark,
@@ -771,10 +773,29 @@ html.dark {
   }
 
   .boreal-underline-input:focus {
-    border-bottom: 2px solid var(--color-primary) !important;
+    border-bottom: 2px solid rgb(var(--color-primary)) !important;
     box-shadow: none !important;
     outline: none !important;
     padding-bottom: calc(0.5rem - 1px);
+  }
+
+  /* The rules above carry !important to beat @tailwindcss/forms, which also
+     beats any inline style a component sets. The error underline therefore has
+     to be a class of its own — an inline borderBottom would never render. */
+  .boreal-underline-input--error {
+    border-bottom: 1px solid rgb(var(--color-error)) !important;
+  }
+
+  .boreal-underline-input--error:focus {
+    border-bottom: 2px solid rgb(var(--color-error)) !important;
+  }
+
+  /* The editorial underline has no enclosing box, so a native select's OS
+     dropdown list would inherit the transparent field background and render
+     unreadable. The list is painted from the surface tokens instead. */
+  .boreal-underline-input option {
+    background-color: rgb(var(--color-surface-container-low));
+    color: rgb(var(--color-on-surface));
   }
 
   /* Text glow for hero brand marks (matches website) */

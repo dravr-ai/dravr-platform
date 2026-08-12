@@ -24,12 +24,12 @@ interface SuggestionCardProps {
 }
 
 const INSIGHT_TYPE_CONFIG: Record<InsightType, { icon: string; color: string; label: string }> = {
-  achievement: { icon: '🏆', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', label: 'Achievement' },
-  milestone: { icon: '🚩', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', label: 'Milestone' },
+  achievement: { icon: '🏆', color: 'bg-success/20 text-success border-success/30', label: 'Achievement' },
+  milestone: { icon: '🚩', color: 'bg-warning/20 text-warning border-warning/30', label: 'Milestone' },
   training_tip: { icon: '⚡', color: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', label: 'Training Tip' },
   recovery: { icon: '🌙', color: 'bg-violet-500/20 text-violet-400 border-violet-500/30', label: 'Recovery' },
-  motivation: { icon: '☀️', color: 'bg-orange-500/20 text-orange-400 border-orange-500/30', label: 'Motivation' },
-  coaching_insight: { icon: '🎯', color: 'bg-pierre-violet/20 text-pierre-violet-light border-pierre-violet/30', label: 'Coaching Insight' },
+  motivation: { icon: '☀️', color: 'bg-warning/20 text-warning border-warning/30', label: 'Motivation' },
+  coaching_insight: { icon: '🎯', color: 'bg-primary/20 text-primary border-primary/30', label: 'Coaching Insight' },
 };
 
 export default function SuggestionCard({ suggestion, onShare, isSelected = false }: SuggestionCardProps) {
@@ -37,9 +37,9 @@ export default function SuggestionCard({ suggestion, onShare, isSelected = false
   const relevancePercentage = Math.round(suggestion.relevance_score * 100);
 
   const getRelevanceColor = (percentage: number) => {
-    if (percentage >= 70) return 'bg-emerald-500/20 text-emerald-400';
-    if (percentage >= 40) return 'bg-amber-500/20 text-amber-400';
-    return 'bg-zinc-500/20 text-on-surface-variant';
+    if (percentage >= 70) return 'bg-success/20 text-success';
+    if (percentage >= 40) return 'bg-warning/20 text-warning';
+    return 'bg-surface-container-high/20 text-on-surface-variant';
   };
 
   return (
@@ -47,7 +47,7 @@ export default function SuggestionCard({ suggestion, onShare, isSelected = false
       className={clsx(
         'w-full text-left rounded-xl p-4 mb-3 transition-all',
         isSelected
-          ? 'bg-pierre-violet/20 border-2 border-primary'
+          ? 'bg-primary/20 border-2 border-primary'
           : 'bg-surface-container-low border ghost-border hover:bg-surface-container'
       )}
       onClick={() => onShare(suggestion)}

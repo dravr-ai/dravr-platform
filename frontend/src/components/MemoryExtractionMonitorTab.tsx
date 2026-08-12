@@ -114,11 +114,13 @@ function healthStatus(metrics: UserFactMetrics): {
   };
 }
 
+// A token tint tracks the theme on its own, so these no longer need a dark:
+// variant to restate the same intent in a second palette.
 const STATUS_CLASS: Record<ReturnType<typeof healthStatus>['variant'], string> = {
-  healthy: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
-  warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300',
-  idle: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
-  stalled: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+  healthy: 'bg-success/15 text-success',
+  warning: 'bg-warning/15 text-warning',
+  idle: 'bg-surface-container-high text-on-surface-variant',
+  stalled: 'bg-error/15 text-error',
 };
 
 export default function MemoryExtractionMonitorTab() {
@@ -153,7 +155,7 @@ export default function MemoryExtractionMonitorTab() {
   if (!tenantId) {
     return (
       <Card className="p-6">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-on-surface-variant">
           Tenant id not available on your session. Reload the page and try again.
         </p>
       </Card>
@@ -165,12 +167,12 @@ export default function MemoryExtractionMonitorTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
+            <h2 className="text-xl font-semibold text-on-surface">
               Memory extraction worker
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-on-surface-variant">
               Health of the fire-and-forget extraction pipeline derived from the{' '}
-              <code className="rounded bg-gray-100 px-1 py-0.5 text-xs dark:bg-gray-800">
+              <code className="rounded bg-surface-container px-1 py-0.5 text-xs">
                 user_facts
               </code>{' '}
               table. When the 24-hour counter sits at zero despite active
@@ -191,7 +193,7 @@ export default function MemoryExtractionMonitorTab() {
         </Card>
       ) : isError ? (
         <Card className="p-6">
-          <p className="text-sm text-red-600 dark:text-red-400">
+          <p className="text-sm text-error">
             Failed to load memory worker metrics:{' '}
             {error instanceof Error ? error.message : String(error)}
           </p>
@@ -209,14 +211,14 @@ export default function MemoryExtractionMonitorTab() {
                     >
                       {status.label}
                     </span>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">{status.message}</p>
+                    <p className="text-sm text-on-surface-variant">{status.message}</p>
                   </div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                  <div className="text-sm text-on-surface-variant">
                     Last activity{' '}
-                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                    <span className="font-medium text-on-surface">
                       {relativeFromNow(metrics.newest_updated_at)}
                     </span>
-                    <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                    <span className="ml-2 text-xs text-outline">
                       ({formatTimestamp(metrics.newest_updated_at)})
                     </span>
                   </div>
@@ -227,74 +229,74 @@ export default function MemoryExtractionMonitorTab() {
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Card className="p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
                 Total facts
               </div>
-              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-on-surface">
+              <div className="mt-1 text-3xl font-semibold text-on-surface">
                 {metrics.total_facts.toLocaleString()}
               </div>
             </Card>
             <Card className="p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
                 Last 24 hours
               </div>
-              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-on-surface">
+              <div className="mt-1 text-3xl font-semibold text-on-surface">
                 {metrics.facts_last_24h.toLocaleString()}
               </div>
             </Card>
             <Card className="p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
                 Last 7 days
               </div>
-              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-on-surface">
+              <div className="mt-1 text-3xl font-semibold text-on-surface">
                 {metrics.facts_last_7d.toLocaleString()}
               </div>
             </Card>
             <Card className="p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
                 Distinct users
               </div>
-              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-on-surface">
+              <div className="mt-1 text-3xl font-semibold text-on-surface">
                 {metrics.distinct_users.toLocaleString()}
               </div>
             </Card>
           </div>
 
           <Card className="overflow-hidden">
-            <div className="border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+            <div className="border-b border-outline-variant px-6 py-3">
+              <h3 className="text-sm font-semibold text-on-surface">
                 Breakdown by fact kind
               </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-on-surface-variant">
                 Extraction distribution across semantic categories — heavy skew toward{' '}
-                <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">other</code> usually
+                <code className="rounded bg-surface-container px-1">other</code> usually
                 means the extractor prompt needs tuning.
               </p>
             </div>
             {kindRows.length === 0 ? (
-              <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
+              <div className="p-6 text-sm text-on-surface-variant">
                 No facts stored yet.
               </div>
             ) : (
-              <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+              <ul className="divide-y divide-outline-variant">
                 {kindRows.map((row) => {
                   const pct = row.pct;
                   return (
                     <li key={row.kind} className="flex items-center gap-4 px-6 py-3">
-                      <div className="w-32 text-sm font-medium text-gray-900 dark:text-gray-100">
+                      <div className="w-32 text-sm font-medium text-on-surface">
                         {humanizeKind(row.kind)}
                       </div>
                       <div className="flex-1">
-                        <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                        <div className="h-2 overflow-hidden rounded-full bg-surface-container">
                           <div
                             className="h-full bg-primary"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
                       </div>
-                      <div className="w-24 text-right text-sm text-gray-600 dark:text-gray-300">
+                      <div className="w-24 text-right text-sm text-on-surface-variant">
                         {row.count.toLocaleString()}{' '}
-                        <span className="text-xs text-gray-400 dark:text-gray-500">({pct}%)</span>
+                        <span className="text-xs text-outline">({pct}%)</span>
                       </div>
                     </li>
                   );

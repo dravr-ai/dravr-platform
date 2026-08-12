@@ -92,12 +92,12 @@ export default function CoachStoreManagement() {
           className={clsx(
             'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
             activeTab === 'review'
-              ? 'border-pierre-violet/50 ring-1 ring-pierre-violet/30'
-              : 'ghost-border hover:border-pierre-violet/30'
+              ? 'border-primary/50 ring-1 ring-primary/30'
+              : 'ghost-border hover:border-primary/30'
           )}
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-lg bg-pierre-violet/20 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
               <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -124,13 +124,13 @@ export default function CoachStoreManagement() {
           className={clsx(
             'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
             activeTab === 'published'
-              ? 'border-pierre-activity/50 ring-1 ring-pierre-activity/30'
-              : 'ghost-border hover:border-pierre-activity/30'
+              ? 'border-activity/50 ring-1 ring-activity/30'
+              : 'ghost-border hover:border-activity/30'
           )}
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-lg bg-pierre-activity/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-pierre-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 rounded-lg bg-activity/20 flex items-center justify-center">
+              <svg className="w-5 h-5 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -157,7 +157,7 @@ export default function CoachStoreManagement() {
         {/* Total Installs */}
         <div className="bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-lg bg-pierre-cyan/20 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg bg-primary-container/20 flex items-center justify-center">
               <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
@@ -179,13 +179,13 @@ export default function CoachStoreManagement() {
           className={clsx(
             'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
             activeTab === 'rejected'
-              ? 'border-pierre-nutrition/50 ring-1 ring-pierre-nutrition/30'
-              : 'ghost-border hover:border-pierre-nutrition/30'
+              ? 'border-nutrition/50 ring-1 ring-nutrition/30'
+              : 'ghost-border hover:border-nutrition/30'
           )}
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-lg bg-pierre-nutrition/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-pierre-nutrition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 rounded-lg bg-nutrition/20 flex items-center justify-center">
+              <svg className="w-5 h-5 text-nutrition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
@@ -211,14 +211,14 @@ export default function CoachStoreManagement() {
               className={clsx(
                 'flex items-center gap-2 px-1 py-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === tab.id
-                  ? 'border-primary text-pierre-violet-light'
+                  ? 'border-primary text-primary'
                   : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-white/30'
               )}
             >
               {tab.icon}
               {tab.name}
               {tab.id === 'review' && (stats?.pending_count ?? 0) > 0 && (
-                <span className="bg-pierre-violet/20 text-pierre-violet-light text-xs font-bold px-2 py-0.5 rounded-full">
+                <span className="bg-primary/20 text-primary text-xs font-bold px-2 py-0.5 rounded-full">
                   {stats?.pending_count}
                 </span>
               )}

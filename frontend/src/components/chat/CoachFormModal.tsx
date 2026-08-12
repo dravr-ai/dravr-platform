@@ -5,6 +5,7 @@
 // ABOUTME: Includes form fields for title, description, system prompt, and category
 
 import type { CoachFormData } from './types';
+import { Select, Textarea, Radio } from '../ui';
 
 interface CoachFormModalProps {
   isOpen: boolean;
@@ -57,7 +58,7 @@ export default function CoachFormModal({
           </button>
 
           <div className="text-center mb-6">
-            <div className="w-12 h-12 bg-pierre-violet/10 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
@@ -100,58 +101,46 @@ export default function CoachFormModal({
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1">
-                System Prompt
-              </label>
-              <textarea
-                placeholder="Define your coach's personality, expertise, and communication style..."
-                value={formData.system_prompt}
-                onChange={(e) => onFormDataChange({ ...formData, system_prompt: e.target.value })}
-                rows={4}
-                className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
-                required
-              />
-              {formData.system_prompt && (
-                <p className="text-xs text-on-surface-variant mt-1">
-                  ~{Math.ceil(formData.system_prompt.length / 4)} tokens ({((Math.ceil(formData.system_prompt.length / 4) / 128000) * 100).toFixed(1)}% of context)
-                </p>
-              )}
-            </div>
+            <Textarea
+              label="System Prompt"
+              placeholder="Define your coach's personality, expertise, and communication style..."
+              value={formData.system_prompt}
+              onChange={(e) => onFormDataChange({ ...formData, system_prompt: e.target.value })}
+              rows={4}
+              required
+              helpText={
+                formData.system_prompt
+                  ? `~${Math.ceil(formData.system_prompt.length / 4)} tokens (${((Math.ceil(formData.system_prompt.length / 4) / 128000) * 100).toFixed(1)}% of context)`
+                  : undefined
+              }
+            />
 
-            <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1">
-                Category
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) => onFormDataChange({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface"
-              >
-                <option value="Training">Training</option>
-                <option value="Nutrition">Nutrition</option>
-                <option value="Recovery">Recovery</option>
-                <option value="Recipes">Recipes</option>
-                <option value="Mobility">Mobility</option>
-                <option value="Analysis">Analysis</option>
-                <option value="Custom">Custom</option>
-              </select>
-            </div>
+            <Select
+              label="Category"
+              value={formData.category}
+              onChange={(e) => onFormDataChange({ ...formData, category: e.target.value })}
+              options={[
+                { value: 'Training', label: 'Training' },
+                { value: 'Nutrition', label: 'Nutrition' },
+                { value: 'Recovery', label: 'Recovery' },
+                { value: 'Recipes', label: 'Recipes' },
+                { value: 'Mobility', label: 'Mobility' },
+                { value: 'Analysis', label: 'Analysis' },
+                { value: 'Custom', label: 'Custom' },
+              ]}
+            />
 
             {/* Data Context Section */}
             <div className="border-t ghost-border pt-4">
               <h3 className="text-sm font-medium text-on-surface-variant mb-3">Data Context</h3>
 
               <div className="mb-3">
-                <label className="block text-sm font-medium text-on-surface-variant mb-1">
-                  Startup Query <span className="text-on-surface-variant">(optional)</span>
-                </label>
-                <textarea
+                <Textarea
+                  label="Startup Query (optional)"
                   placeholder="What should the coach analyze on first message? e.g., Analyze my training load and identify trends"
                   value={formData.startup_query}
                   onChange={(e) => onFormDataChange({ ...formData, startup_query: e.target.value })}
                   rows={2}
-                  className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                 />
               </div>
 
@@ -166,7 +155,7 @@ export default function CoachFormModal({
               </label>
 
               {formData.prefetch_enabled && (
-                <div className="space-y-3 pl-6 border-l-2 border-pierre-violet/20">
+                <div className="space-y-3 pl-6 border-l-2 border-primary/20">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-on-surface-variant mb-1">Activity count</label>
@@ -179,20 +168,19 @@ export default function CoachFormModal({
                         className="w-full px-2 py-1.5 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-on-surface-variant mb-1">Time frame</label>
-                      <select
-                        value={formData.time_frame}
-                        onChange={(e) => onFormDataChange({ ...formData, time_frame: e.target.value })}
-                        className="w-full px-2 py-1.5 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-surface"
-                      >
-                        <option value="3w">3 weeks</option>
-                        <option value="8w">8 weeks</option>
-                        <option value="12w">12 weeks</option>
-                        <option value="16w">16 weeks</option>
-                        <option value="6m">6 months</option>
-                      </select>
-                    </div>
+                    <Select
+                      label="Time frame"
+                      size="sm"
+                      value={formData.time_frame}
+                      onChange={(e) => onFormDataChange({ ...formData, time_frame: e.target.value })}
+                      options={[
+                        { value: '3w', label: '3 weeks' },
+                        { value: '8w', label: '8 weeks' },
+                        { value: '12w', label: '12 weeks' },
+                        { value: '16w', label: '16 weeks' },
+                        { value: '6m', label: '6 months' },
+                      ]}
+                    />
                   </div>
 
                   <div>
@@ -215,7 +203,7 @@ export default function CoachFormModal({
                             className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
                               isSelected
                                 ? 'bg-primary text-on-primary border-primary'
-                                : 'bg-surface text-on-surface-variant ghost-border hover:border-pierre-violet/50'
+                                : 'bg-surface text-on-surface-variant ghost-border hover:border-primary/50'
                             }`}
                           >
                             {sport}
@@ -226,26 +214,18 @@ export default function CoachFormModal({
                   </div>
 
                   <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="detail_mode"
-                        checked={formData.detail_mode === 'summary'}
-                        onChange={() => onFormDataChange({ ...formData, detail_mode: 'summary' })}
-                        className="text-primary focus:ring-primary"
-                      />
-                      <span className="text-xs text-on-surface-variant">Summary</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="detail_mode"
-                        checked={formData.detail_mode === 'detailed'}
-                        onChange={() => onFormDataChange({ ...formData, detail_mode: 'detailed' })}
-                        className="text-primary focus:ring-primary"
-                      />
-                      <span className="text-xs text-on-surface-variant">Detailed (laps, splits)</span>
-                    </label>
+                    <Radio
+                      name="detail_mode"
+                      label="Summary"
+                      checked={formData.detail_mode === 'summary'}
+                      onChange={() => onFormDataChange({ ...formData, detail_mode: 'summary' })}
+                    />
+                    <Radio
+                      name="detail_mode"
+                      label="Detailed (laps, splits)"
+                      checked={formData.detail_mode === 'detailed'}
+                      onChange={() => onFormDataChange({ ...formData, detail_mode: 'detailed' })}
+                    />
                   </div>
 
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -272,7 +252,7 @@ export default function CoachFormModal({
               <button
                 type="submit"
                 disabled={isSubmitting || !formData.title.trim() || !formData.system_prompt.trim()}
-                className="flex-1 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-pierre-violet/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isEditing
                   ? (isSubmitting ? 'Saving...' : 'Save Changes')
@@ -281,7 +261,7 @@ export default function CoachFormModal({
             </div>
 
             {submitError && (
-              <p className="text-xs text-pierre-red-500 text-center">
+              <p className="text-xs text-error text-center">
                 Failed to {isEditing ? 'update' : 'create'} coach. Please try again.
               </p>
             )}

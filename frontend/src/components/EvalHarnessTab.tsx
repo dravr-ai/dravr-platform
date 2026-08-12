@@ -14,7 +14,7 @@ import {
   type VerdictStatusBreakdown,
 } from '../services/api/admin';
 import { useAuth } from '../hooks/useAuth';
-import { Card, Button, Badge, ConfirmDialog } from './ui';
+import { Card, Button, Badge, ConfirmDialog, Textarea } from './ui';
 
 function totalAssertions(fixture: EvalFixtureSummary): number {
   return fixture.cases.reduce(
@@ -92,11 +92,11 @@ export default function EvalHarnessTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
+            <h2 className="text-xl font-semibold text-on-surface">
               Eval harness — golden fixtures
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Read-only browser over the <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">pierre-evals</code>{' '}
+            <p className="mt-1 text-sm text-on-surface-variant">
+              Read-only browser over the <code className="rounded bg-surface-container px-1">pierre-evals</code>{' '}
               golden fixture set used by the claim-verification evaluation harness.
               Live evaluation runs land in a follow-up sprint; for now
               this tab shows which scenarios ship with the release and
@@ -119,44 +119,44 @@ export default function EvalHarnessTab() {
         </div>
 
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Fixture files
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {data?.fixture_count ?? 0}
             </div>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Total cases
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {data?.case_total ?? 0}
             </div>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Distinct personas
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {personaCounts.size}
             </div>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Assertions
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {data?.fixtures.reduce((acc, f) => acc + totalAssertions(f), 0) ?? 0}
             </div>
           </div>
         </div>
 
         {data && (
-          <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
+          <p className="mt-4 text-xs text-outline">
             Scanned directory:{' '}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
+            <code className="rounded bg-surface-container px-1">
               {data.scanned_dir}
             </code>
           </p>
@@ -178,11 +178,11 @@ export default function EvalHarnessTab() {
         </Card>
       ) : isError ? (
         <Card className="p-6">
-          <p className="text-sm text-red-600 dark:text-red-400">
+          <p className="text-sm text-error">
             Failed to load eval fixtures:{' '}
             {error instanceof Error ? error.message : String(error)}
           </p>
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-2 text-xs text-on-surface-variant">
             Make sure the server was started with <code>tools-verification</code>{' '}
             enabled and <code>PIERRE_EVALS_FIXTURES_DIR</code> points at a
             valid directory.
@@ -190,12 +190,12 @@ export default function EvalHarnessTab() {
         </Card>
       ) : !data || data.fixtures.length === 0 ? (
         <Card className="p-12 text-center">
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="text-on-surface-variant">
             No fixture files found in the scanned directory.
           </p>
-          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+          <p className="mt-1 text-xs text-outline">
             Drop a <code>.jsonl</code> file into{' '}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
+            <code className="rounded bg-surface-container px-1">
               crates/pierre-evals/fixtures/
             </code>{' '}
             or point <code>PIERRE_EVALS_FIXTURES_DIR</code> elsewhere.
@@ -211,15 +211,15 @@ export default function EvalHarnessTab() {
                 onClick={() =>
                   setExpandedFixture(isExpanded ? null : fixture.name)
                 }
-                className="flex w-full items-center justify-between gap-4 border-b border-gray-200 px-6 py-3 text-left hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                className="flex w-full items-center justify-between gap-4 border-b border-outline-variant px-6 py-3 text-left hover:bg-surface-container dark:hover:bg-surface-container"
                 aria-expanded={isExpanded}
                 aria-label={`Toggle ${fixture.name} fixture`}
               >
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+                  <h3 className="text-sm font-semibold text-on-surface">
                     {fixture.name}
                   </h3>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 text-xs text-on-surface-variant">
                     {fixture.case_count} case
                     {fixture.case_count === 1 ? '' : 's'} ·{' '}
                     {totalAssertions(fixture)} assertion
@@ -236,7 +236,7 @@ export default function EvalHarnessTab() {
               </button>
               {isExpanded && (
                 <>
-                  <div className="flex items-center justify-end gap-2 border-b border-gray-200 px-6 py-2 dark:border-gray-700">
+                  <div className="flex items-center justify-end gap-2 border-b border-outline-variant px-6 py-2">
                     <Button
                       variant="secondary"
                       onClick={async () => {
@@ -267,37 +267,37 @@ export default function EvalHarnessTab() {
                       Delete
                     </Button>
                   </div>
-                  <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                  <div className="divide-y divide-outline-variant">
                     {fixture.cases.map((c) => (
                       <div
                         key={c.id}
                         className="flex items-center justify-between gap-4 px-6 py-3"
                       >
                         <div>
-                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          <p className="text-sm font-medium text-on-surface">
                             {c.label}
                           </p>
-                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <p className="mt-1 text-xs text-on-surface-variant">
                             <span className="font-mono">{c.id}</span> · persona{' '}
                             <span className="font-mono">{c.persona}</span>
                           </p>
                         </div>
                         <div className="flex items-center gap-3 text-right text-xs">
                           <div>
-                            <div className="text-gray-500 dark:text-gray-400">Turns</div>
-                            <div className="font-semibold text-gray-900 dark:text-on-surface">
+                            <div className="text-on-surface-variant">Turns</div>
+                            <div className="font-semibold text-on-surface">
                               {c.turn_count}
                             </div>
                           </div>
                           <div>
-                            <div className="text-gray-500 dark:text-gray-400">Must</div>
-                            <div className="font-semibold text-green-600 dark:text-green-400">
+                            <div className="text-on-surface-variant">Must</div>
+                            <div className="font-semibold text-success">
                               {c.must_contain_total}
                             </div>
                           </div>
                           <div>
-                            <div className="text-gray-500 dark:text-gray-400">Must not</div>
-                            <div className="font-semibold text-red-600 dark:text-red-400">
+                            <div className="text-on-surface-variant">Must not</div>
+                            <div className="font-semibold text-error">
                               {c.must_not_contain_total}
                             </div>
                           </div>
@@ -396,12 +396,12 @@ function FixtureEditorModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       data-testid="fixture-editor-modal"
     >
-      <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-900">
-        <div className="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+      <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl">
+        <div className="border-b border-outline-variant px-6 py-4">
+          <h3 className="text-lg font-semibold text-on-surface">
             {state.mode === 'create' ? 'New fixture' : `Edit ${state.name}`}
           </h3>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-xs text-on-surface-variant">
             One GoldenCase JSON object per line. Lines starting with{' '}
             <code>#</code> are comments.
           </p>
@@ -411,7 +411,7 @@ function FixtureEditorModal({
             <div>
               <label
                 htmlFor="fixture-editor-name"
-                className="block text-xs font-medium text-gray-700 dark:text-gray-300"
+                className="block text-xs font-medium text-on-surface-variant"
               >
                 Name
               </label>
@@ -422,35 +422,28 @@ function FixtureEditorModal({
                 onChange={(e) =>
                   onStateChange({ ...state, name: e.target.value, error: null })
                 }
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                className="mt-1 w-full rounded border border-outline-variant px-2 py-1 text-sm"
                 placeholder="injury_triage"
               />
             </div>
           )}
-          <div>
-            <label
-              htmlFor="fixture-editor-body"
-              className="block text-xs font-medium text-gray-700 dark:text-gray-300"
-            >
-              JSONL body
-            </label>
-            <textarea
-              id="fixture-editor-body"
-              value={state.body}
-              onChange={(e) =>
-                onStateChange({ ...state, body: e.target.value, error: null })
-              }
-              rows={14}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 font-mono text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-              data-testid="fixture-editor-body"
-              spellCheck={false}
-            />
-          </div>
+          <Textarea
+            id="fixture-editor-body"
+            label="JSONL body"
+            value={state.body}
+            onChange={(e) =>
+              onStateChange({ ...state, body: e.target.value, error: null })
+            }
+            rows={14}
+            className="font-mono !text-xs"
+            data-testid="fixture-editor-body"
+            spellCheck={false}
+          />
           {state.error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>
+            <p className="text-sm text-error">{state.error}</p>
           )}
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-gray-200 px-6 py-3 dark:border-gray-700">
+        <div className="flex items-center justify-end gap-2 border-t border-outline-variant px-6 py-3">
           <Button variant="secondary" onClick={onClose} disabled={isSaving}>
             Cancel
           </Button>
@@ -479,10 +472,10 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
   if (!hasTenant) {
     return (
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <h3 className="text-lg font-semibold text-on-surface">
           Verdict calibration
         </h3>
-        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+        <p className="mt-2 text-sm text-on-surface-variant">
           Log in as a tenant admin to load claim-verifier calibration stats.
         </p>
       </Card>
@@ -502,10 +495,10 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
   if (isError || !stats) {
     return (
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <h3 className="text-lg font-semibold text-on-surface">
           Verdict calibration
         </h3>
-        <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+        <p className="mt-2 text-sm text-error">
           Failed to load verdict calibration stats.
         </p>
       </Card>
@@ -525,25 +518,25 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
     <Card className="p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h3 className="text-lg font-semibold text-on-surface">
             Verdict calibration
           </h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-sm text-on-surface-variant">
             Claim-verifier verdict mix over the last {stats.window_days} days.
             Pass rate excludes rhetorical and unverifiable claims.
           </p>
         </div>
         <div className="text-right">
-          <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="text-xs uppercase tracking-wide text-on-surface-variant">
             Pass rate
           </div>
           <div
-            className="text-2xl font-semibold text-gray-900 dark:text-white"
+            className="text-2xl font-semibold text-on-surface"
             data-testid="calibration-pass-rate"
           >
             {passRateLabel}
           </div>
-          <div className="text-xs text-gray-400 dark:text-gray-500">
+          <div className="text-xs text-outline">
             {total} verdict{total === 1 ? '' : 's'}
           </div>
         </div>
@@ -558,12 +551,12 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
       </div>
 
       {stats.daily.length === 0 ? (
-        <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
+        <p className="mt-4 text-xs text-outline">
           No verdicts recorded in the selected window.
         </p>
       ) : (
         <div className="mt-5">
-          <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="text-xs uppercase tracking-wide text-on-surface-variant">
             Daily drift
           </div>
           <div
@@ -576,12 +569,12 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
               const height = maxDailyTotal === 0 ? 0 : (dayTotal / maxDailyTotal) * 100;
               const tone =
                 dayPass === null
-                  ? 'bg-gray-300 dark:bg-gray-600'
+                  ? 'bg-surface-container-high'
                   : dayPass >= 0.8
-                    ? 'bg-green-500'
+                    ? 'bg-success'
                     : dayPass >= 0.5
-                      ? 'bg-yellow-500'
-                      : 'bg-red-500';
+                      ? 'bg-warning'
+                      : 'bg-error';
               return (
                 <div
                   key={day.date}
@@ -598,7 +591,7 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
               );
             })}
           </div>
-          <div className="mt-1 flex justify-between text-[10px] text-gray-400 dark:text-gray-500">
+          <div className="mt-1 flex justify-between text-[10px] text-outline">
             <span>{stats.daily[0]?.date}</span>
             <span>{stats.daily[stats.daily.length - 1]?.date}</span>
           </div>
@@ -617,14 +610,14 @@ interface StatusPillProps {
 
 function StatusPill({ label, count, tone }: StatusPillProps) {
   const toneClasses: Record<StatusPillProps['tone'], string> = {
-    positive: 'text-green-700 dark:text-green-400 border-green-200 dark:border-green-800',
-    negative: 'text-red-700 dark:text-red-400 border-red-200 dark:border-red-800',
-    warning: 'text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800',
-    neutral: 'text-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-700',
+    positive: 'text-success border-success',
+    negative: 'text-error border-error',
+    warning: 'text-warning border-warning',
+    neutral: 'text-on-surface-variant border-outline-variant',
   };
   return (
     <div
-      className={`rounded-lg border bg-white px-3 py-2 dark:bg-gray-800 ${toneClasses[tone]}`}
+      className={`rounded-lg border bg-white px-3 py-2 ${toneClasses[tone]}`}
     >
       <div className="text-[10px] uppercase tracking-wide">{label}</div>
       <div className="text-lg font-semibold">{count}</div>

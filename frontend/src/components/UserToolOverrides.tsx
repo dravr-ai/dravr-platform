@@ -30,12 +30,12 @@ const SOURCE_BADGES: Record<UserToolSource, SourceBadgeSpec> = {
   },
   plan_restriction: {
     label: 'Plan Restricted',
-    classes: 'bg-amber-500/15 text-amber-600',
+    classes: 'bg-warning/15 text-warning',
     title: "Disabled because the tenant's plan does not meet this tool's minimum plan",
   },
   global_disabled: {
     label: 'Global Block',
-    classes: 'bg-red-500/15 text-red-500',
+    classes: 'bg-error/15 text-error',
     title: 'Disabled globally via PIERRE_DISABLED_TOOLS — cannot be enabled for any user',
   },
   tenant_override: {
@@ -45,7 +45,7 @@ const SOURCE_BADGES: Record<UserToolSource, SourceBadgeSpec> = {
   },
   default: {
     label: 'Default',
-    classes: 'bg-zinc-500/15 text-zinc-500',
+    classes: 'bg-surface-container-high/15 text-on-surface-variant',
     title: 'Catalog default — no override in effect',
   },
 };
@@ -234,7 +234,7 @@ export default function UserToolOverrides() {
           </div>
 
           {(setOverrideMutation.isError || removeOverrideMutation.isError) && (
-            <div className="p-3 bg-red-900/20 text-red-400 rounded-lg text-sm">
+            <div className="p-3 bg-error/20 text-error rounded-lg text-sm">
               Failed to update the tool override. Please try again.
             </div>
           )}
@@ -244,9 +244,9 @@ export default function UserToolOverrides() {
               <div className="pierre-spinner w-8 h-8" />
             </div>
           ) : toolsError ? (
-            <Card variant="dark" className="border-red-500/30">
+            <Card variant="dark" className="border-error/30">
               <div className="text-center py-8">
-                <p className="text-red-400">Failed to load tools for this user.</p>
+                <p className="text-error">Failed to load tools for this user.</p>
                 <p className="text-sm text-on-surface-variant mt-2">
                   Please check your permissions and try again.
                 </p>
@@ -285,7 +285,7 @@ export default function UserToolOverrides() {
                             onClick={() => handleToggleTool(tool)}
                             disabled={globallyDisabled || setOverrideMutation.isPending}
                             className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                              tool.is_enabled ? 'bg-green-500' : 'bg-zinc-600'
+                              tool.is_enabled ? 'bg-success' : 'bg-outline'
                             } ${globallyDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                             role="switch"
                             aria-checked={tool.is_enabled}

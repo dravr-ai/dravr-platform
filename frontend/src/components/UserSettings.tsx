@@ -11,7 +11,7 @@ import { useAuth } from '../hooks/useAuth';
 import { userApi, pierreApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import type { OAuthGrant } from '@pierre/shared-types';
-import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions } from './ui';
+import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select } from './ui';
 import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
@@ -73,11 +73,11 @@ function formatCompactNumber(value: number): string {
 
 /** Return Tailwind color class based on usage percentage: green < 70%, amber 70-90%, red > 90% */
 function getUsageBarColor(current: number, limit: number): string {
-  if (limit <= 0) return 'bg-pierre-activity';
+  if (limit <= 0) return 'bg-activity';
   const pct = (current / limit) * 100;
-  if (pct > 90) return 'bg-pierre-red-500';
-  if (pct > 70) return 'bg-pierre-nutrition';
-  return 'bg-pierre-activity';
+  if (pct > 90) return 'bg-error';
+  if (pct > 70) return 'bg-nutrition';
+  return 'bg-activity';
 }
 
 /** Format ISO 8601 reset time in user's local timezone */
@@ -695,8 +695,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   <div
                     className={`p-3 rounded-lg text-sm ${
                       message.type === 'success'
-                        ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
-                        : 'bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30'
+                        ? 'bg-activity/20 text-activity border border-activity/30'
+                        : 'bg-error/20 text-error border border-error/30'
                     }`}
                   >
                     {message.text}
@@ -727,7 +727,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               </div>
               <div className="stat-card-dark rounded-xl border ghost-border p-6">
                 <div className="text-center">
-                  <div className="text-3xl font-bold bg-gradient-to-r from-pierre-nutrition to-pierre-activity bg-clip-text text-transparent">
+                  <div className="text-3xl font-bold bg-gradient-to-r from-nutrition to-activity bg-clip-text text-transparent">
                     {statsLoading ? '...' : (stats?.days_active ?? 0)}
                   </div>
                   <div className="text-sm text-on-surface-variant mt-1">Days Active</div>
@@ -752,8 +752,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   className={clsx(
                     'p-3 rounded-lg text-sm mb-4',
                     providerMessage.type === 'success'
-                      ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
-                      : 'bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30'
+                      ? 'bg-activity/20 text-activity border border-activity/30'
+                      : 'bg-error/20 text-error border border-error/30'
                   )}
                 >
                   {providerMessage.text}
@@ -783,7 +783,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                         className={clsx(
                           'p-4 rounded-xl border transition-all',
                           provider.connected
-                            ? 'border-pierre-activity/30 bg-pierre-activity-light/10'
+                            ? 'border-activity/30 bg-activity/10'
                             : 'ghost-border bg-surface-container-low'
                         )}
                       >
@@ -824,7 +824,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   variant="secondary"
                                   size="sm"
                                   onClick={() => setProviderToDisconnect(provider.connectionProvider)}
-                                  className="text-red-400 hover:bg-red-500/20"
+                                  className="text-error hover:bg-error/20"
                                 >
                                   Disconnect
                                 </Button>
@@ -915,8 +915,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               <div
                 className={`p-3 rounded-lg text-sm mb-4 ${
                   credentialMessage.type === 'success'
-                    ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
-                    : 'bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30'
+                    ? 'bg-activity/20 text-activity border border-activity/30'
+                    : 'bg-error/20 text-error border border-error/30'
                 }`}
               >
                 {credentialMessage.text}
@@ -1016,8 +1016,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               {credentialMessage && (
                 <div className={`p-3 rounded-lg text-sm mb-4 ${
                   credentialMessage.type === 'success'
-                    ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
-                    : 'bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30'
+                    ? 'bg-activity/20 text-activity border border-activity/30'
+                    : 'bg-error/20 text-error border border-error/30'
                 }`}>
                   {credentialMessage.text}
                 </div>
@@ -1025,19 +1025,16 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-on-surface mb-2">Provider</label>
-                  <select
+                  <Select
+                    label="Provider"
                     value={selectedProvider}
                     onChange={(e) => setSelectedProvider(e.target.value)}
-                    className="select-dark w-full px-4 py-3 bg-[#f9f9f6] border ghost-border rounded-lg text-on-surface focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary transition-all"
-                  >
-                    <option value="">Select a provider</option>
-                    {availableProviders.map((provider) => (
-                      <option key={provider.id} value={provider.id}>
-                        {provider.name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Select a provider"
+                    options={availableProviders.map((provider) => ({
+                      value: provider.id,
+                      label: provider.name,
+                    }))}
+                  />
                 </div>
 
                 <Input
@@ -1074,9 +1071,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
           <>
             {/* Created Token Display */}
             {createdToken && (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-6">
+              <div className="bg-success/10 border border-success/30 rounded-lg p-6">
                 <div className="flex items-start gap-3">
-                  <svg className="w-6 h-6 text-emerald-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-6 h-6 text-success mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -1085,10 +1082,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     />
                   </svg>
                   <div className="flex-1">
-                    <h3 className="text-lg font-medium text-emerald-400">Token Created: {createdToken.name}</h3>
-                    <p className="text-emerald-400/80 mt-1 mb-3">Copy this token now. You won&apos;t be able to see it again!</p>
+                    <h3 className="text-lg font-medium text-success">Token Created: {createdToken.name}</h3>
+                    <p className="text-success/80 mt-1 mb-3">Copy this token now. You won&apos;t be able to see it again!</p>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 px-3 py-2 bg-surface-container-low border border-emerald-500/30 rounded font-mono text-sm break-all text-on-surface">
+                      <code className="flex-1 px-3 py-2 bg-surface-container-low border border-success/30 rounded font-mono text-sm break-all text-on-surface">
                         {createdToken.token_value}
                       </code>
                       <Button onClick={() => copyToClipboard(createdToken.token_value)} variant="secondary" size="sm">
@@ -1130,20 +1127,18 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                         onChange={(e) => setNewTokenName(e.target.value)}
                         placeholder="e.g., Claude Desktop, Cursor IDE"
                       />
-                      <div>
-                        <label className="block text-sm font-medium text-on-surface mb-1.5">Expires In (days)</label>
-                        <select
-                          value={expiresInDays || ''}
-                          onChange={(e) => setExpiresInDays(e.target.value ? Number(e.target.value) : undefined)}
-                          className="select-dark w-full px-4 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-on-surface text-sm focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary transition-all"
-                        >
-                          <option value="">Never expires</option>
-                          <option value="30">30 days</option>
-                          <option value="90">90 days</option>
-                          <option value="180">180 days</option>
-                          <option value="365">1 year</option>
-                        </select>
-                      </div>
+                      <Select
+                        label="Expires In (days)"
+                        value={expiresInDays || ''}
+                        onChange={(e) => setExpiresInDays(e.target.value ? Number(e.target.value) : undefined)}
+                        options={[
+                          { value: '', label: 'Never expires' },
+                          { value: '30', label: '30 days' },
+                          { value: '90', label: '90 days' },
+                          { value: '180', label: '180 days' },
+                          { value: '365', label: '1 year' },
+                        ]}
+                      />
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -1217,7 +1212,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                             onClick={() => setTokenToRevoke(token)}
                             disabled={revokeTokenMutation.isPending}
                             variant="secondary"
-                            className="text-red-400 hover:bg-red-500/20"
+                            className="text-error hover:bg-error/20"
                             size="sm"
                           >
                             Revoke
@@ -1333,7 +1328,7 @@ Authorization: Bearer <your-token-here>`}
             <div className="space-y-3">
               {/* Version */}
               <div className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border">
-                <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
                   <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -1351,7 +1346,7 @@ Authorization: Bearer <your-token-here>`}
                 rel="noopener noreferrer"
                 className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
               >
-                <div className="w-10 h-10 rounded-xl bg-pierre-cyan/15 flex items-center justify-center flex-shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-primary-container/15 flex items-center justify-center flex-shrink-0">
                   <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
                   </svg>
@@ -1372,8 +1367,8 @@ Authorization: Bearer <your-token-here>`}
                 rel="noopener noreferrer"
                 className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
               >
-                <div className="w-10 h-10 rounded-xl bg-pierre-activity/15 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-pierre-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-10 h-10 rounded-xl bg-activity/15 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </div>
@@ -1400,8 +1395,8 @@ Authorization: Bearer <your-token-here>`}
                   <span
                     className={`px-2 py-1 rounded-full text-xs font-medium ${
                       user?.user_status === 'active'
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : 'bg-amber-500/20 text-amber-400'
+                        ? 'bg-success/20 text-success'
+                        : 'bg-warning/20 text-warning'
                     }`}
                   >
                     {user?.user_status?.charAt(0).toUpperCase()}
@@ -1428,7 +1423,7 @@ Authorization: Bearer <your-token-here>`}
             {!isAdminUser && (
             <Card variant="dark">
               <div className="flex items-start gap-4 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
                   <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
@@ -1538,7 +1533,7 @@ Authorization: Bearer <your-token-here>`}
                   <div className="pierre-spinner w-6 h-6"></div>
                 </div>
               ) : connectedAppsError ? (
-                <div className="p-3 rounded-lg text-sm bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30">
+                <div className="p-3 rounded-lg text-sm bg-error/20 text-error border border-error/30">
                   {connectedAppsError instanceof Error
                     ? connectedAppsError.message
                     : 'Failed to load connected apps'}
@@ -1562,7 +1557,7 @@ Authorization: Bearer <your-token-here>`}
                         size="sm"
                         onClick={() => setAppToRevoke(app)}
                         disabled={revokeConnectedAppMutation.isPending}
-                        className="flex-shrink-0 text-red-400 hover:bg-red-500/20"
+                        className="flex-shrink-0 text-error hover:bg-error/20"
                       >
                         Revoke
                       </Button>
@@ -1576,10 +1571,10 @@ Authorization: Bearer <your-token-here>`}
               )}
             </Card>
 
-            <Card variant="dark" className="border-red-500/30">
-              <h2 className="text-lg font-semibold text-red-400 mb-4">Danger Zone</h2>
+            <Card variant="dark" className="border-error/30">
+              <h2 className="text-lg font-semibold text-error mb-4">Danger Zone</h2>
               <div className="space-y-4">
-                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                <div className="p-4 bg-error/10 border border-error/20 rounded-lg">
                   <h3 className="font-medium text-on-surface mb-2">Sign Out</h3>
                   <p className="text-sm text-on-surface-variant mb-3">Sign out of your account on this device.</p>
                   <Button variant="secondary" size="sm" onClick={logout}>
@@ -1634,8 +1629,8 @@ Authorization: Bearer <your-token-here>`}
             <div
               className={`p-3 rounded-lg text-sm ${
                 passwordMessage.type === 'success'
-                  ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
-                  : 'bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30'
+                  ? 'bg-activity/20 text-activity border border-activity/30'
+                  : 'bg-error/20 text-error border border-error/30'
               }`}
             >
               {passwordMessage.text}

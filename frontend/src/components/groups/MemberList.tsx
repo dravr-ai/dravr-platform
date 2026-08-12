@@ -25,9 +25,9 @@ type SortDirection = 'asc' | 'desc';
 const ROLE_ORDER: Record<GroupRole, number> = { owner: 0, admin: 1, member: 2 };
 
 const ROLE_BADGE: Record<GroupRole, { label: string; color: string; Icon: typeof Crown }> = {
-  owner: { label: 'Owner', color: 'bg-amber-500/20 text-amber-400', Icon: Crown },
-  admin: { label: 'Admin', color: 'bg-pierre-violet/20 text-pierre-violet-light', Icon: Shield },
-  member: { label: 'Member', color: 'bg-zinc-500/20 text-on-surface-variant', Icon: User },
+  owner: { label: 'Owner', color: 'bg-warning/20 text-warning', Icon: Crown },
+  admin: { label: 'Admin', color: 'bg-primary/20 text-primary', Icon: Shield },
+  member: { label: 'Member', color: 'bg-surface-container-high/20 text-on-surface-variant', Icon: User },
 };
 
 function formatDate(dateStr: string): string {
@@ -180,7 +180,7 @@ export default function MemberList({
                   key={member.id}
                   className={clsx(
                     'border-b ghost-border transition-colors',
-                    isSelf ? 'bg-pierre-violet/5' : 'hover:bg-surface-container-low'
+                    isSelf ? 'bg-primary/5' : 'hover:bg-surface-container-low'
                   )}
                 >
                   <td className="py-3 px-4">
@@ -207,7 +207,7 @@ export default function MemberList({
                   </td>
                   <td className="py-3 px-4">
                     {member.peer_sharing_consent ? (
-                      <span className="text-pierre-activity text-xs font-medium">Enabled</span>
+                      <span className="text-activity text-xs font-medium">Enabled</span>
                     ) : (
                       <span className="text-outline text-xs">Disabled</span>
                     )}

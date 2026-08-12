@@ -97,7 +97,7 @@ export default function BillingTab() {
           <Button
             onClick={() => handleExport('csv')}
             disabled={busy}
-            className="bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
+            className="bg-activity hover:bg-activity/80 text-on-primary"
           >
             {busy ? 'Exporting…' : 'Export CSV'}
           </Button>
@@ -111,7 +111,7 @@ export default function BillingTab() {
         </div>
 
         {error && (
-          <p className="mt-4 text-sm text-pierre-red-400">Error: {error}</p>
+          <p className="mt-4 text-sm text-error">Error: {error}</p>
         )}
       </Card>
     </div>

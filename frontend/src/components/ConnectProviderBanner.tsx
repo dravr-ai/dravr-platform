@@ -22,8 +22,8 @@ export function ConnectProviderBanner() {
     return null;
   }
   return (
-    <div className="mb-4 flex items-center gap-3 rounded-xl border border-pierre-violet/30 bg-pierre-violet/10 px-4 py-3">
-      <svg className="w-5 h-5 flex-shrink-0 text-pierre-violet-light" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div className="mb-4 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3">
+      <svg className="w-5 h-5 flex-shrink-0 text-primary" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
       </svg>
       <div className="flex-1 min-w-0">
@@ -37,7 +37,7 @@ export function ConnectProviderBanner() {
         onClick={() => {
           window.location.hash = 'data-providers';
         }}
-        className="flex-shrink-0 inline-flex items-center justify-center min-h-[44px] rounded-lg bg-gradient-to-r from-pierre-violet to-pierre-cyan px-4 text-sm font-medium text-white transition-shadow hover:shadow-md"
+        className="btn-base btn-primary flex-shrink-0 min-h-[44px] px-4 text-sm"
       >
         Connect
       </button>

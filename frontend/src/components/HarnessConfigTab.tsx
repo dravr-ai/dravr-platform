@@ -12,7 +12,7 @@ import {
   type HarnessConfigResponse,
   type LocaleGuardrails,
 } from '../services/api/admin';
-import { Card, Button, Badge } from './ui';
+import { Card, Button, Badge, Textarea, Input } from './ui';
 
 const HARNESS_CONFIG_QUERY_KEY = ['admin', 'harness-config'] as const;
 
@@ -227,7 +227,7 @@ export default function HarnessConfigTab() {
   if (isError) {
     return (
       <Card className="p-6">
-        <p className="text-sm text-red-600 dark:text-red-400">
+        <p className="text-sm text-error">
           Failed to load harness config: {error instanceof Error ? error.message : String(error)}
         </p>
       </Card>
@@ -239,10 +239,10 @@ export default function HarnessConfigTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
+            <h2 className="text-xl font-semibold text-on-surface">
               Coaching Harness Configuration
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-on-surface-variant">
               Tunables for conversation compaction and response text guardrails.
               Changes apply on the next coach turn.
             </p>
@@ -252,7 +252,7 @@ export default function HarnessConfigTab() {
               {data?.source === 'persisted' ? 'persisted' : 'using defaults'}
             </Badge>
             {savedAt ? (
-              <span className="text-xs text-gray-500 dark:text-gray-400">
+              <span className="text-xs text-on-surface-variant">
                 Saved {new Date(savedAt).toLocaleString()}
               </span>
             ) : null}
@@ -261,7 +261,7 @@ export default function HarnessConfigTab() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
           Conversation compaction
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -339,7 +339,7 @@ export default function HarnessConfigTab() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
           Response text guardrails
         </h3>
         <div className="space-y-4">
@@ -370,10 +370,10 @@ export default function HarnessConfigTab() {
           />
 
           <div>
-            <div className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div className="mb-2 text-sm font-medium text-on-surface-variant">
               Disclaimer triggers &amp; text — per locale
             </div>
-            <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mb-3 text-xs text-on-surface-variant">
               Triggers are matched against the assistant reply with Unicode word boundaries in
               the locale of the active conversation. Authoring per-locale prevents
               false-positives like the English word &ldquo;pain&rdquo; firing on the French
@@ -391,7 +391,7 @@ export default function HarnessConfigTab() {
                   className={`rounded px-3 py-1 text-xs font-medium ${
                     activeLocale === loc
                       ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                      : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high dark:hover:bg-surface-container'
                   }`}
                 >
                   {LOCALE_LABELS[loc] ?? loc}
@@ -410,11 +410,9 @@ export default function HarnessConfigTab() {
                 })
               }
             />
-            <label className="mt-3 block text-sm">
-              <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">
-                Disclaimer text ({activeLocale})
-              </span>
-              <textarea
+            <div className="mt-3">
+              <Textarea
+                label={`Disclaimer text (${activeLocale})`}
                 value={activeLocaleRules.disclaimer_text}
                 onChange={(e) =>
                   updateActiveLocale({
@@ -423,18 +421,15 @@ export default function HarnessConfigTab() {
                   })
                 }
                 rows={4}
-                className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
+                helpText="Markdown allowed. Author in the target locale."
               />
-              <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
-                Markdown allowed. Author in the target locale.
-              </span>
-            </label>
+            </div>
           </div>
         </div>
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-on-surface-variant">
           Claim verification
         </h3>
         <label className="flex items-start gap-3 text-sm">
@@ -450,10 +445,10 @@ export default function HarnessConfigTab() {
             className="mt-1 h-4 w-4"
           />
           <span>
-            <span className="block font-medium text-gray-700 dark:text-gray-300">
+            <span className="block font-medium text-on-surface-variant">
               Runtime LLM judge (Layer 5)
             </span>
-            <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+            <span className="mt-1 block text-xs text-on-surface-variant">
               Lets claim verification consult the live chat provider for claims the
               deterministic layers leave inconclusive. The judge only runs as a tiebreaker,
               fails open on provider errors, and rides the cheap-tier provider chain.
@@ -465,10 +460,10 @@ export default function HarnessConfigTab() {
 
       {validationErrors.length > 0 ? (
         <Card className="p-4">
-          <h4 className="text-sm font-semibold text-red-600 dark:text-red-400">
+          <h4 className="text-sm font-semibold text-error">
             Fix these before saving
           </h4>
-          <ul className="mt-2 space-y-1 text-sm text-red-600 dark:text-red-400">
+          <ul className="mt-2 space-y-1 text-sm text-error">
             {validationErrors.map((err) => (
               <li key={`${err.field}:${err.message}`}>
                 <span className="font-mono">{err.field}</span> — {err.message}
@@ -480,7 +475,7 @@ export default function HarnessConfigTab() {
 
       {serverError ? (
         <Card className="p-4">
-          <p className="text-sm text-red-600 dark:text-red-400">{serverError}</p>
+          <p className="text-sm text-error">{serverError}</p>
         </Card>
       ) : null}
 
@@ -518,21 +513,16 @@ interface NumericFieldProps {
 
 function NumericField({ label, help, value, min, max, step, onChange }: NumericFieldProps) {
   return (
-    <label className="block text-sm">
-      <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">{label}</span>
-      <input
-        type="number"
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-      />
-      {help ? (
-        <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">{help}</span>
-      ) : null}
-    </label>
+    <Input
+      label={label}
+      type="number"
+      value={value}
+      min={min}
+      max={max}
+      step={step}
+      onChange={(e) => onChange(Number(e.target.value))}
+      helpText={help}
+    />
   );
 }
 
@@ -546,15 +536,15 @@ interface CsvFieldProps {
 function CsvField({ label, help, value, onChange }: CsvFieldProps) {
   return (
     <label className="block text-sm">
-      <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">{label}</span>
+      <span className="mb-1 block font-medium text-on-surface-variant">{label}</span>
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
+        className="w-full rounded border border-outline-variant bg-white px-3 py-2 text-sm"
       />
       {help ? (
-        <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">{help}</span>
+        <span className="mt-1 block text-xs text-on-surface-variant">{help}</span>
       ) : null}
     </label>
   );

@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
 import { socialApi } from '../../services/api';
-import { Button, Modal } from '../ui';
+import { Button, Modal, Textarea } from '../ui';
 import SuggestionCard from './SuggestionCard';
 import type { InsightType, TrainingPhase, ShareVisibility } from '../../types/social';
 
@@ -53,7 +53,9 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
         limit: 10,
         activity_id: activityId,
       });
-      setSuggestions(response.suggestions as InsightSuggestion[]);
+      // See SocialFeedTab: the cast cannot guarantee the array is present, and
+      // the length checks below would throw on undefined.
+      setSuggestions(Array.isArray(response.suggestions) ? (response.suggestions as InsightSuggestion[]) : []);
 
       if (response.suggestions.length > 0) {
         setFlowState('suggestions');
@@ -127,7 +129,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
     return (
       <Modal isOpen onClose={onClose} title="Share Insight" size="lg">
         <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-800 flex items-center justify-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-container flex items-center justify-center">
             <svg className="w-8 h-8 text-outline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
             </svg>
@@ -170,15 +172,14 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
 
           {/* Editable content */}
           <div>
-            <label className="block text-sm font-medium text-on-surface-variant mb-2">Content</label>
-            <textarea
+            <Textarea
+              label="Content"
               value={editedContent}
               onChange={(e) => setEditedContent(e.target.value)}
               placeholder="Edit your coach insight... (min 10 characters)"
               maxLength={500}
               rows={6}
               disabled={flowState === 'submitting'}
-              className="w-full px-4 py-3 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:border-pierre-violet/50 resize-none disabled:opacity-50"
             />
             <div className="flex justify-between mt-1">
               <span className="text-xs text-outline">
@@ -189,8 +190,8 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
           </div>
 
           {/* Privacy Note */}
-          <div className="flex items-start gap-3 p-4 bg-pierre-violet/10 border border-pierre-violet/20 rounded-lg">
-            <svg className="w-5 h-5 text-pierre-violet-light flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="flex items-start gap-3 p-4 bg-primary/10 border border-primary/20 rounded-lg">
+            <svg className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
             <div>
@@ -211,7 +212,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
                 className={clsx(
                   'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
                   visibility === 'friends_only'
-                    ? 'bg-pierre-violet/20 border-primary text-pierre-violet-light'
+                    ? 'bg-primary/20 border-primary text-primary'
                     : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
                 )}
               >
@@ -226,7 +227,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
                 className={clsx(
                   'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
                   visibility === 'public'
-                    ? 'bg-pierre-violet/20 border-primary text-pierre-violet-light'
+                    ? 'bg-primary/20 border-primary text-primary'
                     : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
                 )}
               >
@@ -240,7 +241,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
 
           {/* Error message */}
           {error && (
-            <div className="p-3 bg-pierre-red-500/20 border border-pierre-red-500/30 rounded-lg text-pierre-red-400 text-sm">
+            <div className="p-3 bg-error/20 border border-error/30 rounded-lg text-error text-sm">
               {error}
             </div>
           )}

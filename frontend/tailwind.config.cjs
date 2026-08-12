@@ -6,7 +6,8 @@
 // Every token below reads from a CSS custom property defined in src/index.css,
 // so a single `.dark` class on <html> flips the entire palette without
 // needing `dark:` variants on individual utilities. The legacy `pierre.*`
-// namespace is kept as a repointed alias during the content sweep.
+// namespace it replaced is gone: every value in it was a frozen light-theme
+// hex, so each call site was theme-invariant by construction.
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
@@ -20,115 +21,62 @@ module.exports = {
       colors: {
         // ── Boreal MD3 tokens (canonical) ──
         primary: {
-          DEFAULT: 'var(--color-primary)',
-          container: 'var(--color-primary-container)',
-          'fixed-dim': 'var(--color-primary-fixed-dim)',
+          DEFAULT: 'rgb(var(--color-primary) / <alpha-value>)',
+          container: 'rgb(var(--color-primary-container) / <alpha-value>)',
+          'fixed-dim': 'rgb(var(--color-primary-fixed-dim) / <alpha-value>)',
         },
-        'on-primary': 'var(--color-on-primary)',
-        'on-primary-container': 'var(--color-on-primary-container)',
+        'on-primary': 'rgb(var(--color-on-primary) / <alpha-value>)',
+        'on-primary-container': 'rgb(var(--color-on-primary-container) / <alpha-value>)',
 
         tertiary: {
-          DEFAULT: 'var(--color-tertiary)',
-          container: 'var(--color-tertiary-container)',
+          DEFAULT: 'rgb(var(--color-tertiary) / <alpha-value>)',
+          container: 'rgb(var(--color-tertiary-container) / <alpha-value>)',
         },
-        'on-tertiary': 'var(--color-on-tertiary)',
-        'on-tertiary-container': 'var(--color-on-tertiary-container)',
+        'on-tertiary': 'rgb(var(--color-on-tertiary) / <alpha-value>)',
+        'on-tertiary-container': 'rgb(var(--color-on-tertiary-container) / <alpha-value>)',
 
         error: {
-          DEFAULT: 'var(--color-error)',
-          container: 'var(--color-error-container)',
+          DEFAULT: 'rgb(var(--color-error) / <alpha-value>)',
+          container: 'rgb(var(--color-error-container) / <alpha-value>)',
         },
-        'on-error': 'var(--color-on-error)',
-        'on-error-container': 'var(--color-on-error-container)',
+        'on-error': 'rgb(var(--color-on-error) / <alpha-value>)',
+        'on-error-container': 'rgb(var(--color-on-error-container) / <alpha-value>)',
+
+        // DESIGN.md §2 feedback palette. success/warning/info existed only as
+        // documented hexes until now, which is why call sites reached for
+        // text-amber-400 and friends.
+        success: 'rgb(var(--color-success) / <alpha-value>)',
+        warning: 'rgb(var(--color-warning) / <alpha-value>)',
+        info: 'rgb(var(--color-info) / <alpha-value>)',
+
+        // DESIGN.md §2 pillar accents — semantic, so they flip with the theme.
+        activity: 'rgb(var(--color-activity) / <alpha-value>)',
+        nutrition: 'rgb(var(--color-nutrition) / <alpha-value>)',
+        recovery: 'rgb(var(--color-recovery) / <alpha-value>)',
+        mobility: 'rgb(var(--color-mobility) / <alpha-value>)',
 
         surface: {
-          DEFAULT: 'var(--color-surface)',
-          dim: 'var(--color-surface-dim)',
-          bright: 'var(--color-surface-bright)',
-          tint: 'var(--color-surface-tint)',
-          variant: 'var(--color-surface-variant)',
+          DEFAULT: 'rgb(var(--color-surface) / <alpha-value>)',
+          dim: 'rgb(var(--color-surface-dim) / <alpha-value>)',
+          bright: 'rgb(var(--color-surface-bright) / <alpha-value>)',
+          tint: 'rgb(var(--color-surface-tint) / <alpha-value>)',
+          variant: 'rgb(var(--color-surface-variant) / <alpha-value>)',
           container: {
-            DEFAULT: 'var(--color-surface-container)',
-            lowest: 'var(--color-surface-container-lowest)',
-            low: 'var(--color-surface-container-low)',
-            high: 'var(--color-surface-container-high)',
-            highest: 'var(--color-surface-container-highest)',
+            DEFAULT: 'rgb(var(--color-surface-container) / <alpha-value>)',
+            lowest: 'rgb(var(--color-surface-container-lowest) / <alpha-value>)',
+            low: 'rgb(var(--color-surface-container-low) / <alpha-value>)',
+            high: 'rgb(var(--color-surface-container-high) / <alpha-value>)',
+            highest: 'rgb(var(--color-surface-container-highest) / <alpha-value>)',
           },
         },
         'on-surface': {
-          DEFAULT: 'var(--color-on-surface)',
-          variant: 'var(--color-on-surface-variant)',
+          DEFAULT: 'rgb(var(--color-on-surface) / <alpha-value>)',
+          variant: 'rgb(var(--color-on-surface-variant) / <alpha-value>)',
         },
 
         outline: {
-          DEFAULT: 'var(--color-outline)',
-          variant: 'var(--color-outline-variant)',
-        },
-
-        // ── Legacy `pierre.*` namespace — repointed at Boreal semantics ──
-        // Kept during the rebrand so ~140 in-tree references keep resolving.
-        // Migrate call sites to canonical MD3 names (primary, surface, outline…)
-        // and this block can be deleted.
-        pierre: {
-          violet: '#00241a',           // → primary
-          cyan: '#0d3b2e',              // → primary-container
-          // Pillars — Product Tier (Boreal Editorial). Lifted ~15% in chroma
-          // from the marketing-tier values so they function as semantic
-          // indicators in dense data UIs while remaining earthy / on-brand.
-          activity: '#0f7d68',          // sage, product-tier lift
-          nutrition: '#b08326',         // warm bronze, product-tier lift
-          recovery: '#3e7283',           // muted slate, product-tier lift
-          mobility: '#9b4666',          // aged rose, product-tier lift
-          dark: '#1a1c1b',              // → on-surface (ink, not bg)
-          slate: '#eeeeeb',             // → surface-container
-          'violet-light': '#234e40',    // on_primary_fixed_variant
-          'violet-dark': '#002117',     // on_primary_fixed
-          'cyan-light': '#a3d0be',      // primary_fixed_dim
-          'cyan-dark': '#0d3b2e',
-          'activity-light': '#3aa68d',
-          'activity-dark': '#0a5849',
-          'nutrition-light': '#d5a040',
-          'nutrition-dark': '#7a5a1a',
-          'recovery-light': '#6694a4',
-          'recovery-dark': '#2a4f5c',
-          'mobility-light': '#bb6b85',
-          'mobility-dark': '#6e3148',
-          // Grayscale legacy scales mapped onto the Boreal neutral ramp.
-          blue: {
-            50: '#eef4f1', 100: '#d6e3dc', 200: '#a3d0be', 300: '#79a694',
-            400: '#5e8a78', 500: '#3c6658', 600: '#234e40', 700: '#0d3b2e',
-            800: '#002117', 900: '#00241a',
-          },
-          gray: {
-            50: '#f9f9f6', 100: '#f4f4f1', 200: '#eeeeeb', 300: '#e8e8e5',
-            400: '#c0c8c3', 500: '#717974', 600: '#414845', 700: '#2f312f',
-            800: '#1a1c1b', 900: '#11130f',
-          },
-          green: {
-            50: '#eef4f1', 100: '#d6e3dc', 500: '#3c6658',
-            600: '#234e40', 700: '#0d3b2e', 800: '#002117',
-          },
-          yellow: {
-            50: '#f5efdf', 100: '#e9dcb0', 500: '#8f6a2e',
-            600: '#6e5020', 700: '#4c3716', 800: '#2a1e0c',
-          },
-          red: {
-            50: '#ffdad6', 100: '#ffb4ab', 500: '#ba1a1a',
-            600: '#93000a', 700: '#690005', 800: '#410002',
-          },
-          purple: {
-            50: '#f0eaee', 100: '#d5c5cd', 500: '#7a4d5e',
-            600: '#5a3744', 700: '#3b222c', 800: '#1d0e14',
-          },
-          teal: {
-            50: '#eef4f1', 100: '#c8dcd3', 200: '#a3d0be', 300: '#79a694',
-            400: '#5e8a78', 500: '#3c6658', 600: '#234e40', 700: '#0d3b2e',
-            800: '#002117',
-          },
-          pink: {
-            50: '#f0eaee', 100: '#d5c5cd', 200: '#b89daa', 500: '#7a4d5e',
-            600: '#5a3744', 700: '#3b222c', 800: '#1d0e14',
-          },
+          DEFAULT: 'rgb(var(--color-outline) / <alpha-value>)',
+          variant: 'rgb(var(--color-outline-variant) / <alpha-value>)',
         },
         // API tier colors — rebalanced to boreal
         tier: {
@@ -235,8 +183,6 @@ module.exports = {
         'boreal-hero': 'linear-gradient(145deg, #00241a 0%, #0d3b2e 100%)',
         // Legacy gradient names — all repoint at the boreal hero so content
         // sweep can delete or rename them safely.
-        'gradient-pierre': 'linear-gradient(145deg, #00241a 0%, #0d3b2e 100%)',
-        'gradient-pierre-horizontal': 'linear-gradient(90deg, #00241a 0%, #0d3b2e 100%)',
         'gradient-activity': 'linear-gradient(145deg, #3c6658 0%, #234e40 100%)',
         'gradient-nutrition': 'linear-gradient(145deg, #8f6a2e 0%, #6e5020 100%)',
         'gradient-recovery': 'linear-gradient(145deg, #5e7a82 0%, #425962 100%)',

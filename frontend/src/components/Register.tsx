@@ -78,7 +78,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
             {/* Registration form */}
             <form className="space-y-5" onSubmit={handleSubmit}>
               {error && (
-                <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg text-sm">
+                <div className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded-lg text-sm">
                   {error}
                 </div>
               )}
@@ -169,7 +169,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                 <button
                   type="button"
                   onClick={onNavigateToLogin}
-                  className="text-sm text-pierre-violet-light hover:text-pierre-cyan-light font-medium transition-colors"
+                  className="text-sm text-primary hover:text-primary-fixed-dim font-medium transition-colors"
                 >
                   Already have an account? Sign in
                 </button>

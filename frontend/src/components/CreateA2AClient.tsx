@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { a2aApi } from '../services/api';
 import type { A2AClientRegistrationRequest, A2AClientCredentials } from '../types/api';
-import { Button, Card } from './ui';
+import { Button, Card, Textarea, Input } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 interface CreateA2AClientProps {
@@ -144,10 +144,10 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           </p>
         </div>
 
-        <div className="bg-pierre-nutrition/15 border border-pierre-nutrition/30 rounded-lg p-4 mb-6">
+        <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-4 mb-6">
           <div className="flex items-center mb-2">
-            <span className="text-pierre-nutrition mr-2">⚠️</span>
-            <h3 className="text-sm font-medium text-pierre-nutrition">Important Security Notice</h3>
+            <span className="text-nutrition mr-2">⚠️</span>
+            <h3 className="text-sm font-medium text-nutrition">Important Security Notice</h3>
           </div>
           <p className="text-sm text-on-surface">
             Store these credentials securely. The client secret and API key will not be displayed again for security reasons.
@@ -234,81 +234,56 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         {/* Basic Information */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-on-surface mb-2">
-              Client Name *
-            </label>
-            <input
-              type="text"
-              id="name"
-              value={formData.name}
-              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              className="input-dark"
-              placeholder="My AI Agent"
-              required
-            />
-          </div>
+          <Input
+            type="text"
+            id="name"
+            label="Client Name *"
+            value={formData.name}
+            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            placeholder="My AI Agent"
+            required
+          />
 
-          <div>
-            <label htmlFor="contact_email" className="block text-sm font-medium text-on-surface mb-2">
-              Contact Email *
-            </label>
-            <input
-              type="email"
-              id="contact_email"
-              value={formData.contact_email}
-              onChange={(e) => setFormData(prev => ({ ...prev, contact_email: e.target.value }))}
-              className="input-dark"
-              placeholder="contact@example.com"
-              required
-            />
-          </div>
-        </div>
-
-        <div>
-          <label htmlFor="description" className="block text-sm font-medium text-on-surface mb-2">
-            Description *
-          </label>
-          <textarea
-            id="description"
-            value={formData.description}
-            onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-            rows={3}
-            className="input-dark"
-            placeholder="Describe what your AI agent does..."
+          <Input
+            type="email"
+            id="contact_email"
+            label="Contact Email *"
+            value={formData.contact_email}
+            onChange={(e) => setFormData(prev => ({ ...prev, contact_email: e.target.value }))}
+            placeholder="contact@example.com"
             required
           />
         </div>
 
+        <Textarea
+          id="description"
+          label="Description *"
+          value={formData.description}
+          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+          rows={3}
+          placeholder="Describe what your AI agent does..."
+          required
+        />
+
         {/* Optional Fields */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="agent_version" className="block text-sm font-medium text-on-surface mb-2">
-              Agent Version
-            </label>
-            <input
-              type="text"
-              id="agent_version"
-              value={formData.agent_version}
-              onChange={(e) => setFormData(prev => ({ ...prev, agent_version: e.target.value }))}
-              className="input-dark"
-              placeholder="1.0.0"
-            />
-          </div>
+          <Input
+            type="text"
+            id="agent_version"
+            label="Agent Version"
+            value={formData.agent_version}
+            onChange={(e) => setFormData(prev => ({ ...prev, agent_version: e.target.value }))}
+            placeholder="1.0.0"
+          />
 
-          <div>
-            <label htmlFor="documentation_url" className="block text-sm font-medium text-on-surface mb-2">
-              Documentation URL
-            </label>
-            <input
-              type="url"
-              id="documentation_url"
-              value={formData.documentation_url}
-              onChange={(e) => setFormData(prev => ({ ...prev, documentation_url: e.target.value }))}
-              className="input-dark"
-              placeholder="https://docs.example.com"
-            />
-          </div>
+          <Input
+            type="url"
+            id="documentation_url"
+            label="Documentation URL"
+            value={formData.documentation_url}
+            onChange={(e) => setFormData(prev => ({ ...prev, documentation_url: e.target.value }))}
+            placeholder="https://docs.example.com"
+          />
         </div>
 
         {/* Capabilities */}
@@ -322,7 +297,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                 key={capability.id}
                 className={`border rounded-lg p-3 cursor-pointer transition-colors ${
                   formData.capabilities.includes(capability.id)
-                    ? 'border-primary bg-pierre-violet/10'
+                    ? 'border-primary bg-primary/10'
                     : 'ghost-border hover:ghost-border'
                 }`}
                 onClick={() => handleCapabilityToggle(capability.id)}
@@ -351,12 +326,11 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
             Redirect URIs (Optional)
           </label>
           <div className="space-y-2">
-            <div className="flex gap-2">
-              <input
+            <div className="flex items-end gap-2">
+              <Input
                 type="url"
                 value={redirectUri}
                 onChange={(e) => setRedirectUri(e.target.value)}
-                className="input-dark flex-1"
                 placeholder="https://example.com/callback"
               />
               <Button
@@ -390,11 +364,11 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         {/* Error Display */}
         {createMutation.error && (
-          <div className="bg-pierre-red-500/15 border border-pierre-red-500/30 rounded-lg p-4">
+          <div className="bg-error/15 border border-error/30 rounded-lg p-4">
             <div className="flex items-center">
-              <span className="text-pierre-red-400 mr-2">❌</span>
+              <span className="text-error mr-2">❌</span>
               <div>
-                <h3 className="text-sm font-medium text-pierre-red-400">Registration Failed</h3>
+                <h3 className="text-sm font-medium text-error">Registration Failed</h3>
                 <p className="text-sm text-on-surface mt-1">
                   {createMutation.error instanceof Error
                     ? createMutation.error.message
@@ -407,7 +381,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         {/* Validation Error */}
         {validationError && (
-          <div className="bg-pierre-red-500/15 border border-pierre-red-500/30 text-pierre-red-400 px-4 py-3 rounded">
+          <div className="bg-error/15 border border-error/30 text-error px-4 py-3 rounded">
             {validationError}
           </div>
         )}

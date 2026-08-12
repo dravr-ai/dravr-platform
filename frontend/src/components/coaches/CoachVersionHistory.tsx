@@ -148,15 +148,15 @@ export function CoachVersionHistory({
           {change.field.replace(/_/g, ' ')}
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-red-50 rounded-lg p-3">
-            <div className="text-xs text-red-600 font-medium mb-1">Before (v{compareFrom})</div>
-            <div className="text-sm text-red-800 whitespace-pre-wrap break-words">
+          <div className="bg-error/10 rounded-lg p-3">
+            <div className="text-xs text-error font-medium mb-1">Before (v{compareFrom})</div>
+            <div className="text-sm text-error whitespace-pre-wrap break-words">
               {formatValue(change.old_value)}
             </div>
           </div>
-          <div className="bg-green-50 rounded-lg p-3">
-            <div className="text-xs text-green-600 font-medium mb-1">After (v{compareTo})</div>
-            <div className="text-sm text-green-800 whitespace-pre-wrap break-words">
+          <div className="bg-success/10 rounded-lg p-3">
+            <div className="text-xs text-success font-medium mb-1">After (v{compareTo})</div>
+            <div className="text-sm text-success whitespace-pre-wrap break-words">
               {formatValue(change.new_value)}
             </div>
           </div>
@@ -235,7 +235,7 @@ export function CoachVersionHistory({
                     className={clsx(
                       'border rounded-lg transition-all',
                       selectedVersion?.version === version.version
-                        ? 'border-pierre-primary bg-pierre-primary/5'
+                        ? 'border-primary bg-primary/5'
                         : 'ghost-border hover:ghost-border',
                       compareFrom === version.version || compareTo === version.version
                         ? 'ring-2 ring-blue-500 ring-offset-1'

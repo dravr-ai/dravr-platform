@@ -7,19 +7,19 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { Card, Button } from './ui';
+import { Card, Button, Select } from './ui';
 import { clsx } from 'clsx';
 import { ConfirmDialog } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-pierre-activity/10 text-pierre-activity border-pierre-activity/20',
-  Nutrition: 'bg-pierre-nutrition/10 text-pierre-nutrition border-pierre-nutrition/20',
-  Recovery: 'bg-pierre-recovery/10 text-pierre-recovery border-pierre-recovery/20',
-  Recipes: 'bg-pierre-yellow-500/10 text-pierre-yellow-600 border-pierre-yellow-500/20',
-  Mobility: 'bg-pierre-mobility/10 text-pierre-mobility border-pierre-mobility/20',
-  Custom: 'bg-pierre-violet/10 text-pierre-violet-light border-pierre-violet/20',
+  Training: 'bg-activity/10 text-activity border-activity/20',
+  Nutrition: 'bg-nutrition/10 text-nutrition border-nutrition/20',
+  Recovery: 'bg-recovery/10 text-recovery border-recovery/20',
+  Recipes: 'bg-warning/10 text-warning border-warning/20',
+  Mobility: 'bg-mobility/10 text-mobility border-mobility/20',
+  Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 
 function getCategoryColorClass(category: string): string {
@@ -88,8 +88,8 @@ export default function PublishedCoachesList() {
   if (error) {
     return (
       <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-red-500/20 flex items-center justify-center">
-          <svg className="w-8 h-8 text-pierre-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/20 flex items-center justify-center">
+          <svg className="w-8 h-8 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
@@ -122,16 +122,17 @@ export default function PublishedCoachesList() {
         <p className="text-sm text-on-surface-variant">
           {data?.total ?? coaches.length} published coach{coaches.length !== 1 ? 'es' : ''}
         </p>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-outline">Sort by:</span>
-          <select
+        <div className="w-48">
+          <Select
+            label="Sort by"
+            size="sm"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortOption)}
-            className="select-dark text-sm py-1.5"
-          >
-            <option value="newest">Newest</option>
-            <option value="most_installed">Most Installed</option>
-          </select>
+            options={[
+              { value: 'newest', label: 'Newest' },
+              { value: 'most_installed', label: 'Most Installed' },
+            ]}
+          />
         </div>
       </div>
 
@@ -216,7 +217,7 @@ export default function PublishedCoachesList() {
               <Button
                 variant="secondary"
                 size="sm"
-                className="flex-1 text-xs border-pierre-red-500/30 text-pierre-red-400 hover:bg-pierre-red-500/10"
+                className="flex-1 text-xs border-error/30 text-error hover:bg-error/10"
                 onClick={() => setConfirmUnpublish(coach)}
               >
                 <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

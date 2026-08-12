@@ -36,4 +36,26 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Design system: form controls come from the ui/ primitives, never raw.
+    // DESIGN.md §5 ships one editorial underline field; a hand-rolled control
+    // silently re-introduces the boxed pre-Boreal language next to it.
+    files: ['src/**/*.tsx'],
+    ignores: ['src/components/ui/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'JSXOpeningElement[name.name="textarea"]',
+          message:
+            'Use <Textarea> from components/ui — DESIGN.md §5 (editorial underline, no enclosing box).',
+        },
+        {
+          selector: 'JSXOpeningElement[name.name="select"]',
+          message:
+            'Use <Select> from components/ui — DESIGN.md §5 (editorial underline, no enclosing box).',
+        },
+      ],
+    },
+  },
 );

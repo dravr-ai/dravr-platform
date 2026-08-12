@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { Pencil } from 'lucide-react';
 import { socialApi } from '../../services/api';
-import { Button, Modal, InsightPreview } from '../ui';
+import { Button, Modal, InsightPreview, Textarea } from '../ui';
 import type { ShareVisibility } from '../../types/social';
 
 interface ShareChatMessageModalProps {
@@ -80,10 +80,10 @@ export default function ShareChatMessageModal({
                 Done Editing
               </button>
             </div>
-            <textarea
+            <Textarea
               value={editedContent}
               onChange={(e) => setEditedContent(e.target.value)}
-              className="w-full h-64 bg-surface-container-low border ghost-border rounded-lg p-4 text-on-surface text-sm leading-relaxed resize-none focus:outline-none focus:border-pierre-violet/50 focus:ring-1 focus:ring-pierre-violet/50"
+              className="h-64 leading-relaxed"
               placeholder="Edit your insight..."
             />
           </div>
@@ -95,7 +95,7 @@ export default function ShareChatMessageModal({
               </label>
               <button
                 onClick={() => setIsEditing(true)}
-                className="flex items-center gap-1 text-xs text-primary hover:text-pierre-violet/80 transition-colors"
+                className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
               >
                 <Pencil className="w-3 h-3" />
                 Edit
@@ -119,7 +119,7 @@ export default function ShareChatMessageModal({
                 key={option.value}
                 className={`flex items-start p-3 rounded-lg cursor-pointer transition-colors ${
                   visibility === option.value
-                    ? 'bg-pierre-violet/20 border-primary border'
+                    ? 'bg-primary/20 border-primary border'
                     : 'bg-surface-container-low border-transparent border hover:bg-surface-container'
                 }`}
               >
@@ -132,7 +132,7 @@ export default function ShareChatMessageModal({
                   className="mt-1 mr-3"
                 />
                 <div>
-                  <div className="text-sm font-medium text-zinc-100">{option.label}</div>
+                  <div className="text-sm font-medium text-on-surface">{option.label}</div>
                   <div className="text-xs text-on-surface-variant">{option.description}</div>
                 </div>
               </label>
@@ -142,8 +142,8 @@ export default function ShareChatMessageModal({
 
         {/* Error Message */}
         {error && (
-          <div className="bg-pierre-red-500/20 border border-pierre-red-500/30 rounded-lg p-3">
-            <p className="text-sm text-pierre-red-400">{error}</p>
+          <div className="bg-error/20 border border-error/30 rounded-lg p-3">
+            <p className="text-sm text-error">{error}</p>
           </div>
         )}
 

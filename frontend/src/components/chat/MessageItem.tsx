@@ -100,16 +100,16 @@ function summarizeVerdicts(verdicts: ChatVerdictRow[]): VerdictSummary | null {
 function chipClassForTone(tone: WorstStrengthTone): string {
   switch (tone) {
     case 'success':
-      return 'bg-green-500/15 text-green-300 hover:bg-green-500/25';
+      return 'bg-success/15 text-success hover:bg-success/25';
     case 'warning':
-      return 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25';
+      return 'bg-warning/15 text-warning hover:bg-warning/25';
     case 'error':
-      return 'bg-red-500/15 text-red-300 hover:bg-red-500/25';
+      return 'bg-error/15 text-error hover:bg-error/25';
     case 'info':
       return 'bg-sky-500/15 text-sky-300 hover:bg-sky-500/25';
     case 'secondary':
     default:
-      return 'bg-zinc-500/15 text-on-surface hover:bg-zinc-500/25';
+      return 'bg-surface-container-high/15 text-on-surface hover:bg-surface-container-high/25';
   }
 }
 
@@ -158,7 +158,7 @@ function FeedbackReasonForm({
       <button
         type="button"
         onClick={submit}
-        className="px-2 py-1 text-xs rounded bg-pierre-violet/15 text-primary hover:bg-pierre-violet/25 transition-colors"
+        className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
       >
         {saved ? 'Saved' : 'Send'}
       </button>
@@ -256,7 +256,7 @@ const MessageItem = memo(function MessageItem({
         )}
         {workoutPlan && <WorkoutPlanCard plan={workoutPlan} />}
         {(!workoutPlan || content.trim().length > 0) && (
-          <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
+          <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}>
             <Markdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -298,7 +298,7 @@ const MessageItem = memo(function MessageItem({
                 key={`${action.value}-${idx}`}
                 type="button"
                 onClick={() => onActionClick?.(action)}
-                className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-pierre-violet/15 text-primary hover:bg-pierre-violet/25 transition-colors"
+                className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
               >
                 {action.label}
               </button>
@@ -408,7 +408,7 @@ const MessageItem = memo(function MessageItem({
                   <button
                     onClick={onThumbsDown}
                     className={`p-0.5 transition-colors ${
-                      feedback === 'down' ? 'text-red-500' : 'text-outline hover:text-on-surface'
+                      feedback === 'down' ? 'text-error' : 'text-outline hover:text-on-surface'
                     }`}
                     title="Poor response"
                   >

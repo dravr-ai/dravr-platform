@@ -15,24 +15,28 @@ interface UsageWarningBannerProps {
   message: string;
 }
 
+// Three escalation steps on a four-token palette, so the ladder is built from
+// emphasis rather than a fourth hue: warning reads as a quiet tint, burst keeps
+// the same hue at roughly double the weight, blocked switches to error. Giving
+// warning and burst identical styling would make the escalation invisible.
 const BANNER_STYLES: Record<Exclude<WarningLevel, 'none'>, { bg: string; border: string; text: string; icon: string }> = {
   warning: {
-    bg: 'bg-yellow-500/10',
-    border: 'border-yellow-500/30',
-    text: 'text-yellow-300',
-    icon: 'text-yellow-400',
+    bg: 'bg-warning/10',
+    border: 'border-warning/30',
+    text: 'text-warning',
+    icon: 'text-warning',
   },
   burst: {
-    bg: 'bg-orange-500/10',
-    border: 'border-orange-500/30',
-    text: 'text-orange-300',
-    icon: 'text-orange-400',
+    bg: 'bg-warning/25',
+    border: 'border-warning/60',
+    text: 'text-warning',
+    icon: 'text-warning',
   },
   blocked: {
-    bg: 'bg-pierre-red-500/10',
-    border: 'border-pierre-red-500/30',
-    text: 'text-pierre-red-400',
-    icon: 'text-pierre-red-400',
+    bg: 'bg-error/10',
+    border: 'border-error/30',
+    text: 'text-error',
+    icon: 'text-error',
   },
 };
 

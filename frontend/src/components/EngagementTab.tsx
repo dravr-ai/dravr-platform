@@ -102,7 +102,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
             <p className="mb-6">Create system coaches to get started. Engagement data will appear as users interact with coaches.</p>
             <button
               onClick={() => onNavigate?.('coaches')}
-              className="px-6 py-2.5 rounded-lg bg-pierre-violet/20 text-pierre-violet-light font-medium hover:bg-pierre-violet/30 transition-colors border border-pierre-violet/30"
+              className="px-6 py-2.5 rounded-lg bg-primary/20 text-primary font-medium hover:bg-primary/30 transition-colors border border-primary/30"
             >
               Go to Coaches
             </button>
@@ -120,7 +120,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
       {/* User Engagement Tiers */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-pierre-activity">{dailyActive}</div>
+          <div className="text-2xl font-bold text-activity">{dailyActive}</div>
           <div className="text-sm text-on-surface-variant">Daily Active</div>
           <div className="text-[10px] text-on-surface-variant">Last 24h</div>
         </div>
@@ -130,7 +130,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
           <div className="text-[10px] text-on-surface-variant">Last 7d</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-pierre-violet-light">{monthlyActive}</div>
+          <div className="text-2xl font-bold text-primary">{monthlyActive}</div>
           <div className="text-sm text-on-surface-variant">Monthly Active</div>
           <div className="text-[10px] text-on-surface-variant">Last 30d</div>
         </div>
@@ -170,7 +170,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
                         <p className="text-sm font-medium text-on-surface">{coach.title}</p>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-xs px-2 py-1 rounded bg-pierre-violet/20 text-pierre-violet-light">
+                        <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
                           {coach.category || 'general'}
                         </span>
                       </td>
@@ -219,7 +219,7 @@ function TimeRangeSelector({ timeRange, onChange }: { timeRange: AdminTimeRange;
               onClick={() => onChange(numValue)}
               className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
                 timeRange === numValue
-                  ? 'bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30'
+                  ? 'bg-primary/20 text-primary border border-primary/30'
                   : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface border border-transparent'
               }`}
             >

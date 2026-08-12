@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { AdminPermission, CreateAdminTokenResponse } from '../types/api';
+import { Textarea, Input } from './ui';
 
 interface CreateApiKeyProps {
   onBack: () => void;
@@ -117,7 +118,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
       <div className="bg-surface-container-low/60 border ghost-border rounded-lg p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           {createTokenMutation.error && (
-            <div className="bg-pierre-red-500/15 border border-pierre-red-500/30 text-pierre-red-400 px-4 py-3 rounded">
+            <div className="bg-error/15 border border-error/30 text-error px-4 py-3 rounded">
               {createTokenMutation.error instanceof Error
                 ? createTokenMutation.error.message
                 : 'Failed to create API token'}
@@ -128,37 +129,25 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
           <div className="space-y-4">
             <h3 className="text-lg font-medium text-on-surface">Service Details</h3>
 
-            <div>
-              <label htmlFor="serviceName" className="block text-sm font-medium text-on-surface mb-2">
-                Service Name *
-              </label>
-              <input
-                id="serviceName"
-                type="text"
-                required
-                className="input-dark"
-                placeholder="e.g., pierre_admin_service, api_gateway"
-                value={serviceName}
-                onChange={(e) => setServiceName(e.target.value)}
-              />
-              <p className="text-xs text-outline mt-1">
-                A unique identifier for the service that will use this token
-              </p>
-            </div>
+            <Input
+              id="serviceName"
+              label="Service Name *"
+              type="text"
+              required
+              placeholder="e.g., pierre_admin_service, api_gateway"
+              value={serviceName}
+              onChange={(e) => setServiceName(e.target.value)}
+              helpText="A unique identifier for the service that will use this token"
+            />
 
-            <div>
-              <label htmlFor="serviceDescription" className="block text-sm font-medium text-on-surface mb-2">
-                Description
-              </label>
-              <textarea
-                id="serviceDescription"
-                className="input-dark"
-                rows={3}
-                placeholder="Brief description of the service and its purpose"
-                value={serviceDescription}
-                onChange={(e) => setServiceDescription(e.target.value)}
-              />
-            </div>
+            <Textarea
+              id="serviceDescription"
+              label="Description"
+              rows={3}
+              placeholder="Brief description of the service and its purpose"
+              value={serviceDescription}
+              onChange={(e) => setServiceDescription(e.target.value)}
+            />
           </div>
 
           {/* Admin Level */}
@@ -182,13 +171,13 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
               </label>
 
               {isSuperAdmin && (
-                <div className="bg-pierre-red-500/15 border border-pierre-red-500/30 rounded-lg p-4">
+                <div className="bg-error/15 border border-error/30 rounded-lg p-4">
                   <div className="flex items-start gap-3">
-                    <svg className="w-6 h-6 text-pierre-red-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 text-error mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                     </svg>
                     <div>
-                      <h4 className="font-medium text-pierre-red-400">Danger Zone</h4>
+                      <h4 className="font-medium text-error">Danger Zone</h4>
                       <p className="text-sm text-on-surface mt-1">
                         Super admin API tokens have unrestricted access to all system operations.
                         Only create these for trusted, critical services.
@@ -218,10 +207,10 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                       className="mt-1 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                     />
                     <div className="flex-1">
-                      <div className={`font-medium ${info.danger ? 'text-pierre-red-400' : 'text-on-surface'}`}>
+                      <div className={`font-medium ${info.danger ? 'text-error' : 'text-on-surface'}`}>
                         {info.label}
                         {info.danger && (
-                          <span className="ml-2 text-xs bg-pierre-red-500/20 text-pierre-red-400 px-1.5 py-0.5 rounded border border-pierre-red-500/30">
+                          <span className="ml-2 text-xs bg-error/20 text-error px-1.5 py-0.5 rounded border border-error/30">
                             High Risk
                           </span>
                         )}
@@ -235,8 +224,8 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
               </div>
 
               {selectedPermissions.size === 0 && (
-                <div className="bg-pierre-nutrition/15 border border-pierre-nutrition/30 rounded-lg p-3">
-                  <p className="text-sm text-pierre-nutrition">
+                <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-3">
+                  <p className="text-sm text-nutrition">
                     ⚠️ At least one permission must be selected for the token to be useful.
                   </p>
                 </div>
@@ -268,22 +257,17 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                 </label>
 
                 {!neverExpires && (
-                  <div>
-                    <label htmlFor="expiresInDays" className="block text-sm font-medium text-on-surface mb-2">
-                      Expires in (days)
-                    </label>
-                    <input
+                  <div className="w-48">
+                    <Input
                       id="expiresInDays"
+                      label="Expires in (days)"
                       type="number"
                       min="1"
                       max="3650"
-                      className="input-dark w-32"
                       value={expiresInDays || ''}
                       onChange={(e) => setExpiresInDays(e.target.value ? parseInt(e.target.value) : null)}
+                      helpText="Recommended: 365 days (1 year) for production services"
                     />
-                    <p className="text-xs text-outline mt-1">
-                      Recommended: 365 days (1 year) for production services
-                    </p>
                   </div>
                 )}
               </div>
@@ -316,7 +300,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
       </div>
 
       {/* Security Reminder */}
-      <div className="bg-pierre-cyan/15 border border-pierre-cyan/30 rounded-lg p-4">
+      <div className="bg-primary-container/15 border border-primary-container/30 rounded-lg p-4">
         <h4 className="font-medium text-primary-container mb-2">🔒 Security Reminder</h4>
         <ul className="text-sm text-on-surface space-y-1">
           <li>• The API token will be shown only once after creation</li>

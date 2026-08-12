@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type FollowupRow } from '../services/api/admin';
-import { Card, Button, ConfirmDialog } from './ui';
+import { Card, Button, ConfirmDialog, Select , Input } from './ui';
 import { useAuth } from '../hooks/useAuth';
 
 const LIMIT_OPTIONS = [25, 50, 100, 200] as const;
@@ -100,7 +100,7 @@ export default function CoachFollowupsTab() {
   if (!tenantId) {
     return (
       <Card className="p-6">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-on-surface-variant">
           Tenant id not available on your session. Reload the page and try again.
         </p>
       </Card>
@@ -112,10 +112,10 @@ export default function CoachFollowupsTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
+            <h2 className="text-xl font-semibold text-on-surface">
               Coach followups
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-on-surface-variant">
               Promised check-ins from coach personas waiting to be injected
               into the next system prompt. Cancel stale promises that should
               never reach the coach.
@@ -127,27 +127,27 @@ export default function CoachFollowupsTab() {
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Pending
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {filtered.length}
             </div>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Overdue
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {overdueCount}
             </div>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Total fetched
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {data?.total ?? 0}
             </div>
           </div>
@@ -156,40 +156,14 @@ export default function CoachFollowupsTab() {
 
       <Card className="p-6">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Coach ID</span>
-            <input
-              type="text"
-              value={coachFilter}
-              onChange={(e) => setCoachFilter(e.target.value)}
-              placeholder="filter by coach id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">User ID</span>
-            <input
-              type="text"
-              value={userFilter}
-              onChange={(e) => setUserFilter(e.target.value)}
-              placeholder="filter by user id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Rows</span>
-            <select
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            >
-              {LIMIT_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Input label="Coach ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)} placeholder="filter by coach id" />
+          <Input label="User ID" type="text" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} placeholder="filter by user id" />
+          <Select
+            label="Rows"
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            options={LIMIT_OPTIONS.map((n) => ({ value: String(n), label: String(n) }))}
+          />
         </div>
       </Card>
 
@@ -199,14 +173,14 @@ export default function CoachFollowupsTab() {
             <div className="pierre-spinner" />
           </div>
         ) : isError ? (
-          <div className="p-6 text-sm text-red-600 dark:text-red-400">
+          <div className="p-6 text-sm text-error">
             Failed to load followups:{' '}
             {error instanceof Error ? error.message : String(error)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
-            <p className="text-gray-500 dark:text-gray-400">No pending followups.</p>
-            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            <p className="text-on-surface-variant">No pending followups.</p>
+            <p className="mt-1 text-xs text-outline">
               Coach personas add followups via tool calls when they promise a
               future check-in. Nothing pending means every promise has been
               delivered or cancelled.
@@ -214,58 +188,58 @@ export default function CoachFollowupsTab() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-800">
+            <table className="min-w-full divide-y divide-outline-variant">
+              <thead className="bg-surface-container">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Content
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Due
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Coach
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     User
                   </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Created
                   </th>
-                  <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-on-surface-variant">
                     Action
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
+              <tbody className="divide-y divide-outline-variant bg-white">
                 {filtered.map((f) => {
                   const overdue = isOverdue(f.due_at);
                   return (
                     <tr key={f.id}>
-                      <td className="max-w-md px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                      <td className="max-w-md px-4 py-3 text-sm text-on-surface">
                         {f.content}
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <span
                           className={
                             overdue
-                              ? 'font-medium text-red-600 dark:text-red-400'
-                              : 'text-gray-600 dark:text-gray-300'
+                              ? 'font-medium text-error'
+                              : 'text-on-surface-variant'
                           }
                         >
                           {relativeFromNow(f.due_at)}
                         </span>
-                        <div className="text-xs text-gray-400 dark:text-gray-500">
+                        <div className="text-xs text-outline">
                           {formatTimestamp(f.due_at)}
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">
+                      <td className="px-4 py-3 font-mono text-xs text-on-surface-variant">
                         {f.coach_id}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">
+                      <td className="px-4 py-3 font-mono text-xs text-on-surface-variant">
                         {f.user_id}
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                      <td className="px-4 py-3 text-xs text-on-surface-variant">
                         {formatTimestamp(f.created_at)}
                       </td>
                       <td className="px-4 py-3 text-right">

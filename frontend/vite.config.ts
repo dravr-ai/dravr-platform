@@ -144,6 +144,15 @@ export default defineConfig(({ mode }) => {
       setupFiles: './src/test/setup.ts',
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
       exclude: ['node_modules', 'e2e', 'dist'],
+      // Vitest defaults to 5s, which assumes cheap unit tests. These are
+      // component tests: every file boots its own jsdom and React Query, and
+      // the assertions sit behind waitFor on async query resolution. At ~76
+      // files the workers contend enough that borderline tests time out
+      // non-deterministically while passing in isolation — a false red that
+      // moves between files run to run. A timeout only bounds hangs; it is not
+      // an assertion, so raising it loses no coverage and a genuine hang still
+      // fails, 15s later.
+      testTimeout: 15000,
       coverage: {
         provider: 'v8',
         reporter: ['text', 'json', 'html', 'lcov'],

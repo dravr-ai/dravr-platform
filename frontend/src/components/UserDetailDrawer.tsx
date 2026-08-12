@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User, UserTier } from '../types/api';
-import { Button, Card } from './ui';
+import { Button, Card, Select } from './ui';
 import { Badge } from './ui/Badge';
 import PasswordResetModal from './PasswordResetModal';
 import { useAuth } from '../hooks/useAuth';
@@ -170,9 +170,9 @@ export default function UserDetailDrawer({
   };
 
   const getUsageColor = (percentage: number) => {
-    if (percentage >= 90) return 'bg-pierre-red-400';
-    if (percentage >= 75) return 'bg-pierre-nutrition';
-    return 'bg-pierre-activity';
+    if (percentage >= 90) return 'bg-error';
+    if (percentage >= 75) return 'bg-nutrition';
+    return 'bg-activity';
   };
 
   return (
@@ -237,7 +237,7 @@ export default function UserDetailDrawer({
                       );
                       setTierEditing(true);
                     }}
-                    className="text-xs text-pierre-activity hover:underline"
+                    className="text-xs text-activity hover:underline"
                   >
                     Edit tier
                   </button>
@@ -252,21 +252,20 @@ export default function UserDetailDrawer({
                   Sets the billing/quota tier directly. Clearing the override lets the
                   billing webhook drive the tier again.
                 </p>
-                <label className="block">
-                  <span className="text-on-surface-variant">Tier</span>
-                  <select
-                    value={tierValue}
-                    onChange={(e) => setTierValue(e.target.value as UserTier)}
-                    aria-label="Tier"
-                    className="mt-1 w-full rounded bg-surface-container-low border ghost-border px-2 py-1 text-on-surface"
-                  >
-                    <option value="starter">Starter</option>
-                    <option value="professional">Professional</option>
-                    <option value="enterprise">Enterprise</option>
-                  </select>
-                </label>
+                <Select
+                  label="Tier"
+                  size="sm"
+                  value={tierValue}
+                  onChange={(e) => setTierValue(e.target.value as UserTier)}
+                  aria-label="Tier"
+                  options={[
+                    { value: 'starter', label: 'Starter' },
+                    { value: 'professional', label: 'Professional' },
+                    { value: 'enterprise', label: 'Enterprise' },
+                  ]}
+                />
                 {(setTierMutation.isError || clearTierMutation.isError) && (
-                  <p className="text-pierre-red-400">
+                  <p className="text-error">
                     Failed to update tier. Please try again.
                   </p>
                 )}
@@ -274,7 +273,7 @@ export default function UserDetailDrawer({
                   <Button
                     onClick={() => setTierMutation.mutate(tierValue)}
                     disabled={setTierMutation.isPending}
-                    className="bg-pierre-activity text-on-primary"
+                    className="bg-activity text-on-primary"
                   >
                     {setTierMutation.isPending ? 'Saving…' : 'Save tier'}
                   </Button>
@@ -389,9 +388,9 @@ export default function UserDetailDrawer({
                 </div>
                 <div className="pt-2 border-t ghost-border space-y-2">
                   {rateLimit.override_active ? (
-                    <div className="rounded-md bg-pierre-activity/10 border border-pierre-activity/30 p-2 text-xs">
+                    <div className="rounded-md bg-activity/10 border border-activity/30 p-2 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="font-medium text-pierre-activity">Per-user override active</span>
+                        <span className="font-medium text-activity">Per-user override active</span>
                         <button
                           type="button"
                           onClick={() => {
@@ -400,7 +399,7 @@ export default function UserDetailDrawer({
                             setOverrideNote(rateLimit.override_note ?? '');
                             setOverrideEditing(true);
                           }}
-                          className="text-pierre-activity hover:underline"
+                          className="text-activity hover:underline"
                         >
                           Edit
                         </button>
@@ -418,14 +417,14 @@ export default function UserDetailDrawer({
                         setOverrideNote('');
                         setOverrideEditing(true);
                       }}
-                      className="text-xs text-pierre-activity hover:underline"
+                      className="text-xs text-activity hover:underline"
                     >
                       Override limits for this user…
                     </button>
                   )}
                   <p className="text-xs text-outline">
                     Tier defaults editable in{' '}
-                    <a href="#platform-settings" className="text-pierre-activity hover:underline">
+                    <a href="#platform-settings" className="text-activity hover:underline">
                       Platform Settings → Rate Limits
                     </a>
                     .
@@ -469,7 +468,7 @@ export default function UserDetailDrawer({
                         />
                       </label>
                       {setOverrideMutation.error && (
-                        <p className="text-pierre-red-400">
+                        <p className="text-error">
                           {(setOverrideMutation.error as Error).message}
                         </p>
                       )}
@@ -477,7 +476,7 @@ export default function UserDetailDrawer({
                         <Button
                           onClick={() => setOverrideMutation.mutate()}
                           disabled={setOverrideMutation.isPending}
-                          className="bg-pierre-activity text-on-primary"
+                          className="bg-activity text-on-primary"
                         >
                           {setOverrideMutation.isPending ? 'Saving…' : 'Save override'}
                         </Button>
@@ -639,7 +638,7 @@ export default function UserDetailDrawer({
                     <span className="text-sm font-medium text-on-surface">
                       {coach.title}
                       {coach.is_default && (
-                        <span className="ml-2 text-xs text-pierre-activity">(default)</span>
+                        <span className="ml-2 text-xs text-activity">(default)</span>
                       )}
                     </span>
                     <span className="text-xs text-outline capitalize">{coach.category}</span>
@@ -699,7 +698,7 @@ export default function UserDetailDrawer({
               {user.user_status === 'pending' && (
                 <Button
                   onClick={() => onAction(user, 'approve')}
-                  className="w-full justify-start bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
+                  className="w-full justify-start bg-activity hover:bg-activity/80 text-on-primary"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -712,7 +711,7 @@ export default function UserDetailDrawer({
                 <Button
                   onClick={() => onAction(user, 'suspend')}
                   variant="secondary"
-                  className="w-full justify-start border-pierre-red-500/30 text-pierre-red-400 hover:bg-pierre-red-500/10"
+                  className="w-full justify-start border-error/30 text-error hover:bg-error/10"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
@@ -724,7 +723,7 @@ export default function UserDetailDrawer({
               {user.user_status === 'suspended' && (
                 <Button
                   onClick={() => onAction(user, 'approve')}
-                  className="w-full justify-start bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
+                  className="w-full justify-start bg-activity hover:bg-activity/80 text-on-primary"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -738,7 +737,7 @@ export default function UserDetailDrawer({
                   onClick={handleImpersonate}
                   disabled={isImpersonating}
                   variant="secondary"
-                  className="w-full justify-start border-pierre-nutrition/30 text-pierre-nutrition hover:bg-pierre-nutrition/10"
+                  className="w-full justify-start border-nutrition/30 text-nutrition hover:bg-nutrition/10"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />

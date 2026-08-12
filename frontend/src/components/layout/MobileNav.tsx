@@ -48,14 +48,14 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
                 className={clsx(
                   'w-full min-h-[56px] flex flex-col items-center justify-center gap-0.5 px-1 py-1.5 relative',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
-                  active ? 'text-pierre-violet-light' : 'text-on-surface-variant',
+                  active ? 'text-primary' : 'text-on-surface-variant',
                 )}
               >
                 <span className="relative inline-flex">
                   {tab.icon}
                   {tab.badge !== undefined && tab.badge > 0 && (
                     <span
-                      className="absolute -top-1 -right-1.5 bg-pierre-red-500 text-on-primary text-[10px] rounded-full h-4 min-w-4 px-1 flex items-center justify-center font-bold"
+                      className="absolute -top-1 -right-1.5 bg-error text-on-primary text-[10px] rounded-full h-4 min-w-4 px-1 flex items-center justify-center font-bold"
                       aria-label={`${tab.badge} unread`}
                     >
                       {tab.badge > 99 ? '99+' : tab.badge}
@@ -86,7 +86,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
               </svg>
               {drawerHasBadge && (
                 <span
-                  className="absolute -top-1 -right-1.5 bg-pierre-red-500 text-on-primary text-[10px] rounded-full h-2.5 w-2.5"
+                  className="absolute -top-1 -right-1.5 bg-error text-on-primary text-[10px] rounded-full h-2.5 w-2.5"
                   aria-hidden="true"
                 />
               )}
@@ -268,14 +268,14 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                       'w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium min-h-[48px]',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                       active
-                        ? 'bg-gradient-to-r from-pierre-violet/20 to-pierre-cyan/10 text-pierre-violet-light'
+                        ? 'bg-gradient-to-r from-primary/20 to-primary-container/10 text-primary'
                         : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface',
                     )}
                   >
                     <span className="flex-shrink-0">{tab.icon}</span>
                     <span className="flex-1 text-left">{tab.name}</span>
                     {tab.badge !== undefined && tab.badge > 0 && (
-                      <span className="bg-pierre-red-500 text-on-primary text-[10px] rounded-full h-5 min-w-5 px-1.5 flex items-center justify-center font-bold">
+                      <span className="bg-error text-on-primary text-[10px] rounded-full h-5 min-w-5 px-1.5 flex items-center justify-center font-bold">
                         {tab.badge > 99 ? '99+' : tab.badge}
                       </span>
                     )}

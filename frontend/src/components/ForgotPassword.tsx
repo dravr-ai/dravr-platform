@@ -81,7 +81,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 <div
                   role="alert"
                   aria-live="polite"
-                  className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-lg text-sm"
+                  className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded-lg text-sm"
                 >
                   {error}
                 </div>
@@ -113,7 +113,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 <button
                   type="button"
                   onClick={onNavigateToLogin}
-                  className="text-sm text-pierre-violet-light hover:text-pierre-cyan-light font-medium transition-colors"
+                  className="text-sm text-primary hover:text-primary-fixed-dim font-medium transition-colors"
                 >
                   Back to sign in
                 </button>

@@ -99,27 +99,27 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
   const typeStyles: Record<ToastType, { bg: string; border: string; icon: string; progressBg: string }> = {
     success: {
       bg: 'bg-surface',
-      border: 'border-pierre-activity',
-      icon: 'text-pierre-activity',
-      progressBg: 'bg-pierre-activity',
+      border: 'border-activity',
+      icon: 'text-activity',
+      progressBg: 'bg-activity',
     },
     error: {
       bg: 'bg-surface',
-      border: 'border-pierre-red-500',
-      icon: 'text-pierre-red-500',
-      progressBg: 'bg-pierre-red-500',
+      border: 'border-error',
+      icon: 'text-error',
+      progressBg: 'bg-error',
     },
     warning: {
       bg: 'bg-surface',
-      border: 'border-pierre-nutrition',
-      icon: 'text-pierre-nutrition',
-      progressBg: 'bg-pierre-nutrition',
+      border: 'border-nutrition',
+      icon: 'text-nutrition',
+      progressBg: 'bg-nutrition',
     },
     info: {
       bg: 'bg-surface',
-      border: 'border-pierre-recovery',
-      icon: 'text-pierre-recovery',
-      progressBg: 'bg-pierre-recovery',
+      border: 'border-recovery',
+      icon: 'text-recovery',
+      progressBg: 'bg-recovery',
     },
   };
 

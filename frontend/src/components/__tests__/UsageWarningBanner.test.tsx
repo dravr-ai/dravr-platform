@@ -121,24 +121,37 @@ describe('UsageWarningBanner', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders warning banner with yellow styling', () => {
+  it('renders warning banner on the warning token', () => {
     render(<UsageWarningBanner level="warning" message="80% of daily messages used" />);
     const banner = screen.getByTestId('usage-warning-banner');
     expect(banner).toBeDefined();
     expect(banner.textContent).toContain('80% of daily messages used');
-    expect(banner.className).toContain('yellow');
+    expect(banner.className).toContain('bg-warning/10');
   });
 
-  it('renders burst banner with orange styling', () => {
+  it('renders burst banner on the warning token at heavier weight', () => {
     render(<UsageWarningBanner level="burst" message="In burst zone" />);
     const banner = screen.getByTestId('usage-warning-banner');
-    expect(banner.className).toContain('orange');
+    expect(banner.className).toContain('bg-warning/25');
   });
 
-  it('renders blocked banner with red styling', () => {
+  it('renders blocked banner on the error token', () => {
     render(<UsageWarningBanner level="blocked" message="Limit reached" />);
     const banner = screen.getByTestId('usage-warning-banner');
-    expect(banner.className).toContain('red');
+    expect(banner.className).toContain('bg-error/10');
+  });
+
+  // The three levels form an escalation ladder. Collapsing any two into the
+  // same styling makes the escalation invisible to the user, which no
+  // individual per-level assertion above would catch.
+  it('styles every escalation level distinguishably', () => {
+    const seen = new Set<string>();
+    for (const level of ['warning', 'burst', 'blocked'] as const) {
+      const { unmount } = render(<UsageWarningBanner level={level} message="x" />);
+      seen.add(screen.getByTestId('usage-warning-banner').className);
+      unmount();
+    }
+    expect(seen.size).toBe(3);
   });
 
   it('can be dismissed when not blocked', () => {

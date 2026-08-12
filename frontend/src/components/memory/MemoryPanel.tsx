@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
 import { userApi } from '../../services/api';
-import { Card, Button, Badge, ConfirmDialog } from '../ui';
+import { Card, Button, Badge, ConfirmDialog, Select } from '../ui';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
@@ -110,10 +110,10 @@ export default function MemoryPanel() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
+            <h2 className="text-xl font-semibold text-on-surface">
               What the coach remembers about you
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-on-surface-variant">
               Facts the platform extracted from your conversations to give the
               coach memory across sessions. You can forget any individual fact
               and the coach will stop using it on the next turn.
@@ -124,24 +124,19 @@ export default function MemoryPanel() {
           </Button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Filter by kind
-          </label>
-          <select
-            value={kindFilter}
-            onChange={(e) =>
-              setKindFilter((e.target.value || '') as MemoryFactRow['kind'] | '')
-            }
-            className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-          >
-            {KIND_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-gray-500 dark:text-gray-400">
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="w-56">
+            <Select
+              label="Filter by kind"
+              size="sm"
+              value={kindFilter}
+              onChange={(e) =>
+                setKindFilter((e.target.value || '') as MemoryFactRow['kind'] | '')
+              }
+              options={KIND_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+            />
+          </div>
+          <span className="pb-2 text-xs text-outline">
             {facts.length} fact{facts.length === 1 ? '' : 's'}
           </span>
         </div>
@@ -155,17 +150,17 @@ export default function MemoryPanel() {
         </Card>
       ) : isError ? (
         <Card className="p-6">
-          <p className="text-sm text-red-600 dark:text-red-400">
+          <p className="text-sm text-error">
             Failed to load memory facts:{' '}
             {error instanceof Error ? error.message : String(error)}
           </p>
         </Card>
       ) : facts.length === 0 ? (
         <Card className="p-12 text-center">
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="text-on-surface-variant">
             No facts stored yet.
           </p>
-          <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+          <p className="mt-2 text-xs text-outline">
             Talk to a coach for a few turns and the platform will start
             building your memory profile.
           </p>
@@ -174,22 +169,22 @@ export default function MemoryPanel() {
         <div className="space-y-4">
           {Array.from(groupedByKind.entries()).map(([kind, items]) => (
             <Card key={kind} className="overflow-hidden">
-              <div className="border-b border-gray-200 bg-gray-50 px-4 py-2 dark:border-gray-700 dark:bg-gray-800">
+              <div className="border-b border-outline-variant bg-surface-container px-4 py-2">
                 <div className="flex items-center gap-2">
                   <Badge variant={KIND_VARIANT[kind]}>{humanizeKind(kind)}</Badge>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-on-surface-variant">
                     {items.length} fact{items.length === 1 ? '' : 's'}
                   </span>
                 </div>
               </div>
-              <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+              <ul className="divide-y divide-outline-variant">
                 {items.map((fact) => (
                   <li key={fact.id} className="flex items-start justify-between gap-4 px-4 py-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                      <p className="text-sm text-on-surface">
                         {isUserSubject(fact.subject) ? (
                           <>
-                            <span className="text-gray-600 dark:text-gray-400">
+                            <span className="text-on-surface-variant">
                               {capitalizeFirst(fact.predicate)}
                             </span>{' '}
                             <span className="font-medium">{fact.object}</span>
@@ -197,12 +192,12 @@ export default function MemoryPanel() {
                         ) : (
                           <>
                             <span className="font-medium">{fact.subject}</span>{' '}
-                            <span className="text-gray-600 dark:text-gray-400">{fact.predicate}</span>{' '}
+                            <span className="text-on-surface-variant">{fact.predicate}</span>{' '}
                             <span className="font-medium">{fact.object}</span>
                           </>
                         )}
                       </p>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
+                      <p className="mt-1 text-xs text-on-surface-variant">
                         Confidence {(fact.confidence * 100).toFixed(0)}% ·{' '}
                         Updated {formatTimestamp(fact.updated_at)}
                         {fact.coach_id ? ` · Coach ${fact.coach_id}` : ''}

@@ -70,17 +70,17 @@ type ReactionType = 'like' | 'celebrate' | 'inspire' | 'support';
 
 const REACTION_CONFIG: Record<ReactionType, { icon: string; color: string; label: string }> = {
   like: { icon: '👍', color: 'text-blue-400', label: 'Like' },
-  celebrate: { icon: '🎉', color: 'text-yellow-400', label: 'Celebrate' },
+  celebrate: { icon: '🎉', color: 'text-warning', label: 'Celebrate' },
   inspire: { icon: '💪', color: 'text-purple-400', label: 'Inspire' },
-  support: { icon: '🤗', color: 'text-red-400', label: 'Support' },
+  support: { icon: '🤗', color: 'text-error', label: 'Support' },
 };
 
 const INSIGHT_TYPE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
-  achievement: { icon: '🏆', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', label: 'Achievement' },
-  milestone: { icon: '🚩', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', label: 'Milestone' },
+  achievement: { icon: '🏆', color: 'bg-success/20 text-success border-success/30', label: 'Achievement' },
+  milestone: { icon: '🚩', color: 'bg-warning/20 text-warning border-warning/30', label: 'Milestone' },
   training_tip: { icon: '⚡', color: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', label: 'Training Tip' },
   recovery: { icon: '🌙', color: 'bg-violet-500/20 text-violet-400 border-violet-500/30', label: 'Recovery' },
-  motivation: { icon: '☀️', color: 'bg-orange-500/20 text-orange-400 border-orange-500/30', label: 'Motivation' },
+  motivation: { icon: '☀️', color: 'bg-warning/20 text-warning border-warning/30', label: 'Motivation' },
 };
 
 interface SocialFeedTabProps {
@@ -104,7 +104,12 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
   const loadSuggestions = useCallback(async () => {
     try {
       const response = await socialApi.getInsightSuggestions({ limit: 3 });
-      setSuggestions(response.suggestions as InsightSuggestion[]);
+      // A bare `as` here asserted a shape the response does not guarantee. When
+      // the endpoint answers without `suggestions`, the request resolves, the
+      // catch below never runs, and `suggestions.length` throws into the
+      // ErrorBoundary that sits above the dashboard shell — taking out the
+      // sidebar and every other tab, not just this one.
+      setSuggestions(Array.isArray(response.suggestions) ? (response.suggestions as InsightSuggestion[]) : []);
     } catch (error) {
       // Silently fail - suggestions are optional enhancement
       console.debug('Failed to load suggestions:', error);
@@ -121,8 +126,9 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
 
       const response = await socialApi.getFeed({ cursor: cursor ?? undefined, limit: 20 });
 
-      // Cast response items to FeedItem[] - API ensures fields are present
-      const items = response.items as unknown as FeedItem[];
+      // Same guard as the suggestions call: the cast cannot make a missing
+      // array present, and an undefined `items` reaches feedItems.length.
+      const items = Array.isArray(response.items) ? (response.items as unknown as FeedItem[]) : [];
       if (cursor) {
         setFeedItems(prev => [...prev, ...items]);
       } else {
@@ -267,7 +273,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
     <div className="h-full flex flex-col bg-surface">
       <TabHeader
         icon={<TrendingUp className="w-5 h-5" />}
-        gradient="from-pierre-violet to-purple-600"
+        gradient="from-primary to-purple-600"
         description="Coach insights from your friends"
         actions={
           <>
@@ -298,11 +304,11 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
 
       {/* Suggestions Banner */}
       {suggestions.length > 0 && showSuggestionsBanner && (
-        <div className="p-4 bg-pierre-violet/10 border border-pierre-violet/20 rounded-xl">
+        <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl">
           {/* Header with dismiss */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-pierre-violet-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
               <span className="font-semibold text-on-surface">Coach noticed something!</span>
@@ -341,8 +347,8 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
         </div>
       ) : feedItems.length === 0 ? (
         <Card variant="dark" className="!p-8 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-violet/20 flex items-center justify-center">
-            <svg className="w-8 h-8 text-pierre-violet-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/20 flex items-center justify-center">
+            <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
             </svg>
           </div>
@@ -392,7 +398,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                 {item.insight.title && (
                   <h3 className="text-lg font-semibold text-on-surface mb-2">{item.insight.title}</h3>
                 )}
-                <div className="text-on-surface mb-4 prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-strong:text-on-surface prose-a:text-primary prose-a:underline hover:prose-a:text-pierre-violet/80">
+                <div className="text-on-surface mb-4 prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-strong:text-on-surface prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
                   <Markdown
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -462,7 +468,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                     >
                       {item.user_has_adapted ? (
                         <span className="flex items-center gap-2">
-                          <svg className="w-4 h-4 text-pierre-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
                           Adapted

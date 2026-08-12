@@ -1,0 +1,51 @@
+name: "CI: Design System"
+
+# DESIGN.md is one system with two renderers, so this gate spans web AND mobile
+# and gets its own trigger set rather than riding either platform's test suite.
+# It is compile-free (grep + counts), so it reports in seconds.
+
+on:
+  push:
+    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
+    paths:
+      - 'frontend/src/**'
+      - 'frontend/DESIGN.md'
+      - 'frontend/tailwind.config.cjs'
+      - 'frontend-mobile/src/**'
+      - 'frontend-mobile/global.css'
+      - 'frontend-mobile/tailwind.config.js'
+      - 'packages/shared-constants/src/design-system.ts'
+      - 'scripts/ci/design-system-validation.sh'
+      - '.github/workflows/design-system.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'frontend/src/**'
+      - 'frontend/DESIGN.md'
+      - 'frontend/tailwind.config.cjs'
+      - 'frontend-mobile/src/**'
+      - 'frontend-mobile/global.css'
+      - 'frontend-mobile/tailwind.config.js'
+      - 'packages/shared-constants/src/design-system.ts'
+      - 'scripts/ci/design-system-validation.sh'
+      - '.github/workflows/design-system.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  design-system:
+    name: Design System Conformance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Validate DESIGN.md token and primitive discipline
+        run: ./scripts/ci/design-system-validation.sh

@@ -139,10 +139,10 @@ export default function BillingPage() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {hasPaymentProblem && (
-        <Card variant="dark" className="p-4 border border-pierre-red-400/60 bg-pierre-red-400/10">
+        <Card variant="dark" className="p-4 border border-error/60 bg-error/10">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold text-pierre-red-400">
+              <h3 className="text-sm font-semibold text-error">
                 Payment problem — action needed
               </h3>
               <p className="mt-1 text-sm text-on-surface-variant">
@@ -154,7 +154,7 @@ export default function BillingPage() {
             <Button
               onClick={() => portalMutation.mutate()}
               disabled={portalMutation.isPending}
-              className="shrink-0 bg-pierre-red-400 hover:bg-pierre-red-400/80 text-on-primary"
+              className="shrink-0 bg-error hover:bg-error/80 text-on-primary"
             >
               {portalMutation.isPending ? 'Opening…' : 'Update payment'}
             </Button>
@@ -209,7 +209,7 @@ export default function BillingPage() {
             <Button
               onClick={() => checkoutMutation.mutate('professional')}
               disabled={checkoutMutation.isPending}
-              className="bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
+              className="bg-activity hover:bg-activity/80 text-on-primary"
             >
               {checkoutMutation.isPending ? 'Redirecting…' : 'Upgrade to Professional'}
             </Button>
@@ -242,7 +242,7 @@ export default function BillingPage() {
           </p>
         )}
 
-        {error && <p className="mt-4 text-sm text-pierre-red-400">Error: {error}</p>}
+        {error && <p className="mt-4 text-sm text-error">Error: {error}</p>}
       </Card>
       )}
 
@@ -291,10 +291,10 @@ export default function BillingPage() {
             {quotaQuery.data.counters.map((c) => {
               const pct = c.limit > 0 ? Math.min(100, (c.current / c.limit) * 100) : 0;
               const color = c.burst_zone
-                ? 'bg-pierre-red-400'
+                ? 'bg-error'
                 : c.warning
-                ? 'bg-pierre-nutrition'
-                : 'bg-pierre-activity';
+                ? 'bg-nutrition'
+                : 'bg-activity';
               return (
                 <div key={c.counter_type}>
                   <div className="flex justify-between text-sm mb-1">
@@ -407,7 +407,7 @@ function PlanCard({
   return (
     <div
       className={`rounded-xl border p-5 flex flex-col ${
-        isCurrent ? 'border-pierre-activity bg-pierre-activity/5' : 'ghost-border'
+        isCurrent ? 'border-activity bg-activity/5' : 'ghost-border'
       }`}
     >
       <div className="flex items-center justify-between mb-3">
@@ -435,7 +435,7 @@ function PlanCard({
           <Button
             onClick={onUpgrade}
             disabled={checkoutPending}
-            className="w-full bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
+            className="w-full bg-activity hover:bg-activity/80 text-on-primary"
           >
             {checkoutPending ? 'Redirecting…' : 'Upgrade'}
           </Button>

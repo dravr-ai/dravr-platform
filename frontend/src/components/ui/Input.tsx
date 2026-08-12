@@ -35,15 +35,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       'w-full bg-transparent text-on-surface placeholder:text-outline font-sans ' +
       'focus:outline-none transition-colors duration-base disabled:cursor-not-allowed disabled:opacity-50';
 
-    // Neutralize @tailwindcss/forms' full-border reset. The editorial input
-    // has a single bottom stroke; focus state grows it to 2px primary.
+    // The underline chrome lives in .boreal-underline-input, whose !important
+    // declarations are what neutralize @tailwindcss/forms' full-border reset.
+    // Only the icon gutters are left to inline style — an inline border here
+    // would lose to those !important rules and never paint.
     const inputStyle: React.CSSProperties = {
-      border: 'none',
-      borderRadius: 0,
-      borderBottom: error
-        ? '1px solid var(--color-error)'
-        : '1px solid rgba(192, 200, 195, 0.45)',
-      boxShadow: 'none',
       paddingLeft: leftIcon ? '1.5rem' : 0,
       paddingRight: rightIcon ? '1.5rem' : 0,
     };
@@ -68,7 +64,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             id={inputId}
-            className={`${baseInputClasses} ${sizeClasses[size]} ${className} boreal-underline-input`}
+            aria-invalid={error ? true : undefined}
+            className={`${baseInputClasses} ${sizeClasses[size]} ${className} boreal-underline-input${
+              error ? ' boreal-underline-input--error' : ''
+            }`}
             style={inputStyle}
             {...props}
           />

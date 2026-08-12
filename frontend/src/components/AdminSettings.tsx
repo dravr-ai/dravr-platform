@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useGroupPermissions } from '../hooks/useGroups';
-import { Card, ConfirmDialog } from './ui';
+import { Card, ConfirmDialog, Select } from './ui';
 import type { SocialInsightsConfig } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
@@ -170,7 +170,7 @@ export default function AdminSettings() {
                   'When enabled, new registrations are auto-approved. When disabled, only emails from auto_approve_domains are auto-approved.'}
               </p>
               {autoApprovalLockedByEnv && (
-                <p className="text-xs text-pierre-yellow-100 mt-2" data-testid="auto-approval-env-lock">
+                <p className="text-xs text-warning mt-2" data-testid="auto-approval-env-lock">
                   Locked by the AUTO_APPROVE_USERS environment variable on the server. Change it
                   there and restart — a value saved here would be ignored.
                 </p>
@@ -180,7 +180,7 @@ export default function AdminSettings() {
               {isLoading ? (
                 <div className="w-11 h-6 bg-surface-container-high rounded-full animate-pulse" />
               ) : error ? (
-                <span className="text-xs text-pierre-red-400">Error loading</span>
+                <span className="text-xs text-error">Error loading</span>
               ) : (
                 <button
                   onClick={handleToggleAutoApproval}
@@ -190,10 +190,10 @@ export default function AdminSettings() {
                       ? 'Set by the AUTO_APPROVE_USERS environment variable — not editable here'
                       : undefined
                   }
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-pierre-slate ${
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface-container ${
                     autoApprovalData?.enabled
-                      ? 'bg-pierre-activity'
-                      : 'bg-zinc-600'
+                      ? 'bg-activity'
+                      : 'bg-surface-container-high'
                   } ${updateAutoApprovalMutation.isPending || autoApprovalLockedByEnv ? 'opacity-50 cursor-not-allowed' : ''}`}
                   role="switch"
                   aria-checked={autoApprovalData?.enabled}
@@ -212,7 +212,7 @@ export default function AdminSettings() {
           {autoApprovalData && (
             <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
               autoApprovalData.enabled
-                ? 'bg-pierre-activity/15 text-pierre-activity border border-pierre-activity/30'
+                ? 'bg-activity/15 text-activity border border-activity/30'
                 : 'bg-surface-container-low text-on-surface-variant border ghost-border'
             }`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -232,12 +232,12 @@ export default function AdminSettings() {
 
           {/* Mutation status */}
           {updateAutoApprovalMutation.isSuccess && (
-            <div className="p-3 rounded-lg bg-pierre-activity/15 text-pierre-activity text-sm border border-pierre-activity/30">
+            <div className="p-3 rounded-lg bg-activity/15 text-activity text-sm border border-activity/30">
               Setting updated successfully.
             </div>
           )}
           {updateAutoApprovalMutation.isError && (
-            <div className="p-3 rounded-lg bg-pierre-red-500/15 text-pierre-red-400 text-sm border border-pierre-red-500/30">
+            <div className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30">
               Failed to update setting. Please try again.
             </div>
           )}
@@ -260,22 +260,24 @@ export default function AdminSettings() {
             {groupPolicyLoading ? (
               <div className="w-48 h-10 bg-surface-container-high rounded-lg animate-pulse" />
             ) : (
-              <select
-                value={groupCreationPolicy}
-                onChange={(e) => updateGroupPolicyMutation.mutate(e.target.value)}
-                disabled={updateGroupPolicyMutation.isPending}
-                className="w-48 px-3 py-2 bg-surface-container-low text-on-surface border ghost-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary disabled:opacity-50"
-              >
-                <option value="admins_only">Admins Only</option>
-                <option value="everyone">Everyone</option>
-              </select>
+              <div className="w-48">
+                <Select
+                  value={groupCreationPolicy}
+                  onChange={(e) => updateGroupPolicyMutation.mutate(e.target.value)}
+                  disabled={updateGroupPolicyMutation.isPending}
+                  options={[
+                    { value: 'admins_only', label: 'Admins Only' },
+                    { value: 'everyone', label: 'Everyone' },
+                  ]}
+                />
+              </div>
             )}
           </div>
 
           {/* Status indicator */}
           <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
             groupCreationPolicy === 'everyone'
-              ? 'bg-pierre-activity/15 text-pierre-activity border border-pierre-activity/30'
+              ? 'bg-activity/15 text-activity border border-activity/30'
               : 'bg-surface-container-low text-on-surface-variant border ghost-border'
           }`}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -294,12 +296,12 @@ export default function AdminSettings() {
 
           {/* Mutation status */}
           {updateGroupPolicyMutation.isSuccess && (
-            <div className="p-3 rounded-lg bg-pierre-activity/15 text-pierre-activity text-sm border border-pierre-activity/30">
+            <div className="p-3 rounded-lg bg-activity/15 text-activity text-sm border border-activity/30">
               Group creation policy updated successfully.
             </div>
           )}
           {updateGroupPolicyMutation.isError && (
-            <div className="p-3 rounded-lg bg-pierre-red-500/15 text-pierre-red-400 text-sm border border-pierre-red-500/30">
+            <div className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30">
               Failed to update policy. Please try again.
             </div>
           )}
@@ -312,7 +314,7 @@ export default function AdminSettings() {
           <h2 className="text-lg font-semibold text-on-surface">Social Insights Configuration</h2>
           <button
             onClick={() => setShowSocialInsightsConfig(!showSocialInsightsConfig)}
-            className="text-sm text-pierre-violet-light hover:text-pierre-cyan-light transition-colors"
+            className="text-sm text-primary hover:text-primary-fixed-dim transition-colors"
           >
             {showSocialInsightsConfig ? 'Hide Details' : 'Show Details'}
           </button>
@@ -327,7 +329,7 @@ export default function AdminSettings() {
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         ) : socialInsightsError ? (
-          <div className="p-3 rounded-lg bg-pierre-red-500/15 text-pierre-red-400 text-sm border border-pierre-red-500/30">
+          <div className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30">
             Failed to load social insights configuration.
           </div>
         ) : socialInsightsConfig && showSocialInsightsConfig ? (
@@ -347,7 +349,7 @@ export default function AdminSettings() {
                 max="100"
                 value={socialInsightsConfig.min_relevance_score}
                 onChange={(e) => handleSocialInsightsChange('min_relevance_score', parseInt(e.target.value))}
-                className="w-full accent-pierre-violet"
+                className="w-full accent-primary"
                 disabled={updateSocialInsightsMutation.isPending}
               />
             </div>
@@ -480,12 +482,12 @@ export default function AdminSettings() {
 
             {/* Mutation Status */}
             {updateSocialInsightsMutation.isSuccess && (
-              <div className="p-3 rounded-lg bg-pierre-activity/15 text-pierre-activity text-sm border border-pierre-activity/30">
+              <div className="p-3 rounded-lg bg-activity/15 text-activity text-sm border border-activity/30">
                 Configuration updated successfully.
               </div>
             )}
             {(updateSocialInsightsMutation.isError || resetSocialInsightsMutation.isError) && (
-              <div className="p-3 rounded-lg bg-pierre-red-500/15 text-pierre-red-400 text-sm border border-pierre-red-500/30">
+              <div className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30">
                 Failed to update configuration. Please try again.
               </div>
             )}

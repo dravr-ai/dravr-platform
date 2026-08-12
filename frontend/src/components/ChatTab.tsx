@@ -1224,7 +1224,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 <button
                   onClick={() => setShowCreateCoachFromConversation(true)}
                   disabled={isStreaming}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-pierre-violet/10 hover:bg-pierre-violet/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                   title="Create a coach based on this conversation"
                 >
                   <Sparkles className="w-3.5 h-3.5" />

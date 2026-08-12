@@ -1,5 +1,5 @@
-// ABOUTME: Reusable text input component with dark theme and glass styling per Stitch design
-// ABOUTME: Supports labels, error states, password visibility toggle, and glass variant
+// ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md §5
+// ABOUTME: Matches the web Input so one component reads the same on both platforms
 
 import React, { useState } from 'react';
 import {
@@ -18,6 +18,10 @@ interface InputProps extends Omit<TextInputProps, 'style'> {
   error?: string;
   containerStyle?: ViewStyle;
   showPasswordToggle?: boolean;
+  /**
+   * Retained for API stability. The Boreal system ships one editorial
+   * underline, so both values render identically — same as the web Input.
+   */
   variant?: 'default' | 'glass';
   /**
    * Force the input to render with the BOREAL_LIGHT palette regardless of
@@ -34,7 +38,7 @@ export function Input({
   error,
   containerStyle,
   showPasswordToggle = false,
-  variant = 'default',
+  variant: _variant = 'default',
   surface = 'auto',
   secureTextEntry,
   testID,
@@ -70,17 +74,22 @@ export function Input({
         errorText: themeColors.error,
       };
 
+  // Boreal Editorial field, DESIGN.md §5 — the same single bottom stroke the web
+  // Input wears. The two platforms rendered the same component in two languages
+  // (filled box here, underline there) while DESIGN.md described one Product
+  // Tier covering both.
+  //
+  // Touch is respected by padding, not by a box: 12pt vertical against a 16pt
+  // font clears the 44pt minimum target without an enclosing rectangle.
   const inputBaseStyle: ViewStyle & TextStyle = {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: variant === 'glass' ? 16 : 12,
-    borderWidth: 1,
-    borderColor: error ? fieldColors.errorBorder : fieldColors.border,
-    backgroundColor:
-      variant === 'glass' && !isLightSurface
-        ? 'rgba(255, 255, 255, 0.03)'
-        : fieldColors.background,
+    paddingVertical: 12,
+    paddingHorizontal: 0,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: error ? fieldColors.errorBorder : fieldColors.border,
+    backgroundColor: 'transparent',
     color: fieldColors.text,
     fontSize: 16,
     paddingRight: showPasswordToggle ? 64 : undefined,
@@ -90,8 +99,8 @@ export function Input({
     <View className="mb-4" style={containerStyle}>
       {label && (
         <Text
-          className="text-sm mb-1 font-medium"
-          style={{ color: fieldColors.secondary }}
+          className="text-[11px] mb-2 font-medium uppercase"
+          style={{ color: fieldColors.secondary, letterSpacing: 0.08 * 11 }}
         >
           {label}
         </Text>

@@ -65,7 +65,7 @@ export default function ActivityDetailModal({
         <div className="space-y-6">
           {/* Activity Header */}
           <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-xl bg-pierre-violet/20 flex items-center justify-center flex-shrink-0">
+            <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
               <svg className="w-6 h-6 text-primary" viewBox="0 0 24 24" fill="currentColor">
                 <path d={iconPath} />
               </svg>
@@ -75,7 +75,7 @@ export default function ActivityDetailModal({
               {activityDate && (
                 <p className="text-sm text-on-surface-variant">{activityDate}</p>
               )}
-              <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-pierre-cyan/20 text-primary-container rounded-full capitalize">
+              <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-primary-container/20 text-primary-container rounded-full capitalize">
                 {activityType}
               </span>
             </div>
@@ -83,21 +83,21 @@ export default function ActivityDetailModal({
 
           {/* AI Insight Card */}
           {insightContent && (
-            <Card variant="dark" className="border border-pierre-violet/30">
+            <Card variant="dark" className="border border-primary/30">
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-pierre-violet/20 flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
                   <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </div>
                 <div className="flex-1">
                   <p className="text-xs font-medium text-primary mb-1">AI Insight</p>
-                  <div className="text-sm text-on-surface leading-relaxed prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:text-base prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5">
+                  <div className="text-sm text-on-surface leading-relaxed prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-headings:text-base prose-strong:text-on-surface prose-ul:my-2 prose-li:my-0.5">
                     <Markdown
                       remarkPlugins={[remarkGfm]}
                       components={{
                         a: ({ href, children }) => (
-                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-pierre-violet/80 break-all">
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80 break-all">
                             {children}
                           </a>
                         ),
@@ -112,7 +112,7 @@ export default function ActivityDetailModal({
           )}
 
           {/* Share CTA Section */}
-          <Card variant="dark" className="bg-gradient-to-r from-pierre-violet/10 to-pierre-cyan/10 border ghost-border">
+          <Card variant="dark" className="bg-gradient-to-r from-primary/10 to-primary-container/10 border ghost-border">
             <div className="text-center">
               <h4 className="text-base font-medium text-on-surface mb-2">
                 Share this activity with friends

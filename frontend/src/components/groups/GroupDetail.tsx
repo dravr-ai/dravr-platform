@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { ArrowLeft, Users, BarChart3, Link2, Settings, Crown, UserCog } from 'lucide-react';
 import { useGroup, useGroupMembers, useGroupStats, useUpdateGroup, useLeaveGroup, useDeleteGroup, useRemoveCoach } from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
-import { Card, Button, Tabs, TabPanel, Input, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
+import { Card, Button, Tabs, TabPanel, Input, Textarea, Select, Checkbox, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import MemberList from './MemberList';
 import InviteManager from './InviteManager';
 import type { GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
@@ -42,9 +42,9 @@ const DETAIL_TABS = [
 ];
 
 const TREND_DISPLAY: Record<GroupTrend, { label: string; color: string }> = {
-  improving: { label: 'Improving', color: 'text-emerald-400' },
+  improving: { label: 'Improving', color: 'text-success' },
   stable: { label: 'Stable', color: 'text-on-surface-variant' },
-  declining: { label: 'Declining', color: 'text-amber-400' },
+  declining: { label: 'Declining', color: 'text-warning' },
 };
 
 export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
@@ -171,7 +171,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
             <div className="flex items-center gap-3 mb-1">
               <h2 className="text-2xl font-bold text-on-surface truncate">{group.name}</h2>
               {!group.is_active && (
-                <span className="px-2 py-0.5 text-xs font-medium bg-zinc-700/50 text-on-surface-variant rounded-full">
+                <span className="px-2 py-0.5 text-xs font-medium bg-surface-container/50 text-on-surface-variant rounded-full">
                   Inactive
                 </span>
               )}
@@ -185,13 +185,13 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                 {members.length} {members.length === 1 ? 'member' : 'members'}
               </span>
               {isOwner && (
-                <span className="flex items-center gap-1.5 text-amber-400">
+                <span className="flex items-center gap-1.5 text-warning">
                   <Crown className="w-4 h-4" />
                   Owner
                 </span>
               )}
               {group.coach_user_id && (
-                <span className="flex items-center gap-1.5 text-pierre-violet-light">
+                <span className="flex items-center gap-1.5 text-primary">
                   <UserCog className="w-4 h-4" />
                   Coach attached
                 </span>
@@ -288,52 +288,30 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                   onChange={(e) => setEditName(e.target.value)}
                   maxLength={100}
                 />
-                <div className="w-full">
-                  <label className="block text-sm font-medium text-on-surface mb-1.5">
-                    Description
-                  </label>
-                  <textarea
-                    className="w-full px-4 py-2.5 text-sm bg-surface-container-low text-on-surface placeholder:text-outline border ghost-border rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-30 focus:border-primary resize-none"
-                    rows={3}
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    maxLength={500}
-                  />
-                </div>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={editPeerSharing}
-                    onChange={(e) => setEditPeerSharing(e.target.checked)}
-                    className="w-4 h-4 rounded ghost-border bg-surface-container-low text-primary focus:ring-primary focus:ring-offset-0"
-                  />
-                  <div>
-                    <span className="text-sm text-on-surface group-hover:text-on-surface transition-colors">
-                      Enable peer data sharing
-                    </span>
-                    <p className="text-xs text-outline mt-0.5">
-                      Allows members who consent to see each other's aggregated training data.
-                    </p>
-                  </div>
-                </label>
-                <div>
-                  <label className="block text-sm text-on-surface mb-1" htmlFor="group-respond-mode">
-                    Coach replies in the group chat
-                  </label>
-                  <select
-                    id="group-respond-mode"
-                    value={editRespondMode}
-                    onChange={(e) => setEditRespondMode(e.target.value as GroupRespondMode)}
-                    className="w-full rounded-lg ghost-border bg-surface-container-low px-3 py-2 text-sm text-on-surface focus:ring-primary"
-                  >
-                    <option value="all">To every message</option>
-                    <option value="mentions">Only when mentioned</option>
-                  </select>
-                  <p className="text-xs text-outline mt-0.5">
-                    "Only when mentioned" keeps the coach quiet unless someone @-mentions it or
-                    replies to one of its messages; it still follows the discussion for context.
-                  </p>
-                </div>
+                <Textarea
+                  label="Description"
+                  rows={3}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  maxLength={500}
+                />
+                <Checkbox
+                  label="Enable peer data sharing"
+                  description="Allows members who consent to see each other's aggregated training data."
+                  checked={editPeerSharing}
+                  onChange={(e) => setEditPeerSharing(e.target.checked)}
+                />
+                <Select
+                  id="group-respond-mode"
+                  label="Coach replies in the group chat"
+                  value={editRespondMode}
+                  onChange={(e) => setEditRespondMode(e.target.value as GroupRespondMode)}
+                  options={[
+                    { value: 'all', label: 'To every message' },
+                    { value: 'mentions', label: 'Only when mentioned' },
+                  ]}
+                  helpText={'"Only when mentioned" keeps the coach quiet unless someone @-mentions it or replies to one of its messages; it still follows the discussion for context.'}
+                />
                 <div className="flex justify-end">
                   <Button variant="primary" onClick={handleSaveSettings} loading={isUpdating}>
                     Save Settings
@@ -350,7 +328,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
               {group.coach_user_id ? (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0">
-                    <UserCog className="w-4 h-4 text-pierre-violet-light flex-shrink-0" />
+                    <UserCog className="w-4 h-4 text-primary flex-shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm text-on-surface">A human coach oversees this group.</p>
                       <code className="text-xs text-outline font-mono truncate block">
@@ -377,8 +355,8 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
           )}
 
           {/* Danger zone */}
-          <Card variant="dark" className="!p-5 border border-red-500/20">
-            <h4 className="text-sm font-semibold text-red-400 mb-4">Danger Zone</h4>
+          <Card variant="dark" className="!p-5 border border-error/20">
+            <h4 className="text-sm font-semibold text-error mb-4">Danger Zone</h4>
             <div className="space-y-4">
               {/* Leave group (non-owners) */}
               {!isOwner && (

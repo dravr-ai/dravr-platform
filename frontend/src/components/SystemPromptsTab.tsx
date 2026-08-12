@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { Card, Button } from './ui';
+import { Card, Button, Textarea } from './ui';
 import { clsx } from 'clsx';
 
 const CONTREMAITRE_QUERY_KEYS = {
@@ -117,27 +117,27 @@ export default function SystemPromptsTab() {
       <Card variant="dark" className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h3 className="text-lg font-semibold text-pierre-text">System Prompts</h3>
+            <h3 className="text-lg font-semibold text-on-surface">System Prompts</h3>
             {status && (
-              <div className="flex items-center gap-2 text-sm text-pierre-text-secondary">
+              <div className="flex items-center gap-2 text-sm text-on-surface-variant">
                 <span
                   className={clsx(
                     'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
                     status.configured
-                      ? 'bg-pierre-activity/10 text-pierre-activity'
-                      : 'bg-pierre-text-secondary/10 text-pierre-text-secondary',
+                      ? 'bg-activity/10 text-activity'
+                      : 'bg-on-surface-variant/10 text-on-surface-variant',
                   )}
                 >
                   <span
                     className={clsx(
                       'w-1.5 h-1.5 rounded-full',
-                      status.configured ? 'bg-pierre-activity' : 'bg-pierre-text-secondary',
+                      status.configured ? 'bg-activity' : 'bg-on-surface-variant',
                     )}
                   />
                   {status.configured ? 'Connected' : 'Local only'}
                 </span>
                 {status.repo && (
-                  <span className="text-xs text-pierre-text-secondary">{status.repo}</span>
+                  <span className="text-xs text-on-surface-variant">{status.repo}</span>
                 )}
                 <span
                   className="text-xs"
@@ -161,7 +161,7 @@ export default function SystemPromptsTab() {
           </Button>
         </div>
         {syncMutation.isSuccess && syncMutation.data && (
-          <div className="mt-2 text-sm text-pierre-activity">
+          <div className="mt-2 text-sm text-activity">
             Synced {syncMutation.data.synced}, skipped {syncMutation.data.skipped}
             {syncMutation.data.failed > 0 && `, ${syncMutation.data.failed} failed`}
           </div>
@@ -171,12 +171,12 @@ export default function SystemPromptsTab() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Prompt list */}
         <Card variant="dark" className="p-0 lg:col-span-1">
-          <div className="p-4 border-b border-pierre-border">
-            <h4 className="text-sm font-medium text-pierre-text-secondary">
+          <div className="p-4 border-b border-outline-variant">
+            <h4 className="text-sm font-medium text-on-surface-variant">
               {prompts.length} System Prompt{prompts.length !== 1 ? 's' : ''}
             </h4>
             {status && status.coach_prompt_count > 0 && (
-              <p className="mt-1 text-xs text-pierre-text-secondary/70">
+              <p className="mt-1 text-xs text-on-surface-variant/70">
                 {status.coach_prompt_count} per-coach prompt
                 {status.coach_prompt_count === 1 ? '' : 's'} live in the Coaches tab.
               </p>
@@ -187,32 +187,32 @@ export default function SystemPromptsTab() {
               <div className="pierre-spinner" />
             </div>
           ) : (
-            <div className="divide-y divide-pierre-border">
+            <div className="divide-y divide-outline-variant">
               {prompts.map((prompt: PromptSummary) => (
                 <button
                   key={prompt.key}
                   onClick={() => handleSelectPrompt(prompt.key)}
                   className={clsx(
-                    'w-full text-left px-4 py-3 hover:bg-pierre-surface-hover transition-colors',
-                    selectedPrompt === prompt.key && 'bg-pierre-violet/5 border-l-2 border-primary',
+                    'w-full text-left px-4 py-3 hover:bg-surface-container-high transition-colors',
+                    selectedPrompt === prompt.key && 'bg-primary/5 border-l-2 border-primary',
                   )}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-pierre-text truncate">
+                    <span className="text-sm font-medium text-on-surface truncate">
                       {formatPromptKey(prompt.key)}
                     </span>
                     <span
                       className={clsx(
                         'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
                         prompt.source === 'contremaitre'
-                          ? 'bg-pierre-activity/10 text-pierre-activity'
-                          : 'bg-pierre-text-secondary/10 text-pierre-text-secondary',
+                          ? 'bg-activity/10 text-activity'
+                          : 'bg-on-surface-variant/10 text-on-surface-variant',
                       )}
                     >
                       {prompt.source === 'contremaitre' ? 'git' : 'built-in'}
                     </span>
                   </div>
-                  <div className="text-xs text-pierre-text-secondary mt-0.5">
+                  <div className="text-xs text-on-surface-variant mt-0.5">
                     {prompt.content_length.toLocaleString()} chars
                   </div>
                 </button>
@@ -224,7 +224,7 @@ export default function SystemPromptsTab() {
         {/* Prompt detail / editor */}
         <Card variant="dark" className="p-0 lg:col-span-2">
           {!selectedPrompt ? (
-            <div className="flex items-center justify-center h-64 text-pierre-text-secondary">
+            <div className="flex items-center justify-center h-64 text-on-surface-variant">
               Select a prompt to view or edit
             </div>
           ) : detailLoading ? (
@@ -234,9 +234,9 @@ export default function SystemPromptsTab() {
           ) : promptDetail ? (
             <div className="flex flex-col h-full">
               {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b border-pierre-border">
+              <div className="flex items-center justify-between p-4 border-b border-outline-variant">
                 <div>
-                  <h4 className="text-base font-semibold text-pierre-text">
+                  <h4 className="text-base font-semibold text-on-surface">
                     {formatPromptKey(promptDetail.key)}
                   </h4>
                   <div className="flex items-center gap-2 mt-1">
@@ -244,13 +244,13 @@ export default function SystemPromptsTab() {
                       className={clsx(
                         'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
                         promptDetail.source === 'contremaitre'
-                          ? 'bg-pierre-activity/10 text-pierre-activity'
-                          : 'bg-pierre-text-secondary/10 text-pierre-text-secondary',
+                          ? 'bg-activity/10 text-activity'
+                          : 'bg-on-surface-variant/10 text-on-surface-variant',
                       )}
                     >
                       {promptDetail.source === 'contremaitre' ? 'git' : 'built-in'}
                     </span>
-                    <span className="text-xs text-pierre-text-secondary font-mono">
+                    <span className="text-xs text-on-surface-variant font-mono">
                       {promptDetail.sha256.slice(0, 12)}
                     </span>
                   </div>
@@ -279,17 +279,17 @@ export default function SystemPromptsTab() {
               {/* Content */}
               {isEditing ? (
                 <div className="flex flex-col flex-1 p-4 gap-3">
-                  <textarea
+                  <Textarea
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
-                    className="flex-1 min-h-[400px] w-full p-3 rounded-lg bg-pierre-bg border border-pierre-border text-pierre-text text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-pierre-violet/50"
+                    className="flex-1 min-h-[400px] font-mono resize-y"
                     spellCheck={false}
                   />
                   {status?.configured && (
                     <div>
                       <label
                         htmlFor="commit-message"
-                        className="block text-xs font-medium text-pierre-text-secondary mb-1"
+                        className="block text-xs font-medium text-on-surface-variant mb-1"
                       >
                         Commit message (optional)
                       </label>
@@ -299,24 +299,24 @@ export default function SystemPromptsTab() {
                         value={commitMessage}
                         onChange={(e) => setCommitMessage(e.target.value)}
                         placeholder={`Update system prompt: ${selectedPrompt}`}
-                        className="w-full px-3 py-2 rounded-lg bg-pierre-bg border border-pierre-border text-pierre-text text-sm focus:outline-none focus:ring-2 focus:ring-pierre-violet/50"
+                        className="w-full px-3 py-2 rounded-lg bg-surface border border-outline-variant text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                       />
                     </div>
                   )}
                   {updateMutation.isError && (
-                    <div className="text-sm text-red-400">
+                    <div className="text-sm text-error">
                       Failed to save: {(updateMutation.error as Error).message}
                     </div>
                   )}
                   {updateMutation.isSuccess && updateMutation.data?.commit_sha && (
-                    <div className="text-sm text-pierre-activity">
+                    <div className="text-sm text-activity">
                       Committed to GitHub: {updateMutation.data.commit_sha.slice(0, 8)}
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="p-4 overflow-auto">
-                  <pre className="text-sm text-pierre-text font-mono whitespace-pre-wrap break-words leading-relaxed">
+                  <pre className="text-sm text-on-surface font-mono whitespace-pre-wrap break-words leading-relaxed">
                     {promptDetail.content}
                   </pre>
                 </div>

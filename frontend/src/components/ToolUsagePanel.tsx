@@ -41,7 +41,7 @@ export default function ToolUsagePanel() {
   if (error) {
     return (
       <div className="card-dark">
-        <div className="text-center py-8 text-pierre-red-400">
+        <div className="text-center py-8 text-error">
           <p className="text-lg mb-2">Failed to load tool-usage data</p>
           <p className="text-sm text-outline">Check admin permissions and try again.</p>
         </div>

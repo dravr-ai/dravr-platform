@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type CoachNoteAuditRow } from '../services/api/admin';
-import { Card, Button, Badge } from './ui';
+import { Card, Button, Badge, Select , Input } from './ui';
 import { useAuth } from '../hooks/useAuth';
 
 const LIMIT_OPTIONS = [50, 100, 200, 500] as const;
@@ -91,7 +91,7 @@ export default function CoachNotesAuditTab() {
   if (!tenantId) {
     return (
       <Card className="p-6">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-on-surface-variant">
           Tenant id not available on your session. Reload the page and try again.
         </p>
       </Card>
@@ -103,10 +103,10 @@ export default function CoachNotesAuditTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
+            <h2 className="text-xl font-semibold text-on-surface">
               Coach notes — compliance audit
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-on-surface-variant">
               Flat tenant-wide audit of every note a coach persona wrote about
               a user. Compliance reviewers can search, filter, and export
               without stitching together (user, coach) pairs.
@@ -118,23 +118,23 @@ export default function CoachNotesAuditTab() {
         </div>
 
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Notes shown
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {filtered.length}
             </div>
           </div>
           {(Object.entries(scopeCounts) as [ScopeKey, number][]).map(([key, count]) => (
             <div
               key={key}
-              className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800"
+              className="rounded-lg border border-outline-variant bg-surface-container p-3"
             >
-              <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              <div className="text-xs uppercase tracking-wide text-on-surface-variant">
                 {humanizeScope(key)}
               </div>
-              <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+              <div className="mt-1 text-2xl font-semibold text-on-surface">
                 {count}
               </div>
             </div>
@@ -144,63 +144,26 @@ export default function CoachNotesAuditTab() {
 
       <Card className="p-6">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-          <label className="flex flex-col gap-1 text-sm md:col-span-2">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Search content</span>
-            <input
-              type="text"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="substring search in note body"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Coach ID</span>
-            <input
-              type="text"
-              value={coachFilter}
-              onChange={(e) => setCoachFilter(e.target.value)}
-              placeholder="filter by coach id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">User ID</span>
-            <input
-              type="text"
-              value={userFilter}
-              onChange={(e) => setUserFilter(e.target.value)}
-              placeholder="filter by user id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Scope</span>
-            <select
-              value={scopeFilter}
-              onChange={(e) => setScopeFilter(e.target.value as '' | ScopeKey)}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            >
-              <option value="">All scopes</option>
-              <option value="conversation">Conversation</option>
-              <option value="user">User</option>
-              <option value="tenant">Tenant</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-gray-700 dark:text-gray-300">Rows</span>
-            <select
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
-            >
-              {LIMIT_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="md:col-span-2"><Input label="Search content" type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="substring search in note body" /></div>
+          <Input label="Coach ID" type="text" value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)} placeholder="filter by coach id" />
+          <Input label="User ID" type="text" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} placeholder="filter by user id" />
+          <Select
+            label="Scope"
+            value={scopeFilter}
+            onChange={(e) => setScopeFilter(e.target.value as '' | ScopeKey)}
+            options={[
+              { value: '', label: 'All scopes' },
+              { value: 'conversation', label: 'Conversation' },
+              { value: 'user', label: 'User' },
+              { value: 'tenant', label: 'Tenant' },
+            ]}
+          />
+          <Select
+            label="Rows"
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            options={LIMIT_OPTIONS.map((n) => ({ value: String(n), label: String(n) }))}
+          />
         </div>
       </Card>
 
@@ -210,35 +173,35 @@ export default function CoachNotesAuditTab() {
             <div className="pierre-spinner" />
           </div>
         ) : isError ? (
-          <div className="p-6 text-sm text-red-600 dark:text-red-400">
+          <div className="p-6 text-sm text-error">
             Failed to load coach notes audit:{' '}
             {error instanceof Error ? error.message : String(error)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
-            <p className="text-gray-500 dark:text-gray-400">
+            <p className="text-on-surface-variant">
               No coach notes match these filters.
             </p>
-            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            <p className="mt-1 text-xs text-outline">
               Coach personas write notes about a user via the
-              <code className="mx-1 rounded bg-gray-100 px-1 dark:bg-gray-800">
+              <code className="mx-1 rounded bg-surface-container px-1">
                 coach_note_add
               </code>
               tool. Nothing listed means no notes have been authored in this tenant yet.
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+          <ul className="divide-y divide-outline-variant">
             {filtered.map((note) => (
               <li
                 key={note.id}
                 className={`px-6 py-4 ${
-                  note.suppressed ? 'bg-red-50 dark:bg-red-950/20' : ''
+                  note.suppressed ? 'bg-error/10' : ''
                 }`}
                 data-testid={`note-row-${note.id}`}
               >
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">
                     <Badge variant={SCOPE_VARIANT[note.scope]}>{humanizeScope(note.scope)}</Badge>
                     {note.suppressed ? (
                       <Badge variant="error" data-testid={`note-suppressed-${note.id}`}>
@@ -246,17 +209,17 @@ export default function CoachNotesAuditTab() {
                       </Badge>
                     ) : null}
                     <span className="font-mono">coach {note.coach_id}</span>
-                    <span className="text-gray-400 dark:text-gray-500">·</span>
+                    <span className="text-outline">·</span>
                     <span className="font-mono">user {note.user_id}</span>
                     {note.conversation_id ? (
                       <>
-                        <span className="text-gray-400 dark:text-gray-500">·</span>
+                        <span className="text-outline">·</span>
                         <span className="font-mono">conv {note.conversation_id}</span>
                       </>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                    <span className="text-xs text-outline">
                       {formatTimestamp(note.created_at)}
                     </span>
                     <Button
@@ -278,7 +241,7 @@ export default function CoachNotesAuditTab() {
                     </Button>
                   </div>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">
+                <p className="mt-2 whitespace-pre-wrap text-sm text-on-surface">
                   {note.content}
                 </p>
               </li>

@@ -573,7 +573,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                     className={clsx(
                       'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative min-h-[44px]',
                       {
-                        'bg-gradient-to-r from-pierre-violet/20 to-pierre-cyan/10 text-pierre-violet-light shadow-sm': activeTab === tab.id,
+                        'bg-gradient-to-r from-primary/20 to-primary-container/10 text-primary shadow-sm': activeTab === tab.id,
                         'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface': activeTab !== tab.id,
                       },
                       sidebarCollapsed && 'justify-center'
@@ -589,7 +589,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                       {tab.badge && (
                         <span
                           data-testid="pending-users-badge"
-                          className="absolute -top-1 -right-1 bg-pierre-red-500 text-on-primary text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
+                          className="absolute -top-1 -right-1 bg-error text-on-primary text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
                         >
                           {tab.badge}
                         </span>
@@ -646,7 +646,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                   </span>
                 </div>
                 {/* Online status dot */}
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-pierre-activity rounded-full border-2 border-surface-container-low" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-activity rounded-full border-2 border-surface-container-low" />
               </div>
 
               {!sidebarCollapsed && (
@@ -729,8 +729,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             aria-label="Resize sidebar"
             onPointerDown={onSidebarResizeStart}
             className={clsx(
-              'absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-50 hover:bg-pierre-violet/40 transition-colors',
-              isResizingSidebar && 'bg-pierre-violet/60',
+              'absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-50 hover:bg-primary/40 transition-colors',
+              isResizingSidebar && 'bg-primary/60',
             )}
           />
         )}

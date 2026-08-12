@@ -14,12 +14,12 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-pierre-activity/10 text-pierre-activity border-pierre-activity/20',
-  Nutrition: 'bg-pierre-nutrition/10 text-pierre-nutrition border-pierre-nutrition/20',
-  Recovery: 'bg-pierre-recovery/10 text-pierre-recovery border-pierre-recovery/20',
-  Recipes: 'bg-pierre-yellow-500/10 text-pierre-yellow-600 border-pierre-yellow-500/20',
-  Mobility: 'bg-pierre-mobility/10 text-pierre-mobility border-pierre-mobility/20',
-  Custom: 'bg-pierre-violet/10 text-pierre-violet-light border-pierre-violet/20',
+  Training: 'bg-activity/10 text-activity border-activity/20',
+  Nutrition: 'bg-nutrition/10 text-nutrition border-nutrition/20',
+  Recovery: 'bg-recovery/10 text-recovery border-recovery/20',
+  Recipes: 'bg-warning/10 text-warning border-warning/20',
+  Mobility: 'bg-mobility/10 text-mobility border-mobility/20',
+  Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 
 function getCategoryColorClass(category: string): string {
@@ -92,8 +92,8 @@ export default function CoachReviewQueue() {
   if (error) {
     return (
       <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-red-500/20 flex items-center justify-center">
-          <svg className="w-8 h-8 text-pierre-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/20 flex items-center justify-center">
+          <svg className="w-8 h-8 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
@@ -108,8 +108,8 @@ export default function CoachReviewQueue() {
   if (coaches.length === 0) {
     return (
       <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-activity/20 flex items-center justify-center">
-          <svg className="w-8 h-8 text-pierre-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-activity/20 flex items-center justify-center">
+          <svg className="w-8 h-8 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
@@ -126,16 +126,16 @@ export default function CoachReviewQueue() {
           <button
             key={coach.id}
             onClick={() => setSelectedCoach(coach)}
-            className="w-full text-left bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-4 hover:border-pierre-violet/30 transition-all group"
+            className="w-full text-left bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-4 hover:border-primary/30 transition-all group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 mb-2">
                   {/* Queue position indicator */}
-                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-pierre-violet/20 text-pierre-violet-light text-xs font-bold flex items-center justify-center">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center">
                     {index + 1}
                   </span>
-                  <h3 className="font-semibold text-on-surface truncate group-hover:text-pierre-violet-light transition-colors">
+                  <h3 className="font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
                     {coach.title}
                   </h3>
                   <span className={clsx(
@@ -189,7 +189,7 @@ export default function CoachReviewQueue() {
                 )}
               </div>
 
-              <div className="flex-shrink-0 ml-4 flex items-center gap-2 text-outline group-hover:text-pierre-violet-light transition-colors">
+              <div className="flex-shrink-0 ml-4 flex items-center gap-2 text-outline group-hover:text-primary transition-colors">
                 <span className="text-xs hidden sm:inline">{formatDate(coach.submitted_at)}</span>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

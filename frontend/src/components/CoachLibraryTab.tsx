@@ -10,7 +10,7 @@ import { BookOpen } from 'lucide-react';
 import { coachesApi } from '../services/api';
 import type { Coach } from '../types/api';
 import type { ImportPreviewResponse } from '@pierre/shared-types';
-import { Card, Button, TabHeader } from './ui';
+import { Card, Button, TabHeader, Select, Textarea, Radio } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -37,12 +37,12 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 
 // Category colors for visual differentiation (matching ASY-35 specs)
 const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-pierre-activity/10 text-pierre-activity border-pierre-activity/20',
-  Nutrition: 'bg-pierre-nutrition/10 text-pierre-nutrition border-pierre-nutrition/20',
-  Recovery: 'bg-pierre-recovery/10 text-pierre-recovery border-pierre-recovery/20',
-  Recipes: 'bg-pierre-yellow-500/10 text-pierre-yellow-600 border-pierre-yellow-500/20',
-  Mobility: 'bg-pierre-mobility/10 text-pierre-mobility border-pierre-mobility/20',
-  Custom: 'bg-pierre-violet/10 text-pierre-violet-light border-pierre-violet/20',
+  Training: 'bg-activity/10 text-activity border-activity/20',
+  Nutrition: 'bg-nutrition/10 text-nutrition border-nutrition/20',
+  Recovery: 'bg-recovery/10 text-recovery border-recovery/20',
+  Recipes: 'bg-warning/10 text-warning border-warning/20',
+  Mobility: 'bg-mobility/10 text-mobility border-mobility/20',
+  Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 
 // Category border colors for left accent (synced with shared-constants)
@@ -623,7 +623,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   key={star}
                   className={clsx(
                     'w-3 h-3',
-                    coach.use_count >= star * 2 ? 'text-pierre-nutrition fill-pierre-nutrition' : 'text-outline-variant fill-none'
+                    coach.use_count >= star * 2 ? 'text-nutrition fill-nutrition' : 'text-outline-variant fill-none'
                   )}
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -741,7 +741,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
       <div className="h-full flex flex-col bg-surface">
         <TabHeader
           icon={<BookOpen className="w-5 h-5" />}
-          gradient="from-pierre-cyan to-pierre-blue-600"
+          gradient="from-primary-container to-info"
           description="Create custom AI personas to get specialized fitness coaching."
           actions={
             <>
@@ -762,7 +762,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 className={clsx(
                   'p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center',
                   showHidden
-                    ? 'bg-pierre-violet/20 text-pierre-violet-light'
+                    ? 'bg-primary/20 text-primary'
                     : 'text-outline hover:text-on-surface hover:bg-surface-container-low'
                 )}
                 title={showHidden ? 'Hide hidden coaches' : 'Show hidden coaches'}
@@ -863,7 +863,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               aria-label="Search coaches"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-primary transition-colors"
+              className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
             />
             {searchQuery && (
               <button
@@ -913,12 +913,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               className={clsx(
                 'flex items-center gap-1 px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px]',
                 favoritesOnly
-                  ? 'bg-pierre-yellow-500/20 text-pierre-yellow-400'
+                  ? 'bg-warning/20 text-warning'
                   : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
               )}
             >
               <svg
-                className={clsx('w-4 h-4', favoritesOnly ? 'fill-pierre-yellow-500' : 'fill-none')}
+                className={clsx('w-4 h-4', favoritesOnly ? 'fill-warning' : 'fill-none')}
                 stroke="currentColor"
                 viewBox="0 0 24 24"
                 aria-hidden="true"
@@ -944,8 +944,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               className={clsx(
                 'px-3 py-1 text-sm font-medium rounded transition-colors min-h-[44px] flex items-center',
                 selectedSource === filter.key
-                  ? 'bg-pierre-violet/20 text-pierre-violet-light font-medium'
-                  : 'text-on-surface-variant hover:text-pierre-violet-light'
+                  ? 'bg-primary/20 text-primary font-medium'
+                  : 'text-on-surface-variant hover:text-primary'
               )}
             >
               {filter.label}
@@ -956,8 +956,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         {/* Coaches Grid - scrollable content area */}
         <div className="flex-1 overflow-y-auto p-6">
         {actionError && (
-          <div className="mb-4 p-3 rounded-lg bg-pierre-red-500/10 border border-pierre-red-500/30">
-            <p className="text-sm text-pierre-red-500">{actionError}</p>
+          <div className="mb-4 p-3 rounded-lg bg-error/10 border border-error/30">
+            <p className="text-sm text-error">{actionError}</p>
           </div>
         )}
         {coachesLoading ? (
@@ -966,8 +966,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           </div>
         ) : coachesFailed ? (
           <Card variant="dark" className="text-center py-12">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-red-500/10 flex items-center justify-center">
-              <svg className="w-8 h-8 text-pierre-red-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/10 flex items-center justify-center">
+              <svg className="w-8 h-8 text-error" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
               </svg>
             </div>
@@ -1041,7 +1041,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 className="w-full flex items-center gap-3 px-3 py-2 text-left text-on-surface hover:bg-surface-container-low rounded-lg transition-colors"
               >
                 <svg
-                  className={clsx('w-5 h-5', actionMenuCoach.is_favorite ? 'text-pierre-yellow-500' : '')}
+                  className={clsx('w-5 h-5', actionMenuCoach.is_favorite ? 'text-warning' : '')}
                   fill={actionMenuCoach.is_favorite ? 'currentColor' : 'none'}
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -1110,7 +1110,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       closeActionMenu();
                     }
                   }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-pierre-red-500 hover:bg-surface-container-low rounded-lg transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-error hover:bg-surface-container-low rounded-lg transition-colors"
                 >
                   <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1194,7 +1194,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 }}
               />
               {importError && (
-                <p className="text-sm text-pierre-red-500 mb-3">{importError}</p>
+                <p className="text-sm text-error mb-3">{importError}</p>
               )}
               <div className="flex justify-end gap-3">
                 <Button
@@ -1238,9 +1238,9 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
 
               {!importPreviewData.valid ? (
                 <div>
-                  <p className="text-sm text-pierre-red-500 mb-3">This file cannot be imported:</p>
+                  <p className="text-sm text-error mb-3">This file cannot be imported:</p>
                   {importPreviewData.errors && importPreviewData.errors.length > 0 && (
-                    <ul className="list-disc list-inside text-sm text-pierre-red-400 mb-4 space-y-1">
+                    <ul className="list-disc list-inside text-sm text-error mb-4 space-y-1">
                       {importPreviewData.errors.map((err, i) => (
                         <li key={i}>{err}</li>
                       ))}
@@ -1290,17 +1290,17 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   )}
 
                   {importPreviewData.duplicate_exists && (
-                    <div className="p-3 rounded-lg bg-pierre-yellow-500/10 border border-pierre-yellow-500/20 mb-4">
-                      <p className="text-sm text-pierre-yellow-400">
+                    <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 mb-4">
+                      <p className="text-sm text-warning">
                         A coach with matching content already exists. Importing will create a duplicate.
                       </p>
                     </div>
                   )}
 
                   {importPreviewData.warnings && importPreviewData.warnings.length > 0 && (
-                    <div className="p-3 rounded-lg bg-pierre-yellow-500/10 border border-pierre-yellow-500/20 mb-4">
-                      <p className="text-sm font-medium text-pierre-yellow-400 mb-1">Warnings:</p>
-                      <ul className="list-disc list-inside text-sm text-pierre-yellow-300 space-y-1">
+                    <div className="p-3 rounded-lg bg-warning/10 border border-warning/20 mb-4">
+                      <p className="text-sm font-medium text-warning mb-1">Warnings:</p>
+                      <ul className="list-disc list-inside text-sm text-warning space-y-1">
                         {importPreviewData.warnings.map((warn, i) => (
                           <li key={i}>{warn}</li>
                         ))}
@@ -1309,7 +1309,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   )}
 
                   {importError && (
-                    <p className="text-sm text-pierre-red-500 mb-3">{importError}</p>
+                    <p className="text-sm text-error mb-3">{importError}</p>
                   )}
 
                   <div className="flex justify-end gap-3">
@@ -1369,7 +1369,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             {/* Title */}
             <div>
               <label className="block text-sm font-medium text-on-surface mb-1">
-                Title <span className="text-pierre-red-500">*</span>
+                Title <span className="text-error">*</span>
               </label>
               <input
                 type="text"
@@ -1383,60 +1383,36 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             </div>
 
             {/* Category */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                Category
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface focus:ring-2 focus:ring-primary focus:border-transparent"
-              >
-                {COACH_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat} className="bg-surface-container-low">{cat}</option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Category"
+              value={formData.category}
+              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+              options={COACH_CATEGORIES.map((cat) => ({ value: cat, label: cat }))}
+            />
 
             {/* Description */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                Description
-              </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent"
-                rows={2}
-                maxLength={500}
-                placeholder="Brief description of the coach's specialty..."
-              />
-              <p className="mt-1 text-xs text-outline text-right">
-                {formData.description.length}/500
-              </p>
-            </div>
+            <Textarea
+              label="Description"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={2}
+              maxLength={500}
+              placeholder="Brief description of the coach's specialty..."
+              helpText={`${formData.description.length}/500`}
+            />
 
             {/* System Prompt */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                System Prompt <span className="text-pierre-red-500">*</span>
-              </label>
-              <textarea
-                value={formData.system_prompt}
-                onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent font-mono text-sm"
-                rows={8}
-                maxLength={4000}
-                placeholder="You are an expert coach with deep knowledge of..."
-                required
-              />
-              <div className="mt-1 flex items-center justify-between text-xs text-outline">
-                <span>
-                  ~{tokenCount.toLocaleString()} tokens ({getContextPercentage(tokenCount)}% context)
-                </span>
-                <span>{formData.system_prompt.length}/4000</span>
-              </div>
-            </div>
+            <Textarea
+              label="System Prompt *"
+              value={formData.system_prompt}
+              onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
+              className="font-mono"
+              rows={8}
+              maxLength={4000}
+              placeholder="You are an expert coach with deep knowledge of..."
+              required
+              helpText={`~${tokenCount.toLocaleString()} tokens (${getContextPercentage(tokenCount)}% context) · ${formData.system_prompt.length}/4000`}
+            />
 
             {/* Tags */}
             <div>
@@ -1457,11 +1433,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               <h3 className="text-sm font-semibold text-on-surface/90 mb-3">Data Context</h3>
 
               <div className="mb-4">
-                <label className="block text-sm text-on-surface/60 mb-1">
-                  Startup Query <span className="text-on-surface/30">(optional)</span>
-                </label>
-                <textarea
-                  className="w-full p-3 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm placeholder-white/30 focus:border-purple-500/50 focus:outline-none resize-none"
+                <Textarea
+                  label="Startup Query (optional)"
                   rows={2}
                   placeholder="What should the coach analyze on first message?"
                   value={formData.startup_query}
@@ -1493,20 +1466,19 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm focus:border-purple-500/50 focus:outline-none"
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs text-on-surface/50 mb-1">Time frame</label>
-                      <select
-                        value={formData.time_frame}
-                        onChange={(e) => setFormData({ ...formData, time_frame: e.target.value })}
-                        className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm focus:border-purple-500/50 focus:outline-none"
-                      >
-                        <option value="3w">3 weeks</option>
-                        <option value="8w">8 weeks</option>
-                        <option value="12w">12 weeks</option>
-                        <option value="16w">16 weeks</option>
-                        <option value="6m">6 months</option>
-                      </select>
-                    </div>
+                    <Select
+                      label="Time frame"
+                      size="sm"
+                      value={formData.time_frame}
+                      onChange={(e) => setFormData({ ...formData, time_frame: e.target.value })}
+                      options={[
+                        { value: '3w', label: '3 weeks' },
+                        { value: '8w', label: '8 weeks' },
+                        { value: '12w', label: '12 weeks' },
+                        { value: '16w', label: '16 weeks' },
+                        { value: '6m', label: '6 months' },
+                      ]}
+                    />
                   </div>
 
                   <div>
@@ -1523,26 +1495,18 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   </div>
 
                   <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="detail_mode"
-                        checked={formData.detail_mode === 'summary'}
-                        onChange={() => setFormData({ ...formData, detail_mode: 'summary' })}
-                        className="text-purple-500 focus:ring-purple-500"
-                      />
-                      <span className="text-xs text-on-surface/60">Summary</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="detail_mode"
-                        checked={formData.detail_mode === 'detailed'}
-                        onChange={() => setFormData({ ...formData, detail_mode: 'detailed' })}
-                        className="text-purple-500 focus:ring-purple-500"
-                      />
-                      <span className="text-xs text-on-surface/60">Detailed (laps, splits)</span>
-                    </label>
+                    <Radio
+                      name="detail_mode"
+                      label="Summary"
+                      checked={formData.detail_mode === 'summary'}
+                      onChange={() => setFormData({ ...formData, detail_mode: 'summary' })}
+                    />
+                    <Radio
+                      name="detail_mode"
+                      label="Detailed (laps, splits)"
+                      checked={formData.detail_mode === 'detailed'}
+                      onChange={() => setFormData({ ...formData, detail_mode: 'detailed' })}
+                    />
                   </div>
 
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -1559,8 +1523,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             </div>
 
             {actionError && (
-              <div className="p-3 rounded-lg bg-pierre-red-500/10 border border-pierre-red-500/30">
-                <p className="text-sm text-pierre-red-500">{actionError}</p>
+              <div className="p-3 rounded-lg bg-error/10 border border-error/30">
+                <p className="text-sm text-error">{actionError}</p>
               </div>
             )}
 
@@ -1628,12 +1592,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             </span>
             <button
               onClick={(e) => handleToggleFavorite(e, selectedCoach.id)}
-              className="text-outline hover:text-pierre-yellow-500 transition-colors"
+              className="text-outline hover:text-warning transition-colors"
               title={selectedCoach.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
               aria-label={selectedCoach.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
             >
               <svg
-                className={clsx('w-6 h-6', selectedCoach.is_favorite ? 'fill-pierre-yellow-400 text-pierre-yellow-400' : 'fill-none')}
+                className={clsx('w-6 h-6', selectedCoach.is_favorite ? 'fill-warning text-warning' : 'fill-none')}
                 stroke="currentColor"
                 viewBox="0 0 24 24"
                 aria-hidden="true"
@@ -1668,8 +1632,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         </div>
 
         {actionError && (
-          <div className="mb-6 p-3 rounded-lg bg-pierre-red-500/10 border border-pierre-red-500/30">
-            <p className="text-sm text-pierre-red-500">{actionError}</p>
+          <div className="mb-6 p-3 rounded-lg bg-error/10 border border-error/30">
+            <p className="text-sm text-error">{actionError}</p>
           </div>
         )}
 
@@ -1689,11 +1653,11 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             </div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-pierre-activity">{selectedCoach.use_count}</div>
+            <div className="text-2xl font-bold text-activity">{selectedCoach.use_count}</div>
             <div className="text-xs text-outline">Uses</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-pierre-nutrition">
+            <div className="text-2xl font-bold text-nutrition">
               {selectedCoach.is_favorite ? '★' : '☆'}
             </div>
             <div className="text-xs text-outline">

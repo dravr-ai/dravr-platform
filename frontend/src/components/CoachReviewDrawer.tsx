@@ -14,12 +14,12 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-pierre-activity/10 text-pierre-activity border-pierre-activity/20',
-  Nutrition: 'bg-pierre-nutrition/10 text-pierre-nutrition border-pierre-nutrition/20',
-  Recovery: 'bg-pierre-recovery/10 text-pierre-recovery border-pierre-recovery/20',
-  Recipes: 'bg-pierre-yellow-500/10 text-pierre-yellow-600 border-pierre-yellow-500/20',
-  Mobility: 'bg-pierre-mobility/10 text-pierre-mobility border-pierre-mobility/20',
-  Custom: 'bg-pierre-violet/10 text-pierre-violet-light border-pierre-violet/20',
+  Training: 'bg-activity/10 text-activity border-activity/20',
+  Nutrition: 'bg-nutrition/10 text-nutrition border-nutrition/20',
+  Recovery: 'bg-recovery/10 text-recovery border-recovery/20',
+  Recipes: 'bg-warning/10 text-warning border-warning/20',
+  Mobility: 'bg-mobility/10 text-mobility border-mobility/20',
+  Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 
 function getCategoryColorClass(category: string): string {
@@ -195,7 +195,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               {coach.system_prompt.length > 500 && (
                 <button
                   onClick={() => setIsPromptExpanded(!isPromptExpanded)}
-                  className="mt-2 text-sm text-pierre-violet-light hover:text-primary transition-colors"
+                  className="mt-2 text-sm text-primary hover:text-primary transition-colors"
                 >
                   {isPromptExpanded ? 'Show less' : 'Show full prompt'}
                 </button>
@@ -224,7 +224,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               <ul className="space-y-2">
                 {coach.sample_prompts.map((prompt, idx) => (
                   <li key={idx} className="text-sm text-on-surface-variant flex items-start gap-2">
-                    <span className="text-pierre-violet-light">•</span>
+                    <span className="text-primary">•</span>
                     <span>{prompt}</span>
                   </li>
                 ))}
@@ -246,7 +246,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Status</span>
-                <span className="px-2 py-0.5 text-xs bg-pierre-violet/20 text-pierre-violet-light rounded-full">
+                <span className="px-2 py-0.5 text-xs bg-primary/20 text-primary rounded-full">
                   Pending Review
                 </span>
               </div>
@@ -259,7 +259,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           <Button
             onClick={() => setShowRejectionModal(true)}
             variant="secondary"
-            className="flex-1 border-pierre-red-500/30 text-pierre-red-400 hover:bg-pierre-red-500/10"
+            className="flex-1 border-error/30 text-error hover:bg-error/10"
           >
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -269,7 +269,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           <Button
             onClick={handleApprove}
             disabled={approveMutation.isPending}
-            className="flex-1 bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
+            className="flex-1 bg-activity hover:bg-activity/80 text-on-primary"
           >
             {approveMutation.isPending ? (
               <span className="flex items-center">
@@ -290,8 +290,8 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
         {/* Error Message */}
         {approveMutation.isError && (
           <div className="px-6 pb-4">
-            <div className="p-3 bg-pierre-red-500/15 border border-pierre-red-500/30 rounded-md">
-              <p className="text-sm text-pierre-red-400">
+            <div className="p-3 bg-error/15 border border-error/30 rounded-md">
+              <p className="text-sm text-error">
                 Failed to approve coach. Please try again.
               </p>
             </div>

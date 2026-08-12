@@ -16,6 +16,10 @@ export type { StatusFilterProps, StatusFilterValue } from './StatusFilter';
 // Form components
 export { Input } from './Input';
 export type { InputProps } from './Input';
+export { Textarea } from './Textarea';
+export type { TextareaProps } from './Textarea';
+export { Checkbox, Radio } from './Checkbox';
+export type { CheckboxProps, RadioProps } from './Checkbox';
 export { Select } from './Select';
 export type { SelectProps, SelectOption } from './Select';
 export { Slider } from './Slider';

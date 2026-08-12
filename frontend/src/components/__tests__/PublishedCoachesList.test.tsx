@@ -145,12 +145,12 @@ describe('PublishedCoachesList', () => {
   it('has sort dropdown with options', async () => {
     renderPublishedCoachesList();
 
-    await waitFor(() => {
-      expect(screen.getByText('Sort by:')).toBeInTheDocument();
-    });
-
-    const select = screen.getByRole('combobox');
+    // The control is the <Select> primitive, so the caption is a real <label>
+    // bound to the field rather than a loose span beside it.
+    const select = await screen.findByLabelText('Sort by');
     expect(select).toHaveValue('newest');
+    expect(screen.getByRole('option', { name: 'Newest' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Most Installed' })).toBeInTheDocument();
   });
 
   it('changes sort order when dropdown changed', async () => {

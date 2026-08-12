@@ -234,6 +234,26 @@ if [[ "$HAS_FRONTEND_CHANGES" == "true" ]]; then
 fi
 
 # ============================================================================
+# TIER 5b: Design System Validation (if web or mobile UI changed)
+#
+# Compile-free token/primitive conformance. Runs on either platform's changes
+# because the ratchets span both — DESIGN.md is one system with two renderers.
+# ============================================================================
+if [[ "$HAS_FRONTEND_CHANGES" == "true" || "$HAS_MOBILE_CHANGES" == "true" ]]; then
+    echo "Tier 5b: Design System Validation"
+    echo "---------------------------------"
+    if [[ -f "$PROJECT_ROOT/scripts/ci/design-system-validation.sh" ]]; then
+        if ! "$PROJECT_ROOT/scripts/ci/design-system-validation.sh"; then
+            echo "FAIL: Design system validation failed!"
+            exit 1
+        fi
+    else
+        echo "WARN: design-system-validation.sh not found, skipping"
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 6: SDK Validation (if changed)
 # ============================================================================
 if [[ "$HAS_SDK_CHANGES" == "true" ]]; then

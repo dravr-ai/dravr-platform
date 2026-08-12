@@ -41,8 +41,8 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
         <div
           className={`h-1 w-full ${
             success
-              ? 'bg-gradient-to-r from-pierre-activity to-pierre-activity-dark'
-              : 'bg-gradient-to-r from-red-500 to-red-600'
+              ? 'bg-gradient-to-r from-activity to-activity'
+              : 'bg-error'
           }`}
         />
 
@@ -57,9 +57,9 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
           {success ? (
             <>
               {/* Success icon */}
-              <div className="w-16 h-16 bg-pierre-activity-light rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-activity rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg
-                  className="w-8 h-8 text-pierre-activity"
+                  className="w-8 h-8 text-activity"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -73,7 +73,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
                 </svg>
               </div>
 
-              <h1 className="text-xl font-bold text-pierre-activity mb-2">
+              <h1 className="text-xl font-bold text-activity mb-2">
                 {providerDisplay} Connected
               </h1>
               <p className="text-sm text-on-surface-variant mb-6">
@@ -83,9 +83,9 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
           ) : (
             <>
               {/* Error icon */}
-              <div className="w-16 h-16 bg-pierre-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-error rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg
-                  className="w-8 h-8 text-pierre-red-500"
+                  className="w-8 h-8 text-error"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -99,7 +99,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
                 </svg>
               </div>
 
-              <h1 className="text-xl font-bold text-pierre-red-600 mb-2">Connection Failed</h1>
+              <h1 className="text-xl font-bold text-error mb-2">Connection Failed</h1>
               <p className="text-sm text-on-surface-variant mb-6">
                 {error || `Failed to connect your ${providerDisplay} account. Please try again.`}
               </p>

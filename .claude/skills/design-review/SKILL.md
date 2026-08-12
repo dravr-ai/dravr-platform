@@ -6,93 +6,78 @@ user-invocable: true
 
 # Design Review
 
-Perform a comprehensive design system review of the frontend changes.
+Review UI changes against **`frontend/DESIGN.md`** — the Boreal design system,
+Product Tier. DESIGN.md is the source of truth; this skill is how you check
+work against it.
 
-## Review Scope
+## Order of operations
 
-Analyze files in:
-- `frontend/src/components/` - React components
-- `frontend/src/index.css` - Component CSS definitions
-- `templates/` - OAuth HTML templates (if modified)
+The machine checks run first because they are exhaustive and free. Your judgment
+is for what they cannot see.
 
-## Review Checklist
-
-### 1. Component Usage Compliance
-
-Search for anti-patterns in changed files:
+### 1. Run the gates (don't hand-roll their greps)
 
 ```bash
-# Find raw button elements (should use <Button>)
-grep -r "<button" frontend/src/components/ --include="*.tsx" | grep -v "// allowed"
-
-# Find raw div cards (should use <Card>)
-grep -rE "className=\"[^\"]*border[^\"]*rounded" frontend/src/components/ --include="*.tsx"
-
-# Find custom spinners (should use pierre-spinner)
-grep -r "animate-spin" frontend/src/components/ --include="*.tsx"
-
-# Find raw hex colors (should use design tokens)
-grep -rE "bg-\[#|text-\[#|border-\[#" frontend/src/components/ --include="*.tsx"
-
-# Find non-pierre colors
-grep -rE "(bg|text|border)-(red|green|blue|yellow|purple|gray)-[0-9]" frontend/src/components/ --include="*.tsx" | grep -v "pierre-"
+./scripts/ci/design-system-validation.sh      # tokens, primitives, ratchets
+cd frontend && bun run lint                   # bans raw <select>/<textarea>
 ```
 
-### 2. CSS Completeness
+Everything these cover — stock Tailwind palette instead of §2 tokens, raw form
+controls outside `components/ui/`, retired `.input-dark`/`.select-dark`, missing
+token mirrors — is already enforced. If they pass, do not re-audit it by grep.
+If a ratchet fell, lower the baseline in the script as instructed.
 
-Verify all component variants have CSS definitions:
-- Check `Badge.tsx` variants against `.badge-*` classes in `index.css`
-- Check `Button.tsx` variants against `.btn-*` classes in `index.css`
+### 2. LOOK AT IT
 
-### 3. Accessibility Audit
+**A design review without a rendered screen is a lint run.** The defects that
+matter most — three form languages stacked in one card, a stock amber louder
+than the primary CTA, a control that collides with the sidebar — are invisible
+in a diff and obvious in a screenshot.
 
-- Verify focus states use `.focus-ring` utility
-- Check for missing ARIA labels on icon buttons
-- Verify color contrast meets WCAG 2.1 AA (4.5:1)
-- Ensure touch targets are at least 44x44px
-
-### 4. Visual Consistency
-
-- Verify consistent spacing from Tailwind scale
-- Check typography follows design system
-- Verify gradients use `gradient-pierre` or pillar gradients
-- Check loading states use `pierre-spinner`
-
-## Output Format
-
-```
-=== Pierre Design System Review ===
-
-📁 Files Analyzed: [count]
-
-== Component Compliance ==
-✅/❌ Button usage: [details]
-✅/❌ Card usage: [details]
-✅/❌ Badge usage: [details]
-✅/❌ Loading states: [details]
-✅/❌ Color tokens: [details]
-
-== Accessibility ==
-✅/❌ Focus states: [details]
-✅/❌ ARIA labels: [details]
-✅/❌ Contrast ratios: [details]
-
-== CSS Completeness ==
-✅/❌ All variants defined: [details]
-
-== Issues Found ==
-1. [file:line] - [issue description]
-2. [file:line] - [issue description]
-
-== Recommendations ==
-- [specific improvement with code example]
-
-== Verdict ==
-[PASS / NEEDS WORK - X issues to address]
+```bash
+./bin/start-server.sh          # backend on 8081 (see setup-server skill for seeds)
+cd frontend && bun run dev     # vite on 5173
 ```
 
-## After Review
+Then drive the real app with the `chrome-devtools` MCP tools: `navigate_page`,
+`take_screenshot`, `resize_page` (test 1440 and 390 wide), `emulate` for dark
+and light. Screenshot **every screen the diff touches** and read the image.
 
-If issues are found, provide specific code fixes following the patterns in `.claude/skills/frontend-design/SKILL.md`.
+For mobile changes, do the same via the `ios-simulator` or `mirroir` MCP tools.
 
-Run this review after any frontend changes before committing.
+### 3. Judge what only a human eye catches
+
+With the screenshots in front of you:
+
+- **One language per surface.** Do all fields in a card share label casing,
+  field chrome, and help-text placement? (DESIGN.md §5 — this is the failure
+  mode the primitives were built to end.)
+- **Visual hierarchy.** Is the loudest element on the page the one that should
+  be? A saturated accent on a metadata chip outshouting the sole CTA is a bug.
+- **Rhythm.** Do gaps come from the §6 scale, or are they ad hoc?
+- **Both themes.** Boreal ships light and dark; check the change in both.
+- **Empty, loading, error, long-content.** Screenshot at least the empty and
+  overflow cases — truncation and layout collapse only show up there.
+
+### 4. Accessibility
+
+`frontend/e2e/accessibility/` runs in pre-push and CI, so trust it for icon
+labelling and 44x44 touch targets. Add a spec there for anything new it does
+not cover. Verify by eye: focus rings visible on every interactive element
+(`.focus-ring`, §5), and text contrast ≥ 4.5:1 against its actual background.
+
+## Output
+
+Report findings as `file:line — what's wrong — which DESIGN.md section it
+violates`, then the fix. Attach or describe the screenshot for anything visual;
+a visual claim without a rendered screen behind it is a guess.
+
+End with: **PASS** / **NEEDS WORK (n issues)**.
+
+## When you find drift the gates missed
+
+That is a gap in the gates, not just in the code. Say so, and propose the rule
+that would have caught it — a `no-restricted-syntax` selector for anything
+element-shaped, a check in `scripts/ci/design-system-validation.sh` for
+anything a text scan can see. Enforcement is what keeps the system from
+drifting back; a finding that only lives in a review comment will recur.

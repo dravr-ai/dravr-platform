@@ -89,6 +89,30 @@ as semantic categories.
 | `error` | `#ba1a1a` | `#ffb4ab` | Failed, destructive, blocking |
 | `info` | `#3e7283` | `#9bb6bd` | Informational, processing |
 
+Use these for anything that carries status meaning. Never reach for a stock
+Tailwind shade (`text-amber-400`, `bg-red-500`): those are fixed in both themes,
+so they fight the surface in one of them, and they land ~30% more saturated than
+Boreal — a stock amber on a status chip outshouts the page's only CTA.
+
+`scripts/ci/design-system-validation.sh` checks these four against
+`frontend/src/index.css`, `frontend-mobile/global.css` and
+`packages/shared-constants/src/design-system.ts` on every run. The values above
+are the source of truth; the check exists because "mirrored" was previously a
+claim nothing verified, and mobile carried the Editorial-tier `warning`
+(`#8f6a2e`) for months while this table said `#b08326`.
+
+**Opacity works, and it must.** Every `--color-*` variable holds a bare RGB
+triplet (`--color-warning: 176 131 38`) and both Tailwind configs map it as
+`rgb(var(--color-warning) / <alpha-value>)`. That is what makes `bg-warning/15`
+emit real CSS. Mapping a token as a plain `var(--color-x)` silently drops the
+modifier — Tailwind emits *no rule at all*, so the element renders with no
+background and nothing errors. 91 call sites were sitting in exactly that state.
+Raw CSS reading a token must therefore wrap it: `rgb(var(--color-error))`.
+
+Third-party brand colors are not design-system violations — Strava's orange in
+`SciotteLoginModal` stays as it is. Mark them with a comment so they read as
+deliberate rather than as drift.
+
 ### Outline / borders
 
 | Token | Hex (light) | Role |
@@ -206,11 +230,39 @@ match feedback states: `.badge-success`, `.badge-warning`, `.badge-error`,
 System-coach tag: `bg-primary/10 text-primary border border-primary/20`. Reads
 on the light card surface at AA contrast.
 
-### Inputs
+### Form fields
 
 Editorial underline by default — no enclosing box, single bottom rule that
 grows on focus. Class: `.input-field`. Glass variant `.input-glass` reserved
 for inputs floating over photographic backgrounds (rare in product).
+
+**One language, three primitives.** `<Input>`, `<Textarea>` and `<Select>` in
+`frontend/src/components/ui/` are the only form fields. All three render the
+same label (Inter, 11px, uppercase, `0.08em` tracking), the same transparent
+field with a 1px bottom rule at radius 0, and the same 12px help/error line.
+Stacking a boxed field beside an underlined one is the drift this system exists
+to prevent — it reads as two products in one card.
+
+The underline chrome lives in `.boreal-underline-input`, whose `!important`
+declarations are what beat `@tailwindcss/forms`' full-border reset. That also
+beats inline styles, so state variants must be classes:
+`.boreal-underline-input--error` paints the error rule.
+
+**Enforced, not advised:**
+
+| Rule | Where |
+|---|---|
+| No raw `<select>`/`<textarea>` outside `components/ui/` | `frontend/eslint.config.js` (`no-restricted-syntax`) — hard fail |
+| No retired `.input-dark`/`.select-dark` classes | `scripts/ci/design-system-validation.sh` — hard fail |
+| Raw `<input>` outside `components/ui/` | same script — ratcheted count, may only fall |
+| Stock Tailwind palette instead of §2 tokens | same script — ratcheted count, web + mobile |
+
+The one carve-out is the chat composer (`chat/MessageInput.tsx`): a chat
+surface, not a form field, and it needs an enclosing box to host its embedded
+send button. It carries a local `eslint-disable` naming the reason.
+
+Checkbox, radio, number, file and range have no primitive yet — that is why the
+raw-`<input>` rule is a ratchet rather than a hard zero.
 
 ### Chat surfaces
 

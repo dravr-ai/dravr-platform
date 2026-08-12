@@ -120,15 +120,15 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         <div className="min-h-dvh bg-surface flex items-center justify-center px-4">
           <div className="max-w-lg w-full">
             {/* Error Card */}
-            <div className="bg-surface-container-low rounded-xl shadow-xl overflow-hidden border border-pierre-gray-800">
+            <div className="bg-surface-container-low rounded-xl shadow-xl overflow-hidden border border-on-surface">
               {/* Header with gradient */}
-              <div className="h-1.5 w-full bg-gradient-to-r from-red-500 via-orange-500 to-red-500" />
+              <div className="h-1.5 w-full bg-error" />
 
               <div className="px-8 py-10">
                 {/* Error Icon */}
                 <div className="flex justify-center mb-6">
-                  <div className="p-4 bg-red-500/10 rounded-full">
-                    <AlertTriangle className="w-12 h-12 text-red-400" />
+                  <div className="p-4 bg-error/10 rounded-full">
+                    <AlertTriangle className="w-12 h-12 text-error" />
                   </div>
                 </div>
 
@@ -138,22 +138,22 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 </h1>
 
                 {/* Error Description */}
-                <p className="text-pierre-gray-400 text-center mb-6">
+                <p className="text-outline text-center mb-6">
                   An unexpected error occurred. We apologize for the inconvenience.
                 </p>
 
                 {/* Error Details (collapsible in production) */}
                 {error && (
                   <details className="mb-6 bg-surface-container-highest/50 rounded-lg overflow-hidden">
-                    <summary className="px-4 py-3 text-sm text-pierre-gray-400 cursor-pointer hover:bg-surface-container-highest/70 transition-colors">
+                    <summary className="px-4 py-3 text-sm text-outline cursor-pointer hover:bg-surface-container-highest/70 transition-colors">
                       Technical Details
                     </summary>
-                    <div className="px-4 py-3 border-t border-pierre-gray-800">
-                      <p className="text-sm font-mono text-red-400 mb-2">
+                    <div className="px-4 py-3 border-t border-on-surface">
+                      <p className="text-sm font-mono text-error mb-2">
                         {error.name}: {error.message}
                       </p>
                       {errorInfo?.componentStack && (
-                        <pre className="text-xs text-pierre-gray-500 overflow-x-auto max-h-32 scrollbar-thin">
+                        <pre className="text-xs text-on-surface-variant overflow-x-auto max-h-32 scrollbar-thin">
                           {errorInfo.componentStack}
                         </pre>
                       )}
@@ -165,7 +165,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={this.handleRetry}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-pierre-violet/90 text-on-primary font-medium rounded-lg transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary/90 text-on-primary font-medium rounded-lg transition-colors"
                   >
                     <RefreshCw className="w-4 h-4" />
                     Try Again
@@ -174,7 +174,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                   {showHomeButton && (
                     <button
                       onClick={this.handleGoHome}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-surface-container hover:bg-pierre-gray-600 text-on-surface font-medium rounded-lg transition-colors"
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-surface-container hover:bg-on-surface-variant text-on-surface font-medium rounded-lg transition-colors"
                     >
                       <Home className="w-4 h-4" />
                       Go Home
@@ -184,8 +184,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               </div>
 
               {/* Footer */}
-              <div className="px-8 py-4 bg-surface-container-highest/30 border-t border-pierre-gray-800">
-                <p className="text-xs text-pierre-gray-500 text-center">
+              <div className="px-8 py-4 bg-surface-container-highest/30 border-t border-on-surface">
+                <p className="text-xs text-on-surface-variant text-center">
                   If this problem persists, please contact support or try refreshing the page.
                 </p>
               </div>

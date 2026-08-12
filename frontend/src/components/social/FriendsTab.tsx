@@ -196,7 +196,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           </p>
         </div>
         {pendingReceived.length > 0 && activeTab !== 'pending' && (
-          <span className="px-2 py-1 text-xs font-medium bg-pierre-violet/20 text-pierre-violet-light rounded-full border border-pierre-violet/30">
+          <span className="px-2 py-1 text-xs font-medium bg-primary/20 text-primary rounded-full border border-primary/30">
             {pendingReceived.length} pending
           </span>
         )}
@@ -251,7 +251,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
             </svg>
             Pending
             {pendingReceived.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-pierre-nutrition text-on-primary text-xs font-bold rounded-full flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-nutrition text-on-primary text-xs font-bold rounded-full flex items-center justify-center">
                 {pendingReceived.length}
               </span>
             )}
@@ -268,8 +268,8 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
             </div>
           ) : friends.length === 0 ? (
             <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-violet/20 flex items-center justify-center">
-                <svg className="w-8 h-8 text-pierre-violet-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/20 flex items-center justify-center">
+                <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                 </svg>
               </div>
@@ -330,7 +330,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 placeholder="Search by name or email..."
                 aria-label="Search friends by name or email"
-                className="flex-1 px-4 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:border-pierre-violet/50"
+                className="flex-1 px-4 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:border-primary/50"
               />
               <Button variant="primary" onClick={handleSearch} loading={isSearching}>
                 Search
@@ -361,11 +361,11 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                       </div>
                     </div>
                     {user.is_friend ? (
-                      <span className="px-3 py-1 text-sm text-pierre-activity bg-pierre-activity/20 rounded-full">
+                      <span className="px-3 py-1 text-sm text-activity bg-activity/20 rounded-full">
                         Friends
                       </span>
                     ) : user.has_pending_request ? (
-                      <span className="px-3 py-1 text-sm text-pierre-nutrition bg-pierre-nutrition/20 rounded-full">
+                      <span className="px-3 py-1 text-sm text-nutrition bg-nutrition/20 rounded-full">
                         Pending
                       </span>
                     ) : (
@@ -480,7 +480,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                         </p>
                       </div>
                     </div>
-                    <span className="px-3 py-1 text-sm text-pierre-nutrition bg-pierre-nutrition/20 rounded-full">
+                    <span className="px-3 py-1 text-sm text-nutrition bg-nutrition/20 rounded-full">
                       Awaiting
                     </span>
                   </div>

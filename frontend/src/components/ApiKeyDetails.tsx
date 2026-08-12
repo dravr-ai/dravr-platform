@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Button, Card, CardHeader, Badge } from './ui';
+import { Button, Card, CardHeader, Badge, Textarea } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { adminApi } from '../services/api';
 import type { AdminToken, AdminTokenAudit, AdminTokenUsageStats, ProvisionedKey } from '../types/api';
@@ -52,13 +52,13 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
         />
 
         <div className="space-y-6">
-          <div className="bg-pierre-nutrition/15 border border-pierre-nutrition/30 rounded-lg p-4">
+          <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <svg className="w-6 h-6 text-pierre-nutrition mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6 text-nutrition mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
               <div>
-                <h4 className="font-medium text-pierre-nutrition">Important Security Notice</h4>
+                <h4 className="font-medium text-nutrition">Important Security Notice</h4>
                 <p className="text-sm text-on-surface mt-1">
                   This is the only time the full API token will be displayed. Please copy it now and store it securely.
                   The old token has been invalidated and will no longer work.
@@ -68,10 +68,10 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-on-surface mb-2">New API Key</label>
             <div className="relative">
-              <textarea
-                className="input-dark font-mono text-xs resize-none"
+              <Textarea
+                label="New API Key"
+                className="font-mono !text-xs"
                 value={newToken}
                 readOnly
                 rows={8}
@@ -356,7 +356,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                   <div className="text-xs text-on-surface-variant">Total Actions</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-semibold text-pierre-activity">
+                  <div className="text-2xl font-semibold text-activity">
                     {stats.actions_last_24h.toLocaleString()}
                   </div>
                   <div className="text-xs text-on-surface-variant">Last 24h</div>
@@ -448,7 +448,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
             {auditEntries.slice(0, 20).map((entry: AdminTokenAudit) => (
               <div key={entry.id} className="flex items-start gap-3 p-3 rounded-lg bg-surface-container-low">
                 <div className={`w-2 h-2 rounded-full mt-2 ${
-                  entry.success ? 'bg-pierre-activity' : 'bg-pierre-red-400'
+                  entry.success ? 'bg-activity' : 'bg-error'
                 }`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 text-sm">
@@ -463,7 +463,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                     </div>
                   )}
                   {entry.error_message && (
-                    <div className="text-xs text-pierre-red-400 mt-1">
+                    <div className="text-xs text-error mt-1">
                       Error: {entry.error_message}
                     </div>
                   )}

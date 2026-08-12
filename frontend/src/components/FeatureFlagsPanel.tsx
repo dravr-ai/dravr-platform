@@ -102,7 +102,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
       )}
 
       {error != null && !isLoading && (
-        <p className="text-sm text-pierre-red-400">
+        <p className="text-sm text-error">
           Failed to load flags: {error instanceof Error ? error.message : String(error)}
         </p>
       )}
@@ -126,8 +126,8 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                     className={
                       'text-xs px-2 py-0.5 rounded-full ' +
                       (effective
-                        ? 'bg-pierre-green-900 text-pierre-green-200'
-                        : 'bg-pierre-red-900 text-pierre-red-200')
+                        ? 'bg-success text-success'
+                        : 'bg-error text-error')
                     }
                   >
                     {effective ? 'enabled' : 'disabled'}
@@ -152,7 +152,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                     className={
                       'px-2 py-1 text-xs rounded ' +
                       (effective
-                        ? 'bg-pierre-green-700 text-white'
+                        ? 'bg-success text-white'
                         : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high')
                     }
                   >
@@ -165,7 +165,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                     className={
                       'px-2 py-1 text-xs rounded ' +
                       (!effective && flag.storedRow != null
-                        ? 'bg-pierre-red-700 text-white'
+                        ? 'bg-error text-white'
                         : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high')
                     }
                   >
@@ -189,7 +189,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
       </div>
 
       {setMutation.error != null && (
-        <p className="text-sm text-pierre-red-400 mt-3">
+        <p className="text-sm text-error mt-3">
           Update failed: {setMutation.error instanceof Error ? setMutation.error.message : 'unknown'}
         </p>
       )}

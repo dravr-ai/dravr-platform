@@ -32,7 +32,7 @@ export function InsightPreview({
         </label>
       )}
       <div
-        className={`bg-surface-container-low rounded-lg p-4 text-zinc-100 text-sm ${maxHeight} overflow-y-auto prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5 prose-p:my-2`}
+        className={`bg-surface-container-low rounded-lg p-4 text-on-surface text-sm ${maxHeight} overflow-y-auto prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 prose-strong:text-on-surface prose-ul:my-2 prose-li:my-0.5 prose-p:my-2`}
       >
         <Markdown
           remarkPlugins={[remarkGfm]}
@@ -42,20 +42,20 @@ export function InsightPreview({
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary underline hover:text-pierre-violet/80 break-all"
+                className="text-primary underline hover:text-primary/80 break-all"
               >
                 {children}
               </a>
             ),
             // Ensure headings have proper styling
             h1: ({ children }) => (
-              <h1 className="text-lg font-bold text-zinc-100 mt-4 mb-2">{children}</h1>
+              <h1 className="text-lg font-bold text-on-surface mt-4 mb-2">{children}</h1>
             ),
             h2: ({ children }) => (
-              <h2 className="text-base font-bold text-zinc-100 mt-4 mb-2">{children}</h2>
+              <h2 className="text-base font-bold text-on-surface mt-4 mb-2">{children}</h2>
             ),
             h3: ({ children }) => (
-              <h3 className="text-sm font-bold text-zinc-100 mt-3 mb-1">{children}</h3>
+              <h3 className="text-sm font-bold text-on-surface mt-3 mb-1">{children}</h3>
             ),
             // Lists
             ul: ({ children }) => (

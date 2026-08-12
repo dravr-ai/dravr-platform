@@ -28,7 +28,7 @@ const MyCoachCard = memo(function MyCoachCard({
 }: MyCoachCardProps) {
   return (
     <div
-      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-pierre-violet/50 hover:bg-surface-container px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-opacity-50 group hover:shadow-ambient cursor-pointer"
+      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-primary/50 hover:bg-surface-container px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-opacity-50 group hover:shadow-ambient cursor-pointer"
       onClick={onSelect}
     >
       {/* Action buttons container */}
@@ -42,7 +42,7 @@ const MyCoachCard = memo(function MyCoachCard({
                 e.stopPropagation();
                 onEdit();
               }}
-              className="p-1 text-on-surface-variant hover:text-primary hover:bg-pierre-violet/10 rounded transition-colors"
+              className="p-1 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded transition-colors"
               title="Edit coach"
               aria-label="Edit coach"
             >
@@ -54,7 +54,7 @@ const MyCoachCard = memo(function MyCoachCard({
                 e.stopPropagation();
                 onDelete();
               }}
-              className="p-1 text-on-surface-variant hover:text-pierre-red-500 hover:bg-pierre-red-500/10 rounded transition-colors"
+              className="p-1 text-on-surface-variant hover:text-error hover:bg-error/10 rounded transition-colors"
               title="Delete coach"
               aria-label="Delete coach"
             >
@@ -88,7 +88,7 @@ const MyCoachCard = memo(function MyCoachCard({
         </span>
         <div className="flex items-center gap-1">
           {coach.is_favorite && (
-            <span className="text-pierre-yellow-500">★</span>
+            <span className="text-warning">★</span>
           )}
           <span className={`text-xs px-1.5 py-0.5 rounded ${getCategoryBadgeClass(coach.category)}`}>
             {getCategoryIcon(coach.category)}
@@ -102,7 +102,7 @@ const MyCoachCard = memo(function MyCoachCard({
       )}
       <div className="flex items-center gap-2 mt-1 text-xs text-outline">
         {coach.is_system && (
-          <span className="bg-pierre-violet/20 text-pierre-violet-light px-1.5 py-0.5 rounded">
+          <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded">
             System
           </span>
         )}

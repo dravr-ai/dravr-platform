@@ -194,7 +194,7 @@ export default function MessagingSettingsTab() {
                 className={clsx(
                   'p-4 rounded-lg border transition-all',
                   isConfigured
-                    ? 'border-pierre-activity/30 bg-pierre-activity-light/10'
+                    ? 'border-activity/30 bg-activity/10'
                     : 'ghost-border bg-surface-container-low hover:ghost-border'
                 )}
               >
@@ -203,7 +203,7 @@ export default function MessagingSettingsTab() {
                     <div
                       className={clsx(
                         'p-2 rounded-lg',
-                        isConfigured ? 'bg-pierre-activity/20 text-pierre-activity' : 'bg-surface-container-high text-on-surface/60'
+                        isConfigured ? 'bg-activity/20 text-activity' : 'bg-surface-container-high text-on-surface/60'
                       )}
                     >
                       {info.icon}
@@ -297,8 +297,8 @@ export default function MessagingSettingsTab() {
             className={clsx(
               'p-3 rounded-lg text-sm',
               message.type === 'success'
-                ? 'bg-pierre-activity-light/30 text-pierre-activity'
-                : 'bg-pierre-red-50 text-pierre-red-600'
+                ? 'bg-activity/30 text-activity'
+                : 'bg-error text-error'
             )}
           >
             {message.text}

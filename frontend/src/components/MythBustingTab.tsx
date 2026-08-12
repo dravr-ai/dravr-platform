@@ -62,7 +62,7 @@ export default function MythBustingTab() {
   if (!tenantId) {
     return (
       <Card className="p-6">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-on-surface-variant">
           Tenant id not available on your session. Reload the page and try again.
         </p>
       </Card>
@@ -74,10 +74,10 @@ export default function MythBustingTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
+            <h2 className="text-xl font-semibold text-on-surface">
               Myth-busting — recurring unsupported claims
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-on-surface-variant">
               Pattern view over the latest{' '}
               <span className="font-medium">{data?.verdicts_scanned ?? '—'}</span>{' '}
               claim verdicts. Highlights the recurring unsupported and
@@ -91,27 +91,27 @@ export default function MythBustingTab() {
         </div>
 
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Verdicts scanned
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {data?.verdicts_scanned ?? 0}
             </div>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Flagged total
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {data?.flagged_total ?? 0}
             </div>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3">
+            <div className="text-xs uppercase tracking-wide text-on-surface-variant">
               Distinct claims
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
+            <div className="mt-1 text-2xl font-semibold text-on-surface">
               {data?.top_claims.length ?? 0}
             </div>
           </div>
@@ -126,17 +126,17 @@ export default function MythBustingTab() {
         </Card>
       ) : isError ? (
         <Card className="p-6">
-          <p className="text-sm text-red-600 dark:text-red-400">
+          <p className="text-sm text-error">
             Failed to load myth-busting summary:{' '}
             {error instanceof Error ? error.message : String(error)}
           </p>
         </Card>
       ) : data && data.flagged_total === 0 ? (
         <Card className="p-12 text-center">
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="text-on-surface-variant">
             No unsupported or contradicted claims in the latest scan window.
           </p>
-          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+          <p className="mt-1 text-xs text-outline">
             Either coaches are well-behaved, or the claim verifier classified
             everything as supported or rhetorical.
           </p>
@@ -144,20 +144,20 @@ export default function MythBustingTab() {
       ) : data ? (
         <>
           <Card className="overflow-hidden">
-            <div className="border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+            <div className="border-b border-outline-variant px-6 py-3">
+              <h3 className="text-sm font-semibold text-on-surface">
                 Top recurring claims
               </h3>
             </div>
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            <ul className="divide-y divide-outline-variant">
               {data.top_claims.map((claim) => (
                 <li key={claim.claim_excerpt} className="px-6 py-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                      <p className="text-sm text-on-surface">
                         {claim.claim_excerpt}
                       </p>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <p className="mt-1 text-xs text-on-surface-variant">
                         {claim.occurrences} occurrence{claim.occurrences === 1 ? '' : 's'} ·
                         {claim.coach_count} coach{claim.coach_count === 1 ? '' : 'es'} · last seen{' '}
                         {formatTimestamp(claim.last_seen_at)}
@@ -177,7 +177,7 @@ export default function MythBustingTab() {
             </ul>
             {promotionStatus ? (
               <div
-                className="border-t border-gray-200 px-6 py-3 text-xs dark:border-gray-700"
+                className="border-t border-outline-variant px-6 py-3 text-xs"
                 data-testid="promote-status"
               >
                 {promotionStatus.added
@@ -185,7 +185,7 @@ export default function MythBustingTab() {
                   : `Topic "${promotionStatus.topic}" was already in blocked_topics — no change.`}
               </div>
             ) : promoteMutation.isError ? (
-              <div className="border-t border-red-200 px-6 py-3 text-xs text-red-600 dark:border-red-700 dark:text-red-400">
+              <div className="border-t border-error px-6 py-3 text-xs text-error">
                 Failed to promote topic:{' '}
                 {promoteMutation.error instanceof Error
                   ? promoteMutation.error.message
@@ -195,23 +195,23 @@ export default function MythBustingTab() {
           </Card>
 
           <Card className="overflow-hidden">
-            <div className="border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+            <div className="border-b border-outline-variant px-6 py-3">
+              <h3 className="text-sm font-semibold text-on-surface">
                 Top offending coaches
               </h3>
             </div>
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            <ul className="divide-y divide-outline-variant">
               {data.top_coaches.map((coach) => (
                 <li key={coach.coach_id} className="px-6 py-3">
                   <div className="flex items-start justify-between gap-4">
-                    <div className="font-mono text-sm text-gray-900 dark:text-gray-100">
+                    <div className="font-mono text-sm text-on-surface">
                       {coach.coach_id}
                     </div>
-                    <div className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+                    <div className="text-sm font-semibold text-on-surface">
                       {coach.unsupported_total} flagged
                     </div>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <p className="mt-1 text-xs text-on-surface-variant">
                     Categories: {coach.categories.map(humanizeCategory).join(', ') || '—'}
                   </p>
                 </li>
@@ -220,21 +220,21 @@ export default function MythBustingTab() {
           </Card>
 
           <Card className="overflow-hidden">
-            <div className="border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
+            <div className="border-b border-outline-variant px-6 py-3">
+              <h3 className="text-sm font-semibold text-on-surface">
                 Top categories
               </h3>
             </div>
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            <ul className="divide-y divide-outline-variant">
               {data.top_categories.map((cat) => (
                 <li
                   key={cat.category}
                   className="flex items-center justify-between gap-4 px-6 py-3"
                 >
-                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  <div className="text-sm font-medium text-on-surface">
                     {humanizeCategory(cat.category)}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                  <div className="text-xs text-on-surface-variant">
                     {cat.flagged_total} flagged · {cat.coach_count} coach
                     {cat.coach_count === 1 ? '' : 'es'}
                   </div>
