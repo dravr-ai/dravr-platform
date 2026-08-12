@@ -8,7 +8,7 @@
 //! Integration tests for `pierre_runtime_context::tenant::resolve_tenant`.
 //!
 //! The canonical tenant resolver replaced ~10 ad-hoc
-//! `TenantId::from(user_id)` fallbacks across the route layer. These five
+//! `TenantId::from_uuid(user_id)` fallbacks across the route layer. These five
 //! tests pin its observable contract so a future refactor can't quietly
 //! reintroduce the user-id fabrication that masked the "user has no
 //! tenant" failure mode.
@@ -123,7 +123,7 @@ async fn no_claim_falls_back_to_first_tenant() -> Result<()> {
 }
 
 /// 4/5: Empty tenant list + `Required` must return `AppError::Auth*`. This
-/// is the case the old `TenantId::from(user_id)` fallback silently masked.
+/// is the case the old `TenantId::from_uuid(user_id)` fallback silently masked.
 #[tokio::test]
 async fn empty_list_required_errors() -> Result<()> {
     let resources = common::create_test_server_resources().await?;

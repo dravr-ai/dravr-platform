@@ -35,7 +35,7 @@ async fn open_in_memory_db() -> Result<Database> {
 async fn parq_yes_answers_raise_medical_flags() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 
@@ -68,7 +68,7 @@ async fn parq_yes_answers_raise_medical_flags() -> Result<()> {
 async fn parq_all_no_raises_nothing() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
 
     let raised =

@@ -790,7 +790,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant = TenantId::from(context.require_tenant()?);
+            let tenant = TenantId::from_uuid(context.require_tenant()?);
             let tenant_id = tenant.to_string();
             let user_id = ctx_user_id(&context);
             let arg_coach = optional_string_field(&args, "coach_id");
@@ -891,7 +891,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant = TenantId::from(context.require_tenant()?);
+            let tenant = TenantId::from_uuid(context.require_tenant()?);
             let tenant_id = tenant.to_string();
             let user_id = ctx_user_id(&context);
             let arg_coach = optional_string_field(&args, "coach_id");

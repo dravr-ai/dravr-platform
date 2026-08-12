@@ -485,7 +485,7 @@ async fn handle_subscription_upsert(
     provider: &str,
     payload: &SubscriptionEventPayload,
 ) -> AppResult<()> {
-    let tenant_id = TenantId::from_str(&payload.tenant_id)
+    let tenant_id = TenantId::parse_str(&payload.tenant_id)
         .map_err(|e| AppError::invalid_input(format!("invalid tenant_id metadata: {e}")))?;
     let user_id = Uuid::parse_str(&payload.user_id)
         .map_err(|e| AppError::invalid_input(format!("invalid user_id metadata: {e}")))?;

@@ -484,7 +484,7 @@ fn collect_verified_matches(
                 .get("tenant_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::internal("Channel config missing tenant_id"))?;
-            let tenant_id = TenantId::from_str(tenant_id_str).map_err(|_| {
+            let tenant_id = TenantId::parse_str(tenant_id_str).map_err(|_| {
                 AppError::internal(format!(
                     "Channel config has invalid tenant_id: {tenant_id_str}"
                 ))

@@ -434,7 +434,7 @@ pub async fn handle_validate_recipe(
 
 pub async fn handle_save_recipe(ctx: &ToolExecutionContext, args: Value) -> AppResult<ToolResult> {
     let user_id = ctx.user_id;
-    let tenant_id = TenantId::from(ctx.require_tenant()?);
+    let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
     let params: SaveRecipeParams = serde_json::from_value(args).map_err(|e| {
         AppError::invalid_input(format!("save_recipe: Invalid recipe parameters: {e}"))
@@ -501,7 +501,7 @@ pub async fn handle_save_recipe(ctx: &ToolExecutionContext, args: Value) -> AppR
 pub async fn handle_list_recipes(ctx: &ToolExecutionContext, args: Value) -> AppResult<ToolResult> {
     let output_format = parse_output_format(&args);
     let user_id = ctx.user_id;
-    let tenant_id = TenantId::from(ctx.require_tenant()?);
+    let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
     let meal_timing = args
         .get("meal_timing")
@@ -574,7 +574,7 @@ pub async fn handle_list_recipes(ctx: &ToolExecutionContext, args: Value) -> App
 pub async fn handle_get_recipe(ctx: &ToolExecutionContext, args: Value) -> AppResult<ToolResult> {
     let output_format = parse_output_format(&args);
     let user_id = ctx.user_id;
-    let tenant_id = TenantId::from(ctx.require_tenant()?);
+    let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
     let recipe_id = args
         .get("recipe_id")
@@ -644,7 +644,7 @@ pub async fn handle_delete_recipe(
     args: Value,
 ) -> AppResult<ToolResult> {
     let user_id = ctx.user_id;
-    let tenant_id = TenantId::from(ctx.require_tenant()?);
+    let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
     let recipe_id = args
         .get("recipe_id")
@@ -681,7 +681,7 @@ pub async fn handle_search_recipes(
 ) -> AppResult<ToolResult> {
     let output_format = parse_output_format(&args);
     let user_id = ctx.user_id;
-    let tenant_id = TenantId::from(ctx.require_tenant()?);
+    let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
     let query = args.get("query").and_then(Value::as_str).ok_or_else(|| {
         AppError::invalid_input("search_recipes: Missing required parameter: query")

@@ -517,7 +517,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             let provider_name = backend_resolver::resolve_backend(
                 &context.resources.repos().auth_repos(),
                 context.user_id,
-                context.tenant_id.map(TenantId::from),
+                context.tenant_id.map(TenantId::from_uuid),
                 &provider_name,
             )
             .await;
@@ -620,7 +620,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
             // Tenant ID strings for cache keys and downstream metadata.
             let tenant_uuid = context.tenant_id.unwrap_or_else(Uuid::nil);
-            let tenant_id = TenantId::from(tenant_uuid);
+            let tenant_id = TenantId::from_uuid(tenant_uuid);
             let tenant_id_str = context.tenant_id.map(|t| t.to_string());
 
             // ── Activity read model: three layers, two read paths — NOT three
@@ -1223,14 +1223,14 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             let provider_name = backend_resolver::resolve_backend(
                 &context.resources.repos().auth_repos(),
                 context.user_id,
-                context.tenant_id.map(TenantId::from),
+                context.tenant_id.map(TenantId::from_uuid),
                 &provider_name,
             )
             .await;
 
             let output_format = parse_output_format(&args);
 
-            let tenant_id = TenantId::from(context.tenant_id.unwrap_or_else(Uuid::nil));
+            let tenant_id = TenantId::from_uuid(context.tenant_id.unwrap_or_else(Uuid::nil));
             let tenant_id_str = context.tenant_id.map(|t| t.to_string());
 
             let cache_key = CacheKey::new(
@@ -1376,7 +1376,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             let provider_name = backend_resolver::resolve_backend(
                 &context.resources.repos().auth_repos(),
                 context.user_id,
-                context.tenant_id.map(TenantId::from),
+                context.tenant_id.map(TenantId::from_uuid),
                 &provider_name,
             )
             .await;
@@ -1386,7 +1386,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             // get_stats needs an athlete_id (provider-specific u64) for its
             // cache key shape. The first lookup is cheap when an athlete profile
             // is already cached; otherwise we fall through to the live API path.
-            let tenant_id = TenantId::from(context.tenant_id.unwrap_or_else(Uuid::nil));
+            let tenant_id = TenantId::from_uuid(context.tenant_id.unwrap_or_else(Uuid::nil));
             let tenant_id_str = context.tenant_id.map(|t| t.to_string());
 
             let athlete_cache_key = CacheKey::new(
@@ -1550,7 +1550,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let format = parse_output_format(&args);
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args);
 
             match context
@@ -1618,7 +1618,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let format = parse_output_format(&args);
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args);
 
             match context
@@ -1686,7 +1686,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let format = parse_output_format(&args);
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args);
 
             match context
@@ -1766,7 +1766,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let format = parse_output_format(&args);
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
 
             match context
                 .resources

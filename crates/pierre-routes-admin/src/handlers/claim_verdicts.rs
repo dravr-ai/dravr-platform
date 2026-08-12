@@ -137,9 +137,7 @@ pub(crate) async fn handle_list_claim_verdicts(
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
     admin_token.require_tenant_access(&params.tenant_id)?;
 
-    let tenant: TenantId = params
-        .tenant_id
-        .parse()
+    let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
     let limit = params.limit.unwrap_or(50).clamp(1, 200);
 
@@ -220,9 +218,7 @@ pub(crate) async fn handle_list_verdicts_by_conversation(
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
     admin_token.require_tenant_access(&params.tenant_id)?;
 
-    let tenant: TenantId = params
-        .tenant_id
-        .parse()
+    let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
 
     let verdicts = context

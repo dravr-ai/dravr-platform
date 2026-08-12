@@ -652,7 +652,7 @@ impl SocialRoutes {
         {
             if let Some(service) = ToolRuntime::notification_service(&*resources) {
                 if let Some(tenant_uuid) = auth.active_tenant_id {
-                    let tenant_id = TenantId::from(tenant_uuid);
+                    let tenant_id = TenantId::from_uuid(tenant_uuid);
                     let sharer_user = MiddlewareCtx::repos(&*resources)
                         .users
                         .get_global(auth.user_id)
@@ -791,7 +791,7 @@ impl SocialRoutes {
         let tenant_for_lookup = query
             .tenant_id
             .as_deref()
-            .and_then(|t| t.parse::<TenantId>().ok());
+            .and_then(|t| TenantId::parse_str(t).ok());
         let provider_name = if let Some(p) = query.provider.clone().or_else(default_provider) {
             p
         } else if let Some(conn) = ToolRuntime::repos(resources.as_ref())
@@ -886,7 +886,7 @@ impl SocialRoutes {
         let tenant_for_lookup = body
             .tenant_id
             .as_deref()
-            .and_then(|t| t.parse::<TenantId>().ok());
+            .and_then(|t| TenantId::parse_str(t).ok());
         let provider_name = if let Some(p) = body.provider.clone().or_else(default_provider) {
             p
         } else if let Some(conn) = ToolRuntime::repos(resources.as_ref())
@@ -1172,7 +1172,7 @@ impl SocialRoutes {
 
         // Build tenant credential context for tenant-scoped OAuth resolution
         let tenant_ctx = tenant_id
-            .and_then(|tid| tid.parse::<TenantId>().ok())
+            .and_then(|tid| TenantId::parse_str(tid).ok())
             .map(|tid| TenantCredentialContext {
                 tenant_oauth_client: resources.tenant_oauth_client(),
                 tenants: resources.repos().tenants.as_ref(),
@@ -1453,7 +1453,7 @@ impl SocialRoutes {
         let tenant_for_lookup = body
             .tenant_id
             .as_deref()
-            .and_then(|t| t.parse::<TenantId>().ok());
+            .and_then(|t| TenantId::parse_str(t).ok());
         let provider_name = if let Some(p) = body.provider.clone().or_else(default_provider) {
             p
         } else if let Some(conn) = ToolRuntime::repos(resources.as_ref())

@@ -79,7 +79,7 @@ impl FromStr for SubscriptionStatus {
 /// `(provider, provider_customer_id)` is the upsert key the webhook
 /// dispatcher uses; `provider_subscription_id` becomes set on the
 /// first subscription-created webhook.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Subscription {
     /// Local primary key (UUID).
     pub id: Uuid,

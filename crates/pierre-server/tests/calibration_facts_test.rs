@@ -89,7 +89,7 @@ async fn seed(
 async fn a_re_run_supersedes_only_the_previous_interviews_window() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4().to_string();
 
     // An answer from the athlete's pillars walk, written before any
@@ -158,7 +158,7 @@ async fn a_re_run_supersedes_only_the_previous_interviews_window() -> Result<()>
 async fn a_re_run_leaves_other_pillars_alone() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4().to_string();
 
     let window_start = Utc::now();
@@ -214,7 +214,7 @@ async fn a_re_run_leaves_other_pillars_alone() -> Result<()> {
 async fn superseded_answers_do_not_refill_the_guaranteed_bundle() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4().to_string();
 
     let window_start = Utc::now() - Duration::seconds(1);
@@ -268,7 +268,7 @@ async fn superseded_answers_do_not_refill_the_guaranteed_bundle() -> Result<()> 
 async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user_uuid = Uuid::new_v4();
     let user = user_uuid.to_string();
 
@@ -344,7 +344,7 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
 async fn the_by_kind_guarantee_still_covers_coach_authored_medical_facts() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user_uuid = Uuid::new_v4();
     let user = user_uuid.to_string();
 

@@ -219,7 +219,7 @@ where
 /// Returns an error if no active tenant is set in the session.
 fn get_user_tenant(auth: &AuthResult) -> Result<TenantId, AppError> {
     auth.active_tenant_id
-        .map(TenantId::from)
+        .map(TenantId::from_uuid)
         .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
 }
 

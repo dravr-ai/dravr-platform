@@ -983,7 +983,7 @@ fn log_smart_schedule_interval(user: &ConnectedUser, provider_name: &str) {
 async fn update_last_sync_timestamp(repos: &AuthRepos, user_uuid: Uuid, provider_name: &str) {
     if let Ok(tokens) = repos.oauth_tokens.get_tokens(user_uuid, None).await {
         if let Some(token) = tokens.iter().find(|t| t.provider == provider_name) {
-            if let Ok(tid) = token.tenant_id.parse::<TenantId>() {
+            if let Ok(tid) = TenantId::parse_str(&token.tenant_id) {
                 let _ = repos
                     .oauth_tokens
                     .update_provider_last_sync(user_uuid, tid, provider_name, Utc::now())

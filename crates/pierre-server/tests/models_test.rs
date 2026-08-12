@@ -420,28 +420,39 @@ fn test_tenant_creation() {
     assert_eq!(tenant.slug, "test-company");
 }
 
+/// `Tenant` serializes on the wire but deliberately cannot be deserialized —
+/// it carries a `TenantId`, and that type has no serde entry point so a tenant
+/// identity can never be parsed out of a document. This asserts the direction
+/// we keep: the emitted JSON carries every field with the expected shape.
 #[test]
-fn test_tenant_serialization_roundtrip() {
+fn test_tenant_serializes_with_expected_field_shape() {
     let now = Utc::now();
-    let original_tenant = Tenant {
-        id: TenantId::generate(),
+    let tenant_id = TenantId::generate();
+    let owner_user_id = Uuid::new_v4();
+    let tenant = Tenant {
+        id: tenant_id,
         name: "Acme Corp".to_owned(),
         slug: "acme-corp".to_owned(),
         domain: Some("acme.com".to_owned()),
         plan: "professional".to_owned(),
-        owner_user_id: Uuid::new_v4(),
+        owner_user_id,
         created_at: now,
         updated_at: now,
     };
 
-    let json = serde_json::to_string(&original_tenant).unwrap();
-    let deserialized_tenant: Tenant = serde_json::from_str(&json).unwrap();
+    let json: serde_json::Value = serde_json::to_value(&tenant).unwrap();
 
-    assert_eq!(original_tenant.id, deserialized_tenant.id);
-    assert_eq!(original_tenant.name, deserialized_tenant.name);
-    assert_eq!(original_tenant.domain, deserialized_tenant.domain);
-    assert_eq!(original_tenant.plan, deserialized_tenant.plan);
-    assert_eq!(original_tenant.slug, deserialized_tenant.slug);
+    // `TenantId` is `#[serde(transparent)]`, so it emits as a bare UUID string
+    // rather than a wrapper object.
+    assert_eq!(json["id"], serde_json::json!(tenant_id.to_string()));
+    assert_eq!(json["name"], "Acme Corp");
+    assert_eq!(json["slug"], "acme-corp");
+    assert_eq!(json["domain"], "acme.com");
+    assert_eq!(json["plan"], "professional");
+    assert_eq!(
+        json["owner_user_id"],
+        serde_json::json!(owner_user_id.to_string())
+    );
 }
 
 #[test]

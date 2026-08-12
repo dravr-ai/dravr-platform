@@ -150,7 +150,7 @@ pub struct ToolCatalogEntry {
 }
 
 /// Per-tenant tool override from the `tenant_tool_overrides` table
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TenantToolOverride {
     /// Unique identifier for this override
     pub id: Uuid,

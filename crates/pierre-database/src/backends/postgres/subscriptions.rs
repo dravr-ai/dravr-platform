@@ -236,7 +236,7 @@ fn row_to_subscription(row: &PgRow) -> AppResult<Subscription> {
 
     Ok(Subscription {
         id: row.try_get("id").map_err(|e| map_row_err(&e))?,
-        tenant_id: TenantId::from(
+        tenant_id: TenantId::from_uuid(
             row.try_get::<Uuid, _>("tenant_id")
                 .map_err(|e| map_row_err(&e))?,
         ),

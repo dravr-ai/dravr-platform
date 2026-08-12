@@ -66,7 +66,7 @@ async fn seed(
 async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 

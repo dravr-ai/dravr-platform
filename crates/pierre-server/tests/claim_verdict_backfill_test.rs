@@ -120,7 +120,7 @@ async fn seed_assistant_message(
     )
     .await?;
 
-    Ok((TenantId::from(tenant_uuid), message_id))
+    Ok((TenantId::from_uuid(tenant_uuid), message_id))
 }
 
 fn default_params<'a>(tenant_id: TenantId) -> BackfillParams<'a> {

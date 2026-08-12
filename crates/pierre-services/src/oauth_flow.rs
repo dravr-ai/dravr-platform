@@ -694,7 +694,7 @@ impl OAuthService {
     ) -> AppResult<OAuth2Config> {
         // Try tenant-specific credentials first
         if let Some(tid) = tenant_id {
-            let tid = TenantId::from(tid);
+            let tid = TenantId::from_uuid(tid);
             let tenant_creds = self
                 .data
                 .repos().tenants
@@ -838,11 +838,9 @@ impl OAuthService {
             .map_err(|e| AppError::database(format!("Failed to upsert OAuth token: {e}")))?;
 
         // Register provider connection alongside the OAuth token
-        let connection_tenant_id: TenantId = user_oauth_token.tenant_id.parse().map_err(|_| {
-            AppError::internal(format!(
-                "Invalid tenant_id in OAuth token: {}",
-                user_oauth_token.tenant_id
-            ))
+        let raw_tenant = &user_oauth_token.tenant_id;
+        let connection_tenant_id = TenantId::parse_str(raw_tenant).map_err(|_| {
+            AppError::internal(format!("Invalid tenant_id in OAuth token: {raw_tenant}"))
         })?;
         self.data
             .repos()
@@ -1045,7 +1043,7 @@ impl OAuthService {
         self.validate_provider(provider)?;
 
         // Use active_tenant_id from JWT claims (user's selected tenant)
-        let tenant_id: TenantId = active_tenant_id.map(TenantId::from).ok_or_else(|| {
+        let tenant_id = active_tenant_id.map(TenantId::from_uuid).ok_or_else(|| {
             AppError::auth_invalid("No active tenant in session — cannot disconnect provider")
         })?;
 

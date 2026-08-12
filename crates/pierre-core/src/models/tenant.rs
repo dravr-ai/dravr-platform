@@ -22,19 +22,32 @@
 //!   `WHERE tenant_id = $1` against it then returned *empty* rather than
 //!   failing. Minting is now spelled [`TenantId::generate`], which reads as
 //!   the act it is and appears only at real tenant-creation sites.
+//! - There is **no `Deserialize`**. A tenant id cannot be parsed out of a
+//!   request body, a cached blob, or any other document — the type simply has
+//!   no serde entry point. `Serialize` is kept because writing one out cannot
+//!   forge anything.
+//! - There is **no `From<Uuid>` and no `AsRef<Uuid>`**, so a bare UUID never
+//!   becomes a tenant via an invisible `.into()`. Conversion is spelled
+//!   [`TenantId::from_uuid`].
+//! - There is **no `FromStr`**, so no anonymous `"...".parse()` can mint one.
+//!   Parsing is spelled [`TenantId::parse_str`], which `rg` finds in one
+//!   search — including on the two paths that matter most, the JWT
+//!   `active_tenant_id` claim and the `x-tenant-id` header.
+//!
+//! The only remaining ways in are `from_uuid`, `parse_str`, `generate`, `nil`,
+//! and the sqlx `Decode` impls.
 //!
 //! # What this fence does NOT give you
 //!
 //! State this plainly rather than overclaim, because the gap is where bugs
 //! live:
 //!
-//! - **`From<Uuid>` and `FromStr` still exist**, so any UUID or string can
-//!   still become a `TenantId` explicitly. They are load-bearing for decoding
-//!   database rows and JWT claims. The fence removes the *accidental* paths,
-//!   not the deliberate ones.
-//! - **`Deserialize` still exists**, so a `TenantId` can be parsed from a
-//!   payload. Splitting wire models from domain models is the real fix and is
-//!   a separate change.
+//! - **This is a lint-and-review fence, not a compiler fence.** The
+//!   constructors above are `pub` because other crates legitimately need them,
+//!   so a determined caller elsewhere can still mint a `TenantId`. What the
+//!   type removes is the *accidental* path — the stray `.into()`, the
+//!   defaulted field, the payload that happens to carry a `tenant_id`. Review
+//!   closes the deliberate one.
 //! - **Holding a `TenantId` proves nothing about authorization.** It does not
 //!   mean the caller belongs to that tenant. Membership is verified in
 //!   `pierre_middleware::tenant` (`verify_tenant_membership`), and this type
@@ -44,14 +57,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::str::FromStr;
 use uuid::Uuid;
 
 /// Type-safe wrapper for tenant identifiers.
 ///
 /// Provides compile-time distinction between tenant IDs and other UUIDs. See
 /// the module documentation for what this fence does and does not guarantee.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct TenantId(Uuid);
 
@@ -101,12 +113,6 @@ impl TenantId {
     }
 }
 
-impl From<Uuid> for TenantId {
-    fn from(uuid: Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
 impl From<TenantId> for Uuid {
     fn from(tenant_id: TenantId) -> Self {
         tenant_id.0
@@ -119,17 +125,27 @@ impl fmt::Display for TenantId {
     }
 }
 
-impl FromStr for TenantId {
-    type Err = uuid::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl TenantId {
+    /// Parse a tenant id from a string.
+    ///
+    /// Deliberately **not** a `FromStr` impl. `FromStr` makes every
+    /// `"...".parse()` in the codebase a potential tenant-minting site,
+    /// findable only by inferring the target type — including the two that
+    /// matter most, the JWT `active_tenant_id` claim and the `x-tenant-id`
+    /// header. A named constructor puts the act in the source text, so
+    /// `rg TenantId::parse_str` finds every one of them.
+    ///
+    /// The name deliberately claims nothing about trust. Some callers pass a
+    /// `tenant_id` column the server wrote; others pass a request header the
+    /// client controls. **Parsing is not authorization** — a well-formed UUID
+    /// says only that it is well-formed. Membership is verified separately in
+    /// `pierre_middleware::tenant`, and callers on the client-input paths must
+    /// do that before the value is used to scope anything.
+    ///
+    /// # Errors
+    /// Returns `uuid::Error` when `s` is not a valid UUID.
+    pub fn parse_str(s: &str) -> Result<Self, uuid::Error> {
         Uuid::parse_str(s).map(Self)
-    }
-}
-
-impl AsRef<Uuid> for TenantId {
-    fn as_ref(&self) -> &Uuid {
-        &self.0
     }
 }
 
@@ -204,7 +220,7 @@ mod postgres_impl {
 }
 
 /// Tenant organization in multi-tenant setup
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Tenant {
     /// Unique tenant identifier
     pub id: TenantId,

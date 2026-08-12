@@ -297,7 +297,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             })));
         }
 
-        let tenant_id = TenantId::from(ctx.require_tenant()?);
+        let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
         // If the user has already opted into the sciotte mirror backend for
         // this provider, refuse to mint an OAuth URL — they must re-authenticate
@@ -464,7 +464,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let user_uuid = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             // Lifecycle status per connected provider (best-effort). Lets us report a
             // connected-but-dead provider as `needs_reauth` — a token row still exists, but a
@@ -635,7 +635,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
                 })));
             };
 
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             // Resolve the user-facing name ("garmin") to the backend that actually
             // holds the session ("sciotte_garmin"). Deleting the raw name would

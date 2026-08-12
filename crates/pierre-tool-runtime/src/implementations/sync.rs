@@ -146,7 +146,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
 
             let tenant_id = context
                 .tenant_id
-                .map(TenantId::from)
+                .map(TenantId::from_uuid)
                 .ok_or_else(|| AppError::auth_invalid("Tenant context required for refresh"))?;
 
             info!(
@@ -244,7 +244,7 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
         let result: AppResult<ToolResult> = async move {
             let tenant_id = context
                 .tenant_id
-                .map(TenantId::from)
+                .map(TenantId::from_uuid)
                 .ok_or_else(|| AppError::auth_invalid("Tenant context required"))?;
 
             let refresh_service = build_refresh_service(&context);

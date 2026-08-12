@@ -38,6 +38,9 @@ pub mod response_failure_log;
 /// HTTP request metrics + inbound W3C trace-context extraction (OTLP telemetry)
 #[cfg(feature = "telemetry")]
 pub mod telemetry;
+/// Axum extractor for a tenant id supplied in the URL path
+pub mod tenant_path;
+
 /// Tenant context extraction middleware
 pub mod tenant;
 /// Request tracing and context propagation

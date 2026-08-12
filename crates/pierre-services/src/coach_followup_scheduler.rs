@@ -144,7 +144,7 @@ async fn process_followup<R: HarnessMemoryRepository + ?Sized>(
     let Some(tenant_uuid) = parse_tenant_uuid(followup, outcome) else {
         return;
     };
-    let tenant_id = TenantId::from(tenant_uuid);
+    let tenant_id = TenantId::from_uuid(tenant_uuid);
 
     #[cfg(feature = "client-notifications")]
     try_dispatch(notification_service, followup, tenant_uuid, outcome).await;

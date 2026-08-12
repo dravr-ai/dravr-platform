@@ -833,7 +833,7 @@ impl Database {
                     .map_err(|e| AppError::database(format!("Failed to get user_id: {e}")))?;
 
                 Ok(Tenant {
-                    id: id_str.parse()?,
+                    id: TenantId::parse_str(&id_str)?,
                     name: row
                         .try_get("name")
                         .map_err(|e| AppError::database(format!("Failed to get name: {e}")))?,
@@ -888,7 +888,7 @@ impl Database {
                     .map_err(|e| AppError::database(format!("Failed to get user_id: {e}")))?;
 
                 Ok(Tenant {
-                    id: id_str.parse()?,
+                    id: TenantId::parse_str(&id_str)?,
                     name: row
                         .try_get("name")
                         .map_err(|e| AppError::database(format!("Failed to get name: {e}")))?,
@@ -947,7 +947,7 @@ impl Database {
                     .map_err(|e| AppError::database(format!("Failed to get owner_user_id: {e}")))?;
 
                 Ok(Tenant {
-                    id: id_str.parse()?,
+                    id: TenantId::parse_str(&id_str)?,
                     name: row
                         .try_get("name")
                         .map_err(|e| AppError::database(format!("Failed to get name: {e}")))?,
@@ -1005,7 +1005,7 @@ impl Database {
                     .map_err(|e| AppError::database(format!("Failed to get owner_user_id: {e}")))?;
 
                 Ok(Tenant {
-                    id: id_str.parse()?,
+                    id: TenantId::parse_str(&id_str)?,
                     name: row
                         .try_get("name")
                         .map_err(|e| AppError::database(format!("Failed to get name: {e}")))?,

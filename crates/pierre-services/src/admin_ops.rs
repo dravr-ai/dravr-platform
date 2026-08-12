@@ -254,7 +254,7 @@ pub async fn get_admin_tenant_scope(
     // Use active_tenant_id from JWT claims (admin's selected tenant)
     let tid =
         active_tenant_id.ok_or_else(|| AppError::auth_invalid("No active tenant in session"))?;
-    Ok(Some(TenantId::from(tid)))
+    Ok(Some(TenantId::from_uuid(tid)))
 }
 
 /// Verify an admin user belongs to the target tenant.
@@ -636,7 +636,7 @@ pub async fn assign_user_to_admin_tenant(
     target_user_id: Uuid,
 ) -> Result<(), AppError> {
     if let Some(tid) = active_tenant_id {
-        let tenant_id = TenantId::from(tid);
+        let tenant_id = TenantId::from_uuid(tid);
         // Update user's tenant_id in users table (kept in sync with tenant_users junction)
         data.repos()
             .users

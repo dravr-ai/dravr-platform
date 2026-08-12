@@ -412,7 +412,7 @@ impl SleepRepository for Database {
 
         row.map(|r| {
             let s: String = r.get("tenant_id");
-            s.parse::<TenantId>()
+            TenantId::parse_str(&s)
                 .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
         })
         .transpose()
@@ -626,7 +626,7 @@ impl RecoveryRepository for Database {
 
         row.map(|r| {
             let s: String = r.get("tenant_id");
-            s.parse::<TenantId>()
+            TenantId::parse_str(&s)
                 .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
         })
         .transpose()
@@ -842,7 +842,7 @@ impl HealthSnapshotRepository for Database {
 
         row.map(|r| {
             let s: String = r.get("tenant_id");
-            s.parse::<TenantId>()
+            TenantId::parse_str(&s)
                 .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
         })
         .transpose()

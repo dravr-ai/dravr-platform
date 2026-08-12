@@ -114,7 +114,7 @@ pub struct CancelFollowupResponse {
 }
 
 fn parse_tenant(raw: &str) -> AppResult<TenantId> {
-    raw.parse()
+    TenantId::parse_str(raw)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {raw}")))
 }
 

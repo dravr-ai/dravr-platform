@@ -38,7 +38,7 @@ use pierre_tools_core::ToolResult;
 /// one — never fabricates from the user uuid (see
 /// `pierre_runtime_context::tenant` for the policy).
 fn require_tenant_id(ctx: &ToolExecutionContext) -> AppResult<TenantId> {
-    ctx.tenant_id.map(TenantId::from).ok_or_else(|| {
+    ctx.tenant_id.map(TenantId::from_uuid).ok_or_else(|| {
         AppError::auth_invalid("fitness_config tools require an authenticated tenant context")
     })
 }

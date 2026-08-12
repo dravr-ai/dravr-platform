@@ -19,7 +19,6 @@
 
 use std::env;
 use std::panic::AssertUnwindSafe;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -202,7 +201,7 @@ impl EvalCtx<'_> {
 fn parse_advice_ids(advice: &PendingAdvice) -> Option<(Uuid, TenantId)> {
     if let (Ok(uid), Ok(tid)) = (
         Uuid::parse_str(&advice.user_id),
-        TenantId::from_str(&advice.tenant_id),
+        TenantId::parse_str(&advice.tenant_id),
     ) {
         Some((uid, tid))
     } else {

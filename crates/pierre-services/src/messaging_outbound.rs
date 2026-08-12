@@ -107,7 +107,7 @@ async fn process_single_entry(db: &dyn MessagingRepository, entry: &Value) {
         return;
     };
 
-    let Ok(tenant_id) = TenantId::from_str(fields.tenant_id_str) else {
+    let Ok(tenant_id) = TenantId::parse_str(fields.tenant_id_str) else {
         warn!(
             entry_id = %fields.entry_id,
             tenant_id = %fields.tenant_id_str,

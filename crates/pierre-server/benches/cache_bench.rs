@@ -76,7 +76,7 @@ fn generate_payload(size: PayloadSize) -> TestPayload {
 #[allow(clippy::cast_possible_truncation)]
 fn make_cache_key(index: usize) -> CacheKey {
     CacheKey::new(
-        TenantId::from(Uuid::from_u128(1000)),
+        TenantId::from_uuid(Uuid::from_u128(1000)),
         Uuid::from_u128(index as u128),
         "benchmark".to_owned(),
         CacheResource::ActivityList {
@@ -216,7 +216,7 @@ fn bench_cache_invalidate(c: &mut Criterion) {
                 .block_on(async { InMemoryCache::new(config).await })
                 .unwrap();
             let payload = generate_payload(PayloadSize::Small);
-            let tenant_id = TenantId::from(Uuid::from_u128(1000));
+            let tenant_id = TenantId::from_uuid(Uuid::from_u128(1000));
 
             // Pre-populate with 100 entries per iteration
             rt.block_on(async {

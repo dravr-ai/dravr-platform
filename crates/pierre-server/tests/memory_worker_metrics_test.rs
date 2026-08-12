@@ -59,7 +59,7 @@ fn fact_params<'a>(
 async fn empty_tenant_returns_zero_metrics() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
 
     let metrics = repos.memory.count_user_facts_metrics(tenant).await?;
 
@@ -77,7 +77,7 @@ async fn empty_tenant_returns_zero_metrics() -> Result<()> {
 async fn mixed_kinds_aggregate_correctly() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
 
     let user_a = Uuid::new_v4().to_string();
     let user_b = Uuid::new_v4().to_string();
@@ -133,8 +133,8 @@ async fn mixed_kinds_aggregate_correctly() -> Result<()> {
 async fn metrics_are_tenant_scoped() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant_a = TenantId::from(Uuid::new_v4());
-    let tenant_b = TenantId::from(Uuid::new_v4());
+    let tenant_a = TenantId::from_uuid(Uuid::new_v4());
+    let tenant_b = TenantId::from_uuid(Uuid::new_v4());
 
     let user = Uuid::new_v4().to_string();
 

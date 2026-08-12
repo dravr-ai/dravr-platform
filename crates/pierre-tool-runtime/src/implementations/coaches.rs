@@ -191,7 +191,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachesTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let category = args
                 .get("category")
@@ -382,7 +382,7 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let title = args
                 .get("title")
@@ -515,7 +515,7 @@ impl McpTool<dyn ToolRuntime> for GetCoachTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -651,7 +651,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -777,7 +777,7 @@ impl McpTool<dyn ToolRuntime> for DeleteCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -856,7 +856,7 @@ impl McpTool<dyn ToolRuntime> for ToggleCoachFavoriteTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -963,7 +963,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachesTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let query = args
                 .get("query")
@@ -1073,7 +1073,7 @@ impl McpTool<dyn ToolRuntime> for ActivateCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -1147,7 +1147,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let manager = ctx.resources.coaches_manager();
             let deactivated = manager
@@ -1206,7 +1206,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveCoachTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let manager = ctx.resources.coaches_manager();
             let coach = manager
@@ -1436,7 +1436,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenCoachesTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             let user_id = ctx.user_id;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let manager = ctx.resources.coaches_manager();
             let coaches = manager

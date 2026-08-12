@@ -166,7 +166,7 @@ impl ToolHandlers {
                 let tenant_context = match extract_tenant_context_internal(
                     &resources.common.repos,
                     Some(auth_result.user_id),
-                    auth_result.active_tenant_id.map(TenantId::from), // Pass active_tenant_id from JWT claims
+                    auth_result.active_tenant_id.map(TenantId::from_uuid), // Pass active_tenant_id from JWT claims
                     None, // MCP transport headers not applicable here
                 )
                 .await

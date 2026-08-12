@@ -121,7 +121,7 @@ pub async fn handle_intervals_icu_link(
     };
     resources.repos.oauth_tokens.upsert_token(&token).await?;
 
-    let tenant = TenantId::from(tenant_id);
+    let tenant = TenantId::from_uuid(tenant_id);
     resources
         .repos
         .provider_connections
@@ -160,7 +160,7 @@ pub async fn handle_intervals_icu_disconnect(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
-    let tenant = TenantId::from(tenant_id);
+    let tenant = TenantId::from_uuid(tenant_id);
 
     resources
         .repos

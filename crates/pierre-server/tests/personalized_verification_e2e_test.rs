@@ -25,7 +25,7 @@ use pierre_services::athlete_snapshot::build_athlete_metrics;
 use uuid::Uuid;
 
 fn tenant() -> TenantId {
-    TenantId::from(Uuid::parse_str("00000000-0000-0000-0000-000000000042").unwrap())
+    TenantId::from_uuid(Uuid::parse_str("00000000-0000-0000-0000-000000000042").unwrap())
 }
 
 fn synthetic_run(id: &str, days_ago: i64) -> Activity {

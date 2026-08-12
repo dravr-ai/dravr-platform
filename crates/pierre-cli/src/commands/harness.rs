@@ -84,8 +84,7 @@ pub async fn dispatch(
             sleep_ms,
             resume,
         } => {
-            let parsed_tenant: TenantId = tenant_id
-                .parse()
+            let parsed_tenant = TenantId::parse_str(&tenant_id)
                 .map_err(|_| AppError::invalid_input(format!("Invalid tenant id: {tenant_id}")))?;
             let config = VerificationConfig::default();
             let params = BackfillParams {

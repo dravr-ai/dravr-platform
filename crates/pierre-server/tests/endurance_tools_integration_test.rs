@@ -117,7 +117,7 @@ async fn seed_physiology(
         hr_zones: None,
         power_zones: None,
     };
-    let tenant_id: TenantId = tenant.parse().expect("valid tenant id");
+    let tenant_id = TenantId::parse_str(tenant).expect("valid tenant id");
     executor
         .resources
         .repos()

@@ -78,7 +78,7 @@ async fn tenant_for_user(resources: &ServerContext, user_id: Uuid) -> TenantId {
         .unwrap();
     tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id)
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id)
 }
 
 /// Extract the result object from an MCP response, failing on an error response.

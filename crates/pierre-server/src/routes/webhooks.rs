@@ -220,7 +220,7 @@ impl WebhookRoutes {
 
                     // Update last_sync for the resolved tenant, then notify the user's
                     // live SSE stream that new data landed.
-                    if let Ok(tid) = tenant_id.parse::<TenantId>() {
+                    if let Ok(tid) = TenantId::parse_str(&tenant_id) {
                         let _ = repos
                             .oauth_tokens
                             .update_provider_last_sync(user_id, tid, "strava", chrono::Utc::now())

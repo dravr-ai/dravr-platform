@@ -33,7 +33,7 @@ async fn test_create_author() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -76,7 +76,7 @@ async fn test_create_author_minimal() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -109,7 +109,7 @@ async fn test_create_author_duplicate() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -147,7 +147,7 @@ async fn test_get_author_by_user() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -185,7 +185,7 @@ async fn test_get_author_by_user_not_found() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -207,7 +207,7 @@ async fn test_get_author_by_id() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -260,7 +260,7 @@ async fn test_update_author_all_fields() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -317,7 +317,7 @@ async fn test_update_author_partial() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -367,7 +367,7 @@ async fn test_update_author_not_found() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -401,7 +401,7 @@ async fn test_increment_published_count() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -460,7 +460,7 @@ async fn test_update_install_count_increment() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -502,7 +502,7 @@ async fn test_update_install_count_decrement() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -549,7 +549,7 @@ async fn test_update_install_count_never_negative() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -594,7 +594,7 @@ async fn test_list_popular_authors() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -639,7 +639,7 @@ async fn test_list_popular_authors_empty_no_published() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -675,7 +675,7 @@ async fn test_get_or_create_new() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -703,7 +703,7 @@ async fn test_get_or_create_existing() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);
@@ -750,7 +750,7 @@ async fn test_authors_isolated_by_tenant() {
         .unwrap();
     let tenant1_id = tenants1
         .first()
-        .map_or_else(|| TenantId::from(user1_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user1_id), |t| t.id);
 
     // Create user in tenant 2
     let (user2_id, _user2) =
@@ -766,7 +766,7 @@ async fn test_authors_isolated_by_tenant() {
         .unwrap();
     let tenant2_id = tenants2
         .first()
-        .map_or_else(|| TenantId::from(user2_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user2_id), |t| t.id);
 
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
     let manager = CoachAuthorsManager::new(sqlite_pool);

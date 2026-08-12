@@ -694,7 +694,7 @@ async fn strava_expired_token_refreshes_exactly_once_and_persists() {
     let (executor, database) = create_test_executor().await;
     let user_id = Uuid::new_v4();
     let tenant_str = "550e8400-e29b-41d4-a716-446655440000";
-    let tenant_id: TenantId = tenant_str.parse().unwrap();
+    let tenant_id = TenantId::parse_str(tenant_str).unwrap();
     create_active_user(&database, user_id, "refresh-once@example.com").await;
     create_bare_tenant(&database, tenant_id, user_id).await;
 
@@ -814,7 +814,7 @@ async fn assert_refresh_once_and_persists(case: RefreshSeamCase) {
     let (executor, database) = create_test_executor().await;
     let user_id = Uuid::new_v4();
     let tenant_str = "550e8400-e29b-41d4-a716-446655440000";
-    let tenant_id: TenantId = tenant_str.parse().unwrap();
+    let tenant_id = TenantId::parse_str(tenant_str).unwrap();
     create_active_user(&database, user_id, case.email).await;
     create_bare_tenant(&database, tenant_id, user_id).await;
 

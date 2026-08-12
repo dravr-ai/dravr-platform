@@ -83,7 +83,7 @@ async fn coverage(repos: &RepositoryRegistry, tenant: TenantId, user: Uuid) -> R
 async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 
@@ -163,7 +163,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
 async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 
@@ -225,7 +225,7 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
 async fn delivered_probe_history_round_trips_and_drives_the_advance() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
 
     // Turn 1 delivered the North Star probe; nothing extracted yet.

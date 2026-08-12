@@ -159,7 +159,7 @@ impl AuthService {
         };
 
         // Direct database lookup with tenant_id
-        let tenant_id_parsed: TenantId = tenant_id_str.parse().map_err(|_| {
+        let tenant_id_parsed = TenantId::parse_str(tenant_id_str).map_err(|_| {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id_str}"))
         })?;
         let token_result = self
@@ -187,7 +187,7 @@ impl AuthService {
         tenant_id_str: &str,
         provider: &str,
     ) {
-        let Ok(tenant_uuid) = tenant_id_str.parse::<TenantId>() else {
+        let Ok(tenant_uuid) = TenantId::parse_str(tenant_id_str) else {
             return;
         };
 
@@ -357,7 +357,7 @@ impl AuthService {
         provider: &str,
         error_code: &str,
     ) {
-        let Ok(tenant) = tenant_id.parse::<TenantId>() else {
+        let Ok(tenant) = TenantId::parse_str(tenant_id) else {
             warn!("Cannot mark {provider} needs_reauth for user {user_id}: invalid tenant_id");
             return;
         };
@@ -452,7 +452,7 @@ impl AuthService {
     /// No-op when the connection is already active or the row does not exist. A write
     /// failure must not abort the user's request — log and continue.
     async fn mark_connection_active(&self, user_id: Uuid, tenant_id: &str, provider: &str) {
-        let Ok(tenant) = tenant_id.parse::<TenantId>() else {
+        let Ok(tenant) = TenantId::parse_str(tenant_id) else {
             return;
         };
         if let Err(e) = self
@@ -486,7 +486,7 @@ impl AuthService {
         // serves the request (OAuth or sciotte mirror). A sciotte row in
         // the DB wins over OAuth, even when its session is stale — the
         // user's stated preference is to keep using the mirror.
-        let tenant_id_parsed = tenant_id.and_then(|t| t.parse::<TenantId>().ok());
+        let tenant_id_parsed = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
         let effective_provider = backend_resolver::resolve_backend(
             &self.resources.repos().auth_repos(),
             user_id,
@@ -602,7 +602,7 @@ impl AuthService {
                 (user_app.client_id, user_app.client_secret)
             } else {
                 // Fall back to tenant-level credentials
-                let tid: TenantId = tenant_id_str.parse().map_err(|_| UniversalResponse {
+                let tid = TenantId::parse_str(tenant_id_str).map_err(|_| UniversalResponse {
                     success: false,
                     result: None,
                     error: Some(format!("Invalid tenant_id: {tenant_id_str}")),
@@ -770,7 +770,7 @@ impl AuthService {
                 (user_app.client_id, user_app.client_secret)
             } else {
                 // Fall back to tenant-level credentials
-                let tid: TenantId = tenant_id.parse().map_err(|_| {
+                let tid = TenantId::parse_str(tenant_id).map_err(|_| {
                     OAuthError::TokenRefreshFailed(format!("Invalid tenant_id: {tenant_id}"))
                 })?;
                 let creds = self
@@ -821,7 +821,7 @@ impl AuthService {
         let new_expires_at = new_token.expires_at;
 
         // Update the token in the database
-        let tenant_id_parsed: TenantId = tenant_id.parse().map_err(|_| {
+        let tenant_id_parsed = TenantId::parse_str(tenant_id).map_err(|_| {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id}"))
         })?;
         self.resources
@@ -866,7 +866,7 @@ impl AuthService {
         tenant_id: &str,
         provider: &str,
     ) -> Result<Option<TokenData>, OAuthError> {
-        let tenant_id_parsed: TenantId = tenant_id.parse().map_err(|_| {
+        let tenant_id_parsed = TenantId::parse_str(tenant_id).map_err(|_| {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id}"))
         })?;
         let token = self
@@ -912,7 +912,7 @@ impl AuthService {
         let tenant_id_str = tenant_id.ok_or_else(|| {
             OAuthError::DatabaseError("tenant_id is required to disconnect a provider".to_owned())
         })?;
-        let tenant_id_parsed: TenantId = tenant_id_str.parse().map_err(|_| {
+        let tenant_id_parsed = TenantId::parse_str(tenant_id_str).map_err(|_| {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id_str}"))
         })?;
         self.resources
@@ -937,7 +937,7 @@ async fn persist_refreshed_token(
     let Some(tenant_id_str) = tenant_id else {
         return;
     };
-    let Ok(tid) = tenant_id_str.parse::<TenantId>() else {
+    let Ok(tid) = TenantId::parse_str(tenant_id_str) else {
         return;
     };
 

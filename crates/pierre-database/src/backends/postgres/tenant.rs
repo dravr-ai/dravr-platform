@@ -513,7 +513,7 @@ impl TenantRepository for PostgresDatabase {
             .map(|row| {
                 use sqlx::Row;
                 Ok(Tenant {
-                    id: TenantId::from(
+                    id: TenantId::from_uuid(
                         uuid::Uuid::parse_str(&row.try_get::<String, _>("id").map_err(|e| {
                             AppError::database(format!("Failed to parse id column: {e}"))
                         })?)
@@ -933,7 +933,7 @@ impl LlmCredentialRepository for PostgresDatabase {
             Ok(LlmCredentialRecord {
                 id: Uuid::parse_str(&id_str)
                     .map_err(|e| AppError::internal(format!("Invalid credential UUID: {e}")))?,
-                tenant_id: TenantId::from(
+                tenant_id: TenantId::from_uuid(
                     Uuid::parse_str(&tid_str)
                         .map_err(|e| AppError::internal(format!("Invalid tenant UUID: {e}")))?,
                 ),

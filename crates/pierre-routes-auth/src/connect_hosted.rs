@@ -241,7 +241,7 @@ pub async fn handle_connect_oauth_init(
         return AppError::auth_invalid("Connect token has malformed identity claims")
             .into_response();
     };
-    let tenant_id = TenantId::from(tenant_uuid);
+    let tenant_id = TenantId::from_uuid(tenant_uuid);
 
     let oauth_service = OAuthService::new(
         resources.data.clone(),

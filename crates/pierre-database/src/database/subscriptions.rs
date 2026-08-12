@@ -267,7 +267,7 @@ fn row_to_subscription(row: &SqliteRow) -> AppResult<Subscription> {
     Ok(Subscription {
         id: Uuid::parse_str(&id_str)
             .map_err(|e| AppError::internal(format!("invalid subscription id uuid: {e}")))?,
-        tenant_id: TenantId::from_str(&tenant_id_str)
+        tenant_id: TenantId::parse_str(&tenant_id_str)
             .map_err(|e| AppError::internal(format!("invalid tenant_id: {e}")))?,
         user_id: Uuid::parse_str(&user_id_str)
             .map_err(|e| AppError::internal(format!("invalid user_id uuid: {e}")))?,

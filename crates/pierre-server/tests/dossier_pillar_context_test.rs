@@ -147,7 +147,7 @@ async fn seed_fact(
 async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 
@@ -211,7 +211,7 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
     // dossier's medical bucket via the by-kind safety fetch.
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 
@@ -256,8 +256,8 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
 async fn dossier_facts_are_tenant_scoped() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
-    let tenant_a = TenantId::from(Uuid::new_v4());
-    let tenant_b = TenantId::from(Uuid::new_v4());
+    let tenant_a = TenantId::from_uuid(Uuid::new_v4());
+    let tenant_b = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 
@@ -299,7 +299,7 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     // Silently returning an empty vec strips medical flags and every
     // interview answer from the coach's context with no operator signal.
     let db = open_in_memory_db().await?;
-    let tenant = TenantId::from(Uuid::new_v4());
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 

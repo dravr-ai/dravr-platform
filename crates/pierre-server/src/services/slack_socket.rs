@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -347,7 +346,7 @@ async fn resolve_slack_config(data: &DataContext) -> Option<(TenantId, Arc<dyn M
     let configs = db.get_configs_by_channel_type("slack").await.ok()?;
     let config = configs.first()?;
     let tenant_id_str = config.get("tenant_id").and_then(|v| v.as_str())?;
-    let tenant_id = TenantId::from_str(tenant_id_str).ok()?;
+    let tenant_id = TenantId::parse_str(tenant_id_str).ok()?;
     let signing_secret = config
         .get("webhook_secret")
         .and_then(|v| v.as_str())

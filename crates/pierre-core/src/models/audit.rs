@@ -92,7 +92,7 @@ pub enum AuditSeverity {
 }
 
 /// Security audit event
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AuditEvent {
     /// Unique event identifier
     pub event_id: Uuid,

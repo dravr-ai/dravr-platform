@@ -13,7 +13,7 @@ use pierre_services::prompt_leak::{harden_system_prompt, scan_assistant_reply};
 use uuid::Uuid;
 
 fn tenant() -> TenantId {
-    TenantId::from(Uuid::new_v4())
+    TenantId::from_uuid(Uuid::new_v4())
 }
 
 #[test]

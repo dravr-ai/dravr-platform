@@ -76,7 +76,7 @@ impl TenantIsolation {
     ) -> AppResult<TenantId> {
         // Check if active_tenant_id is specified in JWT claims
         if let Some(tenant_id_str) = claims.active_tenant_id.as_deref() {
-            let tenant_id: TenantId = tenant_id_str.parse().map_err(|e| {
+            let tenant_id = TenantId::parse_str(tenant_id_str).map_err(|e| {
                 warn!(tenant_id = %tenant_id_str, error = %e, "Invalid tenant ID format in JWT claims");
                 AppError::invalid_input("Invalid tenant ID format in token")
             })?;
@@ -221,12 +221,10 @@ impl TenantIsolation {
                 AppError::invalid_input("Invalid tenant ID header format")
             })?;
 
-            let tenant_id: TenantId = tenant_id_str
-                .parse()
-                .map_err(|e| {
-                    warn!(tenant_id = %tenant_id_str, error = %e, "Invalid tenant ID format in x-tenant-id header");
-                    AppError::invalid_input("Invalid tenant ID format")
-                })?;
+            let tenant_id = TenantId::parse_str(tenant_id_str).map_err(|e| {
+                warn!(tenant_id = %tenant_id_str, error = %e, "Invalid tenant ID format in x-tenant-id header");
+                AppError::invalid_input("Invalid tenant ID format")
+            })?;
 
             let tenant_name = self.get_tenant_name(tenant_id).await;
 
@@ -393,7 +391,7 @@ pub async fn validate_jwt_token_for_mcp(
 
     // Get tenant ID from JWT claims or fall back to user's default tenant
     let tenant_id: TenantId = if let Some(tenant_id_str) = claims.active_tenant_id.as_deref() {
-        let tid: TenantId = tenant_id_str.parse().map_err(|e| {
+        let tid = TenantId::parse_str(tenant_id_str).map_err(|e| {
             warn!(tenant_id = %tenant_id_str, error = %e, "Invalid tenant ID format in JWT claims (MCP validation)");
             AppError::invalid_input("Invalid tenant ID format in token")
         })?;
@@ -517,7 +515,7 @@ pub async fn extract_tenant_context_internal(
     if let Some(headers) = headers {
         if let Some(tenant_id_header) = headers.get("x-tenant-id") {
             if let Ok(tenant_id_str) = tenant_id_header.to_str() {
-                if let Ok(header_tenant_id) = tenant_id_str.parse::<TenantId>() {
+                if let Ok(header_tenant_id) = TenantId::parse_str(tenant_id_str) {
                     // If user_id is provided, verify membership
                     let resolved_role = if let Some(uid) = user_id {
                         let role_str = repos

@@ -210,7 +210,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             require_admin_access(&ctx).await?;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let manager = ctx.resources.coaches_manager();
             let coaches = manager
@@ -359,7 +359,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
         let result: AppResult<ToolResult> = async move {
             let user_id = ctx.user_id;
             require_admin_access(&ctx).await?;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let params: CreateSystemCoachParams = serde_json::from_value(args).map_err(|e| {
                 AppError::invalid_input(format!("Invalid system coach parameters: {e}"))
@@ -457,7 +457,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
             require_admin_access(&ctx).await?;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -593,7 +593,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             require_admin_access(&ctx).await?;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -722,7 +722,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             require_admin_access(&ctx).await?;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -811,7 +811,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
         let result: AppResult<ToolResult> = async move {
             let admin_user_id = ctx.user_id;
             require_admin_access(&ctx).await?;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -918,7 +918,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             require_admin_access(&ctx).await?;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")
@@ -1013,7 +1013,7 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             require_admin_access(&ctx).await?;
-            let tenant_id = TenantId::from(ctx.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let coach_id = args
                 .get("coach_id")

@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use pierre_core::models::messaging::{ChannelType, IncomingMessage};
@@ -86,7 +85,7 @@ async fn resolve_channel_config(
 /// Extract and parse `tenant_id` from a channel config JSON value
 fn parse_tenant_id(config: &Value) -> Option<TenantId> {
     let tenant_id_str = config.get("tenant_id").and_then(|v| v.as_str())?;
-    TenantId::from_str(tenant_id_str).ok()
+    TenantId::parse_str(tenant_id_str).ok()
 }
 
 /// Persist the message and spawn LLM dispatch tasks

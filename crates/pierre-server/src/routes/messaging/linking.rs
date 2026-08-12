@@ -372,7 +372,7 @@ pub async fn link_callback(
     let tenant_id_str = preview["tenant_id"]
         .as_str()
         .ok_or_else(|| AppError::internal("Link state missing tenant_id"))?;
-    let tenant_id = TenantId::from_str(tenant_id_str)
+    let tenant_id = TenantId::parse_str(tenant_id_str)
         .map_err(|_| AppError::internal("Link state has invalid tenant_id"))?;
 
     // Verify the URL channel matches the link state channel to prevent cross-channel replay
@@ -573,7 +573,7 @@ pub async fn channel_link_auth(
         .as_str()
         .unwrap_or_default()
         .to_owned();
-    let Ok(tenant_id) = TenantId::from_str(&tenant_id_str) else {
+    let Ok(tenant_id) = TenantId::parse_str(&tenant_id_str) else {
         return templates::render_link_error_page("Internal error: invalid tenant").into_response();
     };
 

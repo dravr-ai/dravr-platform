@@ -48,9 +48,7 @@ pub(crate) async fn handle_get_summary(
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
 
-    let tenant: TenantId = params
-        .tenant_id
-        .parse()
+    let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
     let limit = params
         .limit

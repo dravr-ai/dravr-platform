@@ -95,7 +95,7 @@ impl LlmCredentialRepository for Database {
                 id: Uuid::parse_str(r.get::<&str, _>("id")).map_err(|e| {
                     AppError::database(format!("user_llm_credentials.id is not a valid UUID: {e}"))
                 })?,
-                tenant_id: r.get::<&str, _>("tenant_id").parse().map_err(|e| {
+                tenant_id: TenantId::parse_str(r.get::<&str, _>("tenant_id")).map_err(|e| {
                     AppError::database(format!(
                         "user_llm_credentials.tenant_id is not a valid UUID: {e}"
                     ))

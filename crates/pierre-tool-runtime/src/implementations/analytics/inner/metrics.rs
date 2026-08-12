@@ -275,7 +275,7 @@ async fn fetch_and_calculate_metrics(
     let tenant_ctx = request
         .tenant_id
         .as_ref()
-        .and_then(|tid| tid.parse::<TenantId>().ok())
+        .and_then(|tid| TenantId::parse_str(tid).ok())
         .map(|tid| TenantCredentialContext {
             tenant_oauth_client: executor.resources.tenant_oauth_client(),
             tenants: executor.resources.repos().tenants.as_ref(),

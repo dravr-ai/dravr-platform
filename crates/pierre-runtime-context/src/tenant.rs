@@ -1,5 +1,5 @@
 // ABOUTME: Canonical tenant resolution — single helper that EVERY route + service calls before touching tenant-scoped data
-// ABOUTME: Replaces 10+ ad-hoc `TenantId::from(user_id)` fallbacks; verifies membership when active_tenant_id is claimed
+// ABOUTME: Replaces 10+ ad-hoc `TenantId::from_uuid(user_id)` fallbacks; verifies membership when active_tenant_id is claimed
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,7 +14,7 @@
 //! ## Why this exists
 //!
 //! Before this helper, ~10 route handlers each carried their own copy of
-//! `map_or_else(|| TenantId::from(user_id), |t| t.id)`. That pattern has
+//! `map_or_else(|| TenantId::from_uuid(user_id), |t| t.id)`. That pattern has
 //! two problems:
 //!
 //! 1. **Security.** The fallback fabricates a tenant id out of the user
@@ -47,7 +47,7 @@
 //! - **No user-id fallback.** If the user has no tenants AND no
 //!   `active_tenant_id`, the result is either an error
 //!   ([`TenantMode::Required`]) or `None` ([`TenantMode::Optional`]).
-//!   Never `TenantId::from(user_id)`.
+//!   Never `TenantId::from_uuid(user_id)`.
 //! - **No tenant creation.** Onboarding flows that *make* a tenant must
 //!   call the create path explicitly; they then have a `TenantId`
 //!   already and don't need to resolve.
@@ -110,7 +110,7 @@ where
 
     if let Some(claimed) = auth.active_tenant_id {
         if tenants.iter().any(|t| t.id.as_uuid() == claimed) {
-            return Ok(Some(TenantId::from(claimed)));
+            return Ok(Some(TenantId::from_uuid(claimed)));
         }
         return Err(AppError::auth_invalid(
             "active_tenant_id claim does not match any tenant the user belongs to",

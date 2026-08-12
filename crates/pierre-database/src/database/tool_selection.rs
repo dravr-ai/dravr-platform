@@ -338,8 +338,7 @@ fn map_tenant_tool_override_row(row: &SqliteRow) -> AppResult<TenantToolOverride
         id: Uuid::parse_str(&id_str).map_err(|e| {
             AppError::internal(format!("Invalid UUID in tenant_tool_overrides: {e}"))
         })?,
-        tenant_id: tenant_id_str
-            .parse::<TenantId>()
+        tenant_id: TenantId::parse_str(&tenant_id_str)
             .map_err(|e| AppError::internal(format!("Invalid tenant_id UUID: {e}")))?,
         tool_name: row.get("tool_name"),
         is_enabled: row.get::<i32, _>("is_enabled") != 0,

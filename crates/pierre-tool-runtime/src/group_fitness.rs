@@ -727,7 +727,7 @@ fn member_connection_tenants(
 ) -> Vec<TenantId> {
     let mut tenants: Vec<TenantId> = Vec::new();
     for conn in connections {
-        match conn.tenant_id.parse::<TenantId>() {
+        match TenantId::parse_str(&conn.tenant_id) {
             Ok(t) if !tenants.contains(&t) => tenants.push(t),
             Ok(_) => {}
             Err(e) => info!(

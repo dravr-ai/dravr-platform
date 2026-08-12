@@ -325,8 +325,7 @@ impl LlmConsumptionRoutes {
 
         // Admin can only view their own tenant's data (tenant isolation)
         let target_tenant_id = if let Some(ref tid) = params.tenant_id {
-            let parsed = tid
-                .parse::<TenantId>()
+            let parsed = TenantId::parse_str(tid)
                 .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
             if parsed != user_tenant_id {
                 return Err(AppError::auth_invalid(
@@ -390,8 +389,7 @@ impl LlmConsumptionRoutes {
 
         // Tenant isolation: admins may only query their own tenant.
         let target_tenant_id = if let Some(ref tid) = params.tenant_id {
-            let parsed = tid
-                .parse::<TenantId>()
+            let parsed = TenantId::parse_str(tid)
                 .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
             if parsed != user_tenant_id {
                 return Err(AppError::auth_invalid(

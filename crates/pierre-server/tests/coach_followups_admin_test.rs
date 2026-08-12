@@ -81,7 +81,7 @@ async fn seed_user_tenant_coach(db: &SqliteDatabase) -> Result<(TenantId, String
     )
     .await?;
 
-    Ok((TenantId::from(tenant_uuid), coach_id))
+    Ok((TenantId::from_uuid(tenant_uuid), coach_id))
 }
 
 fn followup_params<'a>(

@@ -29,7 +29,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::HashSet;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -121,7 +120,7 @@ async fn time_one_injection(
         .collect();
     if playbooks.is_empty() {
         let t = Instant::now();
-        if let (Ok(uuid), Ok(tenant)) = (Uuid::parse_str(user_id), TenantId::from_str(tenant_id)) {
+        if let (Ok(uuid), Ok(tenant)) = (Uuid::parse_str(user_id), TenantId::parse_str(tenant_id)) {
             let end = Utc::now();
             let start = end - chrono::Duration::days(120);
             if let Ok(acts) = repos

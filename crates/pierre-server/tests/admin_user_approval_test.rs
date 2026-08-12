@@ -425,7 +425,7 @@ async fn test_approve_user_assigns_admin_tenant() -> Result<()> {
     let (database, _, admin_user_id) = setup_test_database().await?;
 
     // Set up admin user with a specific tenant_id
-    let admin_tenant_id = TenantId::from(Uuid::new_v4());
+    let admin_tenant_id = TenantId::from_uuid(Uuid::new_v4());
     create_tenant_for_test(&database, admin_tenant_id, admin_user_id).await?;
     database
         .repositories()
@@ -505,7 +505,7 @@ async fn test_approved_users_share_tenant_with_admin() -> Result<()> {
     let (database, _, admin_user_id) = setup_test_database().await?;
 
     // Set up admin user with a specific tenant_id
-    let shared_tenant_id = TenantId::from(Uuid::new_v4());
+    let shared_tenant_id = TenantId::from_uuid(Uuid::new_v4());
     create_tenant_for_test(&database, shared_tenant_id, admin_user_id).await?;
     database
         .repositories()
@@ -671,7 +671,7 @@ async fn test_update_tenant_id_creates_tenant_users_entry() -> Result<()> {
     let (database, _, admin_user_id) = setup_test_database().await?;
     let repos = database.repositories();
 
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
     create_tenant_for_test(&database, tenant_id, admin_user_id).await?;
 
     // Create a user without a tenant
@@ -732,8 +732,8 @@ async fn test_get_by_status_none_returns_all_users() -> Result<()> {
     let (database, _, admin_user_id) = setup_test_database().await?;
     let repos = database.repositories();
 
-    let tenant_a = TenantId::from(Uuid::new_v4());
-    let tenant_b = TenantId::from(Uuid::new_v4());
+    let tenant_a = TenantId::from_uuid(Uuid::new_v4());
+    let tenant_b = TenantId::from_uuid(Uuid::new_v4());
     create_tenant_for_test(&database, tenant_a, admin_user_id).await?;
     create_tenant_for_test(&database, tenant_b, admin_user_id).await?;
 
@@ -812,7 +812,7 @@ async fn test_pending_users_visible_without_tenant_entry() -> Result<()> {
     let (database, _, admin_user_id) = setup_test_database().await?;
     let repos = database.repositories();
 
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
     create_tenant_for_test(&database, tenant_id, admin_user_id).await?;
 
     // Create a pending user (no tenant assignment — this is the registration state)
@@ -877,7 +877,7 @@ async fn test_update_tenant_id_idempotent() -> Result<()> {
     let (database, _, admin_user_id) = setup_test_database().await?;
     let repos = database.repositories();
 
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
     create_tenant_for_test(&database, tenant_id, admin_user_id).await?;
 
     let user = User {

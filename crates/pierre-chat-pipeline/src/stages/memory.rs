@@ -15,7 +15,6 @@
 //! the turn completes and distills new facts from the exchange.
 
 use std::collections::HashSet;
-use std::str::FromStr;
 use std::time::Instant;
 
 use chrono::{Duration, Utc};
@@ -205,7 +204,7 @@ async fn recent_activity_sports(
     tenant_id: &str,
     user_id: &str,
 ) -> HashSet<String> {
-    let (Ok(user_uuid), Ok(tenant)) = (Uuid::parse_str(user_id), TenantId::from_str(tenant_id))
+    let (Ok(user_uuid), Ok(tenant)) = (Uuid::parse_str(user_id), TenantId::parse_str(tenant_id))
     else {
         return HashSet::new();
     };

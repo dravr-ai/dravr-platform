@@ -131,7 +131,7 @@ impl fmt::Display for DevicePlatform {
 }
 
 /// Registered device for push notifications
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DeviceToken {
     /// Unique device token identifier
     pub id: Uuid,
@@ -165,7 +165,7 @@ pub struct RegisterDeviceTokenRequest {
 }
 
 /// Per-category notification preference for a user
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NotificationPreference {
     /// Unique preference identifier
     pub id: Uuid,
@@ -305,7 +305,7 @@ pub struct NotificationAction {
 }
 
 /// A notification record
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Notification {
     /// Unique notification identifier
     pub id: Uuid,
@@ -513,7 +513,7 @@ fn update_collapsed_title(item: &mut NotificationItem) {
 }
 
 /// A scheduled notification record
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScheduledNotification {
     /// Unique scheduled notification identifier
     pub id: Uuid,

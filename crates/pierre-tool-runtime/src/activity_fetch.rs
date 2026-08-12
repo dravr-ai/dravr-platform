@@ -66,7 +66,7 @@ pub async fn fetch_provider_activities(
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
     let auth_service = AuthService::new(Arc::clone(runtime));
-    let tenant = tenant_id.parse::<TenantId>().ok();
+    let tenant = TenantId::parse_str(tenant_id).ok();
 
     let live = match auth_service
         .create_authenticated_provider(provider_slug, user_id, Some(tenant_id))

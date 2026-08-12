@@ -304,7 +304,7 @@ async fn test_pg_chat_create_conversation() {
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
     let conv = repos
         .chat
@@ -340,7 +340,7 @@ async fn test_pg_chat_create_conversation_without_coach_defaults_to_none() {
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
     let conv = repos
         .chat
@@ -377,7 +377,7 @@ async fn test_pg_chat_get_conversation() {
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
     // Create a conversation first
     let created = repos
@@ -435,7 +435,7 @@ async fn test_pg_chat_list_conversations() {
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
     // Create multiple conversations
     for i in 1..=5 {
@@ -490,7 +490,7 @@ async fn test_pg_chat_update_conversation_title() {
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
     let conv = repos
         .chat
@@ -541,7 +541,7 @@ async fn test_pg_chat_delete_conversation() {
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
     let conv = repos
         .chat
@@ -584,7 +584,7 @@ async fn test_pg_chat_messages() {
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
     let conv = repos
         .chat
@@ -682,7 +682,7 @@ async fn test_pg_chat_delete_all_user_conversations() {
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
     // Create multiple conversations
     for i in 1..=3 {

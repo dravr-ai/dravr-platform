@@ -60,7 +60,7 @@ impl TenantRole {
 }
 
 /// Tenant/Organization in the multi-tenant system
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Tenant {
     /// Unique tenant identifier
     pub id: TenantId,
@@ -99,7 +99,7 @@ impl Tenant {
 }
 
 /// User membership in a tenant
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TenantUser {
     /// Unique relationship identifier
     pub id: Uuid,
@@ -128,7 +128,7 @@ impl TenantUser {
 }
 
 /// Daily usage tracking per tenant per provider
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TenantProviderUsage {
     /// Unique usage record identifier
     pub id: Uuid,

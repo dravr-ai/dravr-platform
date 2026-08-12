@@ -57,6 +57,7 @@ use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::{TenantId, UserTier};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::pricing::calculate_cost;
+use pierre_middleware::tenant_path::TenantPath;
 use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
 use pierre_runtime_context::DataContext;
 use pierre_services::admin_ops;
@@ -1594,7 +1595,7 @@ impl WebAdminRoutes {
     async fn handle_get_tenant_tools(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
-        Path(tenant_id): Path<TenantId>,
+        TenantPath(tenant_id): TenantPath,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
         admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant_id).await?;
@@ -1619,7 +1620,7 @@ impl WebAdminRoutes {
     async fn handle_set_tool_override(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
-        Path(tenant_id): Path<TenantId>,
+        TenantPath(tenant_id): TenantPath,
         Json(request): Json<SetToolOverrideRequest>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
@@ -1662,7 +1663,8 @@ impl WebAdminRoutes {
     async fn handle_remove_tool_override(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
-        Path((tenant_id, tool_name)): Path<(TenantId, String)>,
+        TenantPath(tenant_id): TenantPath,
+        Path(tool_name): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
         admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant_id).await?;
@@ -1697,7 +1699,7 @@ impl WebAdminRoutes {
     async fn handle_get_tool_summary(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
-        Path(tenant_id): Path<TenantId>,
+        TenantPath(tenant_id): TenantPath,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
         admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant_id).await?;
@@ -1808,7 +1810,7 @@ impl WebAdminRoutes {
     async fn handle_set_tenant_plan(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
-        Path(tenant_id): Path<TenantId>,
+        TenantPath(tenant_id): TenantPath,
         Json(request): Json<SetTenantPlanRequest>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
@@ -1836,7 +1838,7 @@ impl WebAdminRoutes {
     async fn handle_get_tenant_plan(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
-        Path(tenant_id): Path<TenantId>,
+        TenantPath(tenant_id): TenantPath,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
         admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant_id).await?;
@@ -2184,8 +2186,7 @@ impl WebAdminRoutes {
         // client-supplied tenant. A tenant-scoped admin must not read another
         // tenant's usage; `verify_admin_tenant_access` restricts regular admins
         // to their own tenant while passing super-admin (global operators).
-        let tenant = tenant_id
-            .parse::<TenantId>()
+        let tenant = TenantId::parse_str(&tenant_id)
             .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
         admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant).await?;
         let from = resolve_start(q.from.as_deref())?.to_rfc3339();
@@ -2222,8 +2223,7 @@ impl WebAdminRoutes {
         // SECURITY (CWE-863): invoice/billing data scoped to a client-supplied
         // tenant. Restrict tenant-scoped admins to their own tenant; super-admins
         // (global operators) pass.
-        let tenant = tenant_id
-            .parse::<TenantId>()
+        let tenant = TenantId::parse_str(&tenant_id)
             .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
         admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant).await?;
         let (start, _end) = parse_month_period(&q.period)?;

@@ -153,7 +153,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let claim_text = require_string_field(&args, "claim")?;
             if claim_text.trim().is_empty() {
                 return Err(AppError::invalid_input("claim must not be empty"));

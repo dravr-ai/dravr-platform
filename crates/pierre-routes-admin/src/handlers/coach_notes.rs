@@ -113,9 +113,7 @@ pub(crate) async fn handle_list_audit(
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewAuditLogs)?;
 
-    let tenant: TenantId = params
-        .tenant_id
-        .parse()
+    let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
     let limit = params
         .limit
@@ -208,9 +206,7 @@ async fn set_suppressed(
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
 
-    let tenant: TenantId = params
-        .tenant_id
-        .parse()
+    let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
 
     let changed = context

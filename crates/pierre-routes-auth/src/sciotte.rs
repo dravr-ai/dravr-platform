@@ -87,7 +87,7 @@ const NO_PENDING_LOGIN_MESSAGE: &str =
 /// reachable by a continuation from the same `(tenant, user)` pair.
 fn remote_flow_key(tenant_id: Uuid, user_id: Uuid) -> CacheKey {
     CacheKey::new(
-        TenantId::from(tenant_id),
+        TenantId::from_uuid(tenant_id),
         user_id,
         REMOTE_FLOW_KEY_PROVIDER.to_owned(),
         CacheResource::SciotteLoginFlow,
@@ -317,7 +317,7 @@ async fn store_sciotte_session(
 
     resources.repos.oauth_tokens.upsert_token(&token).await?;
 
-    let tenant = TenantId::from(tenant_id);
+    let tenant = TenantId::from_uuid(tenant_id);
     resources
         .repos
         .provider_connections
@@ -394,7 +394,7 @@ fn spawn_activity_prefetch(
         match provider.get_activities_with_params(&params).await {
             Ok(activities) => {
                 let count = activities.len();
-                let tenant = TenantId::from(tenant_id);
+                let tenant = TenantId::from_uuid(tenant_id);
                 let cache_key = CacheKey::new(
                     tenant,
                     user_id,
@@ -593,7 +593,7 @@ async fn try_reuse_existing_session(
     tenant_id: Uuid,
     provider_name: &str,
 ) -> Result<Option<Response>, AppError> {
-    let tenant = TenantId::from(tenant_id);
+    let tenant = TenantId::from_uuid(tenant_id);
     let Some(token) = resources
         .repos
         .oauth_tokens
@@ -1003,7 +1003,7 @@ pub async fn handle_sciotte_connect(
 
     resources.repos.oauth_tokens.upsert_token(&token).await?;
 
-    let tenant = TenantId::from(tenant_id);
+    let tenant = TenantId::from_uuid(tenant_id);
     resources
         .repos
         .provider_connections
@@ -1022,7 +1022,7 @@ pub async fn handle_sciotte_disconnect(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
-    let tenant = TenantId::from(tenant_id);
+    let tenant = TenantId::from_uuid(tenant_id);
 
     resources
         .repos

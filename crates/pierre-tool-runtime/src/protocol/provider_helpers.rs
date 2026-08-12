@@ -99,7 +99,7 @@ pub async fn resolve_provider_for_request(
     }
 
     // 3. User's most-recently-used connection
-    let tenant = tenant_id.and_then(|t| t.parse::<TenantId>().ok());
+    let tenant = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
     match executor
         .resources
         .repos()
@@ -545,7 +545,7 @@ pub async fn fetch_provider_activities(
         Ok(Some(token_data)) => {
             // Build tenant credential context for tenant-scoped OAuth resolution
             let tenant_ctx = tenant_id
-                .and_then(|tid| tid.parse::<TenantId>().ok())
+                .and_then(|tid| TenantId::parse_str(tid).ok())
                 .map(|tid| TenantCredentialContext {
                     tenant_oauth_client: executor.resources.tenant_oauth_client(),
                     tenants: executor.resources.repos().tenants.as_ref(),

@@ -225,7 +225,7 @@ async fn save_full_plan_then_get_roundtrip_with_goal_fact_writeback() -> Result<
         .resources
         .repos()
         .dossier
-        .compose_dossier(TenantId::from(Uuid::parse_str(&tenant_id)?), user_id)
+        .compose_dossier(TenantId::from_uuid(Uuid::parse_str(&tenant_id)?), user_id)
         .await?;
     let has_goal = format!("{dossier:?}").contains("Big Red");
     assert!(
@@ -454,7 +454,7 @@ async fn agnostic_goal_facts(
     tenant_id: &str,
     user_id: Uuid,
 ) -> Result<Vec<(String, String)>> {
-    let tenant = TenantId::from(Uuid::parse_str(tenant_id)?);
+    let tenant = TenantId::from_uuid(Uuid::parse_str(tenant_id)?);
     let facts = executor
         .resources
         .repos()
@@ -635,7 +635,7 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
     // stale forever), and a real Goal fact minted in its place.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
 
     // A genuine non-Goal fact the LLM could echo back from recalled memory.
     let schedule_fact = executor
@@ -729,7 +729,7 @@ async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
     assert_eq!(fresh.result.expect("result")["goal_stale"], false);
 
     // Remove the living goal fact, then the snapshot reads stale.
-    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
     let removed = executor
         .resources
         .repos()
@@ -765,7 +765,7 @@ async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
 async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
     let repos = executor.resources.repos();
 
     let conversation = repos
@@ -1038,7 +1038,7 @@ async fn goal_convergence_retires_leftovers_even_when_the_goal_is_unchanged() ->
     // the athlete's goal did not change and the matching fact already exists.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
 
     // The fact this payload's goal race converges on, already stored…
     let matching = seed_agnostic_goal_fact(
@@ -1095,7 +1095,7 @@ async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Re
     // point lookup, so rank cannot decide ownership.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
 
     // The athlete's real goal fact, written first so every later fact outranks
     // it in the newest-first ordering the list read uses.
@@ -1171,7 +1171,7 @@ async fn seed_one_hour_per_week_baseline(
     tenant_id: &str,
     user_id: Uuid,
 ) -> Result<()> {
-    let tenant = TenantId::from(Uuid::parse_str(tenant_id)?);
+    let tenant = TenantId::from_uuid(Uuid::parse_str(tenant_id)?);
     let rides: Vec<Activity> = (0..6)
         .map(|i| {
             ActivityBuilder::new(
@@ -1472,7 +1472,7 @@ async fn save_refuses_mid_walk_even_with_no_conversation_in_scope() -> Result<()
     // is resolved from the athlete when no conversation is in scope.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let tenant = TenantId::from(Uuid::parse_str(&tenant_id)?);
+    let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
     let repos = executor.resources.repos();
 
     let conversation = repos

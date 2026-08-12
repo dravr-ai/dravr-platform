@@ -130,7 +130,7 @@ async fn test_browse_store_with_published_coaches() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     // Create published coaches
     create_published_coach(
@@ -181,7 +181,7 @@ async fn test_browse_store_with_category_filter() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     create_published_coach(
         &resources,
@@ -232,7 +232,7 @@ async fn test_browse_store_with_cursor_pagination() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     // Create 5 coaches with delays to ensure unique published_at timestamps.
     // The cursor encodes published_at at millisecond precision; two coaches
@@ -319,7 +319,7 @@ async fn test_cursor_pagination_with_popular_sort() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     // Create coaches with different install counts
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
@@ -400,7 +400,7 @@ async fn test_cursor_pagination_with_title_sort() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     // Create coaches with alphabetically ordered names
     let titles = ["Alpha Coach", "Beta Coach", "Gamma Coach", "Delta Coach"];
@@ -467,7 +467,7 @@ async fn test_cursor_invalid_for_different_sort_order() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     for i in 1..=3 {
         create_published_coach(
@@ -519,7 +519,7 @@ async fn test_browse_store_sort_by_popular() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let _coach1 = create_published_coach(
         &resources,
@@ -593,7 +593,7 @@ async fn test_get_coach_detail() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let coach = create_published_coach(
         &resources,
@@ -664,7 +664,7 @@ async fn test_search_coaches() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     create_published_coach(
         &resources,
@@ -745,7 +745,7 @@ async fn test_list_categories() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     create_published_coach(
         &resources,
@@ -836,7 +836,7 @@ async fn test_install_coach() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let coach = create_published_coach(
         &resources,
@@ -882,7 +882,7 @@ async fn test_install_coach_already_installed() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let coach = create_published_coach(
         &resources,
@@ -944,7 +944,7 @@ async fn test_install_increments_install_count() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let coach = create_published_coach(
         &resources,
@@ -999,7 +999,7 @@ async fn test_uninstall_coach() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let source_coach = create_published_coach(
         &resources,
@@ -1056,7 +1056,7 @@ async fn test_uninstall_coach_not_from_store() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     // Create a regular coach (not from Store - no forked_from)
     let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
@@ -1143,7 +1143,7 @@ async fn test_list_installations() {
         .unwrap();
     let tenant_id = tenants
         .first()
-        .map_or_else(|| TenantId::from(user_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     let coach1 = create_published_coach(
         &resources,
@@ -1215,7 +1215,7 @@ async fn test_published_coaches_visible_cross_tenant() {
         .unwrap();
     let tenant1_id = tenants1
         .first()
-        .map_or_else(|| TenantId::from(user1_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user1_id), |t| t.id);
 
     let coach = create_published_coach(
         &resources,
@@ -1265,7 +1265,7 @@ async fn test_installations_isolated_per_user() {
         .unwrap();
     let tenant1_id = tenants1
         .first()
-        .map_or_else(|| TenantId::from(user1_id), |t| t.id);
+        .map_or_else(|| TenantId::from_uuid(user1_id), |t| t.id);
 
     let coach = create_published_coach(
         &resources,

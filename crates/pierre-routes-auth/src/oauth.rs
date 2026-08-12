@@ -487,7 +487,7 @@ pub async fn handle_oauth_auth_initiate(
 
     // Verify user exists
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
-    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from))?;
+    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
 
     let oauth_service = OAuthService::new(
         resources.data.clone(),
@@ -566,7 +566,7 @@ pub async fn handle_mobile_oauth_init(
 
     // Verify user exists
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
-    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from))?;
+    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
 
     // Build OAuth state with optional redirect URL
     let state = redirect_url.map_or_else(
@@ -817,7 +817,7 @@ pub async fn handle_sync_provider(
     );
 
     let result = refresh_service
-        .refresh_provider(user_id, TenantId::from(tenant_id), &provider, wait)
+        .refresh_provider(user_id, TenantId::from_uuid(tenant_id), &provider, wait)
         .await;
 
     Ok(Json(json!({

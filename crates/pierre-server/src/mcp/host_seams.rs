@@ -169,7 +169,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         match extract_tenant_context_internal(
             &self.resources.common.repos,
             Some(auth_result.user_id),
-            auth_result.active_tenant_id.map(TenantId::from),
+            auth_result.active_tenant_id.map(TenantId::from_uuid),
             None,
         )
         .await
@@ -349,7 +349,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
 
 /// Parse a tenant id string into a [`TenantId`], or `None` when malformed.
 fn parse_tenant_id(value: &str) -> Option<TenantId> {
-    Uuid::parse_str(value).ok().map(TenantId::from)
+    Uuid::parse_str(value).ok().map(TenantId::from_uuid)
 }
 
 /// Handler for the JSON-RPC methods the generic engine leaves open.

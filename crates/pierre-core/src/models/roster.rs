@@ -22,7 +22,7 @@
 //! see the architectural deep-dive in `Coaching Persona Architecture.md`.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::models::TenantId;
@@ -31,7 +31,7 @@ use crate::models::TenantId;
 ///
 /// Persistence: rows live in `coach_athlete_assignments`. `revoked_at`
 /// is `NULL` for active assignments; once set, the row stays for audit.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CoachAthleteAssignment {
     /// Stable assignment identifier. Re-assignments after a revoke get
     /// a new id, preserving history.

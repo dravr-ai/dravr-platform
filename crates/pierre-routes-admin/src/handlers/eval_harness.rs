@@ -84,9 +84,7 @@ pub(crate) async fn handle_verdict_stats(
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
     admin_token.require_tenant_access(&params.tenant_id)?;
 
-    let tenant: TenantId = params
-        .tenant_id
-        .parse()
+    let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
     let window_days = params.window_days.unwrap_or(30);
 

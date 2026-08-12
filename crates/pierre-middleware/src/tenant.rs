@@ -176,8 +176,7 @@ fn extract_tenant_id_from_header(headers: &http::HeaderMap) -> Option<TenantId> 
         .get("x-tenant-id")
         .and_then(|h| h.to_str().ok())
         .and_then(|tenant_id_str| {
-            tenant_id_str
-                .parse::<TenantId>()
+            TenantId::parse_str(tenant_id_str)
                 .inspect_err(|e| {
                     warn!(
                         tenant_id = %tenant_id_str,
@@ -285,7 +284,7 @@ async fn resolve_explicit_tenant_id_from_str(
 
 /// Parse tenant ID string into `TenantId`, logging errors
 fn parse_tenant_id(tenant_id_str: &str) -> Option<TenantId> {
-    tenant_id_str.parse::<TenantId>().map_or_else(
+    TenantId::parse_str(tenant_id_str).map_or_else(
         |e| {
             warn!(
                 tenant_id = %tenant_id_str,

@@ -79,7 +79,7 @@ impl GroupAnalyticsRoutes {
     /// Extract tenant ID from auth claims.
     fn get_tenant_id(auth: &AuthResult) -> Result<TenantId, AppError> {
         auth.active_tenant_id
-            .map(TenantId::from)
+            .map(TenantId::from_uuid)
             .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
     }
 

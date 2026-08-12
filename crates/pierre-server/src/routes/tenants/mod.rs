@@ -133,7 +133,7 @@ impl TenantRoutes {
         );
 
         // Parse the target tenant ID
-        let tenant_id: TenantId = request.tenant_id.parse().map_err(|e| {
+        let tenant_id = TenantId::parse_str(&request.tenant_id).map_err(|e| {
             warn!(tenant_id = %request.tenant_id, error = %e, "Invalid tenant ID format");
             AppError::invalid_input(format!("Invalid tenant ID format: {e}"))
         })?;
@@ -216,7 +216,7 @@ impl TenantRoutes {
         let auth = auth.into_inner();
 
         // Get the current active tenant from JWT claims (if any)
-        let active_tenant_id = auth.active_tenant_id.map(TenantId::from);
+        let active_tenant_id = auth.active_tenant_id.map(TenantId::from_uuid);
 
         // Get all tenants the user belongs to
         let tenants = resources

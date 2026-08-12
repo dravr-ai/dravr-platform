@@ -58,7 +58,7 @@ async fn resolve_tenant(
     if let Some(raw) = tenant_id {
         let uuid = Uuid::parse_str(raw)
             .map_err(|e| AppError::invalid_input(format!("Invalid --tenant-id '{raw}': {e}")))?;
-        return Ok(TenantId::from(uuid));
+        return Ok(TenantId::from_uuid(uuid));
     }
 
     let tenants = repos.tenants.list_for_user(user_id).await?;

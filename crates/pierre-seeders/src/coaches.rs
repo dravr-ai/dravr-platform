@@ -664,8 +664,7 @@ async fn find_admin_user(repos: &RepositoryRegistry) -> AppResult<AdminUser> {
             AppError::config("Admin user has no tenant_id. Please assign a tenant first.")
         })?;
 
-    let tenant_id = tenant_id_str
-        .parse::<TenantId>()
+    let tenant_id = TenantId::parse_str(&tenant_id_str)
         .map_err(|e| AppError::internal(format!("Failed to parse tenant_id: {e}")))?;
 
     // Ensure a coach_authors row exists for the admin (required by store_listings FK)

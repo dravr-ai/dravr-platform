@@ -30,7 +30,7 @@ async fn fresh_db() -> Result<Database> {
 }
 
 fn tenant() -> TenantId {
-    TenantId::from(Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap())
+    TenantId::from_uuid(Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap())
 }
 
 #[tokio::test]

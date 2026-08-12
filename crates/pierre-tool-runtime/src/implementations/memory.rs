@@ -144,7 +144,7 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let body = require_string_field(&args, "content")?;
             if body.trim().is_empty() {
                 return Err(AppError::invalid_input("note content must not be empty"));
@@ -266,7 +266,7 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let body = require_string_field(&args, "content")?;
             if body.trim().is_empty() {
                 return Err(AppError::invalid_input(
@@ -423,7 +423,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let kind_str = require_string_field(&args, "kind")?;
             let subject = require_string_field(&args, "subject")?;
             let predicate = require_string_field(&args, "predicate")?;
@@ -544,7 +544,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from(context.require_tenant()?);
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let coach_id = optional_string_field(&args, "coach_id");
             let kind = optional_string_field(&args, "kind").map(|s| FactKind::parse_lenient(&s));
             let limit = args

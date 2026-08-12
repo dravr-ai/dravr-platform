@@ -511,9 +511,7 @@ impl OAuthTokenRepository for Database {
     async fn upsert_token(&self, token: &UserOAuthToken) -> AppResult<()> {
         use super::user_oauth_tokens::OAuthTokenData;
 
-        let tenant_id: TenantId = token
-            .tenant_id
-            .parse()
+        let tenant_id = TenantId::parse_str(&token.tenant_id)
             .map_err(|e| AppError::internal(format!("Invalid tenant_id in OAuth token: {e}")))?;
 
         let token_data = OAuthTokenData {

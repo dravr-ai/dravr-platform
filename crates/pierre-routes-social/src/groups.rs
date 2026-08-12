@@ -416,7 +416,7 @@ impl GroupRoutes {
     /// Extract tenant ID from auth claims
     fn get_tenant_id(auth: &AuthResult) -> Result<TenantId, AppError> {
         auth.active_tenant_id
-            .map(TenantId::from)
+            .map(TenantId::from_uuid)
             .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
     }
 
@@ -1070,9 +1070,7 @@ impl GroupRoutes {
             .await?
             .ok_or_else(|| AppError::not_found("Invalid or expired invite code"))?;
 
-        let group_tenant_id: TenantId = invite
-            .tenant_id
-            .parse()
+        let group_tenant_id = TenantId::parse_str(&invite.tenant_id)
             .map_err(|e| AppError::internal(format!("Invalid invite tenant: {e}")))?;
 
         // Coach invites attach the redeemer as the group's human coach; member

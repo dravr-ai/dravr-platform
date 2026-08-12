@@ -168,7 +168,7 @@ impl PierreSyncStorage {
                 )))
             },
             |token| {
-                token.tenant_id.parse::<TenantId>().map_err(|e| {
+                TenantId::parse_str(&token.tenant_id).map_err(|e| {
                     EnformeError::store(format!(
                         "Invalid tenant_id UUID '{}': {e}",
                         token.tenant_id

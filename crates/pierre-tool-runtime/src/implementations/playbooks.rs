@@ -100,7 +100,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from(context.require_tenant()?).to_string();
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?).to_string();
             let user_id = context.user_id.to_string();
             let limit = args
                 .get("limit")
@@ -198,7 +198,7 @@ impl McpTool<dyn ToolRuntime> for ForgetPlaybookTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from(context.require_tenant()?).to_string();
+            let tenant_id = TenantId::from_uuid(context.require_tenant()?).to_string();
             let user_id = context.user_id.to_string();
             let playbook_id = args
                 .get("playbook_id")
