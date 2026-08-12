@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// SQLite connection-string construction
+/// `SQLite` connection-string construction
 pub mod connection_url;
 
 /// Enum conversion utilities (`UserTier`, `UserStatus`, `TaskStatus`, etc.)

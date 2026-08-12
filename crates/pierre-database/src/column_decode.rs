@@ -12,7 +12,7 @@
 //! nothing, or matches another row that also defaulted — and a timestamp
 //! defaulted to `Utc::now()` is indistinguishable from a real reading.
 //!
-//! These live here rather than in each backend because SQLite and Postgres
+//! These live here rather than in each backend because `SQLite` and `Postgres`
 //! decode the same columns and must agree on what a bad one means.
 
 use pierre_core::errors::{AppError, AppResult};
