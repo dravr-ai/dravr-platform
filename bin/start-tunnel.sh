@@ -40,7 +40,7 @@ if [[ ! -f "$ENVRC_FILE" ]]; then
 fi
 
 # Check if Pierre server is running on port 8081
-if ! curl -s http://localhost:8081/health > /dev/null 2>&1; then
+if ! curl -s http://127.0.0.1:8081/health > /dev/null 2>&1; then
     echo -e "\033[0;33m[WARN]\033[0m Pierre server not running on port 8081."
     echo "Start it with: ./bin/start-server.sh"
     echo "Continuing anyway - tunnel will connect once server starts..."

@@ -310,7 +310,7 @@ SERVER_PID=$!
 
 # Wait for health check
 for i in {1..30}; do
-    if curl -s -f "http://localhost:$SERVER_PORT/health" > /dev/null 2>&1; then
+    if curl -s -f "http://127.0.0.1:$SERVER_PORT/health" > /dev/null 2>&1; then
         echo "    Server ready (PID: $SERVER_PID)"
         break
     fi
@@ -370,7 +370,7 @@ if [ "$START_TUNNEL" = "true" ]; then
             RUST_LOG=info ./target/$TARGET_DIR/pierre-mcp-server > "$SERVER_LOG" 2>&1 &
             SERVER_PID=$!
             for i in {1..15}; do
-                if curl -s -f "http://localhost:$SERVER_PORT/health" > /dev/null 2>&1; then
+                if curl -s -f "http://127.0.0.1:$SERVER_PORT/health" > /dev/null 2>&1; then
                     echo "    Server restarted with tunnel BASE_URL (PID: $SERVER_PID)"
                     break
                 fi
@@ -488,7 +488,7 @@ printf "%-15s %-35s %-10s %-8s\n" "Service" "URL" "Status" "PID"
 printf "%-15s %-35s %-10s %-8s\n" "───────────────" "───────────────────────────────────" "──────────" "────────"
 
 # Check server
-if curl -s -f "http://localhost:$SERVER_PORT/health" > /dev/null 2>&1; then
+if curl -s -f "http://127.0.0.1:$SERVER_PORT/health" > /dev/null 2>&1; then
     printf "%-15s %-35s ${GREEN}%-10s${NC} %-8s\n" "Pierre Server" "http://localhost:$SERVER_PORT" "Running" "$SERVER_PID"
 else
     printf "%-15s %-35s ${RED}%-10s${NC} %-8s\n" "Pierre Server" "http://localhost:$SERVER_PORT" "Down" "-"

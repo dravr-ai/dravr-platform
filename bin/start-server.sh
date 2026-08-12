@@ -136,9 +136,15 @@ SERVER_LOG="$PROJECT_ROOT/logs/pierre-server.log"
 cargo run --bin pierre-mcp-server > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
-# Wait for server to be healthy
+# Wait for server to be healthy.
+#
+# 127.0.0.1, never `localhost`: the server binds IPv4, but `localhost` resolves
+# to ::1 first on macOS. When anything else holds IPv6 *:8081 — an `expo start`
+# that grabbed the reserved port is the usual culprit — curl reaches that
+# instead and this loop reports "failed to start" for a server that is serving
+# fine.
 for i in {1..30}; do
-    if curl -s -f "http://localhost:$HTTP_PORT/health" > /dev/null 2>&1; then
+    if curl -s -f "http://127.0.0.1:$HTTP_PORT/health" > /dev/null 2>&1; then
         echo -e "${GREEN}Server is healthy (PID: $SERVER_PID)${NC}"
         echo -e "Log: tail -f $SERVER_LOG"
         if [ -n "$TUNNEL_URL" ]; then

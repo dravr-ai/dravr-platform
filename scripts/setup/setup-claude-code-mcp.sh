@@ -36,7 +36,7 @@ fi
 
 # Step 1: Check if server is running
 echo -e "${BLUE}Step 1: Checking server status...${NC}"
-if curl -s http://localhost:8081/health > /dev/null 2>&1; then
+if curl -s http://127.0.0.1:8081/health > /dev/null 2>&1; then
     echo -e "${GREEN}  Server is running${NC}"
     SERVER_RUNNING=true
 else
@@ -118,7 +118,7 @@ if [ "$SERVER_RUNNING" = false ]; then
     # Wait for server to be ready
     echo -e "  Waiting for server to be ready..."
     for i in {1..30}; do
-        if curl -s http://localhost:8081/health > /dev/null 2>&1; then
+        if curl -s http://127.0.0.1:8081/health > /dev/null 2>&1; then
             echo -e "${GREEN}  Server started successfully${NC}"
             break
         fi
