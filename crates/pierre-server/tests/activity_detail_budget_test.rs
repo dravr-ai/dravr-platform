@@ -60,15 +60,19 @@ fn api_providers_keep_unrationed_detail() {
     }
 }
 
-#[test]
-fn the_expensive_budget_is_a_ration_not_a_removal() {
-    assert!(
-        EXPENSIVE_DETAIL_PROMOTION_BUDGET > 0,
-        "zero would drop detail entirely on scrape providers — the list page is \
-         date-only, so the coach would lose real start times, HR and laps"
-    );
-    assert!(
-        EXPENSIVE_DETAIL_PROMOTION_BUDGET < DEFAULT_ACTIVITY_DETAIL_THRESHOLD,
-        "a budget at or above the promotion threshold rations nothing"
-    );
-}
+// The budget is a ration, not a removal — enforced at compile time, because
+// both sides are constants and a runtime assertion on them proves nothing the
+// compiler has not already decided.
+//
+// Zero would drop detail entirely on scrape providers. Their list page is
+// date-only, so the coach would stop knowing when a session happened and lose
+// HR and laps with it — the shortcut this whole change exists to avoid. A
+// budget at or above the promotion threshold would ration nothing.
+const _: () = assert!(
+    EXPENSIVE_DETAIL_PROMOTION_BUDGET > 0,
+    "detail must be rationed on expensive providers, never removed"
+);
+const _: () = assert!(
+    EXPENSIVE_DETAIL_PROMOTION_BUDGET < DEFAULT_ACTIVITY_DETAIL_THRESHOLD,
+    "a budget at or above the promotion threshold rations nothing"
+);
