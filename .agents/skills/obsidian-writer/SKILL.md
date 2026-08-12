@@ -1,164 +1,126 @@
 ---
 name: obsidian-writer
-description: Write well-formatted notes to the dravr-vault Obsidian knowledge base.
-  Use this skill whenever creating or updating an ADR, runbook, plan, API doc, guide,
-  session output, or any structured document that should land in the vault — even when
-  the user doesn't say "Obsidian" explicitly. Delegates to obsidian:obsidian-cli to
-  write to the live vault and applies Dravr frontmatter and formatting standards.
+description: Write notes into the dravr-vault Obsidian knowledge base with the frontmatter
+  its Bases require. Use when creating or updating an ADR, a runbook, a feature note, an
+  API doc, or any dated working document — plan, audit, post-mortem, design analysis,
+  research, report, session handoff — that should outlive the chat, even when the user
+  never says "Obsidian". Also use when another skill needs to file its run report in the
+  vault.
 user-invocable: true
 metadata:
-  version: "1.0.0"
+  version: "2.0.0"
   domain: documentation
-  triggers: obsidian, vault, note, document, adr, runbook, plan, api-doc, guide, knowledge-base, architecture decision, session output
+  triggers: obsidian, vault, note, document, adr, runbook, plan, audit, post-mortem, design analysis, research, report, handoff, feature, api-doc, guide, knowledge-base, architecture decision, session output
   role: specialist
   scope: implementation
   output-format: document
-  related-skills: obsidian-vault-setup
+  related-skills: obsidian-vault-setup, obsidian-cli, obsidian-bases
 ---
 
 # Obsidian Writer
 
-## Role
+Knowledge-base writer for `../dravr-vault`. Routes a note to the right folder and gives it
+the frontmatter that makes it **visible** — because two of the vault's folders are
+databases, and a note that misses their selector is **invisible** to them.
 
-Knowledge-base writer for the dravr-vault shared Obsidian vault. Applies Dravr
-frontmatter standards and directory conventions so every note lands in the right place
-with the right metadata — consistent enough to be searched, linked, and understood later.
+## Invisible is the failure mode
 
-## When to Use
+`Work Log/` and `Features/` are not folders you file into — they are
+[Bases](https://help.obsidian.md/bases) that select on a frontmatter field:
 
-Invoke for any of these document types, whether the user names the type or not:
+| Folder | Base | Selector | A note without it |
+|---|---|---|---|
+| `Work Log/` | `Work Log.base` | `type: worklog` | never appears in any view — no matter its tags, folder, or filename |
+| `Features/` | `Features.base` | `type: feature` | same |
 
-- **ADR** — Architecture Decision Record (`Architecture/ADRs/`)
-- **Runbook** — Operational procedure or on-call guide (`Development/Runbooks/`)
-- **Plan** — Feature or project planning document (`Claude Plans/`)
-- **API doc** — Endpoint reference, SDK documentation (`APIs/`)
-- **Guide / how-to** — Developer setup, walkthrough, tutorial (`Development/`)
-- **Session output** — Claude Code session artifact (`Claude Outputs/`)
-- **Methodology** — Process, workflow, team practice (`Methodology/`)
+Location is *not* the selector. The bases ignore folders entirely, which is why moving a
+note between month buckets is safe — and why writing one into the right folder without
+`type:` still loses it. Get the selector right and the filing is forgiving; get it wrong
+and the note is gone from the only view anyone reads.
+
+## Route the note
+
+| Doc type | Destination | Selector + required fields |
+|---|---|---|
+| Plan, audit, post-mortem, design analysis, research, report, decision, handoff | `Work Log/<YYYY-MM>/` | `type: worklog` + `kind`, `area`, `status`, `date`, `updated` |
+| Feature / capability entry | `Features/Catalogue/<YYYY-MM>/` | `type: feature` + `stage`, `surface`, `created`, `updated` |
+| ADR | `Architecture/ADRs/ADR-NNN Short Title.md` | `date`, `status`, `tags: [dravr, adr]` |
+| Runbook | `Development/Runbooks/` | `date`, `service`, `severity`, `tags: [dravr, runbook, sre]` |
+| API doc | `APIs/` | `date`, `service`, `tags: [dravr, api]` |
+| Guide / how-to | `Development/Guides/` | `date`, `tags: [dravr, guide, <domain>]` |
+| Methodology | `Methodology/` | `date`, `tags: [dravr, methodology]` |
+
+`Work Log/` replaced `Claude Plans/` + `Claude Outputs/` on 2026-08-12. Both are gone; so
+are their 13 themed subfolders. What those folders encoded is now `kind:` and `area:`.
+
+### Work Log fields
+
+| Field | Values |
+|---|---|
+| `kind` | `plan` · `audit` · `post-mortem` · `design` · `research` · `report` · `decision` · `handoff` |
+| `area` | `coaching` · `providers` · `messaging` · `llm` · `infra` · `web` · `chat` · `security` · `business` · `architecture` · `notifications` · `testing` · `meta` |
+| `status` | `draft` · `active` · `completed` · `superseded` |
+| `date` | `YYYY-MM-DD` — when the work happened. **Picks the month bucket.** |
+| `updated` | `YYYY-MM-DD` — drives the staleness column |
+| `features` | `"[[wikilink]]"` list back into `Features/` |
+
+`area: meta` is the escape hatch and lands the note in the **Needs triage** view. Pick a
+real area unless the note genuinely spans the whole platform.
+
+For `Features/`, read `Features/README.md` in the vault before writing — the stage
+lifecycle and the PostHog pairing have rules this table doesn't carry.
 
 ## Workflow
 
-### Step 1 — Identify doc type and target directory
-
-Use the quick-reference table below. When ambiguous, ask the user which type fits best.
-
-### Step 2 — Search for existing notes
-
-Before creating, check whether a relevant note already exists to avoid duplicates:
+**1 — Search before creating.** A duplicate is worse than an edit.
 
 ```
 obsidian search query="<keywords from the topic>" limit=5
+obsidian read file="<name>"      # read any match before deciding to add a new note
 ```
 
-If a match is found, read it first (`obsidian read file="<name>"`) and decide whether
-to update the existing note or create a new one.
+**2 — Compose.** Frontmatter first, then an `#` heading matching the filename. Start from
+the vault template for the type (`Templates/Work Log.md`, `Feature.md`, `ADR.md`,
+`Runbook.md`) — read it with `obsidian read file="Work Log"` and fill the skeleton, or
+strip the `<%* … %>` Templater block if writing the file directly.
 
-### Step 3 — Compose content
-
-Read `references/vault-structure.md` for the complete frontmatter field table.
-
-Start every note with YAML frontmatter, then a level-1 heading matching the filename:
-
-```markdown
----
-date: YYYY-MM-DD
-tags: [dravr, <type-tag>]
-status: <value>        # only for ADR and Plan
-service: <name>        # only for Runbook and API doc
-severity: <P0–P3>      # only for Runbook
----
-
-# Note Title
-```
-
-Use `[[wikilinks]]` to link related vault notes — never absolute file paths.
-
-### Step 4 — Write to the live vault
-
-Obsidian must be running and the dravr-vault must be the focused vault.
+**3 — Write to the live vault.** Obsidian must be running with dravr-vault focused.
 
 ```
-# Create a new note
-obsidian create name="<Note Title>" path="<Directory/Filename.md>"
-
-# Append a section to an existing note
+obsidian create name="<Note Title>" path="Work Log/2026-08/<Note Title>.md"
 obsidian append file="<Note Title>" content="## New Section\n<content>"
 ```
 
-### Step 5 — Verify and link
+Creating the note at the `Work Log/` *root* lets Templater file it into the current month
+automatically. Naming the bucket explicitly also works and is what to do when `date:` is
+not this month.
 
-After writing, read the note back to confirm content landed correctly:
-
-```
-obsidian read file="<Note Title>"
-```
-
-Then update any related notes with a `[[wikilink]]` to the new document.
-
-## Quick Reference
-
-| Doc Type | Target Directory | Template | Required Tags |
-|----------|-----------------|----------|---------------|
-| ADR | `Architecture/ADRs/` | `Templates/ADR.md` | `dravr, adr` |
-| Runbook | `Development/Runbooks/` | `Templates/Runbook.md` | `dravr, runbook, sre` |
-| Plan | `Claude Plans/` | `Templates/Plan.md` | `dravr, plan` |
-| API doc | `APIs/` | — | `dravr, api` |
-| Session output | `Claude Outputs/` | — | `dravr, claude-output` |
-| Guide / how-to | `Development/` | — | `dravr, guide, <domain>` |
-| Methodology | `Methodology/` | — | `dravr, methodology` |
-
-## Frontmatter Standards
-
-**ADR** — required: `date`, `status`, `tags: [dravr, adr]`
-- Status values: `proposed` → `accepted` → `deprecated` / `superseded`
-- Filename convention: `ADR-NNN Short Title.md` (zero-padded number)
-
-**Runbook** — required: `date`, `severity`, `service`, `tags: [dravr, runbook, sre]`
-- Severity values: `P0` (critical), `P1` (high), `P2` (medium), `P3` (low)
-
-**Plan** — required: `date`, `status`, `tags: [dravr, plan]`
-- Status values: `draft`, `active`, `completed`
-
-**API doc** — required: `date`, `service`, `tags: [dravr, api]`
-
-**Session output** — required: `date`, `tags: [dravr, claude-output]`
-
-**Guide / how-to** — required: `date`, `tags: [dravr, guide, <domain>]`
-- Replace `<domain>` with the relevant area (e.g., `backend`, `mobile`, `devops`)
-
-## Key obsidian-cli Patterns
-
-```
-# Search before creating to avoid duplicates
-obsidian search query="OpenTelemetry tracing" limit=5
-
-# Read an existing note before editing
-obsidian read file="ADR-042 Adopt OpenTelemetry"
-
-# Create a new note (Obsidian must be open and vault focused)
-obsidian create name="ADR-042 Adopt OpenTelemetry" \
-  path="Architecture/ADRs/ADR-042 Adopt OpenTelemetry.md"
-
-# Append a section to an existing note
-obsidian append file="ADR-042 Adopt OpenTelemetry" \
-  content="## Update 2026-03-14\nApproved in team review."
-```
+**4 — Verify and link.** Read the note back, then add a `[[wikilink]]` to it from whatever
+it relates to — a feature note's `plans:`, an ADR, the prior post-mortem. An unlinked note
+is findable only by search.
 
 ## Constraints
 
-- Obsidian must be running and the dravr-vault must be the active vault before using
-  `obsidian create` or `obsidian append` — the CLI communicates with the open app.
+- **Never fabricate a field to fill the schema.** An invented `status` or a guessed `area`
+  is worse than `meta` plus a note saying it needs triage — the bases have a **Needs
+  triage** view for exactly this.
+- **Wikilink by bare basename** (`[[Guardian Observability and Progressive Enforcement]]`),
+  never by path. Basename links survive the month-bucket reorganisations; path links break
+  on the first move.
+- **Never put `#` in a filename you intend to wikilink.** Obsidian splits `[[Note#Heading]]`
+  at the first `#`, so `[[Risk #5 gate …]]` silently resolves to a note called "Risk".
+- **`date` is ISO 8601** (`YYYY-MM-DD`), and for Work Log notes it decides the folder.
+- **ADR filenames carry the zero-padded number** so they sort. Check the highest existing
+  number first — the vault already has accidental duplicates (two ADR-011, two ADR-018,
+  two ADR-020).
 - The `obsidian` command MUST be the first-party app CLI
-  (`/Applications/Obsidian.app/Contents/MacOS/obsidian`). It needs **no API key**.
-  If `obsidian` errors with "An API key must be provided via OBSIDIAN_API_KEY", a stray
-  global npm package (`obsidian-cli`, the unrelated ObsidianQA tool) is shadowing it on
-  PATH — fix with `npm uninstall -g obsidian-cli`, do NOT fall back to `claude_docs/`.
-  Verify resolution with `command -v obsidian`.
-- Always search first to avoid duplicate notes on the same topic.
-- Always use `[[wikilinks]]` for internal vault references, not relative or absolute paths.
-- Frontmatter `date` must be ISO 8601 format (`YYYY-MM-DD`).
-- ADR filenames must include the zero-padded number prefix so they sort chronologically.
-- After writing Claude-generated content, commit explicitly rather than waiting for the
-  obsidian-git auto-commit (auto-commit runs every 10 minutes, explicit commits are
-  easier to attribute and revert).
-- See `references/vault-structure.md` for the full directory map and field reference.
+  (`/Applications/Obsidian.app/Contents/MacOS/obsidian`). It needs **no API key**. If it
+  errors with "An API key must be provided via OBSIDIAN_API_KEY", a stray global npm
+  package (`obsidian-cli`, the unrelated ObsidianQA tool) is shadowing it on PATH — fix
+  with `npm uninstall -g obsidian-cli`. Verify with `command -v obsidian`.
+- **`claude_docs/` is the fallback, not the default.** It is a gitignored symlink to the
+  vault's `Work Log/`, so a Write-tool note must include the `type: worklog` frontmatter
+  itself — nothing downstream adds it.
+- **Commit explicitly** after writing. obsidian-git auto-commits every 10 minutes under a
+  generic `vault: auto-save` message; an explicit commit is attributable and revertible.
+- See `references/vault-structure.md` for the full directory map and naming conventions.

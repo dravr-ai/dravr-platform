@@ -324,7 +324,8 @@ re-push in the same session.
 ## Phase 10 — Report
 
 Write the run report to `claude_docs/` (the gitignored symlink into the vault's
-`Claude Outputs/`; create the symlink if missing) via the `obsidian-writer` skill.
+`Work Log/`; create the symlink if missing) via the `obsidian-writer` skill, as
+`kind: report`, `area: web`.
 
 Report contains:
 

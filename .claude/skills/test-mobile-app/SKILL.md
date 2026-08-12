@@ -554,8 +554,8 @@ only by a Maestro flow, the earliest CI signal is the next 06:00 UTC run, or a m
 
 ## Phase 10 — Report
 
-Write the run report to `claude_docs/` (the gitignored symlink into the vault's `Claude Outputs/`;
-create the symlink if missing) via the `obsidian-writer` skill.
+Write the run report to `claude_docs/` (the gitignored symlink into the vault's `Work Log/`;
+create the symlink if missing) via the `obsidian-writer` skill, as `kind: report`, `area: web`.
 
 Report contains:
 

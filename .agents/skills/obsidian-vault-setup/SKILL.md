@@ -80,7 +80,7 @@ Re-running the script is safe — it overwrites existing files idempotently.
 
 ### Step 4: Create claude_docs symlink
 
-This links `dravr-platform/claude_docs/` to `dravr-vault/Claude Outputs/` so Claude Code
+This links `dravr-platform/claude_docs/` to `dravr-vault/Work Log/` so Claude Code
 session outputs land directly in the vault.
 
 ```bash
@@ -92,7 +92,7 @@ if [ -d claude_docs ] && [ ! -L claude_docs ]; then
   exit 1
 fi
 
-ln -sf "$VAULT_DIR/Claude Outputs" claude_docs
+ln -sfn "$VAULT_DIR/Work Log" claude_docs
 ls -la claude_docs   # verify symlink resolves
 ```
 
@@ -111,11 +111,11 @@ Both obsidian-git and Templater will be active immediately — no manual browsin
 After obsidian-git is configured:
 
 ```bash
-# Create a test file in Claude Outputs
+# Create a test file in Work Log
 echo "# Test" > "$PLATFORM_DIR/claude_docs/test.md"
 
 # Verify it appears in the vault
-ls "$VAULT_DIR/Claude Outputs/test.md"
+ls "$VAULT_DIR/Work Log/test.md"
 
 # Clean up
 rm "$PLATFORM_DIR/claude_docs/test.md"
@@ -130,6 +130,6 @@ rm "$PLATFORM_DIR/claude_docs/test.md"
 
 ## Success Criteria
 
-- `ls -la $PLATFORM_DIR/claude_docs` shows a symlink pointing to `$VAULT_DIR/Claude Outputs`
+- `ls -la $PLATFORM_DIR/claude_docs` shows a symlink pointing to `$VAULT_DIR/Work Log`
 - Obsidian opens the vault and shows all folders (Architecture, APIs, Methodology, Development)
 - obsidian-git plugin is active and auto-push is enabled

@@ -220,16 +220,16 @@ Routing (use the `obsidian-writer` skill, which writes to the live vault):
 | Doc type | Destination |
 |---|---|
 | ADR / decision | dravr-vault `Architecture/ADRs/` |
-| Plan / phased build | dravr-vault `Claude Plans/` |
+| Plan / phased build | dravr-vault `Work Log/` (`kind: plan`) |
 | Runbook / oncall procedure | dravr-vault `Development/Runbooks/` |
-| Audit / design analysis / session handoff / report | dravr-vault `Claude Outputs/` |
+| Audit / design analysis / session handoff / report | dravr-vault `Work Log/` (`kind:` audit / design / handoff / report) |
 | Reference docs that ship | repo `book/src/` (mdBook) |
 | Directory-scoped specs | repo `<dir>/README.md` |
 
 - **Local Claude Code (this CLI):** prefer the vault via `obsidian-writer`. Avoid `gh gist create` for the doc types above — gists aren't vault-searchable or wikilinkable.
 - **Claude Code for Web (containerized, no vault checkout):** `gh gist create` is the only durable output — acceptable there as a fallback; drop the gist link in chat so a later local session can backfill it into the vault.
 - Gists are also fine for pasteable snippets, cross-project material, and ephemeral share-with-stranger artifacts.
-- Writing markdown via the Write tool is limited to the `claude_docs/` folder under the repo — a per-dev, gitignored symlink into the vault's `Claude Outputs/` (create it if missing; without the symlink, output stays local and never reaches the vault).
+- Writing markdown via the Write tool is limited to the `claude_docs/` folder under the repo — a per-dev, gitignored symlink into the vault's `Work Log/` (create it if missing; without the symlink, output stays local and never reaches the vault). Notes there need `type: worklog` plus `kind:`/`area:`/`status:`/`date:` or they stay invisible to `Work Log.base` — `obsidian-writer` applies that contract for you.
 </important>
 
 <important if="you are adding an abstraction, a dependency, or refactoring an existing system">

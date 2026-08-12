@@ -1379,7 +1379,7 @@ fi
 # Tier 2 (advisory — prints, does not fail):
 #   Non-glob `pub use pierre_*` re-exports outside lib.rs. These are
 #   the facade-compat shims that the dated plan
-#   (claude_docs/compat_shim_deletion_plan_2026-05-25.md) phases P1-P6
+#   (claude_docs/2026-05/compat_shim_deletion_plan_2026-05-25.md) phases P1-P6
 #   migrate. The advisory list shrinks per phase; when it reaches
 #   zero, promote Tier 2 to strict and the plan closes.
 echo -e "${BLUE}🔍 Checking facade-shim re-export ban (no pub use pierre_*::* globs in pierre-server)...${NC}"
