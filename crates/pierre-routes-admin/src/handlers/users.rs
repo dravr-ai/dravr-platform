@@ -232,6 +232,37 @@ async fn create_and_link_tenant(
     }))
 }
 
+/// Announce an approval: raise the operator notify event, then tell the user.
+///
+/// The identity cache is warmed first because the notify enricher only attaches
+/// `user_email` when the record carries `user_id` and that id resolves — an
+/// approved account is not otherwise guaranteed to be cached, and without both
+/// the Slack message loses the subject entirely.
+async fn announce_approval(
+    ctx: &AdminApiContext,
+    user_id: &str,
+    user_uuid: Uuid,
+    email: &str,
+    display_name: Option<&str>,
+    approved_by: &str,
+) {
+    cache_user_email(user_id, email);
+    info!(
+        target: "notify",
+        event = "user.approved",
+        user_id = %user_id,
+        approved_by = %approved_by,
+        "user account approved"
+    );
+
+    // Notify the user: approval email + a message on each linked channel.
+    if let Some(notifier) = ctx.approval_notifier.as_ref() {
+        notifier
+            .notify_user_approved(user_uuid, email, display_name)
+            .await;
+    }
+}
+
 /// Handle user approval workflow
 pub(crate) async fn handle_approve_user(
     State(context): State<Arc<AdminApiContext>>,
@@ -281,29 +312,15 @@ pub(crate) async fn handle_approve_user(
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!("User {} approved successfully. Reason: {}", user_id, reason);
 
-    // Warm the identity cache before emitting: the notify enricher only
-    // attaches user_email when the record carries user_id and that id resolves,
-    // and an approved account is not otherwise guaranteed to be cached. Without
-    // both, the Slack message loses the subject entirely.
-    cache_user_email(&user_id, &updated_user.email);
-    info!(
-        target: "notify",
-        event = "user.approved",
-        user_id = %user_id,
-        approved_by = %admin_token.service_name,
-        "user account approved"
-    );
-
-    // Notify the user: approval email + a message on each linked channel.
-    if let Some(notifier) = ctx.approval_notifier.as_ref() {
-        notifier
-            .notify_user_approved(
-                user_uuid,
-                &updated_user.email,
-                updated_user.display_name.as_deref(),
-            )
-            .await;
-    }
+    announce_approval(
+        ctx,
+        &user_id,
+        user_uuid,
+        &updated_user.email,
+        updated_user.display_name.as_deref(),
+        &admin_token.service_name,
+    )
+    .await;
 
     Ok(json_response(
         AdminResponse {
