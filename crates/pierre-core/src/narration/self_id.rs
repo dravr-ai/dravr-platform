@@ -12,10 +12,11 @@
 //! first-person copula binding to a developer-tool role — which closes the
 //! synonym escape without widening the product allowlist.
 
-use super::narration::{
-    fold_into, is_negated_at, IdentityLeakMatch, IdentityPatternClass, FOLDED_IDENTITY,
-    IDENTITY_NARRATION_PATTERNS,
-};
+use super::fold::fold_into;
+use super::identity::is_negated_at;
+use super::patterns::{IdentityPatternClass, IDENTITY_NARRATION_PATTERNS};
+use super::vocab::FOLDED_IDENTITY;
+use super::IdentityLeakMatch;
 
 /// Maximum folded characters between a first-person copula and the role noun
 /// for the two to count as one self-identification. Wide enough for an article
@@ -117,7 +118,7 @@ pub const SELF_ID_PATTERN_INDEX: usize = usize::MAX;
 /// Lives here rather than in `narration.rs` so the whole matcher reads in one
 /// place — and because `narration.rs` is over the repo's line ceiling and the
 /// ratchet only lets it shrink.
-pub(crate) fn leak_match(text: &str) -> Option<IdentityLeakMatch> {
+pub(super) fn leak_match(text: &str) -> Option<IdentityLeakMatch> {
     let mut dash_breaks: Vec<usize> = Vec::new();
     let folded = fold_into(text, |at| dash_breaks.push(at));
     FOLDED_IDENTITY
@@ -143,7 +144,7 @@ pub(crate) fn leak_match(text: &str) -> Option<IdentityLeakMatch> {
 /// A structural hit has no table entry to look up, so it anchors on the role
 /// noun that fired instead. Without this the window comes back empty for exactly
 /// the leaks the second pass exists to catch.
-pub(crate) fn anchor(folded: &str, pattern_index: usize) -> Option<String> {
+pub(super) fn anchor(folded: &str, pattern_index: usize) -> Option<String> {
     if pattern_index == SELF_ID_PATTERN_INDEX {
         return SELF_ID_ROLES
             .iter()
