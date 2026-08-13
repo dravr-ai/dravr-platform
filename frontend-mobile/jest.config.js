@@ -42,6 +42,21 @@ module.exports = {
     '^@pierre/api-client$': '<rootDir>/../packages/api-client/src/index.ts',
     '^@pierre/chat-utils$': '<rootDir>/../packages/chat-utils/src/index.ts',
     '^@pierre/shared-types$': '<rootDir>/../packages/shared-types/src/index.ts',
+    // Strip the `.js` suffix off relative imports.
+    //
+    // The @pierre/* packages are authored for NodeNext ESM, where a relative
+    // import must carry the *output* extension: `export { parseWorkoutPlan }
+    // from './workout-plan.js'` in a .ts file. Vite resolves that back to the
+    // .ts source; Jest takes it literally and fails with "Cannot find module
+    // './workout-plan.js'". That made every @pierre package importing a
+    // sibling untestable from here — which is why src/screens/chat had no
+    // MessageList test until this mapping landed.
+    //
+    // Safe to apply globally: the rewritten specifier is resolved through
+    // moduleFileExtensions, so a real .js file still resolves to itself. Only
+    // relative paths match, so the bare-specifier mappings above and the react
+    // pins below are untouched.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
     // Mock expo virtual modules for packages outside node_modules
     '^expo/virtual/(.*)$': '<rootDir>/jest.setup.js',
     // Ensure a single React instance across components and test renderer

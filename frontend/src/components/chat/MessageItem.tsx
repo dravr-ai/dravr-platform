@@ -14,6 +14,7 @@ import type { Message, MessageActionItem, MessageMetadata, MessageFeedback } fro
 import { splitActivityContent, countActivities, stripToolScaffolding } from '@pierre/chat-utils';
 import { linkifyUrls, stripContextPrefix } from './utils';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import { MARKDOWN_COMPONENTS } from './markdownComponents';
 
 interface MessageItemProps {
   message: Message;
@@ -250,23 +251,16 @@ const MessageItem = memo(function MessageItem({
               Your Activities ({countActivities(activityList)})
             </summary>
             <div className="mt-2 ml-4 text-on-surface text-sm prose prose-sm prose-invert max-w-none">
-              <Markdown remarkPlugins={[remarkGfm]}>{activityList}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                {activityList}
+              </Markdown>
             </div>
           </details>
         )}
         {workoutPlan && <WorkoutPlanCard plan={workoutPlan} />}
         {(!workoutPlan || content.trim().length > 0) && (
           <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}>
-            <Markdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="break-all">
-                    {children}
-                  </a>
-                ),
-              }}
-            >
+            <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
               {linkifyUrls(displayContent)}
             </Markdown>
           </div>

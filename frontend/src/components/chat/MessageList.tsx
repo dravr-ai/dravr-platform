@@ -12,6 +12,7 @@ import MessageItem from './MessageItem';
 import type { ChatVerdictRow } from '@pierre/api-client';
 import type { Message, MessageActionItem, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls } from './utils';
+import { MARKDOWN_COMPONENTS } from './markdownComponents';
 
 interface MessageListProps {
   messages: Message[];
@@ -204,16 +205,7 @@ export default function MessageList({
               <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
             </div>
             <div className="text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
-              <Markdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  a: ({ href, children }) => (
-                    <a href={href} target="_blank" rel="noopener noreferrer" className="break-all">
-                      {children}
-                    </a>
-                  ),
-                }}
-              >
+              <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
                 {linkifyUrls(streamingContent)}
               </Markdown>
             </div>
