@@ -63,11 +63,16 @@ fn linking_method_partition_is_consistent() {
         ChannelType::WhatsApp.linking_method(),
         LinkingMethod::DeepLink
     );
-    // OAuth channels: Slack, Discord, Messenger
-    assert_eq!(ChannelType::Slack.linking_method(), LinkingMethod::OAuth);
-    assert_eq!(ChannelType::Discord.linking_method(), LinkingMethod::OAuth);
+    // Messenger joined them: Meta has no user-facing OAuth for page chat, so a
+    // link goes out as `m.me/{page}?ref={code}` and the code arrives back in the
+    // webhook's referral payload. Classifying it as OAuth is what used to hand
+    // the user an authorize URL that could not work.
     assert_eq!(
         ChannelType::Messenger.linking_method(),
-        LinkingMethod::OAuth
+        LinkingMethod::DeepLink
     );
+    // OAuth channels: Slack and Discord, both of which do have a user consent
+    // screen that returns an authorization code.
+    assert_eq!(ChannelType::Slack.linking_method(), LinkingMethod::OAuth);
+    assert_eq!(ChannelType::Discord.linking_method(), LinkingMethod::OAuth);
 }

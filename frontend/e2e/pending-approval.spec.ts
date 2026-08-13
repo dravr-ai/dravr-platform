@@ -82,8 +82,11 @@ test.describe('Pending Approval Page - Display', () => {
     await expect(page.getByText('Your account has been created successfully')).toBeVisible();
     await expect(page.getByText('awaiting approval by an administrator')).toBeVisible();
 
-    // Check for status badge - use exact match to target the badge specifically
-    await expect(page.getByText('Pending', { exact: true })).toBeVisible();
+    // The badge names which of the two waits this is. It used to read
+    // "Pending", which told the user nothing actionable — an unconfirmed
+    // address and a queued review both landed on the same word. A confirmed
+    // account waiting on a human reads "Awaiting review".
+    await expect(page.getByText('Awaiting review', { exact: true })).toBeVisible();
 
     // Check for sign out button
     await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
