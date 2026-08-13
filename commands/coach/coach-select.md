@@ -4,8 +4,7 @@ command: /coach select
 aliases: []
 description: Select a coach for your group
 domain: coach
-required_role: any
-requires_group: false
+arguments: "coach-id"
 ---
 
 ## Response Template

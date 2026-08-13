@@ -4,8 +4,6 @@ command: /privacy
 aliases: ["/privacy status"]
 description: View your analytics consent setting
 domain: account
-required_role: any
-requires_group: false
 ---
 
 ## Response Template

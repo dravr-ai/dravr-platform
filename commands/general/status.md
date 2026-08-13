@@ -4,8 +4,6 @@ command: /status
 aliases: ["/me"]
 description: Account summary
 domain: general
-required_role: any
-requires_group: false
 ---
 
 ## Response Template

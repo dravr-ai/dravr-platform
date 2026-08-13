@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
+use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::models::{OnboardingState, Tenant, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -122,6 +123,90 @@ async fn seed_coach(
         .await
         .unwrap();
     coach.id.to_string()
+}
+
+/// Put `user_id` in a coaching group with the given role, so `/help` resolves a
+/// real membership the way the group handlers do.
+async fn seed_group_membership(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    coach_id: &str,
+    role: GroupRole,
+) -> Uuid {
+    let now = chrono::Utc::now();
+    let group_id = Uuid::new_v4();
+    let group = CoachingGroup {
+        id: group_id,
+        tenant_id: tenant_id.to_string(),
+        name: "Help Filter Group".to_owned(),
+        description: None,
+        coach_id: coach_id.to_owned(),
+        // owner_id must reference a real user (FK). It plays no part in the
+        // filter either way: `caller_group_standing` reads the membership row's
+        // `role`, which is what `role` below sets.
+        owner_id: user_id,
+        coach_user_id: None,
+        peer_data_sharing: false,
+        respond_mode: GroupRespondMode::default(),
+        max_members: 20,
+        is_active: true,
+        channel_type: None,
+        channel_chat_id: None,
+        created_at: now,
+        updated_at: now,
+    };
+    resources
+        .common
+        .repos
+        .groups
+        .create_group(tenant_id, &group)
+        .await
+        .unwrap();
+
+    resources
+        .common
+        .repos
+        .groups
+        .add_member(&GroupMember {
+            id: Uuid::new_v4(),
+            group_id,
+            user_id,
+            tenant_id: tenant_id.to_string(),
+            role,
+            peer_sharing_consent: false,
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        })
+        .await
+        .unwrap();
+
+    group_id
+}
+
+/// Send `/help` and return the rendered listing.
+async fn fetch_help(router: axum::Router, auth: &str) -> String {
+    let conv_id = create_conversation(router.clone(), auth).await;
+    help_in_conversation(router, auth, &conv_id).await
+}
+
+/// Send `/help` on an existing conversation and return the rendered listing.
+///
+/// Separate from [`fetch_help`] so a test can bind the conversation to a
+/// specific group first, which pins which group `/help` treats as ambient
+/// instead of leaving it to `list_groups_for_user`'s `updated_at DESC`.
+async fn help_in_conversation(router: axum::Router, auth: &str, conv_id: &str) -> String {
+    let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", auth)
+        .json(&json!({"content": "/help"}))
+        .send(router)
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    let body: ChatCompletionResponse = resp.json();
+    assert!(body.is_command_response);
+    body.assistant_message.content
 }
 
 async fn create_conversation(router: axum::Router, auth: &str) -> String {
@@ -380,4 +465,331 @@ async fn pillars_command_activates_onboarding_mode_no_llm_call() {
         OnboardingState::from_column(conv.onboarding_state.as_deref()).is_some(),
         "/pillars must activate onboarding_state on the conversation"
     );
+}
+
+/// An athlete who belongs to no group is shown no group commands.
+///
+/// Every one of them resolves a group before doing anything, so for this user
+/// they can only answer "you are not a member of a group" — listing them
+/// teaches nothing and reads as a broken bot.
+#[tokio::test]
+async fn help_hides_group_commands_from_an_athlete_with_no_group() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_uid, _tid, auth) = seed_user_tenant(&resources, "help-nogroup@test.com").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+
+    let text = fetch_help(router, &auth).await;
+
+    for hidden in [
+        "/group consent",
+        "/group invite",
+        "/group members",
+        "/group respond",
+        "/group status",
+        "/group leave",
+        "/group coach",
+        "/coach assign",
+    ] {
+        assert!(
+            !text.contains(hidden),
+            "`{hidden}` needs a group this athlete does not have:\n{text}"
+        );
+    }
+    // `/group` itself needs no group (it lists yours, possibly none), so the
+    // domain survives — with that single line and nothing else.
+    let group_lines: Vec<&str> = text
+        .lines()
+        .filter(|l| l.trim_start().starts_with("/group"))
+        .collect();
+    assert_eq!(
+        group_lines.len(),
+        1,
+        "only `/group` should survive for a groupless athlete, got {group_lines:?}"
+    );
+    // Everything that does not need a group is untouched.
+    for shown in ["/status", "/plan", "/coach ", "/pillars", "/timezone"] {
+        assert!(
+            text.contains(shown),
+            "`{shown}` must still be listed:\n{text}"
+        );
+    }
+}
+
+/// A plain member sees the member-level group commands and none of the
+/// admin-only ones — the four whose handlers check `can_modify_settings` /
+/// `can_manage_members` before acting.
+#[tokio::test]
+async fn help_hides_admin_only_commands_from_a_plain_group_member() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-member@test.com").await;
+    let coach_id = seed_coach(
+        &resources,
+        user_id,
+        tenant_id,
+        "Group Coach",
+        "Coaches a group.",
+    )
+    .await;
+    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+
+    let text = fetch_help(router, &auth).await;
+
+    for shown in [
+        "/group consent",
+        "/group members",
+        "/group status",
+        "/group leave",
+    ] {
+        assert!(
+            text.contains(shown),
+            "a member can run `{shown}`, so it must be listed:\n{text}"
+        );
+    }
+    for hidden in [
+        "/group invite",
+        "/group coach",
+        "/group respond",
+        "/coach assign",
+    ] {
+        assert!(
+            !text.contains(hidden),
+            "`{hidden}` is owner/admin only and must not be listed for a member:\n{text}"
+        );
+    }
+}
+
+/// The group owner sees the admin-only commands the member does not.
+#[tokio::test]
+async fn help_shows_admin_only_commands_to_a_group_owner() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-owner@test.com").await;
+    let coach_id = seed_coach(
+        &resources,
+        user_id,
+        tenant_id,
+        "Owned Group Coach",
+        "Coaches a group.",
+    )
+    .await;
+    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+
+    let text = fetch_help(router, &auth).await;
+
+    for shown in [
+        "/group invite",
+        "/group coach coach-name",
+        "/group respond mentions|all",
+        "/coach assign coach-id group-id",
+        "/group consent yes|no",
+    ] {
+        assert!(
+            text.contains(shown),
+            "an owner can run `{shown}`, so it must be listed:\n{text}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn help_shows_argument_options_localized_headings_and_stable_order() {
+    // /help is the only discovery surface for command arguments: a reader who
+    // cannot see `yes|no` has no way to learn that /group consent takes one.
+    // Pins all three properties of the rendered list — argument signatures,
+    // localized domain headings, and deterministic ordering.
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-args@test.com").await;
+    // Owner standing so every command is listed — the signatures, not the
+    // role filter, are what this test pins.
+    let coach_id = seed_coach(
+        &resources,
+        user_id,
+        tenant_id,
+        "Args Group Coach",
+        "Coaches a group.",
+    )
+    .await;
+    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+
+    let text = fetch_help(router, &auth).await;
+
+    // Every command whose handler reads an argument advertises what it takes.
+    for signature in [
+        "/group consent yes|no",
+        "/group respond mentions|all",
+        "/group coach coach-name",
+        "/plan [week|today]",
+        // Named, not a `pillar` placeholder: the athlete must be able to type
+        // one of these without knowing the internal DB slugs.
+        "/pillars [full|training|fuelling|sleep|mental|community|substances]",
+        "/timezone area/city",
+        "/coach select coach-id",
+        "/coach assign coach-id group-id",
+        "/confirm action-id",
+        "/deny action-id",
+    ] {
+        assert!(
+            text.contains(signature),
+            "/help must show `{signature}`, got:\n{text}"
+        );
+    }
+
+    // Argument-free commands stay bare — no invented placeholder.
+    assert!(
+        text.contains("/status — ") && text.contains("/logout — "),
+        "argument-free commands must render without a signature:\n{text}"
+    );
+
+    // Domain headings are localized (fr is the default locale). A raw domain
+    // slug in the output means the heading has no messaging string.
+    assert!(
+        text.contains("Entraînement:"),
+        "training domain heading must be localized:\n{text}"
+    );
+    assert!(
+        !text.contains("training:"),
+        "raw domain slug leaked into /help:\n{text}"
+    );
+
+    // Commands are sorted within their domain — the registry stores them in a
+    // HashMap, so an unsorted render reshuffles on every process start.
+    // Compare the command halves, not whole lines: the em-dash separator sorts
+    // after letters, so a whole-line sort is not the order commands are in.
+    let group_block: Vec<&str> = text
+        .lines()
+        .filter(|l| l.trim_start().starts_with("/group"))
+        .map(|l| l.trim().split(" — ").next().unwrap_or(l))
+        .collect();
+    assert!(
+        group_block.len() >= 7,
+        "expected the full /group block, got {group_block:?}"
+    );
+    let mut sorted = group_block.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        group_block, sorted,
+        "/help must list commands in a stable sorted order"
+    );
+}
+
+/// `/coach assign` names its own group in the arguments, so an owner of *any*
+/// group can run it — even from a room where they are only a plain member.
+///
+/// `/group invite`, `/group coach` and `/group respond` resolve the
+/// conversation's group and check the caller's role there, so the ambient role
+/// decides them. `CoachAssignHandler` does not: it reads `get_member` on the
+/// group id the caller typed. Deciding it on the ambient role hid a command
+/// that works.
+#[tokio::test]
+async fn help_shows_coach_assign_to_an_owner_who_is_a_member_of_the_ambient_group() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-two-groups@test.com").await;
+    let coach_id = seed_coach(
+        &resources,
+        user_id,
+        tenant_id,
+        "Two Group Coach",
+        "Coaches two groups.",
+    )
+    .await;
+
+    // Owner of one group, plain member of another.
+    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+    let member_group =
+        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+
+    // Bind the conversation to the group where the caller is only a member, so
+    // the ambient role is Member no matter how the group list happens to sort.
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &auth).await;
+    resources
+        .common
+        .repos
+        .chat
+        .set_conversation_group_id(&conv_id, Some(&member_group.to_string()), tenant_id)
+        .await
+        .unwrap();
+
+    let text = help_in_conversation(router, &auth, &conv_id).await;
+
+    assert!(
+        text.contains("/coach assign coach-id group-id"),
+        "an owner of another group can run `/coach assign`, so it must be listed:\n{text}"
+    );
+    // The ambient-group commands are still filtered on the ambient role — this
+    // is what proves the conversation resolved to the member group, and that
+    // the fix did not simply widen the filter for everything.
+    for hidden in ["/group invite", "/group coach", "/group respond"] {
+        assert!(
+            !text.contains(hidden),
+            "`{hidden}` acts on the ambient group, where this caller is only a member:\n{text}"
+        );
+    }
+}
+
+/// `/group status`, `/group members` and `/group leave` read
+/// `list_groups_for_user().first()`, never the conversation's group — so
+/// belonging to *any* group is enough to run them.
+///
+/// Deciding them on the conversation's group hid all three from someone
+/// sitting in a room bound to a group they are not a member of, even though
+/// the commands would have answered about their own group. This is the same
+/// defect class as `/coach assign`, in three more commands, and it is why
+/// `/help` asks each handler instead of applying one shared rule to all of
+/// them.
+#[tokio::test]
+async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "help-foreign-room@test.com").await;
+    let coach_id = seed_coach(
+        &resources,
+        user_id,
+        tenant_id,
+        "Foreign Room Coach",
+        "Coaches a group.",
+    )
+    .await;
+
+    // The caller's own group, which `/group status` would answer about.
+    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+
+    // A second group the caller does NOT belong to, bound to the conversation.
+    let (other_id, _, _) = seed_user_tenant(&resources, "help-room-owner@test.com").await;
+    let foreign_group =
+        seed_group_membership(&resources, other_id, tenant_id, &coach_id, GroupRole::Owner).await;
+
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &auth).await;
+    resources
+        .common
+        .repos
+        .chat
+        .set_conversation_group_id(&conv_id, Some(&foreign_group.to_string()), tenant_id)
+        .await
+        .unwrap();
+
+    let text = help_in_conversation(router, &auth, &conv_id).await;
+
+    for shown in ["/group status", "/group members", "/group leave"] {
+        assert!(
+            text.contains(shown),
+            "`{shown}` reads the caller's own group, so it must be listed even \
+             though this room belongs to a group they are not in:\n{text}"
+        );
+    }
+    // The commands that really do act on this room's group stay hidden — the
+    // caller is not a member of it, so they would refuse.
+    for hidden in [
+        "/group invite",
+        "/group coach",
+        "/group respond",
+        "/group consent",
+    ] {
+        assert!(
+            !text.contains(hidden),
+            "`{hidden}` acts on this room's group, which the caller is not in:\n{text}"
+        );
+    }
 }

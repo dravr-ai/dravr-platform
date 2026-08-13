@@ -4,8 +4,7 @@ command: /deny
 aliases: []
 description: Cancel an action the security guardian put on hold
 domain: general
-required_role: any
-requires_group: false
+arguments: "action-id"
 ---
 
 ## Response Template

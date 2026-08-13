@@ -4,8 +4,6 @@ command: /calibrate
 aliases: []
 description: Tune how hard your training should be — a short guided interview in a direct message (six questions, plus fueling and event demands when they apply)
 domain: training
-required_role: any
-requires_group: false
 ---
 
 ## Response Template

@@ -4,8 +4,6 @@ command: /help
 aliases: ["/h", "/?"]
 description: Show available commands
 domain: general
-required_role: any
-requires_group: false
 ---
 
 ## Response Template

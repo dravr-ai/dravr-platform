@@ -2165,7 +2165,7 @@ mod command_tests {
 
     #[test]
     fn group_setting_changes_are_announced_in_the_room() {
-        use pierre_commands::parser::load_command_definitions;
+        use pierre_commands::parser::load_command_catalog;
         use pierre_mcp_server::services::messaging_ingress::slash_reply_should_be_private;
         use std::path::Path;
 
@@ -2185,7 +2185,7 @@ mod command_tests {
             .and_then(Path::parent)
             .map(|root| root.join("commands"))
             .expect("repo root resolves from CARGO_MANIFEST_DIR"); // Safe: fixed repo layout
-        let defs = load_command_definitions(&commands_dir);
+        let defs = load_command_catalog(&commands_dir).definitions;
         assert!(
             !defs.is_empty(),
             "commands/ catalog must load — otherwise this test asserts nothing"

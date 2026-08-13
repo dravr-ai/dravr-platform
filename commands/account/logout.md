@@ -4,8 +4,6 @@ command: /logout
 aliases: ["/unlink"]
 description: Unlink this messaging account
 domain: account
-required_role: any
-requires_group: false
 confirmation: false
 ---
 

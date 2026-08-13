@@ -41,7 +41,7 @@ use pierre_commands::{
     privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
     status::StatusHandler,
     timezone::TimezoneHandler,
-    CommandHandlerRegistry,
+    CommandHandler, CommandHandlerRegistry,
 };
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -518,37 +518,61 @@ impl ServerContext {
         let commands_dir = commands_dir_override
             .as_deref()
             .map_or_else(|| Path::new("commands").to_path_buf(), PathBuf::from);
-        let defs = commands::load_command_definitions(&commands_dir);
+        let catalog = commands::load_command_catalog(&commands_dir);
         let mut registry = CommandRegistry::new();
-        for def in defs {
+        for def in catalog.definitions {
             registry.register(def);
         }
         let registry = Arc::new(registry);
+        // Argument signatures ride alongside the registry: `/help` renders them
+        // in each command's line so options like `yes|no` are discoverable.
+        let arg_specs = Arc::new(catalog.arg_specs);
+
+        // Built before the registry so `/help` can hold the same handler
+        // instances and ask each whether it would refuse the caller. `/help`
+        // is deliberately absent from this map — it is the one command with no
+        // precondition, and including it would need a self-reference.
+        let handlers: HashMap<String, Arc<dyn CommandHandler>> = [
+            ("status", Arc::new(StatusHandler) as Arc<dyn CommandHandler>),
+            ("logout", Arc::new(LogoutHandler)),
+            ("group", Arc::new(GroupListHandler)),
+            ("group-status", Arc::new(GroupStatusHandler)),
+            ("group-members", Arc::new(GroupMembersHandler)),
+            ("group-invite", Arc::new(GroupInviteHandler)),
+            ("group-coach", Arc::new(GroupCoachHandler)),
+            ("group-respond", Arc::new(GroupRespondHandler)),
+            ("group-leave", Arc::new(GroupLeaveHandler)),
+            ("group-consent", Arc::new(GroupConsentHandler)),
+            ("coach", Arc::new(CoachListHandler)),
+            ("coach-select", Arc::new(CoachSelectHandler)),
+            ("coach-assign", Arc::new(CoachAssignHandler)),
+            ("privacy", Arc::new(PrivacyStatusHandler)),
+            ("privacy-on", Arc::new(PrivacyOnHandler)),
+            ("privacy-off", Arc::new(PrivacyOffHandler)),
+            ("timezone", Arc::new(TimezoneHandler)),
+            ("confirm", Arc::new(ConfirmHandler)),
+            ("deny", Arc::new(DenyHandler)),
+            ("pillars", Arc::new(PillarsHandler)),
+            ("plan", Arc::new(PlanShowHandler)),
+            ("calibrate", Arc::new(CalibrateHandler)),
+        ]
+        .into_iter()
+        .map(|(name, handler)| (name.to_owned(), handler))
+        .collect();
+        let handlers = Arc::new(handlers);
 
         let mut handler_reg = CommandHandlerRegistry::new();
-        handler_reg.register("help", Arc::new(HelpHandler::new(Arc::clone(&registry))));
-        handler_reg.register("status", Arc::new(StatusHandler));
-        handler_reg.register("logout", Arc::new(LogoutHandler));
-        handler_reg.register("group", Arc::new(GroupListHandler));
-        handler_reg.register("group-status", Arc::new(GroupStatusHandler));
-        handler_reg.register("group-members", Arc::new(GroupMembersHandler));
-        handler_reg.register("group-invite", Arc::new(GroupInviteHandler));
-        handler_reg.register("group-coach", Arc::new(GroupCoachHandler));
-        handler_reg.register("group-respond", Arc::new(GroupRespondHandler));
-        handler_reg.register("group-leave", Arc::new(GroupLeaveHandler));
-        handler_reg.register("group-consent", Arc::new(GroupConsentHandler));
-        handler_reg.register("coach", Arc::new(CoachListHandler));
-        handler_reg.register("coach-select", Arc::new(CoachSelectHandler));
-        handler_reg.register("coach-assign", Arc::new(CoachAssignHandler));
-        handler_reg.register("privacy", Arc::new(PrivacyStatusHandler));
-        handler_reg.register("privacy-on", Arc::new(PrivacyOnHandler));
-        handler_reg.register("privacy-off", Arc::new(PrivacyOffHandler));
-        handler_reg.register("timezone", Arc::new(TimezoneHandler));
-        handler_reg.register("confirm", Arc::new(ConfirmHandler));
-        handler_reg.register("deny", Arc::new(DenyHandler));
-        handler_reg.register("pillars", Arc::new(PillarsHandler));
-        handler_reg.register("plan", Arc::new(PlanShowHandler));
-        handler_reg.register("calibrate", Arc::new(CalibrateHandler));
+        handler_reg.register(
+            "help",
+            Arc::new(HelpHandler::new(
+                Arc::clone(&registry),
+                arg_specs,
+                Arc::clone(&handlers),
+            )),
+        );
+        for (name, handler) in handlers.iter() {
+            handler_reg.register(name, Arc::clone(handler));
+        }
         (Some(registry), Some(Arc::new(handler_reg)))
     }
 

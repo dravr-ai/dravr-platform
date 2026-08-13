@@ -4,8 +4,7 @@ command: /group respond
 aliases: []
 description: Set when this group's coach replies — every message, or only when mentioned
 domain: group
-required_role: admin
-requires_group: true
+arguments: "mentions|all"
 ---
 
 ## Response Template

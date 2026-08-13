@@ -4,8 +4,6 @@ command: /group leave
 aliases: []
 description: Leave your group
 domain: group
-required_role: member
-requires_group: true
 confirmation: true
 ---
 

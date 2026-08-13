@@ -8,9 +8,10 @@
 //!
 //! Two layers in one crate:
 //!
-//! 1. **Catalog loader** ([`parser::load_command_definitions`]). Reads
+//! 1. **Catalog loader** ([`parser::load_command_catalog`]). Reads
 //!    `commands/*.md` files with YAML frontmatter into the
-//!    `pierre_messaging::commands::CommandDefinition` shape.
+//!    `pierre_messaging::commands::CommandDefinition` shape, plus the
+//!    argument signatures `/help` renders beside each command.
 //! 2. **Handler runtime** ([`CommandHandler`], [`CommandHandlerRegistry`],
 //!    [`PlatformCommandContext`], and the per-command modules
 //!    [`account`], [`coach`], [`group`], [`help`], [`privacy`], [`status`]).
@@ -49,7 +50,8 @@ pub mod status;
 /// Timezone command persisting the user's IANA timezone
 pub mod timezone;
 
-pub use parser::load_command_definitions;
+pub use group::CallerGroupStanding;
+pub use parser::{load_command_catalog, CommandCatalog};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -138,6 +140,27 @@ pub trait CommandHandler: Send + Sync {
     ///
     /// Returns an error if the command execution fails
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError>;
+
+    /// Whether [`Self::execute`] would do real work for a caller with this
+    /// group standing, rather than refuse them.
+    ///
+    /// `/help` lists only the commands whose handler answers `true`, so that a
+    /// listing is a promise the command will work. The handler answers because
+    /// it is the only thing that knows which group it acts on: `/group status`
+    /// reads whichever group the caller belongs to, `/group invite` reads the
+    /// one bound to the conversation, and `/coach assign` reads the one named
+    /// in the arguments. No catalog declaration can express that difference,
+    /// which is why the catalog no longer tries.
+    ///
+    /// Takes the standing already resolved for the turn, so listing every
+    /// command costs the same queries as listing one.
+    ///
+    /// The default is `true`: a command with no group precondition is always
+    /// listed. Override it with the same predicate `execute` enforces, so the
+    /// two cannot drift.
+    fn is_available(&self, _standing: &CallerGroupStanding) -> bool {
+        true
+    }
 }
 
 /// Registry mapping command names to handler implementations.

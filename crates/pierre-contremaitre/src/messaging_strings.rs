@@ -321,6 +321,8 @@ pub const KEY_HELP_DOMAIN_DATA: &str = "commands.help.domain.data";
 pub const KEY_HELP_DOMAIN_PROVIDER: &str = "commands.help.domain.provider";
 /// Key: `/help` domain heading — account commands.
 pub const KEY_HELP_DOMAIN_ACCOUNT: &str = "commands.help.domain.account";
+/// Key: `/help` domain heading — training plan and calibration commands.
+pub const KEY_HELP_DOMAIN_TRAINING: &str = "commands.help.domain.training";
 /// Key: `/help` closing line inviting the user to chat.
 pub const KEY_HELP_FOOTER: &str = "commands.help.footer";
 
@@ -685,6 +687,7 @@ pub(crate) const FR_HELP_DOMAIN_COACH: &str = "Coaching";
 pub(crate) const FR_HELP_DOMAIN_DATA: &str = "Données d'activité";
 pub(crate) const FR_HELP_DOMAIN_PROVIDER: &str = "Fournisseurs";
 pub(crate) const FR_HELP_DOMAIN_ACCOUNT: &str = "Compte";
+pub(crate) const FR_HELP_DOMAIN_TRAINING: &str = "Entraînement";
 pub(crate) const FR_HELP_FOOTER: &str = "\nOu écris-moi simplement pour discuter avec ton coach.";
 
 pub(crate) const FR_LOGOUT_CONFIRM_PROMPT: &str = "Ceci va délier ton compte {0} de Dravr.\nIl faudra le relier pour réutiliser la messagerie.\n\nTape « logout » pour confirmer.";
@@ -922,6 +925,7 @@ pub(crate) const EN_HELP_DOMAIN_COACH: &str = "Coaching";
 pub(crate) const EN_HELP_DOMAIN_DATA: &str = "Fitness data";
 pub(crate) const EN_HELP_DOMAIN_PROVIDER: &str = "Providers";
 pub(crate) const EN_HELP_DOMAIN_ACCOUNT: &str = "Account";
+pub(crate) const EN_HELP_DOMAIN_TRAINING: &str = "Training";
 pub(crate) const EN_HELP_FOOTER: &str = "\nOr just send a message to chat with your coach.";
 
 pub(crate) const EN_LOGOUT_CONFIRM_PROMPT: &str = "This will unlink your {0} account from Dravr.\nYou will need to re-link to use messaging again.\n\nType \"logout\" to confirm.";
@@ -1137,6 +1141,7 @@ pub(crate) const ES_HELP_DOMAIN_COACH: &str = "Coaching";
 pub(crate) const ES_HELP_DOMAIN_DATA: &str = "Datos de actividad";
 pub(crate) const ES_HELP_DOMAIN_PROVIDER: &str = "Proveedores";
 pub(crate) const ES_HELP_DOMAIN_ACCOUNT: &str = "Cuenta";
+pub(crate) const ES_HELP_DOMAIN_TRAINING: &str = "Entrenamiento";
 pub(crate) const ES_HELP_FOOTER: &str = "\nO simplemente escríbeme para conversar con tu coach.";
 
 pub(crate) const ES_LOGOUT_CONFIRM_PROMPT: &str = "Esto desvinculará tu cuenta de {0} de Dravr.\nTendrás que volver a vincularla para usar la mensajería.\n\nEscribe «logout» para confirmar.";
@@ -1349,6 +1354,7 @@ pub(crate) const DE_HELP_DOMAIN_COACH: &str = "Coaching";
 pub(crate) const DE_HELP_DOMAIN_DATA: &str = "Trainingsdaten";
 pub(crate) const DE_HELP_DOMAIN_PROVIDER: &str = "Anbieter";
 pub(crate) const DE_HELP_DOMAIN_ACCOUNT: &str = "Konto";
+pub(crate) const DE_HELP_DOMAIN_TRAINING: &str = "Training";
 pub(crate) const DE_HELP_FOOTER: &str =
     "\nOder schreib mir einfach, um mit deinem Coach zu chatten.";
 
@@ -1566,6 +1572,7 @@ pub(crate) const PT_HELP_DOMAIN_COACH: &str = "Coaching";
 pub(crate) const PT_HELP_DOMAIN_DATA: &str = "Dados de atividade";
 pub(crate) const PT_HELP_DOMAIN_PROVIDER: &str = "Fornecedores";
 pub(crate) const PT_HELP_DOMAIN_ACCOUNT: &str = "Conta";
+pub(crate) const PT_HELP_DOMAIN_TRAINING: &str = "Treino";
 pub(crate) const PT_HELP_FOOTER: &str = "\nOu escreve-me para conversar com o teu coach.";
 
 pub(crate) const PT_LOGOUT_CONFIRM_PROMPT: &str = "Isto vai desvincular a tua conta {0} do Dravr.\nVais precisar de voltar a ligá-la para usar o messaging.\n\nEscreve «logout» para confirmar.";
@@ -1756,6 +1763,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_DATA, "fr", FR_HELP_DOMAIN_DATA),
     (KEY_HELP_DOMAIN_PROVIDER, "fr", FR_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "fr", FR_HELP_DOMAIN_ACCOUNT),
+    (KEY_HELP_DOMAIN_TRAINING, "fr", FR_HELP_DOMAIN_TRAINING),
     (KEY_HELP_FOOTER, "fr", FR_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "fr", FR_LOGOUT_CONFIRM_PROMPT),
     (KEY_RESET_CONFIRM, "fr", FR_RESET_CONFIRM),
@@ -1916,6 +1924,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_DATA, "en", EN_HELP_DOMAIN_DATA),
     (KEY_HELP_DOMAIN_PROVIDER, "en", EN_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "en", EN_HELP_DOMAIN_ACCOUNT),
+    (KEY_HELP_DOMAIN_TRAINING, "en", EN_HELP_DOMAIN_TRAINING),
     (KEY_HELP_FOOTER, "en", EN_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "en", EN_LOGOUT_CONFIRM_PROMPT),
     (KEY_RESET_CONFIRM, "en", EN_RESET_CONFIRM),
@@ -2076,6 +2085,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_DATA, "es", ES_HELP_DOMAIN_DATA),
     (KEY_HELP_DOMAIN_PROVIDER, "es", ES_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "es", ES_HELP_DOMAIN_ACCOUNT),
+    (KEY_HELP_DOMAIN_TRAINING, "es", ES_HELP_DOMAIN_TRAINING),
     (KEY_HELP_FOOTER, "es", ES_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "es", ES_LOGOUT_CONFIRM_PROMPT),
     (KEY_PRIVACY_STATUS_LINE, "es", ES_PRIVACY_STATUS_LINE),
@@ -2236,6 +2246,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_DATA, "de", DE_HELP_DOMAIN_DATA),
     (KEY_HELP_DOMAIN_PROVIDER, "de", DE_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "de", DE_HELP_DOMAIN_ACCOUNT),
+    (KEY_HELP_DOMAIN_TRAINING, "de", DE_HELP_DOMAIN_TRAINING),
     (KEY_HELP_FOOTER, "de", DE_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "de", DE_LOGOUT_CONFIRM_PROMPT),
     (KEY_PRIVACY_STATUS_LINE, "de", DE_PRIVACY_STATUS_LINE),
@@ -2396,6 +2407,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_DATA, "pt", PT_HELP_DOMAIN_DATA),
     (KEY_HELP_DOMAIN_PROVIDER, "pt", PT_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "pt", PT_HELP_DOMAIN_ACCOUNT),
+    (KEY_HELP_DOMAIN_TRAINING, "pt", PT_HELP_DOMAIN_TRAINING),
     (KEY_HELP_FOOTER, "pt", PT_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "pt", PT_LOGOUT_CONFIRM_PROMPT),
     (KEY_PRIVACY_STATUS_LINE, "pt", PT_PRIVACY_STATUS_LINE),

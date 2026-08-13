@@ -4,8 +4,7 @@ command: /group coach
 aliases: []
 description: Set this group's Dravr coach (the AI persona that answers in the group)
 domain: group
-required_role: admin
-requires_group: true
+arguments: "coach-name"
 ---
 
 ## Response Template

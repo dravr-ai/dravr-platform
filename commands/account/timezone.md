@@ -4,8 +4,7 @@ command: /timezone
 aliases: ["/tz"]
 description: Set your timezone for local activity times
 domain: account
-required_role: any
-requires_group: false
+arguments: "area/city"
 ---
 
 ## Response Template

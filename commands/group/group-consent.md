@@ -4,8 +4,7 @@ command: /group consent
 aliases: []
 description: Toggle whether your training data is shared with peers in this group
 domain: group
-required_role: member
-requires_group: true
+arguments: "yes|no"
 confirmation: false
 ---
 

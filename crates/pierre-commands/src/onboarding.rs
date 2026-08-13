@@ -1,5 +1,5 @@
 // ABOUTME: Handler for /pillars — (re)start the guided pillar-onboarding walk on a conversation
-// ABOUTME: Activates onboarding mode; `full` / `<pillar>` re-screen by superseding prior onboarding facts
+// ABOUTME: Activates onboarding mode; `full` / a pillar name re-screen by superseding prior onboarding facts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,13 +15,63 @@ use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};
 
+/// Athlete-facing spellings of the six pillars, mapped to the canonical enum.
+///
+/// [`Pillar::parse`] stays closed to the DB slug set on purpose — it also parses
+/// stored rows, where accepting a loose spelling would let a bad value round-trip
+/// — so the short forms an athlete would actually type live here instead. The
+/// canonical slugs keep working: [`parse_pillar_arg`] tries them first.
+///
+/// A bare `recovery` is deliberately absent. It reads equally as *Sleep &
+/// Recovery* and *Recovery Optimisation*, and choosing one would silently expire
+/// the wrong pillar's facts; [`unknown_pillar_error`] names both instead.
+const PILLAR_ALIASES: [(&str, Pillar); 12] = [
+    ("training", Pillar::TrainingAndMovement),
+    ("movement", Pillar::TrainingAndMovement),
+    ("fueling", Pillar::Fuelling),
+    ("nutrition", Pillar::Fuelling),
+    ("sleep", Pillar::SleepAndRecovery),
+    ("rest", Pillar::SleepAndRecovery),
+    ("mental", Pillar::MentalResilience),
+    ("stress", Pillar::MentalResilience),
+    ("community", Pillar::CommunityAndConnection),
+    ("social", Pillar::CommunityAndConnection),
+    ("substances", Pillar::RecoveryOptimisation),
+    ("alcohol", Pillar::RecoveryOptimisation),
+];
+
+/// Resolve a `/pillars` argument to a pillar.
+///
+/// Accepts the canonical DB slug (`sleep_and_recovery`) and the short athlete
+/// spelling (`sleep`) — the latter is what `/help` advertises. Callers pass the
+/// already-trimmed, lowercased token.
+#[must_use]
+pub fn parse_pillar_arg(arg: &str) -> Option<Pillar> {
+    Pillar::parse(arg).or_else(|| {
+        PILLAR_ALIASES
+            .iter()
+            .find(|(alias, _)| *alias == arg)
+            .map(|(_, pillar)| *pillar)
+    })
+}
+
+/// The error for an argument that names no pillar, listing the spellings that
+/// work so the athlete's next attempt succeeds.
+fn unknown_pillar_error(arg: &str) -> AppError {
+    AppError::invalid_input(format!(
+        "unknown pillar '{arg}' — use one of: training, fuelling, sleep, mental, community, substances (or `full` for every pillar)"
+    ))
+}
+
 /// Handler for `/pillars` — (re)build the user's pillar context conversationally.
 ///
 /// - `/pillars` — enter onboarding mode; the next turns walk the North Star +
 ///   six pillars (coverage is re-derived from the Dossier each turn).
 /// - `/pillars full` — re-screen everything: supersede prior onboarding facts
 ///   (they go stale) then walk all topics again.
-/// - `/pillars <pillar>` — re-screen a single pillar (e.g. `fuelling`).
+/// - `/pillars <pillar>` — re-screen a single pillar. Takes the short athlete
+///   spelling `/help` advertises (`sleep`) or the canonical slug
+///   (`sleep_and_recovery`); see [`parse_pillar_arg`].
 ///
 /// Superseding is done via `expire_onboarding_facts` (sets `valid_until=now`),
 /// never deletion — the GDPR forget path stays separate.
@@ -56,7 +106,7 @@ impl CommandHandler for PillarsHandler {
         let repos = ctx.ctx.repos();
         let user = ctx.user_id.to_string();
 
-        // Re-screen scope: `full` expires all onboarding facts, a pillar slug
+        // Re-screen scope: `full` expires all onboarding facts, a pillar name
         // expires that pillar's, bare `/pillars` supersedes nothing.
         let arg = ctx.args.first().map(|s| s.trim().to_lowercase());
         match arg.as_deref() {
@@ -68,12 +118,7 @@ impl CommandHandler for PillarsHandler {
                 info!(user_id = %ctx.user_id, superseded = n, "/pillars full re-screen");
             }
             Some(slug) => {
-                let pillar = Pillar::parse(slug).ok_or_else(|| {
-                    AppError::invalid_input(format!(
-                        "unknown pillar '{slug}' — use one of: {}",
-                        Pillar::ALL.map(Pillar::as_str).join(", ")
-                    ))
-                })?;
+                let pillar = parse_pillar_arg(slug).ok_or_else(|| unknown_pillar_error(slug))?;
                 let n = repos
                     .memory
                     .expire_onboarding_facts(ctx.tenant_id, &user, Some(pillar), None)

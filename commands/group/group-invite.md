@@ -4,8 +4,6 @@ command: /group invite
 aliases: ["/gi"]
 description: Generate invite link
 domain: group
-required_role: admin
-requires_group: true
 ---
 
 ## Response Template

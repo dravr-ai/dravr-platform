@@ -2,10 +2,9 @@
 name: pillars
 command: /pillars
 aliases: ["/onboarding"]
-description: Walk the six health pillars to build or refresh your profile in a direct message (North Star + pillars; `full` or a pillar name re-screens)
+description: Walk the six health pillars to build or refresh your profile in a direct message — full re-screens everything, a pillar name re-screens just that pillar
 domain: account
-required_role: any
-requires_group: false
+arguments: "[full|training|fuelling|sleep|mental|community|substances]"
 ---
 
 ## Response Template

@@ -112,16 +112,25 @@ async fn resolve_target_group(ctx: &PlatformCommandContext) -> Result<TargetGrou
     let reg = ctx.ctx.messaging_strings_registry();
     let locale = ctx.locale.as_str();
 
+    find_target_group(ctx)
+        .await?
+        .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))
+}
+
+/// The same resolution as [`resolve_target_group`], reporting "no group" as
+/// `None` instead of an error.
+///
+/// Split out so `/help` can ask which group a command *would* act on without
+/// treating the absence of one as a failure. Keeping one ladder matters: a
+/// second copy would drift, and `/help` would then advertise a different group
+/// than the handlers act on.
+async fn find_target_group(ctx: &PlatformCommandContext) -> Result<Option<TargetGroup>, AppError> {
     if let Some(conversation_id) = ctx.conversation_id.as_deref() {
         if let Some(group) = conversation_bound_group(ctx, conversation_id).await? {
-            return Ok(group);
+            return Ok(Some(group));
         }
         if !ctx.is_direct_message {
-            return Err(AppError::not_found(reg.render(
-                KEY_GROUP_NOT_A_MEMBER,
-                locale,
-                &[],
-            )));
+            return Ok(None);
         }
     }
 
@@ -131,16 +140,84 @@ async fn resolve_target_group(ctx: &PlatformCommandContext) -> Result<TargetGrou
         .groups
         .list_groups_for_user(ctx.user_id)
         .await?;
-    let group = groups
-        .first()
-        .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
 
-    Ok(TargetGroup {
+    Ok(groups.first().map(|group| TargetGroup {
         id: group.id,
         name: group.name.clone(),
         tenant_id: ctx.tenant_id,
         source: "list_groups_for_user_first",
-    })
+    }))
+}
+
+/// Everything `/help` needs to ask a handler whether it would refuse the
+/// caller, resolved once per turn.
+///
+/// Two facts, because the handlers genuinely ask two different questions
+/// about the caller's groups:
+///
+/// - `/group invite`, `/group coach`, `/group respond`, `/group consent`
+///   resolve the conversation's group and check the caller's standing
+///   *there*. `ambient` answers them.
+/// - `/group status`, `/group members`, `/group leave` read
+///   `list_groups_for_user().first()` instead — any group the caller belongs
+///   to will do, and the conversation's group is irrelevant. `/coach assign
+///   <coach-id> <group-id>` checks the group the caller *typed*, which no
+///   conversation-scoped fact can decide. `highest` answers all four, because
+///   holding a role anywhere means some invocation succeeds.
+pub struct CallerGroupStanding {
+    /// The caller's role in the group [`resolve_target_group`] names — `None`
+    /// when no group resolves, or when the caller is not one of its members.
+    pub ambient: Option<GroupRole>,
+    /// The strongest role the caller holds in any group — `None` when they
+    /// belong to none, which also answers "does this caller have a group".
+    pub highest: Option<GroupRole>,
+}
+
+/// Rank the roles so "strongest held" is well defined. `Owner` outranks
+/// `Admin` outranks `Member`; [`GroupRole`] itself is deliberately not `Ord`,
+/// since ordering roles only means something for this one comparison.
+const fn role_rank(role: GroupRole) -> u8 {
+    match role {
+        GroupRole::Owner => 2,
+        GroupRole::Admin => 1,
+        GroupRole::Member => 0,
+    }
+}
+
+/// Resolve the caller's standing for `/help`, so it can ask each handler
+/// whether that handler would refuse.
+///
+/// Walks the same ladder the handlers do and reads the same membership row
+/// they check (`get_member`), then adds the group list the other half of them
+/// read instead. Two queries beyond what a single group command costs, paid
+/// once for the whole listing.
+pub(crate) async fn caller_group_standing(
+    ctx: &PlatformCommandContext,
+) -> Result<CallerGroupStanding, AppError> {
+    let ambient = match find_target_group(ctx).await? {
+        Some(group) => ctx
+            .ctx
+            .repos()
+            .groups
+            .get_member(&group.id.to_string(), ctx.user_id)
+            .await?
+            .map(|m| m.role),
+        None => None,
+    };
+
+    // `GroupSummary` already carries the caller's role, so the strongest role
+    // costs no lookup beyond this one list.
+    let highest = ctx
+        .ctx
+        .repos()
+        .groups
+        .list_groups_for_user(ctx.user_id)
+        .await?
+        .iter()
+        .map(|g| g.my_role)
+        .max_by_key(|role| role_rank(*role));
+
+    Ok(CallerGroupStanding { ambient, highest })
 }
 
 /// Map a [`GroupRole`] to its localized messaging-string key so the role
@@ -257,6 +334,12 @@ impl CommandHandler for GroupStatusHandler {
 
         Ok(CommandResponse::text(text))
     }
+
+    /// Reads `list_groups_for_user().first()`, so any group the caller belongs
+    /// to will do — the conversation's group never enters into it.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        standing.highest.is_some()
+    }
 }
 
 /// Handler for `/group members` — list members
@@ -299,10 +382,25 @@ impl CommandHandler for GroupMembersHandler {
 
         Ok(CommandResponse::text(text))
     }
+
+    /// Reads `list_groups_for_user().first()`, so any group the caller belongs
+    /// to will do — the conversation's group never enters into it.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        standing.highest.is_some()
+    }
 }
 
 /// Handler for `/group invite` — generate invite link
 pub struct GroupInviteHandler;
+
+impl GroupInviteHandler {
+    /// The single authority on who may invite. `execute` checks it against the
+    /// membership row it fetched; `is_available` checks it against the role
+    /// `/help` already resolved for the same group.
+    fn permits(role: GroupRole) -> bool {
+        role.can_manage_members()
+    }
+}
 
 #[async_trait]
 impl CommandHandler for GroupInviteHandler {
@@ -321,7 +419,7 @@ impl CommandHandler for GroupInviteHandler {
             .await?
             .ok_or_else(|| AppError::not_found("Membership not found"))?;
 
-        if !member.role.can_manage_members() {
+        if !Self::permits(member.role) {
             return Ok(CommandResponse::text(reg.render(
                 KEY_GROUP_INVITE_FORBIDDEN,
                 locale,
@@ -370,6 +468,11 @@ impl CommandHandler for GroupInviteHandler {
             )))
         }
     }
+
+    /// Acts on the conversation's group, so the caller's role *there* decides.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        standing.ambient.is_some_and(Self::permits)
+    }
 }
 
 /// Handler for `/group coach <name>` — set the group's AI coach persona.
@@ -381,6 +484,14 @@ impl CommandHandler for GroupInviteHandler {
 /// Replies in plain text so it does not depend on the `tools-groups`-gated
 /// messaging strings.
 pub struct GroupCoachHandler;
+
+impl GroupCoachHandler {
+    /// The single authority on who may change the group's coach, shared by
+    /// `execute` and `is_available`.
+    fn permits(role: GroupRole) -> bool {
+        role.can_manage_members()
+    }
+}
 
 #[async_trait]
 impl CommandHandler for GroupCoachHandler {
@@ -410,7 +521,7 @@ impl CommandHandler for GroupCoachHandler {
             .get_member(&group.id.to_string(), ctx.user_id)
             .await?
             .ok_or_else(|| AppError::not_found("Membership not found"))?;
-        if !member.role.can_manage_members() {
+        if !Self::permits(member.role) {
             return Ok(CommandResponse::text(reg.render(
                 KEY_GROUP_INVITE_FORBIDDEN,
                 locale,
@@ -472,6 +583,11 @@ impl CommandHandler for GroupCoachHandler {
             updated.name, found.coach.title
         )))
     }
+
+    /// Acts on the conversation's group, so the caller's role *there* decides.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        standing.ambient.is_some_and(Self::permits)
+    }
 }
 
 /// Handler for `/group respond <mentions|all>` — set when the group's AI
@@ -484,6 +600,14 @@ impl CommandHandler for GroupCoachHandler {
 /// not depend on the `tools-groups`-gated messaging strings (mirrors
 /// `/group coach`).
 pub struct GroupRespondHandler;
+
+impl GroupRespondHandler {
+    /// The single authority on who may change when the coach speaks, shared by
+    /// `execute` and `is_available`.
+    fn permits(role: GroupRole) -> bool {
+        role.can_modify_settings()
+    }
+}
 
 #[async_trait]
 impl CommandHandler for GroupRespondHandler {
@@ -519,7 +643,7 @@ impl CommandHandler for GroupRespondHandler {
             .get_member(&group.id.to_string(), ctx.user_id)
             .await?
             .ok_or_else(|| AppError::not_found("Membership not found"))?;
-        if !member.role.can_modify_settings() {
+        if !Self::permits(member.role) {
             return Ok(CommandResponse::text(reg.render(
                 KEY_GROUP_INVITE_FORBIDDEN,
                 locale,
@@ -561,6 +685,11 @@ impl CommandHandler for GroupRespondHandler {
         };
         Ok(CommandResponse::text(reg.render(key, locale, &[])))
     }
+
+    /// Acts on the conversation's group, so the caller's role *there* decides.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        standing.ambient.is_some_and(Self::permits)
+    }
 }
 
 /// Handler for `/group leave` — leave the group
@@ -586,6 +715,12 @@ impl CommandHandler for GroupLeaveHandler {
         let text = reg.render(KEY_GROUP_LEAVE_PROMPT, locale, &[&group.name]);
 
         Ok(CommandResponse::with_confirmation(text))
+    }
+
+    /// Reads `list_groups_for_user().first()`, so any group the caller belongs
+    /// to will do — the conversation's group never enters into it.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        standing.highest.is_some()
     }
 }
 
@@ -659,5 +794,11 @@ impl CommandHandler for GroupConsentHandler {
         let body = reg.render(KEY_GROUP_CONSENT_UPDATED, locale, &[&state, &group_name]);
 
         Ok(CommandResponse::text(body))
+    }
+
+    /// Acts on the conversation's group and refuses a non-member — the consent
+    /// write reports zero rows and `execute` turns that into "not a member".
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        standing.ambient.is_some()
     }
 }

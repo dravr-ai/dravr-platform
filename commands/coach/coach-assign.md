@@ -4,8 +4,7 @@ command: /coach assign
 aliases: []
 description: Assign a coach to a specific group
 domain: coach
-required_role: admin
-requires_group: true
+arguments: "coach-id group-id"
 ---
 
 ## Response Template

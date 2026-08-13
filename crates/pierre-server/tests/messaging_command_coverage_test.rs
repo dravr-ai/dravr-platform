@@ -25,7 +25,7 @@ mod coverage {
     };
     use axum::http::StatusCode;
     use chrono::Utc;
-    use pierre_commands::load_command_definitions;
+    use pierre_commands::load_command_catalog;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
@@ -320,7 +320,7 @@ mod coverage {
     #[tokio::test]
     async fn every_command_dispatches_on_every_channel() {
         let commands_dir = commands_dir();
-        let definitions = load_command_definitions(&commands_dir);
+        let definitions = load_command_catalog(&commands_dir).definitions;
         assert!(
             !definitions.is_empty(),
             "no command definitions loaded from {commands_dir:?}"
@@ -383,7 +383,7 @@ mod coverage {
     /// pins both the command surface and what `/help` shows users.
     #[tokio::test]
     async fn pillars_command_is_defined_and_context_is_gone() {
-        let definitions = load_command_definitions(&commands_dir());
+        let definitions = load_command_catalog(&commands_dir()).definitions;
         let pillars = definitions
             .iter()
             .find(|d| d.command == "/pillars")
@@ -406,6 +406,65 @@ mod coverage {
         );
     }
 
+    /// Every pillar name `/help` advertises must actually resolve, and each must
+    /// name a *different* pillar.
+    ///
+    /// `/help` renders the `arguments:` signature verbatim, so a name listed
+    /// there that `parse_pillar_arg` rejects is an advertised-but-dead option —
+    /// the exact defect this signature was added to fix. The canonical DB slugs
+    /// stay accepted alongside the short forms.
+    #[tokio::test]
+    async fn every_advertised_pillar_name_resolves_to_a_distinct_pillar() {
+        use pierre_commands::onboarding::parse_pillar_arg;
+        use pierre_core::models::Pillar;
+
+        let catalog = load_command_catalog(&commands_dir());
+        let spec = catalog
+            .arg_specs
+            .get("pillars")
+            .expect("/pillars must advertise an argument signature");
+
+        let names: Vec<&str> = spec
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split('|')
+            .filter(|n| *n != "full")
+            .collect();
+        assert_eq!(
+            names.len(),
+            Pillar::ALL.len(),
+            "one advertised name per pillar expected, got {names:?}"
+        );
+
+        let mut resolved = Vec::new();
+        for name in &names {
+            let pillar = parse_pillar_arg(name).unwrap_or_else(|| {
+                panic!("/help advertises `{name}`, which resolves to no pillar")
+            });
+            resolved.push(pillar);
+        }
+        for pillar in Pillar::ALL {
+            assert!(
+                resolved.contains(&pillar),
+                "no advertised name resolves to {pillar:?}; advertised: {names:?}"
+            );
+            // The canonical slug keeps working for anyone already using it.
+            assert_eq!(
+                parse_pillar_arg(pillar.as_str()),
+                Some(pillar),
+                "canonical slug {} must still resolve",
+                pillar.as_str()
+            );
+        }
+
+        // `recovery` names two pillars, so it must resolve to neither rather
+        // than silently expiring the wrong pillar's facts.
+        assert!(
+            parse_pillar_arg("recovery").is_none(),
+            "bare `recovery` is ambiguous between Sleep & Recovery and Recovery Optimisation"
+        );
+    }
+
     /// Secondary invariant: every command alias is also matched and dispatched.
     ///
     /// Loops over all defined aliases (not just primary command strings) and
@@ -413,7 +472,7 @@ mod coverage {
     /// channel is sufficient — alias resolution is channel-independent).
     #[tokio::test]
     async fn every_command_alias_dispatches() {
-        let definitions = load_command_definitions(&commands_dir());
+        let definitions = load_command_catalog(&commands_dir()).definitions;
         assert!(!definitions.is_empty(), "no command definitions loaded");
 
         let resources = create_test_server_resources().await.unwrap();

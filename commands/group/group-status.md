@@ -4,8 +4,6 @@ command: /group status
 aliases: ["/gs"]
 description: Show group stats
 domain: group
-required_role: member
-requires_group: true
 ---
 
 ## Response Template

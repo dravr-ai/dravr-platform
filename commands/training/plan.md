@@ -2,10 +2,9 @@
 name: plan
 command: /plan
 aliases: ["/myplan"]
-description: Show your training plan — goal countdown plus today and tomorrow (`week` for the full week, `today` for just today)
+description: Show your training plan — goal countdown plus today and tomorrow, the full week, or today alone
 domain: training
-required_role: any
-requires_group: false
+arguments: "[week|today]"
 ---
 
 ## Response Template

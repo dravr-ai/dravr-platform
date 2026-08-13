@@ -4,8 +4,6 @@ command: /coach
 aliases: ["/coaches"]
 description: Browse and select a coach
 domain: coach
-required_role: any
-requires_group: false
 ---
 
 ## Response Template

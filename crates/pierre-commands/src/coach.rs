@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_core::markdown::strip_emphasis;
 use pierre_core::models::coaches::ListCoachesFilter;
+use pierre_core::models::GroupRole;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_messaging::commands::{CommandAction, CommandResponse};
 
@@ -23,7 +24,7 @@ use pierre_contremaitre::messaging_strings::{
 #[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
 
-use crate::{CommandHandler, PlatformCommandContext};
+use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
 
 /// Maximum number of coaches to display in a single card
 const MAX_COACH_BUTTONS: usize = 8;
@@ -273,6 +274,14 @@ impl CommandHandler for CoachSelectHandler {
 /// Handler for `/coach assign <coach_id> <group_id>` — bind coach to a specific group
 pub struct CoachAssignHandler;
 
+impl CoachAssignHandler {
+    /// The single authority on who may assign a coach to a group, shared by
+    /// `execute` and `is_available`.
+    fn permits(role: GroupRole) -> bool {
+        role.can_modify_settings()
+    }
+}
+
 #[async_trait]
 impl CommandHandler for CoachAssignHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
@@ -321,7 +330,7 @@ impl CommandHandler for CoachAssignHandler {
                 AppError::not_found(reg.render(KEY_COACH_ASSIGN_NOT_A_MEMBER, locale, &[]))
             })?;
 
-        if !member.role.can_modify_settings() {
+        if !Self::permits(member.role) {
             return Ok(CommandResponse::text(reg.render(
                 KEY_COACH_ASSIGN_FORBIDDEN,
                 locale,
@@ -336,6 +345,13 @@ impl CommandHandler for CoachAssignHandler {
             locale,
             &[&coach.title, &group.name],
         )))
+    }
+
+    /// Checks the group named in the arguments, not the conversation's — so
+    /// holding the role in *any* group means some invocation succeeds, and
+    /// filtering on the conversation's role would hide a command that works.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        standing.highest.is_some_and(Self::permits)
     }
 }
 
