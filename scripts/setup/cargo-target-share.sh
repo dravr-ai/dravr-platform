@@ -485,7 +485,29 @@ cmd_prune() {
     if command -v cargo-sweep >/dev/null 2>&1; then
         echo
         echo "${BLUE}cargo-sweep: removing artifacts unused for ${STALE_DAYS} days${NC}"
-        [[ $DRY_RUN -eq 1 ]] || cargo sweep --time "$STALE_DAYS" --recursive "$SHARED_ROOT" || true
+        # Sweep the repositories, never SHARED_ROOT. cargo-sweep searches for Cargo
+        # projects, and the shared trees are bare target dirs with no manifest, so
+        # aiming it at the shared root finds nothing and silently does nothing while
+        # still reporting success. Going in through the repos resolves target/ via
+        # the symlink onto those same trees. One worktree per key is enough: the
+        # others reach the identical tree, and sweeping it twice just walks it twice.
+        local swept="" dir key
+        local sweep_args=()
+        while IFS=$'\t' read -r dir key; do
+            [[ -n "$dir" ]] || continue
+            case "$swept" in *"|$key|"*) continue ;; esac
+            swept="$swept|$key|"
+            sweep_args+=("$dir")
+        done < <(discover_repos)
+        if [[ ${#sweep_args[@]} -eq 0 ]]; then
+            echo "${DIM}  no linked repositories to sweep${NC}"
+        elif [[ $DRY_RUN -eq 1 ]]; then
+            cargo sweep --time "$STALE_DAYS" --dry-run "${sweep_args[@]}" 2>&1 \
+                | grep -Ei 'clean' | sed 's/^/  /' || true
+        else
+            cargo sweep --time "$STALE_DAYS" "${sweep_args[@]}" 2>&1 \
+                | grep -Ei 'clean' | sed 's/^/  /' || true
+        fi
     else
         echo
         echo "${DIM}cargo-sweep not installed — age-based artifact pruning skipped.${NC}"
