@@ -37,6 +37,7 @@ use pierre_mcp_server::{
     utils::{http_client::initialize_http_clients, route_timeout::initialize_route_timeouts},
 };
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
+use pierre_services::server_lifecycle;
 use pierre_tool_runtime::guardian;
 
 type Result<T> = AppResult<T>;
@@ -792,23 +793,16 @@ async fn create_server(
 
     let resources = spawn_background_workers(resources_instance);
 
-    // Initialize ops notifier (Slack or noop) and send deploy notification
-    pierre_mcp_server::init_ops_notifier();
-    pierre_mcp_server::ops_notifier().notify_deploy();
+    server_lifecycle::notify_started();
 
-    // Best-effort shutdown notification: post "Server Stopping" to the deploys
-    // channel when Cloud Run sends SIGTERM (scale-down or redeploy). The post is
-    // fire-and-forget and races the ~10s SIGTERM grace window — the short flush
-    // sleep gives it a chance to send before the process is killed, but it may
-    // still be lost. The reliable "is an instance stuck up?" signal is the
-    // idle-floor Cloud Run alert, not this message.
+    // The shutdown notice races Cloud Run's ~10s SIGTERM grace window; the short
+    // flush sleep gives it a chance to send before the process is killed.
     #[cfg(unix)]
     tokio::spawn(async {
         match signal(SignalKind::terminate()) {
             Ok(mut sigterm) => {
                 sigterm.recv().await;
-                info!("SIGTERM received — posting best-effort shutdown notification");
-                pierre_mcp_server::ops_notifier().notify_shutdown();
+                server_lifecycle::notify_stopping();
                 sleep(Duration::from_secs(3)).await;
             }
             Err(e) => {

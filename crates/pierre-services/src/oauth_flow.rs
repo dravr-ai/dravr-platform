@@ -18,7 +18,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, field, info, warn, Span};
 use urlencoding::encode;
 
-use crate::slack_ops_notifier::ops_notifier;
+use crate::analytics::cache_user_email;
 use pierre_auth::config::oauth::get_oauth_config;
 use pierre_auth::dto::auth::{ConnectionStatus, OAuthAuthorizationResponse};
 use pierre_auth::oauth2_client::{
@@ -313,7 +313,6 @@ impl OAuthService {
                 user_id,
                 tenant_id,
                 provider,
-                &user.email,
                 &token,
                 oauth_app_client_id.as_deref(),
             )
@@ -321,6 +320,10 @@ impl OAuthService {
 
         // notify: provider successfully linked. Fires after token persist +
         // notifications dispatch so a Slack ping only goes out for a usable link.
+        // Warm the identity cache first — the enricher resolves user_email from
+        // user_id, and this event is now the only connect notification, so
+        // without it the ping would name the provider but not the athlete.
+        cache_user_email(&user_id.to_string(), &user.email);
         info!(
             target: "notify",
             event = "provider.connected",
@@ -339,13 +342,14 @@ impl OAuthService {
 
     /// Persist the OAuth token and dispatch all post-connection side effects.
     ///
-    /// Stores the token, sends UI/bridge notifications, and logs the ops event.
+    /// Stores the token and sends the UI/bridge notifications. The
+    /// `provider.connected` notify event is raised by the caller, after this
+    /// returns, so a Slack ping only goes out for a link that actually persisted.
     async fn finalize_oauth_connection(
         &self,
         user_id: uuid::Uuid,
         tenant_id: String,
         provider: &str,
-        user_email: &str,
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
     ) -> AppResult<chrono::DateTime<chrono::Utc>> {
@@ -355,9 +359,6 @@ impl OAuthService {
         self.send_oauth_notifications(user_id, provider, &expires_at)
             .await?;
         self.notify_bridge_oauth_success(provider, token).await;
-
-        // Send ops notification for provider connection
-        ops_notifier().notify_oauth_connected(user_email, provider);
 
         // Health data backfill is triggered by the callback handler after this returns.
         // The scheduler will also auto-detect this user on subsequent cycles.
@@ -1066,18 +1067,6 @@ impl OAuthService {
             })?;
 
         info!("Disconnected {} for user {}", provider, user_id);
-
-        // Send ops notification for provider disconnection
-        let disconnect_email = self
-            .data
-            .repos()
-            .users
-            .get_global(user_id)
-            .await
-            .ok()
-            .flatten()
-            .map_or_else(|| user_id.to_string(), |u| u.email);
-        ops_notifier().notify_oauth_disconnected(&disconnect_email, provider);
 
         Ok(())
     }

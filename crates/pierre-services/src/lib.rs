@@ -106,6 +106,10 @@ pub mod parq;
 /// Plan-save ramp check — the opening week against the athlete's real load.
 pub mod ramp_check;
 
+/// Server lifecycle notify events raised from the binary's startup and
+/// SIGTERM paths.
+pub mod server_lifecycle;
+
 /// The athlete's recent training load — one source for the calibration
 /// baseline and the plan-save ramp check.
 pub mod recent_load;
@@ -181,7 +185,6 @@ pub mod recipes;
 pub mod short_link_sweeper;
 
 /// Slack operations notifier for deploy and user lifecycle events
-pub mod slack_ops_notifier;
 
 /// Social insights: friend-request validation, user search enrichment, insight adaptation
 pub mod social_insights;

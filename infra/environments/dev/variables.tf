@@ -353,29 +353,6 @@ variable "firebase_project_id" {
 # Slack Ops Notifications
 # -----------------------------------------------------------------------------
 
-variable "slack_ops_enabled" {
-  description = "Enable Slack ops notifications (set to false to use noop notifier)"
-  type        = bool
-  default     = true
-}
-
-# Channel IDs, not "#name" slugs: chat.postMessage resolves a slug at call
-# time and does not follow renames, so a renamed room silently swallows every
-# notification. Prefixing the rooms with "dev-" left this deploy channel
-# pointing at "#dravr-dev-deploys", which had ceased to exist. IDs survive
-# renames. Resolve one with `conversations.list` (needs channels:read).
-variable "slack_ops_deploys_channel" {
-  description = "Slack channel ID for deploy/restart notifications (C0ANDA76S1Y = #dev-dravr-dev-deploys)"
-  type        = string
-  default     = "C0ANDA76S1Y"
-}
-
-variable "slack_ops_users_channel" {
-  description = "Slack channel ID for user lifecycle notifications (C0ANS7HU3CH = #dravr-dev-users)"
-  type        = string
-  default     = "C0ANS7HU3CH"
-}
-
 # The one channel that must stay a "#name": monitoring.tf feeds this same
 # variable to a google_monitoring_notification_channel, whose `channel_name`
 # label GCP requires to be a literal Slack channel name. An ID here would be

@@ -25,8 +25,6 @@ use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, U
 use pierre_core::permissions::UserRole;
 use pierre_runtime_context::DataContext;
 
-use crate::slack_ops_notifier::ops_notifier;
-
 // ---------------------------------------------------------------------------
 // AuthService — domain logic for user authentication and registration
 // ---------------------------------------------------------------------------
@@ -66,7 +64,7 @@ impl AuthService {
     ///
     /// Validates email/password, checks uniqueness, hashes credentials,
     /// creates the user with appropriate approval status, provisions a
-    /// personal tenant, and sends an ops notification.
+    /// personal tenant, and raises the user.signed_up notify event.
     ///
     /// # Errors
     /// Returns error if user validation fails or database operation fails
@@ -133,13 +131,6 @@ impl AuthService {
 
         info!(user_id = %user_id, "User registered successfully");
 
-        // Send ops notification for new user registration
-        ops_notifier().notify_user_registered(
-            &user_id.to_string(),
-            &request.email,
-            &user.user_status.to_string(),
-        );
-
         let message = if user.user_status == UserStatus::Active {
             "User registered successfully. Your account is ready to use.".to_owned()
         } else {
@@ -158,7 +149,7 @@ impl AuthService {
     ///
     /// Looks up the user, verifies the password (off the async executor),
     /// checks account status, auto-approves if eligible, generates a JWT,
-    /// and sends an ops notification.
+    /// and raises the user.login notify event.
     ///
     /// # Errors
     /// Returns error if authentication fails or token generation fails
@@ -192,7 +183,12 @@ impl AuthService {
                 user_id = %user.id,
                 "Failed login: invalid password"
             );
-            ops_notifier().notify_login_failed(&request.email);
+            info!(
+                target: "notify",
+                event = "user.login_failed",
+                reason = "invalid_password",
+                "login rejected"
+            );
             return Err(AppError::auth_invalid(format!(
                 "Authentication failed: {}",
                 error_messages::INVALID_CREDENTIALS
@@ -247,9 +243,6 @@ impl AuthService {
             "User logged in successfully: {} ({})",
             request.email, user.id
         );
-
-        // Send ops notification for user login
-        ops_notifier().notify_login(&request.email);
 
         Ok(LoginResponse {
             jwt_token: Some(jwt_token),
@@ -310,10 +303,18 @@ impl AuthService {
             .complete_firebase_login(&user, &claims.provider)
             .await?;
 
-        // Match the password-login notification: every successful auth fires
-        // a #ops-users login event. Without this Slack only saw email/password
-        // logins and looked like Google users never connected.
-        ops_notifier().notify_login(&user.email);
+        // Match the password-login path: every successful auth raises user.login.
+        // Without this Slack only saw email/password logins and looked like
+        // Google users never connected. tenant_id is optional on UserInfo —
+        // emit an empty field rather than a literal "None" when it is absent,
+        // mirroring how the OAuth2 token handler records it.
+        info!(
+            target: "notify",
+            event = "user.login",
+            user_id = %user.id,
+            tenant_id = %response.user.tenant_id.as_deref().unwrap_or_default(),
+            "user authenticated"
+        );
 
         Ok(response)
     }
@@ -548,19 +549,22 @@ impl AuthService {
         self.data.repos().users.create(&new_user).await?;
 
         // Step 2: Create personal tenant (adds user to tenant_users as owner)
-        self.create_personal_tenant(user_id, display_name, tiers::STARTER)
+        let tenant_id = self
+            .create_personal_tenant(user_id, display_name, tiers::STARTER)
             .await?;
 
         info!(firebase_uid = %claims.sub, user_id = %user_id, "Firebase user registered");
 
-        // Mirror the password-register notification so #ops-users gets a row
-        // for Google / Apple / Firebase sign-ups too. Previously this only
-        // fired on the password register endpoint, so social sign-ins landed
-        // silently and Phil's outage dashboard missed Firebase signups.
-        ops_notifier().notify_user_registered(
-            &user_id.to_string(),
-            email,
-            &new_user.user_status.to_string(),
+        // Social sign-ins must raise the same signup event as the password
+        // register endpoint, or Google / Apple accounts land silently and the
+        // acquisition count under-reports them.
+        info!(
+            target: "notify",
+            event = "user.signed_up",
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            source = "firebase",
+            "account created"
         );
 
         Ok(new_user)

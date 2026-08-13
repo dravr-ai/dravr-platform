@@ -140,9 +140,6 @@ pub use services::slack_socket::start_slack_socket_mode;
 // Re-export OAuth flow validation for integration testing
 pub use pierre_services::oauth_flow;
 
-// Re-export ops notifier for binary startup and route handlers
-pub use pierre_services::slack_ops_notifier::{init_ops_notifier, ops_notifier, OpsNotifier};
-
 // Re-export analytics tracker for binary startup and route handlers
 pub use pierre_services::analytics::{analytics, hash_id, init_analytics, AnalyticsTracker};
 

@@ -23,6 +23,7 @@ use crate::services::messaging_ingress::resolve_messaging_locale;
 use crate::services::user_approval_notifier::ApprovalNotifier;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserStatus;
+use pierre_services::analytics::cache_user_email;
 use pierre_services::tenant_admin as tenant_admin_service;
 
 /// Channel type key Slack channel links are stored under in
@@ -558,7 +559,16 @@ async fn approve_user(
         "User approved via Slack action"
     );
 
-    crate::ops_notifier().notify_user_approved(&updated_user.email, approved_by);
+    // Warm the identity cache first: the notify enricher resolves user_email
+    // from user_id, and without it the Slack message loses the subject.
+    cache_user_email(&user_uuid.to_string(), &updated_user.email);
+    info!(
+        target: "notify",
+        event = "user.approved",
+        user_id = %user_uuid,
+        approved_by,
+        "user account approved"
+    );
 
     // Notify the approved user: account email + a message on each linked channel.
     ApprovalNotifier::from_context(resources)
@@ -606,7 +616,14 @@ async fn reject_user(
         "User rejected (suspended) via Slack action"
     );
 
-    crate::ops_notifier().notify_user_suspended(&updated_user.email, rejected_by);
+    cache_user_email(&user_uuid.to_string(), &updated_user.email);
+    info!(
+        target: "notify",
+        event = "user.suspended",
+        user_id = %user_uuid,
+        suspended_by = rejected_by,
+        "user account suspended"
+    );
 
     Ok(updated_user.email)
 }

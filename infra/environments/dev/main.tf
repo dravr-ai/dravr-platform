@@ -378,10 +378,11 @@ module "backend" {
       # Admin email for messaging channel seeding (resolves tenant on startup)
       ADMIN_EMAIL = "admin@dravr.ai"
 
-      # Slack ops notification channels (deploy events and user lifecycle events)
-      SLACK_OPS_ENABLED         = tostring(var.slack_ops_enabled)
-      SLACK_OPS_DEPLOYS_CHANNEL = var.slack_ops_deploys_channel
-      SLACK_OPS_USERS_CHANNEL   = var.slack_ops_users_channel
+      # Deploy and user-lifecycle Slack routes are no longer configured here.
+      # They are notify events (server.started/stopping, user.approved/
+      # suspended/login_failed) routed by dravr-contremaitre's
+      # notify-routing.yaml, which hot-reloads — no terraform apply to move a
+      # room. SLACK_ERROR_CHANNEL stays because GCP Monitoring needs a name.
 
       # Error notification layer (dravr-tronc ErrorNotificationLayer)
       SLACK_ERROR_CHANNEL         = var.slack_error_channel

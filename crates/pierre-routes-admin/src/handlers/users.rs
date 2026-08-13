@@ -23,7 +23,7 @@ use pierre_core::models::{UserStatus, UserTier};
 use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
-use pierre_services::slack_ops_notifier::ops_notifier;
+use pierre_services::analytics::cache_user_email;
 use pierre_services::tenant_admin as tenant_admin_service;
 
 use super::api_keys::json_response;
@@ -281,8 +281,18 @@ pub(crate) async fn handle_approve_user(
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!("User {} approved successfully. Reason: {}", user_id, reason);
 
-    // Send ops notification for user approval
-    ops_notifier().notify_user_approved(&updated_user.email, &admin_token.service_name);
+    // Warm the identity cache before emitting: the notify enricher only
+    // attaches user_email when the record carries user_id and that id resolves,
+    // and an approved account is not otherwise guaranteed to be cached. Without
+    // both, the Slack message loses the subject entirely.
+    cache_user_email(&user_id, &updated_user.email);
+    info!(
+        target: "notify",
+        event = "user.approved",
+        user_id = %user_id,
+        approved_by = %admin_token.service_name,
+        "user account approved"
+    );
 
     // Notify the user: approval email + a message on each linked channel.
     if let Some(notifier) = ctx.approval_notifier.as_ref() {
@@ -359,8 +369,14 @@ pub(crate) async fn handle_suspend_user(
         user_id, reason
     );
 
-    // Send ops notification for user suspension
-    ops_notifier().notify_user_suspended(&updated_user.email, &admin_token.service_name);
+    cache_user_email(&user_id, &updated_user.email);
+    info!(
+        target: "notify",
+        event = "user.suspended",
+        user_id = %user_id,
+        suspended_by = %admin_token.service_name,
+        "user account suspended"
+    );
 
     Ok(json_response(
         AdminResponse {
