@@ -64,7 +64,7 @@ impl AuthService {
     ///
     /// Validates email/password, checks uniqueness, hashes credentials,
     /// creates the user with appropriate approval status, provisions a
-    /// personal tenant, and raises the user.signed_up notify event.
+    /// personal tenant, and raises the `user.signed_up` notify event.
     ///
     /// # Errors
     /// Returns error if user validation fails or database operation fails
@@ -149,7 +149,7 @@ impl AuthService {
     ///
     /// Looks up the user, verifies the password (off the async executor),
     /// checks account status, auto-approves if eligible, generates a JWT,
-    /// and raises the user.login notify event.
+    /// and raises the `user.login` notify event.
     ///
     /// # Errors
     /// Returns error if authentication fails or token generation fails

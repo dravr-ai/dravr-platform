@@ -566,7 +566,7 @@ async fn approve_user(
         target: "notify",
         event = "user.approved",
         user_id = %user_uuid,
-        approved_by,
+        approved_by = approved_by,
         "user account approved"
     );
 

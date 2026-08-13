@@ -184,8 +184,6 @@ pub mod recipes;
 /// Short-link table hygiene: periodic sweep of expired reconnect/connect links
 pub mod short_link_sweeper;
 
-/// Slack operations notifier for deploy and user lifecycle events
-
 /// Social insights: friend-request validation, user search enrichment, insight adaptation
 pub mod social_insights;
 
