@@ -1434,10 +1434,10 @@ impl CoachesRepository for PostgresDatabase {
         &self,
         coach_id: &str,
         user_id: Uuid,
-    ) -> AppResult<(bool, bool, u32, Option<DateTime<Utc>>)> {
+    ) -> AppResult<(bool, u32, Option<DateTime<Utc>>)> {
         let row = sqlx::query(
             r"
-            SELECT is_favorite, is_active, use_count, last_used_at
+            SELECT is_favorite, use_count, last_used_at
             FROM coach_assignments
             WHERE coach_id = $1 AND user_id = $2
             ",
@@ -1448,13 +1448,12 @@ impl CoachesRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to get user preferences: {e}")))?;
 
-        row.map_or(Ok((false, false, 0, None)), |r| {
+        row.map_or(Ok((false, 0, None)), |r| {
             let is_favorite: bool = r.get("is_favorite");
-            let is_active: bool = r.get("is_active");
             let use_count: i32 = r.get("use_count");
             let last_used_at: Option<DateTime<Utc>> = r.get("last_used_at");
             #[allow(clippy::cast_sign_loss)]
-            Ok((is_favorite, is_active, use_count as u32, last_used_at))
+            Ok((is_favorite, use_count as u32, last_used_at))
         })
     }
 

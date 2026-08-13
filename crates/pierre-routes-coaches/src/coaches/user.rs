@@ -839,7 +839,7 @@ pub(super) async fn handle_get<C: CoachesCtx + MiddlewareCtx>(
     let mut response: CoachResponse = coach.into();
 
     // Enrich with user-specific preferences from coach_assignments
-    let (is_favorite, _is_active, use_count, last_used_at) =
+    let (is_favorite, use_count, last_used_at) =
         manager.get_user_preferences(&id, auth.user_id).await?;
     response.is_favorite = is_favorite;
     response.use_count = use_count;

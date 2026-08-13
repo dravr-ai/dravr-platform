@@ -166,11 +166,17 @@ pub trait CoachesRepository: Send + Sync {
     // --- Assignment methods ---
 
     /// Get user preferences for a coach (`is_favorite`, `is_hidden`, `usage_count`, `last_used_at`)
+    /// Per-user coach preferences: `(is_favorite, use_count, last_used_at)`.
+    ///
+    /// No longer reports an "active" flag. Selection moved to
+    /// `tenant_users.selected_coach_id` and `coach_assignments.is_active` was
+    /// dropped with it; this returned the column long enough for the only
+    /// caller to bind it to `_is_active` and ignore it.
     async fn get_user_preferences(
         &self,
         coach_id: &str,
         user_id: Uuid,
-    ) -> AppResult<(bool, bool, u32, Option<DateTime<Utc>>)>;
+    ) -> AppResult<(bool, u32, Option<DateTime<Utc>>)>;
     /// Assign a coach to a user
     async fn assign_coach(
         &self,

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use sqlx::Row;
@@ -14,50 +14,6 @@ use super::types::{Coach, CoachAssignment};
 use super::{row_to_coach, CoachesManager};
 
 impl CoachesManager {
-    /// Get user-specific preferences for a coach from `coach_assignments`.
-    ///
-    /// Returns `(is_favorite, is_active, use_count, last_used_at)` tuple.
-    /// If no assignment row exists, returns defaults `(false, false, 0, None)`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    pub async fn get_user_preferences(
-        &self,
-        coach_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<(bool, bool, u32, Option<DateTime<Utc>>)> {
-        let row = sqlx::query(
-            r"
-            SELECT is_favorite, is_active, use_count, last_used_at
-            FROM coach_assignments
-            WHERE coach_id = $1 AND user_id = $2
-            ",
-        )
-        .bind(coach_id)
-        .bind(user_id.to_string())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user preferences: {e}")))?;
-
-        row.map_or(Ok((false, false, 0, None)), |r| {
-            let is_favorite: i64 = r.get("is_favorite");
-            let is_active: i64 = r.get("is_active");
-            let use_count: i64 = r.get("use_count");
-            let last_used_at_str: Option<String> = r.get("last_used_at");
-            let last_used_at = last_used_at_str
-                .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-                .map(|dt| dt.with_timezone(&Utc));
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            Ok((
-                is_favorite == 1,
-                is_active == 1,
-                use_count as u32,
-                last_used_at,
-            ))
-        })
-    }
-
     /// Assign a coach to a user
     ///
     /// # Errors

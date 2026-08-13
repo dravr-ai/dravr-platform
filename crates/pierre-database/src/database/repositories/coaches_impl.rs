@@ -956,26 +956,20 @@ impl CoachesRepository for Database {
         &self,
         coach_id: &str,
         user_id: Uuid,
-    ) -> AppResult<(bool, bool, u32, Option<DateTime<Utc>>)> {
+    ) -> AppResult<(bool, u32, Option<DateTime<Utc>>)> {
         let row = sqlx::query(
             "SELECT is_favorite, use_count, last_used_at FROM coach_assignments WHERE coach_id = $1 AND user_id = $2",
         ).bind(coach_id).bind(user_id.to_string()).fetch_optional(self.pool()).await
         .map_err(|e| AppError::database(format!("Failed to get user preferences: {e}")))?;
-        row.map_or(Ok((false, false, 0, None)), |r| {
+        row.map_or(Ok((false, 0, None)), |r| {
             let is_favorite: i64 = r.get("is_favorite");
-            let is_active: i64 = r.get("is_active");
             let use_count: i64 = r.get("use_count");
             let last_used_at_str: Option<String> = r.get("last_used_at");
             let last_used_at = last_used_at_str
                 .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                 .map(|dt| dt.with_timezone(&Utc));
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            Ok((
-                is_favorite == 1,
-                is_active == 1,
-                use_count as u32,
-                last_used_at,
-            ))
+            Ok((is_favorite == 1, use_count as u32, last_used_at))
         })
     }
 

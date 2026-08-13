@@ -32,7 +32,10 @@ UPDATE tenant_users tu
    SET selected_coach_id = ca.coach_id
   FROM coach_assignments ca
  WHERE ca.user_id::text = tu.user_id::text
-   AND ca.is_active = 1
+   -- `is_active` is BOOLEAN here (20260311000005), not the 0/1 integer SQLite
+   -- stores. `= 1` is a type error Postgres raises at plan time, so it failed
+   -- the whole migration and every test that builds a database from it.
+   AND ca.is_active
    AND tu.selected_coach_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_tenant_users_selected_coach ON tenant_users(selected_coach_id);
