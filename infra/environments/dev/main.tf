@@ -333,6 +333,22 @@ module "backend" {
       # -path defects are fixed.
       COPILOT_HEADLESS_MCP_TOOL_CALLING = "false"
 
+      # Deny every ACP permission request from the copilot subprocess.
+      # embacle's default is AutoApprove, which leaves Copilot's own
+      # shell/git/file tools live inside the ACP session — in /app, as the
+      # service account, next to DATABASE_URL, the JWT secret, the encryption
+      # keys and the GCP metadata server. On 2026-08-13 the coaching model
+      # reached for them unprompted: 5 tool calls (shell/bash/Grep/Glob) over
+      # 28s during an athlete's turn, after which it told the athlete it was a
+      # coding CLI. Athlete-supplied text drives that session, so auto-approval
+      # is an injection-to-execution path.
+      #
+      # Nothing is lost by denying: Dravr tool execution never happens inside
+      # the session (MCP_TOOL_CALLING above routes it through the text
+      # <tool_call> loop) and the sciotte vision path sends inline base64 PNGs
+      # rather than file paths, so neither needs a tool the model can run.
+      COPILOT_HEADLESS_PERMISSION_POLICY = "deny_all"
+
       # embacle truncates history to the last N non-system messages before it
       # serializes the prompt; its default is 20. Tier 1 compaction fires at
       # max_messages = 40 (contremaitre harness config) and splices the six
@@ -780,6 +796,12 @@ module "sciotte" {
     DRAVR_SCIOTTE_LOGIN_MODE  = "hybrid"
     COPILOT_HEADLESS_MODEL    = "claude-opus-4.8"
     DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
+
+    # Same denial as the API pod — embacle defaults to AutoApprove, which
+    # leaves Copilot's shell/file tools live in this container too. The vision
+    # path sends the screenshot as an inline base64 PNG (`analyze_screenshot`),
+    # so the model never needs a tool to read one.
+    COPILOT_HEADLESS_PERMISSION_POLICY = "deny_all"
   }
 
   secret_env_vars = {
