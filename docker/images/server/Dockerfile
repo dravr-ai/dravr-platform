@@ -73,7 +73,10 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # credential login; 150.0.7871.100-1~deb13u1 fixes it.
 # chromium 151.0.7922.108-1~deb13u1 closes CVE-2026-19155, a sandbox escape via
 # use-after-free in Payments that gated the dev deploy on 2026-08-10.
-ARG APT_SECURITY_EPOCH=2026-08-10
+# chromium 151.0.7922.137-1~deb13u1 closes CVE-2026-19556..19560 — four
+# arbitrary-code-execution use-after-frees (V8, Blink, HTML, extensions) plus a
+# TabStrip sandbox escape — which gated the dev deploy on 2026-08-13.
+ARG APT_SECURITY_EPOCH=2026-08-13
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
