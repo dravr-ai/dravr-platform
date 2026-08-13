@@ -204,6 +204,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
         user_id: &str,
         pillar: Option<Pillar>,
         created_after: Option<chrono::DateTime<chrono::Utc>>,
+        predicate: Option<&str>,
     ) -> AppResult<u64>;
 
     /// Tenant-wide aggregate snapshot of the memory extraction worker's output.

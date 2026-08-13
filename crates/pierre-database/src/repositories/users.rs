@@ -83,12 +83,6 @@ pub trait UserRepository: Send + Sync {
     /// DEFAULT 'fr'` so an unset user always resolves to French; this method
     /// overrides that default with an explicit choice.
     async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()>;
-    /// Set the user's personal default coach (nullable — pass `None` to clear).
-    ///
-    /// Called by `/coach select` in DM conversations. The column has a FK on
-    /// `coaches(id)` with `ON DELETE SET NULL`, so a deleted coach cleanly
-    /// detaches instead of orphaning the user row.
-    async fn set_default_coach(&self, user_id: Uuid, coach_id: Option<&str>) -> AppResult<()>;
     /// Set the user's coaching persona (output-format / cadence preference).
     ///
     /// Called by the post-auth onboarding screen and the Settings UI. The
@@ -180,6 +174,41 @@ pub trait PasswordResetRepository: Send + Sync {
     /// Returns the number of tokens created for the user since the given timestamp,
     /// regardless of whether they have been used or expired.
     async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64>;
+}
+
+/// Email-verification token lifecycle — proving an address belongs to whoever typed it.
+///
+/// Shares the `<selector>.<verifier>` mechanism with [`PasswordResetRepository`]
+/// but deliberately not its token space: a token that can reset a password and a
+/// token that can verify an address are different capabilities, and invalidating
+/// one set must never clear the other.
+#[async_trait]
+pub trait EmailVerificationRepository: Send + Sync {
+    /// Store one half of a verification token, with a TTL in minutes.
+    ///
+    /// `selector` is the plaintext lookup half and `verifier_hash` the SHA-256
+    /// of the secret half. The delivered token is `<selector>.<verifier>` and is
+    /// never stored whole.
+    async fn store_token(
+        &self,
+        user_id: Uuid,
+        selector: &str,
+        verifier_hash: &str,
+        ttl_minutes: i64,
+    ) -> AppResult<Uuid>;
+    /// Claim a verification token single-use, returning the user it proves.
+    ///
+    /// Looks the token up by `selector` and checks `verifier_hash`. A wrong
+    /// verifier costs one attempt without consuming the token; past the attempt
+    /// cap the token self-invalidates (brute-force lockout).
+    async fn consume_token(&self, selector: &str, verifier_hash: &str) -> AppResult<Uuid>;
+    /// Count tokens issued for a user since `since`, for rate limiting.
+    async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64>;
+    /// Stamp `users.email_verified_at`. Idempotent — a second call leaves the
+    /// original timestamp in place, so re-verifying never rewrites history.
+    async fn mark_verified(&self, user_id: Uuid) -> AppResult<()>;
+    /// Whether this user's address has been proven.
+    async fn is_verified(&self, user_id: Uuid) -> AppResult<bool>;
 }
 
 /// Impersonation session management repository

@@ -15,6 +15,12 @@ use sqlx::Row;
 pub const SETTING_AUTO_APPROVAL_ENABLED: &str = "auto_approval_enabled";
 /// Key for social insights configuration storage
 pub const SETTING_SOCIAL_INSIGHTS_CONFIG: &str = "social_insights_config";
+/// Lifetime, in minutes, of an email-verification link. Operator-scoped:
+/// clamped on read to the bounds in `pierre_config::constants::email_verification`.
+pub const SETTING_EMAIL_VERIFICATION_TTL_MINUTES: &str = "email_verification_ttl_minutes";
+/// Maximum verification emails a single user can trigger per hour. Operator-scoped
+/// and clamped on read, so a malformed row cannot disable the throttle.
+pub const SETTING_EMAIL_VERIFICATION_MAX_PER_HOUR: &str = "email_verification_max_per_hour";
 
 /// A system setting entry
 #[derive(Debug, Clone, Serialize, Deserialize)]

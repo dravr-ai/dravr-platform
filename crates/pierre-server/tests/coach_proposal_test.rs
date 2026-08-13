@@ -210,7 +210,7 @@ async fn coach_proposal_flag_round_trips() {
 
     repos
         .messaging
-        .mark_coach_proposal_sent(tenant_id, channel, channel_user_id)
+        .mark_coach_proposal_sent(tenant_id, channel, channel_user_id, &[])
         .await
         .unwrap();
 
@@ -227,7 +227,7 @@ async fn coach_proposal_flag_round_trips() {
     // Re-marking is idempotent (no error, stays set).
     repos
         .messaging
-        .mark_coach_proposal_sent(tenant_id, channel, channel_user_id)
+        .mark_coach_proposal_sent(tenant_id, channel, channel_user_id, &[])
         .await
         .unwrap();
     assert!(repos

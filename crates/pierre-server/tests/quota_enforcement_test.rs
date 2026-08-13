@@ -49,7 +49,6 @@ async fn build_user(
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "en".to_owned(),
-        default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,

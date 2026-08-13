@@ -489,6 +489,7 @@ impl HarnessMemoryRepository for Database {
         user_id: &str,
         pillar: Option<Pillar>,
         created_after: Option<DateTime<Utc>>,
+        predicate: Option<&str>,
     ) -> AppResult<u64> {
         let now = Utc::now().to_rfc3339();
         // Both timestamps are written by `to_rfc3339()` in UTC, so the string
@@ -502,6 +503,7 @@ impl HarnessMemoryRepository for Database {
              WHERE tenant_id = $2 AND user_id = $3 AND source = 'onboarding'
                AND ($4 IS NULL OR pillar = $4)
                AND ($5 IS NULL OR created_at >= $5)
+               AND ($6 IS NULL OR predicate = $6)
                AND (valid_until IS NULL OR valid_until > $1)
             ",
         )
@@ -510,6 +512,7 @@ impl HarnessMemoryRepository for Database {
         .bind(user_id)
         .bind(pillar.map(Pillar::as_str))
         .bind(created_after)
+        .bind(predicate)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to expire onboarding facts: {e}")))?;

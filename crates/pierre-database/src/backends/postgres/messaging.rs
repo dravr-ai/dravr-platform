@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use super::messaging_link_states as link_states;
 use super::PostgresDatabase;
 use crate::repositories::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
@@ -693,235 +694,19 @@ impl MessagingRepository for PostgresDatabase {
     // ── Channel Linking ──
 
     async fn create_link_state(&self, params: &CreateLinkStateParams<'_>) -> AppResult<()> {
-        let now = Utc::now();
-
-        // Parse the expires_at string into a DateTime for PostgreSQL TIMESTAMPTZ
-        let expires_at: DateTime<Utc> = chrono::DateTime::parse_from_rfc3339(params.expires_at)
-            .map(|dt| dt.with_timezone(&Utc))
-            .map_err(|e| AppError::invalid_input(format!("Invalid expires_at timestamp: {e}")))?;
-
-        // Casts: migration 20260417000001 converted tenant_id and user_id to
-        // UUID. SQL casts ($2::uuid, $3::uuid) bridge the wire types so the
-        // call sites can keep binding via TenantId/String.
-        sqlx::query(
-            r"
-            INSERT INTO messaging_link_states
-                (id, tenant_id, user_id, channel_type, code, method, used,
-                 channel_user_id, sender_name, expires_at, created_at)
-            VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, FALSE, $7, $8, $9, $10)
-            ",
-        )
-        .bind(params.id)
-        .bind(params.tenant_id.to_string())
-        .bind(params.user_id)
-        .bind(params.channel_type)
-        .bind(params.code)
-        .bind(params.method)
-        .bind(params.channel_user_id)
-        .bind(params.sender_name)
-        .bind(expires_at)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to create link state: {e}")))?;
-
-        Ok(())
+        link_states::create_link_state(&self.pool, params).await
     }
 
-    /// Atomically consume a link state by verification code.
-    ///
-    /// Uses SELECT then atomic `UPDATE` with `used = FALSE` guard and expiry check,
-    /// verifying `rows_affected` to ensure one-time use.
     async fn consume_link_state(&self, code: &str, tenant_id: TenantId) -> AppResult<Value> {
-        use pierre_core::errors::messaging::MessagingError;
-
-        let now = Utc::now();
-        let tenant_id_str = tenant_id.to_string();
-
-        // Check if the code exists for this tenant (before attempting consumption).
-        // Casts: migration 20260417000001 stores tenant_id/user_id as UUID.
-        let existing = sqlx::query(
-            r"
-            SELECT id,
-                   tenant_id::text AS tenant_id,
-                   user_id::text   AS user_id,
-                   channel_type, code, method, used,
-                   channel_user_id, sender_name, expires_at, created_at
-            FROM messaging_link_states
-            WHERE code = $1 AND tenant_id = $2::uuid
-            ",
-        )
-        .bind(code)
-        .bind(&tenant_id_str)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to look up link state: {e}")))?;
-
-        let Some(row) = existing else {
-            return Err(MessagingError::LinkCodeExpired.into());
-        };
-
-        let used: bool = row.get("used");
-        if used {
-            return Err(MessagingError::LinkCodeAlreadyUsed.into());
-        }
-
-        let expires_at: DateTime<Utc> = row.get("expires_at");
-        if expires_at < now {
-            return Err(MessagingError::LinkCodeExpired.into());
-        }
-
-        // Atomic consumption: UPDATE with guards (including tenant_id)
-        let result = sqlx::query(
-            r"
-            UPDATE messaging_link_states
-            SET used = TRUE
-            WHERE code = $1 AND tenant_id = $2::uuid AND used = FALSE AND expires_at > $3
-            ",
-        )
-        .bind(code)
-        .bind(&tenant_id_str)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to consume link state: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(MessagingError::LinkCodeAlreadyUsed.into());
-        }
-
-        let created_at: DateTime<Utc> = row.get("created_at");
-
-        Ok(serde_json::json!({
-            "id": row.get::<String, _>("id"),
-            "tenant_id": row.get::<String, _>("tenant_id"),
-            "user_id": row.try_get::<Option<String>, _>("user_id").ok().flatten(),
-            "channel_type": row.get::<String, _>("channel_type"),
-            "code": row.get::<String, _>("code"),
-            "method": row.get::<String, _>("method"),
-            "channel_user_id": row.try_get::<Option<String>, _>("channel_user_id").ok().flatten(),
-            "sender_name": row.try_get::<Option<String>, _>("sender_name").ok().flatten(),
-            "expires_at": expires_at.to_rfc3339(),
-            "created_at": created_at.to_rfc3339(),
-        }))
+        link_states::consume_link_state(&self.pool, code, tenant_id).await
     }
 
     async fn get_link_state(&self, code: &str) -> AppResult<Option<Value>> {
-        let now = Utc::now();
-
-        // Cast tenant_id/user_id UUID columns back to text for json serialization.
-        let row = sqlx::query(
-            r"
-            SELECT id,
-                   tenant_id::text AS tenant_id,
-                   user_id::text   AS user_id,
-                   channel_type, code, method, used,
-                   channel_user_id, sender_name, expires_at, created_at
-            FROM messaging_link_states
-            WHERE code = $1 AND used = FALSE AND expires_at > $2
-            ",
-        )
-        .bind(code)
-        .bind(now)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to look up link state: {e}")))?;
-
-        Ok(row.map(|r| {
-            let expires_at: DateTime<Utc> = r.get("expires_at");
-            let created_at: DateTime<Utc> = r.get("created_at");
-            serde_json::json!({
-                "id": r.get::<String, _>("id"),
-                "tenant_id": r.get::<String, _>("tenant_id"),
-                "user_id": r.try_get::<Option<String>, _>("user_id").ok().flatten(),
-                "channel_type": r.get::<String, _>("channel_type"),
-                "code": r.get::<String, _>("code"),
-                "method": r.get::<String, _>("method"),
-                "channel_user_id": r.try_get::<Option<String>, _>("channel_user_id").ok().flatten(),
-                "sender_name": r.try_get::<Option<String>, _>("sender_name").ok().flatten(),
-                "expires_at": expires_at.to_rfc3339(),
-                "created_at": created_at.to_rfc3339(),
-            })
-        }))
+        link_states::get_link_state(&self.pool, code).await
     }
 
     async fn complete_link_state(&self, code: &str, user_id: &str) -> AppResult<Value> {
-        use pierre_core::errors::messaging::MessagingError;
-
-        let now = Utc::now();
-
-        let existing = sqlx::query(
-            r"
-            SELECT id,
-                   tenant_id::text AS tenant_id,
-                   user_id::text   AS user_id,
-                   channel_type, code, method, used,
-                   channel_user_id, sender_name, expires_at, created_at
-            FROM messaging_link_states
-            WHERE code = $1
-            ",
-        )
-        .bind(code)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to look up link state: {e}")))?;
-
-        let Some(row) = existing else {
-            return Err(MessagingError::LinkCodeExpired.into());
-        };
-
-        let used: bool = row.get("used");
-        if used {
-            return Err(MessagingError::LinkCodeAlreadyUsed.into());
-        }
-
-        let expires_at: DateTime<Utc> = row.get("expires_at");
-        if expires_at < now {
-            return Err(MessagingError::LinkCodeExpired.into());
-        }
-
-        let existing_user_id: Option<String> =
-            row.try_get::<Option<String>, _>("user_id").ok().flatten();
-        if existing_user_id.is_some() {
-            return Err(MessagingError::LinkCodeNotCompletable {
-                code: code.to_owned(),
-                reason: "Link code already has a user_id set".to_owned(),
-            }
-            .into());
-        }
-
-        let result = sqlx::query(
-            r"
-            UPDATE messaging_link_states
-            SET user_id = $1::uuid, used = TRUE
-            WHERE code = $2 AND used = FALSE AND user_id IS NULL AND expires_at > $3
-            ",
-        )
-        .bind(user_id)
-        .bind(code)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to complete link state: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(MessagingError::LinkCodeAlreadyUsed.into());
-        }
-
-        let created_at: DateTime<Utc> = row.get("created_at");
-
-        Ok(serde_json::json!({
-            "id": row.get::<String, _>("id"),
-            "tenant_id": row.get::<String, _>("tenant_id"),
-            "user_id": user_id,
-            "channel_type": row.get::<String, _>("channel_type"),
-            "code": row.get::<String, _>("code"),
-            "method": row.get::<String, _>("method"),
-            "channel_user_id": row.try_get::<Option<String>, _>("channel_user_id").ok().flatten(),
-            "sender_name": row.try_get::<Option<String>, _>("sender_name").ok().flatten(),
-            "expires_at": expires_at.to_rfc3339(),
-            "created_at": created_at.to_rfc3339(),
-        }))
+        link_states::complete_link_state(&self.pool, code, user_id).await
     }
 
     async fn create_channel_link(&self, params: &CreateChannelLinkParams<'_>) -> AppResult<()> {
@@ -1176,22 +961,54 @@ impl MessagingRepository for PostgresDatabase {
         Ok(sent.unwrap_or(false))
     }
 
-    async fn mark_coach_proposal_sent(
+    async fn proposed_coach_ids(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
-    ) -> AppResult<()> {
-        sqlx::query(
+    ) -> AppResult<Vec<String>> {
+        let row = sqlx::query(
             r"
-            UPDATE messaging_channel_links
-               SET coach_proposal_sent_at = now()
+            SELECT proposed_coach_ids FROM messaging_channel_links
              WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3
             ",
         )
         .bind(tenant_id.to_string())
         .bind(channel_type)
         .bind(channel_user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read proposed coaches: {e}")))?;
+
+        // A malformed value degrades to "no offer": a numeric reply then reaches
+        // the model as ordinary text, which is the old behaviour.
+        Ok(row
+            .and_then(|r| r.get::<Option<String>, _>("proposed_coach_ids"))
+            .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+            .unwrap_or_default())
+    }
+
+    async fn mark_coach_proposal_sent(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+        proposed_coach_ids: &[String],
+    ) -> AppResult<()> {
+        let ids_json =
+            serde_json::to_string(proposed_coach_ids).unwrap_or_else(|_| "[]".to_owned());
+        sqlx::query(
+            r"
+            UPDATE messaging_channel_links
+               SET coach_proposal_sent_at = now(),
+                   proposed_coach_ids = $4
+             WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .bind(ids_json)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to mark coach_proposal_sent: {e}")))?;
@@ -1286,6 +1103,22 @@ impl MessagingRepository for PostgresDatabase {
                 "created_at": created_at.to_rfc3339(),
             })
         }))
+    }
+
+    async fn set_signup_pending_on_link_state(&self, id: &str, email: &str) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE messaging_link_states
+            SET email = $1, otp_hash = NULL, otp_step = 'awaiting_signup', otp_attempts = 0
+            WHERE id = $2
+            ",
+        )
+        .bind(email)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to park link state on signup: {e}")))?;
+        Ok(())
     }
 
     async fn set_otp_on_link_state(&self, id: &str, email: &str, otp_hash: &str) -> AppResult<()> {

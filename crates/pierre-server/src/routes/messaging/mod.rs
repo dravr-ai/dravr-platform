@@ -12,6 +12,13 @@
 
 mod config;
 pub(crate) mod linking;
+/// The OAuth code-for-identity exchange and its endpoint pairing.
+///
+/// Re-exported (rather than opening the whole module) so the integration suite
+/// can drive the round trip against a local stub: the functions take their
+/// endpoints as parameters precisely so this is verifiable without real Slack
+/// and Discord apps.
+pub use linking::{exchange_code_for_identity, oauth_endpoints};
 /// Slack interactive action handlers: ops approve/reject postbacks and
 /// messaging command callbacks. Exposed for the ops-channel authorization
 /// unit tests.

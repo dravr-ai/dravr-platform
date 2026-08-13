@@ -27,7 +27,7 @@
 //!   caller doesn't invoke this path.
 //!
 //! Coach selection for the bootstrap row: prefers the user's
-//! `default_coach_id`; falls back to the first system coach in the
+//! selected coach; falls back to the first system coach in the
 //! tenant. If neither exists, returns `Ok(None)` — the chat operates
 //! without group context until a coach exists.
 
@@ -50,7 +50,7 @@ use uuid::Uuid;
 /// `"Telegram group -100123456"`); operators can rename via REST.
 ///
 /// Takes narrow `AuthRepos` (for `users` lookup of the bootstrapping
-/// sender's `default_coach_id`) plus `CoachRepos` (for `groups` and
+/// sender's selected coach) plus `CoachRepos` (for `groups` and
 /// fallback `coaches` lookups) instead of the full `RepositoryRegistry`.
 ///
 /// # Errors
@@ -101,8 +101,10 @@ pub async fn resolve_or_create_channel_group(
     }
 
     // 2. No binding — first sender bootstraps. Pick a coach.
-    let user_record = auth.users.get_global(user_uuid).await?;
-    let mut coach_id_choice = user_record.and_then(|u| u.default_coach_id);
+    let mut coach_id_choice = auth
+        .tenants
+        .get_selected_coach(tenant_id, user_uuid)
+        .await?;
     if coach_id_choice.is_none() {
         let system_coaches = coach
             .coaches

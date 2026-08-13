@@ -68,6 +68,7 @@ use pierre_services::provider_refresh::SyncNotifier;
 mod connect_hosted;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
+mod email_verification;
 mod intervals_icu;
 mod login;
 mod oauth;
@@ -192,6 +193,16 @@ impl AuthRoutes {
     pub fn routes(context: AuthRoutesContext) -> Router {
         let router = Router::new()
             .route("/api/auth/register", post(login::handle_public_register))
+            // Opened by a mail client following a link, so it answers with a
+            // redirect to the SPA rather than JSON.
+            .route(
+                "/api/auth/verify-email",
+                get(email_verification::handle_verify_email),
+            )
+            .route(
+                "/api/auth/resend-verification",
+                post(email_verification::handle_resend_verification),
+            )
             .route("/api/auth/admin/register", post(login::handle_register))
             .route("/api/auth/firebase", post(login::handle_firebase_login))
             .route("/api/auth/logout", post(login::handle_logout))

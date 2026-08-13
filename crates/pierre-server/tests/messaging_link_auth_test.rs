@@ -578,3 +578,70 @@ async fn test_link_callback_channel_mismatch_rejected() {
         resp.status()
     );
 }
+
+// ════════════════════════════════════════════════════════════════
+// GET /api/messaging/link/callback/:channel — OAuth code vs link code
+// ════════════════════════════════════════════════════════════════
+
+/// An OAuth callback carries two codes that are not interchangeable, and the
+/// exchange must resolve the tenant from ours.
+///
+/// `state` is the link code *we* issued and the key the link-state row is
+/// stored under. `code` is the provider's authorization code, meaningful only
+/// to the provider. Looking the link state up by the provider's code cannot
+/// match — it is not a key we ever issued — so that swap rejects every OAuth
+/// link as "invalid or expired" no matter how the channel is configured.
+///
+/// This shipped, and no unit test caught it: the exchange's own tests drive the
+/// HTTP round trip directly, so they never crossed the handler-to-exchange seam
+/// where the two codes get threaded. Only a live Slack link surfaced it.
+///
+/// The channel is deliberately left unconfigured, which keeps the test offline:
+/// a correct implementation resolves the tenant, then fails at the config
+/// lookup. What it must never do is reject the link code we just created.
+#[tokio::test]
+async fn callback_resolves_the_link_state_by_state_not_by_the_provider_code() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+    let (owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
+    let owner_id_str = owner_id.to_string();
+
+    let link_code = Uuid::new_v4().to_string();
+    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let params = CreateLinkStateParams {
+        id: &Uuid::new_v4().to_string(),
+        tenant_id,
+        user_id: Some(&owner_id_str),
+        channel_type: "slack",
+        code: &link_code,
+        method: "oauth",
+        channel_user_id: None,
+        sender_name: None,
+        expires_at: &expires_at,
+    };
+    db.create_link_state(&params).await.unwrap();
+
+    // A provider code that is deliberately NOT a link code we issued. With the
+    // arguments swapped this is what gets looked up, and nothing matches it.
+    let app = MessagingRoutes::routes(resources);
+    let uri =
+        format!("/api/messaging/link/callback/slack?code=provider-auth-code-xyz&state={link_code}");
+    let resp = AxumTestRequest::get(&uri).send(app).await;
+    let status = resp.status();
+    let body = resp.text();
+
+    assert!(
+        !body.contains("invalid or expired"),
+        "the link code was created seconds ago, unused and unexpired — reporting it \
+         invalid means the tenant was resolved from the provider's code instead of \
+         `state`. status={status}, body={}",
+        &body[..body.len().min(500)]
+    );
+    assert_ne!(
+        status,
+        400,
+        "a valid link code must not be rejected as bad input; the callback should get \
+         past state resolution and fail later on the unconfigured channel. body={}",
+        &body[..body.len().min(500)]
+    );
+}

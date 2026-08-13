@@ -24,6 +24,8 @@ pub mod coach_authors;
 pub mod coaches;
 /// Coaching group storage, membership, and invite management
 pub mod coaching_groups;
+/// Email-verification token management — proving a registered address
+pub mod email_verification_tokens;
 /// Database error types
 pub mod errors;
 /// Tenant defaults + per-user overrides (`SQLite`) backing `FeatureFlagsRepository`.
@@ -44,6 +46,7 @@ pub mod llm_usage;
 pub mod memory;
 /// Multi-channel messaging gateway (channel configs, sessions, messages, queue)
 pub mod messaging;
+pub mod messaging_link_states;
 /// Mobility features (stretching exercises and yoga poses)
 pub mod mobility;
 /// OAuth callback notification handling

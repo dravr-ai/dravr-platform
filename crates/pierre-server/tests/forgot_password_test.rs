@@ -24,7 +24,7 @@ use pierre_config::environment::{
 };
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
-use pierre_services::password_reset::generate_reset_token;
+use pierre_services::link_token::generate_link_token;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -227,7 +227,7 @@ async fn test_forgot_password_full_flow() {
 
     // Since we can't read the email in tests, we'll simulate by directly creating
     // a known token and testing the complete-reset flow
-    let generated = generate_reset_token();
+    let generated = generate_link_token();
 
     // Store a known token via the repository directly
     setup
@@ -307,7 +307,7 @@ async fn test_forgot_password_code_single_use() {
     let routes = setup.routes();
 
     // Store a known token
-    let generated = generate_reset_token();
+    let generated = generate_link_token();
     setup
         .resources
         .common
@@ -360,7 +360,7 @@ async fn test_forgot_password_expired_code_rejected() {
     let routes = setup.routes();
 
     // Store a token with 0-minute TTL (already expired)
-    let generated = generate_reset_token();
+    let generated = generate_link_token();
     setup
         .resources
         .common
@@ -400,7 +400,7 @@ async fn test_complete_reset_locks_out_after_repeated_wrong_verifier() {
     let routes = setup.routes();
 
     // Store a valid token for this user.
-    let generated = generate_reset_token();
+    let generated = generate_link_token();
     setup
         .resources
         .common
@@ -465,7 +465,7 @@ async fn test_complete_reset_succeeds_after_fewer_than_max_wrong_verifier() {
     let routes = setup.routes();
 
     // Store a valid token for this user.
-    let generated = generate_reset_token();
+    let generated = generate_link_token();
     setup
         .resources
         .common

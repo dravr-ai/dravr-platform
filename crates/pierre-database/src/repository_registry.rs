@@ -12,19 +12,20 @@ use crate::database::Database as SqliteDatabase;
 use crate::repositories::{
     A2ARepository, ActivityCacheRepository, AdminRepository, ApiKeyRepository, ChatRepository,
     ClaimVerdictRepository, CoachesRepository, CoachingGroupRepository, DataSourceRepository,
-    DossierRepository, FeatureFlagsRepository, FitnessConfigRepository,
-    GuardianPendingActionsRepository, HarnessMemoryRepository, HealthSnapshotRepository,
-    ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, MessagingRepository,
-    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
-    OAuthTokenRepository, PasswordResetRepository, PlaybookRepository, PrescribedWorkoutRepository,
-    ProfileRepository, ProviderConnectionRepository, RecipeRepository, RecoveryRepository,
-    RosterRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
-    ShortLinkRepository, SleepRepository, SocialRepository, StoreListingsRepository,
-    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
-    TrainingHistoryRepository, TrainingPlanRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
-    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
-    UserToolOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
+    DossierRepository, EmailVerificationRepository, FeatureFlagsRepository,
+    FitnessConfigRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
+    HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
+    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
+    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, PlaybookRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
+    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
+    SeederRepository, ShortLinkRepository, SleepRepository, SocialRepository,
+    StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
+    ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -66,6 +67,8 @@ pub struct RepositoryRegistry {
     pub oauth_client_state: Arc<dyn OAuthClientStateRepository>,
     /// User OAuth provider tokens
     pub oauth_tokens: Arc<dyn OAuthTokenRepository>,
+    /// Email-verification token management
+    pub email_verification: Arc<dyn EmailVerificationRepository>,
     /// Password reset token management
     pub password_reset: Arc<dyn PasswordResetRepository>,
     /// Provider connection tracking
@@ -188,6 +191,7 @@ impl RepositoryRegistry {
             oauth2_server: db.clone(),
             oauth_client_state: db.clone(),
             oauth_tokens: db.clone(),
+            email_verification: db.clone(),
             password_reset: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
@@ -253,6 +257,7 @@ impl RepositoryRegistry {
             oauth2_server: db.clone(),
             oauth_client_state: db.clone(),
             oauth_tokens: db.clone(),
+            email_verification: db.clone(),
             password_reset: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),

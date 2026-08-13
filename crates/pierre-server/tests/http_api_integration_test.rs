@@ -83,7 +83,6 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
-        default_coach_id: None,
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,

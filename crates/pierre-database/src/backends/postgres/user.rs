@@ -33,15 +33,15 @@ const USER_COLUMNS: &str =
     "id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, \
      role, user_status, approved_by, approved_at, created_at, last_active, \
      firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, \
-     default_coach_id, coaching_persona, manages_roster, timezone";
+     coaching_persona, manages_roster, timezone";
 
 #[async_trait]
 impl UserRepository for PostgresDatabase {
     async fn create(&self, user: &User) -> AppResult<Uuid> {
         sqlx::query(
             r"
-            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id, coaching_persona, manages_roster)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, coaching_persona, manages_roster)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             ",
         )
         .bind(user.id)
@@ -63,7 +63,6 @@ impl UserRepository for PostgresDatabase {
         .bind(user.analytics_consent)
         .bind(user.analytics_consent_at)
         .bind(&user.locale)
-        .bind(&user.default_coach_id)
         .bind(user.coaching_persona.as_str())
         .bind(user.manages_roster)
         .execute(&self.pool)
@@ -79,7 +78,7 @@ impl UserRepository for PostgresDatabase {
             SELECT u.id, u.email, u.display_name, u.password_hash, u.tier, u.tenant_id,
                    u.is_active, u.is_admin, u.role, u.user_status, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
-                   u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id,
+                   u.analytics_consent, u.analytics_consent_at, u.locale,
                    u.coaching_persona, u.manages_roster, u.timezone
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
@@ -131,7 +130,6 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-                    default_coach_id: row.try_get("default_coach_id").ok().flatten(),
                     coaching_persona: row
                         .try_get::<String, _>("coaching_persona")
                         .ok()
@@ -191,7 +189,6 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-                    default_coach_id: row.try_get("default_coach_id").ok().flatten(),
                     coaching_persona: row
                         .try_get::<String, _>("coaching_persona")
                         .ok()
@@ -271,7 +268,6 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-                    default_coach_id: row.try_get("default_coach_id").ok().flatten(),
                     coaching_persona: row
                         .try_get::<String, _>("coaching_persona")
                         .ok()
@@ -339,7 +335,6 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-                    default_coach_id: row.try_get("default_coach_id").ok().flatten(),
                     coaching_persona: row
                         .try_get::<String, _>("coaching_persona")
                         .ok()
@@ -399,7 +394,6 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-                    default_coach_id: row.try_get("default_coach_id").ok().flatten(),
                     coaching_persona: row
                         .try_get::<String, _>("coaching_persona")
                         .ok()
@@ -464,7 +458,7 @@ impl UserRepository for PostgresDatabase {
                        COALESCE(u.user_status, 'active') as user_status,
                        u.approved_by, u.approved_at, u.created_at, u.last_active,
                        u.firebase_uid, u.auth_provider,
-                       u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id,
+                       u.analytics_consent, u.analytics_consent_at, u.locale,
                    u.coaching_persona, u.manages_roster, u.timezone
                 FROM users u
                 INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
@@ -482,7 +476,7 @@ impl UserRepository for PostgresDatabase {
                 SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                        role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
                        created_at, last_active, firebase_uid, auth_provider,
-                       analytics_consent, analytics_consent_at, locale, default_coach_id
+                       analytics_consent, analytics_consent_at, locale
                 FROM users
                 WHERE COALESCE(user_status, 'active') = $1
                 ORDER BY created_at DESC
@@ -539,7 +533,6 @@ impl UserRepository for PostgresDatabase {
                 analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                 analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-                default_coach_id: row.try_get("default_coach_id").ok().flatten(),
                 coaching_persona: row
                     .try_get::<String, _>("coaching_persona")
                     .ok()
@@ -562,7 +555,7 @@ impl UserRepository for PostgresDatabase {
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at, locale, default_coach_id
+                   analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE COALESCE(user_status, 'active') = $1
               AND (created_at < $2 OR (created_at = $2 AND id::text < $3))
@@ -574,7 +567,7 @@ impl UserRepository for PostgresDatabase {
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at, locale, default_coach_id
+                   analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE COALESCE(user_status, 'active') = $1
             ORDER BY created_at DESC, id DESC
@@ -788,7 +781,7 @@ impl UserRepository for PostgresDatabase {
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at, locale, default_coach_id
+                   analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE is_admin = TRUE
             ORDER BY email ASC
@@ -840,7 +833,6 @@ impl UserRepository for PostgresDatabase {
                 analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                 analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-                default_coach_id: row.try_get("default_coach_id").ok().flatten(),
                 coaching_persona: row
                     .try_get::<String, _>("coaching_persona")
                     .ok()
@@ -949,25 +941,6 @@ impl UserRepository for PostgresDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update user locale: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-
-        Ok(())
-    }
-
-    async fn set_default_coach(&self, user_id: Uuid, coach_id: Option<&str>) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE users SET default_coach_id = $1 WHERE id = $2
-            ",
-        )
-        .bind(coach_id)
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to set default coach: {e}")))?;
 
         if result.rows_affected() == 0 {
             return Err(AppError::not_found(format!("User with ID: {user_id}")));
@@ -1262,7 +1235,6 @@ fn pg_row_to_user(row: &PgRow) -> User {
         analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
         analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
         locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-        default_coach_id: row.try_get("default_coach_id").ok().flatten(),
         coaching_persona: row
             .try_get::<String, _>("coaching_persona")
             .ok()

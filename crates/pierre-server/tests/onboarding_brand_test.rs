@@ -26,9 +26,10 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_LINK_CANCELLED, KEY_LINK_EMAIL_NOT_CONFIGURED,
     KEY_LINK_EMAIL_PROMPT, KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_GENERIC_ERROR,
     KEY_LINK_IDENTITY_COLLISION, KEY_LINK_INCORRECT_CODE, KEY_LINK_INITIAL_PROMPT,
-    KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_ACCOUNT, KEY_LINK_NO_TENANT,
-    KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED, KEY_LINK_SUCCESS,
-    KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
+    KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT,
+    KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED, KEY_LINK_SIGNUP_CREATED, KEY_LINK_SIGNUP_FAILED,
+    KEY_LINK_SIGNUP_OFFER, KEY_LINK_SUCCESS, KEY_LINK_TOO_MANY_ATTEMPTS,
+    KEY_LINK_VERIFICATION_ERROR,
 };
 use pierre_email::templates::channel_linking_code_html;
 use pierre_email::{
@@ -40,7 +41,7 @@ use pierre_email::{
 const LOCALES: [&str; 5] = ["fr", "en", "es", "de", "pt"];
 
 /// Every string the channel-linking flow can send before the user is linked.
-const LINK_FLOW_KEYS: [&str; 18] = [
+const LINK_FLOW_KEYS: [&str; 20] = [
     KEY_LINK_EMAIL_PROMPT,
     KEY_LINK_INITIAL_PROMPT,
     KEY_LINK_OTP_PROMPT,
@@ -48,7 +49,9 @@ const LINK_FLOW_KEYS: [&str; 18] = [
     KEY_LINK_SUCCESS,
     KEY_LINK_CANCELLED,
     KEY_LINK_LOGOUT_COMPLETE,
-    KEY_LINK_NO_ACCOUNT,
+    KEY_LINK_SIGNUP_OFFER,
+    KEY_LINK_SIGNUP_CREATED,
+    KEY_LINK_SIGNUP_FAILED,
     KEY_LINK_NO_TENANT,
     KEY_LINK_INVALID_EMAIL,
     KEY_LINK_INCORRECT_CODE,
@@ -115,7 +118,7 @@ fn test_link_email_prompt_default_locale_matches_flow_language() {
     );
 
     // The prompt must speak the same language as the reply that follows it.
-    let next_reply = reg.get(KEY_LINK_NO_ACCOUNT, DEFAULT_LOCALE);
+    let next_reply = reg.get(KEY_LINK_SIGNUP_OFFER, DEFAULT_LOCALE);
     assert!(
         default_prompt.contains("ton") && next_reply.contains("compte"),
         "prompt {default_prompt:?} and follow-up {next_reply:?} must both be French"

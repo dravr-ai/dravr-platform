@@ -22,6 +22,10 @@ function ctx(overrides: Partial<OnboardingContext> = {}): OnboardingContext {
     justOnboarded: false,
     profileTypeChosen: true,
     coachProposalDone: true,
+    // The pre-connect questionnaire steps default to done in this baseline, so a
+    // test exercising a later step isn't intercepted by them.
+    aboutYouDone: true,
+    parqDone: true,
     // Messaging defaults: no channels configured, so the messaging steps are
     // inapplicable + auto-complete unless a test opts in with a positive count.
     messagingAvailableCount: 0,
@@ -45,6 +49,47 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
     expect(
       currentOnboardingStep(
         ctx({ needsProviderConnection: true, profileTypeChosen: true, coachProposalDone: false }),
+      )?.id,
+    ).toBe('connect_provider');
+  });
+
+  it('profile chosen, about-you outstanding → about_you (before the provider gate)', () => {
+    expect(
+      currentOnboardingStep(
+        ctx({
+          needsProviderConnection: true,
+          profileTypeChosen: true,
+          aboutYouDone: false,
+          coachProposalDone: false,
+        }),
+      )?.id,
+    ).toBe('about_you');
+  });
+
+  it('about-you done, PAR-Q outstanding → parq (still before the provider gate)', () => {
+    expect(
+      currentOnboardingStep(
+        ctx({
+          needsProviderConnection: true,
+          profileTypeChosen: true,
+          aboutYouDone: true,
+          parqDone: false,
+          coachProposalDone: false,
+        }),
+      )?.id,
+    ).toBe('parq');
+  });
+
+  it('skipping about-you and PAR-Q still lands on connect_provider', () => {
+    expect(
+      currentOnboardingStep(
+        ctx({
+          needsProviderConnection: true,
+          profileTypeChosen: true,
+          aboutYouDone: true,
+          parqDone: true,
+          coachProposalDone: false,
+        }),
       )?.id,
     ).toBe('connect_provider');
   });
@@ -98,40 +143,114 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
 });
 
 describe('onboardingProgress — stable position-based labeled sequence', () => {
-  it('exposes the full canonical pipeline in order, regardless of phase', () => {
-    const items = onboardingProgress(ctx({ needsProviderConnection: true, profileTypeChosen: false }));
-    expect(items.map((i) => i.id)).toEqual(ONBOARDING_STEPS.map((s) => s.id));
-    expect(items.map((i) => i.label)).toEqual(['About you', 'Connect', 'Coach', 'Chat app', 'Link']);
-  });
-
-  it('on profile_type: first current, rest upcoming (messaging not prematurely done)', () => {
+  it('shows only the steps this user will actually meet', () => {
+    // A typical self-serve user: their own tenant has no messaging channels, so
+    // the two messaging steps can never run. The bar used to list them anyway,
+    // promising a five-step journey that ran in two.
     const items = onboardingProgress(
       ctx({ needsProviderConnection: true, profileTypeChosen: false, coachProposalDone: false }),
     );
-    expect(items.map((i) => i.status)).toEqual([
-      'current',
-      'upcoming',
-      'upcoming',
-      'upcoming',
-      'upcoming',
+    expect(items.map((i) => i.label)).toEqual([
+      'About you',
+      'About your training',
+      'Health check',
+      'Connect',
     ]);
   });
 
-  it('on connect_provider: first done, second current', () => {
+  it('keeps canonical order — the journey is a subset, never a reshuffle', () => {
+    const items = onboardingProgress(
+      ctx({ needsProviderConnection: true, profileTypeChosen: false, coachProposalDone: false }),
+    );
+    const canonical = ONBOARDING_STEPS.map((s) => s.id);
+    const positions = items.map((i) => canonical.indexOf(i.id));
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+  });
+
+  it('includes the messaging steps once the tenant actually has channels', () => {
+    const items = onboardingProgress(
+      ctx({
+        needsProviderConnection: false,
+        justOnboarded: true,
+        coachProposalDone: false,
+        messagingAvailableCount: 3,
+      }),
+    );
+    expect(items.map((i) => i.id)).toContain('messaging_channel');
+  });
+
+  /**
+   * The contract `onboardingProgress` actually promises is *positional*: the
+   * current step is `current`, everything before it is `done`, everything after
+   * is `upcoming`. Asserting that invariant — rather than a snapshot of the
+   * pipeline's length — is what keeps these tests meaningful when a step is
+   * added. The label test above still pins the pipeline itself, so a change to
+   * it remains deliberate rather than silent.
+   */
+  function expectPositional(items: ReturnType<typeof onboardingProgress>, currentId: string) {
+    const currentIndex = items.findIndex((i) => i.id === currentId);
+    expect(currentIndex, `${currentId} should be in the pipeline`).toBeGreaterThanOrEqual(0);
+    expect(items.map((i) => i.status)).toEqual(
+      items.map((_, i) => (i === currentIndex ? 'current' : i < currentIndex ? 'done' : 'upcoming')),
+    );
+  }
+
+  it('on profile_type: it is current and nothing before it is done', () => {
+    const items = onboardingProgress(
+      ctx({
+        needsProviderConnection: true,
+        profileTypeChosen: false,
+        aboutYouDone: false,
+        parqDone: false,
+        coachProposalDone: false,
+      }),
+    );
+    expectPositional(items, 'profile_type');
+    expect(items[0].status).toBe('current');
+  });
+
+  it('on about_you: profile_type behind it is done', () => {
+    const items = onboardingProgress(
+      ctx({
+        needsProviderConnection: true,
+        profileTypeChosen: true,
+        aboutYouDone: false,
+        parqDone: false,
+        coachProposalDone: false,
+      }),
+    );
+    expectPositional(items, 'about_you');
+  });
+
+  it('on parq: the two questionnaire steps behind it are done', () => {
+    const items = onboardingProgress(
+      ctx({
+        needsProviderConnection: true,
+        profileTypeChosen: true,
+        aboutYouDone: true,
+        parqDone: false,
+        coachProposalDone: false,
+      }),
+    );
+    expectPositional(items, 'parq');
+  });
+
+  it('on connect_provider: every pre-connect step is behind it', () => {
     const items = onboardingProgress(
       ctx({ needsProviderConnection: true, profileTypeChosen: true, coachProposalDone: false }),
     );
-    expect(items.map((i) => i.status)).toEqual(['done', 'current', 'upcoming', 'upcoming', 'upcoming']);
+    expectPositional(items, 'connect_provider');
   });
 
-  it('on coach_proposal: first two done, third current', () => {
+  it('on coach_proposal: the provider gate is behind it', () => {
     const items = onboardingProgress(
       ctx({ needsProviderConnection: false, justOnboarded: true, coachProposalDone: false }),
     );
-    expect(items.map((i) => i.status)).toEqual(['done', 'done', 'current', 'upcoming', 'upcoming']);
+    expectPositional(items, 'coach_proposal');
   });
 
-  it('on messaging_channel (multiple channels): fourth current', () => {
+  it('on messaging_channel (multiple channels)', () => {
     const items = onboardingProgress(
       ctx({
         needsProviderConnection: false,
@@ -140,10 +259,10 @@ describe('onboardingProgress — stable position-based labeled sequence', () => 
         messagingAvailableCount: 3,
       }),
     );
-    expect(items.map((i) => i.status)).toEqual(['done', 'done', 'done', 'current', 'upcoming']);
+    expectPositional(items, 'messaging_channel');
   });
 
-  it('on messaging_configure (channel chosen): fifth current', () => {
+  it('on messaging_configure (channel chosen): it is last and everything precedes it', () => {
     const items = onboardingProgress(
       ctx({
         needsProviderConnection: false,
@@ -154,7 +273,8 @@ describe('onboardingProgress — stable position-based labeled sequence', () => 
         messagingChannelDone: true,
       }),
     );
-    expect(items.map((i) => i.status)).toEqual(['done', 'done', 'done', 'done', 'current']);
+    expectPositional(items, 'messaging_configure');
+    expect(items[items.length - 1].status).toBe('current');
   });
 });
 

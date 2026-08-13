@@ -193,7 +193,7 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
     // Supersede the Fuelling onboarding fact (sets valid_until in the past).
     let superseded = repos
         .memory
-        .expire_onboarding_facts(tenant, &user_s, Some(Pillar::Fuelling), None)
+        .expire_onboarding_facts(tenant, &user_s, Some(Pillar::Fuelling), None, None)
         .await?;
     assert_eq!(superseded, 1);
 

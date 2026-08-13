@@ -129,3 +129,51 @@ pub mod password_reset {
     /// Label used as `created_by` for self-service reset tokens
     pub const CREATED_BY_SELF_SERVICE: &str = "self_service";
 }
+
+/// Email-address verification issued at registration.
+///
+/// Reuses the reset flow's `<selector>.<verifier>` token shape (see
+/// [`password_reset::SELECTOR_LEN`] / [`password_reset::VERIFIER_LEN`]) against a
+/// separate token space, so only the lifetime and throttle differ here.
+///
+/// Both knobs are operator-tunable at runtime through `system_settings` with an
+/// environment override, the same three-tier precedence `AUTO_APPROVE_USERS`
+/// uses (env → stored row → the defaults below). They deliberately do **not**
+/// live in the runtime configuration catalog: that surface is per-user and
+/// per-tenant overridable, and a user who can lengthen their own verification
+/// window or lift their own send throttle is a privilege-escalation path, not a
+/// preference.
+///
+/// The bounds are enforced on read, so a malformed or hostile stored row
+/// degrades to something sane instead of disabling the gate.
+pub mod email_verification {
+    /// Default lifetime of a verification link: 24 hours.
+    ///
+    /// Much longer than a reset code, on purpose. A reset is something the user
+    /// is actively waiting on; a confirmation email is routinely opened the next
+    /// morning on a different device. Single-use plus a ~190-bit verifier is what
+    /// carries the security here, not a short clock.
+    pub const DEFAULT_LINK_TTL_MINUTES: i64 = 24 * 60;
+
+    /// Floor for a configured TTL. Below ~5 minutes the link is effectively dead
+    /// on arrival for anyone whose mail provider greylists.
+    pub const MIN_LINK_TTL_MINUTES: i64 = 5;
+
+    /// Ceiling for a configured TTL (30 days). Past this the "single-use link"
+    /// stops being meaningfully time-bounded.
+    pub const MAX_LINK_TTL_MINUTES: i64 = 30 * 24 * 60;
+
+    /// Default cap on verification emails a user can trigger per hour.
+    ///
+    /// Higher than the reset cap because legitimate users genuinely retry this
+    /// one — wrong address at signup, mail in spam — and the endpoint is
+    /// anti-enumeration, so hammering it teaches an attacker nothing.
+    pub const DEFAULT_MAX_SENDS_PER_HOUR: i64 = 5;
+
+    /// Floor for the send cap. Zero would lock every user out of their own
+    /// account permanently, so one resend is the minimum a configuration can express.
+    pub const MIN_MAX_SENDS_PER_HOUR: i64 = 1;
+
+    /// Ceiling for the send cap — past this the throttle is not a throttle.
+    pub const MAX_MAX_SENDS_PER_HOUR: i64 = 100;
+}

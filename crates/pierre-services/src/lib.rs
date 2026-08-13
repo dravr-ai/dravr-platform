@@ -21,6 +21,8 @@
 
 /// Admin operations: user lifecycle, token management, settings, and analytics
 pub mod admin_ops;
+/// System-wide operator settings — auto-approval and social insights
+pub mod admin_settings;
 /// Advice capture: turn a coach recommendation into a PendingAdvice (playbook memory)
 pub mod advice_capture;
 /// Archetype aggregation: roll per-user playbooks into k-anonymous cold-start priors
@@ -114,7 +116,9 @@ pub mod server_lifecycle;
 /// baseline and the plan-save ramp check.
 pub mod recent_load;
 
-pub mod password_reset;
+pub mod about_you;
+pub mod email_verification;
+pub mod link_token;
 
 /// Background outbound retry worker for messaging delivery queue
 #[cfg(feature = "client-messaging")]

@@ -467,6 +467,12 @@ cmd_prune() {
         echo "${BLUE}Dropping incremental caches${NC}"
         while IFS= read -r inc; do
             [[ -n "$inc" ]] || continue
+            # Deleting artifacts out from under a running build breaks it. link
+            # already refuses on a held lock; prune has to as well.
+            if [[ $FORCE -eq 0 ]] && build_locked "${inc%/*/incremental}"; then
+                echo "${YELLOW}skip    ${inc%/*/incremental}: build in progress${NC}"
+                continue
+            fi
             before=$(human_size "$inc")
             if [[ $DRY_RUN -eq 1 ]]; then
                 echo "${BLUE}would   purge $inc ($before)${NC}"
@@ -484,6 +490,10 @@ cmd_prune() {
         sub="${sub%/}"
         key=$(basename "$sub")
         is_stale "$sub" || continue
+        if [[ $FORCE -eq 0 ]] && build_locked "$sub"; then
+            echo "${YELLOW}skip    $key: build in progress${NC}"
+            continue
+        fi
         if [[ $DRY_RUN -eq 1 ]]; then
             echo "${BLUE}would   drop $key ($(human_size "$sub"), stale)${NC}"
         else
@@ -511,6 +521,10 @@ cmd_prune() {
             [[ -n "$dir" ]] || continue
             case "$swept" in *"|$key|"*) continue ;; esac
             swept="$swept|$key|"
+            if [[ $FORCE -eq 0 ]] && build_locked "$SHARED_ROOT/$key"; then
+                echo "${YELLOW}  skip $key: build in progress${NC}"
+                continue
+            fi
             sweep_args+=("$dir")
         done < <(discover_repos)
         if [[ ${#sweep_args[@]} -eq 0 ]]; then

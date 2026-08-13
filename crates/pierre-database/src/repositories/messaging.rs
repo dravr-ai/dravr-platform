@@ -404,12 +404,30 @@ pub trait MessagingRepository: Send + Sync {
 
     /// Stamp the channel link as having received the onboarding coach proposal,
     /// so the ingress never re-sends it. Idempotent — re-stamping is harmless.
+    ///
+    /// `proposed_coach_ids` records what was offered, in the order the user sees
+    /// it, so a bare numeric reply can resolve to the right coach. It cannot be
+    /// re-derived later: the proposal is LLM-re-ranked and could come back in a
+    /// different order, which would bind the wrong coach.
     async fn mark_coach_proposal_sent(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
+        proposed_coach_ids: &[String],
     ) -> AppResult<()>;
+
+    /// The coach ids offered by the last proposal, in display order.
+    ///
+    /// Empty when no proposal has been sent, or when the link predates the
+    /// column — in which case a numeric reply is simply not a selection and
+    /// falls through to the model as ordinary conversation.
+    async fn proposed_coach_ids(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Vec<String>>;
 
     /// Logout a channel sender: delete their channel link, sessions, and OTP states.
     /// Identified by channel identity (`sender_id`), not `user_id`.
@@ -433,6 +451,14 @@ pub trait MessagingRepository: Send + Sync {
 
     /// Advance the OTP flow: set email and OTP hash, transition to `awaiting_otp`.
     async fn set_otp_on_link_state(&self, id: &str, email: &str, otp_hash: &str) -> AppResult<()>;
+
+    /// Park the flow on `awaiting_signup`: the address is known and has no
+    /// account, so we hold it while asking whether to create one.
+    ///
+    /// Distinct from [`Self::set_otp_on_link_state`] because no code has been
+    /// sent yet — writing an `otp_hash` here would let a reply be verified
+    /// against a code the user was never given.
+    async fn set_signup_pending_on_link_state(&self, id: &str, email: &str) -> AppResult<()>;
 
     /// Increment OTP attempt counter and return the new count (brute-force protection).
     async fn increment_otp_attempts(&self, id: &str) -> AppResult<i32>;

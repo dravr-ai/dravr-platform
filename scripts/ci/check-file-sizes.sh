@@ -57,6 +57,40 @@ if [ -z "$CHANGED" ]; then
   exit 0
 fi
 
+# Module declarations do not count toward a file's size.
+#
+# Splitting a file is the remedy this gate asks for, and splitting requires
+# adding `mod new_thing;` to the parent — so counting that line as growth makes
+# an over-ceiling `mod.rs` permanently unable to gain a module, which is the
+# opposite of what the ratchet is for. A declaration plus its doc comment and
+# any `#[cfg]` attribute is wiring, not complexity.
+#
+# Reads a Rust source on stdin, prints its line count excluding declaration
+# groups. Walks bottom-up so a doc comment or attribute is dropped only when
+# the thing it is attached to is itself a `mod` declaration.
+effective_lines() {
+  awk '
+    { line[NR] = $0 }
+    END {
+      attached = 0
+      count = 0
+      for (i = NR; i >= 1; i--) {
+        l = line[i]
+        if (l ~ /^[[:space:]]*(pub([[:space:]]*\([^)]*\))?[[:space:]]+)?mod[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*;[[:space:]]*$/) {
+          attached = 1
+          continue
+        }
+        if (attached && (l ~ /^[[:space:]]*#\[/ || l ~ /^[[:space:]]*\/\/[\/!]/)) {
+          continue
+        }
+        attached = 0
+        count++
+      }
+      print count
+    }
+  '
+}
+
 violations=0
 checked=0
 
@@ -75,12 +109,12 @@ while IFS= read -r f; do
   fi
 
   checked=$((checked + 1))
-  candidate="$(wc -l <"$f" | tr -d ' ')"
+  candidate="$(effective_lines <"$f")"
 
   # Lines at the base ref. A file that did not exist there is new, and a new
   # file gets no grandfathering — it must come in under the ceiling.
   if base_blob="$(git show "${BASE_REF}:${f}" 2>/dev/null)"; then
-    base="$(printf '%s\n' "$base_blob" | wc -l | tr -d ' ')"
+    base="$(printf '%s\n' "$base_blob" | effective_lines)"
   else
     base=0
   fi

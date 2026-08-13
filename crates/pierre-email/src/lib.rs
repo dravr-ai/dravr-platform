@@ -120,6 +120,8 @@ pub const SUBJECT_REGISTRATION_APPROVED: &str = "Your Dravr account is approved"
 /// literals they escaped the rebrand pass, and this one shipped the internal
 /// codename to every user who linked a chat channel until 2026-08.
 pub const SUBJECT_CHANNEL_LINKING_CODE: &str = "Your Dravr verification code";
+/// Subject line for the post-registration address-confirmation email.
+pub const SUBJECT_EMAIL_VERIFICATION: &str = "Confirm your email for Dravr";
 
 /// Email service backed by the Resend transactional email API
 pub struct ResendEmailService {
@@ -249,6 +251,26 @@ impl ResendEmailService {
         let html = templates::registration_approved_html(display_name, sign_in_url);
         self.send_email(to, SUBJECT_REGISTRATION_APPROVED, &html)
             .await
+    }
+
+    /// Send the post-registration address-confirmation email.
+    ///
+    /// `verify_url` carries a single-use `<selector>.<verifier>` token;
+    /// `ttl_minutes` is rendered into the copy so the expiry is stated rather
+    /// than discovered when the link stops working.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_email_verification(
+        &self,
+        to: &str,
+        display_name: Option<&str>,
+        verify_url: &str,
+        ttl_minutes: i64,
+    ) -> AppResult<()> {
+        let html = templates::email_verification_html(display_name, verify_url, ttl_minutes);
+        self.send_email(to, SUBJECT_EMAIL_VERIFICATION, &html).await
     }
 
     /// Send a channel linking verification code email

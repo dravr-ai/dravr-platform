@@ -257,6 +257,15 @@ impl AuthService {
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
+                // `.ok()` maps a failed lookup to None — "we did not resolve it" —
+                // rather than false, which would claim the address is unconfirmed.
+                email_verified: self
+                    .data
+                    .repos()
+                    .email_verification
+                    .is_verified(user.id)
+                    .await
+                    .ok(),
                 created_at: user.created_at.to_rfc3339(),
                 locale: user.locale.clone(),
                 coaching_persona: user.coaching_persona.as_str().to_owned(),
@@ -390,7 +399,58 @@ impl AuthService {
             })?;
 
         debug!("Created personal tenant: {} ({})", tenant_name, tenant_id);
+
+        self.select_starter_coach(tenant_id, user_id).await;
+
         Ok(tenant_id)
+    }
+
+    /// Give a brand-new workspace a coach to talk to.
+    ///
+    /// Without this a user reaches chat with nothing selected, which reads to
+    /// every downstream check as "not onboarded" — the state that had the
+    /// messaging surface re-running the coach proposal at someone who had
+    /// already finished the web wizard. The coach proposal still runs and still
+    /// lets them choose; this only ensures the floor is a working conversation
+    /// rather than an empty one.
+    ///
+    /// Picks the first system coach deterministically. Not a recommendation —
+    /// the proposal does that once there is data to reason about — just a
+    /// sensible default that any later selection replaces.
+    ///
+    /// Best-effort: registration has already succeeded, and failing it over a
+    /// default would trade a working account for a cosmetic one.
+    async fn select_starter_coach(&self, tenant_id: TenantId, user_id: uuid::Uuid) {
+        let coaches = match self
+            .data
+            .repos()
+            .coaches
+            .list_system_coaches(tenant_id)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                warn!(error = %e, "could not list system coaches for the starter selection");
+                return;
+            }
+        };
+
+        let Some(first) = coaches.first() else {
+            // A deployment with no system coaches seeded yet. The proposal will
+            // still offer whatever exists by the time the user gets there.
+            return;
+        };
+
+        let coach_id = first.id.to_string();
+        if let Err(e) = self
+            .data
+            .repos()
+            .tenants
+            .set_selected_coach(tenant_id, user_id, Some(&coach_id))
+            .await
+        {
+            warn!(error = %e, "could not set the starter coach selection");
+        }
     }
 
     /// Ensure user has at least one tenant, creating a personal tenant if needed.
@@ -540,7 +600,6 @@ impl AuthService {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
-            default_coach_id: None,
             coaching_persona: CoachingPersona::default(),
             manages_roster: false,
             timezone: None,
@@ -616,6 +675,42 @@ impl AuthService {
         Ok(())
     }
 
+    /// Apply the approval decision to a user who has just proven their address.
+    ///
+    /// Verification and approval are separate gates on purpose. Confirming an
+    /// address proves the person owns the inbox; it does not decide whether this
+    /// deployment lets them in. So a verified user is promoted to `Active` only
+    /// when the auto-approval decision already says yes — the global switch, or a
+    /// domain on the allow-list.
+    ///
+    /// That keeps one code path working in both postures. While the deployment is
+    /// invite-only the user stays `Pending`, but *verified* pending, so the waiting
+    /// screen can say the address is confirmed and review is what's outstanding.
+    /// Flip `AUTO_APPROVE_USERS` on and the same call promotes them immediately,
+    /// with no second implementation for "open signup".
+    ///
+    /// Returns the status the user now holds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the user cannot be loaded or the status write fails.
+    pub async fn apply_approval_after_verification(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> AppResult<UserStatus> {
+        let Some(mut user) = self.data.repos().users.get_global(user_id).await? else {
+            return Err(AppError::not_found("User not found"));
+        };
+
+        // Suspended accounts are never revived by confirming an email.
+        if user.user_status != UserStatus::Pending {
+            return Ok(user.user_status);
+        }
+
+        self.auto_approve_if_eligible(&mut user).await?;
+        Ok(user.user_status)
+    }
+
     /// Complete Firebase login: generate JWT and update last active
     async fn complete_firebase_login(
         &self,
@@ -650,6 +745,15 @@ impl AuthService {
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
+                // `.ok()` maps a failed lookup to None — "we did not resolve it" —
+                // rather than false, which would claim the address is unconfirmed.
+                email_verified: self
+                    .data
+                    .repos()
+                    .email_verification
+                    .is_verified(user.id)
+                    .await
+                    .ok(),
                 created_at: user.created_at.to_rfc3339(),
                 locale: user.locale.clone(),
                 coaching_persona: user.coaching_persona.as_str().to_owned(),
@@ -731,6 +835,15 @@ impl AuthService {
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
+                // `.ok()` maps a failed lookup to None — "we did not resolve it" —
+                // rather than false, which would claim the address is unconfirmed.
+                email_verified: self
+                    .data
+                    .repos()
+                    .email_verification
+                    .is_verified(user.id)
+                    .await
+                    .ok(),
                 created_at: user.created_at.to_rfc3339(),
                 locale: user.locale.clone(),
                 coaching_persona: user.coaching_persona.as_str().to_owned(),

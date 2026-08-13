@@ -951,8 +951,8 @@ impl StoreListingsRepository for PostgresDatabase {
         let assignment_id = Uuid::new_v4();
         sqlx::query(
             r"
-            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, FALSE, FALSE, 0, NULL)
+            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL)
             ON CONFLICT DO NOTHING
             ",
         )

@@ -205,8 +205,13 @@ pub const KEY_LINK_LOGOUT_COMPLETE: &str = "messaging.link.logout_complete";
 pub const KEY_LINK_CANCELLED: &str = "messaging.link.cancelled";
 /// Key: generic "something went wrong" for unexpected DB/infra errors.
 pub const KEY_LINK_GENERIC_ERROR: &str = "messaging.link.generic_error";
-/// Key: email-entry matches no Dravr account. `{0}` = registration URL.
-pub const KEY_LINK_NO_ACCOUNT: &str = "messaging.link.no_account";
+/// Offer to create an account in-conversation when the address is unknown.
+/// `{0}` = the address they gave.
+pub const KEY_LINK_SIGNUP_OFFER: &str = "messaging.link.signup_offer";
+/// Confirmation that the account was created and a code is on its way.
+pub const KEY_LINK_SIGNUP_CREATED: &str = "messaging.link.signup_created";
+/// The account could not be created (e.g. the address was taken meanwhile).
+pub const KEY_LINK_SIGNUP_FAILED: &str = "messaging.link.signup_failed";
 /// Key: email resolved to a user with zero tenant memberships.
 pub const KEY_LINK_NO_TENANT: &str = "messaging.link.no_tenant";
 /// Key: server missing an email provider configuration.
@@ -642,7 +647,11 @@ pub(crate) const FR_LINK_CANCELLED: &str =
     "Liaison annulée. Envoie un message à tout moment pour recommencer.";
 pub(crate) const FR_LINK_GENERIC_ERROR: &str =
     "Quelque chose a mal tourné. Réessaie dans un moment.";
-pub(crate) const FR_LINK_NO_ACCOUNT: &str = "Aucun compte Dravr trouvé avec cette adresse. Tu peux t'inscrire sur {0} puis réessayer, ou tape « cancel » pour arrêter.";
+pub(crate) const FR_LINK_SIGNUP_OFFER: &str = "Aucun compte Dravr avec {0}. Je peux t'en creer un tout de suite - reponds « oui » pour continuer, ou « cancel » pour arreter.";
+pub(crate) const FR_LINK_SIGNUP_CREATED: &str =
+    "Compte cree. Je t'envoie un code par e-mail pour confirmer que l'adresse est bien a toi.";
+pub(crate) const FR_LINK_SIGNUP_FAILED: &str =
+    "Je n'ai pas pu creer le compte. Reessaie dans un instant, ou tape « cancel » pour arreter.";
 pub(crate) const FR_LINK_NO_TENANT: &str =
     "Ce compte n'est associé à aucune organisation. Contacte le support.";
 pub(crate) const FR_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -880,7 +889,11 @@ pub(crate) const EN_LINK_LOGOUT_COMPLETE: &str =
 pub(crate) const EN_LINK_CANCELLED: &str =
     "Linking cancelled. Send a message anytime to start again.";
 pub(crate) const EN_LINK_GENERIC_ERROR: &str = "Something went wrong. Please try again later.";
-pub(crate) const EN_LINK_NO_ACCOUNT: &str = "No Dravr account found with that email. You can register at {0} and then try again, or type \"cancel\" to stop.";
+pub(crate) const EN_LINK_SIGNUP_OFFER: &str = "No Dravr account for {0}. I can create one right now - reply \"yes\" to continue, or \"cancel\" to stop.";
+pub(crate) const EN_LINK_SIGNUP_CREATED: &str =
+    "Account created. I'm emailing you a code to confirm the address is yours.";
+pub(crate) const EN_LINK_SIGNUP_FAILED: &str =
+    "I couldn't create the account. Try again in a moment, or type \"cancel\" to stop.";
 pub(crate) const EN_LINK_NO_TENANT: &str =
     "This account is not associated with any organization. Please contact support.";
 pub(crate) const EN_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -1097,7 +1110,11 @@ pub(crate) const ES_LINK_LOGOUT_COMPLETE: &str = "Has cerrado sesión en Dravr. 
 pub(crate) const ES_LINK_CANCELLED: &str =
     "Vinculación cancelada. Envía un mensaje cuando quieras para empezar de nuevo.";
 pub(crate) const ES_LINK_GENERIC_ERROR: &str = "Algo salió mal. Inténtalo de nuevo más tarde.";
-pub(crate) const ES_LINK_NO_ACCOUNT: &str = "No se encontró ninguna cuenta de Dravr con ese correo. Puedes registrarte en {0} y volver a intentarlo, o escribe «cancel» para detener.";
+pub(crate) const ES_LINK_SIGNUP_OFFER: &str = "No hay ninguna cuenta de Dravr con {0}. Puedo crearte una ahora mismo: responde «si» para continuar o «cancel» para detener.";
+pub(crate) const ES_LINK_SIGNUP_CREATED: &str =
+    "Cuenta creada. Te envio un codigo por correo para confirmar que la direccion es tuya.";
+pub(crate) const ES_LINK_SIGNUP_FAILED: &str =
+    "No pude crear la cuenta. Intentalo de nuevo en un momento o escribe «cancel» para detener.";
 pub(crate) const ES_LINK_NO_TENANT: &str =
     "Esta cuenta no está asociada a ninguna organización. Contacta con el soporte.";
 pub(crate) const ES_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -1311,7 +1328,9 @@ pub(crate) const DE_LINK_CANCELLED: &str =
     "Verknüpfung abgebrochen. Schreib jederzeit eine Nachricht, um neu zu beginnen.";
 pub(crate) const DE_LINK_GENERIC_ERROR: &str =
     "Etwas ist schiefgelaufen. Bitte versuch es später erneut.";
-pub(crate) const DE_LINK_NO_ACCOUNT: &str = "Kein Dravr-Konto mit dieser E-Mail gefunden. Du kannst dich unter {0} registrieren und es erneut versuchen, oder tippe „cancel\", um abzubrechen.";
+pub(crate) const DE_LINK_SIGNUP_OFFER: &str = "Kein Dravr-Konto fuer {0}. Ich kann sofort eins anlegen - antworte mit „ja\", um fortzufahren, oder „cancel\", um abzubrechen.";
+pub(crate) const DE_LINK_SIGNUP_CREATED: &str = "Konto angelegt. Ich schicke dir per E-Mail einen Code, um zu bestaetigen, dass die Adresse dir gehoert.";
+pub(crate) const DE_LINK_SIGNUP_FAILED: &str = "Ich konnte das Konto nicht anlegen. Versuch es gleich noch einmal oder tippe „cancel\", um abzubrechen.";
 pub(crate) const DE_LINK_NO_TENANT: &str =
     "Dieses Konto ist mit keiner Organisation verknüpft. Wende dich an den Support.";
 pub(crate) const DE_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -1528,7 +1547,11 @@ pub(crate) const PT_LINK_LOGOUT_COMPLETE: &str = "Saíste da sessão do Dravr. E
 pub(crate) const PT_LINK_CANCELLED: &str =
     "Ligação cancelada. Envia uma mensagem a qualquer momento para começar de novo.";
 pub(crate) const PT_LINK_GENERIC_ERROR: &str = "Algo correu mal. Tenta de novo mais tarde.";
-pub(crate) const PT_LINK_NO_ACCOUNT: &str = "Nenhuma conta Dravr encontrada com esse e-mail. Podes registar-te em {0} e voltar a tentar, ou escreve «cancel» para parar.";
+pub(crate) const PT_LINK_SIGNUP_OFFER: &str = "Nenhuma conta Dravr com {0}. Posso criar uma agora mesmo - responde «sim» para continuar, ou «cancel» para parar.";
+pub(crate) const PT_LINK_SIGNUP_CREATED: &str =
+    "Conta criada. Vou enviar-te um codigo por e-mail para confirmar que o endereco e teu.";
+pub(crate) const PT_LINK_SIGNUP_FAILED: &str =
+    "Nao consegui criar a conta. Tenta novamente daqui a pouco, ou escreve «cancel» para parar.";
 pub(crate) const PT_LINK_NO_TENANT: &str =
     "Esta conta não está associada a nenhuma organização. Contacta o suporte.";
 pub(crate) const PT_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -1726,7 +1749,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "fr", FR_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "fr", FR_LINK_GENERIC_ERROR),
-    (KEY_LINK_NO_ACCOUNT, "fr", FR_LINK_NO_ACCOUNT),
+    (KEY_LINK_SIGNUP_OFFER, "fr", FR_LINK_SIGNUP_OFFER),
+    (KEY_LINK_SIGNUP_CREATED, "fr", FR_LINK_SIGNUP_CREATED),
+    (KEY_LINK_SIGNUP_FAILED, "fr", FR_LINK_SIGNUP_FAILED),
     (KEY_LINK_NO_TENANT, "fr", FR_LINK_NO_TENANT),
     (KEY_LINK_EMAIL_NOT_CONFIGURED, "fr", FR_LINK_EMAIL_NOT_CONFIGURED),
     (KEY_LINK_EMAIL_SEND_FAILED, "fr", FR_LINK_EMAIL_SEND_FAILED),
@@ -1887,7 +1912,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_LOGOUT_COMPLETE, "en", EN_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "en", EN_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "en", EN_LINK_GENERIC_ERROR),
-    (KEY_LINK_NO_ACCOUNT, "en", EN_LINK_NO_ACCOUNT),
+    (KEY_LINK_SIGNUP_OFFER, "en", EN_LINK_SIGNUP_OFFER),
+    (KEY_LINK_SIGNUP_CREATED, "en", EN_LINK_SIGNUP_CREATED),
+    (KEY_LINK_SIGNUP_FAILED, "en", EN_LINK_SIGNUP_FAILED),
     (KEY_LINK_NO_TENANT, "en", EN_LINK_NO_TENANT),
     (KEY_LINK_EMAIL_NOT_CONFIGURED, "en", EN_LINK_EMAIL_NOT_CONFIGURED),
     (KEY_LINK_EMAIL_SEND_FAILED, "en", EN_LINK_EMAIL_SEND_FAILED),
@@ -2048,7 +2075,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_LOGOUT_COMPLETE, "es", ES_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "es", ES_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "es", ES_LINK_GENERIC_ERROR),
-    (KEY_LINK_NO_ACCOUNT, "es", ES_LINK_NO_ACCOUNT),
+    (KEY_LINK_SIGNUP_OFFER, "es", ES_LINK_SIGNUP_OFFER),
+    (KEY_LINK_SIGNUP_CREATED, "es", ES_LINK_SIGNUP_CREATED),
+    (KEY_LINK_SIGNUP_FAILED, "es", ES_LINK_SIGNUP_FAILED),
     (KEY_LINK_NO_TENANT, "es", ES_LINK_NO_TENANT),
     (KEY_LINK_EMAIL_NOT_CONFIGURED, "es", ES_LINK_EMAIL_NOT_CONFIGURED),
     (KEY_LINK_EMAIL_SEND_FAILED, "es", ES_LINK_EMAIL_SEND_FAILED),
@@ -2209,7 +2238,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_LOGOUT_COMPLETE, "de", DE_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "de", DE_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "de", DE_LINK_GENERIC_ERROR),
-    (KEY_LINK_NO_ACCOUNT, "de", DE_LINK_NO_ACCOUNT),
+    (KEY_LINK_SIGNUP_OFFER, "de", DE_LINK_SIGNUP_OFFER),
+    (KEY_LINK_SIGNUP_CREATED, "de", DE_LINK_SIGNUP_CREATED),
+    (KEY_LINK_SIGNUP_FAILED, "de", DE_LINK_SIGNUP_FAILED),
     (KEY_LINK_NO_TENANT, "de", DE_LINK_NO_TENANT),
     (KEY_LINK_EMAIL_NOT_CONFIGURED, "de", DE_LINK_EMAIL_NOT_CONFIGURED),
     (KEY_LINK_EMAIL_SEND_FAILED, "de", DE_LINK_EMAIL_SEND_FAILED),
@@ -2370,7 +2401,9 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_LOGOUT_COMPLETE, "pt", PT_LINK_LOGOUT_COMPLETE),
     (KEY_LINK_CANCELLED, "pt", PT_LINK_CANCELLED),
     (KEY_LINK_GENERIC_ERROR, "pt", PT_LINK_GENERIC_ERROR),
-    (KEY_LINK_NO_ACCOUNT, "pt", PT_LINK_NO_ACCOUNT),
+    (KEY_LINK_SIGNUP_OFFER, "pt", PT_LINK_SIGNUP_OFFER),
+    (KEY_LINK_SIGNUP_CREATED, "pt", PT_LINK_SIGNUP_CREATED),
+    (KEY_LINK_SIGNUP_FAILED, "pt", PT_LINK_SIGNUP_FAILED),
     (KEY_LINK_NO_TENANT, "pt", PT_LINK_NO_TENANT),
     (KEY_LINK_EMAIL_NOT_CONFIGURED, "pt", PT_LINK_EMAIL_NOT_CONFIGURED),
     (KEY_LINK_EMAIL_SEND_FAILED, "pt", PT_LINK_EMAIL_SEND_FAILED),

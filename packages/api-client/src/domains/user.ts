@@ -361,6 +361,43 @@ export function createUserApi(axios: AxiosInstance) {
       return response.data;
     },
 
+    /** The seven PAR-Q+ pre-participation questions. */
+    async getParqQuestions(): Promise<{ questions: Array<{ id: string; text: string }> }> {
+      const response = await axios.get<{ questions: Array<{ id: string; text: string }> }>(
+        ENDPOINTS.USER.PARQ,
+      );
+      return response.data;
+    },
+
+    /**
+     * Submit PAR-Q answers. Each "yes" raises a coach-visible medical flag with a
+     * 12-month freshness horizon; a "yes" never blocks sign-up.
+     */
+    async submitParq(
+      answers: Array<{ id: string; yes: boolean }>,
+    ): Promise<{ flags_raised: number }> {
+      const response = await axios.post<{ flags_raised: number }>(ENDPOINTS.USER.PARQ, {
+        answers,
+      });
+      return response.data;
+    },
+
+    /**
+     * Persist the about-you onboarding answers as onboarding facts. Every field
+     * is optional — a partial answer is worth strictly more than none.
+     */
+    async saveAboutYou(answers: {
+      north_star?: string;
+      primary_sport?: string;
+      goal?: string;
+    }): Promise<{ facts_written: number }> {
+      const response = await axios.post<{ facts_written: number }>(
+        ENDPOINTS.USER.ABOUT_YOU,
+        answers,
+      );
+      return response.data;
+    },
+
     /**
      * Cheap self-read used by web + mobile to decide, right after login,
      * whether to render the onboarding screen or route to the main UI.

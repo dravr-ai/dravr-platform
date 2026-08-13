@@ -26,22 +26,30 @@ import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import type { ExtendedProviderStatus } from '../../types';
+import { useProviderSkipped } from '../../hooks/useProviderSkipped';
+import { ConnectPreview } from '../../components/ConnectPreview';
 
 /**
  * Backed by the same source of truth (`provider_connections`) as the
  * backend's `NoProviderConnected` 403 gate on chat/coach/messaging — so this
  * screen cannot drift from server-side enforcement.
  *
- * Intentionally has NO back button or skip card. The user reaches it only
- * because RootLayoutNav saw `needs_provider_connection: true`; the only way
- * out is to complete OAuth on one of the listed providers (or sign out via
- * the escape hatch at the bottom), at which point RootLayoutNav re-runs and
- * routes to the chat stack.
+ * No back button: the user reaches this because RootLayoutNav saw
+ * `needs_provider_connection: true`, and stepping backwards would land them on a
+ * step they already finished.
+ *
+ * There IS a skip, matching web. This screen used to have none, which meant the
+ * same account met a soft wall on a laptop and a hard one on a phone — the
+ * harder wall being the surface people actually onboard on. The skip is
+ * session-only (see `useProviderSkipped`), so the nudge returns next launch, and
+ * the backend `NoProviderConnected` 403 still refuses any turn that would need
+ * provider data. Skipping defers the ask; it does not buy access.
  */
 export function OnboardingConnectScreen() {
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const { isAuthenticated, user, logout } = useAuth();
+  const { skip } = useProviderSkipped(user?.id);
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
@@ -354,6 +362,19 @@ export function OnboardingConnectScreen() {
         <Text className="text-xs text-text-tertiary text-center mt-6">
           Your credentials are encrypted at rest and used only to fetch your activity data.
         </Text>
+
+        <ConnectPreview />
+
+        <View className="mt-6 items-center">
+          <TouchableOpacity onPress={skip} accessibilityRole="button">
+            <Text className="text-sm font-medium text-text-secondary underline">
+              Continue without connecting
+            </Text>
+          </TouchableOpacity>
+          <Text className="text-xs text-text-tertiary text-center mt-1">
+            You can connect anytime — your coach needs a provider to read your activity.
+          </Text>
+        </View>
 
         <View className="mt-8">
           <Button

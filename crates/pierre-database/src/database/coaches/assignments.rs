@@ -75,8 +75,8 @@ impl CoachesManager {
         // Use INSERT OR IGNORE to handle duplicates gracefully
         let result = sqlx::query(
             r"
-            INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $4, $5, 0, 0, 0, NULL)
+            INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $4, $5, 0, 0, NULL)
             ",
         )
         .bind(id.to_string())

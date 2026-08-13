@@ -10,10 +10,47 @@ use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::models::{OAuthApp, Tenant, TenantOAuthCredentials};
+use sqlx::Row;
 use uuid::Uuid;
 
 #[async_trait]
 impl TenantRepository for Database {
+    async fn get_selected_coach(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Option<String>> {
+        let row = sqlx::query(
+            "SELECT selected_coach_id FROM tenant_users WHERE tenant_id = ?1 AND user_id = ?2",
+        )
+        .bind(tenant_id.as_uuid().to_string())
+        .bind(user_id.to_string())
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read selected coach: {e}")))?;
+
+        Ok(row.and_then(|r| r.get::<Option<String>, _>("selected_coach_id")))
+    }
+
+    async fn set_selected_coach(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        coach_id: Option<&str>,
+    ) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE tenant_users SET selected_coach_id = ?3 WHERE tenant_id = ?1 AND user_id = ?2",
+        )
+        .bind(tenant_id.as_uuid().to_string())
+        .bind(user_id.to_string())
+        .bind(coach_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set selected coach: {e}")))?;
+
+        Ok(())
+    }
+
     async fn create(&self, tenant: &Tenant) -> AppResult<()> {
         Self::create_tenant_impl(self, tenant).await
     }

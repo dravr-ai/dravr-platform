@@ -129,15 +129,15 @@ impl CommandHandler for CoachSelectHandler {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
 
-        // DM path: coach selection is user-scoped. Never auto-creates a
-        // group — groups are a group-chat concept. Persists on users
-        // .default_coach_id and renders a DM-flavored confirmation that
-        // omits any "for group X" wording.
+        // DM path: coach selection is per-membership. Never auto-creates a
+        // group — groups are a group-chat concept. Writes the one selection
+        // pointer and renders a DM-flavored confirmation that omits any
+        // "for group X" wording.
         if ctx.is_direct_message {
             ctx.ctx
                 .repos()
-                .users
-                .set_default_coach(ctx.user_id, Some(coach_id))
+                .tenants
+                .set_selected_coach(ctx.tenant_id, ctx.user_id, Some(coach_id))
                 .await?;
 
             return Ok(CommandResponse::text(reg.render(

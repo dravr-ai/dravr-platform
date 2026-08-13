@@ -133,8 +133,8 @@ impl CoachesManager {
         let assignment_id = Uuid::new_v4();
         sqlx::query(
             r"
-            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, 0, 0, 0, NULL)
+            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, 0, 0, NULL)
             ",
         )
         .bind(assignment_id.to_string())
@@ -268,11 +268,12 @@ impl CoachesManager {
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria,
                    CASE WHEN ca.coach_id IS NOT NULL THEN 1 ELSE 0 END as is_assigned,
                    COALESCE(ca.is_favorite, 0) as is_favorite,
-                   COALESCE(ca.is_active, 0) as is_active,
+                   CASE WHEN tu.selected_coach_id = c.id THEN 1 ELSE 0 END as is_active,
                    COALESCE(ca.use_count, 0) as use_count,
                    ca.last_used_at
             FROM coaches c
             LEFT JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
+            LEFT JOIN tenant_users tu ON tu.user_id = $1 AND tu.tenant_id = $2
             WHERE (
                 -- Personal coaches: owned by user
                 (c.user_id = $1 AND c.is_system = 0 AND c.tenant_id = $2)
@@ -567,8 +568,8 @@ impl CoachesManager {
         let assignment_id = Uuid::new_v4();
         sqlx::query(
             r"
-            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, 0, 0, 0, NULL)
+            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, 0, 0, NULL)
             ",
         )
         .bind(assignment_id.to_string())
@@ -828,30 +829,21 @@ impl CoachesManager {
             return Ok(None);
         }
 
-        // Ensure assignment row exists (upsert)
+        // The roster row still records entitlement, favourites and usage.
         self.ensure_assignment_exists(coach_id, user_id).await?;
 
-        // Deactivate all coaches for this user in coach_assignments
-        sqlx::query(
-            r"
-            UPDATE coach_assignments SET is_active = 0
-            WHERE user_id = $1
-            ",
-        )
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to deactivate coaches: {e}")))?;
-
         // Activate the target coach
+        // Selection is one pointer on the membership row, not a flag per
+        // assignment maintained by a non-atomic clear-then-set pair.
         sqlx::query(
             r"
-            UPDATE coach_assignments SET is_active = 1
-            WHERE coach_id = $1 AND user_id = $2
+            UPDATE tenant_users SET selected_coach_id = $1
+            WHERE user_id = $2 AND tenant_id = $3
             ",
         )
         .bind(coach_id)
         .bind(user_id.to_string())
+        .bind(tenant_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to activate coach: {e}")))?;
@@ -886,14 +878,15 @@ impl CoachesManager {
     /// # Errors
     ///
     /// Returns an error if database operation fails
-    pub async fn deactivate_coach(&self, user_id: Uuid, _tenant_id: TenantId) -> AppResult<bool> {
+    pub async fn deactivate_coach(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool> {
         let result = sqlx::query(
             r"
-            UPDATE coach_assignments SET is_active = 0
-            WHERE user_id = $1 AND is_active = 1
+            UPDATE tenant_users SET selected_coach_id = NULL
+            WHERE user_id = $1 AND tenant_id = $2 AND selected_coach_id IS NOT NULL
             ",
         )
         .bind(user_id.to_string())
+        .bind(tenant_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to deactivate coach: {e}")))?;
@@ -919,8 +912,8 @@ impl CoachesManager {
                    c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
             FROM coaches c
-            JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
-            WHERE ca.is_active = 1 AND c.tenant_id = $2
+            JOIN tenant_users tu ON c.id = tu.selected_coach_id
+            WHERE tu.user_id = $1 AND tu.tenant_id = $2
             ",
         )
         .bind(user_id.to_string())

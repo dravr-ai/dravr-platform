@@ -275,7 +275,7 @@ async fn coach_command_returns_card_with_actions_no_llm_call() {
 #[tokio::test]
 async fn coach_select_in_chat_sets_users_default_coach() {
     // Mirrors the Telegram-DM regression test: calling /coach select
-    // from the web chat endpoint must write users.default_coach_id, the
+    // from the web chat endpoint must write the selection pointer, the
     // same behaviour the messaging dispatcher gives in a DM.
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-sel@test.com").await;
@@ -291,12 +291,11 @@ async fn coach_select_in_chat_sets_users_default_coach() {
     let before = resources
         .common
         .repos
-        .users
-        .get_global(user_id)
+        .tenants
+        .get_selected_coach(tenant_id, user_id)
         .await
-        .unwrap()
         .unwrap();
-    assert!(before.default_coach_id.is_none());
+    assert!(before.is_none(), "nothing selected before the command");
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = create_conversation(router.clone(), &auth).await;
@@ -324,12 +323,11 @@ async fn coach_select_in_chat_sets_users_default_coach() {
     let after = resources
         .common
         .repos
-        .users
-        .get_global(user_id)
+        .tenants
+        .get_selected_coach(tenant_id, user_id)
         .await
-        .unwrap()
         .unwrap();
-    assert_eq!(after.default_coach_id.as_deref(), Some(coach_id.as_str()));
+    assert_eq!(after.as_deref(), Some(coach_id.as_str()));
 }
 
 #[tokio::test]

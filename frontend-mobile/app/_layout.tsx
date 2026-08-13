@@ -39,6 +39,8 @@ import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 import { useOnboardingStatus } from '../src/hooks/useOnboardingStatus';
 import { useCoachProposalSeen } from '../src/hooks/useCoachProposalSeen';
 import { useProfileTypeChosen } from '../src/hooks/useProfileTypeChosen';
+import { useOnboardingFlag } from '../src/hooks/useOnboardingFlag';
+import { useProviderSkipped } from '../src/hooks/useProviderSkipped';
 import { useMessagingOnboarding } from '../src/hooks/useMessagingOnboarding';
 import {
   currentOnboardingStep,
@@ -62,6 +64,10 @@ function routeForStep(id: OnboardingStepId) {
   switch (id) {
     case 'profile_type':
       return '/(onboarding)/profile-type' as const;
+    case 'about_you':
+      return '/(onboarding)/about-you' as const;
+    case 'parq':
+      return '/(onboarding)/parq' as const;
     case 'connect_provider':
       return '/(onboarding)/connect' as const;
     case 'coach_proposal':
@@ -162,6 +168,12 @@ function RootLayoutNav() {
   const { data: onboardingStatus } = useOnboardingStatus(needsOnboardingFetch);
   const { seen: coachProposalSeen } = useCoachProposalSeen(user?.id);
   const { chosen: profileTypeChosen } = useProfileTypeChosen(user?.id);
+  // The two pre-connect steps added alongside profile-type; same fail-open flag.
+  const { done: aboutYouDone } = useOnboardingFlag('dravr.about_you_done.', user?.id);
+  const { done: parqDone } = useOnboardingFlag('dravr.parq_done.', user?.id);
+  // Session-only escape from the provider gate, matching web. Not persisted:
+  // the nudge should come back next launch.
+  const { skipped: skippedProvider } = useProviderSkipped(user?.id);
   // The messaging steps live post-connect; only fetch the channel list there.
   const postConnect =
     Boolean(needsOnboardingFetch) && onboardingStatus?.needs_provider_connection === false;
@@ -199,15 +211,22 @@ function RootLayoutNav() {
     // Hold routing while the AsyncStorage-backed flags for the current phase are
     // still in flight, to avoid flashing chat then bouncing back to a step.
     const preConnect = onboardingStatus?.needs_provider_connection === true;
-    if (preConnect && profileTypeChosen === undefined) return;
+    if (
+      preConnect &&
+      (profileTypeChosen === undefined || aboutYouDone === undefined || parqDone === undefined)
+    ) {
+      return;
+    }
     if (postConnect && (coachProposalSeen === undefined || messaging.loading)) return;
 
     const ctx: OnboardingContext = {
       onboardingActive: Boolean(needsOnboardingFetch),
       needsProviderConnection: onboardingStatus?.needs_provider_connection,
-      skippedProvider: false,
+      skippedProvider,
       justOnboarded,
       profileTypeChosen: profileTypeChosen ?? true,
+      aboutYouDone: aboutYouDone ?? true,
+      parqDone: parqDone ?? true,
       coachProposalDone: coachProposalSeen ?? true,
       messagingAvailableCount: messaging.availableCount,
       messagingChannelChosen: messaging.channelChosen,
@@ -241,6 +260,9 @@ function RootLayoutNav() {
     onboardingStatus?.needs_provider_connection,
     coachProposalSeen,
     profileTypeChosen,
+    aboutYouDone,
+    parqDone,
+    skippedProvider,
     messaging.availableCount,
     messaging.channelChosen,
     messaging.channelDone,

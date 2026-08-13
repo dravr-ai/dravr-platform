@@ -60,7 +60,7 @@ describe('PendingApproval', () => {
 
     render(<PendingApproval />)
 
-    expect(screen.getByText('Pending')).toBeInTheDocument()
+    expect(screen.getByText('Awaiting review')).toBeInTheDocument()
   })
 
   it('should show what happens next section', () => {

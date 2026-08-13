@@ -83,6 +83,15 @@ pub struct UserInfo {
     /// Active tenant identifier for multi-tenant operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
+    /// Whether the user has confirmed their email address.
+    ///
+    /// `None` means this surface did not resolve it — deliberately not `false`,
+    /// which would claim the address is unconfirmed when we simply didn't look.
+    /// Populated on the login and session-restore paths, which are the ones the
+    /// clients read to decide between "confirm your email" and "waiting for
+    /// review"; admin listings and other surfaces leave it absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_verified: Option<bool>,
     /// Account creation timestamp (ISO 8601)
     pub created_at: String,
     /// BCP-47 locale preference (fr/en/es/de/pt). Consumed by the web and

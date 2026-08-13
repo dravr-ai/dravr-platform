@@ -27,6 +27,8 @@ export const ENDPOINTS = {
     FORGOT_PASSWORD: '/api/auth/forgot-password',
     /** Complete password reset with code */
     COMPLETE_RESET: '/api/auth/complete-reset',
+    /** Re-send the post-registration address-confirmation link */
+    RESEND_VERIFICATION: '/api/auth/resend-verification',
   },
 
   // ==================== CHAT ====================
@@ -263,6 +265,10 @@ export const ENDPOINTS = {
     OAUTH_APPS: '/api/users/oauth-apps',
     /** Specific OAuth app */
     OAUTH_APP: (provider: string) => `/api/users/oauth-apps/${provider}`,
+    /** PAR-Q+ pre-participation questions (GET) and answers (POST) */
+    PARQ: '/api/me/parq',
+    /** About-you onboarding answers — North Star, primary sport, goal */
+    ABOUT_YOU: '/api/me/about-you',
     /** Onboarding status — cheap self-read used by web + mobile to gate routing right after login */
     ONBOARDING_STATUS: '/api/me/onboarding-status',
     /** Durable per-step onboarding progress — clients PUT a step's status as it completes */

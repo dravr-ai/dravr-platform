@@ -20,7 +20,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, put},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{CoverageMap, TenantId};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_services::{onboarding_gate, parq};
+use pierre_services::{about_you, onboarding_gate, parq};
 
 /// Response body for `GET /api/me/onboarding-status`.
 ///
@@ -71,8 +71,10 @@ const ONBOARDING_TOPIC_TOTAL: usize = 7;
 
 /// The onboarding step ids the `PUT` endpoint accepts, kept in sync with the
 /// client step registry (`frontend/src/onboarding/steps.ts`).
-const ONBOARDING_STEP_IDS: [&str; 5] = [
+const ONBOARDING_STEP_IDS: [&str; 7] = [
     "profile_type",
+    "about_you",
+    "parq",
     "connect_provider",
     "coach_proposal",
     "messaging_channel",
@@ -268,6 +270,62 @@ pub async fn handle_parq_post(
     Ok((StatusCode::OK, Json(ParqSubmitResponse { flags_raised })).into_response())
 }
 
+/// Request body for `POST /api/me/about-you`.
+///
+/// Every field is optional: the step is skippable, and a partial answer is worth
+/// more than none.
+#[derive(Debug, Deserialize)]
+pub struct AboutYouRequest {
+    /// Why they train — the life motivation the pillars orient around.
+    #[serde(default)]
+    pub north_star: Option<String>,
+    /// Primary sport.
+    #[serde(default)]
+    pub primary_sport: Option<String>,
+    /// What they are working toward.
+    #[serde(default)]
+    pub goal: Option<String>,
+}
+
+/// Response body for `POST /api/me/about-you`.
+#[derive(Debug, Serialize)]
+pub struct AboutYouResponse {
+    /// How many facts were actually written (empty answers are dropped).
+    pub facts_written: u64,
+}
+
+/// `POST /api/me/about-you` — persist the about-you answers as onboarding facts.
+///
+/// These are the inputs `build_coach_proposal` already reads and currently never
+/// finds: without them the coach proposal falls back to sport-mix, and on a
+/// first-run connection there is no sport-mix either.
+///
+/// # Errors
+///
+/// Returns `AppError` when authentication fails, no active tenant is present, or
+/// persisting a fact fails.
+pub async fn handle_about_you_post(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Json(req): Json<AboutYouRequest>,
+) -> Result<Response, AppError> {
+    let tenant_id = active_tenant(&auth)?;
+    let answers = about_you::AboutYouAnswers {
+        north_star: req.north_star,
+        primary_sport: req.primary_sport,
+        goal: req.goal,
+    };
+    let facts_written = about_you::persist_about_you(
+        resources.common.repos.memory.as_ref(),
+        tenant_id,
+        &auth.user_id.to_string(),
+        &answers,
+    )
+    .await?;
+
+    Ok((StatusCode::OK, Json(AboutYouResponse { facts_written })).into_response())
+}
+
 /// Request body for `PUT /api/me/onboarding/steps/{step_id}`.
 #[derive(Debug, Deserialize)]
 pub struct SetOnboardingStepRequest {
@@ -346,6 +404,7 @@ impl OnboardingRoutes {
             .route("/api/me/onboarding-status", get(handle_self_get))
             .route("/api/me/onboarding/steps/{step_id}", put(handle_step_put))
             .route("/api/me/parq", get(handle_parq_get).post(handle_parq_post))
+            .route("/api/me/about-you", post(handle_about_you_post))
             .with_state(resources)
     }
 }

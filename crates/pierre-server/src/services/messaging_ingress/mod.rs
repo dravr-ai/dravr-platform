@@ -9,6 +9,9 @@ pub mod addressing;
 /// AG-UI run wiring + per-channel status-bridge setup for messaging dispatch.
 mod agui;
 /// In-chat provider-connect: in-process link-token mint + tappable connect Card.
+mod coach_choice;
+/// Re-exported so the integration suite can pin the strict numeric parse.
+pub use coach_choice::parse_choice;
 mod connect;
 /// LLM dispatch + outbound delivery + retry queue for messaging turns.
 mod dispatch;
@@ -32,17 +35,26 @@ mod slash;
 pub use locale::{detect_turn_locale, resolve_messaging_locale};
 
 pub(crate) use dispatch::dispatch_and_respond;
+mod channel_auth_outcome;
+use channel_auth_outcome::{
+    handle_channel_auth_outcome, resolve_channel_user_email, ChannelAuthOutcomeInputs,
+};
 use dispatch::load_channel_config;
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
 pub(crate) use reply_compose::compose_messaging_reply;
 // Re-exported (not just `use`) so the messaging-reset integration test can
 // reach the helper — pierre-server keeps test modules external, not in src/.
 pub use otp::is_reset_command;
-use otp::{
-    apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command, start_otp_flow,
-};
+/// Re-exported so integration tests can assert on an unlinked sender's reply.
+///
+/// The outbound adapters post to hardcoded hosts, so the built message is the
+/// last readable point without a network stub.
+pub use otp::start_otp_flow;
+use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command};
 use pierre_services::onboarding_gate::user_has_connected_provider;
-use session::{create_link_and_prompt, handle_reset, resolve_linked_session, ChannelChatRef};
+/// Re-exported alongside [`start_otp_flow`], and for the same reason.
+pub use session::create_link_and_prompt;
+use session::{handle_reset, resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
 pub use slash::slash_reply_should_be_private;
 #[cfg(feature = "client-messaging")]
@@ -50,7 +62,6 @@ use slash::{try_handle_slash_command, SlashCommandContext};
 
 use dashmap::DashMap;
 use pierre_auth::auth::AuthResult;
-use pierre_core::errors::ErrorCode;
 use pierre_core::models::groups::GroupRespondMode;
 use pierre_core::models::messaging::{
     CardAction, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
@@ -65,7 +76,6 @@ use pierre_messaging::channels::slack::renderer::SlackRenderer;
 use pierre_messaging::channels::telegram::renderer::TelegramRenderer;
 use pierre_messaging::channels::whatsapp::renderer::WhatsAppRenderer;
 use pierre_messaging::renderer::ResponseRenderer;
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex as TokioMutex;
@@ -76,14 +86,9 @@ use serde_json::Value;
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::ChannelProfile;
-use pierre_contremaitre::messaging_strings::{
-    DEFAULT_LOCALE, KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
-};
+use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_core::errors::AppError;
-use pierre_middleware::auth::record_jwt_usage_for_request;
 use pierre_services::analytics::hash_id;
-use pierre_services::channel_error_reply::ChannelErrorReply;
-use pierre_services::user_status_gate::messaging_key_for_status;
 
 /// Outcome of persisting a single inbound message
 pub(crate) enum PersistOutcome {
@@ -468,6 +473,55 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
     true
 }
 
+/// The two explicit bot interactions that precede any session: a linking code
+/// and an in-flight OTP exchange.
+///
+/// Both are conversations the sender deliberately started with the bot, which
+/// is why they sit above the group respond-mode gate and the logout keyword —
+/// neither should be swallowed by ambient chatter rules.
+///
+/// `Some` means the turn was answered here and must not continue to the model.
+async fn handle_pre_session_commands(
+    resources: &Arc<ServerContext>,
+    channel: &str,
+    tenant_id: TenantId,
+    channel_type: ChannelType,
+    adapter: &Arc<dyn MessagingChannel>,
+    message: &IncomingMessage,
+    pre_link_identity: &str,
+) -> Option<PersistOutcome> {
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+    let thread_id = extract_thread_id(&message.metadata);
+
+    let reply = if let LinkingAction::LinkCode(code) =
+        detect_linking_code(channel_type, &message.content)
+    {
+        info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
+        emit_messaging_intent(pre_link_identity, tenant_id, channel, "link_code");
+        handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await
+    } else if let Some(otp_response) = handle_otp_flow(
+        resources,
+        tenant_id,
+        channel_type,
+        channel,
+        &message.sender_id,
+        &message.content,
+    )
+    .await
+    {
+        emit_messaging_intent(pre_link_identity, tenant_id, channel, "otp_flow");
+        otp_response
+    } else {
+        return None;
+    };
+
+    let mut reply = reply;
+    reply.thread_id = thread_id;
+    apply_conversation_recipient(&mut reply, message.conversation_id.as_deref());
+    send_channel_response(db, tenant_id, channel, adapter, reply).await;
+    Some(PersistOutcome::HandledNotStored)
+}
+
 /// Persist a single inbound message and optionally prepare an LLM dispatch
 ///
 /// Handles three cases:
@@ -496,35 +550,18 @@ async fn persist_single_message(
     // user id once linking completes).
     let pre_link_identity = format!("{channel}:{}", message.sender_id);
 
-    // Check for linking commands (`Telegram` /start, `WhatsApp` LINK)
-    if let LinkingAction::LinkCode(code) = detect_linking_code(channel_type, &message.content) {
-        info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
-        emit_messaging_intent(&pre_link_identity, tenant_id, channel, "link_code");
-        let mut response =
-            handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await;
-        response.thread_id = thread_id;
-        apply_conversation_recipient(&mut response, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, response).await;
-        return Ok(PersistOutcome::HandledNotStored);
-    }
-
-    // Check for active in-chat OTP linking flow
-    if let Some(otp_response) = handle_otp_flow(
+    if let Some(outcome) = handle_pre_session_commands(
         resources,
+        channel,
         tenant_id,
         channel_type,
-        channel,
-        &message.sender_id,
-        &message.content,
+        adapter,
+        message,
+        &pre_link_identity,
     )
     .await
     {
-        emit_messaging_intent(&pre_link_identity, tenant_id, channel, "otp_flow");
-        let mut otp_response = otp_response;
-        otp_response.thread_id = thread_id;
-        apply_conversation_recipient(&mut otp_response, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, otp_response).await;
-        return Ok(PersistOutcome::HandledNotStored);
+        return Ok(outcome);
     }
 
     // Group respond-mode gate. Placed BEFORE the logout keyword check so
@@ -610,6 +647,45 @@ async fn persist_single_message(
         reset_response.thread_id = thread_id;
         apply_conversation_recipient(&mut reset_response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, reset_response).await;
+        return Ok(PersistOutcome::HandledNotStored);
+    }
+
+    // Locale for this reply. Resolved here rather than reusing the one computed
+    // further down, because that happens after the LLM-dispatch branch this
+    // block short-circuits.
+    let choice_locale = match Uuid::parse_str(&session.user_id) {
+        Ok(uuid) => {
+            resolve_messaging_locale(resources, user_tenant_id, uuid, channel, &message.sender_id)
+                .await
+        }
+        Err(_) => DEFAULT_LOCALE.to_owned(),
+    };
+
+    // A bare number answering the coach proposal. Sits here — after auth, before
+    // the model — because it is a selection, not conversation: the proposal told
+    // the user to reply with a number, so that reply must bind a coach rather
+    // than becoming the first thing they ever say to their coach.
+    //
+    // Returns None for anything that is not a bare in-range number against an
+    // outstanding proposal, so ordinary messages fall through untouched.
+    if let Some(mut choice_reply) =
+        coach_choice::try_handle_coach_choice(coach_choice::CoachChoiceParams {
+            resources,
+            tenant_id,
+            channel,
+            channel_type,
+            sender_id: &message.sender_id,
+            user_id: auth_result.user_id,
+            locale: &choice_locale,
+            text: content_body_text(&message.content)
+                .unwrap_or_default()
+                .as_str(),
+        })
+        .await
+    {
+        choice_reply.thread_id = thread_id;
+        apply_conversation_recipient(&mut choice_reply, message.conversation_id.as_deref());
+        send_channel_response(db, tenant_id, channel, adapter, choice_reply).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -1170,280 +1246,4 @@ pub(super) fn content_body_text(content: &MessageContent) -> Option<String> {
         MessageContent::Media { caption, .. } => caption.clone(),
         MessageContent::Location { .. } => None,
     }
-}
-
-/// Inputs for [`handle_channel_auth_outcome`].
-struct ChannelAuthOutcomeInputs<'a> {
-    resources: &'a ServerContext,
-    db: &'a dyn MessagingRepository,
-    tenant_id: TenantId,
-    channel: &'a str,
-    channel_type: ChannelType,
-    adapter: &'a Arc<dyn MessagingChannel>,
-    message: &'a IncomingMessage,
-    outcome: Result<AuthResult, AppError>,
-}
-
-/// Refresh `users.last_active` after a successful channel authentication.
-///
-/// Mirrors the JWT/MCP tool-handler behavior so admin "last seen" views and
-/// activity reports treat messaging-only users as live. Best-effort: a
-/// failure here is logged but does not block dispatch — activity tracking is
-/// observability, not correctness.
-async fn refresh_channel_last_active(
-    resources: &ServerContext,
-    user_id: Uuid,
-    channel_type: ChannelType,
-) {
-    if let Err(e) = resources
-        .common
-        .repos
-        .users
-        .update_last_active(user_id)
-        .await
-    {
-        warn!(
-            user_id = %user_id,
-            channel = %channel_type,
-            error = %e,
-            "Failed to update last_active on channel auth (activity tracking impacted)"
-        );
-    }
-}
-
-/// Record a `JwtUsage` row for a successful channel-authenticated turn.
-///
-/// Delegates to [`pierre_middleware::auth::record_jwt_usage_for_request`] so
-/// the JWT (`HTTP` cookie / Bearer / `MCP`) path and the channel-link path
-/// share **one** write site for the rate-limit counter — no symmetry gap
-/// between transports. The endpoint label is rendered as
-/// `messaging:<channel>` (e.g. `messaging:telegram`) so admin usage reports
-/// can disaggregate by transport.
-async fn record_channel_usage(resources: &ServerContext, user_id: Uuid, channel: &str) {
-    let endpoint = format!("messaging:{channel}");
-    record_jwt_usage_for_request(&resources.common.repos, user_id, &endpoint, "WEBHOOK").await;
-}
-
-/// Branch on the channel-authentication outcome, surfacing the right reply
-/// for each terminal state and returning the [`AuthResult`] only on success.
-async fn handle_channel_auth_outcome(
-    inputs: ChannelAuthOutcomeInputs<'_>,
-) -> Result<Option<AuthResult>, ()> {
-    match inputs.outcome {
-        Ok(r) => {
-            refresh_channel_last_active(inputs.resources, r.user_id, inputs.channel_type).await;
-            record_channel_usage(inputs.resources, r.user_id, inputs.channel).await;
-            Ok(Some(r))
-        }
-        Err(e) if e.code == ErrorCode::AuthInvalid => {
-            debug!(
-                sender_id = %inputs.message.sender_id,
-                channel = %inputs.channel_type,
-                "Sender not linked, prompting"
-            );
-            send_unlinked_user_prompt(
-                inputs.resources,
-                inputs.db,
-                inputs.tenant_id,
-                inputs.channel,
-                inputs.channel_type,
-                inputs.adapter,
-                inputs.message,
-            )
-            .await;
-            Ok(None)
-        }
-        Err(e)
-            if matches!(
-                e.code,
-                ErrorCode::AccountPending
-                    | ErrorCode::AccountSuspended
-                    | ErrorCode::RateLimitExceeded
-                    | ErrorCode::NoProviderConnected
-            ) =>
-        {
-            let reply = build_auth_denial_reply(AuthDenialReplyInputs {
-                resources: inputs.resources,
-                tenant_id: inputs.tenant_id,
-                channel: inputs.channel,
-                channel_type: inputs.channel_type,
-                sender_id: &inputs.message.sender_id,
-                conversation_id: inputs.message.conversation_id.as_deref(),
-                thread_id: extract_thread_id(&inputs.message.metadata),
-                is_direct_message: inputs.message.is_direct_message,
-                err: &e,
-            })
-            .await;
-            send_channel_response(
-                inputs.db,
-                inputs.tenant_id,
-                inputs.channel,
-                inputs.adapter,
-                reply,
-            )
-            .await;
-            Ok(None)
-        }
-        Err(e) => {
-            // Operator-category failure — drop the message, let dravr-tronc
-            // page on-call via the ERROR subscriber.
-            error!(
-                error = %e,
-                sender_id = %inputs.message.sender_id,
-                channel = %inputs.channel_type,
-                "Channel authentication failed, dropping message"
-            );
-            Err(())
-        }
-    }
-}
-
-/// Inputs for [`build_auth_denial_reply`].
-struct AuthDenialReplyInputs<'a> {
-    resources: &'a ServerContext,
-    tenant_id: TenantId,
-    channel: &'a str,
-    channel_type: ChannelType,
-    sender_id: &'a str,
-    conversation_id: Option<&'a str>,
-    thread_id: Option<String>,
-    /// Direct message vs group — gates the tokenized connect Card (a user-scoped
-    /// connect link must never be posted into a shared room).
-    is_direct_message: bool,
-    err: &'a AppError,
-}
-
-/// Resolve the user's account email for a `(channel, channel_user_id)`
-/// pair via the channel-link → user-id → user-row chain.
-///
-/// Used by the `NoProviderConnected` denial path so the chat reply can tell
-/// the user *which* email to sign in with. Returns `None` on any failure
-/// (channel link missing, malformed JSON, user-id parse failure, DB hiccup,
-/// user row deleted) so the caller can fall back to the URL-only template.
-async fn resolve_channel_user_email(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    channel: &str,
-    channel_user_id: &str,
-) -> Option<String> {
-    let link = resources
-        .common
-        .repos
-        .messaging
-        .get_channel_link(tenant_id, channel, channel_user_id)
-        .await
-        .ok()
-        .flatten()?;
-    let user_id_str = link.get("user_id")?.as_str()?;
-    let user_id = Uuid::parse_str(user_id_str).ok()?;
-    let user = resources
-        .common
-        .repos
-        .users
-        .get_global(user_id)
-        .await
-        .ok()
-        .flatten()?;
-    Some(user.email)
-}
-
-/// Build a localized "denied" reply for the authentication outcomes that need
-/// to surface user-facing text (`Pending`, `Suspended`, `RateLimitExceeded`).
-async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingMessage {
-    let locale = inputs
-        .resources
-        .common
-        .repos
-        .messaging
-        .get_channel_link_locale(inputs.tenant_id, inputs.channel, inputs.sender_id)
-        .await
-        .ok()
-        .flatten()
-        .filter(|l| !l.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
-
-    // A direct-message user with no provider gets a tappable "Connect your
-    // account" Card (in-process-minted link → hosted picker). Group contexts and
-    // mint failures fall through to the plain web-link text below.
-    if inputs.err.code == ErrorCode::NoProviderConnected {
-        if let Some(mut card) = connect::try_build_connect_card(
-            inputs.resources,
-            inputs.tenant_id,
-            inputs.channel,
-            inputs.channel_type,
-            inputs.sender_id,
-            inputs.thread_id.clone(),
-            inputs.is_direct_message,
-            &locale,
-        )
-        .await
-        {
-            apply_conversation_recipient(&mut card, inputs.conversation_id);
-            return card;
-        }
-    }
-
-    let body = if let Some(key) = messaging_key_for_status(inputs.err.code) {
-        // NoProviderConnected carries a `{0}` placeholder for the dravr web
-        // connect URL, and `{1}` for the account email when we can resolve
-        // it from the channel link. Telling the user *which* email to sign
-        // in with removes a guessing step (multi-account households, etc.).
-        // Other status denials (Pending/Suspended) have no template args.
-        if inputs.err.code == ErrorCode::NoProviderConnected {
-            let connect_url = format!(
-                "{}/providers",
-                inputs
-                    .resources
-                    .common
-                    .config
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or(&inputs.resources.common.config.base_url)
-            );
-            let email = resolve_channel_user_email(
-                inputs.resources,
-                inputs.tenant_id,
-                inputs.channel,
-                inputs.sender_id,
-            )
-            .await;
-            let registry = &inputs.resources.mcp.messaging_strings_registry;
-            email.map_or_else(
-                || registry.render(key, &locale, &[&connect_url]),
-                |email| {
-                    registry.render(
-                        KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
-                        &locale,
-                        &[&connect_url, &email],
-                    )
-                },
-            )
-        } else {
-            inputs
-                .resources
-                .mcp
-                .messaging_strings_registry
-                .get(key, &locale)
-        }
-    } else {
-        inputs
-            .err
-            .to_channel_reply(
-                &inputs.resources.mcp.messaging_strings_registry,
-                DEFAULT_LOCALE,
-                "channel_auth",
-            )
-            .0
-    };
-
-    let mut message = OutgoingMessage {
-        channel_type: inputs.channel_type,
-        recipient_id: inputs.sender_id.to_owned(),
-        content: MessageContent::Text { body },
-        turn_id: CanotTurnId::new(),
-        reply_to: None,
-        thread_id: inputs.thread_id,
-    };
-    apply_conversation_recipient(&mut message, inputs.conversation_id);
-    message
 }

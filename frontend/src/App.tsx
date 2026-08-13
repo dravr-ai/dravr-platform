@@ -7,6 +7,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
+import VerifyEmail, { parseVerifyStatus, type VerifyEmailStatus } from './components/VerifyEmail';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingFlow from './components/OnboardingFlow';
@@ -42,6 +43,13 @@ function getOAuthCallbackParams(): { provider: string; success: boolean; error?:
 }
 
 /**
+ * Whether the current URL is the email-confirmation landing: /verify-email
+ */
+function isVerifyEmailPath(): boolean {
+  return window.location.pathname === '/verify-email';
+}
+
+/**
  * Check if the current URL is an invite link: /groups/join/:code
  */
 function getGroupInviteCode(): string | null {
@@ -59,6 +67,9 @@ function AppContent() {
   const [resetEmail, setResetEmail] = useState<string>('');
   const [oauthCallback, setOauthCallback] = useState<{ provider: string; success: boolean; error?: string } | null>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
+  const [verifyEmailStatus, setVerifyEmailStatus] = useState<VerifyEmailStatus | null>(() =>
+    isVerifyEmailPath() ? parseVerifyStatus(window.location.search) : null,
+  );
   const localQueryClient = useQueryClient();
 
   // Onboarding flow state (server status + per-step flags + transitions). Kept
@@ -111,6 +122,22 @@ function AppContent() {
       window.history.replaceState({}, document.title, '/');
     }
   }, []);
+
+  // Email-confirmation landing. Rendered before every auth branch: the user
+  // arrives here from their mail client, usually signed out and often on a
+  // different device from the one they registered on, so gating it behind the
+  // login form would strand them on the step that was meant to unblock them.
+  if (verifyEmailStatus) {
+    return (
+      <VerifyEmail
+        status={verifyEmailStatus}
+        onContinue={() => {
+          window.history.replaceState({}, document.title, '/');
+          setVerifyEmailStatus(null);
+        }}
+      />
+    );
+  }
 
   // Show OAuth callback result page
   if (oauthCallback) {

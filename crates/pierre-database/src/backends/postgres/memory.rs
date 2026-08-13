@@ -463,6 +463,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         user_id: &str,
         pillar: Option<Pillar>,
         created_after: Option<DateTime<Utc>>,
+        predicate: Option<&str>,
     ) -> AppResult<u64> {
         let now = Utc::now();
         let result = sqlx::query(
@@ -472,6 +473,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
              WHERE tenant_id = $2 AND user_id = $3 AND source = 'onboarding'
                AND ($4::text IS NULL OR pillar = $4)
                AND ($5::timestamptz IS NULL OR created_at >= $5)
+               AND ($6::text IS NULL OR predicate = $6)
                AND (valid_until IS NULL OR valid_until > $1)
             ",
         )
@@ -480,6 +482,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(user_id)
         .bind(pillar.map(Pillar::as_str))
         .bind(created_after)
+        .bind(predicate)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to expire onboarding facts: {e}")))?;

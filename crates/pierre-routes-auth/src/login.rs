@@ -16,6 +16,7 @@ use tracing::{debug, error, field, field::Empty, info, warn, Span};
 
 use pierre_routes_admin::auth::service::AdminAuthService;
 
+use crate::email_verification::issue_verification_email;
 use crate::AuthRoutesContext;
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
 use pierre_config::constants::error_messages;
@@ -33,7 +34,7 @@ use pierre_auth::dto::auth::{
 
 use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::auth::AuthService;
-use pierre_services::password_reset::{generate_reset_token, split_reset_token};
+use pierre_services::link_token::{generate_link_token, split_link_token};
 
 // ---------------------------------------------------------------------------
 // Axum handler functions — called from AuthRoutes::routes() in mod.rs
@@ -191,6 +192,25 @@ pub async fn handle_public_register(
                 "user account created"
             );
             send_post_registration_email(&resources, &request.email, &response).await;
+
+            // Prove the address. Deliberately after the status email and
+            // deliberately best-effort: registration has already succeeded, so a
+            // mail failure must not turn a created account into an error the user
+            // reads as "try again". The waiting screen offers a resend.
+            //
+            // Public self-registration only. An admin-created account is vouched
+            // for by the admin who created it, and CLI/service accounts have no
+            // inbox to confirm from.
+            if let Ok(user_id) = uuid::Uuid::parse_str(&response.user_id) {
+                issue_verification_email(
+                    &resources,
+                    user_id,
+                    &request.email,
+                    response.display_name.as_deref(),
+                )
+                .await;
+            }
+
             Ok((StatusCode::CREATED, Json(response)).into_response())
         }
         Err(e) => {
@@ -423,6 +443,15 @@ pub async fn handle_session(
             role: user.role.as_str().to_owned(),
             user_status: user.user_status.to_string(),
             tenant_id: tenant_id_for_response,
+            // Session restore is one of the two paths the clients read to decide
+            // between "confirm your email" and "waiting for review", so resolve it
+            // here. `.ok()` keeps a failed lookup as None rather than a false claim.
+            email_verified: resources
+                .repos
+                .email_verification
+                .is_verified(user.id)
+                .await
+                .ok(),
             created_at: user.created_at.to_rfc3339(),
             locale: user.locale,
             coaching_persona: user.coaching_persona.as_str().to_owned(),
@@ -485,6 +514,10 @@ pub async fn handle_update_profile(
             role: updated_user.role.to_string(),
             user_status: updated_user.user_status.to_string(),
             tenant_id: None,
+            // A display-name change tells us nothing about the address, and this
+            // response is not one the clients gate onboarding on. Left unresolved
+            // rather than guessed.
+            email_verified: None,
             created_at: updated_user.created_at.to_rfc3339(),
             locale: updated_user.locale,
             coaching_persona: updated_user.coaching_persona.as_str().to_owned(),
@@ -581,7 +614,7 @@ pub async fn handle_complete_reset(
     }
 
     // Split "<selector>.<verifier>"; a malformed token is treated as invalid.
-    let Some((selector, verifier_hash)) = split_reset_token(&request.reset_token) else {
+    let Some((selector, verifier_hash)) = split_link_token(&request.reset_token) else {
         return Err(AppError::not_found(
             "Password reset token is invalid, expired, or already used",
         ));
@@ -691,7 +724,7 @@ pub async fn handle_forgot_password(
     // Generate a high-entropy "<selector>.<verifier>" reset token; only the verifier's
     // SHA-256 hash + the plaintext selector are stored. Retires the brute-forceable
     // 6-digit code (T3MP3ST F1 / CWE-307).
-    let generated = generate_reset_token();
+    let generated = generate_link_token();
 
     // Store with short TTL
     resources

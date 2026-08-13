@@ -405,12 +405,6 @@ pub struct User {
     /// `users.locale` → `DEFAULT_LOCALE`.
     #[serde(default = "default_locale")]
     pub locale: String,
-    /// User's personal default coach, set via `/coach select` in DM
-    /// contexts. `None` means no coach bound yet (first `/coach select`
-    /// will populate it). Coach deletion sets this column to NULL via
-    /// ON DELETE SET NULL so the user can reselect.
-    #[serde(default)]
-    pub default_coach_id: Option<String>,
     /// Coach output persona controlling format / citation density /
     /// notification cadence. Defaults to [`CoachingPersona::Casual`] for
     /// new users; users opt up via the post-auth onboarding prompt or
@@ -479,7 +473,6 @@ impl User {
             analytics_consent: false, // Opt-out by default
             analytics_consent_at: None,
             locale: default_locale(),
-            default_coach_id: None,
             coaching_persona: CoachingPersona::default(),
             manages_roster: false,
             timezone: None,

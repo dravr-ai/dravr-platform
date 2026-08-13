@@ -52,7 +52,7 @@ use super::{
 /// eligible yet (cold start, activities not synced) it returns *without*
 /// stamping, so a later turn can propose once data lands.
 async fn maybe_send_coach_proposal(dispatch: &PendingDispatch, channel_config: &ChannelConfig) {
-    let Some(outgoing) = build_coach_proposal_message(dispatch).await else {
+    let Some((outgoing, offered_ids)) = build_coach_proposal_message(dispatch).await else {
         return;
     };
 
@@ -61,7 +61,7 @@ async fn maybe_send_coach_proposal(dispatch: &PendingDispatch, channel_config: &
         return;
     }
 
-    stamp_coach_proposal_sent(dispatch).await;
+    stamp_coach_proposal_sent(dispatch, &offered_ids).await;
 
     info!(
         hashed_user = %hash_id(&dispatch.session.user_id),
@@ -71,13 +71,14 @@ async fn maybe_send_coach_proposal(dispatch: &PendingDispatch, channel_config: &
 
 /// Stamp the channel link so the proposal is never re-sent. Best-effort: a
 /// failure here only risks a duplicate proposal on a later turn, never the turn.
-async fn stamp_coach_proposal_sent(dispatch: &PendingDispatch) {
+async fn stamp_coach_proposal_sent(dispatch: &PendingDispatch, offered_ids: &[String]) {
     let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
     if let Err(e) = db
         .mark_coach_proposal_sent(
             dispatch.channel_tenant_id,
             &dispatch.channel,
             &dispatch.sender_id,
+            offered_ids,
         )
         .await
     {
@@ -92,7 +93,9 @@ async fn stamp_coach_proposal_sent(dispatch: &PendingDispatch) {
 /// past onboarding), when the build fails, or when no coaches are eligible yet
 /// (cold start). In the cold-start case the link is intentionally left
 /// un-stamped so a later turn can propose once activities sync.
-async fn build_coach_proposal_message(dispatch: &PendingDispatch) -> Option<OutgoingMessage> {
+async fn build_coach_proposal_message(
+    dispatch: &PendingDispatch,
+) -> Option<(OutgoingMessage, Vec<String>)> {
     let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
 
     let already_sent = db
@@ -145,16 +148,22 @@ async fn build_coach_proposal_message(dispatch: &PendingDispatch) -> Option<Outg
         &dispatch.resources.mcp.messaging_strings_registry,
         &dispatch.locale,
     );
-    Some(OutgoingMessage {
-        channel_type: dispatch.channel_type,
-        recipient_id: dispatch.sender_id.clone(),
-        content: MessageContent::Text { body },
-        // A fresh turn id: the proposal is a proactive message, not a reply to
-        // the user's inbound turn.
-        turn_id: CanotTurnId::new(),
-        reply_to: None,
-        thread_id: dispatch.thread_id.clone(),
-    })
+    // Captured in the SAME order the user reads, because that ordering is what a
+    // numeric reply indexes into.
+    let offered_ids: Vec<String> = coaches.iter().map(|c| c.coach.id.clone()).collect();
+    Some((
+        OutgoingMessage {
+            channel_type: dispatch.channel_type,
+            recipient_id: dispatch.sender_id.clone(),
+            content: MessageContent::Text { body },
+            // A fresh turn id: the proposal is a proactive message, not a reply to
+            // the user's inbound turn.
+            turn_id: CanotTurnId::new(),
+            reply_to: None,
+            thread_id: dispatch.thread_id.clone(),
+        },
+        offered_ids,
+    ))
 }
 
 /// Render the onboarding coach proposal as a channel text message: a short

@@ -131,8 +131,6 @@ where
         analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
         // Locale defaults to 'fr' when the column is absent (pre-migration DBs).
         locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
-        // default_coach_id is nullable; try_get returns Option<Option<String>>.
-        default_coach_id: row.try_get("default_coach_id").ok().flatten(),
         // Coaching persona — defaults to Casual when column is absent
         // (pre-migration DBs) or carries an unrecognised value.
         coaching_persona: row

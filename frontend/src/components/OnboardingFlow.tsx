@@ -6,6 +6,8 @@
 
 import type { ReactNode } from 'react';
 import OnboardingProfileType from './OnboardingProfileType';
+import OnboardingAboutYou from './OnboardingAboutYou';
+import OnboardingParq from './OnboardingParq';
 import OnboardingConnectProvider from './OnboardingConnectProvider';
 import OnboardingCoachProposal from './OnboardingCoachProposal';
 import OnboardingMessagingChannel from './OnboardingMessagingChannel';
@@ -55,6 +57,17 @@ function renderStep(
           userDisplayName={userDisplayName}
           onComplete={state.completeProfileType}
         />
+      );
+    case 'about_you':
+      return (
+        <OnboardingAboutYou
+          userDisplayName={userDisplayName}
+          onComplete={state.completeAboutYou}
+        />
+      );
+    case 'parq':
+      return (
+        <OnboardingParq userDisplayName={userDisplayName} onComplete={state.completeParq} />
       );
     case 'connect_provider':
       return (

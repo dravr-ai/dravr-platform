@@ -7,6 +7,8 @@
 /** Identifiers for the onboarding steps, in canonical journey order. */
 export type OnboardingStepId =
   | 'profile_type'
+  | 'about_you'
+  | 'parq'
   | 'connect_provider'
   | 'coach_proposal'
   | 'messaging_channel'
@@ -31,6 +33,16 @@ export interface OnboardingContext {
   justOnboarded: boolean;
   profileTypeChosen: boolean;
   coachProposalDone: boolean;
+  /**
+   * The about-you answers (North Star / sport / goal) have been given or skipped.
+   *
+   * These are the inputs `build_coach_proposal` already reads and falls back
+   * without, which is why the step sits ahead of the provider gate: provider
+   * sync is not something we control, three answered questions are.
+   */
+  aboutYouDone: boolean;
+  /** The PAR-Q medical screen has been answered or skipped. */
+  parqDone: boolean;
   /** How many messaging channels the tenant has configured (0 ⇒ skip messaging). */
   messagingAvailableCount: number;
   /** A messaging channel is chosen — picked, or auto-selected when only one exists. */
@@ -75,6 +87,28 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     isComplete: (c) => c.profileTypeChosen,
   },
   {
+    // Who the athlete is, in three questions. Deliberately BEFORE the provider
+    // gate: the coach proposal reads these, and on a first-run connection the
+    // provider data it would otherwise infer from has not synced yet — so this
+    // is the only proposal input we can guarantee exists when it runs. It also
+    // means a user who never connects still gets a non-generic proposal.
+    id: 'about_you',
+    label: 'About your training',
+    isApplicable: (c) =>
+      c.onboardingActive && c.needsProviderConnection === true && !c.skippedProvider,
+    isComplete: (c) => c.aboutYouDone,
+  },
+  {
+    // Pre-participation medical screen. Ahead of the provider gate for the same
+    // reason it exists at all: a coach should not prescribe load before we have
+    // asked. A "yes" raises a coach-visible flag and never blocks sign-up.
+    id: 'parq',
+    label: 'Health check',
+    isApplicable: (c) =>
+      c.onboardingActive && c.needsProviderConnection === true && !c.skippedProvider,
+    isComplete: (c) => c.parqDone,
+  },
+  {
     id: 'connect_provider',
     label: 'Connect',
     isApplicable: (c) => c.needsProviderConnection === true && !c.skippedProvider,
@@ -103,7 +137,11 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
       c.onboardingActive &&
       c.needsProviderConnection === false &&
       c.messagingAvailableCount > 1,
-    isComplete: (c) => c.messagingChannelDone || c.messagingAvailableCount <= 1,
+    // Done means the user picked or skipped — NOT "there was nothing to pick".
+    // Those were conflated, which made the step read as complete for a tenant
+    // with no channels and put a step on the progress bar that could never run.
+    // Inapplicability is already expressed by `isApplicable` above.
+    isComplete: (c) => c.messagingChannelDone,
   },
   {
     // Configure/link the chosen messaging app (QR + deep link, or OAuth redirect).
@@ -115,7 +153,9 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
       c.needsProviderConnection === false &&
       c.messagingAvailableCount >= 1 &&
       c.messagingChannelChosen,
-    isComplete: (c) => c.messagingConfigureDone || c.messagingAvailableCount === 0,
+    // Same split as the picker: "nothing to configure" is inapplicability, not
+    // completion.
+    isComplete: (c) => c.messagingConfigureDone,
   },
 ];
 
@@ -169,11 +209,20 @@ export interface OnboardingProgressItem {
  * step one. Position keeps the bar honest: nothing reads done until it's behind us.
  */
 export function onboardingProgress(ctx: OnboardingContext): OnboardingProgressItem[] {
+  // Only the steps THIS user will actually meet. The bar used to render the full
+  // canonical pipeline, so a typical self-serve user — whose tenant has no
+  // messaging channels configured — was shown "Chat app" and "Link" as upcoming
+  // steps that would never arrive, and a five-step journey that ran in two.
+  //
+  // A step counts as part of the journey when it is applicable now or already
+  // behind us; `isComplete` covers the latter, since a finished step stops being
+  // applicable the moment it completes.
+  const journey = ONBOARDING_STEPS.filter((s) => s.isApplicable(ctx) || s.isComplete(ctx));
   const currentId = currentOnboardingStep(ctx)?.id;
   const currentIndex = currentId
-    ? ONBOARDING_STEPS.findIndex((s) => s.id === currentId)
-    : ONBOARDING_STEPS.length; // onboarding finished — everything is behind us
-  return ONBOARDING_STEPS.map((s, i) => ({
+    ? journey.findIndex((s) => s.id === currentId)
+    : journey.length; // onboarding finished — everything is behind us
+  return journey.map((s, i) => ({
     id: s.id,
     label: s.label,
     status: i === currentIndex ? 'current' : i < currentIndex ? 'done' : 'upcoming',

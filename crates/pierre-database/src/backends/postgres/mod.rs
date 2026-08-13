@@ -24,10 +24,14 @@ pub mod claim_verdicts;
 pub mod coaches;
 /// Coaching group repository implementation (group CRUD, membership, invites)
 pub mod coaching_groups;
+/// Email-verification token management — proving a registered address
+pub mod email_verification;
 /// Encryption support (AES-256-GCM)
 pub mod encryption;
 /// Tenant defaults + per-user overrides (`Postgres`) backing `FeatureFlagsRepository`.
 pub mod feature_flags;
+/// Fitness configuration — tenant- and user-scoped training settings
+pub mod fitness_config;
 /// Guardian pending actions (`Postgres`) backing `GuardianPendingActionsRepository`.
 pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
@@ -36,6 +40,7 @@ pub mod health_persistence;
 pub mod memory;
 /// Messaging gateway repository implementations
 pub mod messaging;
+pub mod messaging_link_states;
 /// Mobility repository implementation (stretching exercises and yoga poses)
 pub mod mobility;
 /// OAuth token and authorization repository implementations

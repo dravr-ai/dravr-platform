@@ -12,7 +12,7 @@
 //! 1. Auto-approval precedence is env var > database. An admin who saves the
 //!    toggle while `AUTO_APPROVE_USERS` is set writes a row that changes
 //!    nothing, so the value reported back has to be the effective one from
-//!    [`admin_ops::get_auto_approval_settings`] — reporting the requested value
+//!    [`admin_settings::get_auto_approval_settings`] — reporting the requested value
 //!    shows success and then snaps back on the next read.
 //! 2. `/api/oauth/status` answers "disconnected" only for a user who genuinely
 //!    holds no tokens; a repository failure is a 5xx.
@@ -25,7 +25,7 @@ use common::{create_test_server_resources, create_test_user};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::AppBehaviorConfig;
 use pierre_routes_auth::AuthRoutes;
-use pierre_services::admin_ops;
+use pierre_services::admin_settings;
 
 /// Build an app-behavior config whose only interesting axis is where the
 /// auto-approval flag came from.
@@ -44,11 +44,13 @@ async fn auto_approval_resolves_to_the_env_value_and_flags_the_override() {
     let data = resources.data();
 
     // The admin flips the toggle on: the row lands in system_settings.
-    admin_ops::set_auto_approval(&data, true).await.unwrap();
+    admin_settings::set_auto_approval(&data, true)
+        .await
+        .unwrap();
 
     // AUTO_APPROVE_USERS=false in the environment outranks that row, so the
     // value an admin surface may report is `false` — never the requested `true`.
-    let settings = admin_ops::get_auto_approval_settings(&data, &app_behavior(false, true))
+    let settings = admin_settings::get_auto_approval_settings(&data, &app_behavior(false, true))
         .await
         .unwrap();
     assert!(
@@ -63,7 +65,7 @@ async fn auto_approval_resolves_to_the_env_value_and_flags_the_override() {
 
     // With the env var absent the same stored row is the effective value and
     // the toggle is genuinely editable.
-    let settings = admin_ops::get_auto_approval_settings(&data, &app_behavior(false, false))
+    let settings = admin_settings::get_auto_approval_settings(&data, &app_behavior(false, false))
         .await
         .unwrap();
     assert!(
@@ -79,9 +81,11 @@ async fn auto_approval_env_override_holds_after_a_write_that_agrees_with_the_dat
     let data = resources.data();
 
     // Admin saves "off"; the environment says "on".
-    admin_ops::set_auto_approval(&data, false).await.unwrap();
+    admin_settings::set_auto_approval(&data, false)
+        .await
+        .unwrap();
 
-    let settings = admin_ops::get_auto_approval_settings(&data, &app_behavior(true, true))
+    let settings = admin_settings::get_auto_approval_settings(&data, &app_behavior(true, true))
         .await
         .unwrap();
     assert!(

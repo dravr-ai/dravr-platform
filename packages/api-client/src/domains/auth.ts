@@ -199,6 +199,21 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
     },
 
     /**
+     * Re-send the address-confirmation link.
+     *
+     * Always resolves with the same neutral message whether or not the address
+     * exists, is already confirmed, or has tripped its hourly cap — the response
+     * must not let a caller probe which addresses are registered.
+     */
+    async resendVerification(email: string): Promise<{ message: string }> {
+      const response = await axios.post<{ message: string }>(
+        ENDPOINTS.AUTH.RESEND_VERIFICATION,
+        { email },
+      );
+      return response.data;
+    },
+
+    /**
      * Complete a password reset using the emailed reset code and new password.
      */
     async resetPassword(

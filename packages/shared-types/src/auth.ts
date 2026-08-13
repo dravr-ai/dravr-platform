@@ -39,6 +39,15 @@ export interface User {
   /** Account status (use user_status or status) */
   user_status?: UserStatus;
   status?: UserStatus;
+  /**
+   * Whether the user has confirmed their email address.
+   *
+   * Absent means the surface that produced this user did not resolve it —
+   * deliberately not `false`, which would claim the address is unconfirmed when
+   * the server simply didn't look. Populated on login and session restore, which
+   * is where the clients decide between "confirm your email" and "awaiting review".
+   */
+  email_verified?: boolean;
   /** Subscription tier (always present in user listings) */
   tier: UserTier;
   /** Active tenant identifier for multi-tenant operations */

@@ -137,6 +137,8 @@ impl CommandHandler for CalibrateHandler {
                     &user,
                     Some(Pillar::TrainingAndMovement),
                     Some(previous),
+                    // Pillar-scoped re-screen: no per-question narrowing.
+                    None,
                 )
                 .await?;
             info!(

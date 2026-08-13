@@ -868,8 +868,8 @@ impl StoreListingsRepository for Database {
         let assignment_id = Uuid::new_v4();
         sqlx::query(
             r"
-            INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, 0, 0, 0, NULL)
+            INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, 0, 0, NULL)
             ",
         )
         .bind(assignment_id.to_string())

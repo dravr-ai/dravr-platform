@@ -181,6 +181,64 @@ pub fn registration_approved_html(display_name: Option<&str>, sign_in_url: Optio
     )
 }
 
+/// Generate the HTML body for an email-address verification message.
+///
+/// Sent immediately after registration. The link carries a single-use
+/// `<selector>.<verifier>` token; the copy states the expiry because a link that
+/// silently stops working is the most common way this flow strands someone.
+#[must_use]
+pub fn email_verification_html(
+    display_name: Option<&str>,
+    verify_url: &str,
+    ttl_minutes: i64,
+) -> String {
+    let greeting = greeting(display_name);
+    let url_attr = encode_double_quoted_attribute(verify_url);
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirm your email</title>
+</head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#0a0a0f;color:#e5e7eb;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;padding:40px 20px;">
+    <tr>
+      <td style="text-align:center;padding-bottom:32px;">
+        <h1 style="margin:0;font-size:24px;font-weight:700;color:#ffffff;">Dravr</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(59,130,246,0.1));border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px;">
+        <h2 style="margin:0 0 16px;font-size:20px;font-weight:600;color:#ffffff;">Confirm your email</h2>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#e5e7eb;">{greeting}</p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          Confirm this address to finish setting up your Dravr account.
+        </p>
+        <div style="text-align:center;margin:0 0 24px;">
+          <a href="{url_attr}" style="display:inline-block;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:10px;">Confirm my email</a>
+        </div>
+        <p style="margin:0 0 16px;font-size:13px;line-height:1.5;color:#6b7280;">
+          This link works once and expires in {ttl_minutes} minutes. If it has
+          expired, sign in and we'll send a fresh one.
+        </p>
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#6b7280;">
+          If you didn't create a Dravr account, you can ignore this email.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="text-align:center;padding-top:24px;">
+        <p style="margin:0;font-size:12px;color:#4b5563;">&copy; Dravr</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"#
+    )
+}
+
 /// Generate the HTML body for a channel linking verification code email
 ///
 /// Displays a 6-digit code for the user to type back in their messaging app

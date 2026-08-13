@@ -30,6 +30,8 @@
 
 #![warn(missing_docs)]
 
+mod settings;
+
 use std::fmt::Write as _;
 use std::sync::Arc;
 
@@ -50,7 +52,6 @@ use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_config::environment::ServerConfig;
 use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allowlist;
-use pierre_config::social::SocialInsightsConfig;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
@@ -502,13 +503,13 @@ impl WebAdminRoutes {
             )
             .route(
                 "/api/admin/settings/auto-approval",
-                get(Self::handle_get_auto_approval).put(Self::handle_set_auto_approval),
+                get(settings::handle_get_auto_approval).put(settings::handle_set_auto_approval),
             )
             .route(
                 "/api/admin/settings/social-insights",
-                get(Self::handle_get_social_insights_config)
-                    .put(Self::handle_set_social_insights_config)
-                    .delete(Self::handle_reset_social_insights_config),
+                get(settings::handle_get_social_insights_config)
+                    .put(settings::handle_set_social_insights_config)
+                    .delete(settings::handle_reset_social_insights_config),
             )
             // Tool selection routes (web admin versions with cookie auth)
             .route(
@@ -1324,191 +1325,6 @@ impl WebAdminRoutes {
                     "total_requests": activity.total_requests,
                     "top_tools": activity.top_tools,
                 }
-            })),
-        )
-            .into_response())
-    }
-
-    /// Handle getting auto-approval setting
-    async fn handle_get_auto_approval(
-        headers: HeaderMap,
-        State(resources): State<WebAdminContext>,
-    ) -> Result<impl IntoResponse, AppError> {
-        Self::authenticate_admin(&headers, &resources).await?;
-
-        let settings =
-            admin_ops::get_auto_approval_settings(&resources.data, &resources.config.app_behavior)
-                .await?;
-
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Auto-approval setting retrieved",
-                "data": {
-                    "enabled": settings.enabled,
-                    "auto_approve_domains": settings.auto_approve_domains,
-                    // The console disables its toggle on this flag. Without it the
-                    // operator gets a control that accepts a change, reports success,
-                    // and silently reverts on the next read.
-                    "overridden_by_env": settings.overridden_by_env,
-                    "description": "When enabled, all new registrations are auto-approved. \
-                        When disabled, only emails from auto_approve_domains are auto-approved."
-                }
-            })),
-        )
-            .into_response())
-    }
-
-    /// Handle setting auto-approval
-    async fn handle_set_auto_approval(
-        headers: HeaderMap,
-        State(resources): State<WebAdminContext>,
-        Json(request): Json<serde_json::Value>,
-    ) -> Result<impl IntoResponse, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-
-        let enabled = request
-            .get("enabled")
-            .and_then(serde_json::Value::as_bool)
-            .ok_or_else(|| AppError::invalid_input("Missing or invalid 'enabled' field"))?;
-
-        info!(
-            user_id = %auth.user_id,
-            enabled = enabled,
-            "Setting auto-approval"
-        );
-
-        admin_ops::set_auto_approval(&resources.data, enabled).await?;
-
-        // Read the setting back rather than echoing the request. `AUTO_APPROVE_USERS`
-        // in the environment takes precedence over the stored row by design, so the
-        // write can persist while changing nothing: the old response reported the
-        // requested value as fact, the UI showed success, and the toggle snapped back
-        // on the next read. Reporting the effective value makes the override visible
-        // instead of pretending the write took.
-        let effective =
-            admin_ops::get_auto_approval_settings(&resources.data, &resources.config.app_behavior)
-                .await?;
-
-        info!(
-            user_id = %auth.user_id,
-            requested = enabled,
-            effective = effective.enabled,
-            overridden_by_env = effective.overridden_by_env,
-            "Auto-approval setting updated"
-        );
-
-        let message = if effective.overridden_by_env {
-            "Auto-approval is controlled by the AUTO_APPROVE_USERS environment variable; \
-             the stored setting was saved but has no effect while that override is set."
-                .to_owned()
-        } else {
-            format!(
-                "Auto-approval has been {}",
-                if effective.enabled {
-                    "enabled"
-                } else {
-                    "disabled"
-                }
-            )
-        };
-
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": message,
-                "data": {
-                    "enabled": effective.enabled,
-                    "overridden_by_env": effective.overridden_by_env,
-                    "description": "When enabled, new user registrations are automatically approved without admin intervention"
-                }
-            })),
-        )
-            .into_response())
-    }
-
-    // =========================================================================
-    // Social Insights Configuration Routes (web admin versions with cookie auth)
-    // =========================================================================
-
-    /// GET `/api/admin/settings/social-insights` - Get social insights configuration
-    async fn handle_get_social_insights_config(
-        headers: HeaderMap,
-        State(resources): State<WebAdminContext>,
-    ) -> Result<impl IntoResponse, AppError> {
-        Self::authenticate_admin(&headers, &resources).await?;
-
-        let config = admin_ops::get_social_insights_config(&resources.data).await?;
-
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Social insights configuration retrieved",
-                "data": config
-            })),
-        )
-            .into_response())
-    }
-
-    /// PUT `/api/admin/settings/social-insights` - Update social insights configuration
-    async fn handle_set_social_insights_config(
-        headers: HeaderMap,
-        State(resources): State<WebAdminContext>,
-        Json(config): Json<SocialInsightsConfig>,
-    ) -> Result<impl IntoResponse, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-
-        info!(
-            user_id = %auth.user_id,
-            "Updating social insights configuration"
-        );
-
-        admin_ops::set_social_insights_config(&resources.data, &config).await?;
-
-        info!(
-            user_id = %auth.user_id,
-            "Social insights configuration updated"
-        );
-
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Social insights configuration updated",
-                "data": config
-            })),
-        )
-            .into_response())
-    }
-
-    /// DELETE `/api/admin/settings/social-insights` - Reset social insights to defaults
-    async fn handle_reset_social_insights_config(
-        headers: HeaderMap,
-        State(resources): State<WebAdminContext>,
-    ) -> Result<impl IntoResponse, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-
-        info!(
-            user_id = %auth.user_id,
-            "Resetting social insights configuration to defaults"
-        );
-
-        let default_config = admin_ops::reset_social_insights_config(&resources.data).await?;
-
-        info!(
-            user_id = %auth.user_id,
-            "Social insights configuration reset to defaults"
-        );
-
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Social insights configuration reset to defaults",
-                "data": default_config
             })),
         )
             .into_response())

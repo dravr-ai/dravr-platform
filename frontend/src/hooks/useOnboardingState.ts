@@ -20,6 +20,10 @@ export interface OnboardingState {
   ctx: OnboardingContext;
   /** Athlete/coach choice made — persist + advance. */
   completeProfileType: () => void;
+  /** About-you answers submitted or skipped — persist + advance. */
+  completeAboutYou: (status?: 'complete' | 'skipped') => void;
+  /** PAR-Q answered or skipped — persist + advance. */
+  completeParq: (status?: 'complete' | 'skipped') => void;
   /** Coach proposal dismissed/accepted — persist + advance to the dashboard. */
   completeCoachProposal: () => void;
   /** Session-only "continue without connecting" — escapes the flow to the dashboard. */
@@ -103,6 +107,20 @@ export function useOnboardingState(): OnboardingState {
     );
   }, [coachProposalKey]);
 
+  // About-you and PAR-Q completion. Same shape as profile-type: a local flag for
+  // instant advance, the durable server record for cross-device truth.
+  const aboutYouKey = user?.user_id ? `dravr.about_you_done.${user.user_id}` : null;
+  const [aboutYouDoneLocal, setAboutYouDoneLocal] = useState(false);
+  useEffect(() => {
+    setAboutYouDoneLocal(aboutYouKey ? localStorage.getItem(aboutYouKey) === '1' : true);
+  }, [aboutYouKey]);
+
+  const parqKey = user?.user_id ? `dravr.parq_done.${user.user_id}` : null;
+  const [parqDoneLocal, setParqDoneLocal] = useState(false);
+  useEffect(() => {
+    setParqDoneLocal(parqKey ? localStorage.getItem(parqKey) === '1' : true);
+  }, [parqKey]);
+
   // Profile-type completion, persisted per-user so the athlete-vs-coach step
   // shows once within the first-run connect flow.
   const profileTypeKey = user?.user_id ? `dravr.profile_type_chosen.${user.user_id}` : null;
@@ -120,6 +138,8 @@ export function useOnboardingState(): OnboardingState {
     profileTypeChosenLocal || isServerStepComplete(serverSteps, 'profile_type');
   const coachProposalDone =
     coachProposalDoneLocal || isServerStepComplete(serverSteps, 'coach_proposal');
+  const aboutYouDone = aboutYouDoneLocal || isServerStepComplete(serverSteps, 'about_you');
+  const parqDone = parqDoneLocal || isServerStepComplete(serverSteps, 'parq');
 
   // Messaging derivations. The chosen channel is the one picked this session,
   // else the server-persisted `chosen_channel`, else the sole configured channel
@@ -175,6 +195,24 @@ export function useOnboardingState(): OnboardingState {
     persistStep('coach_proposal', 'complete');
   }, [coachProposalKey, persistStep]);
 
+  const completeAboutYou = useCallback(
+    (status: 'complete' | 'skipped' = 'complete') => {
+      if (aboutYouKey) localStorage.setItem(aboutYouKey, '1');
+      setAboutYouDoneLocal(true);
+      persistStep('about_you', status);
+    },
+    [aboutYouKey, persistStep],
+  );
+
+  const completeParq = useCallback(
+    (status: 'complete' | 'skipped' = 'complete') => {
+      if (parqKey) localStorage.setItem(parqKey, '1');
+      setParqDoneLocal(true);
+      persistStep('parq', status);
+    },
+    [parqKey, persistStep],
+  );
+
   const skipProvider = useCallback(() => setSkippedProvider(true), []);
 
   const chooseChannel = useCallback(
@@ -203,6 +241,8 @@ export function useOnboardingState(): OnboardingState {
     justOnboarded,
     profileTypeChosen,
     coachProposalDone,
+    aboutYouDone,
+    parqDone,
     messagingAvailableCount,
     messagingChannelChosen,
     messagingChannelDone,
@@ -212,6 +252,8 @@ export function useOnboardingState(): OnboardingState {
   return {
     ctx,
     completeProfileType,
+    completeAboutYou,
+    completeParq,
     completeCoachProposal,
     skipProvider,
     availableChannels,

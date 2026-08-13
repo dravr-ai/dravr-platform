@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth';
 import { Button, Card } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
+import ConnectPreview from './ConnectPreview';
 
 // Dravr boreal-palette logo. Same dot-and-line motif as Login and
 // PendingApproval; gradient IDs are suffixed with `-onboarding` so the
@@ -233,6 +234,8 @@ export default function OnboardingConnectProvider({
                 {connectError}
               </div>
             )}
+
+            <ConnectPreview />
 
             <p className="mt-6 text-xs text-on-surface-variant text-center">
               Your credentials are encrypted at rest and used only to fetch your activity data.

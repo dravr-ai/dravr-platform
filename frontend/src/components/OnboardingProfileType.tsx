@@ -40,8 +40,16 @@ export default function OnboardingProfileType({
   const handleAthlete = () => {
     if (choosing) return;
     setChoosing('athlete');
-    // Athletes keep the default Casual voice; nothing to persist. They can
-    // fine-tune their coaching style later in Settings.
+    // Nothing to write on the user row: `coaching_persona` has no "athlete"
+    // variant — Casual IS the athlete default — so persisting one would mean
+    // inventing an enum value to record a choice that is already recorded.
+    //
+    // What distinguishes "said athlete" from "never answered" is the durable
+    // step record `onComplete` writes: a `profile_type` row with no
+    // `coaching_persona=coach` alongside it means they chose athlete, and no row
+    // at all means they were never asked. The screen's promise to tailor the
+    // coaches is kept by the `about_you` step immediately after this one, which
+    // writes the North Star, sport and goal that the coach proposal reads.
     onComplete();
   };
 

@@ -6,8 +6,6 @@
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
-use pierre_config::mcp::AppBehaviorConfig;
-use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::models::{Tenant, TenantPlan, User, UserStatus, UserTier};
@@ -142,8 +140,6 @@ pub struct UserAdminProfile {
     pub user_id: String,
     /// Configured coaching persona label
     pub coaching_persona: String,
-    /// User's default coach ID, if set
-    pub default_coach_id: Option<String>,
     /// Coaches the user has installed from the Coach Store
     pub installed_coaches: Vec<InstalledCoachSummary>,
     /// Coaching groups the user belongs to
@@ -204,19 +200,6 @@ pub struct RecentActivityResult {
     pub recent_conversations: Vec<ConversationEntry>,
     /// Aggregated counts for the day
     pub summary: ActivitySummary,
-}
-
-/// Resolved auto-approval settings combining env var and database state
-pub struct AutoApprovalSettings {
-    /// True when new user registrations are auto-approved
-    pub enabled: bool,
-    /// Email domains that bypass approval regardless of the global flag
-    pub auto_approve_domains: Vec<String>,
-    /// True when `AUTO_APPROVE_USERS` in the process environment decided
-    /// `enabled`. The database row is then inert: writing it changes nothing
-    /// until the environment variable is unset and the server restarted, so
-    /// callers surface the setting as read-only instead of editable.
-    pub overridden_by_env: bool,
 }
 
 // =========================================================================
@@ -1017,12 +1000,12 @@ pub async fn issue_password_reset_token(
     target_user_id: Uuid,
     reset_by: &str,
 ) -> Result<String, AppError> {
-    use crate::password_reset::generate_reset_token;
+    use crate::link_token::generate_link_token;
 
     // Selector/verifier token: only the verifier's SHA-256 hash is stored; the plaintext
     // selector indexes the row. The full "<selector>.<verifier>" token is returned for
     // delivery to the user and never persisted.
-    let generated = generate_reset_token();
+    let generated = generate_link_token();
 
     repos
         .password_reset
@@ -1294,6 +1277,18 @@ pub async fn compute_user_admin_profile(
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch user tenants: {e}")))?;
 
+    // Which one is selected now comes from the membership row rather than a
+    // column on the user, since selection is per-tenant.
+    let selected_coach = if let Some(tenant) = tenants.first() {
+        data.repos()
+            .tenants
+            .get_selected_coach(tenant.id, target_user_id)
+            .await
+            .unwrap_or_default()
+    } else {
+        None
+    };
+
     let installed_coaches = if let Some(tenant) = tenants.first() {
         let coaches = data
             .repos()
@@ -1304,8 +1299,7 @@ pub async fn compute_user_admin_profile(
         coaches
             .into_iter()
             .map(|c| InstalledCoachSummary {
-                is_default: user
-                    .default_coach_id
+                is_default: selected_coach
                     .as_deref()
                     .is_some_and(|d| d == c.id.to_string()),
                 coach_id: c.id.to_string(),
@@ -1338,7 +1332,6 @@ pub async fn compute_user_admin_profile(
     Ok(UserAdminProfile {
         user_id: target_user_id.to_string(),
         coaching_persona: user.coaching_persona.to_string(),
-        default_coach_id: user.default_coach_id,
         installed_coaches,
         joined_groups,
     })
@@ -1346,125 +1339,6 @@ pub async fn compute_user_admin_profile(
 
 // =========================================================================
 // Auto-approval settings
-// =========================================================================
-
-/// Retrieve the effective auto-approval setting.
-///
-/// Precedence: env var (if set) > database > default. The returned
-/// `overridden_by_env` records which side won, so a caller that offers an
-/// editing surface can present the value as fixed rather than accepting a
-/// write the next read would discard.
-///
-/// # Errors
-///
-/// Returns `Internal` if the database read for the auto-approval flag fails.
-pub async fn get_auto_approval_settings(
-    data: &DataContext,
-    app_behavior: &AppBehaviorConfig,
-) -> Result<AutoApprovalSettings, AppError> {
-    let enabled = if app_behavior.auto_approve_users_from_env {
-        app_behavior.auto_approve_users
-    } else {
-        match data.database().is_auto_approval_enabled().await {
-            Ok(Some(db_setting)) => db_setting,
-            Ok(None) => app_behavior.auto_approve_users,
-            Err(e) => {
-                error!(error = %e, "Failed to get auto-approval setting");
-                return Err(AppError::internal(format!(
-                    "Failed to get auto-approval setting: {e}"
-                )));
-            }
-        }
-    };
-
-    Ok(AutoApprovalSettings {
-        enabled,
-        auto_approve_domains: app_behavior.auto_approve_domains.clone(),
-        overridden_by_env: app_behavior.auto_approve_users_from_env,
-    })
-}
-
-/// Persist a new auto-approval setting to the database.
-///
-/// The stored row only governs behaviour while `AUTO_APPROVE_USERS` is absent
-/// from the environment; [`get_auto_approval_settings`] is the sole authority
-/// on the effective value, so callers that report an outcome to a client read
-/// it back from there rather than echoing `enabled`.
-///
-/// # Errors
-///
-/// Returns `Internal` if the database write fails.
-pub async fn set_auto_approval(data: &DataContext, enabled: bool) -> Result<(), AppError> {
-    data.database()
-        .set_auto_approval_enabled(enabled)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to set auto-approval setting");
-            AppError::internal(format!("Failed to set auto-approval setting: {e}"))
-        })
-}
-
-// =========================================================================
-// Social insights settings
-// =========================================================================
-
-/// Retrieve the current social insights configuration.
-///
-/// # Errors
-///
-/// Returns `Internal` if the configuration read fails.
-pub async fn get_social_insights_config(
-    data: &DataContext,
-) -> Result<SocialInsightsConfig, AppError> {
-    data.database()
-        .get_social_insights_config()
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to get social insights config");
-            AppError::internal(format!("Failed to get social insights config: {e}"))
-        })
-        .map(Option::unwrap_or_default)
-}
-
-/// Persist updated social insights configuration.
-///
-/// # Errors
-///
-/// Returns `Internal` if the configuration write fails.
-pub async fn set_social_insights_config(
-    data: &DataContext,
-    config: &SocialInsightsConfig,
-) -> Result<(), AppError> {
-    data.database()
-        .set_social_insights_config(config)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to set social insights config");
-            AppError::internal(format!("Failed to set social insights config: {e}"))
-        })
-}
-
-/// Reset social insights configuration to defaults.
-///
-/// # Errors
-///
-/// Returns `Internal` if the configuration deletion fails.
-pub async fn reset_social_insights_config(
-    data: &DataContext,
-) -> Result<SocialInsightsConfig, AppError> {
-    data.database()
-        .delete_social_insights_config()
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to reset social insights config");
-            AppError::internal(format!("Failed to reset social insights config: {e}"))
-        })?;
-
-    Ok(SocialInsightsConfig::default())
-}
-
-// =========================================================================
-// Analytics: recent activity dashboard
 // =========================================================================
 
 /// Fetch recent LLM calls, conversations, and summary stats for the admin dashboard.

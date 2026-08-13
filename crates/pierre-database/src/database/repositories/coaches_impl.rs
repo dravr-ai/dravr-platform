@@ -6,11 +6,9 @@
 
 //! #[async_trait] impl CoachesRepository for Database — coach CRUD, versioning, assignments, and overlays.
 
+use super::coaches_versions as versions;
 use super::CoachesRepository;
-use crate::database::coaches::{
-    compute_content_hash, compute_request_hash, row_to_coach, row_to_coach_list_item,
-    row_to_coach_version,
-};
+use crate::database::coaches::{compute_request_hash, row_to_coach, row_to_coach_list_item};
 use crate::database::Database;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -47,8 +45,8 @@ async fn ensure_assignment_exists(
 
     sqlx::query(
         r"
-        INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-        VALUES ($1, $2, $3, $3, $4, 0, 0, 0, NULL)
+        INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+        VALUES ($1, $2, $3, $3, $4, 0, 0, NULL)
         ",
     )
     .bind(id.to_string())
@@ -179,8 +177,8 @@ impl CoachesRepository for Database {
         let assignment_id = Uuid::new_v4();
         sqlx::query(
             r"
-            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, 0, 0, 0, NULL)
+            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, 0, 0, NULL)
             ",
         )
         .bind(assignment_id.to_string()).bind(id.to_string())
@@ -282,11 +280,12 @@ impl CoachesRepository for Database {
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria,
                    CASE WHEN ca.coach_id IS NOT NULL THEN 1 ELSE 0 END as is_assigned,
                    COALESCE(ca.is_favorite, 0) as is_favorite,
-                   COALESCE(ca.is_active, 0) as is_active,
+                   CASE WHEN tu.selected_coach_id = c.id THEN 1 ELSE 0 END as is_active,
                    COALESCE(ca.use_count, 0) as use_count,
                    ca.last_used_at
             FROM coaches c
             LEFT JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
+            LEFT JOIN tenant_users tu ON tu.user_id = $1 AND tu.tenant_id = $2
             WHERE (
                 (c.user_id = $1 AND c.is_system = 0 AND c.tenant_id = $2)
                 {system_condition}
@@ -652,8 +651,8 @@ impl CoachesRepository for Database {
 
         let assignment_id = Uuid::new_v4();
         sqlx::query(
-            r"INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, 0, 0, 0, NULL)",
+            r"INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, 0, 0, NULL)",
         )
         .bind(assignment_id.to_string()).bind(id.to_string())
         .bind(user_id.to_string()).bind(now.to_rfc3339())
@@ -712,28 +711,32 @@ impl CoachesRepository for Database {
         if coach_exists.is_none() {
             return Ok(None);
         }
+        // The roster row still records entitlement, favourites and usage.
         ensure_assignment_exists(self.pool(), coach_id, user_id).await?;
-        sqlx::query("UPDATE coach_assignments SET is_active = 0 WHERE user_id = $1")
-            .bind(user_id.to_string())
-            .execute(self.pool())
-            .await
-            .map_err(|e| AppError::database(format!("Failed to deactivate coaches: {e}")))?;
+        // Selection itself is one pointer on the membership row. The pair of
+        // UPDATEs this replaced (clear every row, then set one) was not atomic
+        // and could leave a user with zero or two active coaches.
         sqlx::query(
-            "UPDATE coach_assignments SET is_active = 1 WHERE coach_id = $1 AND user_id = $2",
+            "UPDATE tenant_users SET selected_coach_id = $1 WHERE user_id = $2 AND tenant_id = $3",
         )
         .bind(coach_id)
         .bind(user_id.to_string())
+        .bind(tenant_id)
         .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to activate coach: {e}")))?;
         CoachesRepository::get_by_id(self, coach_id, user_id, tenant_id).await
     }
 
-    async fn deactivate_coach(&self, user_id: Uuid, _tenant_id: TenantId) -> AppResult<bool> {
+    async fn deactivate_coach(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool> {
+        // Clears the selection, leaving the roster row intact: the user still has
+        // the coach available, they just are not talking to it.
         let result = sqlx::query(
-            "UPDATE coach_assignments SET is_active = 0 WHERE user_id = $1 AND is_active = 1",
+            "UPDATE tenant_users SET selected_coach_id = NULL \
+             WHERE user_id = $1 AND tenant_id = $2 AND selected_coach_id IS NOT NULL",
         )
         .bind(user_id.to_string())
+        .bind(tenant_id)
         .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to deactivate coach: {e}")))?;
@@ -752,8 +755,8 @@ impl CoachesRepository for Database {
                    c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
             FROM coaches c
-            JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
-            WHERE ca.is_active = 1 AND c.tenant_id = $2",
+            JOIN tenant_users tu ON c.id = tu.selected_coach_id
+            WHERE tu.user_id = $1 AND tu.tenant_id = $2",
         ).bind(user_id.to_string()).bind(tenant_id).fetch_optional(self.pool()).await
         .map_err(|e| AppError::database(format!("Failed to get active coach: {e}")))?;
         row.map(|r| row_to_coach(&r)).transpose()
@@ -955,7 +958,7 @@ impl CoachesRepository for Database {
         user_id: Uuid,
     ) -> AppResult<(bool, bool, u32, Option<DateTime<Utc>>)> {
         let row = sqlx::query(
-            "SELECT is_favorite, is_active, use_count, last_used_at FROM coach_assignments WHERE coach_id = $1 AND user_id = $2",
+            "SELECT is_favorite, use_count, last_used_at FROM coach_assignments WHERE coach_id = $1 AND user_id = $2",
         ).bind(coach_id).bind(user_id.to_string()).fetch_optional(self.pool()).await
         .map_err(|e| AppError::database(format!("Failed to get user preferences: {e}")))?;
         row.map_or(Ok((false, false, 0, None)), |r| {
@@ -985,8 +988,8 @@ impl CoachesRepository for Database {
         let id = Uuid::new_v4();
         let now = Utc::now().to_rfc3339();
         let result = sqlx::query(
-            r"INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $4, $5, 0, 0, 0, NULL)",
+            r"INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $4, $5, 0, 0, NULL)",
         ).bind(id.to_string()).bind(coach_id).bind(user_id.to_string())
         .bind(assigned_by.to_string()).bind(&now).execute(self.pool()).await
         .map_err(|e| AppError::database(format!("Failed to assign coach: {e}")))?;
@@ -1109,50 +1112,15 @@ impl CoachesRepository for Database {
 
     // -- Version methods --
 
+    // -- Version methods (bodies in coaches_versions.rs) --
+
     async fn create_version(
         &self,
         coach_id: &str,
         user_id: Uuid,
         change_summary: Option<&str>,
     ) -> AppResult<i32> {
-        let row = sqlx::query(
-            r"SELECT id, user_id, tenant_id, title, description, system_prompt,
-                   category, tags, sample_prompts, token_count,
-                   created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
-                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
-            FROM coaches WHERE id = $1",
-        ).bind(coach_id).fetch_optional(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to get coach for versioning: {e}")))?
-        .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
-        let coach = row_to_coach(&row)?;
-
-        let version_row = sqlx::query(
-            "SELECT COALESCE(MAX(version), 0) as max_version FROM coach_versions WHERE coach_id = $1",
-        ).bind(coach_id).fetch_one(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to get max version: {e}")))?;
-        let max_version: i32 = version_row.get("max_version");
-        let new_version = max_version + 1;
-
-        let content_snapshot = serde_json::json!({
-            "title": coach.title, "description": coach.description,
-            "system_prompt": coach.system_prompt, "category": coach.category.as_str(),
-            "tags": coach.tags, "sample_prompts": coach.sample_prompts,
-            "token_count": coach.token_count, "visibility": coach.visibility.as_str(),
-            "prerequisites": coach.prerequisites,
-        });
-        let content_hash = compute_content_hash(&content_snapshot);
-        let id = Uuid::new_v4();
-        let now = Utc::now();
-        sqlx::query(
-            r"INSERT INTO coach_versions (id, coach_id, version, content_hash, content_snapshot, change_summary, created_at, created_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-        ).bind(id.to_string()).bind(coach_id).bind(new_version)
-        .bind(&content_hash).bind(content_snapshot.to_string())
-        .bind(change_summary).bind(now.to_rfc3339()).bind(user_id.to_string())
-        .execute(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to create version: {e}")))?;
-        Ok(new_version)
+        versions::create_version(self.pool(), coach_id, user_id, change_summary).await
     }
 
     async fn get_versions(
@@ -1161,27 +1129,7 @@ impl CoachesRepository for Database {
         tenant_id: TenantId,
         limit: u32,
     ) -> AppResult<Vec<CoachVersion>> {
-        let exists = sqlx::query("SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2")
-            .bind(coach_id)
-            .bind(tenant_id)
-            .fetch_optional(self.pool())
-            .await
-            .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
-        if exists.is_none() {
-            return Err(AppError::not_found(format!("Coach {coach_id}")));
-        }
-        let limit_val = i32::try_from(limit).unwrap_or(50);
-        let rows = sqlx::query(
-            r"SELECT cv.id, cv.coach_id, cv.version, cv.content_hash, cv.content_snapshot,
-                   cv.change_summary, cv.created_at, cv.created_by
-            FROM coach_versions cv WHERE cv.coach_id = $1 ORDER BY cv.version DESC LIMIT $2",
-        )
-        .bind(coach_id)
-        .bind(limit_val)
-        .fetch_all(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get versions: {e}")))?;
-        rows.iter().map(row_to_coach_version).collect()
+        versions::get_versions(self.pool(), coach_id, tenant_id, limit).await
     }
 
     async fn get_version(
@@ -1190,21 +1138,7 @@ impl CoachesRepository for Database {
         version: i32,
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachVersion>> {
-        let exists = sqlx::query("SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2")
-            .bind(coach_id)
-            .bind(tenant_id)
-            .fetch_optional(self.pool())
-            .await
-            .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?;
-        if exists.is_none() {
-            return Err(AppError::not_found(format!("Coach {coach_id}")));
-        }
-        let row = sqlx::query(
-            r"SELECT id, coach_id, version, content_hash, content_snapshot, change_summary, created_at, created_by
-            FROM coach_versions WHERE coach_id = $1 AND version = $2",
-        ).bind(coach_id).bind(version).fetch_optional(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to get version: {e}")))?;
-        row.map(|r| row_to_coach_version(&r)).transpose()
+        versions::get_version(self.pool(), coach_id, version, tenant_id).await
     }
 
     async fn revert_to_version(
@@ -1214,93 +1148,11 @@ impl CoachesRepository for Database {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Coach> {
-        let target_version = self
-            .get_version(coach_id, version, tenant_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::not_found(format!("Version {version} for coach {coach_id}"))
-            })?;
-        let snapshot = &target_version.content_snapshot;
-        let title = snapshot
-            .get("title")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::internal("Missing title in version snapshot"))?;
-        let description = snapshot
-            .get("description")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-        let system_prompt = snapshot
-            .get("system_prompt")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::internal("Missing system_prompt in version snapshot"))?;
-        let category_str = snapshot
-            .get("category")
-            .and_then(|v| v.as_str())
-            .unwrap_or("custom");
-        let tags: Vec<String> = snapshot
-            .get("tags")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
-        let sample_prompts: Vec<String> = snapshot
-            .get("sample_prompts")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
-
-        let now = Utc::now();
-        let tags_json = serde_json::to_string(&tags)?;
-        let sample_prompts_json = serde_json::to_string(&sample_prompts)?;
-        let token_count = estimate_prompt_tokens(system_prompt);
-
-        // Owner-gated write: mirror `update()`'s `WHERE id AND user_id AND
-        // tenant_id` predicate so only the coach owner can revert. A non-owner
-        // (even within the same tenant) matches zero rows and is denied below,
-        // closing the version-revert IDOR.
-        let result = sqlx::query(
-            r"UPDATE coaches SET title = $1, description = $2, system_prompt = $3,
-                category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8
-            WHERE id = $9 AND user_id = $10 AND tenant_id = $11",
-        )
-        .bind(title)
-        .bind(&description)
-        .bind(system_prompt)
-        .bind(category_str)
-        .bind(&tags_json)
-        .bind(&sample_prompts_json)
-        .bind(i64::from(token_count))
-        .bind(now.to_rfc3339())
-        .bind(coach_id)
-        .bind(user_id.to_string())
-        .bind(tenant_id)
-        .execute(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to revert coach: {e}")))?;
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("Coach {coach_id}")));
-        }
-
-        let revert_summary = format!("Reverted to version {version}");
-        self.create_version(coach_id, user_id, Some(&revert_summary))
-            .await?;
-
-        let row = sqlx::query(
-            r"SELECT id, user_id, tenant_id, title, description, system_prompt,
-                   category, tags, sample_prompts, token_count,
-                   created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
-                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
-            FROM coaches WHERE id = $1 AND tenant_id = $2",
-        ).bind(coach_id).bind(tenant_id).fetch_optional(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to get reverted coach: {e}")))?
-        .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
-        row_to_coach(&row)
+        versions::revert_to_version(self.pool(), coach_id, version, user_id, tenant_id).await
     }
 
     async fn get_current_version(&self, coach_id: &str) -> AppResult<i32> {
-        let row = sqlx::query(
-            "SELECT COALESCE(MAX(version), 0) as current_version FROM coach_versions WHERE coach_id = $1",
-        ).bind(coach_id).fetch_one(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to get current version: {e}")))?;
-        Ok(row.get("current_version"))
+        versions::get_current_version(self.pool(), coach_id).await
     }
 
     async fn get_coach_runtime_context(

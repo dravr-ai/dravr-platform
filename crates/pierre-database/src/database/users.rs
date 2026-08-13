@@ -32,7 +32,7 @@ use uuid::Uuid;
 const USER_COLUMNS: &str = "id, email, display_name, password_hash, tier, \
      is_active, user_status, is_admin, role, approved_by, approved_at, \
      created_at, last_active, firebase_uid, auth_provider, \
-     analytics_consent, analytics_consent_at, locale, default_coach_id, \
+     analytics_consent, analytics_consent_at, locale, \
      coaching_persona, manages_roster, timezone";
 
 impl Database {
@@ -92,9 +92,9 @@ impl Database {
                     id, email, display_name, password_hash, tier,
                     is_active, user_status, is_admin, role, approved_by, approved_at,
                     created_at, last_active, firebase_uid, auth_provider,
-                    analytics_consent, analytics_consent_at, locale, default_coach_id,
+                    analytics_consent, analytics_consent_at, locale,
                     coaching_persona, manages_roster
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
                 ",
             )
             .bind(user.id.to_string())
@@ -115,7 +115,6 @@ impl Database {
             .bind(user.analytics_consent)
             .bind(user.analytics_consent_at)
             .bind(&user.locale)
-            .bind(&user.default_coach_id)
             .bind(user.coaching_persona.as_str())
             .bind(user.manages_roster)
             .execute(&self.pool)
@@ -186,7 +185,7 @@ impl Database {
             SELECT u.id, u.email, u.display_name, u.password_hash, u.tier,
                    u.is_active, u.user_status, u.is_admin, u.role, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
-                   u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id,
+                   u.analytics_consent, u.analytics_consent_at, u.locale,
                    u.coaching_persona, u.manages_roster, u.timezone
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
@@ -288,8 +287,6 @@ impl Database {
             row.try_get("analytics_consent_at").ok().flatten();
         // Locale defaults to "fr" if the column is missing on older DBs.
         let locale: String = row.try_get("locale").ok().unwrap_or_else(default_locale);
-        // default_coach_id is nullable; try_get returns Option<Option<_>>.
-        let default_coach_id: Option<String> = row.try_get("default_coach_id").ok().flatten();
         // Coaching persona — defaults to Casual when column is absent
         // (pre-migration DBs) or carries an unrecognised value.
         let coaching_persona: CoachingPersona = row
@@ -356,7 +353,7 @@ impl Database {
             analytics_consent,
             analytics_consent_at,
             locale,
-            default_coach_id,
+
             coaching_persona,
             manages_roster,
             timezone,
@@ -1178,37 +1175,6 @@ impl Database {
         Ok(())
     }
 
-    /// Set or clear the user's personal default coach.
-    ///
-    /// Passing `None` clears the selection. `ON DELETE SET NULL` on the FK
-    /// handles the inverse case (coach row removed).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the user is not found or database update fails.
-    pub async fn set_default_coach_impl(
-        &self,
-        user_id: Uuid,
-        coach_id: Option<&str>,
-    ) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE users SET default_coach_id = ?1 WHERE id = ?2
-            ",
-        )
-        .bind(coach_id)
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to set default coach: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-
-        Ok(())
-    }
-
     /// Set the user's coaching persona (output format / cadence preference).
     ///
     /// Persisted as `snake_case` enum text — the column has
@@ -1346,9 +1312,6 @@ impl UserRepository for Database {
     }
     async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {
         Self::update_user_locale_impl(self, user_id, locale).await
-    }
-    async fn set_default_coach(&self, user_id: Uuid, coach_id: Option<&str>) -> AppResult<()> {
-        Self::set_default_coach_impl(self, user_id, coach_id).await
     }
     async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()> {
         Self::set_coaching_persona_impl(self, user_id, persona).await

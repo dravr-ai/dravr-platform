@@ -210,8 +210,8 @@ impl PostgresDatabase {
 
         sqlx::query(
             r"
-            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, FALSE, FALSE, 0, NULL)
+            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL)
             ON CONFLICT (coach_id, user_id) DO NOTHING
             ",
         )
@@ -445,8 +445,8 @@ impl CoachesRepository for PostgresDatabase {
         let assignment_id = Uuid::new_v4();
         sqlx::query(
             r"
-            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, FALSE, FALSE, 0, NULL)
+            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL)
             ",
         )
         .bind(assignment_id.to_string())
@@ -562,11 +562,12 @@ impl CoachesRepository for PostgresDatabase {
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria,
                    CASE WHEN ca.coach_id IS NOT NULL THEN TRUE ELSE FALSE END as is_assigned,
                    COALESCE(ca.is_favorite, FALSE) as is_favorite,
-                   COALESCE(ca.is_active, FALSE) as is_active,
+                   (tu.selected_coach_id = c.id) as is_active,
                    COALESCE(ca.use_count, 0) as use_count,
                    ca.last_used_at
             FROM coaches c
             LEFT JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
+            LEFT JOIN tenant_users tu ON tu.user_id = $1 AND tu.tenant_id = $2::uuid
             WHERE (
                 -- Personal coaches: owned by user
                 (c.user_id = $1 AND c.is_system = FALSE AND c.tenant_id = $2)
@@ -867,8 +868,8 @@ impl CoachesRepository for PostgresDatabase {
         let assignment_id = Uuid::new_v4();
         sqlx::query(
             r"
-            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $3, $4, FALSE, FALSE, 0, NULL)
+            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL)
             ",
         )
         .bind(assignment_id.to_string())
@@ -1102,31 +1103,22 @@ impl CoachesRepository for PostgresDatabase {
             return Ok(None);
         }
 
-        // Ensure assignment row exists
+        // The roster row still records entitlement, favourites and usage.
         self.ensure_coach_assignment_exists(coach_id, user_id)
             .await?;
 
-        // Deactivate all coaches for this user
+        // Selection is one pointer on the membership row. The pair of UPDATEs
+        // this replaced (clear every row, then set one) was not atomic and could
+        // leave a user with zero or two active coaches.
         sqlx::query(
             r"
-            UPDATE coach_assignments SET is_active = FALSE
-            WHERE user_id = $1
-            ",
-        )
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to deactivate coaches: {e}")))?;
-
-        // Activate the target coach
-        sqlx::query(
-            r"
-            UPDATE coach_assignments SET is_active = TRUE
-            WHERE coach_id = $1 AND user_id = $2
+            UPDATE tenant_users SET selected_coach_id = $1
+            WHERE user_id = $2 AND tenant_id = $3::uuid
             ",
         )
         .bind(coach_id)
         .bind(user_id)
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to activate coach: {e}")))?;
@@ -1135,14 +1127,17 @@ impl CoachesRepository for PostgresDatabase {
         self.get_by_id(coach_id, user_id, tenant_id).await
     }
 
-    async fn deactivate_coach(&self, user_id: Uuid, _tenant_id: TenantId) -> AppResult<bool> {
+    async fn deactivate_coach(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool> {
+        // Clears the selection, leaving the roster intact: the coach is still
+        // available to the user, they just are not talking to it.
         let result = sqlx::query(
             r"
-            UPDATE coach_assignments SET is_active = FALSE
-            WHERE user_id = $1 AND is_active = TRUE
+            UPDATE tenant_users SET selected_coach_id = NULL
+            WHERE user_id = $1 AND tenant_id = $2::uuid AND selected_coach_id IS NOT NULL
             ",
         )
         .bind(user_id)
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to deactivate coach: {e}")))?;
@@ -1163,8 +1158,8 @@ impl CoachesRepository for PostgresDatabase {
                    c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
             FROM coaches c
-            JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
-            WHERE ca.is_active = TRUE AND c.tenant_id = $2
+            JOIN tenant_users tu ON c.id = tu.selected_coach_id
+            WHERE tu.user_id = $1 AND tu.tenant_id = $2::uuid
             ",
         )
         .bind(user_id)
@@ -1475,8 +1470,8 @@ impl CoachesRepository for PostgresDatabase {
         // Use INSERT ... ON CONFLICT DO NOTHING to handle duplicates gracefully
         let result = sqlx::query(
             r"
-            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, is_active, use_count, last_used_at)
-            VALUES ($1, $2, $3, $4, $5, FALSE, FALSE, 0, NULL)
+            INSERT INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+            VALUES ($1, $2, $3, $4, $5, FALSE, 0, NULL)
             ON CONFLICT (coach_id, user_id) DO NOTHING
             ",
         )

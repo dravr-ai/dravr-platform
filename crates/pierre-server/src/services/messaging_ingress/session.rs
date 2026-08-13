@@ -8,7 +8,7 @@ use std::env;
 
 use chrono::{Duration, Utc};
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage, LINK_CODE_TTL_MINUTES};
-use pierre_core::models::{OnboardingState, TenantId};
+use pierre_core::models::{CoverageMap, GuidedFlow, OnboardingState, TenantId};
 use pierre_database::backends::{CreateLinkStateParams, CreateSessionParams, MessagingRepository};
 use pierre_database::repositories::ChatRepository;
 use serde_json::Value;
@@ -98,10 +98,10 @@ pub(super) async fn forge_fresh_session_conversation(
         "Session pierre_conversation_id missing or unreachable; self-healing with a fresh conversation"
     );
     let title = format!("Messaging: {channel_type}");
-    // Bind the user's default coach so verdicts/grades/myth-busting attribute
-    // correctly. When the user has no default, leave it null and the
-    // downstream attribution panels will simply skip the row.
-    let coach_id = resolve_default_coach_id(resources, user_id).await;
+    // Bind the user's selected coach so verdicts/grades/myth-busting attribute
+    // correctly. When nothing is selected, leave it null and the downstream
+    // attribution panels simply skip the row.
+    let coach_id = resolve_selected_coach_id(resources, tenant_id, user_id).await;
     let conversation = create_conversation(
         resources.common.repos.chat.as_ref(),
         user_id,
@@ -116,6 +116,7 @@ pub(super) async fn forge_fresh_session_conversation(
         record_coach_usage(resources, coach_id_str, user_id, tenant_id).await;
     }
     let new_id = conversation.conversation.id.clone();
+    maybe_start_pillar_walk(resources, tenant_id, user_id, &new_id).await;
     stamp_channel_origin(
         resources.common.repos.chat.as_ref(),
         &new_id,
@@ -248,16 +249,19 @@ async fn record_coach_usage(
 /// generated content to a coach. Returns `None` when the user has no
 /// default coach or the lookup fails — callers must not panic on the
 /// missing attribution.
-async fn resolve_default_coach_id(resources: &ServerContext, user_id_str: &str) -> Option<String> {
+async fn resolve_selected_coach_id(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id_str: &str,
+) -> Option<String> {
     let parsed = Uuid::parse_str(user_id_str).ok()?;
-    let user = resources
+    resources
         .common
         .repos
-        .users
-        .get_global(parsed)
+        .tenants
+        .get_selected_coach(tenant_id, parsed)
         .await
-        .ok()??;
-    user.default_coach_id
+        .ok()?
 }
 
 /// Resolve a messaging session for a linked channel user.
@@ -482,7 +486,7 @@ async fn open_new_session(
     .await;
 
     let title = format!("Messaging: {channel_type}");
-    let coach_id = resolve_default_coach_id(resources, &user_id).await;
+    let coach_id = resolve_selected_coach_id(resources, tenant_id, &user_id).await;
     let conversation = create_conversation(
         resources.common.repos.chat.as_ref(),
         &user_id,
@@ -498,6 +502,7 @@ async fn open_new_session(
     }
 
     let conversation_id = conversation.conversation.id.clone();
+    maybe_start_pillar_walk(resources, tenant_id, &user_id, &conversation_id).await;
     stamp_channel_origin(
         resources.common.repos.chat.as_ref(),
         &conversation_id,
@@ -730,7 +735,13 @@ async fn resolve_group_for_retrofit(
 ///
 /// Generates a 32-character cryptographic code with a 10-minute TTL, stores it
 /// in the database, and constructs a message with a clickable URL for the user.
-pub(super) async fn create_link_and_prompt(
+///
+/// `pub` rather than `pub(super)` so integration tests can assert on the reply a
+/// stranger actually receives. The outbound adapters post to hardcoded hosts, so
+/// the built [`OutgoingMessage`] is the last point a test can read the text
+/// without a network stub — and "what does the bot say to someone who has never
+/// used Dravr" is the assertion the onboarding funnel most needs.
+pub async fn create_link_and_prompt(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
@@ -774,4 +785,67 @@ pub(super) async fn create_link_and_prompt(
     let body = format_template(&template, &[&link_url]);
 
     proactive_text(channel_type, sender_id.to_owned(), body)
+}
+
+/// Start the guided pillar walk on a freshly created messaging conversation when
+/// the athlete has told us nothing about themselves yet.
+///
+/// This is how messaging reaches parity with the web wizard. Web asks who the
+/// athlete is on a form before the provider gate; messaging has no form, so it
+/// asks the same things the way a chat surface should — conversationally, woven
+/// into the reply rather than as an interrogation. The pillar walk already does
+/// exactly that, and it was previously reachable only by typing `/pillars`,
+/// which nothing advertises.
+///
+/// Only fires on a genuinely empty dossier. A returning athlete, or anyone who
+/// already answered on web, is left alone: coverage is shared across surfaces,
+/// so answering once anywhere counts everywhere.
+///
+/// Best-effort throughout. A failure here costs a conversational nicety, never
+/// the turn — the athlete still gets their answer, just without the follow-up
+/// question threaded into it.
+async fn maybe_start_pillar_walk(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id_str: &str,
+    conversation_id: &str,
+) {
+    let Ok(user_uuid) = Uuid::parse_str(user_id_str) else {
+        return;
+    };
+
+    let Ok(dossier) = resources
+        .common
+        .repos
+        .dossier
+        .compose_dossier(tenant_id, user_uuid)
+        .await
+    else {
+        return;
+    };
+
+    // Anything already captured means the walk has run, or web asked. Coverage
+    // is the shared signal precisely so the two surfaces do not both ask.
+    if CoverageMap::from_dossier(&dossier).covered_count() > 0 {
+        return;
+    }
+
+    let json = OnboardingState::start_now_column(GuidedFlow::Pillars);
+    match resources
+        .common
+        .repos
+        .chat
+        .set_conversation_onboarding_state(conversation_id, Some(&json), tenant_id)
+        .await
+    {
+        Ok(true) => info!(
+            conversation_id,
+            "pillar walk started for a messaging user with no captured context"
+        ),
+        Ok(false) => warn!(
+            conversation_id,
+            "pillar walk activation matched no conversation row"
+        ),
+        Err(e) => warn!(error = %e, "failed to start the pillar walk"),
+    }
 }

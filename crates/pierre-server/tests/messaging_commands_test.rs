@@ -587,7 +587,7 @@ mod command_tests {
     // /coach DM vs group regression coverage
     //
     // These tests pin down the DM fix:
-    //   - DM: /coach select writes users.default_coach_id, never creates a
+    //   - DM: /coach select writes tenant_users.selected_coach_id, never creates a
     //     group, and the confirmation copy omits "group"/"groupe" wording.
     //   - Group (`is_direct_message = false`) with zero owned groups: old
     //     auto-create path still fires (covered indirectly by the DM path
@@ -653,12 +653,11 @@ mod command_tests {
         let before = resources
             .common
             .repos
-            .users
-            .get_global(user_id)
+            .tenants
+            .get_selected_coach(tenant_id, user_id)
             .await
-            .unwrap()
             .unwrap();
-        assert!(before.default_coach_id.is_none());
+        assert!(before.is_none(), "nothing selected before the command");
 
         let ctx = PlatformCommandContext {
             user_id,
@@ -694,16 +693,16 @@ mod command_tests {
             response.text
         );
 
-        // Post-condition: default_coach_id persisted on the user row.
-        let after = resources
+        // Post-condition: the selection lands on the membership row — the one
+        // pointer every surface now reads, replacing users.default_coach_id.
+        let selected = resources
             .common
             .repos
-            .users
-            .get_global(user_id)
+            .tenants
+            .get_selected_coach(tenant_id, user_id)
             .await
-            .unwrap()
             .unwrap();
-        assert_eq!(after.default_coach_id.as_deref(), Some(coach_id.as_str()));
+        assert_eq!(selected.as_deref(), Some(coach_id.as_str()));
     }
 
     #[tokio::test]
@@ -732,26 +731,27 @@ mod command_tests {
         };
 
         CoachSelectHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
+        // Reselecting must SWAP, not accumulate — the property the old
+        // clear-all-then-set pair maintained non-atomically and a single pointer
+        // gets structurally.
         let after_a = resources
             .common
             .repos
-            .users
-            .get_global(user_id)
+            .tenants
+            .get_selected_coach(tenant_id, user_id)
             .await
-            .unwrap()
             .unwrap();
-        assert_eq!(after_a.default_coach_id.as_deref(), Some(coach_a.as_str()));
+        assert_eq!(after_a.as_deref(), Some(coach_a.as_str()));
 
         CoachSelectHandler.execute(&mk_ctx(&coach_b)).await.unwrap();
         let after_b = resources
             .common
             .repos
-            .users
-            .get_global(user_id)
+            .tenants
+            .get_selected_coach(tenant_id, user_id)
             .await
-            .unwrap()
             .unwrap();
-        assert_eq!(after_b.default_coach_id.as_deref(), Some(coach_b.as_str()));
+        assert_eq!(after_b.as_deref(), Some(coach_b.as_str()));
     }
 
     #[tokio::test]

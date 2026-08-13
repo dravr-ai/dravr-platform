@@ -140,7 +140,6 @@ async fn create_test_db() -> SqlitePool {
             assigned_by TEXT REFERENCES users(id) ON DELETE SET NULL,
             created_at TEXT NOT NULL,
             is_favorite INTEGER NOT NULL DEFAULT 0,
-            is_active INTEGER NOT NULL DEFAULT 0,
             use_count INTEGER NOT NULL DEFAULT 0,
             last_used_at TEXT,
             UNIQUE(coach_id, user_id)
@@ -150,6 +149,61 @@ async fn create_test_db() -> SqlitePool {
     .execute(&pool)
     .await
     .unwrap();
+
+    // tenant_users carries selected_coach_id — the one pointer to a user's
+    // current coach, replacing the flag that used to live on coach_assignments.
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS tenant_users (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'member',
+            invited_at TEXT NOT NULL DEFAULT (datetime('now')),
+            joined_at TEXT,
+            selected_coach_id TEXT REFERENCES coaches(id) ON DELETE SET NULL,
+            UNIQUE(tenant_id, user_id)
+        )
+        ",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Memberships. Selecting a coach now writes the membership row, so a user
+    // with no membership in a tenant cannot select there — which is correct,
+    // since coaches are tenant-scoped, and is what the isolation tests below
+    // exercise. Both users belong to both tenants so the isolation assertions
+    // test the *selection*, not an accidental absence of membership.
+    for (user, tenant) in [
+        (
+            "550e8400-e29b-41d4-a716-446655440000",
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        ),
+        (
+            "550e8400-e29b-41d4-a716-446655440000",
+            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        ),
+        (
+            "660e8400-e29b-41d4-a716-446655440000",
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        ),
+        (
+            "660e8400-e29b-41d4-a716-446655440000",
+            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at) \
+             VALUES (?1, ?2, ?3, 'member', '2025-01-01')",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(tenant)
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
 
     // Create user_coach_preferences table (for hiding coaches)
     sqlx::query(
