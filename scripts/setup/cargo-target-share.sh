@@ -19,6 +19,7 @@ RECLAIM=0
 FORCE=0
 DRY_RUN=0
 ALL_REPOS=0
+PURGE_INCREMENTAL=0
 STALE_DAYS=45
 PATHS=""
 
@@ -47,6 +48,10 @@ Options:
                     one already holds the artifacts. Without this, link reports
                     the redundant directory and skips it.
   --stale-days N    prune: drop shared dirs untouched for N days (default: 45)
+  --purge-incremental
+                    prune: also delete incremental caches. Reclaims the most by
+                    far, but costs the next build in every repo, so it is opt-in
+                    and a scheduled prune should leave it off.
   --all             Consider every Cargo repo under the scan root, not just dravr-*
   --force           Proceed even when a cargo build holds the target lock
   --dry-run         Print what would happen, change nothing
@@ -70,6 +75,7 @@ while [[ $# -gt 0 ]]; do
         --force) FORCE=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         --all) ALL_REPOS=1; shift ;;
+        --purge-incremental) PURGE_INCREMENTAL=1; shift ;;
         --stale-days) STALE_DAYS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         -*) echo "${RED}Unknown option: $1${NC}" >&2; usage >&2; exit 1 ;;
@@ -450,18 +456,26 @@ is_stale() {
 cmd_prune() {
     [[ -d "$SHARED_ROOT" ]] || { echo "Nothing to prune: $SHARED_ROOT does not exist."; return 0; }
 
-    echo "${BLUE}Dropping incremental caches${NC}"
     local inc before sub key
-    while IFS= read -r inc; do
-        [[ -n "$inc" ]] || continue
-        before=$(human_size "$inc")
-        if [[ $DRY_RUN -eq 1 ]]; then
-            echo "${BLUE}would   purge $inc ($before)${NC}"
-        else
-            rm -rf "${inc:?}"/*
-            echo "${GREEN}purged  $inc ${DIM}($before reclaimed)${NC}"
-        fi
-    done < <(find "$SHARED_ROOT" -maxdepth 3 -type d -name incremental 2>/dev/null)
+
+    # Incremental caches are the biggest single reclaim and the only one that
+    # costs something real: dropping them slows the next build in every repo.
+    # That makes them wrong to do on a schedule, so they are opt-in.
+    if [[ $PURGE_INCREMENTAL -eq 0 ]]; then
+        echo "${DIM}Keeping incremental caches (pass --purge-incremental to drop them)${NC}"
+    else
+        echo "${BLUE}Dropping incremental caches${NC}"
+        while IFS= read -r inc; do
+            [[ -n "$inc" ]] || continue
+            before=$(human_size "$inc")
+            if [[ $DRY_RUN -eq 1 ]]; then
+                echo "${BLUE}would   purge $inc ($before)${NC}"
+            else
+                rm -rf "${inc:?}"/*
+                echo "${GREEN}purged  $inc ${DIM}($before reclaimed)${NC}"
+            fi
+        done < <(find "$SHARED_ROOT" -maxdepth 3 -type d -name incremental 2>/dev/null)
+    fi
 
     echo
     echo "${BLUE}Dropping shared dirs untouched for ${STALE_DAYS}+ days${NC}"
