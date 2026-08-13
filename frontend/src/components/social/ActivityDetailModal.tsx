@@ -92,7 +92,7 @@ export default function ActivityDetailModal({
                 </div>
                 <div className="flex-1">
                   <p className="text-xs font-medium text-primary mb-1">AI Insight</p>
-                  <div className="text-sm text-on-surface leading-relaxed prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-headings:text-base prose-strong:text-on-surface prose-ul:my-2 prose-li:my-0.5">
+                  <div className="text-sm text-on-surface leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-headings:text-base prose-strong:text-on-surface prose-ul:my-2 prose-li:my-0.5">
                     <Markdown
                       remarkPlugins={[remarkGfm]}
                       components={{

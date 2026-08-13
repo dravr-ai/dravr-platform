@@ -250,7 +250,7 @@ const MessageItem = memo(function MessageItem({
             <summary className="cursor-pointer text-sm text-on-surface-variant hover:text-on-surface transition-colors select-none">
               Your Activities ({countActivities(activityList)})
             </summary>
-            <div className="mt-2 ml-4 text-on-surface text-sm prose prose-sm prose-invert max-w-none">
+            <div className="mt-2 ml-4 text-on-surface text-sm prose prose-sm dark:prose-invert max-w-none">
               <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
                 {activityList}
               </Markdown>
@@ -259,7 +259,7 @@ const MessageItem = memo(function MessageItem({
         )}
         {workoutPlan && <WorkoutPlanCard plan={workoutPlan} />}
         {(!workoutPlan || content.trim().length > 0) && (
-          <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}>
+          <div className={`text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}>
             <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
               {linkifyUrls(displayContent)}
             </Markdown>

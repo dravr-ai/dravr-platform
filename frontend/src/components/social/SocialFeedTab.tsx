@@ -398,7 +398,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                 {item.insight.title && (
                   <h3 className="text-lg font-semibold text-on-surface mb-2">{item.insight.title}</h3>
                 )}
-                <div className="text-on-surface mb-4 prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-strong:text-on-surface prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
+                <div className="text-on-surface mb-4 prose prose-sm dark:prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-strong:text-on-surface prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
                   <Markdown
                     remarkPlugins={[remarkGfm]}
                     components={{

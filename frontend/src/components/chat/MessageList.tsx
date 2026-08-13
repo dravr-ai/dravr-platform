@@ -204,7 +204,7 @@ export default function MessageList({
               {assistantLabel ?? 'Dravr'}
               <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
             </div>
-            <div className="text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
+            <div className="text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
               <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
                 {linkifyUrls(streamingContent)}
               </Markdown>
