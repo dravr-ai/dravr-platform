@@ -73,6 +73,19 @@ Find a test's file: `rg "test_name" tests/ --files-with-matches`. NEVER `cargo t
 **Pre-push validation** — `./scripts/ci/pre-push-validate.sh` is the ONLY local gate you run (see the CI block for why).
 </important>
 
+<important if="a cargo build is blocking on a file lock, or you are working in a git worktree">
+
+**Every dravr repo's `target/` is a symlink** to `~/.cargo-target/<repo>`, shared by all of that repo's worktrees (`scripts/setup/cargo-target-share.sh`; keyed off `git rev-parse --git-common-dir`, so worktrees collapse together and separate clones stay separate). This exists because each worktree used to carry its own near-complete copy — one worktree alone held 81GB duplicating what main had already built.
+
+- **`Blocking waiting for file lock on build directory` is expected, not a hang.** Worktrees of one repo share a single build lock, and cargo holds it for the *whole* build, so a ~13-min `cargo test --workspace` in one worktree stalls the other for that long. It waits; it does not fail. Confirm with `ps aux | grep cargo` before assuming something is wedged.
+- **Escape hatch — `unlink` the worktree you are building in concurrently:**
+  `./scripts/setup/cargo-target-share.sh unlink <worktree-path>` gives it a private `target/` back. Cost: its next build is cold and it starts growing its own copy again, so re-`link` it when the concurrent stretch is over. `link` is always safe to re-run — it is idempotent and repairs a dangling symlink.
+- `status` shows what is linked and each shared tree's size. `prune` reclaims (stale trees + cargo-sweep by default; `--purge-incremental` is the big, costly lever). All destructive paths skip a tree whose cargo lock is held; `--force` overrides.
+- **`prune` already runs nightly at 02:00 Eastern** via the `ai.dravr.cargo-target-prune` LaunchAgent (log: `~/Library/Logs/cargo-target-prune.log`; `launchctl list | grep cargo-target-prune` to confirm it is loaded). It runs the *default* prune only — the incremental purge stays manual. Reinstall with `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/ai.dravr.cargo-target-prune.plist`. Don't add a second scheduler for this.
+- **`cargo clean` blast radius grew** — it wipes the tree shared by every worktree of that repo. Prefer `cargo clean -p <pkg>`.
+- Never "fix" a `?? target` in `git status` by committing it — the symlink is machine-local and belongs in `.git/info/exclude` (a `target/` rule with a trailing slash matches directories only, not the symlink). Re-running `link` restores the exclude.
+</important>
+
 <important if="you have just run a test command">
 
 Verify tests actually ran — exit code 0 is NOT sufficient (`cargo test` exits 0 when 0 tests run). Confirm `running N tests` with N > 0 AND `N passed` in the summary. Red flags to STOP on: `running 0 tests`, `0 passed; 0 failed`, `filtered out` with 0 passed (usually a wrong `--test` target or a typo'd test name). Never claim "tests pass" if 0 ran.

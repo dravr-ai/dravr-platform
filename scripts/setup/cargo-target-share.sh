@@ -40,7 +40,9 @@ worktrees of one repo share one build tree instead of carrying N copies.
 Commands:
   status            Show what is linked, shared sizes, and reclaimable bytes (default)
   link              Point target/ at the shared per-repo directory
-  unlink            Restore a private, empty target/ directory
+  unlink            Restore a private, empty target/ directory. This is the escape
+                    hatch when you need to build in two worktrees of one repo at
+                    the same time — see the note on lock contention below.
   prune             Drop incremental caches and target dirs for repos gone stale
 
 Options:
@@ -61,10 +63,20 @@ Environment:
   CARGO_SHARED_TARGET_ROOT   Shared root (default: ~/.cargo-target)
   CARGO_TARGET_SHARE_ROOT    Scan root (default: ~/workspace)
 
-Note: worktrees of the same repo now serialize their builds on one target lock.
-A second concurrent cargo build prints "Blocking waiting for file lock on build
-directory" and waits rather than failing. Third-party dependencies stay warm
-across worktrees; workspace crates rebuild when you alternate between branches.
+Lock contention — the one real cost of sharing:
+  Worktrees of the same repo serialize their builds on one target lock, and cargo
+  holds it for the WHOLE build. A second concurrent build prints "Blocking waiting
+  for file lock on build directory" and waits rather than failing, so a long test
+  run in one worktree stalls the other for its full duration.
+
+  When you need two worktrees building at once, give one its own tree back:
+
+      cargo-target-share.sh unlink <worktree-path>       # private target/, cold next build
+      cargo-target-share.sh link   <worktree-path>       # share again when you are done
+
+  link is idempotent and also repairs a dangling symlink, so it is always safe to
+  re-run. Third-party dependencies stay warm across worktrees; workspace crates
+  rebuild when you alternate between branches.
 EOF
 }
 
