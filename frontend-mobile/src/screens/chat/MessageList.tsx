@@ -22,6 +22,7 @@ import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, fontSize, borderRadius, aiGl
 import type { Message, Coach } from '../../types';
 import { parseWorkoutPlan } from '@pierre/shared-types';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -178,8 +179,13 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
   thead: {
     backgroundColor: colors.background.tertiary,
   },
+  // Cells size to their content with a floor, rather than shrinking to fit the
+  // screen. Squeezing a 5-column table into a phone width wraps every heading
+  // to one letter per line; the horizontal ScrollView in MARKDOWN_RULES.table
+  // is what makes the overflow reachable instead of clipped.
   th: {
     padding: 8,
+    minWidth: TABLE_CELL_MIN_WIDTH,
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: colors.border.default,
@@ -194,11 +200,11 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
   },
   td: {
     padding: 8,
+    minWidth: TABLE_CELL_MIN_WIDTH,
     borderRightWidth: 1,
     borderColor: colors.border.subtle,
     fontSize: fontSize.sm,
     color: colors.text.secondary,
-    flexShrink: 1,
   },
 });
 
@@ -256,7 +262,7 @@ function CollapsibleActivities({ activityText }: { activityText: string }) {
       </TouchableOpacity>
       {expanded && (
         <View className="ml-4">
-          <Markdown style={markdownStyles}>{activityText}</Markdown>
+          <Markdown style={markdownStyles} rules={MARKDOWN_RULES}>{activityText}</Markdown>
         </View>
       )}
     </View>
@@ -384,7 +390,7 @@ export function MessageList({
             );
           })}
           {cleanContent.trim() && (
-            <Markdown style={markdownStyles} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
+            <Markdown style={markdownStyles} rules={MARKDOWN_RULES} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
               {cleanContent.trim()}
             </Markdown>
           )}
@@ -403,7 +409,7 @@ export function MessageList({
       return (
         <View>
           <CollapsibleActivities activityText={activityText} />
-          <Markdown style={markdownStyles} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
+          <Markdown style={markdownStyles} rules={MARKDOWN_RULES} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
             {apiActivityList ? content : analysisContent}
           </Markdown>
         </View>
@@ -411,7 +417,7 @@ export function MessageList({
     }
 
     return (
-      <Markdown style={markdownStyles} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
+      <Markdown style={markdownStyles} rules={MARKDOWN_RULES} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
         {content}
       </Markdown>
     );
