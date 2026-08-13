@@ -22,6 +22,7 @@ use crate::models::{
     SportType, Stats,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
+use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
@@ -356,26 +357,18 @@ impl StravaProvider {
     }
 
     /// Handle non-success API responses
+    ///
+    /// The 404 arm is Strava-specific (it parses the body to name the missing
+    /// resource); everything else — including the 401 → re-auth mapping — is the
+    /// shared behaviour in [`utils::api_error`].
     fn handle_api_error(status: reqwest::StatusCode, text: &str, url: &str) -> AppError {
-        error!(
-            "Strava API request failed - status: {status}, body_length: {} bytes",
-            text.len()
-        );
-
         if status.as_u16() == 404 {
             if let Some(not_found_err) = Self::parse_not_found_error(text, url) {
                 return AppError::external_service("Strava", not_found_err.to_string());
             }
         }
 
-        debug!("Strava API error response body: {text}");
-        let err = ProviderError::ApiError {
-            provider: oauth_providers::STRAVA.to_owned(),
-            status_code: status.as_u16(),
-            message: format!("Strava API request failed with status {status}"),
-            retryable: status.as_u16() >= 500,
-        };
-        AppError::external_service("Strava", err.to_string())
+        utils::api_error(status, text, oauth_providers::STRAVA)
     }
 
     /// Retrieve the current access token from credentials

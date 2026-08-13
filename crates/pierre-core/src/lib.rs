@@ -50,6 +50,7 @@ pub mod prompt_fingerprint;
 
 /// Reply-side internal-narration scrub (hidden-block/raw-XML meta-commentary)
 pub mod narration;
+pub mod narration_self_id;
 
 /// Admin authentication and authorization types
 pub mod admin;

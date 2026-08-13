@@ -163,13 +163,40 @@ fn rate_limit_error(
     AppError::external_service(provider_name, err.to_string())
 }
 
-/// Create an API error for non-success responses
-fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppError {
+/// Map a provider's `401` onto the structured re-authentication error.
+///
+/// A provider rejecting the access token is the only authority on whether that
+/// credential still works. The stored `expires_at` is a belief, and it can be
+/// wrong in one direction that matters: Strava (and others) invalidate tokens on
+/// **user revocation**, which does not move the expiry. A revoked-but-unexpired
+/// credential therefore looks healthy forever, so nothing refreshes and every
+/// call fails — the athlete's coach silently has no data.
+///
+/// Returning [`AppError::provider_auth_required`] instead of a generic external
+/// error puts the failure on the path that already exists for it: the chat
+/// pipeline reads the provider slug out of `details` and mints a hosted-login
+/// link rather than letting the model rephrase a shrug.
+///
+/// Returns `None` for any other status so callers keep their own handling.
+#[must_use]
+pub fn auth_error_for_status(status: StatusCode, provider_slug: &str) -> Option<AppError> {
+    (status == StatusCode::UNAUTHORIZED).then(|| AppError::provider_auth_required(provider_slug))
+}
+
+/// Create an API error for non-success responses.
+///
+/// Maps `401` onto the structured re-authentication error first — see
+/// [`auth_error_for_status`] — so every provider routing through here gets the
+/// reconnect path rather than a generic failure.
+pub fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppError {
     error!(
         "{provider_name} API request failed - status: {status}, body_length: {} bytes",
         text.len()
     );
     debug!("{provider_name} API error response body: {text}");
+    if let Some(auth) = auth_error_for_status(status, provider_name) {
+        return auth;
+    }
     let err = ProviderError::ApiError {
         provider: provider_name.to_owned(),
         status_code: status.as_u16(),

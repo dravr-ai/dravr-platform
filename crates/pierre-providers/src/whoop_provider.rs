@@ -31,6 +31,7 @@ use crate::models::{
     SleepSession, SleepStage, SleepStageType, SportType, Stats,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
+use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -324,6 +325,10 @@ impl WhoopProvider {
     /// Handle non-success API responses
     fn handle_api_error(status: reqwest::StatusCode, text: &str) -> AppError {
         error!("WHOOP API request failed - status: {status}, body: {text}");
+
+        if let Some(auth) = utils::auth_error_for_status(status, oauth_providers::WHOOP) {
+            return auth;
+        }
 
         let status_code = status.as_u16();
 

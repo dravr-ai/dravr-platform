@@ -21,6 +21,7 @@ use crate::models::{
     RecoveryMetrics, SleepSession, SleepStage, SleepStageType, SportType, Stats,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::utils;
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -282,6 +283,10 @@ impl FitbitProvider {
             "Fitbit API request failed - status: {status}, url: {url}, body_length: {} bytes",
             text.len()
         );
+
+        if let Some(auth) = utils::auth_error_for_status(status, oauth_providers::FITBIT) {
+            return auth;
+        }
 
         // Try to parse Fitbit error response
         if let Ok(error_response) = from_str::<FitbitErrorResponse>(text) {

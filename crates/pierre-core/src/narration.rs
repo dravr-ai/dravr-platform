@@ -42,6 +42,8 @@
 
 use std::sync::{Arc, LazyLock, RwLock};
 
+use crate::narration_self_id as self_id;
+
 /// Lowercase multiword vocabulary that marks a sentence as internal
 /// narration. Matched against the lowercased sentence, all five locales
 /// (fr/en/es/de/pt). Every entry was checked against coaching vocabulary
@@ -193,7 +195,7 @@ impl IdentityPatternClass {
     /// identity" are refusals *to be Dravr* — the 2026-07-12 identity-break
     /// outage — and read as negations while being the leak itself. Those stay
     /// unguarded.
-    const fn denial_is_legitimate(self) -> bool {
+    pub(crate) const fn denial_is_legitimate(self) -> bool {
         matches!(
             self,
             Self::Product | Self::CodingAssistant | Self::LanguageModel
@@ -220,10 +222,10 @@ impl IdentityPatternClass {
 /// phrase plus the coarse telemetry labels reported when it fires.
 /// `locale` is the language the phrase belongs to (`"any"` for
 /// language-independent product names, else `en`/`fr`/`es`/`de`/`pt`).
-struct IdentityPattern {
+pub(crate) struct IdentityPattern {
     text: &'static str,
-    class: IdentityPatternClass,
-    locale: &'static str,
+    pub(crate) class: IdentityPatternClass,
+    pub(crate) locale: &'static str,
 }
 
 /// Shorthand constructor keeping the table below one-line-per-pattern.
@@ -256,7 +258,7 @@ const fn ip(
 /// Ordered by class conclusiveness — product names first — because
 /// [`identity_leak_match`] reports the first hit in table order when a
 /// reply matches several patterns.
-const IDENTITY_NARRATION_PATTERNS: &[IdentityPattern] = &[
+pub(crate) const IDENTITY_NARRATION_PATTERNS: &[IdentityPattern] = &[
     // Product / model self-identification (language-independent)
     ip("github copilot", IdentityPatternClass::Product, "any"),
     ip("copilot cli", IdentityPatternClass::Product, "any"),
@@ -542,7 +544,7 @@ fn is_separator(ch: char) -> bool {
 ///
 /// A run at either end collapses to nothing, so the result needs no trim and
 /// the reported offsets index the string as returned.
-fn fold_into(s: &str, mut on_clause_break: impl FnMut(usize)) -> String {
+pub(crate) fn fold_into(s: &str, mut on_clause_break: impl FnMut(usize)) -> String {
     let mut out = String::with_capacity(s.len());
     // Start inside a run so a leading separator emits no space.
     let mut in_run = true;
@@ -859,7 +861,7 @@ static FOLDED_CAPABILITY: LazyLock<Vec<String>> = LazyLock::new(|| {
 /// Separator-folded copy of [`IDENTITY_NARRATION_PATTERNS`], built once.
 /// Index-aligned with the pattern table so a folded hit maps back to its
 /// class + locale labels.
-static FOLDED_IDENTITY: LazyLock<Vec<String>> = LazyLock::new(|| {
+pub(crate) static FOLDED_IDENTITY: LazyLock<Vec<String>> = LazyLock::new(|| {
     IDENTITY_NARRATION_PATTERNS
         .iter()
         .map(|p| fold_separators(p.text))
@@ -1113,7 +1115,7 @@ fn asserts_self(segment: &str) -> bool {
 /// break as a denial and delivered it to the athlete, as did "I'm not able to
 /// help with that. I'm GitHub Copilot CLI" across the sentence boundary and
 /// "I'm not a fitness coach — I'm GitHub Copilot CLI" across the em dash.
-fn is_negated_at(folded: &str, dash_breaks: &[usize], at: usize) -> bool {
+pub(crate) fn is_negated_at(folded: &str, dash_breaks: &[usize], at: usize) -> bool {
     let prefix = &folded[..at];
     // Start of the clause the phrase sits in: just past the nearest
     // qualifying punctuation break, or the nearest erased dash break. A
@@ -1163,20 +1165,7 @@ fn is_negated_at(folded: &str, dash_breaks: &[usize], at: usize) -> bool {
 /// a bypass in turn — see [`is_negated_at`].
 #[must_use]
 pub fn identity_leak_match(text: &str) -> Option<IdentityLeakMatch> {
-    let mut dash_breaks: Vec<usize> = Vec::new();
-    let folded = fold_into(text, |at| dash_breaks.push(at));
-    FOLDED_IDENTITY.iter().enumerate().find_map(|(idx, p)| {
-        let pattern = &IDENTITY_NARRATION_PATTERNS[idx];
-        let guarded = pattern.class.denial_is_legitimate();
-        folded
-            .match_indices(p.as_str())
-            .any(|(at, _)| !guarded || !is_negated_at(&folded, &dash_breaks, at))
-            .then_some(IdentityLeakMatch {
-                class: pattern.class,
-                locale: pattern.locale,
-                pattern_index: idx,
-            })
-    })
+    self_id::leak_match(text)
 }
 
 /// A bounded, separator-folded window of the reply around the matched identity
@@ -1198,11 +1187,15 @@ pub fn identity_leak_match(text: &str) -> Option<IdentityLeakMatch> {
 #[must_use]
 pub fn identity_leak_context(text: &str, window_chars: usize) -> Option<String> {
     let hit = identity_leak_match(text)?;
-    let pattern = FOLDED_IDENTITY.get(hit.pattern_index)?;
     // The dash-break offsets are only needed by the negation lookbehind, which
     // `identity_leak_match` above has already applied — this call just needs the
     // folded text, so the callback discards them rather than allocating.
     let folded = fold_into(text, |_| ());
+
+    // A structural hit has no table entry to look up, so anchor the window on
+    // the role noun that fired instead. Without this the forensics window comes
+    // back empty for exactly the leaks the second pass exists to catch.
+    let pattern = self_id::anchor(&folded, hit.pattern_index)?;
     let at = folded.find(pattern.as_str())?;
 
     // Char-safe on both ends: the folded text is still UTF-8 and a raw byte

@@ -53,6 +53,7 @@ use crate::models::{
     SleepSession, SleepStage, SleepStageType, SportType, Stats,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
+use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -327,6 +328,10 @@ impl CorosProvider {
             "COROS API request failed - status: {status}, body_length: {} bytes",
             text.len()
         );
+
+        if let Some(auth) = utils::auth_error_for_status(status, oauth_providers::COROS) {
+            return auth;
+        }
 
         let status_code = status.as_u16();
 
