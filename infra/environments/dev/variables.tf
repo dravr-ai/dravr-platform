@@ -359,20 +359,31 @@ variable "slack_ops_enabled" {
   default     = true
 }
 
+# Channel IDs, not "#name" slugs: chat.postMessage resolves a slug at call
+# time and does not follow renames, so a renamed room silently swallows every
+# notification. Prefixing the rooms with "dev-" left this deploy channel
+# pointing at "#dravr-dev-deploys", which had ceased to exist. IDs survive
+# renames. Resolve one with `conversations.list` (needs channels:read).
 variable "slack_ops_deploys_channel" {
-  description = "Slack channel for deploy/restart notifications (channel ID or name, e.g. #dravr-dev-deploys)"
+  description = "Slack channel ID for deploy/restart notifications (C0ANDA76S1Y = #dev-dravr-dev-deploys)"
   type        = string
-  default     = "#dravr-dev-deploys"
+  default     = "C0ANDA76S1Y"
 }
 
 variable "slack_ops_users_channel" {
-  description = "Slack channel for user lifecycle notifications (channel ID or name, e.g. #dravr-dev-users)"
+  description = "Slack channel ID for user lifecycle notifications (C0ANS7HU3CH = #dravr-dev-users)"
   type        = string
-  default     = "#dravr-dev-users"
+  default     = "C0ANS7HU3CH"
 }
 
+# The one channel that must stay a "#name": monitoring.tf feeds this same
+# variable to a google_monitoring_notification_channel, whose `channel_name`
+# label GCP requires to be a literal Slack channel name. An ID here would be
+# emitted as "#C0AP7HQNLH2" and break Cloud Run job-failure alerting. It is
+# therefore rename-fragile by construction — rename #dev-dravr-errors and this
+# default must be updated in the same change.
 variable "slack_error_channel" {
-  description = "Slack channel for automatic ERROR-level log alerts (channel ID or name, empty to disable)"
+  description = "Slack channel NAME for ERROR-level log alerts — must stay a #name for GCP Monitoring (empty to disable)"
   type        = string
   default     = "#dev-dravr-errors"
 }

@@ -223,7 +223,7 @@ pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true 
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 # Assets crate: structured-output directive + workout schema consumed by the chat pipeline context.
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "7876f94773c90770a0d8995de3b41fe1f647c65b" }
-dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6.0", features = ["notifications"] }
+dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6.1", features = ["notifications"] }
 pierre-weather = { path = "../pierre-weather", version = "0.3.0" }
 pierre-enforme = { path = "../pierre-enforme", version = "0.3.0", optional = true, features = ["provider-whoop"] }
 dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.4", optional = true }
@@ -329,7 +329,7 @@ hex = "0.4"
 subtle = "2.6"
 ed25519-dalek = "2.2"
 # Stripe billing webhook integration test signs payloads against StripeClient.
-dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.8" }
+dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.9" }
 
 # Flamegraph profiler hook for criterion benches (`-- --profile-time N`).
 # pprof builds on libc signals and does not compile on Windows, and cargo

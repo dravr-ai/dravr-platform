@@ -20,7 +20,7 @@ pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
-dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6.0" }
+dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6.1" }
 
 bcrypt = "0.16"
 chrono = { version = "0.4", features = ["serde"] }

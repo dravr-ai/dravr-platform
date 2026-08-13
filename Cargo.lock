@@ -1544,8 +1544,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.1.8"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.8#0f6fcf982cc6047582b3c553c0cf9d3366b7392c"
+version = "0.1.9"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.9#37e3bf0df5c1e3544738e1474c8daa5d0e2a6322"
 dependencies = [
  "chrono",
  "dravr-tronc",
@@ -1562,8 +1562,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "0.6.0"
-source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.6.0#8e82465879a0045282d237af7f6fa6f862564c31"
+version = "0.6.1"
+source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.6.1#7938c37ff3488834a27266d5be5e198fc16fb338"
 dependencies = [
  "async-trait",
  "axum",
