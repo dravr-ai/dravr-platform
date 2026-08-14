@@ -389,6 +389,7 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -489,6 +490,7 @@ async fn push_prepends_activity_list_to_coach_reply() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -582,6 +584,7 @@ async fn push_caps_long_activity_list_for_small_screens() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();

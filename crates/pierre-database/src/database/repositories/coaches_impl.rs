@@ -6,6 +6,7 @@
 
 //! #[async_trait] impl CoachesRepository for Database — coach CRUD, versioning, assignments, and overlays.
 
+use super::coaches_assignments as assignments;
 use super::coaches_versions as versions;
 use super::CoachesRepository;
 use crate::database::coaches::{compute_request_hash, row_to_coach, row_to_coach_list_item};
@@ -18,8 +19,8 @@ use pierre_core::models::coaches::{
     CoachVersion, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
     UpdateCoachRequest,
 };
-use pierre_core::models::CoachRuntimeContext;
 use pierre_core::models::TenantId;
+use pierre_core::models::{split_visuals, CoachRuntimeContext};
 use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
@@ -64,7 +65,11 @@ async fn ensure_assignment_exists(
 ///
 /// A coach is hideable if it's a system coach or assigned to the user,
 /// but NOT if it's a personal coach created by the user.
-async fn is_coach_hideable(pool: &SqlitePool, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
+pub(super) async fn is_coach_hideable(
+    pool: &SqlitePool,
+    coach_id: &str,
+    user_id: Uuid,
+) -> AppResult<bool> {
     let is_system = sqlx::query("SELECT 1 FROM coaches WHERE id = $1 AND is_system = 1")
         .bind(coach_id)
         .fetch_optional(pool)
@@ -979,48 +984,15 @@ impl CoachesRepository for Database {
         user_id: Uuid,
         assigned_by: Uuid,
     ) -> AppResult<bool> {
-        let id = Uuid::new_v4();
-        let now = Utc::now().to_rfc3339();
-        let result = sqlx::query(
-            r"INSERT OR IGNORE INTO coach_assignments (id, coach_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
-            VALUES ($1, $2, $3, $4, $5, 0, 0, NULL)",
-        ).bind(id.to_string()).bind(coach_id).bind(user_id.to_string())
-        .bind(assigned_by.to_string()).bind(&now).execute(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to assign coach: {e}")))?;
-        Ok(result.rows_affected() > 0)
+        assignments::assign_coach(self.pool(), coach_id, user_id, assigned_by).await
     }
 
     async fn unassign_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
-        let result =
-            sqlx::query("DELETE FROM coach_assignments WHERE coach_id = $1 AND user_id = $2")
-                .bind(coach_id)
-                .bind(user_id.to_string())
-                .execute(self.pool())
-                .await
-                .map_err(|e| AppError::database(format!("Failed to unassign coach: {e}")))?;
-        Ok(result.rows_affected() > 0)
+        assignments::unassign_coach(self.pool(), coach_id, user_id).await
     }
 
     async fn list_assignments(&self, coach_id: &str) -> AppResult<Vec<CoachAssignment>> {
-        let rows = sqlx::query(
-            r"SELECT ca.user_id, ca.created_at, ca.assigned_by, u.email
-            FROM coach_assignments ca LEFT JOIN users u ON ca.user_id = u.id
-            WHERE ca.coach_id = $1 ORDER BY ca.created_at DESC",
-        )
-        .bind(coach_id)
-        .fetch_all(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list assignments: {e}")))?;
-        rows.iter()
-            .map(|row| {
-                Ok(CoachAssignment {
-                    user_id: row.get("user_id"),
-                    user_email: row.get("email"),
-                    assigned_at: row.get("created_at"),
-                    assigned_by: row.get("assigned_by"),
-                })
-            })
-            .collect()
+        assignments::list_assignments(self.pool(), coach_id).await
     }
 
     async fn list_assignments_for_tenant(
@@ -1028,57 +1000,15 @@ impl CoachesRepository for Database {
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<CoachAssignment>> {
-        let rows = sqlx::query(
-            r"SELECT ca.user_id, ca.created_at, ca.assigned_by, u.email
-            FROM coach_assignments ca LEFT JOIN users u ON ca.user_id = u.id
-            INNER JOIN tenant_users tu ON ca.user_id = tu.user_id AND tu.tenant_id = $2
-            WHERE ca.coach_id = $1 ORDER BY ca.created_at DESC",
-        )
-        .bind(coach_id)
-        .bind(tenant_id)
-        .fetch_all(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list assignments: {e}")))?;
-        rows.iter()
-            .map(|row| {
-                Ok(CoachAssignment {
-                    user_id: row.get("user_id"),
-                    user_email: row.get("email"),
-                    assigned_at: row.get("created_at"),
-                    assigned_by: row.get("assigned_by"),
-                })
-            })
-            .collect()
+        assignments::list_assignments_for_tenant(self.pool(), coach_id, tenant_id).await
     }
 
     async fn hide_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
-        if !is_coach_hideable(self.pool(), coach_id, user_id).await? {
-            return Err(AppError::invalid_input(
-                "Only system or assigned coaches can be hidden",
-            ));
-        }
-        let id = Uuid::new_v4();
-        let now = Utc::now().to_rfc3339();
-        sqlx::query(
-            r"INSERT INTO user_coach_preferences (id, user_id, coach_id, is_hidden, created_at)
-            VALUES ($1, $2, $3, 1, $4) ON CONFLICT(user_id, coach_id) DO UPDATE SET is_hidden = 1",
-        )
-        .bind(id.to_string())
-        .bind(user_id.to_string())
-        .bind(coach_id)
-        .bind(&now)
-        .execute(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to hide coach: {e}")))?;
-        Ok(true)
+        assignments::hide_coach(self.pool(), coach_id, user_id).await
     }
 
     async fn show_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
-        let result = sqlx::query(
-            "DELETE FROM user_coach_preferences WHERE coach_id = $1 AND user_id = $2 AND is_hidden = 1",
-        ).bind(coach_id).bind(user_id.to_string()).execute(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to show coach: {e}")))?;
-        Ok(result.rows_affected() > 0)
+        assignments::show_coach(self.pool(), coach_id, user_id).await
     }
 
     async fn list_hidden_coaches(
@@ -1086,25 +1016,8 @@ impl CoachesRepository for Database {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Vec<Coach>> {
-        let rows = sqlx::query(
-            r"SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
-                   c.category, c.tags, c.sample_prompts, c.token_count,
-                   c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.temperature
-            FROM coaches c
-            INNER JOIN user_coach_preferences ucp ON c.id = ucp.coach_id
-            WHERE ucp.user_id = $1 AND ucp.is_hidden = 1 AND c.tenant_id = $2
-            ORDER BY c.title",
-        )
-        .bind(user_id.to_string())
-        .bind(tenant_id)
-        .fetch_all(self.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list hidden coaches: {e}")))?;
-        rows.iter().map(row_to_coach).collect()
+        assignments::list_hidden_coaches(self.pool(), user_id, tenant_id).await
     }
-
-    // -- Version methods --
 
     // -- Version methods (bodies in coaches_versions.rs) --
 
@@ -1163,12 +1076,13 @@ impl CoachesRepository for Database {
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
             Option<i32>,
             Option<f32>,
             String,
         );
         let row: Option<Row> = sqlx::query_as(
-            r"SELECT slug, source, system_prompt, startup_query, data_requirements, output_schema, max_tool_iterations, temperature, category
+            r"SELECT slug, source, system_prompt, startup_query, data_requirements, output_schema, visuals, max_tool_iterations, temperature, category
             FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1) LIMIT 1",
         )
         .bind(coach_id)
@@ -1184,6 +1098,7 @@ impl CoachesRepository for Database {
                 startup_query,
                 data_requirements,
                 output_schema,
+                visuals,
                 max_tool_iterations,
                 temperature,
                 category,
@@ -1195,6 +1110,7 @@ impl CoachesRepository for Database {
                     startup_query,
                     data_requirements,
                     output_schema,
+                    visuals: split_visuals(visuals.as_deref()),
                     max_tool_iterations,
                     temperature,
                     category: CoachCategory::parse(&category),

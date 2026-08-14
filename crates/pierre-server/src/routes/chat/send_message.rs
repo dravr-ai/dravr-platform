@@ -375,6 +375,7 @@ pub async fn send_message(
             content: dispatch.user_message.content.clone(),
             token_count: dispatch.user_message.token_count,
             structured_content: None,
+            content_blocks: None,
             created_at: dispatch.user_message.created_at,
         },
         assistant_message: MessageResponse {
@@ -383,6 +384,7 @@ pub async fn send_message(
             content: dispatch.assistant_message.content.clone(),
             token_count: dispatch.assistant_message.token_count,
             structured_content: dispatch.assistant_message.structured_content.clone(),
+            content_blocks: dispatch.assistant_message.content_blocks.clone(),
             created_at: dispatch.assistant_message.created_at,
         },
         conversation_updated_at: dispatch.conversation.updated_at.clone(),
@@ -554,6 +556,7 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                                     content: dispatch.user_message.content.clone(),
                                     token_count: dispatch.user_message.token_count,
                                     structured_content: None,
+            content_blocks: None,
                                     created_at: dispatch.user_message.created_at,
                                 },
                                 assistant_message: MessageResponse {
@@ -562,6 +565,7 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                                     content: dispatch.assistant_message.content.clone(),
                                     token_count: dispatch.assistant_message.token_count,
                                     structured_content: dispatch.assistant_message.structured_content.clone(),
+            content_blocks: dispatch.assistant_message.content_blocks.clone(),
                                     created_at: dispatch.assistant_message.created_at,
                                 },
                                 conversation_updated_at: dispatch.conversation.updated_at.clone(),
@@ -780,6 +784,7 @@ async fn try_handle_chat_command(
             content: request.content.clone(),
             token_count: None,
             structured_content: None,
+            content_blocks: None,
             created_at: now.clone(),
         },
         assistant_message: MessageResponse {
@@ -788,6 +793,7 @@ async fn try_handle_chat_command(
             content: body_text,
             token_count: None,
             structured_content: None,
+            content_blocks: None,
             created_at: now,
         },
         conversation_updated_at: conversation.updated_at,

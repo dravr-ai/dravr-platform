@@ -99,7 +99,8 @@ async fn create_test_db() -> SqlitePool {
             created_at TEXT NOT NULL,
             prompt_tokens INTEGER,
             model TEXT,
-            structured_content TEXT
+            structured_content TEXT,
+            content_blocks TEXT
         )
         ",
     )
@@ -493,6 +494,7 @@ async fn test_add_message() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -534,6 +536,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             prompt_tokens: Some(20),
             model: Some("gemini-1.5-flash"),
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -575,6 +578,7 @@ async fn test_get_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -590,6 +594,7 @@ async fn test_get_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -605,6 +610,7 @@ async fn test_get_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -653,6 +659,7 @@ async fn test_get_recent_messages() {
                 prompt_tokens: None,
                 model: None,
                 structured_content: None,
+                content_blocks: None,
             })
             .await
             .unwrap();
@@ -704,6 +711,7 @@ async fn test_message_updates_conversation_tokens() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -719,6 +727,7 @@ async fn test_message_updates_conversation_tokens() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -771,6 +780,7 @@ async fn test_get_message_count() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -786,6 +796,7 @@ async fn test_get_message_count() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -828,6 +839,7 @@ async fn test_cascade_delete_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -843,6 +855,7 @@ async fn test_cascade_delete_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -959,6 +972,7 @@ async fn test_persist_tool_round_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -978,6 +992,7 @@ async fn test_persist_tool_round_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -994,6 +1009,7 @@ async fn test_persist_tool_round_messages() {
             prompt_tokens: Some(150),
             model: Some("gemini-1.5-flash"),
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -1042,6 +1058,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -1058,6 +1075,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -1075,6 +1093,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();
@@ -1122,6 +1141,7 @@ async fn seed_conversation_with_message(
             prompt_tokens: Some(5),
             model: Some("gemini-1.5-flash"),
             structured_content: None,
+            content_blocks: None,
         })
         .await
         .unwrap();

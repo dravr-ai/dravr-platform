@@ -39,6 +39,7 @@ fn row(id: &str, role: &str, content: &str, finish_reason: Option<&str>) -> Mess
         model: None,
         finish_reason: finish_reason.map(str::to_owned),
         structured_content: None,
+        content_blocks: None,
         created_at: "2026-08-02T12:00:00Z".to_owned(),
     }
 }

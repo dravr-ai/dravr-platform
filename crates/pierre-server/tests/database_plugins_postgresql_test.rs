@@ -604,6 +604,7 @@ async fn test_pg_chat_messages() {
         prompt_tokens: None,
         model: None,
         structured_content: None,
+        content_blocks: None,
     };
     let msg1 = repos
         .chat
@@ -625,6 +626,7 @@ async fn test_pg_chat_messages() {
         prompt_tokens: None,
         model: None,
         structured_content: None,
+        content_blocks: None,
     };
     let msg2 = repos
         .chat

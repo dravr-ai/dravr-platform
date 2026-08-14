@@ -412,6 +412,7 @@ async fn test_parity_chat_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         };
         sqlite_repos
             .chat
@@ -430,6 +431,7 @@ async fn test_parity_chat_messages() {
             prompt_tokens: None,
             model: None,
             structured_content: None,
+            content_blocks: None,
         };
         pg_repos
             .chat

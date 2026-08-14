@@ -198,6 +198,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
                 prompt_tokens: None,
                 model: Some("stub-model"),
                 structured_content: None,
+                content_blocks: None,
             },
         )
         .await

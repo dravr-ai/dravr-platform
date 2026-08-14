@@ -26,10 +26,17 @@ use super::slices::{
 use super::ServerContextBuilder;
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
-#[cfg(feature = "provider-sciotte")]
-use dravr_contremaitre::schemas::STRUCTURED_WORKOUT_SCHEMA;
-use dravr_contremaitre::system::STRUCTURED_OUTPUT as STRUCTURED_OUTPUT_DIRECTIVE;
+// Gated on `client-chat`, the feature that owns the only consumer
+// (`chat_pipeline_context`). It previously sat behind `provider-sciotte`, which
+// did not match its use — that combination is not a supported build today, so
+// nothing was broken, but the gate named the wrong thing.
 #[cfg(feature = "client-chat")]
+use dravr_contremaitre::schemas::{DRAVR_VIZ_SCHEMA, STRUCTURED_WORKOUT_SCHEMA};
+use dravr_contremaitre::system::{
+    STRUCTURED_OUTPUT as STRUCTURED_OUTPUT_DIRECTIVE, VISUAL_BLOCKS as VISUAL_BLOCKS_DIRECTIVE,
+};
+#[cfg(feature = "client-chat")]
+use pierre_chat_pipeline::stages::structured_output::{self, SchemaTexts};
 use pierre_chat_pipeline::McpBridgeProvider;
 use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-messaging")]
@@ -375,10 +382,33 @@ impl ServerContext {
             tool_discipline_prompt: self.tool_discipline_prompt(),
             tool_discipline_messaging_prompt: self.tool_discipline_messaging_prompt(),
             structured_output_prompt: STRUCTURED_OUTPUT_DIRECTIVE.to_owned(),
-            structured_output_schema: STRUCTURED_WORKOUT_SCHEMA.to_owned(),
+            visual_blocks_prompt: VISUAL_BLOCKS_DIRECTIVE.to_owned(),
+            structured_output_schemas: Self::structured_output_schemas(),
             memory_extraction_prompt: self.memory_extraction_prompt(),
             mcp_bridge,
         }
+    }
+
+    /// Every structured-output schema the pipeline can validate against, keyed
+    /// by the id a coach names in `output_schema` or a block names in its fence.
+    ///
+    /// Lives here because this is where contremaitre data enters the pipeline
+    /// context — the same path the system prompts take. Adding a schema is one
+    /// line plus a contremaitre constant; the registry compiles what it is given.
+    #[cfg(feature = "client-chat")]
+    fn structured_output_schemas() -> SchemaTexts {
+        [
+            (
+                structured_output::STRUCTURED_WORKOUT.to_owned(),
+                STRUCTURED_WORKOUT_SCHEMA.to_owned(),
+            ),
+            (
+                structured_output::DRAVR_VIZ.to_owned(),
+                DRAVR_VIZ_SCHEMA.to_owned(),
+            ),
+        ]
+        .into_iter()
+        .collect()
     }
 
     /// Resolve the chat provider a `(tenant, user)` should use for a turn,

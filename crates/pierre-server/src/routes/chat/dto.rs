@@ -126,6 +126,11 @@ pub struct MessageResponse {
     /// rich card by clients. Present only for builder-coach replies.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub structured_content: Option<String>,
+    /// Ordered visual blocks (chart/table) lifted from this reply's prose,
+    /// JSON-encoded array. The content carries a `⟦viz:N⟧` marker where each
+    /// block sat; clients split on the markers and interleave rendering.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_blocks: Option<String>,
     /// Creation timestamp
     pub created_at: String,
 }

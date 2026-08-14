@@ -152,22 +152,28 @@ fn the_directive_yields_to_the_output_contract() {
     );
 }
 
-/// The suppression predicate must be bound once and read twice.
+/// The suppression predicate must be bound once and read thrice.
 ///
 /// Two copies would be free to drift, and the drift would be silent: a builder
 /// coach carrying both a JSON-only contract and a prose task directive.
+///
+/// The read count is pinned as well as the binding, so that adding a fourth
+/// consumer is a deliberate edit here rather than an unnoticed one. Every
+/// reader suppresses something for the same reason — a coach told to emit one
+/// JSON object has no prose to carry anything else.
 #[test]
 fn the_suppression_predicate_has_a_single_source() {
     let source = prompt_assembly_source();
     assert_eq!(
         source.matches("let structured_contract_active =").count(),
         1,
-        "the predicate must be bound exactly once; Stage 7g.2 and Stage 7g.3 both read it"
+        "the predicate must be bound exactly once; Stages 7g.2, 7g.2b and 7g.3 all read it"
     );
     assert_eq!(
         source.matches("structured_contract_active").count(),
-        3,
-        "expected one binding plus two reads (Stage 7g.2's if, Stage 7g.3's match arm)"
+        4,
+        "expected one binding plus three reads (Stage 7g.2's if, Stage 7g.2b's \
+         visual_contract_active guard, Stage 7g.3's match arm)"
     );
 }
 
