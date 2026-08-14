@@ -11,9 +11,12 @@
 //! blocks are the other content model — embedded in prose, several per reply —
 //! so they need their own extraction rather than a second schema on that path.
 //!
-//! A block is a fenced code span with the `dravr-viz` info string:
+//! A block is a fenced code span with the `dravr-viz` info string. The outer
+//! fence here is four backticks so the three-backtick fences it contains stay
+//! content — with a matching outer fence the inner one closes it early and
+//! rustdoc compiles the remainder as a Rust doctest.
 //!
-//! ```text
+//! ````text
 //! Ta charge grimpe depuis trois semaines.
 //!
 //! ```dravr-viz
@@ -21,7 +24,7 @@
 //! ```
 //!
 //! C'est pourquoi on coupe jeudi.
-//! ```
+//! ````
 //!
 //! Markdown-native on purpose: a block that fails extraction degrades to a
 //! visible code fence rather than vanishing. Ugly is recoverable; silent loss
