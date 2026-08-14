@@ -34,6 +34,11 @@ pub struct DailyTrainingState {
     /// Training Stress Balance (`CTL - ATL`) — proxy for form / freshness.
     pub tsb: f64,
     /// Acute:Chronic Workload Ratio (Gabbett). `None` until 28+ days of history.
+    ///
+    /// LIMITATION(registre#26): `acwr` reaches the model as a raw Gabbett ratio with no
+    /// descriptive-only framing, so downstream narration can present it as injury risk —
+    /// a use the literature retired (Lolli 2017; Impellizzeri 2020). Present magnitude
+    /// of load change only, never injury risk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acwr: Option<f64>,
     /// Foster monotony — weekly mean / weekly std dev of daily load.
