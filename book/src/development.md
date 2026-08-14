@@ -64,7 +64,7 @@ When working on `frontend-mobile/`:
 
 ```bash
 ./bin/start-server.sh     # Start backend (loads .envrc, port 8081)
-./bin/stop-server.sh      # Stop backend (graceful shutdown)
+./bin/stop-server.sh      # Stop the whole dev stack (add --server-only for just the backend)
 ./bin/start-frontend.sh   # Start web dashboard (port 5173)
 ./bin/start-tunnel.sh     # Start Cloudflare tunnel for mobile testing
 ```
@@ -295,7 +295,7 @@ bun run tunnel:stop      # Stop tunnel
 
 # After starting tunnel:
 # 1. Run `direnv allow` in backend directory
-# 2. Restart Pierre server: ./bin/stop-server.sh && ./bin/start-server.sh
+# 2. Restart Pierre server: ./bin/stop-server.sh --server-only && ./bin/start-server.sh
 # 3. Mobile app connects via tunnel URL
 ```
 

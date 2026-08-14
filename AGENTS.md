@@ -37,7 +37,8 @@ If any workflow on main has been red for 2+ runs, STOP and ask the user "Should 
 | Command | What it does |
 |---|---|
 | `./bin/start-server.sh` | Start server (loads `.envrc`, background, health check) |
-| `./bin/stop-server.sh` | Graceful shutdown w/ force-kill fallback |
+| `./bin/stop-server.sh` | Stop the whole dev stack — server, dev fixture, Vite, Expo, tunnel |
+| `./bin/stop-server.sh --server-only` | Stop only the backend, leaving the frontend up (simulates an outage) |
 | `curl http://localhost:8081/health` | Health check |
 
 To reset the dev DB, re-run `./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh` — it

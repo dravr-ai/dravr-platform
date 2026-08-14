@@ -142,7 +142,7 @@ recommendations.
 | Command | Effect |
 |---|---|
 | `./bin/start-server.sh` | start Pierre alone |
-| `./bin/stop-server.sh` | graceful shutdown, force-kill fallback |
+| `./bin/stop-server.sh` | stop the whole dev stack; `--server-only` stops just the backend |
 | `./bin/stop-all.sh` | stop every service the setup script started |
 | `./bin/dev-logs.sh` | tail dev logs |
 

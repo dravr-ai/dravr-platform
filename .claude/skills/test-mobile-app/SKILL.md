@@ -312,7 +312,8 @@ Run these as the user unless noted.
 3. **Deep link + relaunch.** The app scheme is `pierre` (`app.config.js`). Relaunch on a deep
    route (`/(app)/(tabs)/(groups)/<id>`, `/(app)/memory`); the same view must restore, not reset.
 4. **Server-unreachable banner.** `ServerStatusBanner` renders from `useServerStatus` above the
-   tabs. Stop the server (`./bin/stop-server.sh`), confirm the banner appears and Retry works,
+   tabs. Stop the server (`./bin/stop-server.sh --server-only` — the flag matters, the bare
+   command stops Expo too and you would be testing a dead app), confirm the banner appears and Retry works,
    restart. A screen that silently renders empty instead of surfacing the outage is a finding.
 5. **Keyboard and safe area.** Every text-entry screen: keyboard must not cover the input or the
    submit control. The floating tab bar is `COLLAPSED_HEIGHT + 40` tall

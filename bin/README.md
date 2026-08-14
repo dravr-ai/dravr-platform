@@ -46,7 +46,7 @@ See `book/src/environment.md` for the complete variable reference.
 |--------|-------------|
 | `setup-db-with-seeds-and-oauth-and-start-servers.sh` | **THE ONE SCRIPT** - Complete dev environment setup |
 | `start-server.sh` | Start Pierre MCP server only (port 8081) |
-| `stop-server.sh` | Stop Pierre MCP server |
+| `stop-server.sh` | Stop the whole dev stack (delegates to `stop-all.sh`); `--server-only` stops just the backend |
 | `start-frontend.sh` | Start web frontend only (port 3000) |
 | `start-tunnel.sh` | Start Cloudflare tunnel for mobile testing |
 
