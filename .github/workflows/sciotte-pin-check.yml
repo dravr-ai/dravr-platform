@@ -1,0 +1,150 @@
+# ABOUTME: Files a register issue when this repo's pinned dravr-sciotte tag falls behind
+# ABOUTME: Notification only — integration is deliberate, because sciotte drives a real browser
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# Why this exists: nothing connected sciotte's releases to this repo's pin, so it sat on
+# v0.8.0 through five releases — carrying, among other things, a fix written for this
+# repo's benefit ("401 lets the platform mint the athlete's reconnect link") and two
+# Chromium security batches. dravr-contremaitre has a bump chain; sciotte had neither
+# half of one.
+#
+# Why it notifies rather than bumps: contremaitre ships a config catalogue, so bumping it
+# unattended is safe. sciotte drives a headless browser against live providers, and its
+# behaviour has to be exercised before this repo depends on a new one. So the drift
+# becomes a tracked issue and a human integrates after testing.
+#
+# The issue goes to the PRIVATE register (registre.toml `tracker`) because this repo is
+# public.
+
+name: "Monitor: Sciotte Pin Freshness"
+
+on:
+  repository_dispatch:
+    types: [sciotte-released]
+  schedule:
+    # Weekly safety net, so a missed or failed dispatch still surfaces the drift.
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Compare pinned tag against sciotte's latest release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve pinned and latest versions
+        id: v
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          DISPATCH_VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          set -euo pipefail
+          MANIFEST=crates/pierre-providers/Cargo.toml
+          PINNED=$(grep -oE 'dravr-sciotte = \{ git = "[^"]+", tag = "[^"]+"' "$MANIFEST" \
+                   | grep -oE 'tag = "[^"]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$PINNED" ]; then
+            echo "::error::could not read the pinned dravr-sciotte tag from ${MANIFEST} — the line shape changed"
+            exit 1
+          fi
+
+          # A dispatch carries the version that was just released; the scheduled run has
+          # to ask. Either way we verify against the API so a stale payload cannot lie.
+          LATEST=$(gh api repos/dravr-ai/dravr-sciotte/releases/latest -q .tag_name)
+          if [ -z "$LATEST" ]; then
+            echo "::error::could not resolve sciotte's latest release"
+            exit 1
+          fi
+
+          echo "pinned=$PINNED"   >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST"   >> "$GITHUB_OUTPUT"
+          echo "dispatched=${DISPATCH_VERSION:-}" >> "$GITHUB_OUTPUT"
+          echo "pinned=$PINNED latest=$LATEST"
+
+          if [ "$PINNED" = "$LATEST" ]; then
+            echo "behind=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "behind=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Count and describe what is unintegrated
+        id: gap
+        if: steps.v.outputs.behind == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          PINNED: ${{ steps.v.outputs.pinned }}
+          LATEST: ${{ steps.v.outputs.latest }}
+        run: |
+          set -euo pipefail
+          # compare returns the commits between the two tags without cloning sciotte.
+          # sed -E, not BRE: `\|` alternation is a GNU extension that silently matches
+          # nothing on BSD sed, which would ship an empty "notable changes" section.
+          gh api "repos/dravr-ai/dravr-sciotte/compare/${PINNED}...${LATEST}" \
+            -q '.commits[].commit.message' 2>/dev/null \
+            | sed -nE 's/^(feat|fix|build|perf)(\([^)]*\))?!?: (.*)$/- \1: \3/p' \
+            | head -20 > notable.txt || true
+          COUNT=$(gh api "repos/dravr-ai/dravr-sciotte/compare/${PINNED}...${LATEST}" -q '.total_commits' 2>/dev/null || echo "?")
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          { echo "notable<<EOF"; cat notable.txt; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the register issue
+        if: steps.v.outputs.behind == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          PINNED: ${{ steps.v.outputs.pinned }}
+          LATEST: ${{ steps.v.outputs.latest }}
+          COUNT: ${{ steps.gap.outputs.count }}
+          NOTABLE: ${{ steps.gap.outputs.notable }}
+        run: |
+          set -euo pipefail
+          TRACKER=$(grep -oE '^tracker[[:space:]]*=[[:space:]]*"[^"]+"' registre.toml | grep -oE '[^"]+/[^"]+')
+          TITLE="[platform] dravr-sciotte pin is behind (${PINNED} -> ${LATEST})"
+
+          # The heredoc body is indented to this block's base level, not to column 0.
+          # YAML strips a block scalar's common indentation, so the shell receives these
+          # lines at column 0 — which is what GitHub needs, since leading whitespace
+          # would render the whole issue body as a code block. Dedenting them here
+          # instead breaks the YAML.
+          BODY=$(cat <<EOF
+          The pinned \`dravr-sciotte\` tag is **${PINNED}**; the latest release is **${LATEST}** (${COUNT} commits behind).
+
+          Notable changes not integrated:
+
+          ${NOTABLE}
+
+          **Integration is deliberate, not automatic.** sciotte drives a headless browser
+          against live providers, so exercise the login and scrape paths before bumping.
+          The pin appears in:
+
+          - \`crates/pierre-providers/Cargo.toml\`
+          - \`crates/pierre-routes-auth/Cargo.toml\`
+          - \`crates/pierre-logging/Cargo.toml\`
+
+          Note the platform links only types and \`ScraperConfig\` defaults from the crate —
+          the scraper itself runs in the deployed sciotte service, which is versioned
+          separately. Check both.
+
+          _Filed by \`sciotte-pin-check.yml\`._
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo "$TRACKER" --state open --search "dravr-sciotte pin is behind in:title" \
+                     --json number -q '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            gh issue edit "$EXISTING" --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+            echo "updated ${TRACKER}#${EXISTING}"
+          else
+            gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY" \
+              --label "dravr-platform" --label "dependency" 2>/dev/null \
+              || gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+            echo "opened a new issue on ${TRACKER}"
+          fi
+
+      - name: Report when the pin is current
+        if: steps.v.outputs.behind == 'false'
+        run: echo "dravr-sciotte pin ${{ steps.v.outputs.pinned }} matches the latest release — nothing to do."
