@@ -24,6 +24,10 @@
           },
           {
             "type": "command",
+            "command": "[ -f ../dravr-vault/scripts/sync-claude-memory.sh ] && bash ../dravr-vault/scripts/sync-claude-memory.sh --quiet || true"
+          },
+          {
+            "type": "command",
             "command": "echo '\u2705 Pierre Design System ready - use /design-review for UI validation'"
           },
           {
