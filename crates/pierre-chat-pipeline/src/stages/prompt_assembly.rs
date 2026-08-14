@@ -751,6 +751,29 @@ pub(crate) async fn assemble_prompt_and_messages(
         raw_system_prompt
     };
 
+    // Stage 7g.2b: Inline visual contract. Granted per coach via `visuals:` and
+    // withheld everywhere else, so a coach that was never granted one is never
+    // even told the syntax — the post-process gate refuses its fences anyway,
+    // but not telling it is what keeps the two consistent.
+    //
+    // Never on messaging: no block renderer there, so a coach that emitted one
+    // would have its fence stripped to a marker pointing at nothing.
+    //
+    // Mutually exclusive with the structured-output contract above by
+    // construction: that contract demands the ENTIRE reply be one JSON object,
+    // which leaves no prose for a block to be embedded in. Handing a coach both
+    // would be handing it two contradictory output shapes and letting recency
+    // pick — the 2026-07-24 derail's exact mechanism.
+    let visual_contract_active = !structured_contract_active
+        && !profile.channel.is_messaging()
+        && onboarding.is_none()
+        && coach_ctx.is_some_and(|c| !c.visuals.is_empty());
+    let raw_system_prompt = if visual_contract_active {
+        format!("{raw_system_prompt}\n\n{}", ctx.visual_blocks_prompt)
+    } else {
+        raw_system_prompt
+    };
+
     // Stage 7g.3: Onboarding directive — when this conversation is mid guided
     // pillar walk, steer the coach to probe the current topic conversationally.
     // On the first turn after that walk ends, the same slot carries the

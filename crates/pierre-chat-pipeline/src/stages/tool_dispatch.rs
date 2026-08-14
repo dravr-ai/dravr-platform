@@ -20,10 +20,9 @@ use pierre_tool_runtime::tool_execution::{
 use tracing::{info, warn};
 
 use crate::channel_profile::ChannelProfile;
+use crate::recorders::{ChatRepoToolMessageRecorder, UsageRepoCallRecorder};
 use crate::turn::TurnInput;
-use crate::{
-    call_type_for_profile, ChatPipelineContext, ChatRepoToolMessageRecorder, UsageRepoCallRecorder,
-};
+use crate::{call_type_for_profile, ChatPipelineContext};
 
 use super::compaction::apply_tier1_compaction;
 use super::prefetch::{

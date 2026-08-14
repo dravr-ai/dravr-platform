@@ -366,6 +366,7 @@ pub async fn get_messages(
             content: m.content,
             token_count: m.token_count,
             structured_content: m.structured_content,
+            content_blocks: m.content_blocks,
             created_at: m.created_at,
         })
         .collect();

@@ -29,6 +29,7 @@ fn record(role: &str, content: &str) -> MessageRecord {
         model: None,
         finish_reason: None,
         structured_content: None,
+        content_blocks: None,
         created_at: "2026-05-15T15:10:00Z".to_owned(),
     }
 }
@@ -201,6 +202,7 @@ fn record_id(id: &str, role: &str, content: &str) -> MessageRecord {
         model: None,
         finish_reason: None,
         structured_content: None,
+        content_blocks: None,
         created_at: "2026-05-15T15:10:00Z".to_owned(),
     }
 }

@@ -29,3 +29,8 @@ features:
     current: all personas run shadow mode (strict_mode false) — violations are warn logs and replies ship unchanged; the re-prompt recovery strict mode triggers is built and wired, so arming is a per-persona data change in contremaitre
     advance_when: shadow logs show a persona's rules are stable, then set strict_mode true for that persona in contremaitre persona_contracts.yaml
     review_by: 2026-09-30
+  - name: coach-visual-blocks-rail
+    surface: crates/pierre-chat-pipeline/src/stages/viz_blocks.rs
+    current: block rail fully wired but dark — no coach in contremaitre carries a visuals grant, so no prompt ever includes the contract and no block is ever extracted
+    advance_when: phase 3 client renderers ship, then grant visuals to one training coach in contremaitre and verify a live chart turn end to end
+    review_by: 2026-09-15

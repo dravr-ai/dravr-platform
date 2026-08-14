@@ -33,6 +33,7 @@
 
 pub mod channel_profile;
 pub mod hooks;
+pub mod recorders;
 pub mod stages;
 pub mod turn;
 
@@ -44,7 +45,7 @@ pub use hooks::{
 // Re-exported so that flows which build `ToolLoopParams` directly (the
 // insight route, the messaging ingress) can attach the same per-call
 // recorder the chat pipeline uses.
-pub use self::UsageRepoCallRecorder as TurnCallRecorder;
+pub use recorders::UsageRepoCallRecorder as TurnCallRecorder;
 pub use turn::{
     CreateConversationResult, DispatchResult, TurnContext, TurnInput, UserMessageResult,
 };
@@ -65,18 +66,14 @@ use pierre_contremaitre::{
     EvidenceRegistry, MessagingStringsRegistry, PromptRegistry, ToolDescriptionRegistry,
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{
-    AddMessageParams, CoachRuntimeContext, ConversationTurnId, OnboardingState, TenantId,
+    AddMessageParams, CoachRuntimeContext, OnboardingState, TenantId,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_core::narration;
-use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_database::repositories::ChatRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
-use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
 use pierre_llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, LlmProvider, McpServerConfig,
 };
@@ -189,10 +186,22 @@ pub struct ChatPipelineContext {
     /// that declare an `output_schema` (JSON-only plan, prose refusal, no
     /// process narration).
     pub structured_output_prompt: String,
-    /// JSON Schema text for the structured-workout plan contract. Compiled
-    /// once and used to validate builder-coach replies before they are
-    /// persisted as `structured_content`.
-    pub structured_output_schema: String,
+    /// Contract telling a granted coach how to embed an inline chart or table,
+    /// and which of those rules the platform enforces. Appended only when the
+    /// coach carries a non-empty `visuals:` grant and the channel can render a
+    /// block.
+    pub visual_blocks_prompt: String,
+    /// JSON Schema texts keyed by schema id, compiled once on first use.
+    ///
+    /// Keyed rather than singular because a reply can carry more than one kind
+    /// of structured payload: a whole-reply workout plan (`structured-workout`)
+    /// or inline visual blocks (`dravr-viz`), which are a different content
+    /// model and can appear several times in one reply.
+    ///
+    /// Injected like every other contremaitre datum the pipeline needs — the
+    /// prompts above arrive the same way — rather than fetched here, so the
+    /// pipeline keeps one entry point for configuration.
+    pub structured_output_schemas: stages::structured_output::SchemaTexts,
     /// Memory extraction system prompt (used by Tier 2 background extraction).
     pub memory_extraction_prompt: String,
     /// Optional MCP bridge — mints the per-turn MCP servers an ACP provider
@@ -746,6 +755,7 @@ async fn run_recovery_and_post_process(
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
             structured_content: None,
+            content_blocks: None,
             leak_replaced: false,
             identity_leak: None,
         };
@@ -792,6 +802,7 @@ async fn run_recovery_and_post_process(
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
             structured_content: None,
+            content_blocks: None,
             leak_replaced: false,
             identity_leak: None,
         };
@@ -808,6 +819,11 @@ async fn run_recovery_and_post_process(
     // exactly as it did before.
     reask_after_identity_leak(ctx, llm_messages, active_model, result).await;
 
+    // Cloned rather than borrowed: `mem::take` below needs `&mut result`, and a
+    // simultaneous immutable borrow of a sibling field does not survive being
+    // packed into the struct literal. A handful of tool names per turn.
+    let tools_called = result.tools_called.clone();
+
     stages::post_process::post_process_assistant_reply(
         stages::post_process::PostProcessInputs {
             ctx,
@@ -816,6 +832,7 @@ async fn run_recovery_and_post_process(
             coach_ctx,
             prompt_guard,
             is_messaging: profile.channel.is_messaging(),
+            tools_called: &tools_called,
         },
         mem::take(&mut result.content),
         hooks,
@@ -840,180 +857,6 @@ pub(crate) fn call_type_for_profile(profile: &ChannelProfile) -> &'static str {
         | Channel::Discord
         | Channel::Slack
         | Channel::Messenger => "messaging",
-    }
-}
-
-/// Per-call sink that persists one `llm_usage` row per LLM invocation.
-pub struct UsageRepoCallRecorder {
-    llm_usage: Arc<dyn LlmUsageRepository>,
-    tenant_id: String,
-    user_id: String,
-    conversation_id: Option<String>,
-    turn_id: ConversationTurnId,
-    call_type: &'static str,
-}
-
-impl UsageRepoCallRecorder {
-    /// Build a recorder scoped to a single turn.
-    pub fn new(
-        llm_usage: Arc<dyn LlmUsageRepository>,
-        tenant_id: String,
-        user_id: String,
-        conversation_id: Option<String>,
-        turn_id: ConversationTurnId,
-        call_type: &'static str,
-    ) -> Self {
-        Self {
-            llm_usage,
-            tenant_id,
-            user_id,
-            conversation_id,
-            turn_id,
-            call_type,
-        }
-    }
-}
-
-impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
-    fn record(&self, record: chat_tool_loop::LlmCallRecord) {
-        let llm_usage = Arc::clone(&self.llm_usage);
-        let tenant_id = self.tenant_id.clone();
-        let user_id = self.user_id.clone();
-        let conversation_id = self.conversation_id.clone();
-        let turn_id = self.turn_id;
-        let base_call_type = self.call_type;
-        let call_sequence = record.call_sequence;
-        let tenant_id_for_cost = self.tenant_id.clone();
-        tokio::spawn(async move {
-            let total_tokens = record.prompt_tokens + record.completion_tokens;
-            let cost_usd = GLOBAL_PRICING_REGISTRY.calculate_cost(
-                Some(tenant_id_for_cost.as_str()),
-                &record.provider,
-                &record.model,
-                record.prompt_tokens,
-                record.cached_tokens,
-                record.completion_tokens,
-            );
-            info!(
-                target: "notify",
-                event = "embacle.cost_usd",
-                user_id = %user_id,
-                tenant_id = %tenant_id,
-                model = %record.model,
-                cost_usd = cost_usd,
-                "llm call cost"
-            );
-            let call_type_owned = if record.token_counts_estimated {
-                format!("{base_call_type}_estimated")
-            } else {
-                base_call_type.to_owned()
-            };
-            let tool_calls_count = i64::try_from(record.tools_called.len()).unwrap_or(i64::MAX);
-            let tools_called_json =
-                serde_json::to_string(&record.tools_called).unwrap_or_else(|_| "[]".to_owned());
-            let params = InsertLlmUsage {
-                tenant_id: &tenant_id,
-                user_id: &user_id,
-                conversation_id: conversation_id.as_deref(),
-                turn_id,
-                provider: &record.provider,
-                model: &record.model,
-                prompt_tokens: record.prompt_tokens,
-                completion_tokens: record.completion_tokens,
-                total_tokens,
-                cached_tokens: record.cached_tokens,
-                call_type: &call_type_owned,
-                tool_calls_count,
-                tools_called: &tools_called_json,
-                execution_time_ms: Some(record.latency_ms),
-                cost_usd,
-                call_sequence,
-            };
-            if let Err(e) = llm_usage.insert_llm_usage(&params).await {
-                warn!("Failed to record per-LLM-call usage: {e}");
-            }
-        });
-    }
-}
-
-/// Persists each tool dispatch round as `chat_messages` rows.
-pub struct ChatRepoToolMessageRecorder {
-    chat: Arc<dyn ChatRepository>,
-    conversation_id: String,
-    user_id: String,
-    tenant_id: TenantId,
-}
-
-impl ChatRepoToolMessageRecorder {
-    /// Build a recorder scoped to a single conversation.
-    #[must_use]
-    pub fn new(
-        chat: Arc<dyn ChatRepository>,
-        conversation_id: String,
-        user_id: String,
-        tenant_id: TenantId,
-    ) -> Self {
-        Self {
-            chat,
-            conversation_id,
-            user_id,
-            tenant_id,
-        }
-    }
-}
-
-impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
-    fn record(&self, record: chat_tool_loop::ToolRoundRecord) {
-        let chat = Arc::clone(&self.chat);
-        let conversation_id = self.conversation_id.clone();
-        let user_id = self.user_id.clone();
-        let tenant_id = self.tenant_id;
-        // Strip tool-call/tool-result scaffolding before persisting. The raw
-        // `<tool_call>`/`<tool_result>` blocks are per-turn LLM plumbing, not
-        // durable conversation content; persisting them verbatim lets a thread
-        // accrete scaffolding the model later parrots (the read path strips them
-        // on replay, so a stored block is dead weight anyway). A real preamble
-        // ("Pulling your activities…") survives the strip and is still kept;
-        // pure scaffolding reduces to empty and is skipped.
-        let assistant_text = chat_tool_loop::strip_simulation_artifacts(&record.assistant_text);
-        let tool_result_text = chat_tool_loop::strip_simulation_artifacts(&record.tool_result_text);
-        tokio::spawn(async move {
-            if !assistant_text.is_empty() {
-                let params = AddMessageParams {
-                    tenant_id,
-                    conversation_id: &conversation_id,
-                    user_id: &user_id,
-                    role: "tool_call",
-                    content: &assistant_text,
-                    token_count: None,
-                    finish_reason: None,
-                    prompt_tokens: None,
-                    model: None,
-                    structured_content: None,
-                };
-                if let Err(e) = chat.add_message(&params).await {
-                    warn!("Failed to persist tool_call message: {e}");
-                    return;
-                }
-            }
-            if !tool_result_text.is_empty() {
-                let params = AddMessageParams {
-                    tenant_id,
-                    conversation_id: &conversation_id,
-                    user_id: &user_id,
-                    role: "tool_result",
-                    content: &tool_result_text,
-                    token_count: None,
-                    finish_reason: None,
-                    prompt_tokens: None,
-                    model: None,
-                    structured_content: None,
-                };
-                if let Err(e) = chat.add_message(&params).await {
-                    warn!("Failed to persist tool_result message: {e}");
-                }
-            }
-        });
     }
 }
 
@@ -1300,6 +1143,7 @@ async fn run_turn(
     .await;
     result.content = post_processed.content;
     let structured_content = post_processed.structured_content;
+    let content_blocks = post_processed.content_blocks;
     let leak_replaced = post_processed.leak_replaced;
     let identity_leak = post_processed.identity_leak;
 
@@ -1326,6 +1170,7 @@ async fn run_turn(
         prompt_tokens,
         model: Some(&active_model),
         structured_content: structured_content.as_deref(),
+        content_blocks: content_blocks.as_deref(),
     };
     let (assistant_message, updated_conversation) =
         persist_assistant_response(database, &assistant_params, input.conversation_tenant_id)
@@ -1536,6 +1381,7 @@ async fn deliver_deterministic_reply(
         prompt_tokens: None,
         model: Some(&active_model),
         structured_content: None,
+        content_blocks: None,
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(
         ctx.repos.chat.as_ref(),

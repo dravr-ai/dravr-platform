@@ -22,6 +22,7 @@ pub mod chat;
 pub mod claim_verdicts;
 /// Coaches repository implementation
 pub mod coaches;
+mod coaches_assignments;
 /// Coaching group repository implementation (group CRUD, membership, invites)
 pub mod coaching_groups;
 /// Email-verification token management — proving a registered address
@@ -59,6 +60,7 @@ pub mod route_summaries;
 pub mod security;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
+mod seeder_social;
 /// URL shortener: `code` → `target_url` with an integer-epoch TTL (`PostgreSQL`)
 pub mod short_links;
 /// Social features repository (friend connections, shared insights, reactions)

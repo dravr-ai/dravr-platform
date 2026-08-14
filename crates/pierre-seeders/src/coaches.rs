@@ -797,6 +797,7 @@ fn build_seed_coach(
             .as_ref()
             .and_then(|dr| serde_json::to_string(dr).ok()),
         output_schema: coach.frontmatter.startup.output_schema.clone(),
+        visuals: visuals_column(&coach.frontmatter.startup.visuals),
         created_at: now,
         updated_at: now,
     })
@@ -828,4 +829,22 @@ async fn create_relation(
         .seeder
         .seed_insert_coach_relation_if_absent(&relation)
         .await
+}
+
+/// Join a coach's visual grants into the stored column form.
+///
+/// `None` rather than an empty string when there are no grants, so the column
+/// reads as "no grant" instead of "granted nothing" — the two are the same to
+/// the runtime, but NULL keeps the seeded rows honest about intent.
+fn visuals_column(visuals: &[pierre_coach_parser::VisualKind]) -> Option<String> {
+    if visuals.is_empty() {
+        return None;
+    }
+    Some(
+        visuals
+            .iter()
+            .map(|kind| kind.as_str())
+            .collect::<Vec<_>>()
+            .join(","),
+    )
 }

@@ -383,6 +383,9 @@ pub struct SeedCoach {
     /// Structured-output schema identifier (e.g. `"structured-workout"`) the
     /// coach emits, or `None` for free-text coaches
     pub output_schema: Option<String>,
+    /// Inline visuals grant, comma-joined wire names ("chart,table"); `None`
+    /// when the coach frontmatter declares none.
+    pub visuals: Option<String>,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
     /// Record update timestamp

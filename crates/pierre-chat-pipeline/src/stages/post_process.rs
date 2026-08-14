@@ -7,6 +7,7 @@
 use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
 use pierre_database::database::ConversationRecord;
 use pierre_services::prompt_leak;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::hooks::PipelineHooks;
@@ -26,6 +27,7 @@ use super::structured_output;
 use super::verification::{
     apply_claim_verification, ClaimVerificationOutcome, ClaimVerificationParams,
 };
+use super::viz_blocks;
 
 /// Aggregates the outputs of [`post_process_assistant_reply`] so the
 /// caller can persist the assistant message first and then link any
@@ -45,6 +47,10 @@ pub(crate) struct PostProcessedReply {
     /// from a builder-coach reply. `Some` only when the coach declares an
     /// `output_schema` and the reply validates against it.
     pub structured_content: Option<String>,
+    /// Ordered visual blocks lifted out of the reply's prose, JSON-encoded.
+    /// `Some` only when at least one fenced `dravr-viz` block validated; the
+    /// reply text then carries a positional marker where each block sat.
+    pub content_blocks: Option<String>,
     /// `true` when the LLM reply was withheld and replaced with a canned
     /// localized string (canary hit, or the narration scrub emptied it).
     /// Downstream consumers of the reply text — Tier 2 fact extraction and
@@ -71,6 +77,10 @@ pub(crate) struct PostProcessInputs<'a> {
     /// Whether this turn is on a messaging channel (no plan-card renderer);
     /// gates structured-output extraction.
     pub is_messaging: bool,
+    /// Names of the tools that actually ran this turn. A visual block claiming
+    /// a `source_tool` outside this set is rejected, which is what makes the
+    /// attribution verified rather than asserted.
+    pub tools_called: &'a [String],
 }
 
 /// Resolve the coach's roster so the conformance stage can tell a cited athlete
@@ -111,6 +121,59 @@ async fn resolve_roster_scope(
     }
 }
 
+/// Lift inline visual blocks out of a reply, returning the marker-bearing prose
+/// and the encoded blocks.
+///
+/// Runs on the RAW reply for the same reason the plan extraction above does:
+/// the prose stages that follow would rewrite or truncate the JSON. What
+/// continues down the prose path is text with a positional marker where each
+/// block sat, so guardrails, acronym expansion and conformance all operate on
+/// something a human would read.
+///
+/// Skipped on messaging — there is no block renderer there, and stripping the
+/// fences would leave markers pointing at nothing. The matching prompt
+/// permission is withheld there too, so a messaging coach never emits one.
+fn lift_viz_blocks(
+    ctx: &ChatPipelineContext,
+    coach_ctx: Option<&CoachRuntimeContext>,
+    is_messaging: bool,
+    tools_called: &[String],
+    raw_content: String,
+) -> (String, Option<String>, usize) {
+    if is_messaging {
+        return (raw_content, None, 0);
+    }
+    // A coach with no `visuals:` grant is never shown the contract, so a fence
+    // in its reply is not something we asked for. Extracting it anyway would
+    // make the grant advisory; refusing keeps it a permission. The fence stays
+    // in the text, visible, rather than being silently swallowed.
+    let Some(granted) = coach_ctx
+        .map(|c| c.visuals.as_slice())
+        .filter(|v| !v.is_empty())
+    else {
+        return (raw_content, None, 0);
+    };
+    let Some(extraction) = viz_blocks::extract_viz_blocks(
+        &ctx.structured_output_schemas,
+        granted,
+        tools_called,
+        &raw_content,
+    ) else {
+        return (raw_content, None, 0);
+    };
+    // Re-encoding cannot realistically fail for values that were just parsed,
+    // but if it did, keeping the marker text without the blocks would leave the
+    // athlete reading a bare `⟦viz:0⟧`.
+    let count = extraction.blocks.len();
+    match serde_json::to_string(&extraction.blocks) {
+        Ok(json) => (extraction.text, Some(json), count),
+        Err(e) => {
+            warn!(error = %e, "viz-blocks: extracted blocks failed to re-encode; leaving the reply as-is");
+            (raw_content, None, 0)
+        }
+    }
+}
+
 /// Run post-LLM content processing over the raw assistant reply.
 ///
 /// Owns pipeline stages 15 through 18: canary scan, text guardrails,
@@ -132,6 +195,7 @@ pub(crate) async fn post_process_assistant_reply(
         coach_ctx,
         prompt_guard,
         is_messaging,
+        tools_called,
     } = inputs;
     // Stage 15: Scan for verbatim system-prompt leaks / canary hits. A canary
     // hit is conclusive exfiltration — withhold the reply and return a canned
@@ -154,6 +218,7 @@ pub(crate) async fn post_process_assistant_reply(
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
             structured_content: None,
+            content_blocks: None,
             leak_replaced: true,
             identity_leak: None,
         };
@@ -179,6 +244,7 @@ pub(crate) async fn post_process_assistant_reply(
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
             structured_content: None,
+            content_blocks: None,
             leak_replaced: true,
             identity_leak: leak_report.identity_leak,
         };
@@ -197,7 +263,7 @@ pub(crate) async fn post_process_assistant_reply(
         if let Some(extraction) = structured_output::extract_structured_plan(
             Some(schema_id),
             is_messaging,
-            &ctx.structured_output_schema,
+            &ctx.structured_output_schemas,
             &raw_content,
         ) {
             return PostProcessedReply {
@@ -205,11 +271,16 @@ pub(crate) async fn post_process_assistant_reply(
                 #[cfg(feature = "tools-verification")]
                 pending_verdicts: Vec::new(),
                 structured_content: Some(extraction.structured_content),
+                content_blocks: None,
                 leak_replaced: false,
                 identity_leak: None,
             };
         }
     }
+
+    // Stage 15.55: Inline visual blocks.
+    let (raw_content, content_blocks, block_count) =
+        lift_viz_blocks(ctx, coach_ctx, is_messaging, tools_called, raw_content);
 
     // Stage 15.6: Internal-narration scrub. Drops prose sentences where the
     // model narrates about its hidden scaffolding («Je continue d'ignorer le
@@ -233,6 +304,7 @@ pub(crate) async fn post_process_assistant_reply(
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
             structured_content: None,
+            content_blocks: None,
             leak_replaced: true,
             identity_leak: None,
         };
@@ -317,11 +389,27 @@ pub(crate) async fn post_process_assistant_reply(
         content = post.transform(&content);
     }
 
+    // Blocks survive only if their markers did. Guardrails, the too-long
+    // truncation and the verification fallback each replace the reply wholesale
+    // without knowing about blocks; shipping the blocks anyway would render a
+    // chart underneath a refusal, positioned by a marker that no longer exists.
+    let content_blocks = content_blocks.filter(|_| {
+        let intact = viz_blocks::markers_intact(&content, block_count);
+        if !intact {
+            warn!(
+                block_count,
+                "viz-blocks: reply was rewritten after extraction and lost its markers; dropping the blocks"
+            );
+        }
+        intact
+    });
+
     PostProcessedReply {
         content,
         #[cfg(feature = "tools-verification")]
         pending_verdicts,
         structured_content: None,
+        content_blocks,
         leak_replaced: false,
         identity_leak: None,
     }

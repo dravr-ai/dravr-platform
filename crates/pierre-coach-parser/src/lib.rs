@@ -57,6 +57,42 @@ pub struct CoachStartup {
     /// as a plan card instead of leaking raw JSON to the user.
     #[serde(default)]
     pub output_schema: Option<String>,
+    /// Inline visuals this coach may embed in its prose, e.g. `[chart, table]`.
+    ///
+    /// Orthogonal to [`Self::output_schema`], which says "my whole reply IS this
+    /// object". This says "I may embed these *inside* a reply", and a reply may
+    /// carry several. Empty — the default — means the coach is never told the
+    /// visual contract, so it never emits a block.
+    ///
+    /// Intent only: whether a visual actually reaches a given athlete is decided
+    /// per-channel at render time, since messaging has no block renderer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub visuals: Vec<VisualKind>,
+}
+
+/// A kind of inline visual a coach may embed.
+///
+/// Deliberately an enum rather than free strings: an unknown value in coach
+/// frontmatter should fail to parse loudly rather than silently granting
+/// nothing, and the set is small and closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VisualKind {
+    /// A line/bar/area chart.
+    Chart,
+    /// A tabular comparison.
+    Table,
+}
+
+impl VisualKind {
+    /// Wire name, as written in coach frontmatter and stored in the database.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Chart => "chart",
+            Self::Table => "table",
+        }
+    }
 }
 
 /// Type of relationship between coaches

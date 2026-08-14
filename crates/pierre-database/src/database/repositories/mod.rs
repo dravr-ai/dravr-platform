@@ -6,9 +6,10 @@
 
 pub use crate::repositories::*;
 
+/// Coach version history — snapshot, list, revert
+mod coaches_assignments;
 /// Direct `CoachesRepository` impl on `Database` (SQLite coaches catalogue)
 mod coaches_impl;
-/// Coach version history — snapshot, list, revert
 mod coaches_versions;
 /// Direct `MobilityRepository` impl on `Database` (SQLite stretching + yoga)
 mod mobility_impl;

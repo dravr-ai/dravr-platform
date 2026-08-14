@@ -59,3 +59,5 @@ pub mod structured_output;
 pub mod tool_dispatch;
 #[cfg(feature = "tools-verification")]
 pub mod verification;
+/// Inline visual blocks lifted out of a reply's prose.
+pub mod viz_blocks;

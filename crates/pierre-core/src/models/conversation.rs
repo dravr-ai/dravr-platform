@@ -181,6 +181,16 @@ pub struct CoachRuntimeContext {
     /// When set, the pipeline appends the structured-output contract to the
     /// system prompt and extracts/validates/renders the emitted plan JSON.
     pub output_schema: Option<String>,
+    /// Inline visuals this coach may embed, as stored wire names
+    /// (`"chart"`, `"table"`). Empty means the visual contract is never added
+    /// to the prompt, so the coach never emits a block.
+    ///
+    /// Orthogonal to [`Self::output_schema`]: that says "my whole reply is this
+    /// object", this says "I may embed these inside prose", and a reply may
+    /// carry several. Intent only — whether a visual reaches a given athlete is
+    /// decided per-channel at render time.
+    #[serde(default)]
+    pub visuals: Vec<String>,
     /// Optional per-coach override for max tool-call iterations per turn
     pub max_tool_iterations: Option<i32>,
     /// Optional per-coach LLM sampling temperature override. `None` → use
@@ -190,6 +200,25 @@ pub struct CoachRuntimeContext {
     /// into the system prompt (e.g. Nutrition coaches bypass the generic
     /// "food/meal finders" out-of-scope refusal for meal-planning questions).
     pub category: CoachCategory,
+}
+
+/// Split the stored `coaches.visuals` column into wire names.
+///
+/// The column is a comma-separated list ("chart,table"); `NULL` or empty means
+/// no grant. Unknown names are kept as-is here — the storage layer is not the
+/// place to police vocabulary. The extraction stage treats the list as a
+/// permission set and only lifts block kinds whose name appears in it, so an
+/// unknown name grants nothing.
+#[must_use]
+pub fn split_visuals(raw: Option<&str>) -> Vec<String> {
+    raw.map_or_else(Vec::new, |joined| {
+        joined
+            .split(',')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(ToOwned::to_owned)
+            .collect()
+    })
 }
 
 /// `finish_reason` stamped on an assistant row whose reply was withheld at the
@@ -253,6 +282,14 @@ pub struct MessageRecord {
     /// `structured-workout` plan JSON). When present, clients render it as a
     /// rich card instead of the raw text. JSON-encoded string.
     pub structured_content: Option<String>,
+    /// Ordered visual blocks (chart/table) lifted out of this reply's prose,
+    /// JSON-encoded array. The text keeps a positional marker where each block
+    /// sat, so clients interleave prose and rendering.
+    ///
+    /// Separate from `structured_content` because the two are different content
+    /// models: that field holds one payload that replaces the whole reply,
+    /// this holds several embedded in it.
+    pub content_blocks: Option<String>,
     /// When the message was created (ISO 8601)
     pub created_at: String,
 }
@@ -308,6 +345,8 @@ pub struct AddMessageParams<'a> {
     /// Validated structured payload (e.g. a `structured-workout` plan JSON)
     /// extracted from the reply, persisted alongside the message text.
     pub structured_content: Option<&'a str>,
+    /// Ordered visual blocks lifted from the reply's prose, JSON-encoded array.
+    pub content_blocks: Option<&'a str>,
 }
 
 /// Database representation of a user's thumbs up/down feedback on a message.

@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::{CoachRuntimeContext, TenantId};
+use pierre_core::models::{split_visuals, CoachRuntimeContext, TenantId};
 use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::{sqlite::SqliteRow, Row};
 use uuid::Uuid;
@@ -19,7 +19,7 @@ use super::{compute_content_hash, row_to_coach, CoachesManager};
 ///
 /// Ordering matches the SELECT list in [`CoachesManager::get_coach_runtime_context`]:
 /// `slug`, `source`, `system_prompt`, `startup_query`, `data_requirements`,
-/// `output_schema`, `max_tool_iterations`, `temperature`, `category`.
+/// `output_schema`, `visuals`, `max_tool_iterations`, `temperature`, `category`.
 ///
 /// `slug` is nullable in the schema (legacy custom coaches predate the
 /// column); the loader maps `NULL` to an empty string so the registry
@@ -28,6 +28,7 @@ type CoachRuntimeRow = (
     Option<String>,
     String,
     String,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -392,7 +393,7 @@ impl CoachesManager {
     ) -> AppResult<Option<CoachRuntimeContext>> {
         let row: Option<CoachRuntimeRow> = sqlx::query_as(
             r"
-            SELECT slug, source, system_prompt, startup_query, data_requirements, output_schema, max_tool_iterations, temperature, category
+            SELECT slug, source, system_prompt, startup_query, data_requirements, output_schema, visuals, max_tool_iterations, temperature, category
             FROM coaches
             WHERE id = $1
               AND (tenant_id = $2 OR is_system = 1)
@@ -413,6 +414,7 @@ impl CoachesManager {
                 startup_query,
                 data_requirements,
                 output_schema,
+                visuals,
                 max_tool_iterations,
                 temperature,
                 category,
@@ -424,6 +426,7 @@ impl CoachesManager {
                     startup_query,
                     data_requirements,
                     output_schema,
+                    visuals: split_visuals(visuals.as_deref()),
                     max_tool_iterations,
                     temperature,
                     category: CoachCategory::parse(&category),
