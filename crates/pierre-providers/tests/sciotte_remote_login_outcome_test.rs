@@ -32,7 +32,10 @@ use tokio::sync::Mutex;
 /// Serve one canned `(status, body)` per connection, in order.
 ///
 /// A queue rather than a router: each assertion below drives exactly one request, so
-/// order is the simplest thing that cannot silently mismatch.
+/// order is the simplest thing that cannot silently mismatch. An exhausted queue keeps
+/// answering — with a 500 that no assertion accepts — rather than dropping the
+/// listener, so an unexpected extra request fails as a wrong *outcome* instead of a
+/// connection error that says nothing about what went wrong.
 async fn stub_server(responses: Vec<(u16, String)>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -43,15 +46,14 @@ async fn stub_server(responses: Vec<(u16, String)>) -> String {
             let Ok((mut stream, _)) = listener.accept().await else {
                 return;
             };
-            let next = {
+            let (status, body) = {
                 let mut q = queue.lock().await;
                 if q.is_empty() {
-                    None
+                    (500, r#"{"error":"stub queue exhausted"}"#.to_owned())
                 } else {
-                    Some(q.remove(0))
+                    q.remove(0)
                 }
             };
-            let Some((status, body)) = next else { return };
 
             // Drain what the client sent; the assertions are about the response.
             let mut buf = [0_u8; 4096];
@@ -69,6 +71,13 @@ async fn stub_server(responses: Vec<(u16, String)>) -> String {
     format!("http://{addr}")
 }
 
+/// Every case lives in ONE test on purpose.
+///
+/// `RemoteSciotteClient` is only constructible from the environment, and an env var is
+/// process-global: two `#[test]`s setting `DRAVR_SCIOTTE_REMOTE_URL` race under the
+/// default parallel harness, and the loser's client talks to the winner's stub. That
+/// surfaced as `error sending request` — a connection failure that looks like a broken
+/// client rather than a broken test. One test, one server, no shared mutable state.
 #[tokio::test]
 async fn every_sciotte_login_status_maps_to_its_outcome() {
     // Verbatim from a running dravr-sciotte-server (fake-login fixtures), 2026-08-14.
@@ -77,11 +86,15 @@ async fn every_sciotte_login_status_maps_to_its_outcome() {
     let number = r#"{"status":"number_match","number":"78","flow_id":"6a7f4723-a59a880","provider":"strava"}"#;
     let failed = r#"{"status":"failed","reason":"Wrong password. Try again."}"#;
 
+    // A 401 from a misconfigured DRAVR_SCIOTTE_API_KEY carries no login status.
+    let no_status = r#"{"error":"unauthorized","message":"invalid api key"}"#;
+
     let base = stub_server(vec![
         (200, otp.to_owned()),
         (200, choice.to_owned()),
         (200, number.to_owned()),
         (401, failed.to_owned()),
+        (401, no_status.to_owned()),
     ])
     .await;
 
@@ -148,27 +161,12 @@ async fn every_sciotte_login_status_maps_to_its_outcome() {
         other => panic!("expected Failed, got {other:?}"),
     }
 
-    env::remove_var(ENV_REMOTE_URL);
-}
-
-#[tokio::test]
-async fn an_unrecognized_status_is_an_error_not_a_credential_rejection() {
-    // A 401 from a misconfigured DRAVR_SCIOTTE_API_KEY carries no login status. It must
-    // NOT collapse to Failed, or a deployment fault reads to the user as a bad password
-    // — the mistake the implementation comment records from the first e2e run.
-    let base = stub_server(vec![(
-        401,
-        r#"{"error":"unauthorized","message":"invalid api key"}"#.to_owned(),
-    )])
-    .await;
-
-    env::set_var(ENV_REMOTE_URL, &base);
-    let client = RemoteSciotteClient::require_from_env().expect("client builds from env");
-
+    // 5. A response with no login status must NOT collapse to Failed, or a deployment
+    //    fault reads to the user as a bad password — the mistake the implementation
+    //    comment records from the first e2e run.
     let result = client
         .login_with_credentials("test@example.com", "whatever", "google", "strava")
         .await;
-
     assert!(
         result.is_err(),
         "a response with no login status is a transport/auth fault, got {result:?}"
