@@ -74,17 +74,14 @@ Find a test's file: `rg "test_name" tests/ --files-with-matches`. NEVER `cargo t
 **Pre-push validation** — `./scripts/ci/pre-push-validate.sh` is the ONLY local gate you run (see the CI block for why).
 </important>
 
-<important if="a cargo build is blocking on a file lock, or you are working in a git worktree">
+<important if="you need disk space back from Cargo builds, or you are setting up a git worktree">
 
-**Every dravr repo's `target/` is a symlink** to `~/.cargo-target/<repo>`, shared by all of that repo's worktrees (`scripts/setup/cargo-target-share.sh`; keyed off `git rev-parse --git-common-dir`, so worktrees collapse together and separate clones stay separate). This exists because each worktree used to carry its own near-complete copy — one worktree alone held 81GB duplicating what main had already built.
+**Every worktree and clone has its own plain `target/`** — cargo's default, nothing shared. Builds in two worktrees of one repo are fully independent: no shared build lock, no cross-worktree fingerprint collisions. Disk comes back on a schedule instead.
 
-- **`Blocking waiting for file lock on build directory` is expected, not a hang.** Worktrees of one repo share a single build lock, and cargo holds it for the *whole* build, so a ~13-min `cargo test --workspace` in one worktree stalls the other for that long. It waits; it does not fail. Confirm with `ps aux | grep cargo` before assuming something is wedged.
-- **Escape hatch — `unlink` the worktree you are building in concurrently:**
-  `./scripts/setup/cargo-target-share.sh unlink <worktree-path>` gives it a private `target/` back. Cost: its next build is cold and it starts growing its own copy again, so re-`link` it when the concurrent stretch is over. `link` is always safe to re-run — it is idempotent and repairs a dangling symlink.
-- `status` shows what is linked and each shared tree's size. `prune` reclaims (stale trees + cargo-sweep by default; `--purge-incremental` is the big, costly lever). All destructive paths skip a tree whose cargo lock is held; `--force` overrides.
-- **`prune` already runs nightly at 02:00 Eastern** via the `ai.dravr.cargo-target-prune` LaunchAgent (log: `~/Library/Logs/cargo-target-prune.log`; `launchctl list | grep cargo-target-prune` to confirm it is loaded). It runs the *default* prune only — the incremental purge stays manual. Reinstall with `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/ai.dravr.cargo-target-prune.plist`. Don't add a second scheduler for this.
-- **`cargo clean` blast radius grew** — it wipes the tree shared by every worktree of that repo. Prefer `cargo clean -p <pkg>`.
-- Never "fix" a `?? target` in `git status` by committing it — the symlink is machine-local and belongs in `.git/info/exclude` (a `target/` rule with a trailing slash matches directories only, not the symlink). Re-running `link` restores the exclude.
+- **`scripts/setup/cargo-sweep-nightly.sh` is the only disk tool.** `status` prints per-repo sizes, the fleet total and headroom (read-only); `sweep` runs the 30-day `cargo-sweep` age pass then enforces the cap; `purge` is the escape hatch — drops incremental caches, then wipes repos idle 7+ days wholesale (`--idle-days`, keeping the `--keep` most-recently-built), and pays a cold next build for it. Every destructive path skips a repo whose cargo lock is held (`--force` overrides); `--dry-run` prints the plan. It exits 127 rather than no-op when `cargo-sweep` is missing (`cargo install cargo-sweep`).
+- **The ceiling is 400 GiB across every target dir under `~/workspace`** (`--cap`). The nightly run enforces it rather than warning: when the age pass leaves the fleet over, it reclaims from the least-recently-built repos until it is under, so the repo you are working in keeps its warm cache longest. The output names every repo the cap forced.
+- **`sweep` runs nightly at 02:00 Eastern** via the `ai.dravr.cargo-sweep` LaunchAgent (log: `~/Library/Logs/cargo-sweep.log`). Install or remove it with `./scripts/setup/cargo-sweep-nightly.sh install|uninstall` — never hand-edit the plist, and don't add a second scheduler for this.
+- Never "fix" a `target` in `git status` by committing it. `.gitignore` line 2 is `target/` — a trailing-slash rule, which matches the real directory, so a build tree is already ignored. An untracked `target` therefore means it is not a plain directory; investigate it, don't commit it.
 </important>
 
 <important if="you have just run a test command">

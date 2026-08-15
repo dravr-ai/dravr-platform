@@ -58,16 +58,6 @@ if [[ -f "$MAIN_WORKTREE/.mcp.json" ]]; then
     cp "$MAIN_WORKTREE/.mcp.json" "$WORKTREE_PATH/.mcp.json"
 fi
 
-# Point target/ at the repository's shared build directory. Without this a
-# worktree rebuilds and then keeps its own near-complete copy of the main
-# worktree's build tree — tens of gigabytes each, per worktree, that nothing
-# ever reclaims. Sharing also means the first build here starts warm.
-SHARE_TOOL="$MAIN_WORKTREE/scripts/setup/cargo-target-share.sh"
-if [[ -x "$SHARE_TOOL" ]]; then
-    echo "Linking shared Cargo target directory..."
-    "$SHARE_TOOL" link "$WORKTREE_PATH"
-fi
-
 # Run direnv allow if direnv is available
 if command -v direnv &> /dev/null; then
     echo "Running direnv allow..."

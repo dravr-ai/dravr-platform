@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.dravr.cargo-sweep</string>
+
+    <!-- The routine age-based sweep, followed by cap enforcement. The cap is passed
+         explicitly rather than left to the script default so the schedule is fully
+         described by this file. `status` reads it back and reports it, so a drift
+         between the installed schedule and the script default is visible.
+         `purge` is deliberately NOT scheduled: it drops incremental caches and whole
+         idle trees, which costs the next build in every repo. Run it by hand when
+         space is the actual goal. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__SCRIPT__</string>
+        <string>sweep</string>
+        <string>--cap</string>
+        <string>__CAP__</string>
+    </array>
+
+    <!-- Local time, and this machine is America/Toronto, so this is 02:00 Eastern and
+         follows DST automatically. If the Mac is asleep at 02:00, launchd runs the job
+         when it next wakes rather than skipping the day. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>__LOG__</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG__</string>
+
+    <!-- launchd starts with a minimal PATH. cargo, cargo-sweep, git and python3 must all
+         resolve: cargo-sweep missing makes the run exit 127 by design, and python3 missing
+         downgrades the build-lock probe from an exact flock(2) test to an mtime heuristic.
+         /opt/homebrew/bin carries python3 on this machine; /usr/bin has a fallback. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__HOME__/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+    </dict>
+
+    <!-- Stay out of the way of anything the machine is actually doing. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
