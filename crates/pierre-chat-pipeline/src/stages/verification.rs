@@ -23,6 +23,7 @@ use std::sync::Arc;
 use futures_util::FutureExt;
 use pierre_core::error_helpers::panic_payload_str;
 use pierre_database::repositories::InsertClaimVerdictParams;
+use pierre_evals::athlete_data::AthleteRecord;
 use pierre_evals::{
     AthleteMetrics, ExtractedClaim, PersonalizedContext, ResolvedAction, ToleranceStrategy,
     VerdictOutcome, VerificationConfig, VerificationFallback,
@@ -40,6 +41,8 @@ use pierre_services::athlete_snapshot::build_athlete_metrics;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::claim_verification::resolve_corpus;
 use pierre_services::claim_verification::verify_reply_with_config_and_judge;
+use pierre_services::onboarding_gate::user_has_connected_provider;
+use tracing::warn;
 use uuid::Uuid;
 
 /// Resolve the Layer-5 claim-judge provider, or `None` when the runtime
@@ -470,12 +473,19 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
                 tolerance: tolerance.as_ref(),
             });
 
+    // The athlete-data layer's inputs. Unlike the personalized layer this is
+    // built unconditionally: its most important verdict is the one it reaches
+    // when the athlete has *nothing* connected, and a snapshot that opted out
+    // of being built could never deliver it.
+    let athlete_record = build_athlete_record(ctx, user_id, tenant_id).await;
+
     let verdicts = match verify_reply_with_config_and_judge(
         reply,
         config,
         &corpus,
         judge,
         personalized.as_ref(),
+        athlete_record.as_ref(),
     )
     .await
     {
@@ -542,6 +552,108 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
         pending_verdicts: verdicts,
     }
 }
+
+/// Gather what we hold about this athlete's own records.
+///
+/// Two facts, from two sources that disagree in an important way: whether any
+/// provider is connected at all (`provider_connections`, the same table the
+/// onboarding gate reads), and what activities we actually hold (the cache).
+/// The first is what licenses a contradiction — no provider means a specific
+/// figure had no source — while the second only ever supports or fails to
+/// support one, because the cache is a window and can legitimately miss a run.
+///
+/// Returns `None` when the user id will not parse, and — importantly — when the
+/// connection lookup *fails*. Both mean we cannot establish the athlete's state,
+/// and this is the one layer where guessing is dangerous in a specific
+/// direction: "providerless" is what licenses a `Contradicted` verdict at 0.95
+/// confidence, saying the coach invented a figure. Collapsing an `Err` into
+/// `false` would let a pool timeout brand an accurate reply a fabrication and
+/// persist that accusation. Skipping the layer costs a verdict; guessing costs
+/// the athlete's trust, so absence of knowledge must never read as knowledge of
+/// absence.
+///
+/// `has_provider` mirrors [`user_has_connected_provider`] plus the `oauth_tokens`
+/// second source, exactly as the dispatch chokepoint does, because the two
+/// tables are known to drift. An athlete holding a live token whose connection
+/// row is missing is served by every tool, so calling them providerless here
+/// would contradict every true figure they were just given.
+async fn build_athlete_record(
+    ctx: &ChatPipelineContext,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> Option<AthleteRecord> {
+    let uuid = Uuid::parse_str(user_id).ok()?;
+
+    let connected = match user_has_connected_provider(&ctx.repos.provider_connections, uuid).await {
+        Ok(true) => true,
+        Ok(false) => match ctx.repos.oauth_tokens.get_tokens(uuid, None).await {
+            Ok(tokens) => !tokens.is_empty(),
+            Err(e) => {
+                warn!(
+                    user_id = %uuid,
+                    error = %e,
+                    "athlete-record: oauth_tokens lookup failed — skipping the \
+                     athlete-data layer rather than risk contradicting a true claim"
+                );
+                return None;
+            }
+        },
+        Err(e) => {
+            warn!(
+                user_id = %uuid,
+                error = %e,
+                "athlete-record: provider_connections lookup failed — skipping the \
+                 athlete-data layer rather than risk contradicting a true claim"
+            );
+            return None;
+        }
+    };
+
+    // Without a provider there is nothing to fetch, and the window query would
+    // be a guaranteed-empty round trip on every verified reply.
+    if !connected {
+        return Some(AthleteRecord::providerless());
+    }
+
+    let end = chrono::Utc::now();
+    let start = end - chrono::Duration::days(ATHLETE_RECORD_WINDOW_DAYS);
+    let activities = ctx
+        .repos
+        .activity_cache
+        .get_cached_activities(uuid, &tenant_id, None, start, end, ATHLETE_RECORD_LIMIT)
+        .await
+        .unwrap_or_default();
+
+    Some(AthleteRecord {
+        has_provider: true,
+        distances_km: activities
+            .iter()
+            .filter_map(|a| a.distance_meters().map(|m| m / 1000.0))
+            .collect(),
+        durations_min: activities
+            .iter()
+            .map(|a| {
+                #[allow(clippy::cast_precision_loss)]
+                let secs = a.duration_seconds() as f64;
+                secs / 60.0
+            })
+            .collect(),
+    })
+}
+
+/// How far back the athlete-data layer looks when matching a claim.
+///
+/// A coach discussing "last month" or "the past few weeks" is the common case;
+/// a quarter covers those without pulling a whole history into a per-reply
+/// check.
+const ATHLETE_RECORD_WINDOW_DAYS: i64 = 90;
+
+/// Cap on activities pulled for one verification pass.
+///
+/// The layer only needs the set of values a figure could match, and an athlete
+/// with more than this in a quarter is not going to be adjudicated differently
+/// by the tail.
+const ATHLETE_RECORD_LIMIT: i64 = 500;
 
 /// Build the personalized-layer inputs (athlete snapshot + tolerance strategy) for a turn.
 ///

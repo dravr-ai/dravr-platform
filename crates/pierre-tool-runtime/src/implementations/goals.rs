@@ -25,7 +25,7 @@ use serde_json::{from_value, json, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::capabilities::ToolCapabilities;
+use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::protocol::auth::AuthService;
@@ -1026,7 +1026,7 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -1113,7 +1113,7 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -1250,7 +1250,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(

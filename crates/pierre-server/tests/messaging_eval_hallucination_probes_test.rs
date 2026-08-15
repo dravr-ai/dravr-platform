@@ -164,3 +164,97 @@ fn probe_fabricated_tool_flagged_by_empty_tools_called() {
         "actual tools_called must be empty for this probe"
     );
 }
+
+/// Probe class 6: **providerless fabrication**.
+///
+/// The class the other five could not catch. A user who has connected nothing
+/// asks how their training is going, and the coach answers with a specific
+/// past: *"nice 12 km ride yesterday!"*. The citation asserter of probe class 1
+/// only fires when a reply cites a **count** it can compare, and this reply
+/// cites none — it invents an event.
+///
+/// Before the athlete-data layer this reply drew no verdict at all: the six
+/// claim categories are sports-science propositions, so the extractor dropped
+/// the sentence and nothing downstream ever saw it.
+///
+/// Driven from raw reply text rather than a hand-built claim, because the
+/// extraction and categorisation steps are exactly where it used to be lost.
+#[test]
+fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
+    use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord};
+    use pierre_evals::claim_extractor::extract_heuristic;
+    use pierre_memory::{ClaimCategory, ClaimStatus};
+
+    let hallucinated_reply =
+        "Nice 12 km ride yesterday, that was a solid effort! Keep that consistency going.";
+
+    // Step 1 — the sentence must survive extraction as an athlete-data claim.
+    let claims = extract_heuristic(hallucinated_reply);
+    let personal: Vec<_> = claims
+        .iter()
+        .filter(|c| c.category == ClaimCategory::AthleteData)
+        .collect();
+    assert!(
+        !personal.is_empty(),
+        "the invented ride must be extracted as an athlete-data claim; \
+         dropping it here is how it escaped verification for months. Got: {claims:?}"
+    );
+
+    // Step 2 — with nothing connected, the layer must call it invented rather
+    // than merely unconfirmed.
+    let providerless = AthleteRecord::providerless();
+    let verdicts: Vec<_> = personal
+        .iter()
+        .filter_map(|c| athlete_check(c, &providerless))
+        .collect();
+    assert!(
+        verdicts
+            .iter()
+            .any(|v| v.status == ClaimStatus::Contradicted),
+        "a specific figure with no connected provider has no record it could have come \
+         from — that is a contradiction, not a shrug. Got: {:?}",
+        verdicts.iter().map(|v| v.status).collect::<Vec<_>>()
+    );
+}
+
+/// The same probe, inverted: a connected athlete whose record backs the figure
+/// must NOT be flagged.
+///
+/// Without this the layer could pass probe class 6 by contradicting everything,
+/// which would be a worse product than the hallucination — a coach unable to
+/// mention a run the athlete actually did.
+#[test]
+fn probe_providerless_check_does_not_flag_a_real_ride() {
+    use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord};
+    use pierre_evals::claim_extractor::extract_heuristic;
+    use pierre_memory::{ClaimCategory, ClaimStatus};
+
+    let truthful_reply = "Nice 12 km ride yesterday, that was a solid effort! Keep it going.";
+    let record = AthleteRecord {
+        has_provider: true,
+        distances_km: vec![12.2, 5.0],
+        durations_min: vec![38.0],
+    };
+
+    let claims = extract_heuristic(truthful_reply);
+    let personal: Vec<_> = claims
+        .iter()
+        .filter(|c| c.category == ClaimCategory::AthleteData)
+        .collect();
+    // Pin the count: a classifier change that stops extracting the sentence
+    // would otherwise leave the loop empty and this probe vacuously green —
+    // the exact silent-stub failure the test suite rules forbid.
+    assert_eq!(
+        personal.len(),
+        1,
+        "the truthful ride must extract as exactly one athlete-data claim, got: {claims:?}"
+    );
+    let outcome = athlete_check(personal[0], &record).expect("layer adjudicates its own category");
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Supported,
+        "12 km is within tolerance of the recorded 12.2 km; anything weaker means the \
+         matcher broke. Got: {}",
+        outcome.explanation
+    );
+}

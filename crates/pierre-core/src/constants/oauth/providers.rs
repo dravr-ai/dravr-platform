@@ -69,6 +69,26 @@ pub const SYNTHETIC: &str = "synthetic";
 /// the provider implementation is gated behind `provider-synthetic` feature.
 pub const SYNTHETIC_SLEEP: &str = "synthetic_sleep";
 
+/// Whether `provider` answers from locally generated data and so needs no
+/// connection, token, or session of any kind.
+///
+/// Deliberately narrower than "does not use OAuth". `sciotte` and
+/// `sciotte_garmin` skip OAuth but run on a browser session the athlete still
+/// has to establish, and `coros` is simply unconfigured — a request naming any
+/// of those from an athlete with nothing connected must still be refused, or
+/// the refusal that sends them to connect never fires. Only the synthetic
+/// providers make their data up on the spot.
+///
+/// Used by the dispatch chokepoint to stand aside for demo and seeded accounts.
+/// Membership is a closed list on purpose: keying the bypass on a negative
+/// ("not known to need OAuth") would hand a way past the gate to every
+/// unrecognized string, including the `"all"` sentinel and any provider name an
+/// LLM invents.
+#[must_use]
+pub fn is_credential_free(provider: &str) -> bool {
+    matches!(provider, SYNTHETIC | SYNTHETIC_SLEEP)
+}
+
 /// Get statically-known OAuth providers
 ///
 /// **Deprecated**: Use `crate::providers::get_supported_providers()` instead,

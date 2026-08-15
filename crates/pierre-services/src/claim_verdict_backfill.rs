@@ -111,6 +111,8 @@ pub struct BackfillCategoryCounts {
     pub supplement: u64,
     /// `injury_rehab` category hits.
     pub injury_rehab: u64,
+    /// `athlete_data` category hits — claims about the athlete's own records.
+    pub athlete_data: u64,
 }
 
 impl BackfillCategoryCounts {
@@ -122,6 +124,7 @@ impl BackfillCategoryCounts {
             ClaimCategory::Recovery => self.recovery += 1,
             ClaimCategory::Supplement => self.supplement += 1,
             ClaimCategory::InjuryRehab => self.injury_rehab += 1,
+            ClaimCategory::AthleteData => self.athlete_data += 1,
         }
     }
 }

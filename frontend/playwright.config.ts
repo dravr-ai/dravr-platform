@@ -13,7 +13,14 @@ export default defineConfig({
   retries: 0, // Disable retries to prevent CI timeout - failing tests should be fixed not retried
   workers: process.env.CI ? 2 : undefined, // Use 2 workers in CI for reasonable speed
   reporter: process.env.CI ? 'github' : 'html',
-  timeout: 30000,
+  // Headroom for a cold start plus the test body. Playwright boots a fresh Vite
+  // per run (reuseExistingServer: false) and several workers hit it while it is
+  // still transforming the app, so the first navigation can take tens of
+  // seconds. At the old 30s this budget was fully consumable by that one wait,
+  // leaving nothing for the test itself — which surfaced as a click timing out
+  // on a nav button that was simply not painted yet. Retries stay at 0: a real
+  // failure should still fail.
+  timeout: 60000,
   expect: {
     timeout: 5000,
   },

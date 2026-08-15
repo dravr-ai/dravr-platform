@@ -8,6 +8,7 @@ use super::auth::AuthService;
 use crate::context::{AuthMethod, CONVERSATION_ID, GUARDIAN_TURN_TOKEN};
 use crate::conversions::RAISED_ERROR_CODE_KEY;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
+use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
@@ -15,6 +16,8 @@ use chrono::{Duration, Utc};
 use dravr_tronc::mcp::schema::{Content, ToolResponse};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
+use pierre_config::environment::default_provider;
+use pierre_core::constants::oauth::providers::is_credential_free;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_database::repositories::PendingGuardianAction;
@@ -26,10 +29,26 @@ use pierre_intelligence::physiological_constants::efficiency_defaults::{
     DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
 };
 use pierre_intelligence::IntelligenceConfig;
+use pierre_services::onboarding_gate::user_has_connected_provider;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+/// The two facts the dispatch chokepoint needs to decide a provider refusal.
+///
+/// Bundled rather than passed as two more parameters so
+/// [`UniversalToolExecutor::authorization_refusal`] stays inside clippy's
+/// argument budget, and because neither fact is meaningful without the other:
+/// a requested provider only matters when the tool actually requires one.
+#[derive(Clone, Copy)]
+struct ProviderGate<'a> {
+    /// Whether the tool declares `REQUIRES_PROVIDER`.
+    required: bool,
+    /// The non-empty `provider` argument the caller named, when present.
+    requested: Option<&'a str>,
+}
 
 /// Intelligence service interface for analysis operations
 /// Provides abstraction layer for future intelligence module integration
@@ -217,8 +236,10 @@ impl UniversalExecutor {
         &self,
         tool_name: &str,
         tenant_uuid: Option<Uuid>,
+        user_uuid: Uuid,
         is_admin: bool,
         admin_only: bool,
+        provider_gate: ProviderGate<'_>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
         // Tenant tool-disable (absorbed `enforce_tool_allowlist`): a tenant's
         // explicit config, enforced on every transport. Disabling a tool is
@@ -258,7 +279,130 @@ impl UniversalExecutor {
             )));
         }
 
+        if provider_gate.required {
+            if let Some(refusal) = self
+                .provider_refusal(tool_name, user_uuid, provider_gate.requested)
+                .await
+            {
+                return Ok(Some(refusal));
+            }
+        }
+
         Ok(None)
+    }
+
+    /// The `REQUIRES_PROVIDER` half of the pre-dispatch refusals.
+    ///
+    /// Split out of [`Self::authorization_refusal`] to keep that fn inside the
+    /// cognitive-complexity budget, the same reason the refusals were extracted
+    /// from `execute_tool` in the first place.
+    ///
+    /// This is the systematic barrier that replaces the conversation gate. Before
+    /// it, ~20 of 103 tools refused in their own bodies via the provider
+    /// resolvers and the rest served quiet empty shapes ("count": 0) that a model
+    /// reads as "nothing recent" — the exact ambiguity behind the hallucinated
+    /// ride.
+    ///
+    /// Three deliberate choices, all mirroring the resolvers this fronts:
+    ///
+    /// - `PIERRE_DEFAULT_PROVIDER` short-circuits first, because both resolvers
+    ///   serve from the override without ever consulting `provider_connections`.
+    ///   Refusing here would break every deployment that sets it.
+    /// - The lookup fails **open**. The tool body re-resolves through the same
+    ///   table and refuses properly if the absence is real, so failing closed
+    ///   would only turn a transient database error into a refusal on a working,
+    ///   connected account.
+    /// - **Two tables must both come up empty.** `provider_connections` and
+    ///   `oauth_tokens` are written by different paths and are known to drift
+    ///   (a live token whose connection row is missing). Reading only the
+    ///   connection table would lock a genuinely connected athlete out of every
+    ///   provider-backed tool, which presents as "the coach stopped seeing my
+    ///   data" — strictly worse than the hallucination this gate prevents.
+    ///   Either row is sufficient evidence of a data source, so the refusal
+    ///   fires only when neither exists.
+    /// - **A named credential-free provider stands aside**, per
+    ///   [`is_credential_free`] — the synthetic providers, which generate their
+    ///   data and need no connection at all. Refusing those would lock demo and
+    ///   seeded accounts out of tools whose data is sitting right there.
+    ///
+    ///   That predicate is a closed list rather than "not known to need OAuth",
+    ///   and the difference is the whole gate: `requires_oauth` answers `false`
+    ///   for every name it does not recognize, so the negative form would wave
+    ///   through the `"all"` sentinel `refresh_provider_data` accepts and any
+    ///   provider name an LLM invents.
+    async fn provider_refusal(
+        &self,
+        tool_name: &str,
+        user_uuid: Uuid,
+        requested_provider: Option<&str>,
+    ) -> Option<UniversalResponse> {
+        if default_provider().is_some() {
+            return None;
+        }
+        if requested_provider.is_some_and(is_credential_free) {
+            return None;
+        }
+        if self.athlete_has_data_source(tool_name, user_uuid).await {
+            return None;
+        }
+        info!(
+            tool_name = %tool_name,
+            reason = "no_provider_connected",
+            "provider-requiring tool refused at the dispatch chokepoint"
+        );
+        Some(no_provider_refusal())
+    }
+
+    /// Whether this athlete has any fitness data source behind them.
+    ///
+    /// Answers `true` on the slightest evidence, and that bias is deliberate:
+    /// the caller refuses when this is `false`, so a wrong `false` locks a
+    /// working account out of every provider-backed tool. A lookup that fails
+    /// therefore answers `true` — the tool body re-resolves through the same
+    /// tables and refuses properly if the absence is real, whereas failing
+    /// closed would turn a transient database error into a refusal on a
+    /// connected athlete.
+    ///
+    /// Split from [`Self::provider_refusal`] to keep both inside the
+    /// cognitive-complexity budget; the two reads and their three error arms
+    /// pushed the single function to 34 against a ceiling of 25.
+    async fn athlete_has_data_source(&self, tool_name: &str, user_uuid: Uuid) -> bool {
+        match user_has_connected_provider(&self.resources.repos().provider_connections, user_uuid)
+            .await
+        {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(e) => {
+                warn!(
+                    tool_name = %tool_name,
+                    error = %e,
+                    "provider_connections lookup failed at the chokepoint — proceeding; \
+                     the tool body re-resolves and refuses if the absence is real"
+                );
+                return true;
+            }
+        }
+
+        match self
+            .resources
+            .repos()
+            .oauth_tokens
+            .get_tokens(user_uuid, None)
+            .await
+        {
+            // Drift: a token without its connection row still means the athlete
+            // has a real data source, so the tool body gets to run.
+            Ok(tokens) => !tokens.is_empty(),
+            Err(e) => {
+                warn!(
+                    tool_name = %tool_name,
+                    error = %e,
+                    "oauth_tokens lookup failed at the chokepoint — proceeding; \
+                     the tool body re-resolves and refuses if the absence is real"
+                );
+                true
+            }
+        }
     }
 
     /// Dispatch a tool call to the unified `McpTool` registry.
@@ -309,8 +453,27 @@ impl UniversalExecutor {
         // tool's own `require_admin_access`). Extracted to a helper to keep this
         // dispatch fn within the cognitive-complexity budget.
         let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
+        let provider_gate = ProviderGate {
+            required: tool
+                .capabilities()
+                .contains(ToolCapabilities::REQUIRES_PROVIDER),
+            requested: args
+                .get("provider")
+                .and_then(JsonValue::as_str)
+                .filter(|s| !s.is_empty()),
+        };
+        let user_uuid = Uuid::parse_str(&request.user_id).map_err(|e| {
+            ProtocolError::InternalError(format!("malformed user id in request: {e}"))
+        })?;
         if let Some(refusal) = self
-            .authorization_refusal(&tool_name, tenant_uuid, is_admin, admin_only)
+            .authorization_refusal(
+                &tool_name,
+                tenant_uuid,
+                user_uuid,
+                is_admin,
+                admin_only,
+                provider_gate,
+            )
             .await?
         {
             return Ok(refusal);

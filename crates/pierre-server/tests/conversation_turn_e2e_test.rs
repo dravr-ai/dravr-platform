@@ -182,7 +182,7 @@ mod conversation_turn_e2e_tests {
             .unwrap();
 
         // Register a synthetic provider so the onboarding gate
-        // (`services::onboarding_gate::require_connected_provider`) lets the
+        // (the provider gate, removed in Phase 5) lets the
         // Slack-webhook turn reach the LLM pipeline. The pipeline still uses
         // the mock provider for the actual data fetch; the gate just needs
         // any row in `provider_connections` to pass.

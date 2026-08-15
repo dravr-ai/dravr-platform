@@ -42,7 +42,24 @@ HITS=$(
         awk '
             /^[[:space:]]*(\/\/|\/\*|\*)/            { next }   # comments and doc comments
             /^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]/ { next }   # use declarations
-            /^[[:space:]]*#\[/                       { next }   # attributes
+            # Attributes, including the continuation lines of a multi-line one.
+            # Skipping only the opening `#[` left the body of
+            #   #[deprecated(
+            #       note = "Use crate::a::b() instead"
+            #   )]
+            # exposed, and a path inside an attribute string is not code —
+            # clippy::absolute_paths never fires there, so reporting it is a
+            # false positive that blocks a push for a line nobody can fix.
+            /^[[:space:]]*#\[/ {
+                depth = gsub(/\[/, "[") - gsub(/\]/, "]")
+                if (depth > 0) in_attr = 1
+                next
+            }
+            in_attr {
+                depth += gsub(/\[/, "[") - gsub(/\]/, "]")
+                if (depth <= 0) in_attr = 0
+                next
+            }
             {
                 line = $0
                 while (match(line, /(std|core|alloc|crate)(::[A-Za-z_][A-Za-z0-9_]*){2,}/)) {

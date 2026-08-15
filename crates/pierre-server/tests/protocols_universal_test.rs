@@ -16,7 +16,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{self, *};
 use pierre_core::errors::protocol::ProtocolError;
-use pierre_core::models::{Tenant, User};
+use pierre_core::models::{ConnectionType, Tenant, User};
 use pierre_intelligence::insights::{Insight, InsightType};
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics, TimeOfDay,
@@ -411,6 +411,16 @@ async fn test_connect_strava_tool() -> Result<()> {
     );
     executor.resources.repos().tenants.create(&tenant).await?;
 
+    // Connected, but holding no token — the case this test is about. Without the
+    // connection row the dispatch chokepoint refuses first and the OAuth error
+    // handling below is never reached.
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await?;
+
     // Test with explicit strava provider to verify OAuth error handling
     // Default provider is "synthetic" which doesn't need OAuth
     let request = UniversalRequest {
@@ -736,6 +746,13 @@ async fn test_calculate_metrics_tool() -> Result<()> {
     let request = UniversalRequest {
         tool_name: "calculate_metrics".to_owned(),
         parameters: json!({
+            // Names the credential-free provider, as the sibling analytics tests
+            // do. This exercises the inline-activity path, where the metrics are
+            // computed from the supplied numbers and no provider is read — but
+            // the tool still declares REQUIRES_PROVIDER for its `activity_id`
+            // path, so the dispatch chokepoint needs a provider that costs
+            // nothing to "have".
+            "provider": "synthetic",
             "activity": {
                 "distance": 5000.0,
                 "duration": 1800,
@@ -1515,6 +1532,16 @@ async fn test_get_activities_async_no_token() -> Result<()> {
     );
     executor.resources.repos().tenants.create(&tenant).await?;
 
+    // "No token" is the subject, so the athlete must be *connected* and merely
+    // token-less: a user with neither is refused by the dispatch chokepoint
+    // before any token lookup happens, which would test a different thing.
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await?;
+
     let request = UniversalRequest {
         tool_name: "get_activities".to_owned(),
         parameters: json!({
@@ -1619,6 +1646,15 @@ async fn test_get_stats_async_no_token() -> Result<()> {
         user_id, // Owner
     );
     executor.resources.repos().tenants.create(&tenant).await?;
+
+    // Connected but token-less: the missing token is the subject, and an athlete
+    // with no connection at all is refused earlier by the dispatch chokepoint.
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await?;
 
     let request = UniversalRequest {
         tool_name: "get_stats".to_owned(),

@@ -90,6 +90,7 @@ impl Default for VerificationConfig {
             ClaimCategory::Recovery,
             ClaimCategory::Supplement,
             ClaimCategory::InjuryRehab,
+            ClaimCategory::AthleteData,
         ] {
             categories.insert(cat.as_str().to_owned(), CategoryConfig::default());
         }

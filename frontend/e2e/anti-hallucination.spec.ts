@@ -4,7 +4,7 @@
 // ABOUTME: E2E tests to prevent UI hallucinations and hardcoded fake data
 // ABOUTME: Tests verify that unimplemented features do NOT appear in the UI
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   loginAsUser,
   navigateToTab,
@@ -195,6 +195,62 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
       // Should see "X active tokens" where X comes from backend
       const activeTokensText = page.getByText(/\d+ active tokens?/);
       await expect(activeTokensText).toBeVisible();
+    });
+  });
+  // ========================================
+  // Providerless athlete (Phase 5)
+  // ========================================
+  test.describe('Providerless - the coach admits what it cannot see', () => {
+    // Only the app's OWN chrome is asserted here, deliberately.
+    //
+    // playwright.config.ts runs with E2E_TEST=true, which disables the Vite
+    // backend proxy, so any assistant text in this suite is a fixture the test
+    // author wrote. Asserting "the coach stated no distance" against our own
+    // mocked reply would prove nothing about `build_provider_context` or the
+    // athlete-data verifier — those are covered by Rust tests that exercise the
+    // real code (`providerless_prompt_context_test`, `athlete_data_layer_test`).
+    //
+    // What IS real here: whether the UI tells a providerless athlete their data
+    // is missing, and — the regression that matters more — whether it wrongly
+    // tells a connected one the same thing.
+
+    // `loginAsUser` -> `setupDashboardMocks` registers its own
+    // `**/api/providers` handler returning an empty list, and the later
+    // registration wins. Both routes below are therefore installed AFTER the
+    // login, or the helper's empty list answers instead — which silently made
+    // the providerless case pass for the wrong reason and the connected case
+    // fail outright.
+    const routeProviders = async (page: Page, providers: unknown[]) => {
+      await page.route('**/api/providers', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ providers }),
+        });
+      });
+    };
+
+    test('shows the connect-provider banner in chat when nothing is connected', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'webtest');
+      await routeProviders(page, []);
+      await navigateToTab(page, 'Chat');
+      await waitForNetworkIdle(page);
+
+      await expect(page.getByTestId('connect-provider-banner')).toBeVisible();
+    });
+
+    test('does NOT show the banner to a connected athlete', async ({ page }) => {
+      // The regression guard. `hasConnectedProvider` defaults to false while the
+      // providers query is in flight, so keying the banner off it alone flashed
+      // a connect-provider nudge at connected users on every chat load.
+      await loginAsUser(page, 'webtest');
+      await routeProviders(page, [{ provider: 'strava', connected: true }]);
+      await navigateToTab(page, 'Chat');
+      await waitForNetworkIdle(page);
+
+      await expect(page.getByTestId('connect-provider-banner')).not.toBeVisible();
     });
   });
 });

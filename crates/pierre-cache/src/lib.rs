@@ -72,7 +72,7 @@ use uuid::Uuid;
 /// let cache = InMemoryCache::new(CacheConfig::default()).await?;
 ///
 /// let key = CacheKey::new(
-///     TenantId::default(),
+///     TenantId::generate(),
 ///     Uuid::new_v4(),
 ///     "strava".to_owned(),
 ///     CacheResource::AthleteProfile,

@@ -160,7 +160,9 @@ use pierre_config::environment::{
 };
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::CoachingPersona;
-use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier};
+use pierre_core::models::{
+    ConnectionType, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier,
+};
 use pierre_core::permissions::UserRole;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_intelligence::{
@@ -1287,6 +1289,18 @@ async fn test_oauth_provider_init_failure() {
         user_id, // User is now the owner
     );
     repos.tenants.create(&tenant).await.unwrap();
+
+    // Register the connection without ever storing a token. The subject here is
+    // OAuth *initialization* failing on missing credentials, and reaching that
+    // code requires clearing the dispatch chokepoint, which refuses a user with
+    // neither a connection row nor a token before any provider is built. A
+    // connected athlete whose token is absent is exactly the case that still
+    // reaches provider init.
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
 
     // Create request - explicitly request Strava provider which requires OAuth
     let request = UniversalRequest {

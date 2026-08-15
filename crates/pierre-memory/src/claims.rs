@@ -25,6 +25,15 @@ pub enum ClaimCategory {
     Supplement,
     /// Injury rehabilitation — return-to-play timelines and protocols.
     InjuryRehab,
+    /// A claim about *this athlete's own* records — what they did, when, how
+    /// far, how much they slept.
+    ///
+    /// The other six are propositions about human physiology, answerable from a
+    /// literature corpus. This one is answerable only from the athlete's data,
+    /// which is why it needs its own category and its own layer: "your longest
+    /// run last month was 21 km" is true or false in the database, and no
+    /// amount of sports-science evidence bears on it.
+    AthleteData,
 }
 
 impl ClaimCategory {
@@ -38,6 +47,7 @@ impl ClaimCategory {
             Self::Recovery => "recovery",
             Self::Supplement => "supplement",
             Self::InjuryRehab => "injury_rehab",
+            Self::AthleteData => "athlete_data",
         }
     }
 
@@ -51,6 +61,7 @@ impl ClaimCategory {
             "recovery" => Some(Self::Recovery),
             "supplement" => Some(Self::Supplement),
             "injury_rehab" => Some(Self::InjuryRehab),
+            "athlete_data" => Some(Self::AthleteData),
             _ => None,
         }
     }
@@ -176,6 +187,13 @@ pub enum VerdictLayer {
     /// (VDOT-derived training paces, HR/power zones, recent load).
     /// Pure Rust; fires only when a personalized snapshot is supplied.
     Personalized,
+    /// Claim about the athlete's own history checked against their own records
+    /// — the activity cache and dossier rather than the literature corpus.
+    ///
+    /// Absent data is a verdict here, not a gap: a specific figure asserted
+    /// about an athlete with no connected provider is contradicted, because we
+    /// know there is nothing it could have come from.
+    AthleteData,
     /// Evidence RAG against the curated sports-science corpus.
     Evidence,
     /// Cross-check against other claims in the same reply.
@@ -192,6 +210,7 @@ impl VerdictLayer {
             Self::Rhetoric => "rhetoric",
             Self::Deterministic => "deterministic",
             Self::Personalized => "personalized",
+            Self::AthleteData => "athlete_data",
             Self::Evidence => "evidence",
             Self::Consistency => "consistency",
             Self::Judge => "judge",
@@ -205,6 +224,7 @@ impl VerdictLayer {
             "rhetoric" => Some(Self::Rhetoric),
             "deterministic" => Some(Self::Deterministic),
             "personalized" => Some(Self::Personalized),
+            "athlete_data" => Some(Self::AthleteData),
             "evidence" => Some(Self::Evidence),
             "consistency" => Some(Self::Consistency),
             "judge" => Some(Self::Judge),

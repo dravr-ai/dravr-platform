@@ -1024,7 +1024,7 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
 /// (see `pierre_services::onboarding_gate`).
 ///
 /// Use this whenever a test posts to `/api/chat/conversations/.../messages`
-/// or any other endpoint guarded by `require_connected_provider`. Tests that
+/// or any other endpoint that reads provider state. Tests that
 /// exercise the gate itself should keep using [`create_test_tenant`] (no
 /// provider).
 ///

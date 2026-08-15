@@ -67,10 +67,16 @@ async fn a_wired_judge_decides_claims_the_deterministic_layers_cannot() {
 
     // Without a judge: the claim extracts but settles on a deterministic
     // layer — nothing may settle on the Judge layer.
-    let without =
-        verify_reply_with_config_and_judge(INCONCLUSIVE_REPLY, &config, &empty_corpus, None, None)
-            .await
-            .expect("deterministic pipeline succeeds");
+    let without = verify_reply_with_config_and_judge(
+        INCONCLUSIVE_REPLY,
+        &config,
+        &empty_corpus,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("deterministic pipeline succeeds");
     assert!(
         !without.is_empty(),
         "the lactate-threshold claim must be extracted"
@@ -93,6 +99,7 @@ async fn a_wired_judge_decides_claims_the_deterministic_layers_cannot() {
         &config,
         &empty_corpus,
         Some(&judge),
+        None,
         None,
     )
     .await

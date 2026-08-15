@@ -32,7 +32,6 @@ use pierre_core::models::TenantId;
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
-use pierre_services::onboarding_gate::require_connected_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::common::get_tenant_id;
@@ -145,13 +144,14 @@ pub async fn send_message(
     let user_id_str = auth.user_id.to_string();
     let tenant_id_str = tenant_id.to_string();
 
-    // Onboarding gate: refuse messaging until the user has at least one
-    // connected fitness provider. Without a provider the LLM has no activity
-    // data to reason about and hallucinates specifics ("nice 12 km ride
-    // yesterday!"); the 403 lets the frontend redirect to the connect-provider
-    // screen instead of rendering an empty answer.
-    require_connected_provider(&resources.common.repos.provider_connections, auth.user_id).await?;
-
+    // No provider gate here any more. The 403 existed because the model could
+    // not tell "no recent activity" from "no connected provider" and invented
+    // the difference; that is now handled where it belongs — the system prompt
+    // states the absence outright (`build_provider_context`), the athlete-data
+    // verifier contradicts any specific figure asserted without a source, and
+    // the dispatch chokepoint refuses every REQUIRES_PROVIDER tool. A
+    // providerless athlete gets a coach that says what it cannot see instead of
+    // a door.
     // Populate the parent span so downstream pipeline log lines (already
     // instrumented to read `turn_id`/`channel`/`conversation_id`) carry the
     // resolved tenant + user without each callee needing to re-record them.

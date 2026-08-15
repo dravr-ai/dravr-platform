@@ -54,7 +54,7 @@ fn evidence_retrieval_finds_supporting_citation() {
         text: "Aim for 1.6 grams of protein per kg of body weight daily.".into(),
         category: ClaimCategory::Nutrition,
     };
-    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Supported);
     assert_eq!(outcome.evidence_strength, EvidenceStrength::Strong);
     assert_eq!(outcome.layer_fired, VerdictLayer::Evidence);
@@ -67,7 +67,7 @@ fn evidence_layer_falls_through_to_unsupported() {
         text: "Drinking kale smoothies cures tendinitis overnight.".into(),
         category: ClaimCategory::Nutrition,
     };
-    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Unsupported);
 }
 
@@ -77,7 +77,7 @@ fn deterministic_contradicts_implausible_heart_rate() {
         text: "Your max heart rate is 400 bpm.".into(),
         category: ClaimCategory::Physiological,
     };
-    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
     assert_eq!(outcome.layer_fired, VerdictLayer::Deterministic);
 }
@@ -88,7 +88,7 @@ fn deterministic_contradicts_absurd_protein_intake() {
         text: "Eat 50 grams per kg of protein daily.".into(),
         category: ClaimCategory::Nutrition,
     };
-    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
 }
 
@@ -98,7 +98,7 @@ fn rhetoric_short_circuits_pipeline() {
         text: "You're crushing it, champ!".into(),
         category: ClaimCategory::TrainingPrescription,
     };
-    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Rhetorical);
     assert_eq!(outcome.layer_fired, VerdictLayer::Rhetoric);
 }
@@ -207,10 +207,10 @@ fn higher_minimum_strength_can_flip_supported_to_unsupported() {
         text: "Your max heart rate is 208 minus 0.7 times your age.".into(),
         category: ClaimCategory::Physiological,
     };
-    let cfg_strong = check_claim(&claim, &[], &corpus(), EvidenceStrength::Strong, None);
+    let cfg_strong = check_claim(&claim, &[], &corpus(), EvidenceStrength::Strong, None, None);
     assert_eq!(cfg_strong.status, ClaimStatus::Unsupported);
 
-    let cfg_mixed = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let cfg_mixed = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(cfg_mixed.status, ClaimStatus::Supported);
 }
 
@@ -232,7 +232,7 @@ fn recovery_sleep_out_of_range_is_contradicted() {
         text: "You should aim for 20 hours of sleep per night.".into(),
         category: ClaimCategory::Recovery,
     };
-    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
 }
 
@@ -242,7 +242,7 @@ fn explanation_text_mentions_layer_source() {
         text: "Your max heart rate is 900 bpm".into(),
         category: ClaimCategory::Physiological,
     };
-    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert!(outcome.explanation.to_lowercase().contains("bound"));
 }
 

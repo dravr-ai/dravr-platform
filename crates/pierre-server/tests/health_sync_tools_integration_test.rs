@@ -17,6 +17,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_core::models::{ConnectionType, TenantId};
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -46,6 +47,29 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, Str
         .find(|t| t.owner_user_id == user_id)
         .ok_or_else(|| anyhow::anyhow!("user should have tenant"))?;
     Ok((user_id, user_tenant.id.to_string()))
+}
+
+/// [`create_test_user`] plus a registered provider connection.
+///
+/// The sleep / recovery / health-snapshot tools now declare `REQUIRES_PROVIDER`,
+/// so the dispatch chokepoint refuses them outright for a providerless user.
+/// "Zero rows" is only a meaningful state for someone who HAS a provider and
+/// simply has not synced yet — which is what these tests mean to exercise.
+async fn create_connected_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
+    let (user_id, tenant) = create_test_user(executor).await?;
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(
+            user_id,
+            TenantId::parse_str(&tenant)?,
+            "strava",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await?;
+    Ok((user_id, tenant))
 }
 
 fn make_request(
@@ -115,7 +139,7 @@ async fn test_health_sync_tools_registered() -> Result<()> {
 #[tokio::test]
 async fn test_get_sleep_sessions_empty() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -137,7 +161,7 @@ async fn test_get_sleep_sessions_empty() -> Result<()> {
 #[tokio::test]
 async fn test_get_sleep_sessions_with_date_range() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -162,8 +186,8 @@ async fn test_get_sleep_sessions_with_date_range() -> Result<()> {
 #[tokio::test]
 async fn test_get_sleep_sessions_tenant_isolation() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_a, _tenant_a) = create_test_user(&executor).await?;
-    let (_user_b, tenant_b) = create_test_user(&executor).await?;
+    let (user_a, _tenant_a) = create_connected_test_user(&executor).await?;
+    let (_user_b, tenant_b) = create_connected_test_user(&executor).await?;
 
     // user_a querying with tenant_b context returns no data — the handler
     // scopes by both user_id and tenant_id.
@@ -187,7 +211,7 @@ async fn test_get_sleep_sessions_tenant_isolation() -> Result<()> {
 #[tokio::test]
 async fn test_get_recovery_metrics_empty() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -207,7 +231,7 @@ async fn test_get_recovery_metrics_empty() -> Result<()> {
 #[tokio::test]
 async fn test_get_recovery_metrics_with_format() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -225,8 +249,8 @@ async fn test_get_recovery_metrics_with_format() -> Result<()> {
 #[tokio::test]
 async fn test_get_recovery_metrics_tenant_isolation() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_a, _tenant_a) = create_test_user(&executor).await?;
-    let (_user_b, tenant_b) = create_test_user(&executor).await?;
+    let (user_a, _tenant_a) = create_connected_test_user(&executor).await?;
+    let (_user_b, tenant_b) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -248,7 +272,7 @@ async fn test_get_recovery_metrics_tenant_isolation() -> Result<()> {
 #[tokio::test]
 async fn test_get_health_snapshots_empty() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -267,7 +291,7 @@ async fn test_get_health_snapshots_empty() -> Result<()> {
 #[tokio::test]
 async fn test_get_health_snapshots_with_range() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -289,8 +313,8 @@ async fn test_get_health_snapshots_with_range() -> Result<()> {
 #[tokio::test]
 async fn test_get_health_snapshots_tenant_isolation() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_a, _tenant_a) = create_test_user(&executor).await?;
-    let (_user_b, tenant_b) = create_test_user(&executor).await?;
+    let (user_a, _tenant_a) = create_connected_test_user(&executor).await?;
+    let (_user_b, tenant_b) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -439,8 +463,11 @@ async fn test_refresh_provider_data_all_no_connections() -> Result<()> {
     let executor = create_health_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
-    // Passing provider=all with no connected providers should return a
-    // structured response with `refreshing` and `already_fresh` arrays.
+    // This used to answer "refresh_triggered" with empty arrays — a success
+    // shape for a user who has nothing to refresh. That quiet empty is exactly
+    // what Phase 5 removes: the dispatch chokepoint refuses a
+    // REQUIRES_PROVIDER tool outright, in band, carrying the metadata the
+    // auth-recovery flow turns into a hosted-login prompt.
     let resp = executor
         .execute_tool(make_request(
             "refresh_provider_data",
@@ -449,17 +476,29 @@ async fn test_refresh_provider_data_all_no_connections() -> Result<()> {
             Some(&tenant),
         ))
         .await?;
-    assert!(resp.success, "should succeed: {:?}", resp.error);
-    let result = resp.result.unwrap();
-    assert_eq!(result["status"].as_str().unwrap(), "refresh_triggered");
-    assert!(result["refreshing"].is_array() || result["refreshing"].is_object());
+    assert!(
+        !resp.success,
+        "there is nothing to refresh; a success shape here is the ambiguity the \
+         chokepoint exists to remove"
+    );
+    let provider = resp
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("auth_required_provider"))
+        .and_then(serde_json::Value::as_str);
+    assert_eq!(
+        provider,
+        Some("sciotte"),
+        "the refusal must carry the recovery metadata, got {:?}",
+        resp.metadata
+    );
     Ok(())
 }
 
 #[tokio::test]
 async fn test_refresh_provider_data_specific_provider_no_token() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -481,7 +520,7 @@ async fn test_refresh_provider_data_specific_provider_no_token() -> Result<()> {
 #[tokio::test]
 async fn test_refresh_provider_data_rejects_no_tenant() -> Result<()> {
     let executor = create_health_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(

@@ -85,7 +85,7 @@ mod command_tests {
             .unwrap();
 
         // Onboarding gate: register a synthetic provider so messaging-ingress
-        // (`services::onboarding_gate::require_connected_provider`) lets the
+        // (the provider gate, removed in Phase 5) lets the
         // turn through. Test exercises command dispatch, not provider data.
         resources
             .common

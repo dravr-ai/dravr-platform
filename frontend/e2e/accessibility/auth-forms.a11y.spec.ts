@@ -6,12 +6,13 @@
 
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { APP_SHELL_TIMEOUT_MS } from '../test-helpers';
 
 test.describe('Auth Forms Accessibility', () => {
   test.describe('Login Page', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: 10000 });
+      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
     });
 
     test('should have no WCAG 2.1 AA violations on login page', async ({ page }) => {
@@ -185,7 +186,7 @@ test.describe('Auth Forms Accessibility', () => {
     test.beforeEach(async ({ page }) => {
       // Navigate to registration (may need to click a link from login)
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: 10000 });
+      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
 
       // Look for registration link or toggle
       const registerLink = page.getByRole('link', { name: /register|sign up/i });
@@ -253,7 +254,7 @@ test.describe('Auth Forms Accessibility', () => {
   test.describe('Password Reset Flow', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: 10000 });
+      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
     });
 
     test('should have accessible forgot password link', async ({ page }) => {
@@ -277,7 +278,7 @@ test.describe('Auth Forms Accessibility', () => {
   test.describe('Error States', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: 10000 });
+      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
     });
 
     test('should have accessible error messages', async ({ page }) => {
@@ -321,7 +322,7 @@ test.describe('Auth Forms Accessibility', () => {
   test.describe('Touch Target Sizes', () => {
     test('should have sufficient touch target sizes (44x44px minimum)', async ({ page }) => {
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: 10000 });
+      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
 
       // Check button size
       const button = page.getByRole('button', { name: /sign in/i });

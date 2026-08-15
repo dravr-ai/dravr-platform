@@ -51,7 +51,6 @@ pub use otp::is_reset_command;
 /// last readable point without a network stub.
 pub use otp::start_otp_flow;
 use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command};
-use pierre_services::onboarding_gate::user_has_connected_provider;
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
 use session::{handle_reset, resolve_linked_session, ChannelChatRef};
@@ -87,7 +86,6 @@ use serde_json::Value;
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::ChannelProfile;
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
-use pierre_core::errors::AppError;
 use pierre_services::analytics::hash_id;
 
 /// Outcome of persisting a single inbound message
@@ -1016,30 +1014,19 @@ async fn resolve_or_prompt(
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
 ) -> Result<Option<(AuthResult, ResolvedSession)>, ()> {
-    let mut auth_outcome = resources
+    // No provider gate here any more. A providerless athlete used to be refused
+    // the turn outright because the model could not tell "no recent activity"
+    // from "no connected provider" and invented the difference. That is now
+    // handled where it belongs: the system prompt states the absence, the
+    // athlete-data verifier contradicts any specific figure asserted without a
+    // source, and the dispatch chokepoint refuses every provider-requiring tool.
+    // The tappable connect card that used to ride the refusal now rides the
+    // served reply instead — see `maybe_send_connect_card` in `dispatch`.
+    let auth_outcome = resources
         .auth
         .auth_middleware
         .authenticate_channel(tenant_id, channel, &message.sender_id)
         .await;
-    // Onboarding gate: once the channel resolves to an active user, require
-    // at least one connected fitness provider before we let the turn reach
-    // the LLM. Without provider data the model hallucinates specifics; the
-    // structured `NoProviderConnected` error flows through the same denial
-    // pipeline as `AccountPending` / `AccountSuspended` and surfaces a
-    // localized "connect a provider" reply via `KEY_NO_PROVIDER_CONNECTED`.
-    if let Ok(auth_result) = &auth_outcome {
-        let has_provider = user_has_connected_provider(
-            &resources.common.repos.provider_connections,
-            auth_result.user_id,
-        )
-        .await
-        .unwrap_or(true); // On query failure, fail open — same posture as
-                          // user_status checks (transient DB errors mustn't
-                          // lock real users out of an otherwise valid turn).
-        if !has_provider {
-            auth_outcome = Err(AppError::no_provider_connected());
-        }
-    }
     let Some(auth_result) = handle_channel_auth_outcome(ChannelAuthOutcomeInputs {
         resources,
         db,

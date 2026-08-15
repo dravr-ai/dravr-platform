@@ -58,6 +58,33 @@ pub fn extract_provider(parameters: &serde_json::Map<String, JsonValue>) -> Opti
         .map(str::to_owned)
 }
 
+/// The canonical no-provider refusal, minted in exactly one place.
+///
+/// Three sites refuse for the same reason — both resolvers here and the
+/// dispatch chokepoint in `executor.rs` — and the tool loop detects this shape
+/// (`success: false` + [`META_AUTH_REQUIRED_PROVIDER`]) to hand the turn to the
+/// `auth_recovery` stage, which mints a hosted-login URL and localized copy.
+/// One constructor keeps the three from drifting apart; drift here means one
+/// path silently stops triggering the recovery flow.
+#[must_use]
+pub fn no_provider_refusal() -> UniversalResponse {
+    let mut metadata: HashMap<String, JsonValue> = HashMap::new();
+    metadata.insert(
+        META_AUTH_REQUIRED_PROVIDER.to_owned(),
+        JsonValue::String("sciotte".to_owned()),
+    );
+    UniversalResponse {
+        success: false,
+        result: None,
+        error: Some(
+            "No fitness provider connected. Connect Strava, Garmin, or another \
+             provider before asking for activity data."
+                .to_owned(),
+        ),
+        metadata: Some(metadata),
+    }
+}
+
 /// Resolve which fitness provider to serve a tool call from.
 ///
 /// Priority chain — matches the user mental model of "what data are we looking at":
@@ -121,25 +148,11 @@ pub async fn resolve_provider_for_request(
                 user_id = %user_uuid,
                 "no fitness provider connected for user — surfacing reconnect signal"
             );
-            // Mint a UniversalResponse the tool loop will detect and propagate as
-            // `ToolLoopResult::pending_provider_auth_required`. The auth_recovery
-            // stage downstream mints a hosted-login URL targeting Strava (the
-            // most common starting point) and renders localized copy.
-            let mut metadata: HashMap<String, JsonValue> = HashMap::new();
-            metadata.insert(
-                META_AUTH_REQUIRED_PROVIDER.to_owned(),
-                JsonValue::String("sciotte".to_owned()),
-            );
-            Err(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(
-                    "No fitness provider connected. Connect Strava, Garmin, or another \
-                     provider before asking for activity data."
-                        .to_owned(),
-                ),
-                metadata: Some(metadata),
-            })
+            // The race-window backstop: the dispatch chokepoint already refused
+            // providerless users for REQUIRES_PROVIDER tools, so reaching this
+            // branch means either a tool that calls a resolver without declaring
+            // the capability, or a disconnect between the check and this read.
+            Err(no_provider_refusal())
         }
         Err(e) => {
             warn!(

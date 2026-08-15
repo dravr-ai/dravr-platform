@@ -46,7 +46,20 @@ pub fn check(claim: &ExtractedClaim) -> Option<BoundViolation> {
         ClaimCategory::Nutrition => check_nutrition(&lower),
         ClaimCategory::Recovery => check_recovery(&lower),
         ClaimCategory::Supplement => check_supplement(&lower),
-        ClaimCategory::InjuryRehab => None,
+        // Two categories population bounds cannot speak to, for two different
+        // reasons — but the same answer, so they share an arm.
+        //
+        // `InjuryRehab` is timelines and protocols: there is no physiological
+        // number to bound.
+        //
+        // `AthleteData` is a claim about one person's records. "You ran 21 km
+        // last Sunday" sits inside every human limit and is still either true
+        // or invented; what settles it is the athlete's own data, which is the
+        // `athlete_data` layer's job.
+        //
+        // `None` here is a real answer — this layer has no jurisdiction — not a
+        // gap waiting to be filled.
+        ClaimCategory::InjuryRehab | ClaimCategory::AthleteData => None,
     }
 }
 

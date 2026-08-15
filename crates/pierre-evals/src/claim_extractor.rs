@@ -53,6 +53,10 @@ propositions and tag each with exactly one category from this set:
 - recovery (sleep, HRV, cold/heat therapy, active recovery)
 - supplement (ergogenic aids, dosing)
 - injury_rehab (return-to-play timelines, rehabilitation protocols)
+- athlete_data (a statement about THIS athlete's own records: what they did,
+  when, how far, how long, how much they slept — "your longest run last month
+  was 21 km", "you rode 12 km yesterday". Not general physiology: "zone 2 is
+  70% of max HR" is physiological, "your zone 2 pace is 5:30" is athlete_data.)
 
 Only extract factual claims. Discard greetings, motivation, questions, and
 imperatives without factual predicates. Return strict JSON of the form:
@@ -212,7 +216,7 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
     let lower = sentence.to_lowercase();
     let mut best: Option<(ClaimCategory, usize)> = None;
 
-    let buckets: [(ClaimCategory, &[&str]); 6] = [
+    let buckets: [(ClaimCategory, &[&str]); 7] = [
         (
             ClaimCategory::Physiological,
             &[
@@ -358,9 +362,57 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "claquage",
             ],
         ),
+        (
+            // Keyed on *reference to the athlete's own record* rather than on
+            // subject matter, because subject matter is what the other six
+            // already partition. "Zone 2 sits at 70% of max HR" is physiology;
+            // "you ran 21 km on Sunday" is a database row. What separates them
+            // is the second-person past tense and the time reference, so those
+            // are what this bucket scores.
+            ClaimCategory::AthleteData,
+            &[
+                "you ran",
+                "you rode",
+                "you swam",
+                "you covered",
+                "you logged",
+                "you completed",
+                "your longest",
+                "your fastest",
+                "your last",
+                "your recent",
+                "yesterday",
+                "last week",
+                "last month",
+                "last sunday",
+                "this week",
+                "so far this",
+                // French
+                "tu as couru",
+                "tu as roulé",
+                "tu as roule",
+                "tu as nagé",
+                "tu as nage",
+                "ta plus longue",
+                "hier",
+                "la semaine dernière",
+                "la semaine derniere",
+                "le mois dernier",
+                "cette semaine",
+            ],
+        ),
     ];
 
     for (cat, keywords) in buckets {
+        // A prescription is not a claim about the past, whatever time words it
+        // carries. "This week, aim for 40 km" scores on "this week" and would
+        // otherwise be routed to the athlete-data layer, which checks it against
+        // activities it was never about — a guaranteed miss on a correct reply.
+        // Only this category needs the guard: the other six are keyed on subject
+        // matter, which tense does not change.
+        if cat == ClaimCategory::AthleteData && is_prescriptive(&lower) {
+            continue;
+        }
         let score = keywords
             .iter()
             .filter(|kw| keyword_hits(&lower, kw))
@@ -371,4 +423,56 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
     }
 
     best.map(|(c, _)| c)
+}
+
+/// Whether a sentence prescribes future work rather than reporting past work.
+///
+/// Both directions of error are real, which is why this is neither a bare
+/// substring test nor an open-ended one:
+///
+/// - A **false positive** un-routes a genuine history claim from the only layer
+///   that can check it — the failure this workstream exists to prevent.
+/// - A **false negative** is worse than it looks for the athlete Phase 5 serves.
+///   A providerless athlete's coach prescribes in figures ("easy 5 km tomorrow"),
+///   and an unrecognised prescription reaches the athlete-data layer, where
+///   "no provider" licenses `Contradicted` at 0.95 — telling the athlete their
+///   coach invented a number that was never a claim about the past at all.
+///
+/// Matching goes through [`keyword_hits`], the same token-boundary test every
+/// category bucket in this file uses. A raw `contains` fired `"should"` inside
+/// `"shoulder"` and `"target"` inside `"targeted"`, silently reclassifying
+/// ordinary sentences about a sore shoulder.
+fn is_prescriptive(lower: &str) -> bool {
+    const MARKERS: [&str; 26] = [
+        // Modal / intent
+        "aim for",
+        "let's",
+        "lets",
+        "we'll",
+        "you'll",
+        "should",
+        "try to",
+        "plan to",
+        "target",
+        "recommend",
+        "suggest",
+        "go for",
+        "start with",
+        "focus on",
+        // Future time
+        "tomorrow",
+        "next week",
+        "this week",
+        // French
+        "vise",
+        "on va",
+        "tu devrais",
+        "la semaine prochaine",
+        "cette semaine",
+        "demain",
+        "je te propose",
+        "commence par",
+        "essaie",
+    ];
+    MARKERS.iter().any(|m| keyword_hits(lower, m))
 }

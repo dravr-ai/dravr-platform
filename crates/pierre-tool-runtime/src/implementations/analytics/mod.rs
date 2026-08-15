@@ -30,7 +30,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::info;
 
-use crate::capabilities::ToolCapabilities;
+use crate::capabilities::{PROVIDER_ANALYTICS, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::implementations::fitness_support::process_activity_analysis;
@@ -141,7 +141,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -210,7 +210,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -279,7 +279,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -364,7 +364,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -556,12 +556,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+        capabilities_to_tronc(PROVIDER_ANALYTICS)
     }
 
     async fn execute(
@@ -706,12 +701,7 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+        capabilities_to_tronc(PROVIDER_ANALYTICS)
     }
 
     async fn execute(
@@ -800,12 +790,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+        capabilities_to_tronc(PROVIDER_ANALYTICS)
     }
 
     async fn execute(
@@ -883,12 +868,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+        capabilities_to_tronc(PROVIDER_ANALYTICS)
     }
 
     async fn execute(
@@ -978,12 +958,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+        capabilities_to_tronc(PROVIDER_ANALYTICS)
     }
 
     async fn execute(
@@ -1053,7 +1028,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -1123,7 +1098,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(

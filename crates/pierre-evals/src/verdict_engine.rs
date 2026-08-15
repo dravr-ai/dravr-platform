@@ -42,6 +42,7 @@
 //!   threading each claim's siblings into the consistency-check layer and the
 //!   optional judge provider into the LLM-judge layer.
 
+use crate::athlete_data::{check as athlete_data_check, AthleteRecord};
 use crate::claim_extractor::ExtractedClaim;
 use crate::consistency::find_contradiction;
 use crate::deterministic_bounds;
@@ -105,8 +106,16 @@ pub fn check_claim(
     corpus: &EvidenceCorpus,
     minimum_strength: EvidenceStrength,
     personalized: Option<&PersonalizedContext<'_>>,
+    athlete_record: Option<&AthleteRecord>,
 ) -> VerdictOutcome {
-    match run_layers_1_to_4(claim, siblings, corpus, minimum_strength, personalized) {
+    match run_layers_1_to_4(
+        claim,
+        siblings,
+        corpus,
+        minimum_strength,
+        personalized,
+        athlete_record,
+    ) {
         LayerResult::Resolved(outcome) => outcome,
         LayerResult::Inconclusive(matches) => {
             inconclusive_evidence_verdict(&matches, minimum_strength)
@@ -134,11 +143,18 @@ pub async fn check_reply(
     minimum_strength: EvidenceStrength,
     judge: Option<&dyn LlmProvider>,
     personalized: Option<&PersonalizedContext<'_>>,
+    athlete_record: Option<&AthleteRecord>,
 ) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
     let mut out = Vec::with_capacity(claims.len());
     for claim in claims {
-        let outcome = match run_layers_1_to_4(claim, claims, corpus, minimum_strength, personalized)
-        {
+        let outcome = match run_layers_1_to_4(
+            claim,
+            claims,
+            corpus,
+            minimum_strength,
+            personalized,
+            athlete_record,
+        ) {
             LayerResult::Resolved(outcome) => outcome,
             LayerResult::Inconclusive(matches) => {
                 run_judge_or_settle(claim, &matches, minimum_strength, judge).await?
@@ -169,8 +185,16 @@ pub async fn check_claim_judged(
     minimum_strength: EvidenceStrength,
     judge: Option<&dyn LlmProvider>,
     personalized: Option<&PersonalizedContext<'_>>,
+    athlete_record: Option<&AthleteRecord>,
 ) -> AppResult<VerdictOutcome> {
-    match run_layers_1_to_4(claim, siblings, corpus, minimum_strength, personalized) {
+    match run_layers_1_to_4(
+        claim,
+        siblings,
+        corpus,
+        minimum_strength,
+        personalized,
+        athlete_record,
+    ) {
         LayerResult::Resolved(outcome) => Ok(outcome),
         LayerResult::Inconclusive(matches) => {
             run_judge_or_settle(claim, &matches, minimum_strength, judge).await
@@ -187,6 +211,7 @@ fn run_layers_1_to_4(
     corpus: &EvidenceCorpus,
     minimum_strength: EvidenceStrength,
     personalized: Option<&PersonalizedContext<'_>>,
+    athlete_record: Option<&AthleteRecord>,
 ) -> LayerResult {
     // The rhetoric filter and deterministic-bounds layer.
     if let Some(early) = run_rhetoric_and_deterministic(claim) {
@@ -197,6 +222,19 @@ fn run_layers_1_to_4(
     // an athlete snapshot; otherwise the claim flows straight to evidence.
     if let Some(ctx) = personalized {
         if let Some(outcome) = personalized_check(claim, ctx) {
+            return LayerResult::Resolved(outcome);
+        }
+    }
+
+    // The athlete-data layer. Placed ahead of evidence retrieval because a
+    // claim about this athlete's own records is a database question: the
+    // literature corpus has nothing to say about whether one person ran 21 km,
+    // and letting it answer would dress a corpus miss up as a verdict.
+    //
+    // Without a record supplied, an athlete-data claim falls through
+    // unadjudicated — which is the pre-Phase-5 behaviour, not a new gap.
+    if let Some(record) = athlete_record {
+        if let Some(outcome) = athlete_data_check(claim, record) {
             return LayerResult::Resolved(outcome);
         }
     }

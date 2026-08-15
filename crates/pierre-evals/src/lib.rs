@@ -25,6 +25,9 @@
 //! personalized physiology, evidence retrieval, consistency check, and the LLM
 //! judge — synthesized by [`verdict_engine`] into a single verdict.
 
+/// Claim verifier: claims about the athlete's own records, checked against
+/// their own data rather than the literature.
+pub mod athlete_data;
 /// Claim verifier: claim extraction from coach replies.
 pub mod claim_extractor;
 /// Claim verifier: consistency cross-check against sibling claims.

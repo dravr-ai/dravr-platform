@@ -316,7 +316,11 @@ async fn test_set_goal_past_deadline() -> Result<()> {
 async fn test_track_progress_missing_goal_id() -> Result<()> {
     let executor = create_error_test_executor().await?;
 
-    let request = create_request("track_progress", json!({}));
+    // Names the credential-free provider so the dispatch chokepoint stands
+    // aside: `track_progress` declares REQUIRES_PROVIDER, and for a caller with
+    // nothing connected the refusal fires ahead of parameter validation — a
+    // correct answer, but not the one this test is about.
+    let request = create_request("track_progress", json!({"provider": "synthetic"}));
 
     let result = executor.execute_tool(request).await;
     assert_error_contains(&result, "goal_id");

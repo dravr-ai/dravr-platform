@@ -36,10 +36,12 @@ use pierre_services::usage_counter::UsageCounterService;
 
 use super::addressing::reply_recipient;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
+use super::connect;
 use super::{
     build_messaging_profile, compose_messaging_reply, content_body_text, outbound_retry,
     PendingDispatch, CONVERSATION_DISPATCH_LOCKS,
 };
+use pierre_services::onboarding_gate::user_has_connected_provider;
 
 /// Auto-send the one-time onboarding coach proposal for this user, if it hasn't
 /// been sent on this channel link yet.
@@ -51,6 +53,55 @@ use super::{
 /// any failure is logged and the turn proceeds normally. When no coaches are
 /// eligible yet (cold start, activities not synced) it returns *without*
 /// stamping, so a later turn can propose once data lands.
+/// Send the tappable "Connect your account" card alongside a served turn, for
+/// as long as the athlete has no provider connected.
+///
+/// This card used to ride the refusal: a providerless user got the card
+/// *instead of* a coach reply. Now they get the reply, so the card rides it
+/// instead of replacing it — the nudge survives the gate it was attached to.
+///
+/// Every turn, deliberately. The alternative considered was once per
+/// conversation, but a user who has not connected still cannot be given
+/// grounded coaching on their next message either, and a tappable button is a
+/// cheaper reminder than a coach repeatedly explaining what it cannot see.
+///
+/// Direct messages only, enforced inside [`connect::try_build_connect_card`]: a
+/// connect link is user-scoped and must never be posted into a shared room.
+/// Send failures are logged, never fatal — the coach's answer already went out
+/// and is the thing the athlete asked for.
+async fn maybe_send_connect_card(dispatch: &PendingDispatch, channel_config: &ChannelConfig) {
+    let has_provider = user_has_connected_provider(
+        &dispatch.resources.common.repos.provider_connections,
+        dispatch.auth_result.user_id,
+    )
+    .await
+    // Fail open: on a lookup error, say nothing rather than nag a connected
+    // athlete with a card they do not need.
+    .unwrap_or(true);
+    if has_provider {
+        return;
+    }
+
+    let Some(card) = connect::try_build_connect_card(
+        &dispatch.resources,
+        dispatch.channel_tenant_id,
+        &dispatch.channel,
+        dispatch.channel_type,
+        &dispatch.sender_id,
+        dispatch.thread_id.clone(),
+        !dispatch.is_group_chat,
+        &dispatch.locale,
+    )
+    .await
+    else {
+        return;
+    };
+
+    if let Err(e) = dispatch.adapter.send(&card, channel_config).await {
+        warn!(error = %e, "connect card: send failed; the coach reply still went out");
+    }
+}
+
 async fn maybe_send_coach_proposal(dispatch: &PendingDispatch, channel_config: &ChannelConfig) {
     let Some((outgoing, offered_ids)) = build_coach_proposal_message(dispatch).await else {
         return;
@@ -483,6 +534,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // turn, lead with the inferred-profile coach suggestions before processing
     // their message. Best-effort — never blocks or fails the turn.
     maybe_send_coach_proposal(&dispatch, &channel_config).await;
+    maybe_send_connect_card(&dispatch, &channel_config).await;
 
     // Register an AG-UI run for this messaging turn so in-process
     // consumers (channel-side status adapters, ops dashboards) can

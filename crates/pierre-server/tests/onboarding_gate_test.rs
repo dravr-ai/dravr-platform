@@ -17,88 +17,11 @@
 
 use std::sync::Arc;
 
-use pierre_core::errors::ErrorCode;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_database::repositories::ProviderConnectionRepository;
 use pierre_services::onboarding_gate;
 
 mod common;
-
-/// New user with no provider connections must be rejected by the gate, and
-/// the rejection must carry the structured `NoProviderConnected` code so the
-/// REST layer renders a 403 and the frontend can redirect to onboarding.
-#[tokio::test]
-async fn require_connected_provider_rejects_user_with_no_connections() {
-    let database = common::create_test_database().await.unwrap();
-    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
-    let repos = database.repositories();
-
-    let err = onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
-        .await
-        .expect_err("user with zero providers must be refused");
-
-    assert_eq!(err.code, ErrorCode::NoProviderConnected);
-    assert_eq!(err.http_status(), 403);
-
-    let details = err.details.as_ref().expect("details payload");
-    assert_eq!(
-        details.get("action").and_then(|v| v.as_str()),
-        Some("connect_provider"),
-        "frontend reacts on details.action without string-matching the message"
-    );
-}
-
-/// Once a *real* provider connection exists, the gate must let the user
-/// through. This mirrors how the OAuth callback registers a row and unblocks
-/// chat immediately.
-#[tokio::test]
-async fn require_connected_provider_passes_once_a_connection_exists() {
-    let database = common::create_test_database().await.unwrap();
-    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
-    let repos = database.repositories();
-    let tenants = repos.tenants.list_for_user(user_id).await.unwrap();
-    let tenant_id = TenantId::from_uuid(tenants[0].id.as_uuid());
-
-    repos
-        .provider_connections
-        .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
-        .await
-        .unwrap();
-
-    onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
-        .await
-        .expect("connected user must pass the gate");
-}
-
-/// A `Synthetic` (seed/demo) connection DOES satisfy the coach-access gate:
-/// synthetic rows carry seeded activity data the LLM coach can legitimately
-/// discuss, so a demo user with only synthetic data is allowed to chat. The
-/// connect-a-real-provider decision is a separate axis — see
-/// [`user_has_real_provider_excludes_synthetic`].
-#[tokio::test]
-async fn require_connected_provider_passes_with_synthetic() {
-    let database = common::create_test_database().await.unwrap();
-    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
-    let repos = database.repositories();
-    let tenants = repos.tenants.list_for_user(user_id).await.unwrap();
-    let tenant_id = TenantId::from_uuid(tenants[0].id.as_uuid());
-
-    repos
-        .provider_connections
-        .register_connection(
-            user_id,
-            tenant_id,
-            "synthetic",
-            &ConnectionType::Synthetic,
-            None,
-        )
-        .await
-        .unwrap();
-
-    onboarding_gate::require_connected_provider(&repos.provider_connections, user_id)
-        .await
-        .expect("synthetic (seeded) data must let a demo user chat");
-}
 
 /// The onboarding-redirect contract: `user_has_real_provider` excludes
 /// `Synthetic` connections. A user whose only connection is synthetic still

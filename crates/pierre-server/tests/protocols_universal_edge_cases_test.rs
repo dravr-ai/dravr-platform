@@ -15,7 +15,7 @@ use anyhow::Result;
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::*;
 use pierre_core::errors::protocol::ProtocolError;
-use pierre_core::models::{Tenant, User, UserOAuthToken};
+use pierre_core::models::{ConnectionType, Tenant, User, UserOAuthToken};
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
@@ -283,6 +283,16 @@ async fn test_oauth_configuration_errors() -> Result<()> {
     );
     executor.resources.repos().tenants.create(&tenant).await?;
 
+    // Missing OAuth *config* is the subject. The athlete has to be connected to
+    // reach config resolution at all — the dispatch chokepoint refuses a user
+    // with no connection and no token before any provider is constructed.
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await?;
+
     // Test get_activities with missing OAuth config
     // Must specify a real provider (strava) - default provider is "synthetic" which doesn't need OAuth
     let request = UniversalRequest {
@@ -469,19 +479,23 @@ async fn test_invalid_tool_parameters() -> Result<()> {
         progress_reporter: None,
     };
 
-    // The auth gate runs before parameter validation for provider-backed
-    // tools, and this user holds no strava token — so the invalid limit is
-    // never reached and the typed auth-required short-circuit fires. An
-    // in-band parameter rejection is also acceptable should ordering change.
+    // The auth gate runs before parameter validation for provider-backed tools,
+    // so the invalid limit is never reached. A user who does not exist holds
+    // neither a provider connection nor a token, which is precisely the shape
+    // the dispatch chokepoint refuses — in-band, so the turn survives. A typed
+    // auth-required short-circuit or a parameter rejection are both still
+    // acceptable should ordering change; what must never happen is success.
     match executor.execute_tool(request).await {
         Ok(response) => {
             assert!(!response.success, "an invalid limit must not succeed");
             let error = response.error.unwrap_or_default();
             println!("Error from get_activities with invalid limit: {error}");
             assert!(
-                error.contains("Invalid parameters")
+                error.contains("No fitness provider connected")
+                    || error.contains("Invalid parameters")
                     || error.contains("limit")
-                    || error.contains("not_a_number")
+                    || error.contains("not_a_number"),
+                "unexpected error text: {error}"
             );
         }
         Err(err) => assert!(

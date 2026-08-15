@@ -22,7 +22,7 @@
 use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::errors::AppResult;
 use pierre_evals::{
-    check_claim, check_claim_judged, claim_extractor::ExtractedClaim,
+    athlete_data::AthleteRecord, check_claim, check_claim_judged, claim_extractor::ExtractedClaim,
     evidence_retriever::EvidenceCorpus, extract_heuristic, PersonalizedContext, VerdictOutcome,
     VerificationConfig,
 };
@@ -286,7 +286,7 @@ pub fn verify_reply_heuristic_with(
     claims
         .iter()
         .map(|claim| {
-            let outcome = check_claim(claim, &claims, corpus, minimum_strength, None);
+            let outcome = check_claim(claim, &claims, corpus, minimum_strength, None, None);
             (claim.clone(), outcome)
         })
         .collect()
@@ -330,7 +330,7 @@ pub fn verify_reply_with_config_and_corpus(
         .filter(|claim| config.is_enabled_for(claim.category))
         .map(|claim| {
             let min_strength = config.for_category(claim.category).min_strength;
-            let outcome = check_claim(claim, &claims, corpus, min_strength, None);
+            let outcome = check_claim(claim, &claims, corpus, min_strength, None, None);
             (claim.clone(), outcome)
         })
         .collect()
@@ -355,6 +355,7 @@ pub async fn verify_reply_with_config_and_judge(
     corpus: &EvidenceCorpus,
     judge: Option<&dyn LlmProvider>,
     athlete: Option<&PersonalizedContext<'_>>,
+    athlete_record: Option<&AthleteRecord>,
 ) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
     if !config.enabled {
         return Ok(Vec::new());
@@ -369,8 +370,16 @@ pub async fn verify_reply_with_config_and_judge(
         // Cross-check the consistency-check layer against every extracted claim, matching the
         // synchronous variant's semantics. The personalized layer fires when `athlete` is
         // supplied (the chat pipeline builds it from the athlete's physiology).
-        let outcome =
-            check_claim_judged(claim, &claims, corpus, min_strength, judge, athlete).await?;
+        let outcome = check_claim_judged(
+            claim,
+            &claims,
+            corpus,
+            min_strength,
+            judge,
+            athlete,
+            athlete_record,
+        )
+        .await?;
         out.push((claim.clone(), outcome));
     }
     Ok(out)
@@ -391,6 +400,7 @@ pub fn verify_single_claim(
         corpus(),
         minimum_strength,
         None,
+        None,
     )
 }
 
@@ -410,6 +420,7 @@ pub fn verify_single_claim_with(
         slice::from_ref(claim),
         corpus,
         minimum_strength,
+        None,
         None,
     )
 }

@@ -48,6 +48,21 @@ bitflags! {
     }
 }
 
+/// The capability set of a read-only tool that cannot answer without a
+/// connected fitness provider.
+///
+/// Named because eighteen tools across `data`, `goals` and `sleep` declare
+/// exactly this triple, and the dispatch chokepoint refuses every one of them
+/// for a providerless athlete. Spelling it once keeps that set from drifting
+/// tool by tool — a tool that silently loses `REQUIRES_PROVIDER` stops being
+/// gated and goes back to serving the empty shapes a model narrates as fact.
+pub const PROVIDER_READ: ToolCapabilities = ToolCapabilities::REQUIRES_AUTH
+    .union(ToolCapabilities::READS_DATA)
+    .union(ToolCapabilities::REQUIRES_PROVIDER);
+
+/// [`PROVIDER_READ`] plus the analytics marker, for the computed-insight tools.
+pub const PROVIDER_ANALYTICS: ToolCapabilities = PROVIDER_READ.union(ToolCapabilities::ANALYTICS);
+
 impl ToolCapabilities {
     /// Check if tool requires any form of authentication
     #[must_use]

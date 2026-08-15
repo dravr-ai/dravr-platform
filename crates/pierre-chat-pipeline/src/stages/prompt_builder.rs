@@ -368,16 +368,54 @@ fn defang_platform_markers(text: &str) -> Cow<'_, str> {
     out
 }
 
+/// Told to the model when the user has no connected provider at all.
+///
+/// The distinction this states is the one the model cannot otherwise draw.
+/// Silence reads as "nothing happened lately", not "there is no data source",
+/// and a coach that believes the first invents the second: the incident behind
+/// [`pierre_services::onboarding_gate`] was a cheerful *"nice 12 km ride
+/// yesterday!"* to someone who had never connected anything.
+///
+/// Phrased as what to say rather than only what to withhold. A model told
+/// merely to avoid specifics still produces confident vagueness; told that the
+/// honest answer is "I can't see your training yet", it gives one.
+const NO_PROVIDER_CONTEXT: &str = "\n\n## Connected Fitness Data Providers\n\n\
+None. This user has not connected any fitness data source, so there is no \
+activity, sleep, heart-rate, or workout history for them — not \"nothing \
+recent\", nothing at all.\n\n\
+Never state or imply a specific figure about their training: no distances, \
+paces, durations, dates, heart rates, sleep hours, or trends. You have not \
+seen any, and inventing one is the worst thing you can do here.\n\n\
+Say plainly that you cannot see their training yet, and that connecting a \
+service (Strava, Garmin, Fitbit, Whoop) is what would let you. General \
+coaching knowledge is still yours to offer, clearly labelled as general.";
+
+/// Told to the model when the provider lookup itself failed.
+///
+/// Deliberately weaker than [`NO_PROVIDER_CONTEXT`]. A failed query is not
+/// evidence of absence, so asserting "you have no providers" would be the
+/// prompt telling the model something untrue. The part that must hold either
+/// way is the ban on invented specifics.
+const UNKNOWN_PROVIDER_CONTEXT: &str = "\n\n## Connected Fitness Data Providers\n\n\
+Unknown — the lookup failed for this turn, so treat your knowledge of their \
+connected services and their training history as unavailable rather than \
+empty.\n\n\
+Do not state specific figures about their training; fetch what you need with \
+the tools, and if that fails, say you could not retrieve it.";
+
 /// Build the "Connected Fitness Data Providers" system-prompt section.
 ///
 /// Appended so the LLM does not ask users to connect providers that are
-/// already connected.
+/// already connected — and, when nothing is connected, so it knows that rather
+/// than guessing. See [`NO_PROVIDER_CONTEXT`] for why the empty case is stated
+/// instead of left silent.
 ///
 /// Uses `provider_connections` as the single source of truth (cross-tenant
 /// view) and filters out providers that are not registered in the current
 /// runtime (e.g. synthetic providers excluded from production builds).
-/// Returns an empty string when the user has no registered connections —
-/// callers append this unconditionally.
+///
+/// Never returns an empty string: every path says something, because the
+/// absence of a section is exactly the silence the model misreads.
 pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String {
     // Get all provider connections (cross-tenant view, single source of truth)
     let Ok(connections) = data
@@ -386,7 +424,7 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
         .get_for_user(user_id, None)
         .await
     else {
-        return String::new();
+        return UNKNOWN_PROVIDER_CONTEXT.to_owned();
     };
 
     // Filter out providers that aren't registered in the current runtime
@@ -397,7 +435,7 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
         .collect();
 
     if connections.is_empty() {
-        return String::new();
+        return NO_PROVIDER_CONTEXT.to_owned();
     }
 
     let mut context = String::from("\n\n## Connected Fitness Data Providers\n\n");

@@ -139,10 +139,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [aguiRunId, setAguiRunId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCountdown, setErrorCountdown] = useState<number | null>(null);
-  // Set when the backend rejects messaging with NoProviderConnected. Instead of
-  // surfacing a raw 403, we show a friendly connect-provider prompt with a
-  // deep link to the Data Providers screen.
-  const [needsProvider, setNeedsProvider] = useState(false);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
@@ -175,12 +171,17 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const usageStatus = useUsageStatus();
 
   // Fetch provider status (includes both OAuth and non-OAuth providers like synthetic)
-  const { data: providersData } = useQuery({
+  const { data: providersData, isSuccess: providersLoaded } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
   });
 
   const hasConnectedProvider = providersData?.providers?.some(p => p.connected) ?? false;
+  // Gated on the query having actually answered, not on the `?? false` default.
+  // While loading, `hasConnectedProvider` is false for everyone, so keying the
+  // banner off it alone flashes a connect-provider nudge at users who are
+  // connected — every chat load.
+  const showConnectBanner = providersLoaded && !hasConnectedProvider;
 
   // Fetch messages for selected conversation
   const { data: messagesData, isLoading: messagesLoading } = useQuery<{ messages: Message[]; feedback?: MessageFeedbackEntry[] }>({
@@ -565,7 +566,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     setIsStreaming(true);
     setStreamingContent('');
     setErrorMessage(null);
-    setNeedsProvider(false);
     track({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
 
     const userMessageId = `user-${Date.now()}`;
@@ -607,18 +607,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
       if (!response.ok || !response.body) {
         const errorData = await response.json().catch(() => ({}));
-        // Providerless users get a structured NoProviderConnected (403). Surface
-        // a friendly connect-provider prompt with a deep link instead of a raw
-        // "HTTP error" — messaging is gated until a provider is linked.
-        if (errorData?.code === 'NoProviderConnected' || errorData?.details?.action === 'connect_provider') {
-          setNeedsProvider(true);
-          setIsStreaming(false);
-          setStreamingContent('');
-          // The gate rejects before persisting, so drop the optimistic user
-          // bubble — it was never saved.
-          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
-          return;
-        }
         throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
       }
 
@@ -945,18 +933,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        // Providerless users get a structured NoProviderConnected (403). Surface
-        // a friendly connect-provider prompt with a deep link instead of a raw
-        // "HTTP error" — messaging is gated until a provider is linked.
-        if (errorData?.code === 'NoProviderConnected' || errorData?.details?.action === 'connect_provider') {
-          setNeedsProvider(true);
-          setIsStreaming(false);
-          setStreamingContent('');
-          // The gate rejects before persisting, so drop the optimistic user
-          // bubble — it was never saved.
-          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
-          return;
-        }
         throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
       }
 
@@ -1108,12 +1084,12 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     <div className="h-full flex bg-surface relative">
       {/* Main Content Area - conversations are now in Dashboard sidebar */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Providerless users hit a NoProviderConnected 403 on send; show the
-            connect-provider nudge (deep-links to Data Providers) instead of a
-            raw error. Rendered above both the welcome and conversation views so
-            it appears regardless of conversation state. Self-hides once a
-            provider is connected. */}
-        {needsProvider && (
+        {/* The nudge used to appear only after a send was refused with a 403.
+            That refusal is gone — a providerless athlete now gets a real coach
+            reply that says what it cannot see — so the banner is driven by
+            provider state directly and shows before they ask, not after they
+            are turned away. Self-hides once a provider is connected. */}
+        {showConnectBanner && (
           <div className="px-4 md:px-6 pt-3">
             <ConnectProviderBanner />
           </div>

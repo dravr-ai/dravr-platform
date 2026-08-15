@@ -38,7 +38,7 @@ use crate::activity_backfill::{
     is_historical_backfill_window, spawn_activity_backfill, ActivityBackfillJob,
 };
 use crate::activity_fetch::read_cached_window;
-use crate::capabilities::ToolCapabilities;
+use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
 use crate::implementations::fitness_support::{
@@ -485,7 +485,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -1200,7 +1200,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -1354,7 +1354,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -1538,7 +1538,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -1606,7 +1606,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(
@@ -1674,7 +1674,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        capabilities_to_tronc(PROVIDER_READ)
     }
 
     async fn execute(

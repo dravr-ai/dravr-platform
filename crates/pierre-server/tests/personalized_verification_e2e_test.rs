@@ -120,7 +120,14 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
         text: "Run your threshold pace at 2:30/km.".to_owned(),
         category: ClaimCategory::TrainingPrescription,
     };
-    let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, Some(&ctx));
+    let outcome = check_claim(
+        &claim,
+        &[],
+        &corpus(),
+        EvidenceStrength::Mixed,
+        Some(&ctx),
+        None,
+    );
     assert_eq!(outcome.layer_fired, VerdictLayer::Personalized);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
 

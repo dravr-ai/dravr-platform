@@ -301,7 +301,14 @@ fn check_claim_fires_personalized_before_evidence() {
         "Run your threshold pace at 4:00/km.",
         ClaimCategory::TrainingPrescription,
     );
-    let outcome = check_claim(&c, &[], &corpus(), EvidenceStrength::Mixed, Some(&ctx));
+    let outcome = check_claim(
+        &c,
+        &[],
+        &corpus(),
+        EvidenceStrength::Mixed,
+        Some(&ctx),
+        None,
+    );
     assert_eq!(outcome.layer_fired, VerdictLayer::Personalized);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
 }
@@ -313,7 +320,7 @@ fn check_claim_without_snapshot_is_unchanged() {
         "Run your threshold pace at 4:00/km.",
         ClaimCategory::TrainingPrescription,
     );
-    let outcome = check_claim(&c, &[], &corpus(), EvidenceStrength::Mixed, None);
+    let outcome = check_claim(&c, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_ne!(outcome.layer_fired, VerdictLayer::Personalized);
 }
 

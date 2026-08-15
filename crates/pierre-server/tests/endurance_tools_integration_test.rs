@@ -31,9 +31,9 @@
 
 use anyhow::Result;
 use pierre_core::config::profiles::FitnessLevel;
-use pierre_core::models::{SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{ConnectionType, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_tool_runtime::protocols::ProtocolError;
-use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -63,6 +63,54 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, Str
         .find(|t| t.owner_user_id == user_id)
         .ok_or_else(|| anyhow::anyhow!("user should have tenant"))?;
     Ok((user_id, user_tenant.id.to_string()))
+}
+
+/// Same as [`create_test_user`] but with a provider connection registered.
+///
+/// Argument-validation tests need this now. The dispatch chokepoint refuses a
+/// `REQUIRES_PROVIDER` tool before its body parses anything, so a providerless
+/// fixture can only ever prove the refusal — never that a reversed date range
+/// is rejected. Connecting a provider restores what these tests were written to
+/// check.
+async fn create_connected_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
+    let (user_id, tenant) = create_test_user(executor).await?;
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(
+            user_id,
+            TenantId::parse_str(&tenant)?,
+            "strava",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await?;
+    Ok((user_id, tenant))
+}
+
+/// A providerless call is refused **in band** rather than by abandoning the turn.
+///
+/// These tools declared `REQUIRES_PROVIDER` long before anything read it, so the
+/// refusal used to surface from deep in the tool body as a `ProtocolError`,
+/// which kills the turn. The dispatch chokepoint refuses first and returns the
+/// same `UniversalResponse` the provider resolvers mint, carrying
+/// `auth_required_provider` — the signal `auth_recovery` turns into a
+/// hosted-login prompt, so the coach can offer to fix it instead of the turn
+/// simply dying.
+fn assert_provider_refusal(resp: &UniversalResponse, tool: &str) {
+    assert!(!resp.success, "{tool}: providerless call must not succeed");
+    let provider = resp
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("auth_required_provider"))
+        .and_then(serde_json::Value::as_str);
+    assert_eq!(
+        provider,
+        Some("sciotte"),
+        "{tool}: the refusal must carry the recovery metadata, got {:?}",
+        resp.metadata
+    );
 }
 
 fn make_request(
@@ -167,7 +215,7 @@ async fn test_endurance_tools_registered() -> Result<()> {
 #[tokio::test]
 async fn test_export_dossier_happy_path_empty() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -188,7 +236,7 @@ async fn test_export_dossier_happy_path_empty() -> Result<()> {
 #[tokio::test]
 async fn test_export_dossier_with_seeded_physiology() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
     seed_physiology(&executor, &tenant, user_id).await?;
 
     let resp = executor
@@ -229,7 +277,7 @@ async fn test_export_dossier_with_seeded_physiology() -> Result<()> {
 #[tokio::test]
 async fn test_export_dossier_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request("export_dossier", json!({}), user_id, None))
@@ -248,7 +296,7 @@ async fn test_export_latest_snapshot_no_provider() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
-    let err = executor
+    let resp = executor
         .execute_tool(make_request(
             "export_latest_snapshot",
             json!({}),
@@ -256,15 +304,15 @@ async fn test_export_latest_snapshot_no_provider() -> Result<()> {
             Some(&tenant),
         ))
         .await
-        .expect_err("user with no provider must surface auth-required");
-    assert_invalid_request(&err, "export_latest_snapshot");
+        .expect("the refusal is in band; the turn must not be abandoned");
+    assert_provider_refusal(&resp, "export_latest_snapshot");
     Ok(())
 }
 
 #[tokio::test]
 async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
     // Out-of-range window is clamped, not rejected; the underlying provider
     // call still fails (no token) — we just confirm the clamp didn't panic
     // and the failure is the documented auth-required path.
@@ -284,7 +332,7 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
 #[tokio::test]
 async fn test_export_latest_snapshot_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -306,7 +354,7 @@ async fn test_export_latest_snapshot_rejects_no_tenant() -> Result<()> {
 #[tokio::test]
 async fn test_compute_training_history_invalid_window() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -326,7 +374,7 @@ async fn test_compute_training_history_no_provider() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
-    let err = executor
+    let resp = executor
         .execute_tool(make_request(
             "compute_training_history",
             json!({}),
@@ -334,15 +382,15 @@ async fn test_compute_training_history_no_provider() -> Result<()> {
             Some(&tenant),
         ))
         .await
-        .expect_err("user with no provider must surface auth-required");
-    assert_invalid_request(&err, "compute_training_history");
+        .expect("the refusal is in band; the turn must not be abandoned");
+    assert_provider_refusal(&resp, "compute_training_history");
     Ok(())
 }
 
 #[tokio::test]
 async fn test_compute_training_history_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -364,7 +412,7 @@ async fn test_compute_training_history_rejects_no_tenant() -> Result<()> {
 #[tokio::test]
 async fn test_get_training_history_empty() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -395,7 +443,7 @@ async fn test_get_training_history_empty() -> Result<()> {
 #[tokio::test]
 async fn test_get_training_history_invalid_date() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -413,7 +461,7 @@ async fn test_get_training_history_invalid_date() -> Result<()> {
 #[tokio::test]
 async fn test_get_training_history_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -435,7 +483,7 @@ async fn test_get_training_history_rejects_no_tenant() -> Result<()> {
 #[tokio::test]
 async fn test_export_intervals_missing_activity_id() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -455,7 +503,7 @@ async fn test_export_intervals_no_provider() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
-    let err = executor
+    let resp = executor
         .execute_tool(make_request(
             "export_intervals",
             json!({ "activity_id": "12345" }),
@@ -463,15 +511,15 @@ async fn test_export_intervals_no_provider() -> Result<()> {
             Some(&tenant),
         ))
         .await
-        .expect_err("user with no provider must surface auth-required");
-    assert_invalid_request(&err, "export_intervals");
+        .expect("the refusal is in band; the turn must not be abandoned");
+    assert_provider_refusal(&resp, "export_intervals");
     Ok(())
 }
 
 #[tokio::test]
 async fn test_export_intervals_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -493,7 +541,7 @@ async fn test_export_intervals_rejects_no_tenant() -> Result<()> {
 #[tokio::test]
 async fn test_export_routes_missing_activity_id() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -513,7 +561,7 @@ async fn test_export_routes_no_provider() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
-    let err = executor
+    let resp = executor
         .execute_tool(make_request(
             "export_routes",
             json!({ "activity_id": "12345" }),
@@ -521,15 +569,15 @@ async fn test_export_routes_no_provider() -> Result<()> {
             Some(&tenant),
         ))
         .await
-        .expect_err("user with no provider must surface auth-required");
-    assert_invalid_request(&err, "export_routes");
+        .expect("the refusal is in band; the turn must not be abandoned");
+    assert_provider_refusal(&resp, "export_routes");
     Ok(())
 }
 
 #[tokio::test]
 async fn test_export_routes_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -551,7 +599,7 @@ async fn test_export_routes_rejects_no_tenant() -> Result<()> {
 #[tokio::test]
 async fn test_extract_activity_streams_missing_activity_id() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -571,7 +619,7 @@ async fn test_extract_activity_streams_no_provider() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
-    let err = executor
+    let resp = executor
         .execute_tool(make_request(
             "extract_activity_streams",
             json!({ "activity_id": "12345" }),
@@ -579,15 +627,15 @@ async fn test_extract_activity_streams_no_provider() -> Result<()> {
             Some(&tenant),
         ))
         .await
-        .expect_err("user with no provider must surface auth-required");
-    assert_invalid_request(&err, "extract_activity_streams");
+        .expect("the refusal is in band; the turn must not be abandoned");
+    assert_provider_refusal(&resp, "extract_activity_streams");
     Ok(())
 }
 
 #[tokio::test]
 async fn test_extract_activity_streams_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -609,7 +657,7 @@ async fn test_extract_activity_streams_rejects_no_tenant() -> Result<()> {
 #[tokio::test]
 async fn test_list_workout_templates_happy_path() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -638,7 +686,7 @@ async fn test_list_workout_templates_happy_path() -> Result<()> {
 #[tokio::test]
 async fn test_list_workout_templates_includes_cornerstones() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -674,7 +722,7 @@ async fn test_list_workout_templates_includes_cornerstones() -> Result<()> {
 #[tokio::test]
 async fn test_list_workout_templates_idempotent() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let first = executor
         .execute_tool(make_request(
@@ -703,7 +751,7 @@ async fn test_list_workout_templates_idempotent() -> Result<()> {
 #[tokio::test]
 async fn test_prescribe_workout_happy_path() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -732,7 +780,7 @@ async fn test_prescribe_workout_happy_path() -> Result<()> {
 #[tokio::test]
 async fn test_prescribe_workout_invalid_slug() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -760,7 +808,7 @@ async fn test_prescribe_workout_invalid_slug() -> Result<()> {
 #[tokio::test]
 async fn test_prescribe_workout_missing_date() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, tenant) = create_test_user(&executor).await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(
@@ -778,7 +826,7 @@ async fn test_prescribe_workout_missing_date() -> Result<()> {
 #[tokio::test]
 async fn test_prescribe_workout_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
-    let (user_id, _tenant) = create_test_user(&executor).await?;
+    let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
     let err = executor
         .execute_tool(make_request(

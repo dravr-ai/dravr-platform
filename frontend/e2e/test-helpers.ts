@@ -515,6 +515,24 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
 }
 
 /**
+ * How long to wait for the app shell to appear on first navigation.
+ *
+ * This is a wait on Vite's on-demand transform of the app, not an assertion
+ * about the page. Playwright starts a fresh dev server per run
+ * (`reuseExistingServer: false`) and several workers hit it cold at once, so
+ * the first render routinely takes longer than the 10s this used to allow —
+ * producing failures that moved between specs from run to run and looked like
+ * real a11y regressions. Nothing here is asserted on time; a genuinely missing
+ * form still fails, just after a wait that a cold machine can actually meet.
+ *
+ * Kept well inside the 60s per-test timeout in `playwright.config.ts`. Setting
+ * the two equal is its own bug: one slow login consumes the entire budget and
+ * the failure resurfaces further down as a click timing out on an element the
+ * test was never going to reach.
+ */
+export const APP_SHELL_TIMEOUT_MS = 20000;
+
+/**
  * Performs login through the login form.
  * Requires setupDashboardMocks() to be called first.
  */
@@ -522,14 +540,14 @@ export async function loginToDashboard(page: Page, credentials?: { email?: strin
   const { email = 'admin@test.com', password = 'password123' } = credentials || {};
 
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10000 });
+  await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   // Wait for dashboard to load - wait for main content area which only exists after successful login
   // Note: 'text=Dravr' would match login page's "Dravr" title, so use 'main' instead
-  await page.waitForSelector('main', { timeout: 10000 });
+  await page.waitForSelector('main', { timeout: APP_SHELL_TIMEOUT_MS });
   await page.waitForTimeout(300);
 }
 
