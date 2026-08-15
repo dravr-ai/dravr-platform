@@ -781,11 +781,22 @@ enforce_cap() {
 # --- report ----------------------------------------------------------------
 
 print_footer() {
-    local phase="$1" before="$2" after="$3"
+    local phase="$1" before="$2" after="$3" delta freed
+    delta=$((before - after))
+    # A build running in another worktree can add more than this phase removed,
+    # which leaves the fleet larger than it started. Report what the phase itself
+    # freed — the sum of the per-repo rows — rather than a negative fleet delta.
+    freed=$(awk -F'\t' '{ s += $4 } END { printf "%d", s + 0 }' "$ROWS" 2>/dev/null)
+    [[ "$freed" =~ ^[0-9]+$ ]] || freed=0
     echo
     echo "------------------------------------------------------------------"
     printf '%-16s %s\n' "fleet before" "$(fmt_kib "$before")"
-    printf '%-16s %s   (-%s reclaimed by %s)\n' "fleet after" "$(fmt_kib "$after")" "$(fmt_kib "$((before - after))")" "$phase"
+    if [[ "$delta" -ge 0 ]]; then
+        printf '%-16s %s   (-%s reclaimed by %s)\n' "fleet after" "$(fmt_kib "$after")" "$(fmt_kib "$delta")" "$phase"
+    else
+        printf '%-16s %s   (-%s reclaimed by %s; fleet grew %s during the run — builds were active)\n' \
+            "fleet after" "$(fmt_kib "$after")" "$(fmt_kib "$freed")" "$phase" "$(fmt_kib "$((-delta))")"
+    fi
     if [[ -s "$ROWS" ]]; then
         echo
         printf '  %-28s %11s %11s %11s  %s\n' "REPOSITORY" "BEFORE" "AFTER" "RECLAIMED" "REASON"
