@@ -345,44 +345,35 @@ pub fn handle_calculate_metrics(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Check if activity_id is provided (schema-compliant path)
-        if let Some(activity_id) = request
+        // `activity_id` and `provider` are both declared required by this tool's
+        // schema, so this is the only way in. A second branch used to accept an
+        // `activity` object inline and skip the fetch, but that shape appears
+        // nowhere in the schema — no caller following the tool definition could
+        // know to send it, and the only thing that ever did was a test. The
+        // shared helpers below it stay: `fetch_and_calculate_metrics` builds the
+        // same `activity` object from the fetched activity and runs them.
+        let activity_id = request
             .parameters
             .get("activity_id")
             .and_then(serde_json::Value::as_str)
-        {
-            let provider_name = request
-                .parameters
-                .get("provider")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| {
-                    ProtocolError::InvalidParameters(
-                        "provider parameter required when using activity_id".to_owned(),
-                    )
-                })?;
+            .ok_or_else(|| {
+                ProtocolError::InvalidParameters("activity_id parameter is required".to_owned())
+            })?;
 
-            let result = fetch_and_calculate_metrics(
-                executor,
-                &request,
-                activity_id,
-                provider_name,
-                user_uuid,
-            )
-            .await?;
+        let provider_name = request
+            .parameters
+            .get("provider")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                ProtocolError::InvalidParameters(
+                    "provider parameter required when using activity_id".to_owned(),
+                )
+            })?;
 
-            // Apply format transformation
-            return Ok(apply_format_to_response(result, "metrics", output_format));
-        }
+        let result =
+            fetch_and_calculate_metrics(executor, &request, activity_id, provider_name, user_uuid)
+                .await?;
 
-        // Fallback path: activity object provided directly
-        let params = parse_activity_parameters(&request)?;
-        let (max_hr, max_hr_source) =
-            determine_max_heart_rate(params.max_hr_provided, params.user_age);
-        let metrics = calculate_activity_metrics(&params, max_hr);
-
-        let result = build_metrics_response(&params, &metrics, max_hr, &max_hr_source);
-
-        // Apply format transformation
         Ok(apply_format_to_response(result, "metrics", output_format))
     })
 }

@@ -322,16 +322,35 @@ jobs:
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
 
-      - name: Validate no ignored doctests
+      # Runs the doctests AND checks none are ignored, from one invocation.
+      #
+      # This step used to end `cargo test --doc 2>&1 || true` and then inspect
+      # only the ignored count, so a doctest that failed to compile left the job
+      # green — a `no_run` example still has to build. That is how
+      # pierre-cache's `TenantId::default()` survived on main after 19afe3334
+      # removed the constructor: the job named "Doc Tests" was never failing on
+      # doctests. It also lacked --workspace, so crates outside the default
+      # members were never reached at all.
+      - name: Doc tests
         run: |
-          echo "Checking for ignored doctests..."
-          DOCTEST_OUTPUT=$(cargo test --doc 2>&1 || true)
-          IGNORED_COUNT=$(echo "$DOCTEST_OUTPUT" | grep -E "test result:.*ignored" | grep -oE "[0-9]+ ignored" | grep -oE "[0-9]+" | head -1 || echo "0")
-          if [ "${IGNORED_COUNT:-0}" -gt 0 ]; then
-            echo "ERROR: Found $IGNORED_COUNT ignored doctests!"
+          echo "Running workspace doctests..."
+          set +e
+          DOCTEST_OUTPUT=$(cargo test --workspace --doc 2>&1)
+          STATUS=$?
+          set -e
+          echo "$DOCTEST_OUTPUT"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::Doctests failed. A no_run example still has to compile."
             exit 1
           fi
-          echo "No ignored doctests found"
+
+          IGNORED_COUNT=$(echo "$DOCTEST_OUTPUT" | grep -E "test result:.*ignored" | grep -oE "[0-9]+ ignored" | grep -oE "[0-9]+" | head -1 || echo "0")
+          if [ "${IGNORED_COUNT:-0}" -gt 0 ]; then
+            echo "::error::Found $IGNORED_COUNT ignored doctest(s)!"
+            exit 1
+          fi
+          echo "Doctests passed, none ignored"
         env:
           DATABASE_URL: "sqlite::memory:"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="

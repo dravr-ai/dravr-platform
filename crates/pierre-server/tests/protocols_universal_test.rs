@@ -738,26 +738,28 @@ async fn test_set_goal_tool() -> Result<()> {
     Ok(())
 }
 
+/// `calculate_metrics` answers only for an activity it can fetch.
+///
+/// It used to accept an `activity` object inline and compute from that, which
+/// is what this test exercised — but the tool's schema declares `provider` and
+/// `activity_id` required and never mentions `activity`, so no caller following
+/// the definition could reach it. The old assertions were `is_number()` type
+/// checks on a path production could not take; this pins the contract the
+/// schema actually advertises.
 #[tokio::test]
-async fn test_calculate_metrics_tool() -> Result<()> {
+async fn test_calculate_metrics_requires_an_activity_id() -> Result<()> {
     common::init_server_config();
     let executor = create_test_executor().await?;
 
     let request = UniversalRequest {
         tool_name: "calculate_metrics".to_owned(),
         parameters: json!({
-            // Names the credential-free provider, as the sibling analytics tests
-            // do. This exercises the inline-activity path, where the metrics are
-            // computed from the supplied numbers and no provider is read — but
-            // the tool still declares REQUIRES_PROVIDER for its `activity_id`
-            // path, so the dispatch chokepoint needs a provider that costs
-            // nothing to "have".
+            // Credential-free, so the dispatch chokepoint stands aside and the
+            // parameter check is what answers.
             "provider": "synthetic",
             "activity": {
                 "distance": 5000.0,
                 "duration": 1800,
-                "elevation_gain": 100.0,
-                "average_heart_rate": 150,
                 "activity_type": "Run"
             }
         }),
@@ -769,14 +771,29 @@ async fn test_calculate_metrics_tool() -> Result<()> {
         progress_reporter: None,
     };
 
-    let response = executor.execute_tool(request).await?;
-    assert!(response.success);
-    assert!(response.result.is_some());
-
-    let result = response.result.unwrap();
-    assert!(result["pace"].is_number());
-    assert!(result["speed"].is_number());
-    assert!(result["intensity_score"].is_number());
+    match executor.execute_tool(request).await {
+        Ok(response) => {
+            assert!(
+                !response.success,
+                "an inline `activity` is not a documented input and must not be served"
+            );
+            assert!(
+                response
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("activity_id")),
+                "the rejection must name the missing required parameter, got: {:?}",
+                response.error
+            );
+        }
+        Err(e) => {
+            let text = format!("{e:?}");
+            assert!(
+                text.contains("activity_id"),
+                "the rejection must name the missing required parameter, got: {text}"
+            );
+        }
+    }
 
     Ok(())
 }
