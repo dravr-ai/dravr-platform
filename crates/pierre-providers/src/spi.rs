@@ -56,7 +56,7 @@
 //!     }
 //!
 //!     fn api_base_url(&self) -> &'static str {
-//!         "https://api.prod.whoop.com/developer/v1"
+//!         "https://api.prod.whoop.com/developer/v2"
 //!     }
 //!
 //!     fn default_scopes(&self) -> &'static [&'static str] {
@@ -502,7 +502,8 @@ impl ProviderDescriptor for FitbitDescriptor {
 /// WHOOP provider descriptor
 ///
 /// WHOOP is a full health provider supporting sleep, recovery, workouts,
-/// and body measurements through their v1 Developer API.
+/// and body measurements through their v2 Developer API (v1 was
+/// decommissioned by WHOOP in October 2025).
 #[cfg(feature = "provider-whoop")]
 pub struct WhoopDescriptor;
 
@@ -537,7 +538,7 @@ impl ProviderDescriptor for WhoopDescriptor {
     }
 
     fn api_base_url(&self) -> &'static str {
-        "https://api.prod.whoop.com/developer/v1"
+        "https://api.prod.whoop.com/developer/v2"
     }
 
     fn default_scopes(&self) -> &'static [&'static str] {

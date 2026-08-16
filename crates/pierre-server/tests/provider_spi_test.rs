@@ -8,7 +8,11 @@
 #![allow(missing_docs)]
 
 use pierre_providers::ProviderCapabilities;
-#[cfg(any(feature = "provider-strava", feature = "provider-garmin"))]
+#[cfg(any(
+    feature = "provider-strava",
+    feature = "provider-garmin",
+    feature = "provider-whoop"
+))]
 use pierre_providers::ProviderDescriptor;
 
 #[cfg(feature = "provider-strava")]
@@ -16,6 +20,9 @@ use pierre_providers::StravaDescriptor;
 
 #[cfg(feature = "provider-garmin")]
 use pierre_providers::GarminDescriptor;
+
+#[cfg(feature = "provider-whoop")]
+use pierre_providers::WhoopDescriptor;
 
 #[test]
 #[cfg(feature = "provider-strava")]
@@ -108,6 +115,34 @@ fn test_provider_descriptor_to_config() {
     assert!(config
         .default_scopes
         .contains(&"activity:read_all".to_owned()));
+}
+
+#[test]
+#[cfg(feature = "provider-whoop")]
+fn test_whoop_descriptor_to_config() {
+    let desc = WhoopDescriptor;
+    let config = desc.to_config();
+
+    assert_eq!(config.name, "whoop");
+    // WHOOP decommissioned the v1 Developer API in October 2025; the
+    // descriptor must agree with the v2 base URL the runtime client uses.
+    assert_eq!(
+        config.api_base_url,
+        "https://api.prod.whoop.com/developer/v2"
+    );
+    assert_eq!(
+        config.auth_url,
+        "https://api.prod.whoop.com/oauth/oauth2/auth"
+    );
+    assert_eq!(
+        config.token_url,
+        "https://api.prod.whoop.com/oauth/oauth2/token"
+    );
+    assert_eq!(
+        config.revoke_url.as_deref(),
+        Some("https://api.prod.whoop.com/oauth/oauth2/revoke")
+    );
+    assert!(config.default_scopes.contains(&"read:recovery".to_owned()));
 }
 
 #[test]
