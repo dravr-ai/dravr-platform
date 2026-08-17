@@ -3,16 +3,34 @@
 
 name: "Deploy: Sciotte Image"
 
-# Manual-only: the sciotte service image changes when dravr-sciotte releases,
-# not on platform pushes. Run with the dravr-sciotte ref (tag preferred) to
-# build; the Cloud Run service picks it up via terraform's sciotte_image /
-# a gcloud deploy of the new tag.
+# The sciotte service image changes when dravr-sciotte releases, not on platform
+# pushes, so this never runs on push. It is called two ways:
+#
+#   workflow_call — sciotte-bump.yml invokes it as the first link of the release
+#     chain, so a release builds its own image without anyone remembering to.
+#     Manual-only is how production sat on 2026-07-20 bytes: this workflow
+#     succeeded that day and nothing dispatched it again for four releases.
+#   workflow_dispatch — rebuild an arbitrary ref by hand (backfill, hotfix, bisect).
 on:
+  workflow_call:
+    inputs:
+      sciotte_ref:
+        description: "dravr-sciotte ref to build (tag, branch, or SHA)"
+        required: true
+        type: string
+    outputs:
+      image:
+        description: "Fully-qualified image reference pinned to the built digest"
+        value: ${{ jobs.publish-sciotte.outputs.image }}
+      digest:
+        description: "Digest of the image just published"
+        value: ${{ jobs.publish-sciotte.outputs.digest }}
   workflow_dispatch:
     inputs:
       sciotte_ref:
         description: "dravr-sciotte ref to build (tag, branch, or SHA)"
         required: true
+        type: string
         default: "main"
 
 permissions:
@@ -24,6 +42,13 @@ jobs:
   publish-sciotte:
     name: Publish Sciotte Image
     runs-on: ubuntu-latest
+
+    # Exported by digest rather than by tag: the caller deploys and, if the
+    # rollout fails, rolls back to an exact set of bytes. A moving tag cannot
+    # name what was actually shipped once the next build advances it.
+    outputs:
+      image: ${{ steps.tags.outputs.registry }}/sciotte@${{ steps.build.outputs.digest }}
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - name: Checkout platform (for .trivyignore)

@@ -1,0 +1,428 @@
+# ABOUTME: Turns a dravr-sciotte release into a deployed platform — pin bump, CI gate, squash merge, image, deploy
+# ABOUTME: Replaces sciotte-pin-check.yml, which detected the drift correctly and then left every step to a human
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# What this replaces and why. sciotte-pin-check.yml filed an issue saying the pin was
+# behind, and publish-sciotte-image.yml could build the image, and both worked. Nothing
+# connected them: the pin sat on v0.8.0 through five releases, and production served
+# 2026-07-20 bytes because that was the last day someone dispatched the image build by
+# hand. Two correct halves with no wire between them look exactly like a working system
+# right up until you ask what is actually deployed.
+#
+# The ordering is the safety property. The image is built and :latest advanced only
+# AFTER the platform has validated the pin and merged it. Building first would leave
+# :latest pointing at a sciotte the platform never accepted — and since terraform's
+# sciotte_image is that moving tag, the next unrelated `terraform apply` would deploy it.
+#
+# Integration stays gated, per the reasoning sciotte-pin-check carried: sciotte drives a
+# headless browser against live providers, so its behaviour is exercised by CI before
+# main depends on it. What changed is that the gate is now a machine that proceeds on
+# green, not a human who has to notice an issue.
+
+name: "Sciotte: Release Integration"
+
+on:
+  repository_dispatch:
+    types: [sciotte-released]
+  schedule:
+    # Weekly safety net, inherited from sciotte-pin-check: a missed or failed
+    # dispatch still gets the release integrated rather than silently dropped.
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "sciotte tag to integrate (defaults to the latest release)"
+        required: false
+        type: string
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch
+  id-token: write # WIF, for the image build and the deploy
+  security-events: write # Trivy SARIF, uploaded by the image build
+
+concurrency:
+  # Never overlap. Two releases integrating at once would race on main and on the
+  # :latest tag, and the deploy job's rollback target would be whichever one lost.
+  group: sciotte-bump
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. What are we integrating, and is there anything to do?
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve target version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      pinned: ${{ steps.v.outputs.pinned }}
+      needed: ${{ steps.v.outputs.needed }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve and verify the target tag
+        id: v
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+          PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${PAYLOAD_VERSION:-${INPUT_VERSION:-}}"
+          if [ -z "${VERSION}" ]; then
+            VERSION=$(gh api repos/dravr-ai/dravr-sciotte/releases/latest -q .tag_name)
+          fi
+          if [ -z "${VERSION}" ]; then
+            echo "::error::could not resolve a dravr-sciotte version to integrate"
+            exit 1
+          fi
+
+          # Verify against the API rather than trusting the dispatch payload. The
+          # payload is attacker-influenceable in principle and stale in practice;
+          # this chain pushes to main and deploys, so it confirms the tag is a real
+          # published release before acting on it.
+          if ! gh api "repos/dravr-ai/dravr-sciotte/releases/tags/${VERSION}" -q .tag_name >/dev/null 2>&1; then
+            echo "::error::${VERSION} is not a published dravr-sciotte release"
+            exit 1
+          fi
+
+          MANIFEST=crates/pierre-providers/Cargo.toml
+          PINNED=$(grep -oE 'dravr-sciotte = \{ git = "[^"]+", tag = "[^"]+"' "${MANIFEST}" \
+                   | grep -oE 'tag = "[^"]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "${PINNED}" ]; then
+            echo "::error::could not read the pinned dravr-sciotte tag from ${MANIFEST} — the line shape changed"
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "pinned=${PINNED}"   >> "$GITHUB_OUTPUT"
+          if [ "${PINNED}" = "${VERSION}" ]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "pin is already ${VERSION} — nothing to integrate"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "integrating ${PINNED} -> ${VERSION}"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2. Bump every consumer onto the new tag, on a branch
+  # ---------------------------------------------------------------------------
+  bump:
+    name: Bump the pin on a branch
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: needs.resolve.outputs.needed == 'true'
+    outputs:
+      branch: ${{ steps.push.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Configure auth for private git deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Rewrite the tag in every consumer manifest
+        id: bump
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Auto-discover consumers rather than hardcoding the list, for the reason
+          # contremaitre-bump learned the hard way: a hardcoded list left one crate
+          # behind, which put two revs of the same dependency in Cargo.lock and
+          # hard-failed the Security Audit on main. Discovery bumps a new consumer
+          # the moment it pins the dep.
+          MANIFESTS=$(grep -rl 'dravr-sciotte = { git' crates/ --include=Cargo.toml)
+          if [ -z "${MANIFESTS}" ]; then
+            echo "::error::no Cargo.toml pins dravr-sciotte — workflow assumption broke"
+            exit 1
+          fi
+          echo "Consumers pinning dravr-sciotte:"; echo "${MANIFESTS}"
+
+          # Target the line and overwrite whatever tag it holds, rather than swapping
+          # a known old value: that also converges a consumer that had drifted to a
+          # third version. Then verify each one landed, so a manifest whose line shape
+          # escaped the sed fails here instead of pushing drift.
+          for m in ${MANIFESTS}; do
+            sed -i -E "s|(dravr-sciotte = \{ git = \"[^\"]+\", tag = \")v[0-9]+\.[0-9]+\.[0-9]+\"|\1${VERSION}\"|" "$m"
+            TAG=$(grep 'dravr-sciotte = { git' "$m" | grep -oE 'tag = "v[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+            if [ "${TAG}" != "${VERSION}" ]; then
+              echo "::error::${m} pins dravr-sciotte at ${TAG:-<unparseable>} after bump, expected ${VERSION} — refusing to push drift"
+              exit 1
+            fi
+          done
+
+          cargo update -p dravr-sciotte
+
+      - name: Push the branch and dispatch the gates onto it
+        id: push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          BRANCH="fix/sciotte-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BRANCH}"
+          git add $(grep -rl 'dravr-sciotte = { git' crates/ --include=Cargo.toml) Cargo.lock
+          git commit -m "chore(sciotte): bump dravr-sciotte to ${VERSION}"
+          git push --force-with-lease origin "${BRANCH}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          # GitHub suppresses workflow runs on pushes made with GITHUB_TOKEN, so this
+          # branch triggers nothing on its own and the gate below would wait forever
+          # on runs that never start. Dispatch each gate explicitly. A PAT would avoid
+          # this, but DRAVR_PRIVATE_DEPS_TOKEN is read-only on this repo.
+          for wf in ci-backend.yml ci-postgres.yml integration-tests.yml; do
+            gh workflow run "$wf" --ref "${BRANCH}"
+            echo "dispatched ${wf} on ${BRANCH}"
+          done
+
+  # ---------------------------------------------------------------------------
+  # 3. Wait for those gates to finish, and require green
+  # ---------------------------------------------------------------------------
+  gate:
+    name: Wait for CI on the bump branch
+    runs-on: ubuntu-latest
+    needs: [resolve, bump]
+    timeout-minutes: 60
+    steps:
+      - name: Poll until every gate reaches a terminal status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          WORKFLOWS="ci-backend.yml ci-postgres.yml integration-tests.yml"
+          DEADLINE=$(( $(date +%s) + 45 * 60 ))
+
+          # The branch is created fresh for this version and nothing else pushes to
+          # it, so the newest run per workflow on it is unambiguously ours. Matching
+          # by commit was rejected: `gh run list --commit` silently returns zero rows.
+          while :; do
+            PENDING=""; FAILED=""
+            for wf in ${WORKFLOWS}; do
+              LINE=$(gh run list --workflow "$wf" --branch "${BRANCH}" --limit 1 \
+                       --json status,conclusion \
+                       -q '.[0] | "\(.status) \(.conclusion // "-")"' 2>/dev/null || true)
+              STATUS="${LINE%% *}"; CONCL="${LINE##* }"
+              if [ -z "${LINE}" ] || [ "${STATUS}" != "completed" ]; then
+                PENDING="${PENDING} ${wf}(${STATUS:-not-started})"
+              elif [ "${CONCL}" != "success" ]; then
+                # cancelled and skipped are not green. A cancelled run validated nothing.
+                FAILED="${FAILED} ${wf}(${CONCL})"
+              fi
+            done
+
+            if [ -n "${FAILED}" ]; then
+              echo "::error::CI is not green on ${BRANCH}:${FAILED} — the branch is left in place for inspection"
+              exit 1
+            fi
+            if [ -z "${PENDING}" ]; then
+              echo "all gates green on ${BRANCH}"
+              break
+            fi
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "::error::timed out after 45m waiting on:${PENDING}"
+              exit 1
+            fi
+            echo "waiting on:${PENDING}"
+            sleep 60
+          done
+
+  # ---------------------------------------------------------------------------
+  # 4. Squash the branch onto main
+  # ---------------------------------------------------------------------------
+  merge:
+    name: Squash merge onto main
+    runs-on: ubuntu-latest
+    needs: [resolve, bump, gate]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Squash merge and delete the branch
+        env:
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PINNED: ${{ needs.resolve.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "${BRANCH}"
+          git merge --squash "origin/${BRANCH}"
+          git commit -m "chore(sciotte): integrate dravr-sciotte ${PINNED} -> ${VERSION}"
+          git push origin main
+          # Squash gives the merge a new SHA, so the branch is dead the moment it
+          # lands. Deleting it here keeps dead refs from accumulating per release.
+          git push origin --delete "${BRANCH}"
+
+  # ---------------------------------------------------------------------------
+  # 5. Build the image — only now that main has accepted this sciotte
+  # ---------------------------------------------------------------------------
+  image:
+    name: Build and publish the sciotte image
+    needs: [resolve, merge]
+    uses: ./.github/workflows/publish-sciotte-image.yml
+    secrets: inherit
+    with:
+      sciotte_ref: ${{ needs.resolve.outputs.version }}
+
+  # ---------------------------------------------------------------------------
+  # 6. Deploy, verify the bytes, roll back if it goes wrong
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy sciotte to dev
+    runs-on: ubuntu-latest
+    needs: [resolve, image]
+    environment: development
+    steps:
+      - name: Authenticate to GCP (dev deployer)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          skip_install: true
+
+      - name: Capture the digest currently serving
+        id: prev
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: |
+          set -euo pipefail
+          REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
+                  --format='value(status.latestReadyRevisionName)')
+          PREV=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
+                   --format='value(status.imageDigest)')
+          # Refuse to deploy with no rollback target. A rollback step that silently
+          # has nothing to roll back to is worse than not having one, because the
+          # workflow would still report that it recovered.
+          if [ -z "${PREV}" ]; then
+            echo "::error::could not read the serving digest of ${REV} — refusing to deploy without a rollback target"
+            exit 1
+          fi
+          echo "image=${PREV}" >> "$GITHUB_OUTPUT"
+          echo "serving ${REV} at ${PREV}"
+
+      - name: Deploy
+        # Deploys the moving :latest tag rather than the digest, because that is the
+        # literal value terraform holds in sciotte_image. Deploying a digest would
+        # leave the service permanently disagreeing with its own terraform, so every
+        # later apply would bounce it. The digest is asserted immediately below, which
+        # closes the gap this opens.
+        #
+        # Cloud Run refuses to shift traffic to a revision that fails its startup
+        # probe (GET /health, 10 attempts at 5s), so a container that cannot boot
+        # leaves the previous revision serving and fails this step. That probe is the
+        # health check; the rollback below covers the rest.
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/sciotte:latest
+
+      - name: Assert the serving bytes are the bytes we built and scanned
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          EXPECTED: ${{ needs.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
+                  --format='value(status.latestReadyRevisionName)')
+          GOT=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
+                  --format='value(status.imageDigest)')
+          # :latest is resolved by Cloud Run at deploy time, so in principle it could
+          # have moved between the build and here. This turns that race into a failure
+          # rather than a silent deploy of unscanned bytes.
+          case "${GOT}" in
+            *"${EXPECTED}") echo "serving ${REV} at ${GOT}" ;;
+            *) echo "::error::${REV} serves ${GOT}, expected digest ${EXPECTED}"; exit 1 ;;
+          esac
+
+      - name: Roll back to the previously serving digest
+        if: failure()
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREV: ${{ steps.prev.outputs.image }}
+        run: |
+          set -euo pipefail
+          # Redeploy the previous digest rather than repointing traffic. Traffic pins
+          # applied with `update-traffic --to-revisions` stick to the service and make
+          # every subsequent deploy land without receiving traffic — the failure mode
+          # is a deploy that reports success while nothing it shipped is serving.
+          echo "rolling back ${SVC} to ${PREV}"
+          gcloud run services update "${SVC}" --region "${REGION}" --image "${PREV}" --quiet
+          echo "::warning::rolled back to ${PREV}; main carries the bump, the deployed image does not"
+
+  # ---------------------------------------------------------------------------
+  # Anything that stops the chain becomes a tracked issue, as before
+  # ---------------------------------------------------------------------------
+  report-failure:
+    name: File the stall on the register
+    runs-on: ubuntu-latest
+    needs: [resolve, bump, gate, merge, image, deploy]
+    if: failure() && needs.resolve.outputs.needed == 'true'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Open or update the register issue
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PINNED: ${{ needs.resolve.outputs.pinned }}
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The private register, because this repo is public.
+          TRACKER=$(grep -oE '^tracker[[:space:]]*=[[:space:]]*"[^"]+"' registre.toml | grep -oE '[^"]+/[^"]+')
+          TITLE="[platform] sciotte integration stalled (${PINNED} -> ${VERSION})"
+
+          # Indented to this block's level on purpose: YAML strips a block scalar's
+          # common indentation, so the shell receives column 0. Dedenting breaks the YAML.
+          BODY=$(cat <<EOF
+          Automated integration of \`dravr-sciotte\` **${VERSION}** did not complete.
+
+          - Pinned: **${PINNED}**
+          - Target: **${VERSION}**
+          - Branch: \`${BRANCH:-not created}\`
+          - Run: ${RUN_URL}
+
+          The chain is ordered so a stall is safe: the image is built and \`:latest\`
+          advanced only after main has merged the bump. If this stopped at or before the
+          merge, the deployed sciotte is unchanged and the branch is still there to inspect.
+          If it stopped at the deploy, the rollback step restored the previous digest and
+          main is ahead of what is deployed.
+
+          _Filed by \`sciotte-bump.yml\`._
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo "$TRACKER" --state open --search "sciotte integration stalled in:title" \
+                     --json number -q '.[0].number' 2>/dev/null || true)
+          if [ -n "${EXISTING}" ]; then
+            gh issue edit "${EXISTING}" --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+            echo "updated ${TRACKER}#${EXISTING}"
+          else
+            gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY" \
+              --label "dravr-platform" --label "dependency" 2>/dev/null \
+              || gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+            echo "opened a new issue on ${TRACKER}"
+          fi
