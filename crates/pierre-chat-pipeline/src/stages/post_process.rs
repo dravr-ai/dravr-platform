@@ -46,7 +46,6 @@ pub(crate) struct PostProcessedReply {
     /// Schema-validated structured payload (e.g. a workout plan) extracted
     /// from a builder-coach reply. `Some` only when the coach declares an
     /// `output_schema` and the reply validates against it.
-    pub structured_content: Option<String>,
     /// Ordered visual blocks lifted out of the reply's prose, JSON-encoded.
     /// `Some` only when at least one fenced `dravr-viz` block validated; the
     /// reply text then carries a positional marker where each block sat.
@@ -136,13 +135,14 @@ async fn resolve_roster_scope(
 fn lift_viz_blocks(
     ctx: &ChatPipelineContext,
     coach_ctx: Option<&CoachRuntimeContext>,
-    is_messaging: bool,
     tools_called: &[String],
     raw_content: String,
 ) -> (String, Option<String>, usize) {
-    if is_messaging {
-        return (raw_content, None, 0);
-    }
+    // Extraction is channel-agnostic. Messaging used to short-circuit here,
+    // when a chart had nowhere to go on a channel that cannot render one
+    // inline; it has somewhere now, because the egress mints a signed image URL
+    // per block and sends it as media. Which channels get pixels rather than
+    // the prose fallback is the egress's decision, not this stage's.
     // A coach with no `visuals:` grant is never shown the contract, so a fence
     // in its reply is not something we asked for. Extracting it anyway would
     // make the grant advisory; refusing keeps it a permission. The fence stays
@@ -217,7 +217,6 @@ pub(crate) async fn post_process_assistant_reply(
                 .get(KEY_REPLY_WITHHELD, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            structured_content: None,
             content_blocks: None,
             leak_replaced: true,
             identity_leak: None,
@@ -243,7 +242,6 @@ pub(crate) async fn post_process_assistant_reply(
                 .get(KEY_REPLY_WITHHELD, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            structured_content: None,
             content_blocks: None,
             leak_replaced: true,
             identity_leak: leak_report.identity_leak,
@@ -256,9 +254,13 @@ pub(crate) async fn post_process_assistant_reply(
     // conformance) can truncate or rewrite the JSON. On a valid plan the prose
     // stages are skipped: the payload is rendered as a card, not glossed text.
     // A coach that refuses replies in prose, so extraction returns `None` and
-    // the normal path runs. `extract_structured_plan` also returns `None` on
-    // messaging channels (no plan-card renderer; the matching prompt directive
-    // is withheld in prompt_assembly so the coach emits a plain-prose plan).
+    // the normal path runs.
+    //
+    // The plan leaves here as a `workout_plan` **block**, not on a field of its
+    // own. It used to ride `structured_content` with a separate validator and a
+    // separate extractor while charts and tables rode `content_blocks` — two
+    // rails for one idea. One rail means a client learns a single shape, and a
+    // reply could carry a plan and a chart together if a coach ever wanted it.
     if let Some(schema_id) = coach_ctx.and_then(|c| c.output_schema.as_deref()) {
         if let Some(extraction) = structured_output::extract_structured_plan(
             Some(schema_id),
@@ -270,8 +272,10 @@ pub(crate) async fn post_process_assistant_reply(
                 content: extraction.cleaned_text,
                 #[cfg(feature = "tools-verification")]
                 pending_verdicts: Vec::new(),
-                structured_content: Some(extraction.structured_content),
-                content_blocks: None,
+                content_blocks: structured_output::plan_as_block(
+                    &extraction.structured_content,
+                    schema_id,
+                ),
                 leak_replaced: false,
                 identity_leak: None,
             };
@@ -280,7 +284,7 @@ pub(crate) async fn post_process_assistant_reply(
 
     // Stage 15.55: Inline visual blocks.
     let (raw_content, content_blocks, block_count) =
-        lift_viz_blocks(ctx, coach_ctx, is_messaging, tools_called, raw_content);
+        lift_viz_blocks(ctx, coach_ctx, tools_called, raw_content);
 
     // Stage 15.6: Internal-narration scrub. Drops prose sentences where the
     // model narrates about its hidden scaffolding («Je continue d'ignorer le
@@ -303,7 +307,6 @@ pub(crate) async fn post_process_assistant_reply(
             content: ctx.messaging_strings_registry.get(KEY_EMPTY_REPLY, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            structured_content: None,
             content_blocks: None,
             leak_replaced: true,
             identity_leak: None,
@@ -408,7 +411,6 @@ pub(crate) async fn post_process_assistant_reply(
         content,
         #[cfg(feature = "tools-verification")]
         pending_verdicts,
-        structured_content: None,
         content_blocks,
         leak_replaced: false,
         identity_leak: None,

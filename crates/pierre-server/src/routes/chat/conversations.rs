@@ -20,11 +20,12 @@ use pierre_chat_pipeline::stages::persistence::create_conversation as create_con
 use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
 use pierre_core::errors::AppError;
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::TenantId;
+use pierre_core::models::{default_locale, TenantId};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 
 use super::common::get_tenant_id;
+use super::dto::resolve_scene_blocks;
 use super::dto::{
     ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
     CreateConversationRequest, ListConversationsQuery, MessageFeedbackEntry, MessageResponse,
@@ -358,6 +359,19 @@ pub async fn get_messages(
         .get_messages(&conversation_id, &user_id_str, tenant_id)
         .await?;
 
+    // The stored locale rather than a per-turn detection: a chart written three
+    // weeks ago should not relabel its axis because the athlete's last message
+    // happened to be in another language.
+    let locale = resources
+        .common
+        .repos
+        .users
+        .get_global(auth.user_id)
+        .await
+        .ok()
+        .flatten()
+        .map_or_else(default_locale, |u| u.locale);
+
     let messages_list: Vec<MessageResponse> = messages
         .into_iter()
         .map(|m| MessageResponse {
@@ -365,8 +379,7 @@ pub async fn get_messages(
             role: m.role,
             content: m.content,
             token_count: m.token_count,
-            structured_content: m.structured_content,
-            content_blocks: m.content_blocks,
+            scene_blocks: resolve_scene_blocks(m.content_blocks.as_deref(), &locale),
             created_at: m.created_at,
         })
         .collect();

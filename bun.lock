@@ -112,6 +112,7 @@
         "react-native-safe-area-context": "^5.6.2",
         "react-native-screens": "~4.23.0",
         "react-native-sse": "^1.2.1",
+        "react-native-svg": "15.15.3",
         "react-native-toast-message": "^2.3.3",
         "react-native-webview": "13.16.0",
         "react-native-worklets": "0.7.2",
@@ -153,6 +154,9 @@
     "packages/chat-utils": {
       "name": "@pierre/chat-utils",
       "version": "1.0.0",
+      "dependencies": {
+        "@pierre/scene-types": "*",
+      },
       "devDependencies": {
         "@pierre/shared-types": "*",
         "typescript": "~5.8.3",
@@ -204,6 +208,13 @@
       "devDependencies": {
         "typescript": "~5.8.3",
         "vitest": "^4.1.8",
+      },
+    },
+    "packages/scene-types": {
+      "name": "@pierre/scene-types",
+      "version": "1.0.0",
+      "devDependencies": {
+        "typescript": "~5.8.3",
       },
     },
     "packages/shared-constants": {
@@ -864,6 +875,8 @@
     "@pierre/i18n": ["@pierre/i18n@workspace:packages/i18n"],
 
     "@pierre/mcp-types": ["@pierre/mcp-types@workspace:packages/mcp-types"],
+
+    "@pierre/scene-types": ["@pierre/scene-types@workspace:packages/scene-types"],
 
     "@pierre/shared-constants": ["@pierre/shared-constants@workspace:packages/shared-constants"],
 
@@ -3370,6 +3383,8 @@
     "@pierre/i18n/typescript": ["typescript@5.8.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ=="],
 
     "@pierre/mcp-types/typescript": ["typescript@5.8.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ=="],
+
+    "@pierre/scene-types/typescript": ["typescript@5.8.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ=="],
 
     "@pierre/shared-constants/typescript": ["typescript@5.8.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ=="],
 

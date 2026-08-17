@@ -293,8 +293,8 @@ impl ChatManager {
         // Insert message only if the conversation belongs to the user in this tenant
         let result = sqlx::query(
             r"
-            INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, structured_content, content_blocks)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13
+            INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12
             WHERE EXISTS (
                 SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $10 AND tenant_id = $11
             )
@@ -311,7 +311,6 @@ impl ChatManager {
         .bind(params.model)
         .bind(params.user_id)
         .bind(params.tenant_id)
-        .bind(params.structured_content)
         .bind(params.content_blocks)
         .execute(&self.pool)
         .await
@@ -370,7 +369,6 @@ impl ChatManager {
             prompt_tokens: params.prompt_tokens.map(i64::from),
             model: params.model.map(ToOwned::to_owned),
             finish_reason: params.finish_reason.map(ToOwned::to_owned),
-            structured_content: params.structured_content.map(ToOwned::to_owned),
             content_blocks: params.content_blocks.map(ToOwned::to_owned),
             created_at: now,
         })
@@ -389,7 +387,7 @@ impl ChatManager {
     ) -> AppResult<Vec<MessageRecord>> {
         let rows = sqlx::query(
             r"
-            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.structured_content, m.content_blocks, m.created_at
+            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.content_blocks, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
@@ -414,7 +412,6 @@ impl ChatManager {
                 prompt_tokens: r.get("prompt_tokens"),
                 model: r.get("model"),
                 finish_reason: r.get("finish_reason"),
-                structured_content: r.get("structured_content"),
                 content_blocks: r.get("content_blocks"),
                 created_at: r.get("created_at"),
             })
@@ -437,7 +434,7 @@ impl ChatManager {
     ) -> AppResult<Vec<MessageRecord>> {
         let rows = sqlx::query(
             r"
-            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.structured_content, m.content_blocks, m.created_at
+            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.content_blocks, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
@@ -465,7 +462,6 @@ impl ChatManager {
                 prompt_tokens: r.get("prompt_tokens"),
                 model: r.get("model"),
                 finish_reason: r.get("finish_reason"),
-                structured_content: r.get("structured_content"),
                 content_blocks: r.get("content_blocks"),
                 created_at: r.get("created_at"),
             })

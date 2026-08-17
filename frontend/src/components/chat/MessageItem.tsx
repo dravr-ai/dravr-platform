@@ -13,6 +13,8 @@ import { parseWorkoutPlan } from '@pierre/shared-types';
 import type { Message, MessageActionItem, MessageMetadata, MessageFeedback } from './types';
 import { splitActivityContent, countActivities, stripToolScaffolding } from '@pierre/chat-utils';
 import { linkifyUrls, stripContextPrefix } from './utils';
+import { SceneView } from './SceneView';
+import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 
@@ -209,11 +211,25 @@ const MessageItem = memo(function MessageItem({
   }, [content]);
   const displayContent = reconnectUrl ? content.replace(reconnectUrl, '').trim() : content;
 
-  // Builder-coach replies carry a schema-validated plan in structured_content;
-  // render it as a card instead of the raw JSON/text.
-  const workoutPlan = useMemo(
-    () => parseWorkoutPlan(message.structured_content),
-    [message.structured_content],
+  // Visual blocks the coach embedded in this reply, already resolved
+  // server-side. Charts, tables and the training plan all arrive here. The prose carries a ⟦viz:N⟧ marker where each one
+  // sat, so the reply renders as alternating prose and charts rather than the
+  // charts being appended in a lump at the end.
+  const sceneBlocks = useMemo(
+    () => parseSceneBlocks(message.scene_blocks),
+    [message.scene_blocks],
+  );
+  // Builder-coach replies carry a schema-validated plan as a `workout_plan`
+  // block on the same rail as charts and tables. It renders as a card rather
+  // than raw JSON, exactly as before — only where it arrives from changed.
+  const workoutPlan = useMemo(() => {
+    const plan = sceneBlocks.find((b) => b.kind === 'workout_plan');
+    return plan ? parseWorkoutPlan(JSON.stringify(plan.plan)) : null;
+  }, [sceneBlocks]);
+
+  const segments = useMemo(
+    () => splitVizMarkers(linkifyUrls(displayContent)),
+    [displayContent],
   );
 
   const messageVerdicts = useMemo(
@@ -260,9 +276,17 @@ const MessageItem = memo(function MessageItem({
         {workoutPlan && <WorkoutPlanCard plan={workoutPlan} />}
         {(!workoutPlan || content.trim().length > 0) && (
           <div className={`text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}>
-            <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-              {linkifyUrls(displayContent)}
-            </Markdown>
+            {segments.map((segment, i) =>
+              segment.kind === 'prose' ? (
+                <Markdown key={i} remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                  {segment.text}
+                </Markdown>
+              ) : (
+                sceneBlocks[segment.index] && (
+                  <SceneView key={i} block={sceneBlocks[segment.index]} />
+                )
+              ),
+            )}
           </div>
         )}
         {/* Provider re-auth CTA — render the hosted-login link as a prominent

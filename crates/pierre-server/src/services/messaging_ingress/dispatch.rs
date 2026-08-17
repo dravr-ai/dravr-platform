@@ -37,6 +37,9 @@ use pierre_services::usage_counter::UsageCounterService;
 use super::addressing::reply_recipient;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::connect;
+use super::viz_delivery::{
+    plan_media, strip_viz_markers, target as viz_target, VizDelivery, VizMedia,
+};
 use super::{
     build_messaging_profile, compose_messaging_reply, content_body_text, outbound_retry,
     PendingDispatch, CONVERSATION_DISPATCH_LOCKS,
@@ -268,7 +271,12 @@ async fn deliver_reply(
     channel_config: &ChannelConfig,
     content: String,
     turn_id: ConversationTurnId,
+    charts: Vec<VizMedia>,
 ) {
+    // Markers are for clients that interleave prose and charts. A channel gets
+    // either an image or nothing, so the placeholder is noise either way.
+    let content = strip_viz_markers(&content);
+
     if let Some(wiring) = messaging_agui {
         if wiring.finalize_reply(&content).await {
             return;
@@ -294,6 +302,25 @@ async fn deliver_reply(
         thread_id: dispatch.thread_id.clone(),
     };
     send_outbound_response(dispatch, channel_config, &outgoing).await;
+
+    // Charts follow the prose, in the order the coach placed them. Sent as
+    // separate messages because no channel here renders several images inside
+    // one text bubble, and the prose must land first — it is what makes the
+    // pictures mean something.
+    for chart in charts {
+        let media = OutgoingMessage {
+            channel_type: dispatch.channel_type,
+            recipient_id: reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id)
+                .to_owned(),
+            content: chart.into_content(),
+            turn_id: turn_id.into(),
+            // Threaded under the prose rather than the athlete's message, so a
+            // client that groups replies keeps the chart with its explanation.
+            reply_to: Some(dispatch.channel_message_id.clone()),
+            thread_id: dispatch.thread_id.clone(),
+        };
+        send_outbound_response(dispatch, channel_config, &media).await;
+    }
 }
 
 /// Log the pipeline failure, track analytics, and send a localized
@@ -684,12 +711,32 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         return;
     }
 
+    // Fidelity negotiation: channels that publish media get the charts as
+    // images, everyone else keeps the prose that explains them.
+    let charts = plan_media(
+        &VizDelivery {
+            target: viz_target(
+                dispatch.session.conversation.clone(),
+                dispatch.auth_result.user_id.to_string(),
+                dispatch.user_tenant_id,
+                dispatch_result.assistant_message.id.clone(),
+            ),
+            stored_blocks: dispatch_result.assistant_message.content_blocks.as_deref(),
+            channel_type: dispatch.channel_type,
+            locale: &dispatch.locale,
+            base_url: &dispatch.resources.common.config.base_url,
+            press_enabled: dispatch.resources.common.photograveur.is_enabled(),
+        },
+        &dispatch.resources.auth.admin_jwt_secret,
+    );
+
     deliver_reply(
         &dispatch,
         messaging_agui.as_ref(),
         &channel_config,
         reply_body,
         dispatch_result.turn_id,
+        charts,
     )
     .await;
 

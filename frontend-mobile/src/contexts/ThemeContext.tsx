@@ -7,6 +7,7 @@ import { useColorScheme } from 'nativewind';
 import {
   BOREAL_LIGHT,
   BOREAL_DARK,
+  PILLARS,
   type ColorScheme,
 } from '../../../packages/shared-constants/src/design-system';
 import { useAppearancePref, type AppearancePref } from '../hooks/useAppearancePref';
@@ -70,23 +71,9 @@ interface ThemeContextValue {
   loading: boolean;
 }
 
-const PILLAR_LIGHT = {
-  activity: '#3c6658',
-  nutrition: '#8f6a2e',
-  recovery: '#5e7a82',
-  mobility: '#7a4d5e',
-} as const;
-
-const PILLAR_DARK = {
-  activity: '#79a694',
-  nutrition: '#d6b87a',
-  recovery: '#9bb6bd',
-  mobility: '#c4929e',
-} as const;
-
 function buildPalette(scheme: ColorScheme): ThemeColors {
   const tokens = scheme === 'dark' ? BOREAL_DARK : BOREAL_LIGHT;
-  const pillars = scheme === 'dark' ? PILLAR_DARK : PILLAR_LIGHT;
+  const pillars = PILLARS[scheme];
   const borderRgb = '192, 200, 195';
 
   return {

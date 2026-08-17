@@ -217,7 +217,6 @@ impl CommandHandler for CalibrateHandler {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
-            structured_content: None,
             content_blocks: None,
         };
         if let Err(e) = repos.chat.add_message(&opener).await {

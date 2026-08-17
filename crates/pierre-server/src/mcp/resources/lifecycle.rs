@@ -7,7 +7,6 @@
 use super::contremaitre::init_contremaitre_registries;
 use super::ServerContext;
 use super::ServerContextOptions;
-#[cfg(feature = "protocol-a2a")]
 use crate::a2a::client::A2AClientManager;
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::system_user::A2ASystemUserService;
@@ -15,6 +14,8 @@ use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_notifier::{ChatReentry, ServerBackfillNotifier};
+#[cfg(feature = "protocol-a2a")]
+use crate::services::photograveur_client::PhotograveurClient;
 use chrono::Utc;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
@@ -345,6 +346,8 @@ impl ServerContext {
         let common = super::slices::CommonSlice {
             repos,
             cache: cache_arc,
+            // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
+            photograveur: Arc::new(PhotograveurClient::from_env(reqwest::Client::new())),
             config,
             redaction_config,
             email_service,

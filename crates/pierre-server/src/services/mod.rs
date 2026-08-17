@@ -16,6 +16,8 @@
 
 /// Chat verdict service: maps ClaimVerdict rows into chat-facing wire shapes
 pub mod chat_verdicts;
+/// Client for the photograveur press service (Scene -> PNG).
+pub mod photograveur_client;
 
 /// User-facing memory fact service: list and forget what the coach remembers (Sprint C5)
 pub mod memory_facts;

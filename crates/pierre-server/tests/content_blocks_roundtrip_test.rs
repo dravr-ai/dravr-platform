@@ -42,7 +42,6 @@ async fn content_blocks_survive_a_round_trip() {
             finish_reason: None,
             prompt_tokens: None,
             model: Some("claude-sonnet-5"),
-            structured_content: None,
             content_blocks: Some(BLOCKS),
         })
         .await
@@ -105,7 +104,6 @@ async fn an_ordinary_reply_stores_null_blocks() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
-            structured_content: None,
             content_blocks: None,
         })
         .await

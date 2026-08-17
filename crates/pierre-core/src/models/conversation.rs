@@ -278,15 +278,11 @@ pub struct MessageRecord {
     pub model: Option<String>,
     /// Finish reason for assistant messages
     pub finish_reason: Option<String>,
-    /// Validated structured payload extracted from an assistant reply (e.g. a
-    /// `structured-workout` plan JSON). When present, clients render it as a
-    /// rich card instead of the raw text. JSON-encoded string.
-    pub structured_content: Option<String>,
     /// Ordered visual blocks (chart/table) lifted out of this reply's prose,
     /// JSON-encoded array. The text keeps a positional marker where each block
     /// sat, so clients interleave prose and rendering.
     ///
-    /// Separate from `structured_content` because the two are different content
+    /// Separate from the prose because the two are different content
     /// models: that field holds one payload that replaces the whole reply,
     /// this holds several embedded in it.
     pub content_blocks: Option<String>,
@@ -342,9 +338,6 @@ pub struct AddMessageParams<'a> {
     pub prompt_tokens: Option<u32>,
     /// LLM model identifier used for this message
     pub model: Option<&'a str>,
-    /// Validated structured payload (e.g. a `structured-workout` plan JSON)
-    /// extracted from the reply, persisted alongside the message text.
-    pub structured_content: Option<&'a str>,
     /// Ordered visual blocks lifted from the reply's prose, JSON-encoded array.
     pub content_blocks: Option<&'a str>,
 }

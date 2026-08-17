@@ -4,7 +4,53 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use photograveur::{resolve_all, Locale};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tracing::warn;
+
+/// Resolve stored visual specs into renderable scenes.
+///
+/// `stored` is the JSON array persisted on `chat_messages.content_blocks` — the
+/// specs the coach wrote, which are the durable record. This runs on every read
+/// rather than at write time, so improving the geometry engine improves charts
+/// already sitting in conversation history without a migration.
+///
+/// A block that fails to resolve is dropped and logged rather than failing the
+/// message: one malformed chart must never cost the athlete the reply carrying
+/// it. Returns `None` when there is nothing to render, so the field is omitted
+/// from the response entirely.
+#[must_use]
+pub fn resolve_scene_blocks(stored: Option<&str>, locale: &str) -> Option<String> {
+    let specs = parse_stored_specs(stored?)?;
+
+    let (blocks, failures) = resolve_all(&specs, Locale::from_tag(locale));
+    for (index, error) in &failures {
+        warn!(index, error = %error, "scene-blocks: dropping a block that could not resolve");
+    }
+    if blocks.is_empty() {
+        return None;
+    }
+    encode_blocks(&blocks)
+}
+
+/// Parse the stored spec array, logging and yielding `None` on malformed JSON.
+fn parse_stored_specs(raw: &str) -> Option<Vec<Value>> {
+    serde_json::from_str(raw)
+        .inspect_err(
+            |e| warn!(error = %e, "scene-blocks: stored blocks are not a JSON array; omitting them"),
+        )
+        .ok()
+}
+
+/// Encode resolved blocks for the wire, logging and yielding `None` on failure.
+fn encode_blocks(blocks: &[photograveur::RenderBlock]) -> Option<String> {
+    serde_json::to_string(blocks)
+        .inspect_err(
+            |e| warn!(error = %e, "scene-blocks: resolved scenes failed to serialize; omitting them"),
+        )
+        .ok()
+}
 
 /// Request to create a new conversation
 #[derive(Debug, Deserialize)]
@@ -122,15 +168,17 @@ pub struct MessageResponse {
     pub content: String,
     /// Token count
     pub token_count: Option<i64>,
-    /// Schema-validated structured payload (e.g. a workout plan) rendered as a
-    /// rich card by clients. Present only for builder-coach replies.
+    /// Ordered visual blocks resolved for rendering, JSON-encoded array of
+    /// photograveur `RenderBlock`. The content carries a `⟦viz:N⟧` marker where
+    /// each block sat; clients split on the markers and interleave rendering.
+    ///
+    /// This is the *resolved* form, not the spec the coach wrote. The spec stays
+    /// on the message row and the scene is recomputed here on every read, so a
+    /// geometry improvement reaches charts already sitting in history without a
+    /// migration. Clients therefore never see chart maths — a scene is a flat
+    /// list of positioned primitives they map to SVG.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub structured_content: Option<String>,
-    /// Ordered visual blocks (chart/table) lifted from this reply's prose,
-    /// JSON-encoded array. The content carries a `⟦viz:N⟧` marker where each
-    /// block sat; clients split on the markers and interleave rendering.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_blocks: Option<String>,
+    pub scene_blocks: Option<String>,
     /// Creation timestamp
     pub created_at: String,
 }

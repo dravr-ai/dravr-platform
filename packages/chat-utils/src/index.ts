@@ -33,3 +33,9 @@ export {
   isTerminalAguiEvent,
   type AguiEventWire,
 } from './agui';
+
+// Inline visual blocks: split a reply on its positional markers, parse the
+// resolved scenes. Shared so web and mobile interleave prose and charts the
+// same way.
+export { splitVizMarkers, parseSceneBlocks, blockAt } from './viz';
+export type { VizSegment } from './viz';

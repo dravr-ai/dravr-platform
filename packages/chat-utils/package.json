@@ -48,5 +48,8 @@
     "src"
   ],
   "sideEffects": false,
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@pierre/scene-types": "*"
+  }
 }

@@ -10,16 +10,19 @@ use std::time::Instant;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pierre_core::models::{AddMessageParams, ConversationTurnId};
+use pierre_core::models::{default_locale, AddMessageParams, ConversationTurnId};
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::stages::persistence::{persist_assistant_response, persist_user_message};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
+use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::ChatMessage;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 
-use super::dto::{ChatCompletionResponse, MessageResponse, SendMessageRequest};
+use super::dto::{
+    resolve_scene_blocks, ChatCompletionResponse, MessageResponse, SendMessageRequest,
+};
 use super::quotas::{apply_usage_warning_headers, UsageWarning};
 use super::usage::{extract_or_estimate_tokens, increment_usage_counters, post_process_content};
 use super::{
@@ -83,6 +86,23 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
     .await?;
     let conv = msg_result.conversation;
     let user_msg = msg_result.message;
+
+    // The insight path has no per-turn language detection, so scenes resolve in
+    // the athlete's stored locale. Falls back to the default when the row is
+    // unreadable — a chart with French axis labels is a far smaller problem
+    // than dropping the chart.
+    let reply_locale = match parse_uuid(&user_id_str) {
+        Ok(uuid) => resources
+            .common
+            .repos
+            .users
+            .get_global(uuid)
+            .await
+            .ok()
+            .flatten()
+            .map_or_else(default_locale, |u| u.locale),
+        Err(_) => default_locale(),
+    };
 
     let insight_prompt = resources.insight_generation_prompt();
     let analysis_content = request
@@ -153,7 +173,6 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
         finish_reason: result.finish_reason.as_deref(),
         prompt_tokens,
         model: Some(&conv.model),
-        structured_content: None,
         content_blocks: None,
     };
     let (assistant_msg, updated_conv) = persist_assistant_response(
@@ -185,8 +204,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
             role: user_msg.role,
             content: user_msg.content,
             token_count: user_msg.token_count,
-            structured_content: None,
-            content_blocks: None,
+            scene_blocks: None,
             created_at: user_msg.created_at,
         },
         assistant_message: MessageResponse {
@@ -194,8 +212,10 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
             role: assistant_msg.role,
             content: assistant_msg.content,
             token_count: assistant_msg.token_count,
-            structured_content: assistant_msg.structured_content,
-            content_blocks: assistant_msg.content_blocks,
+            scene_blocks: resolve_scene_blocks(
+                assistant_msg.content_blocks.as_deref(),
+                &reply_locale,
+            ),
             created_at: assistant_msg.created_at,
         },
         conversation_updated_at: updated_conv.updated_at,

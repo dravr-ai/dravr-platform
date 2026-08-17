@@ -765,7 +765,6 @@ pub(crate) async fn assemble_prompt_and_messages(
     // would be handing it two contradictory output shapes and letting recency
     // pick — the 2026-07-24 derail's exact mechanism.
     let visual_contract_active = !structured_contract_active
-        && !profile.channel.is_messaging()
         && onboarding.is_none()
         && coach_ctx.is_some_and(|c| !c.visuals.is_empty());
     let raw_system_prompt = if visual_contract_active {

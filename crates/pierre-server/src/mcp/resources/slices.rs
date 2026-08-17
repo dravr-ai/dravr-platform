@@ -57,6 +57,7 @@ use crate::a2a::client::A2AClientManager;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
+use crate::services::photograveur_client::PhotograveurClient;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -131,6 +132,11 @@ pub struct CommonSlice {
     pub repos: Arc<RepositoryRegistry>,
     /// Cache layer for performance optimization.
     pub cache: Arc<Cache>,
+    /// Client for the photograveur press service.
+    ///
+    /// Disabled when `PHOTOGRAVEUR_URL` is unset, so a stack without the
+    /// service runs identically and simply does not offer messaging charts.
+    pub photograveur: Arc<PhotograveurClient>,
     /// Server configuration loaded from environment.
     pub config: Arc<ServerConfig>,
     /// Configuration for PII redaction in logs and responses.

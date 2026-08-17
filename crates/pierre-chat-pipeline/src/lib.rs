@@ -754,7 +754,6 @@ async fn run_recovery_and_post_process(
             content: mem::take(&mut result.content),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            structured_content: None,
             content_blocks: None,
             leak_replaced: false,
             identity_leak: None,
@@ -801,7 +800,6 @@ async fn run_recovery_and_post_process(
             content: mem::take(&mut result.content),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            structured_content: None,
             content_blocks: None,
             leak_replaced: false,
             identity_leak: None,
@@ -1142,7 +1140,6 @@ async fn run_turn(
     )
     .await;
     result.content = post_processed.content;
-    let structured_content = post_processed.structured_content;
     let content_blocks = post_processed.content_blocks;
     let leak_replaced = post_processed.leak_replaced;
     let identity_leak = post_processed.identity_leak;
@@ -1169,7 +1166,6 @@ async fn run_turn(
         ),
         prompt_tokens,
         model: Some(&active_model),
-        structured_content: structured_content.as_deref(),
         content_blocks: content_blocks.as_deref(),
     };
     let (assistant_message, updated_conversation) =
@@ -1380,7 +1376,6 @@ async fn deliver_deterministic_reply(
         finish_reason: Some(DETERMINISTIC_FINISH_REASON),
         prompt_tokens: None,
         model: Some(&active_model),
-        structured_content: None,
         content_blocks: None,
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(

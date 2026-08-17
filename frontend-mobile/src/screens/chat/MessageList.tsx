@@ -21,6 +21,8 @@ import { splitActivityContent, countActivities, isToolPlumbingMessage, stripTool
 import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, fontSize, borderRadius, aiGlow, useThemeColors, useTheme } from '../../constants/theme';
 import type { Message, Coach } from '../../types';
 import { parseWorkoutPlan } from '@pierre/shared-types';
+import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
+import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
 
@@ -348,7 +350,12 @@ export function MessageList({
     }
   };
 
-  const renderMessageContent = (content: string, isUser: boolean, messageId?: string) => {
+  const renderMessageContent = (
+    content: string,
+    isUser: boolean,
+    messageId?: string,
+    sceneBlocksJson?: string,
+  ) => {
     if (isUser) {
       return (
         <Text className="text-base text-text-primary leading-6">
@@ -416,6 +423,31 @@ export function MessageList({
       );
     }
 
+    // Inline visual blocks: the prose carries a ⟦viz:N⟧ marker where each
+    // chart sat, so the reply renders as alternating prose and charts rather
+    // than the charts being appended in a lump at the end.
+    const blocks = parseSceneBlocks(sceneBlocksJson);
+    if (blocks.length > 0) {
+      return (
+        <View>
+          {splitVizMarkers(content).map((segment, i) =>
+            segment.kind === 'prose' ? (
+              <Markdown
+                key={i}
+                style={markdownStyles}
+                rules={MARKDOWN_RULES}
+                onLinkPress={(url) => { onOpenUrl(url); return false; }}
+              >
+                {segment.text}
+              </Markdown>
+            ) : blocks[segment.index] ? (
+              <SceneView key={i} block={blocks[segment.index]} />
+            ) : null,
+          )}
+        </View>
+      );
+    }
+
     return (
       <Markdown style={markdownStyles} rules={MARKDOWN_RULES} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
         {content}
@@ -432,8 +464,12 @@ export function MessageList({
 
     const isUser = item.role === 'user';
     const isError = item.isError === true;
-    // Builder-coach replies carry a schema-validated plan; render a card.
-    const workoutPlan = isUser ? null : parseWorkoutPlan(item.structured_content);
+    // Builder-coach replies carry a schema-validated plan as a `workout_plan`
+    // block on the same rail as charts and tables; render it as a card.
+    const planBlock = isUser
+      ? null
+      : parseSceneBlocks(item.scene_blocks).find((b) => b.kind === 'workout_plan');
+    const workoutPlan = planBlock ? parseWorkoutPlan(JSON.stringify(planBlock.plan)) : null;
     // Strip any residual tool scaffolding that leaked into a visible turn's
     // content before deriving the rendered body.
     const cleanedContent = isUser ? item.content : stripToolScaffolding(item.content);
@@ -472,10 +508,10 @@ export function MessageList({
               <>
                 <WorkoutPlanCard plan={workoutPlan} />
                 {assistantContent.trim().length > 0 &&
-                  renderMessageContent(assistantContent, false, item.id)}
+                  renderMessageContent(assistantContent, false, item.id, item.scene_blocks)}
               </>
             ) : (
-              renderMessageContent(assistantContent, false, item.id)
+              renderMessageContent(assistantContent, false, item.id, item.scene_blocks)
             )}
           </View>
         )}

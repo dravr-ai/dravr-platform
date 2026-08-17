@@ -168,7 +168,6 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
                     finish_reason: None,
                     prompt_tokens: None,
                     model: None,
-                    structured_content: None,
                     content_blocks: None,
                 };
                 if let Err(e) = chat.add_message(&params).await {
@@ -187,7 +186,6 @@ impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
                     finish_reason: None,
                     prompt_tokens: None,
                     model: None,
-                    structured_content: None,
                     content_blocks: None,
                 };
                 if let Err(e) = chat.add_message(&params).await {

@@ -160,6 +160,39 @@ export const PILLAR_COLORS = {
   mobility: '#9b4666',   // aged rose — Product Tier lift
 } as const;
 
+/**
+ * Dark-theme pillar counterparts, the same gap `SEMANTIC_COLORS_DARK` closed.
+ *
+ * These values already shipped twice — `--color-activity` and friends under
+ * `@media (prefers-color-scheme: dark)` in `frontend/src/index.css`, and a
+ * private `PILLAR_DARK` in the mobile `ThemeContext` — but never from one
+ * place, so only the light half had a shared home. The two copies happened to
+ * agree; the light halves did not, and mobile sat on the superseded Editorial
+ * Tier values until 2026-08-14.
+ *
+ * Lighter and less saturated than the light set, because a dark surface needs
+ * the accent to come forward rather than recede.
+ */
+export const PILLAR_COLORS_DARK = {
+  activity: '#79a694',   // sage, lifted for dark surfaces
+  nutrition: '#d6b87a',  // warm bronze, lifted
+  recovery: '#9bb6bd',   // muted slate, lifted
+  mobility: '#c4929e',   // aged rose, lifted
+} as const;
+
+/**
+ * Both pillar palettes keyed by scheme, mirroring [`BOREAL`].
+ *
+ * Prefer this over reaching for either half directly: a consumer that picks
+ * one and hard-codes the other is how the drift above happened.
+ */
+export type PillarColors = Record<keyof typeof PILLAR_COLORS, string>;
+
+export const PILLARS: Record<ColorScheme, PillarColors> = {
+  light: PILLAR_COLORS,
+  dark: PILLAR_COLORS_DARK,
+};
+
 // ========== PRIMARY PALETTE (forest tonal scale) ==========
 
 /**

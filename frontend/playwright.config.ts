@@ -11,7 +11,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0, // Disable retries to prevent CI timeout - failing tests should be fixed not retried
-  workers: process.env.CI ? 2 : undefined, // Use 2 workers in CI for reasonable speed
+  // CI uses 2; locally `undefined` means one worker per core, which on an
+  // 8-core machine stampedes the Vite **dev** server the suite starts. That
+  // server compiles routes on demand, so every worker's first navigation waits
+  // on the same cold compile and the 10s selector waits in the a11y setup lose
+  // the race — reproducibly on `main`, not just on a branch. Four keeps the
+  // suite parallel without queueing eight cold compiles behind each other.
+  workers: process.env.CI ? 2 : 4,
   reporter: process.env.CI ? 'github' : 'html',
   // Headroom for a cold start plus the test body. Playwright boots a fresh Vite
   // per run (reuseExistingServer: false) and several workers hit it while it is

@@ -62,7 +62,11 @@ function DayRow({ day }: { day: WorkoutDay }) {
 }
 
 export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
-  const { compliance } = plan;
+  // `compliance` is typed as required but `parseWorkoutPlan` only checks
+  // `plan_window` and `weeks`, so a plan without it reaches here and an
+  // unguarded dereference blanks the whole app behind the error boundary.
+  // Losing the zone strip is a far better outcome than losing the plan.
+  const compliance = plan.compliance ?? {};
   const zones = [compliance.z1_pct, compliance.z2_pct, compliance.z3_pct];
   const hasZones = zones.some((z) => typeof z === 'number');
 

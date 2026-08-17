@@ -12,8 +12,12 @@ export interface Message {
   content: string;
   token_count?: number;
   created_at: string;
-  /** Schema-validated structured payload (e.g. a workout plan) JSON string. */
-  structured_content?: string;
+  /**
+   * Resolved visual blocks, a JSON-encoded `RenderBlock[]`. Index-aligned with
+   * the `⟦viz:N⟧` markers in `content`. Resolved server-side on every read, so
+   * this is geometry rather than the spec the coach wrote.
+   */
+  scene_blocks?: string;
   isError?: boolean;
 }
 

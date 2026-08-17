@@ -35,6 +35,7 @@ use pierre_notifications::triggers as notification_triggers;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::common::get_tenant_id;
+use super::dto::resolve_scene_blocks;
 use super::dto::{ChatCompletionResponse, ChatMessageAction, MessageResponse, SendMessageRequest};
 use super::quotas::{apply_usage_warning_headers, check_pre_chat_quotas_scoped, PreChatScope};
 use super::send_insight::{send_insight_message, SendInsightInputs};
@@ -269,6 +270,11 @@ pub async fn send_message(
         .flatten()
         .map_or_else(default_locale, |u| u.locale);
     let turn_locale = detect_turn_locale(&request.content, &stored_locale);
+    // Kept because `turn_locale` moves into `turn_input` below. Scenes for the
+    // reply being produced right now take the turn's language, so the chart's
+    // axis matches the prose beside it; the history read path uses the stored
+    // locale instead, so an old chart does not relabel itself.
+    let reply_locale = turn_locale.clone();
 
     let turn_id = ConversationTurnId::new();
     span.record("turn_id", field::display(&turn_id));
@@ -374,8 +380,7 @@ pub async fn send_message(
             role: dispatch.user_message.role.clone(),
             content: dispatch.user_message.content.clone(),
             token_count: dispatch.user_message.token_count,
-            structured_content: None,
-            content_blocks: None,
+            scene_blocks: None,
             created_at: dispatch.user_message.created_at,
         },
         assistant_message: MessageResponse {
@@ -383,8 +388,10 @@ pub async fn send_message(
             role: dispatch.assistant_message.role.clone(),
             content: dispatch.assistant_message.content.clone(),
             token_count: dispatch.assistant_message.token_count,
-            structured_content: dispatch.assistant_message.structured_content.clone(),
-            content_blocks: dispatch.assistant_message.content_blocks.clone(),
+            scene_blocks: resolve_scene_blocks(
+                dispatch.assistant_message.content_blocks.as_deref(),
+                &reply_locale,
+            ),
             created_at: dispatch.assistant_message.created_at,
         },
         conversation_updated_at: dispatch.conversation.updated_at.clone(),
@@ -463,6 +470,9 @@ fn send_message_sse(inputs: SseInputs) -> Response {
         usage_warning,
     } = inputs;
     let start_time = Instant::now();
+    // Same reasoning as the blocking branch: this is the live turn, so scenes
+    // resolve in the language the reply is written in.
+    let reply_locale = turn_input.locale.clone().unwrap_or_else(default_locale);
     let agui_run_id = agui_wiring.as_ref().map(|w| w.run_id().to_owned());
 
     let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<pipeline::ChatStreamEvent>();
@@ -555,8 +565,7 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                                     role: dispatch.user_message.role.clone(),
                                     content: dispatch.user_message.content.clone(),
                                     token_count: dispatch.user_message.token_count,
-                                    structured_content: None,
-            content_blocks: None,
+            scene_blocks: None,
                                     created_at: dispatch.user_message.created_at,
                                 },
                                 assistant_message: MessageResponse {
@@ -564,8 +573,10 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                                     role: dispatch.assistant_message.role.clone(),
                                     content: dispatch.assistant_message.content.clone(),
                                     token_count: dispatch.assistant_message.token_count,
-                                    structured_content: dispatch.assistant_message.structured_content.clone(),
-            content_blocks: dispatch.assistant_message.content_blocks.clone(),
+            scene_blocks: resolve_scene_blocks(
+                dispatch.assistant_message.content_blocks.as_deref(),
+                &reply_locale,
+            ),
                                     created_at: dispatch.assistant_message.created_at,
                                 },
                                 conversation_updated_at: dispatch.conversation.updated_at.clone(),
@@ -783,8 +794,7 @@ async fn try_handle_chat_command(
             role: "user".to_owned(),
             content: request.content.clone(),
             token_count: None,
-            structured_content: None,
-            content_blocks: None,
+            scene_blocks: None,
             created_at: now.clone(),
         },
         assistant_message: MessageResponse {
@@ -792,8 +802,7 @@ async fn try_handle_chat_command(
             role: "assistant".to_owned(),
             content: body_text,
             token_count: None,
-            structured_content: None,
-            content_blocks: None,
+            scene_blocks: None,
             created_at: now,
         },
         conversation_updated_at: conversation.updated_at,

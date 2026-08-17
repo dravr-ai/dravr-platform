@@ -188,3 +188,25 @@ fn find_json_object(text: &str) -> Option<(&str, &str, &str)> {
     }
     None
 }
+
+/// Wrap a validated plan document as a `workout_plan` block.
+///
+/// The plan travels the same `content_blocks` array as charts and tables, so
+/// every surface learns one shape instead of two. `source_tool` names the
+/// schema the plan was validated against rather than a tool call: unlike a
+/// chart, a plan is authored by the coach from the athlete's context rather
+/// than read out of one tool's response, so there is no single call to cite.
+///
+/// Returns `None` when the document does not parse, which cannot happen for a
+/// payload that just passed schema validation — but returning `None` degrades
+/// to a prose reply rather than persisting a block no client can render.
+#[must_use]
+pub fn plan_as_block(structured_content: &str, schema_id: &str) -> Option<String> {
+    let plan: Value = serde_json::from_str(structured_content).ok()?;
+    let block = serde_json::json!({
+        "type": "workout_plan",
+        "source_tool": schema_id,
+        "plan": plan,
+    });
+    serde_json::to_string(&vec![block]).ok()
+}

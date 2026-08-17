@@ -65,7 +65,8 @@ export interface Message {
    * builder-coach reply (e.g. a structured-workout plan). When present,
    * clients render it as a rich card instead of the raw text.
    */
-  structured_content?: string;
+  /** Resolved visual blocks: JSON-encoded `RenderBlock[]` from @pierre/scene-types. */
+  scene_blocks?: string;
   /** Model used for assistant messages */
   model?: string;
   /** Execution time in milliseconds */

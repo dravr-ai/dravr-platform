@@ -23,7 +23,6 @@ use crate::constants::{
     get_server_config,
     protocol::JSONRPC_VERSION,
 };
-use crate::routes::onboarding::OnboardingRoutes;
 use chrono::Utc;
 use pierre_auth::api_keys::ApiKeyUsage;
 use pierre_auth::auth::AuthManager;
@@ -58,6 +57,7 @@ use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::endurance;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
 use crate::routes::user_profile::routes as user_profile_routes;
+use crate::routes::{onboarding::OnboardingRoutes, viz::VizRoutes};
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
 use axum::body::Body;
@@ -1386,9 +1386,9 @@ impl ProviderToolRouter {
             ServerContext,
         >(Arc::clone(resources)));
 
-        // Onboarding state — cheap self-read used by web + mobile to gate
-        // routing right after login.
+        // Onboarding state: cheap self-read web + mobile use to gate routing.
         let app = app.merge(OnboardingRoutes::routes(Arc::clone(resources)));
+        let app = app.merge(VizRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-coaches")]
         let app = app

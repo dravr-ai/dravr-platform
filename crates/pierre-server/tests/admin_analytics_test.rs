@@ -210,7 +210,6 @@ async fn seed_conversations_and_messages(
                 finish_reason: Some("stop"),
                 prompt_tokens: Some(30),
                 model: Some("gemini-2.0-flash"),
-                structured_content: None,
                 content_blocks: None,
             };
             resources

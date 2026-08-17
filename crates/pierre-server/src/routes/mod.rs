@@ -122,6 +122,8 @@ pub mod endurance;
 /// neither module accumulates unrelated endpoints.
 pub mod user_profile;
 
+/// Chart images for messaging channels: signed short-TTL PNG URLs.
+pub mod viz;
 /// Provider-pushed health-data webhook routes (WHOOP, Garmin, Oura).
 #[cfg(feature = "health-sync")]
 pub mod webhooks;

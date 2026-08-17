@@ -3460,6 +3460,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "photograveur"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-photograveur.git?rev=d4641cb340ddc2c72f3ed0d121fcaef37fa60c5b#d4641cb340ddc2c72f3ed0d121fcaef37fa60c5b"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "pierre-a2a"
 version = "0.3.0"
 dependencies = [
@@ -4478,6 +4489,7 @@ dependencies = [
  "http",
  "jsonwebtoken",
  "num-traits",
+ "photograveur",
  "pierre-a2a",
  "pierre-agui",
  "pierre-auth",

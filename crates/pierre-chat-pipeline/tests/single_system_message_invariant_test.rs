@@ -155,7 +155,6 @@ fn row(id: &str, role: &str, content: &str) -> MessageRecord {
         prompt_tokens: None,
         model: None,
         finish_reason: None,
-        structured_content: None,
         content_blocks: None,
         created_at: "2026-07-30T09:00:00Z".to_owned(),
     }
