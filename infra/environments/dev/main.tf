@@ -442,6 +442,11 @@ module "backend" {
       # unset); the in-process path above stays live until Phase 4 deletes it.
       DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_remote ? module.sciotte[0].service_url : ""
 
+      # Chart press. Empty = the capability is absent rather than broken: the
+      # app still renders charts (geometry is in-process), and messaging replies
+      # carry the coach's prose without images.
+      PHOTOGRAVEUR_URL = var.backend_photograveur ? module.photograveur[0].service_url : ""
+
       # Detail-page enrichment. The all-activities N+1 (navigate to each detail
       # page) ran ~4.5 min and timed out on a real coaching turn, handing the
       # coach 0 activities — so it's OFF by default. The list page already carries
@@ -730,6 +735,57 @@ module "sql_client" {
 # API pod's ADR-019 floor. maxInstances=1 until the affinity-cookie scale-out
 # lands (parked 2FA browsers are instance-bound; scrapes re-import and are not).
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# photograveur — the chart press.
+#
+# Stateless: every response is a pure function of the request body, so it scales
+# to zero and cold-starts without warming anything. That is the whole reason it
+# is a service rather than a library call — resvg plus a font stack would put
+# the API binary over the 80MB gate CI enforces, and most turns never draw a
+# chart.
+#
+# Sized far below sciotte: no browser, no session state. One vCPU presses a
+# 640x360 scene in well under a second; 512Mi covers resvg's pixmap plus the
+# font database.
+# -----------------------------------------------------------------------------
+module "photograveur" {
+  count  = var.enable_photograveur_service ? 1 : 0
+  source = "../../modules/cloud_run"
+
+  project_id            = var.project_id
+  region                = var.region
+  service_name          = "${var.service_name}-photograveur"
+  container_image       = var.photograveur_image
+  service_account_email = module.service_accounts.app_service_account_email
+
+  container_port    = 8080
+  cpu               = "1"
+  memory            = "512Mi"
+  cpu_idle          = true
+  startup_cpu_boost = true
+  min_instances     = 0
+  max_instances     = 2
+
+  # A press is CPU-bound and short; letting many share an instance would just
+  # queue them behind each other on the same core.
+  max_instance_request_concurrency = 4
+
+  # Cold start dominates. The client gives up at 20s and sends the prose
+  # without the chart, so anything past that is the athlete waiting on an
+  # image rather than a reply.
+  request_timeout = "30s"
+
+  # Internal only: the sole caller is the API pod, and the athlete never
+  # fetches from here — the platform serves the PNG from its own signed,
+  # short-TTL route. Nothing about this service should be reachable publicly.
+  ingress               = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  allow_unauthenticated = false
+
+  env_vars = {
+    RUST_LOG = "info"
+  }
+}
+
 module "sciotte" {
   count  = var.enable_sciotte_service ? 1 : 0
   source = "../../modules/cloud_run"

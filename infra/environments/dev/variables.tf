@@ -287,6 +287,29 @@ variable "sciotte_image" {
   default     = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/sciotte:latest"
 }
 
+variable "enable_photograveur_service" {
+  description = "Deploy the photograveur chart-press Cloud Run service. Deploying it does NOT route traffic — backend_photograveur_url flips the API's client separately."
+  type        = bool
+  default     = false
+}
+
+variable "photograveur_image" {
+  description = "Container image for the photograveur chart-press service (built from dravr-photograveur's Dockerfile)"
+  type        = string
+  default     = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/photograveur:latest"
+}
+
+variable "backend_photograveur" {
+  description = "Point the API at the photograveur service (sets PHOTOGRAVEUR_URL). Off = the capability is simply absent: charts still render in the app, messaging replies carry the prose without images. Requires enable_photograveur_service."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.backend_photograveur || var.enable_photograveur_service
+    error_message = "backend_photograveur requires enable_photograveur_service = true (the URL references the photograveur module)."
+  }
+}
+
 variable "backend_sciotte_remote" {
   description = "Point the API's sciotte client at the dedicated scraper service (sets DRAVR_SCIOTTE_REMOTE_URL to the service URL). Off = the in-process Chrome path, unchanged. Requires enable_sciotte_service."
   type        = bool

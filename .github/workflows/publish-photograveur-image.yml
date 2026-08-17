@@ -1,0 +1,144 @@
+# ABOUTME: Builds the photograveur chart-press image from dravr-photograveur at a chosen ref
+# ABOUTME: Publishes to the central Artifact Registry as images/photograveur for Cloud Run to pull
+
+name: "Deploy: Photograveur Image"
+
+# Manual-only: the image changes when dravr-photograveur releases, not on
+# platform pushes. Run with the dravr-photograveur ref (tag preferred); the
+# Cloud Run service picks it up via terraform's photograveur_image.
+#
+# The image carries fonts-dejavu-core, which is load-bearing rather than a
+# nicety: photograveur-raster returns NoFonts instead of drawing invisible
+# labels, so a font-less image fails at the first request instead of shipping
+# blank axes.
+on:
+  workflow_dispatch:
+    inputs:
+      photograveur_ref:
+        description: "dravr-photograveur ref to build (tag, branch, or SHA)"
+        required: true
+        default: "main"
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write # For Trivy SARIF upload
+
+jobs:
+  publish-photograveur:
+    name: Publish Photograveur Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout platform (for .trivyignore)
+        uses: actions/checkout@v6
+        with:
+          path: platform
+
+      - name: Checkout dravr-photograveur
+        uses: actions/checkout@v6
+        with:
+          repository: dravr-ai/dravr-photograveur
+          ref: ${{ inputs.photograveur_ref }}
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+          path: photograveur
+
+      - name: Resolve photograveur SHA
+        id: sha
+        run: |
+          cd photograveur
+          SHA="$(git rev-parse HEAD)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Configure Docker credential helper
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          skip_install: true
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          REGISTRY_HOST="$(echo '${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}' | cut -d'/' -f1)"
+          gcloud auth configure-docker "${REGISTRY_HOST}" --quiet
+
+      - name: Compute photograveur image tags
+        id: tags
+        run: |
+          REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
+          SHORT_SHA="${{ steps.sha.outputs.short_sha }}"
+          REF="${{ inputs.photograveur_ref }}"
+
+          PHOTOGRAVEUR_TAGS="${REGISTRY}/photograveur:${SHORT_SHA},${REGISTRY}/photograveur:latest"
+          # A version-tag ref also gets a version-named image tag
+          if [[ "${REF}" == v*.*.* ]]; then
+            PHOTOGRAVEUR_TAGS="${PHOTOGRAVEUR_TAGS},${REGISTRY}/photograveur:${REF}"
+          fi
+
+          echo "photograveur_tags=${PHOTOGRAVEUR_TAGS}" >> "$GITHUB_OUTPUT"
+          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push photograveur image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: photograveur
+          file: photograveur/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.photograveur_tags }}
+          # Registry-backed buildx cache, mirroring the server image job (the
+          # GHA cache export flaked and is capped/evicted).
+          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/photograveur:buildcache
+          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/photograveur:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
+        with:
+          version: v0.70.0
+
+      - name: Scan photograveur image for vulnerabilities (report)
+        # Reporting pass: no allowlist, never blocks. Trivy applies --ignorefile
+        # as a result filter before it writes the report, so a SARIF from the
+        # gating run below would omit every allowlisted CVE and raise no GitHub
+        # Code Scanning alert. This pass writes the SARIF the upload step
+        # consumes, and runs first with --exit-code 0 so the file exists even
+        # when the gate fails.
+        run: |
+          trivy image \
+            --format sarif --output trivy-photograveur.sarif \
+            --severity CRITICAL,HIGH --ignore-unfixed \
+            --scanners vuln --exit-code 0 \
+            "${{ steps.tags.outputs.registry }}/photograveur@${{ steps.build.outputs.digest }}"
+
+      - name: Scan photograveur image for vulnerabilities (gate)
+        # Gating pass over the same digest with an explicit --ignorefile — the
+        # trivy-action wrapper did not apply the allowlist (see
+        # publish-images.yml). The vulnerability DB and the analyzed image layers
+        # are already in trivy's cache from the reporting pass.
+        run: |
+          trivy image \
+            --format table \
+            --severity CRITICAL,HIGH --ignore-unfixed \
+            --ignorefile "${GITHUB_WORKSPACE}/platform/.trivyignore" \
+            --scanners vuln --exit-code 1 \
+            "${{ steps.tags.outputs.registry }}/photograveur@${{ steps.build.outputs.digest }}"
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.build.outcome == 'success'
+        with:
+          sarif_file: "trivy-photograveur.sarif"
+          category: "photograveur-image"
+
+      - name: Output photograveur image digest
+        run: |
+          echo "Published: ${{ steps.tags.outputs.registry }}/photograveur@${{ steps.build.outputs.digest }}"
+          echo "Tags: ${{ steps.tags.outputs.photograveur_tags }}"
