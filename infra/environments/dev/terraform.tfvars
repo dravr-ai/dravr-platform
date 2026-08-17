@@ -89,9 +89,16 @@ enable_sciotte_service = true
 backend_sciotte_remote = true
 
 # Coach visuals: deploy the photograveur chart-press service (min=0,
-# cpu_idle=true — ~$0 idle). Deploy-only: backend_photograveur stays
-# default-false, so PHOTOGRAVEUR_URL is empty and the API behaves as today.
+# cpu_idle=true — ~$0 idle).
 enable_photograveur_service = true
+
+# Traffic flip: the API now holds the press URL, so messaging channels that
+# render media can be offered charts. Nothing is offered yet — a coach only
+# gets visuals once its contremaitre kind grants `visuals:`, which is the
+# gate that actually turns this on for an athlete. Rollback = set false +
+# apply; the app keeps rendering charts either way, since that geometry is
+# resolved in-process and never touches this service.
+backend_photograveur = true
 
 # Pinned to the same rev the platform pins photograveur at in Cargo.toml, so
 # the renderer in the container matches the spec types compiled into the API.
