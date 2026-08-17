@@ -1040,20 +1040,20 @@ impl ToolHandlers {
         user_id: Uuid,
         ctx: &ToolRoutingContext<'_>,
     ) -> McpResponse {
-        // Handle OAuth connection tools specially — they have complex flow
-        // requirements (minting hosted-login / provider-authorize URLs, MCP
-        // request-id shaping) that don't fit the standard McpTool pattern.
+        // OAuth connection tools are handled specially — their flow (minting
+        // hosted-login URLs, MCP request-id shaping) doesn't fit McpTool.
         //
         // S4 CARVE-OUT: this path bypasses `UniversalExecutor::execute_tool`.
         // connect/get_status are non-destructive (empty Guardian labels), so
-        // bypassing the chokepoint is a no-op for them. `disconnect_provider` IS
-        // `IRREVERSIBLE`, and its carve-out handler (`route_disconnect_tool` →
-        // provider_registry + coach DB) does MORE than the registry
-        // `DisconnectProviderTool` (plain `delete_token`), so it can't just fall
-        // through to the chokepoint. Instead it runs the SAME shared
-        // `guardian::guardian_gate` inline (#1) — so the taint→irreversible +
-        // per-turn destructive budget fire on this /mcp path exactly as at the
-        // chokepoint, without changing the disconnect behaviour.
+        // bypassing the chokepoint is a no-op for them. `disconnect_provider`
+        // IS `IRREVERSIBLE`; its carve-out handler and the registry
+        // `DisconnectProviderTool` both delegate to the same domain chokepoint
+        // (`OAuthService::disconnect_provider`), so the carve-out exists only
+        // for MCP response shaping and the Guardian confirm degradation (deny,
+        // where the executor would park — /mcp cannot resolve a parked
+        // action). It runs the SAME shared `guardian::guardian_gate` inline
+        // (#1), so taint→irreversible + the per-turn destructive budget fire
+        // on this /mcp path exactly as at the chokepoint.
         match tool_name {
             CONNECT_PROVIDER => {
                 return Self::handle_connect_provider(args, request_id);

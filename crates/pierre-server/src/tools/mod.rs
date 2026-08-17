@@ -77,10 +77,3 @@ pub mod runtime_adapter;
 
 /// Tool implementations organized by category
 pub mod implementations;
-
-// ============================================================================
-// Core Tool Infrastructure (pierre-server-internal)
-// ============================================================================
-
-/// Provider-specific tool implementations
-pub mod providers;

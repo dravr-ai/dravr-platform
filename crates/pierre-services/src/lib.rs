@@ -154,6 +154,9 @@ pub mod myth_busting;
 /// OAuth flow orchestration: state validation, token exchange, credential storage
 pub mod oauth_flow;
 
+/// Post-OAuth redirect URL validation and construction (allowlist, state decoding)
+pub mod oauth_redirects;
+
 /// Onboarding gate: requires at least one connected fitness provider before
 /// the user can reach chat/coach/MCP tools.
 pub mod onboarding_gate;

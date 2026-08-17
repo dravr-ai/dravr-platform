@@ -897,31 +897,6 @@ impl AuthService {
             Ok(Some(_))
         )
     }
-
-    /// Disconnect user from a provider
-    ///
-    /// # Errors
-    /// Returns `OAuthError` if database operations fail
-    pub async fn disconnect_provider(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        tenant_id: Option<&str>,
-    ) -> Result<(), OAuthError> {
-        // Use database to delete tokens directly (like original implementation)
-        let tenant_id_str = tenant_id.ok_or_else(|| {
-            OAuthError::DatabaseError("tenant_id is required to disconnect a provider".to_owned())
-        })?;
-        let tenant_id_parsed = TenantId::parse_str(tenant_id_str).map_err(|_| {
-            OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id_str}"))
-        })?;
-        self.resources
-            .repos()
-            .oauth_tokens
-            .delete_token(user_id, tenant_id_parsed, provider)
-            .await
-            .map_err(|e| OAuthError::DatabaseError(format!("Failed to delete token: {e}")))
-    }
 }
 
 /// Persist a provider-refreshed token to the database.

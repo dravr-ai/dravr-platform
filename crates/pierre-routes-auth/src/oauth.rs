@@ -24,9 +24,9 @@ use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::ProviderDescriptor;
 use pierre_services::oauth_flow::{
-    self as oauth_flow_service, categorize_oauth_error, extract_tenant_id, get_user_for_oauth,
-    parse_user_id, OAuthService,
+    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, OAuthService,
 };
+use pierre_services::oauth_redirects;
 use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
 
 use pierre_auth::dto::auth::{OAuthStatus, ProviderStatus, ProvidersStatusResponse};
@@ -69,13 +69,13 @@ pub async fn handle_oauth_callback(
     if !params.contains_key("code") {
         let error_msg = params.get("error").map_or("cancelled", String::as_str);
         let state = params.get("state").map_or("", String::as_str);
-        let mobile_redirect_url = oauth_flow_service::extract_mobile_redirect_from_state(
+        let mobile_redirect_url = oauth_redirects::extract_mobile_redirect_from_state(
             state,
             &resources.config.base_url,
             &resources.config.security.allowed_mobile_redirect_origins,
         );
         if let Some(mobile_url) = mobile_redirect_url {
-            let redirect_url = oauth_flow_service::oauth_return_url(
+            let redirect_url = oauth_redirects::oauth_return_url(
                 mobile_url.trim_end_matches('/'),
                 &provider,
                 false,
@@ -86,7 +86,7 @@ pub async fn handle_oauth_callback(
         if let Some(url) = frontend_url {
             let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
             let redirect_url =
-                oauth_flow_service::oauth_return_url(&base, &provider, false, Some(error_msg));
+                oauth_redirects::oauth_return_url(&base, &provider, false, Some(error_msg));
             return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response());
         }
         return Err(AppError::auth_invalid("OAuth authorization was cancelled"));
@@ -136,7 +136,7 @@ pub async fn handle_oauth_callback(
             // Priority: mobile redirect URL > frontend URL > render template
             // Mobile apps pass redirect URL through OAuth state for deep linking
             if let Some(mobile_url) = &response.mobile_redirect_url {
-                let redirect_url = oauth_flow_service::oauth_return_url(
+                let redirect_url = oauth_redirects::oauth_return_url(
                     mobile_url.trim_end_matches('/'),
                     &provider,
                     true,
@@ -153,8 +153,7 @@ pub async fn handle_oauth_callback(
             // If frontend URL is configured, redirect to frontend with success params
             if let Some(url) = frontend_url {
                 let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
-                let redirect_url =
-                    oauth_flow_service::oauth_return_url(&base, &provider, true, None);
+                let redirect_url = oauth_redirects::oauth_return_url(&base, &provider, true, None);
                 info!(provider = %provider, "Redirecting OAuth success to frontend");
                 return Ok(
                     (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response()
@@ -175,7 +174,7 @@ pub async fn handle_oauth_callback(
             // For errors, we need to parse the state to check for mobile redirect URL
             // since handle_callback failed and didn't return the parsed state
             let config = &resources.config;
-            let mobile_redirect_url = oauth_flow_service::extract_mobile_redirect_from_state(
+            let mobile_redirect_url = oauth_redirects::extract_mobile_redirect_from_state(
                 state,
                 &config.base_url,
                 &config.security.allowed_mobile_redirect_origins,
@@ -183,7 +182,7 @@ pub async fn handle_oauth_callback(
 
             // Priority: mobile redirect URL > frontend URL > render template
             if let Some(mobile_url) = mobile_redirect_url {
-                let redirect_url = oauth_flow_service::oauth_return_url(
+                let redirect_url = oauth_redirects::oauth_return_url(
                     mobile_url.trim_end_matches('/'),
                     &provider,
                     false,
@@ -201,7 +200,7 @@ pub async fn handle_oauth_callback(
             if let Some(url) = frontend_url {
                 let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
                 let redirect_url =
-                    oauth_flow_service::oauth_return_url(&base, &provider, false, Some(error_msg));
+                    oauth_redirects::oauth_return_url(&base, &provider, false, Some(error_msg));
                 info!(provider = %provider, "Redirecting OAuth error to frontend");
                 return Ok(
                     (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response()
@@ -557,7 +556,7 @@ pub async fn handle_mobile_oauth_init(
     if let Some(url) = redirect_url {
         let base_url = &resources.config.base_url;
         let extra_origins = &resources.config.security.allowed_mobile_redirect_origins;
-        if !oauth_flow_service::is_allowed_redirect_url(url, base_url, extra_origins) {
+        if !oauth_redirects::is_allowed_redirect_url(url, base_url, extra_origins) {
             return Err(AppError::invalid_input(
                 "Invalid redirect_url. Must use pierre://, exp://, http://localhost, or an HTTPS origin matching the server's base_url.",
             ));
@@ -720,8 +719,7 @@ pub async fn handle_disconnect_provider_rest(
 
     let user_id = auth_result.user_id;
 
-    // Record IDs on the span so the NotifyLayer can attribute the
-    // provider.disconnected event without re-passing fields.
+    // Record IDs on the span for request tracing.
     let span = Span::current();
     span.record("user_id", field::display(&user_id));
     if let Some(tenant_id) = auth_result.active_tenant_id {
@@ -730,7 +728,9 @@ pub async fn handle_disconnect_provider_rest(
 
     info!("Disconnecting provider {} for user {}", provider, user_id);
 
-    // Create OAuthService instance and call existing disconnect logic
+    // The service is the domain chokepoint: it deletes the token + connection
+    // row and emits the `provider.disconnected` notify event, so this route
+    // (like the chat and /mcp tool paths) emits nothing itself.
     let oauth_service = OAuthService::new(
         resources.data.clone(),
         resources.config.clone(),
@@ -739,13 +739,6 @@ pub async fn handle_disconnect_provider_rest(
     oauth_service
         .disconnect_provider(user_id, &provider, auth_result.active_tenant_id)
         .await?;
-
-    // notify: provider was successfully revoked (provider is on the span).
-    info!(
-        target: "notify",
-        event = "provider.disconnected",
-        "provider disconnected"
-    );
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }

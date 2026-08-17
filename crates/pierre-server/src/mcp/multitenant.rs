@@ -36,7 +36,7 @@ use pierre_core::models::TenantOAuthCredentials;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpResponse, ProgressNotification};
-use pierre_providers::registry::ProviderRegistry;
+use pierre_services::oauth_flow::OAuthService;
 use pierre_tool_runtime::protocol::types::{CancellationToken, ProgressReporter};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
@@ -65,7 +65,7 @@ use axum::middleware;
 use axum::response::Response;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
-use pierre_database::backends::{OAuthTokenRepository, UsageRepository};
+use pierre_database::backends::UsageRepository;
 use pierre_database::{AuthRepos, RepositoryRegistry, SocialRepos};
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
@@ -148,8 +148,7 @@ impl ProviderToolRouter {
         Self::handle_tenant_disconnect_provider(
             ctx.tenant_context,
             provider_name,
-            &ctx.resources.fitness.provider_registry,
-            &ctx.resources.common.repos.oauth_tokens,
+            ctx.resources,
             request_id,
         )
         .await
@@ -679,13 +678,12 @@ impl ProviderToolRouter {
         )
     }
 
-    /// Handle tenant-aware provider disconnection by deleting the user's stored
-    /// OAuth token for the provider within their tenant scope.
+    /// Disconnect a provider through the domain chokepoint (`OAuthService`):
+    /// mirror resolution, lockstep token+row deletion, catalogued notify event.
     async fn handle_tenant_disconnect_provider(
         tenant_context: &TenantContext,
         provider_name: &str,
-        _provider_registry: &Arc<ProviderRegistry>,
-        oauth_tokens: &Arc<dyn OAuthTokenRepository>,
+        resources: &Arc<ServerContext>,
         request_id: Value,
     ) -> McpResponse {
         info!(
@@ -693,16 +691,18 @@ impl ProviderToolRouter {
             tenant_context.tenant_name, provider_name, tenant_context.user_id
         );
 
-        if let Err(e) = oauth_tokens
-            .delete_token(
-                tenant_context.user_id,
-                tenant_context.tenant_id,
-                provider_name,
-            )
+        let service = OAuthService::new(
+            resources.data(),
+            resources.common.config.clone(),
+            resources.auth.oauth_notification_sender.clone(),
+        );
+        let tenant_uuid = Some(tenant_context.tenant_id.as_uuid());
+        if let Err(e) = service
+            .disconnect_provider(tenant_context.user_id, provider_name, tenant_uuid)
             .await
         {
             error!(
-                "Failed to delete {} OAuth token for user {}: {}",
+                "Failed to disconnect {} for user {}: {}",
                 provider_name, tenant_context.user_id, e
             );
             return McpResponse {
