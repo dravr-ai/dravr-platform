@@ -18,6 +18,7 @@ use dravr_sciotte::models::AuthSession;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -285,6 +286,25 @@ pub struct SciotteConnectRequest {
     pub session_id: String,
 }
 
+/// notify: scrape session established. One helper for both session-write
+/// sites so the emit cannot drift between them. The event carries the
+/// user-facing provider name ("strava"/"garmin") so the connect/disconnect
+/// pair is measured on the same axis as the OAuth surface (the disconnect
+/// chokepoint also emits user-facing names for mirror backends); `backend`
+/// distinguishes the scrape cohort. `user_id`/`tenant_id` ride inline because
+/// the `PostHog` sink drops events it cannot attribute.
+fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
+    info!(
+        target: "notify",
+        event = "provider.connected",
+        provider = %backend_resolver::user_facing_name(backend),
+        backend = %backend,
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        "user connected fitness provider (scrape session)"
+    );
+}
+
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
 /// After storing, spawns a background task to pre-fetch activities into cache so the
 /// coach can serve data immediately when the user starts chatting.
@@ -330,6 +350,8 @@ async fn store_sciotte_session(
         )
         .await
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
+
+    notify_sciotte_connected(user_id, tenant_id, provider_name);
 
     // Pre-fetch activities in background so the cache is warm when the user chats
     spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, &session_json);
@@ -1011,7 +1033,7 @@ pub async fn handle_sciotte_connect(
         .await
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
 
-    info!(user_id = %user_id, "Sciotte session connected");
+    notify_sciotte_connected(user_id, tenant_id, "sciotte");
 
     Ok(Json(serde_json::json!({"status": "connected", "provider": "sciotte"})).into_response())
 }
@@ -1042,7 +1064,21 @@ pub async fn handle_sciotte_disconnect(
         .remove_connection(user_id, tenant, "sciotte")
         .await?;
 
-    info!(user_id = %user_id, "Sciotte session disconnected");
+    // notify: scrape session torn down. Emitted inline rather than through
+    // `OAuthService::disconnect_provider` because this route's contract is
+    // backend-pinned — it tears down the "sciotte" session specifically,
+    // while the service resolves user-facing names and would delete a Strava
+    // OAuth token instead for a user holding both. Field shape mirrors
+    // `notify_sciotte_connected` so the pair stays on one measurement axis.
+    info!(
+        target: "notify",
+        event = "provider.disconnected",
+        provider = %backend_resolver::user_facing_name("sciotte"),
+        backend = "sciotte",
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        "user disconnected fitness provider (scrape session)"
+    );
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }

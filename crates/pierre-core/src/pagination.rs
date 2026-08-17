@@ -22,7 +22,11 @@ impl Cursor {
     /// * `id` - The unique identifier of the item
     #[must_use]
     pub fn new(timestamp: DateTime<Utc>, id: &str) -> Self {
-        let cursor_data = format!("{}:{}", timestamp.timestamp_millis(), id);
+        // Microsecond precision: the boundary value must round-trip at (at
+        // least) the precision the database compares at, or keyset pages
+        // duplicate/skip rows whose timestamps differ only below the cursor's
+        // resolution (dravr-carnet#31).
+        let cursor_data = format!("{}:{}", timestamp.timestamp_micros(), id);
         let encoded = base64::Engine::encode(&URL_SAFE_NO_PAD, cursor_data.as_bytes());
         Self(encoded)
     }
@@ -38,8 +42,8 @@ impl Cursor {
         // Split on first ':' only so IDs containing ':' are preserved
         let (timestamp_str, id) = decoded_str.split_once(':')?;
 
-        let timestamp_millis = timestamp_str.parse::<i64>().ok()?;
-        let datetime = DateTime::from_timestamp_millis(timestamp_millis)?;
+        let timestamp_micros = timestamp_str.parse::<i64>().ok()?;
+        let datetime = DateTime::from_timestamp_micros(timestamp_micros)?;
 
         Some((datetime, id.to_owned()))
     }
@@ -165,11 +169,11 @@ pub enum PaginationDirection {
 #[serde(rename_all = "snake_case")]
 pub enum StoreSortOrder {
     /// Sort by newest (`published_at` DESC, id DESC)
-    /// Cursor contains: (`published_at_millis`, id)
+    /// Cursor contains: (`published_at` RFC 3339, id)
     #[default]
     Newest,
     /// Sort by popularity (`install_count` DESC, `published_at` DESC, id DESC)
-    /// Cursor contains: (`install_count`, `published_at_millis`, id)
+    /// Cursor contains: (`install_count`, `published_at` RFC 3339, id)
     Popular,
     /// Sort by title alphabetically (title ASC, id ASC)
     /// Cursor contains: (title, id)
@@ -220,19 +224,32 @@ impl StoreCursor {
     /// Encode the cursor to a base64 string for API transmission
     ///
     /// Format: Base64(`sort_type|value1|value2|...|id`)
-    /// - Newest: `newest|published_at_millis|id`
-    /// - Popular: `popular|install_count|published_at_millis|id`
+    /// - Newest: `newest|published_at_rfc3339|id`
+    /// - Popular: `popular|install_count|published_at_rfc3339|id`
     /// - Title: `title|title_value|id`
+    ///
+    /// The timestamp travels as RFC 3339 text, not an epoch integer: an
+    /// integer at any fixed precision truncates, and a boundary value that
+    /// differs from the stored one below its resolution makes keyset pages
+    /// duplicate or skip rows (dravr-carnet#31). RFC 3339 round-trips the
+    /// exact stored instant on both backends — Postgres re-binds it as a
+    /// full-precision timestamptz, `SQLite` compares it as the same TEXT the
+    /// row itself carries. A missing `published_at` encodes as the empty
+    /// string.
     #[must_use]
     pub fn encode(&self) -> Cursor {
         let data = match self.sort_by {
             StoreSortOrder::Newest => {
-                let ts = self.published_at.map_or(0, |dt| dt.timestamp_millis());
+                let ts = self
+                    .published_at
+                    .map_or_else(String::new, |dt| dt.to_rfc3339());
                 format!("newest|{}|{}", ts, self.id)
             }
             StoreSortOrder::Popular => {
                 let count = self.install_count.unwrap_or(0);
-                let ts = self.published_at.map_or(0, |dt| dt.timestamp_millis());
+                let ts = self
+                    .published_at
+                    .map_or_else(String::new, |dt| dt.to_rfc3339());
                 format!("popular|{}|{}|{}", count, ts, self.id)
             }
             StoreSortOrder::Title => {
@@ -259,11 +276,21 @@ impl StoreCursor {
 
         match sort_type {
             "newest" if expected_sort == StoreSortOrder::Newest => {
-                // Format: newest|ts_millis|id
+                // Format: newest|ts_rfc3339|id
                 // Split on first '|' so IDs containing '|' are preserved
+                // (RFC 3339 contains no '|')
                 let (ts_str, id) = rest.split_once('|')?;
-                let ts_millis = ts_str.parse::<i64>().ok()?;
-                let published_at = DateTime::from_timestamp_millis(ts_millis);
+                // Empty means "no published_at"; anything else must be valid
+                // RFC 3339 or the whole cursor is rejected.
+                let published_at = if ts_str.is_empty() {
+                    None
+                } else {
+                    Some(
+                        DateTime::parse_from_rfc3339(ts_str)
+                            .ok()?
+                            .with_timezone(&Utc),
+                    )
+                };
                 Some(Self {
                     sort_by: StoreSortOrder::Newest,
                     id: id.to_owned(),
@@ -273,13 +300,22 @@ impl StoreCursor {
                 })
             }
             "popular" if expected_sort == StoreSortOrder::Popular => {
-                // Format: popular|count|ts_millis|id
-                // count and ts are numeric (no '|'), split sequentially
+                // Format: popular|count|ts_rfc3339|id
+                // count is numeric and RFC 3339 contains no '|', split sequentially
                 let (count_str, after_count) = rest.split_once('|')?;
                 let (ts_str, id) = after_count.split_once('|')?;
                 let install_count = count_str.parse::<u32>().ok()?;
-                let ts_millis = ts_str.parse::<i64>().ok()?;
-                let published_at = DateTime::from_timestamp_millis(ts_millis);
+                // Empty means "no published_at"; anything else must be valid
+                // RFC 3339 or the whole cursor is rejected.
+                let published_at = if ts_str.is_empty() {
+                    None
+                } else {
+                    Some(
+                        DateTime::parse_from_rfc3339(ts_str)
+                            .ok()?
+                            .with_timezone(&Utc),
+                    )
+                };
                 Some(Self {
                     sort_by: StoreSortOrder::Popular,
                     id: id.to_owned(),

@@ -63,7 +63,15 @@ impl Database {
         fetch_limit: i64,
     ) -> AppResult<Vec<SqliteRow>> {
         if let Some(c) = cursor {
-            let ts = c.published_at.map_or(0, |dt| dt.timestamp_millis());
+            // Compare the RFC 3339 TEXT directly — the same representation
+            // ORDER BY sorts, so the boundary predicate and the page ordering
+            // cannot disagree. The cursor value round-trips the row's own
+            // string exactly, unlike the old strftime epoch-millis conversion,
+            // whose truncation duplicated/skipped rows that shared a
+            // millisecond (dravr-carnet#31; strftime cannot reach microseconds).
+            let ts = c
+                .published_at
+                .map_or_else(String::new, |dt| dt.to_rfc3339());
             let query = format!(
                 r"
                 SELECT {COACH_COLUMNS_ALIASED}, {LISTING_COLUMNS_ALIASED}
@@ -71,13 +79,8 @@ impl Database {
                 JOIN store_listings sl ON c.id = sl.coach_id
                 WHERE sl.publish_status = 'published' {category_filter}
                   AND (
-                    (CAST(strftime('%s', sl.published_at) AS INTEGER) * 1000 +
-                     CAST(strftime('%f', sl.published_at) * 1000 AS INTEGER) % 1000) < $1
-                    OR (
-                      (CAST(strftime('%s', sl.published_at) AS INTEGER) * 1000 +
-                       CAST(strftime('%f', sl.published_at) * 1000 AS INTEGER) % 1000) = $1
-                      AND c.id < $2
-                    )
+                    sl.published_at < $1
+                    OR (sl.published_at = $1 AND c.id < $2)
                   )
                 ORDER BY sl.published_at DESC, c.id DESC
                 LIMIT $3
@@ -120,7 +123,12 @@ impl Database {
     ) -> AppResult<Vec<SqliteRow>> {
         if let Some(c) = cursor {
             let count = c.install_count.unwrap_or(0);
-            let ts = c.published_at.map_or(0, |dt| dt.timestamp_millis());
+            // RFC 3339 TEXT comparison, same rationale as store_query_newest_sort:
+            // predicate and ORDER BY share one representation, and the cursor
+            // carries the row's exact value (dravr-carnet#31).
+            let ts = c
+                .published_at
+                .map_or_else(String::new, |dt| dt.to_rfc3339());
             let query = format!(
                 r"
                 SELECT {COACH_COLUMNS_ALIASED}, {LISTING_COLUMNS_ALIASED}
@@ -131,13 +139,11 @@ impl Database {
                     sl.install_count < $1
                     OR (
                       sl.install_count = $1
-                      AND (CAST(strftime('%s', sl.published_at) AS INTEGER) * 1000 +
-                           CAST(strftime('%f', sl.published_at) * 1000 AS INTEGER) % 1000) < $2
+                      AND sl.published_at < $2
                     )
                     OR (
                       sl.install_count = $1
-                      AND (CAST(strftime('%s', sl.published_at) AS INTEGER) * 1000 +
-                           CAST(strftime('%f', sl.published_at) * 1000 AS INTEGER) % 1000) = $2
+                      AND sl.published_at = $2
                       AND c.id < $3
                     )
                   )

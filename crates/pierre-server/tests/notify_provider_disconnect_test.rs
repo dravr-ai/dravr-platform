@@ -24,12 +24,15 @@
 #![allow(missing_docs)]
 
 mod common;
+mod helpers;
 
 use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
 
-use common::{create_test_server_resources, create_test_user};
+use axum::http::StatusCode;
+use common::{create_test_server_resources, create_test_user, generate_test_token};
+use helpers::axum_test::AxumTestRequest;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
@@ -357,4 +360,64 @@ async fn mcp_carveout_disconnect_removes_connection_row_and_emits() {
     assert_fully_disconnected(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
     let event = only(&events, "provider.disconnected");
     assert_event_attributed(&event, user_id, tenant_id, oauth_providers::STRAVA);
+}
+
+// ============================================================================
+// The sciotte session routes (dravr-carnet#30's uncounted surface)
+// ============================================================================
+
+/// The scrape surface used to emit nothing on either side, so the sciotte
+/// cohort was absent from analytics entirely. Both routes now emit the
+/// catalogued pair under the user-facing provider name — the same axis the
+/// OAuth surface counts on — with `backend` carrying the scrape cohort.
+#[cfg(feature = "provider-sciotte")]
+#[tokio::test]
+async fn sciotte_session_routes_emit_the_provider_event_pair() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let token = generate_test_token(&resources, &user).await;
+    let auth_token = format!("Bearer {token}");
+    let router = pierre_routes_auth::AuthRoutes::routes(resources.auth_routes_context());
+
+    let (events, _guard) = capture_notify();
+
+    let response = AxumTestRequest::post("/api/providers/sciotte/connect")
+        .header("authorization", &auth_token)
+        .json(&serde_json::json!({ "session_id": "test-scrape-session" }))
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        response.status_code(),
+        StatusCode::OK,
+        "connect must succeed"
+    );
+
+    let connected = only(&events, "provider.connected");
+    assert_event_attributed(&connected, user_id, tenant_id, oauth_providers::STRAVA);
+    assert_eq!(connected.field("backend"), oauth_providers::SCIOTTE);
+
+    let token_row = resources
+        .common
+        .repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, oauth_providers::SCIOTTE)
+        .await
+        .unwrap();
+    assert!(token_row.is_some(), "connect must persist the session row");
+
+    let response = AxumTestRequest::delete("/api/providers/sciotte/disconnect")
+        .header("authorization", &auth_token)
+        .send(router)
+        .await;
+    assert_eq!(
+        response.status_code(),
+        StatusCode::NO_CONTENT,
+        "disconnect must succeed"
+    );
+
+    let disconnected = only(&events, "provider.disconnected");
+    assert_event_attributed(&disconnected, user_id, tenant_id, oauth_providers::STRAVA);
+    assert_eq!(disconnected.field("backend"), oauth_providers::SCIOTTE);
+    assert_fully_disconnected(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 }

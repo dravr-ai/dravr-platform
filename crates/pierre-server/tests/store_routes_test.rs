@@ -30,8 +30,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use axum::http::StatusCode;
+use chrono::{DateTime, Duration, Utc};
 use serial_test::serial;
-use tokio::time::{sleep, Duration};
 
 // ============================================================================
 // Test Helpers
@@ -234,12 +234,10 @@ async fn test_browse_store_with_cursor_pagination() {
         .first()
         .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
-    // Create 5 coaches with delays to ensure unique published_at timestamps.
-    // The cursor encodes published_at at millisecond precision; two coaches
-    // landing in the same millisecond breaks the (ts < $1 OR ts = $1 AND id < $2)
-    // page boundary because the cursor's id slot only carries the *last* row.
-    // 10ms collapsed under cargo test --test-threads=4 on the PG runner; 50ms
-    // gives comfortable margin against scheduler jitter on loaded CI hosts.
+    // No inter-seed delay on purpose: the cursor round-trips published_at at
+    // full precision (dravr-carnet#31), so coaches landing in the same
+    // millisecond paginate cleanly. The collision case is exercised
+    // deliberately in cursor_pagination_survives_same_millisecond_published_at.
     for i in 1..=5 {
         create_published_coach(
             &resources,
@@ -249,7 +247,6 @@ async fn test_browse_store_with_cursor_pagination() {
             CoachCategory::Training,
         )
         .await;
-        sleep(Duration::from_millis(50)).await;
     }
 
     let token = generate_test_token(&resources, &user).await;
@@ -302,6 +299,104 @@ async fn test_browse_store_with_cursor_pagination() {
     assert_eq!(page3.coaches.len(), 1);
     assert!(!page3.has_more);
     assert!(page3.next_cursor.is_none());
+}
+
+/// The collision the millisecond-precision cursor could not represent
+/// (dravr-carnet#31): listings published within one millisecond — including
+/// two at the exact same instant — must paginate with no duplicate and no
+/// skipped coach, the same-instant pair resolved by the id tiebreaker. Under
+/// the old integer-millis cursor the boundary row matched neither the `<` nor
+/// the `=` branch of the keyset predicate, so pages repeated or dropped rows
+/// depending on where truncation landed.
+#[tokio::test]
+#[serial]
+async fn cursor_pagination_survives_same_millisecond_published_at() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+
+    let tenants = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
+    let tenant_id = tenants
+        .first()
+        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
+
+    let mut coach_ids = Vec::new();
+    for i in 1..=5 {
+        let coach = create_published_coach(
+            &resources,
+            user_id,
+            tenant_id,
+            &format!("Collision Coach {i}"),
+            CoachCategory::Training,
+        )
+        .await;
+        coach_ids.push(coach.id.to_string());
+    }
+
+    // Pin every published_at into one millisecond, microseconds apart — and
+    // give the first two the exact same instant. Written as to_rfc3339(), the
+    // same format the production publish path uses.
+    let base = DateTime::from_timestamp_micros(1_755_432_000_000_100).unwrap();
+    let micro_offsets: [i64; 5] = [0, 0, 100, 200, 300];
+    let pool = resources.coach.database.sqlite_pool().unwrap().clone();
+    for (coach_id, offset) in coach_ids.iter().zip(micro_offsets) {
+        let ts = (base + Duration::microseconds(offset)).to_rfc3339();
+        sqlx::query("UPDATE store_listings SET published_at = $1 WHERE coach_id = $2")
+            .bind(ts)
+            .bind(coach_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let token = generate_test_token(&resources, &user).await;
+    let auth_token = format!("Bearer {token}");
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+
+    // Walk the whole store in pages of 2 and collect every id.
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let uri = cursor.as_ref().map_or_else(
+            || "/api/store/coaches?limit=2".to_owned(),
+            |c| format!("/api/store/coaches?limit=2&cursor={c}"),
+        );
+        let response = AxumTestRequest::get(&uri)
+            .header("authorization", &auth_token)
+            .send(router.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let page: BrowseCoachesResponse = response.json();
+        for coach in &page.coaches {
+            let id = coach.id.to_string();
+            assert!(
+                !seen.contains(&id),
+                "cursor pagination returned duplicate coach {id}"
+            );
+            seen.push(id);
+        }
+        if !page.has_more {
+            break;
+        }
+        cursor = Some(page.next_cursor.expect("has_more implies a next cursor"));
+    }
+
+    assert_eq!(
+        seen.len(),
+        5,
+        "every seeded coach must appear exactly once across pages"
+    );
+    for coach_id in &coach_ids {
+        assert!(
+            seen.contains(coach_id),
+            "coach {coach_id} was skipped by the page boundary"
+        );
+    }
 }
 
 #[tokio::test]
