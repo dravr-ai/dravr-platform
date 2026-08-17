@@ -3,20 +3,35 @@
 
 name: "Deploy: Photograveur Image"
 
-# Manual-only: the image changes when dravr-photograveur releases, not on
-# platform pushes. Run with the dravr-photograveur ref (tag preferred); the
-# Cloud Run service picks it up via terraform's photograveur_image.
+# Normally called by photograveur-bump.yml rather than run by hand, and only
+# after main has accepted the matching pin — building earlier would advance
+# :latest to a photograveur the platform never validated. The dispatch entry
+# stays for rebuilding a known ref.
 #
 # The image carries fonts-dejavu-core, which is load-bearing rather than a
 # nicety: photograveur-raster returns NoFonts instead of drawing invisible
 # labels, so a font-less image fails at the first request instead of shipping
 # blank axes.
 on:
+  workflow_call:
+    inputs:
+      photograveur_ref:
+        description: "dravr-photograveur ref to build (tag, branch, or SHA)"
+        required: true
+        type: string
+    outputs:
+      image:
+        description: "Fully-qualified image reference pinned to the built digest"
+        value: ${{ jobs.publish-photograveur.outputs.image }}
+      digest:
+        description: "Digest of the image just published"
+        value: ${{ jobs.publish-photograveur.outputs.digest }}
   workflow_dispatch:
     inputs:
       photograveur_ref:
         description: "dravr-photograveur ref to build (tag, branch, or SHA)"
         required: true
+        type: string
         default: "main"
 
 permissions:
@@ -28,6 +43,13 @@ jobs:
   publish-photograveur:
     name: Publish Photograveur Image
     runs-on: ubuntu-latest
+
+    # Exported by digest rather than by tag: the caller deploys and, if the
+    # rollout fails, rolls back to an exact set of bytes. A moving tag cannot
+    # name what was actually shipped once the next build advances it.
+    outputs:
+      image: ${{ steps.tags.outputs.registry }}/photograveur@${{ steps.build.outputs.digest }}
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - name: Checkout platform (for .trivyignore)

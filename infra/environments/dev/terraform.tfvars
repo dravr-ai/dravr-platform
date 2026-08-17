@@ -100,6 +100,10 @@ enable_photograveur_service = true
 # resolved in-process and never touches this service.
 backend_photograveur = true
 
-# Pinned to the same rev the platform pins photograveur at in Cargo.toml, so
-# the renderer in the container matches the spec types compiled into the API.
-photograveur_image = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/photograveur:d4641cb"
+# The moving tag, matching sciotte, because photograveur-bump.yml now owns when it
+# moves: the image is built and :latest advanced only after main has merged the
+# matching pin, and the deploy asserts the serving digest is the one it built and
+# scanned. Terraform sets this at creation and then ignores it (the cloud_run module
+# ignores image changes), so a fixed tag here would only describe the first revision
+# ever created while claiming to govern the service.
+photograveur_image = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/photograveur:latest"
