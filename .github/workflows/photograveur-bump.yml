@@ -326,7 +326,18 @@ jobs:
   # ---------------------------------------------------------------------------
   image:
     name: Build and publish the photograveur image
-    needs: [resolve, merge]
+    needs: [resolve, bump, gate, merge]
+    # Runs whether or not a bump was needed, so the deployment converges on whatever
+    # photograveur version main pins. Gating this on `needed` instead meant a re-run
+    # after a merge skipped everything, leaving no way to finish a deploy that had
+    # failed after the bump already landed. What must not happen is building after a
+    # *failed* bump, so this checks for failure rather than for skipping.
+    if: >-
+      ${{ !cancelled()
+          && needs.resolve.result == 'success'
+          && needs.bump.result != 'failure'
+          && needs.gate.result != 'failure'
+          && needs.merge.result != 'failure' }}
     uses: ./.github/workflows/publish-photograveur-image.yml
     secrets: inherit
     with:
@@ -339,6 +350,7 @@ jobs:
     name: Deploy photograveur to dev
     runs-on: ubuntu-latest
     needs: [resolve, image]
+    if: ${{ !cancelled() && needs.image.result == 'success' }}
     environment: development
     steps:
       - name: Authenticate to GCP (dev deployer)
@@ -393,6 +405,7 @@ jobs:
         env:
           SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-photograveur
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          REGISTRY: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}
           EXPECTED: ${{ needs.image.outputs.digest }}
         run: |
           set -euo pipefail
@@ -400,13 +413,32 @@ jobs:
                   --format='value(status.latestReadyRevisionName)')
           GOT=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
                   --format='value(status.imageDigest)')
-          # :latest is resolved by Cloud Run at deploy time, so in principle it could
-          # have moved between the build and here. This turns that race into a failure
-          # rather than a silent deploy of unscanned bytes.
-          case "${GOT}" in
-            *"${EXPECTED}") echo "serving ${REV} at ${GOT}" ;;
-            *) echo "::error::${REV} serves ${GOT}, expected digest ${EXPECTED}"; exit 1 ;;
-          esac
+
+          # buildx publishes an OCI *index*, because it attaches a provenance
+          # attestation alongside the image. build-push-action reports that index's
+          # digest, while Cloud Run resolves the tag down to the linux/amd64 child and
+          # records the child. The two are never equal, so comparing them directly
+          # fails every time on a deploy that in fact shipped the right bytes. This
+          # chain has never run a real deploy; the sciotte one proved the failure on
+          # v0.8.6, rolling dev back over a correct rollout. Accept the index digest
+          # or any of its children.
+          HOST="${REGISTRY%%/*}"
+          PATH_PART="${REGISTRY#*/}/photograveur"
+          TOKEN=$(gcloud auth print-access-token)
+          CHILDREN=$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json" \
+            "https://${HOST}/v2/${PATH_PART}/manifests/${EXPECTED}" \
+            | jq -r '(.manifests // [])[].digest' || true)
+
+          for candidate in ${EXPECTED} ${CHILDREN}; do
+            if [ "${GOT}" = "${candidate}" ] || [ "${GOT##*@}" = "${candidate}" ]; then
+              echo "serving ${REV} at ${GOT} (matches ${candidate})"
+              exit 0
+            fi
+          done
+          echo "::error::${REV} serves ${GOT}, which is neither ${EXPECTED} nor any manifest it indexes"
+          echo "index children were: ${CHILDREN:-<none>}"
+          exit 1
 
       - name: Roll back to the previously serving digest
         if: failure()

@@ -115,16 +115,6 @@ jobs:
           file: sciotte/Dockerfile
           push: true
           tags: ${{ steps.tags.outputs.sciotte_tags }}
-          # Off so the pushed tag is a plain image manifest. build-push-action
-          # defaults to `provenance: mode=min` on push, which makes the tag point at
-          # an OCI index carrying the image plus an attestation. `outputs.digest` is
-          # then the index digest, while Cloud Run resolves the index and reports the
-          # platform manifest digest — so the deploy's "are these the bytes we
-          # scanned" assertion compares two different kinds of digest and can never
-          # match. This is what failed the v0.8.6 integration: the registry held
-          # :latest at decc901e, exactly as expected and never moved, while the
-          # serving revision reported 9275f884, so a good deploy was rolled back.
-          provenance: false
           # Registry-backed buildx cache, mirroring the server image job (the
           # GHA cache export flaked and is capped/evicted).
           cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/sciotte:buildcache
