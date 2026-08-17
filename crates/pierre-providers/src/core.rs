@@ -536,6 +536,11 @@ pub trait FitnessProvider: Send + Sync {
     }
 
     /// Revoke access tokens (disconnect)
+    ///
+    /// LIMITATION(registre#33): `FitnessProvider::disconnect` has no production caller —
+    /// the user-facing `disconnect_provider` chokepoint (pierre-services `oauth_flow.rs`)
+    /// deletes local token rows only, so the upstream grant (e.g. Strava's) stays live
+    /// after a user disconnects.
     async fn disconnect(&self) -> AppResult<()>;
 }
 
