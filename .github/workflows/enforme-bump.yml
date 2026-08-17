@@ -427,6 +427,31 @@ jobs:
           echo "index children were: ${CHILDREN:-<none>}"
           exit 1
 
+      - name: Probe the service over HTTP
+        # Cloud Run's startup probe already proved the container answers /health, but
+        # only that it answered — a build that lost a provider still boots. This asserts
+        # what the service says about itself: ok, and both scraping providers present.
+        # The service is INGRESS_TRAFFIC_ALL with allow_unauthenticated (see the sciotte
+        # module in infra/environments/dev/main.tf — the API pod egresses
+        # PRIVATE_RANGES_ONLY, so internal-only ingress would drop its calls, and the
+        # app bearer is the auth boundary instead), so /health is reachable from here.
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: |
+          set -euo pipefail
+          URL=$(gcloud run services describe "${SVC}" --region "${REGION}" --format='value(status.url)')
+          BODY=$(curl -sf -m 30 --retry 3 --retry-delay 5 "${URL}/health")
+          echo "${BODY}" | jq .
+
+          STATUS=$(jq -r '.status' <<<"${BODY}")
+          [ "${STATUS}" = "ok" ] || { echo "::error::/health reports status=${STATUS}"; exit 1; }
+          for p in garmin strava; do
+            jq -e --arg p "$p" '.providers | index($p)' <<<"${BODY}" >/dev/null \
+              || { echo "::error::/health does not advertise the ${p} provider"; exit 1; }
+          done
+          echo "healthy: ${URL} advertises $(jq -c '.providers' <<<"${BODY}")"
+
       - name: Roll back to the previously serving digest
         if: failure()
         env:
