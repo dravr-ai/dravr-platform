@@ -13,12 +13,15 @@ import { QUERY_KEYS } from '../constants/queryKeys';
  */
 export function ConnectProviderBanner() {
   const [dismissed, setDismissed] = useState(false);
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
   });
   const hasConnectedProvider = data?.providers?.some((p) => p.connected) ?? false;
-  if (dismissed || hasConnectedProvider) {
+  // Stay hidden until the providers query answers. `hasConnectedProvider`
+  // defaults to false while it is in flight, so rendering on that alone nudges
+  // a connected athlete to connect a provider on every coach-screen load.
+  if (dismissed || isLoading || hasConnectedProvider) {
     return null;
   }
   return (
