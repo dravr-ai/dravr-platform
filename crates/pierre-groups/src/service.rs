@@ -16,7 +16,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::TenantId;
 use pierre_database::repositories::CoachingGroupRepository;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 // ============================================================================
@@ -41,8 +41,42 @@ pub const TREND_IMPROVING_FRACTION: f64 = 0.05;
 /// Weekly trend threshold: volume decrease beyond this fraction = "declining"
 pub const TREND_DECLINING_FRACTION: f64 = 0.05;
 
+// ============================================================================
+// Group Size Bounds
+// ============================================================================
+
+/// Smallest coachable group — a group of one is a DM, so creation clamps up
+/// to this floor regardless of what the caller requested.
+pub const MIN_MEMBERS: i32 = 2;
+
+/// Member count requested when the caller names none.
+///
+/// Applies to a REST create with `max_members` omitted and to every chat
+/// auto-bind, which never asks for a size. The tenant tier's cap clamps this
+/// down, so it is a ceiling to aim at rather than a grant.
+pub const DEFAULT_REQUESTED_MEMBERS: i32 = 20;
+
+/// The chat-side fields that distinguish a channel-bound coaching group from
+/// one created through REST.
+///
+/// Everything else about creation — tier gate, member clamp, owner
+/// membership, the `group.created` emission — is shared, so this carries only
+/// what actually differs.
+pub struct ChannelGroupSpec<'a> {
+    /// Human-readable group name, from the inbound chat title when the
+    /// channel supplies one (Telegram `chat.title`, Discord `channel.name`).
+    pub name: &'a str,
+    /// Coach bound to the group at bootstrap — the first sender's selected
+    /// coach, falling back to a system coach.
+    pub coach_id: &'a str,
+    /// Messaging platform: `telegram`, `slack`, `discord`.
+    pub channel_type: &'a str,
+    /// Platform-native chat identifier the group is bound to.
+    pub channel_chat_id: &'a str,
+}
+
 use crate::strategies::context::select_context_strategy;
-use crate::strategies::tier::GroupTierStrategy;
+use crate::strategies::tier::{GroupTierStrategy, OwnerGroupLimit};
 
 /// Central service for group coaching operations.
 ///
@@ -292,27 +326,6 @@ impl GroupService {
         tenant_id: TenantId,
         tier_member_cap: i32,
     ) -> AppResult<CoachingGroup> {
-        // Tier gate: Starter has group coaching disabled (cap 0).
-        if tier_member_cap == 0 {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Group coaching requires a Professional or Enterprise plan",
-            ));
-        }
-
-        // Check tier limits
-        if let Some(max) = self.tier.max_groups() {
-            let current = self
-                .repo
-                .count_groups_for_owner(owner_id, tenant_id)
-                .await?;
-            if current >= i64::try_from(max).unwrap_or_default() {
-                return Err(AppError::invalid_input(format!(
-                    "Group limit reached ({max}). Upgrade your plan for more groups."
-                )));
-            }
-        }
-
         let group = CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: tenant_id.to_string(),
@@ -331,9 +344,9 @@ impl GroupService {
             // Coach answers every message until the owner narrows it via
             // `/group respond mentions` or the group-settings UI.
             respond_mode: GroupRespondMode::default(),
-            // Clamp the requested member count to the tenant tier's
-            // per-group cap (Professional=10, Enterprise=50).
-            max_members: request.max_members.unwrap_or(20).clamp(2, tier_member_cap),
+            // Clamped to the tenant tier's per-group cap by
+            // `create_group_with_owner`.
+            max_members: request.max_members.unwrap_or(DEFAULT_REQUESTED_MEMBERS),
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
@@ -341,9 +354,141 @@ impl GroupService {
             updated_at: chrono::Utc::now(),
         };
 
+        self.create_group_with_owner(
+            group,
+            owner_id,
+            tenant_id,
+            tier_member_cap,
+            OwnerGroupLimit::Enforced,
+        )
+        .await
+    }
+
+    /// Create the coaching group bound to a messaging chat (Telegram group,
+    /// Slack channel, Discord channel), with the first sender as Owner.
+    ///
+    /// Shares [`create_group`](Self::create_group)'s tier gate, member-count
+    /// clamp, owner auto-membership and `group.created` emission — chat and
+    /// REST group creation differ only in the fields carried on the row
+    /// (`channel_type` / `channel_chat_id` and a synthesized name), never in
+    /// the policy applied to it. Before this shared path existed the chat
+    /// binding called the repository directly, which both skipped the tier
+    /// gate and made every chat-created group invisible to analytics.
+    ///
+    /// The owner's tier group *count* allowance deliberately does not apply
+    /// here — see [`OwnerGroupLimit`]. The per-group member cap still does.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::PermissionDenied`] when the tenant tier disables
+    /// group coaching (`tier_member_cap == 0`), or a database error on
+    /// failure.
+    pub async fn create_channel_group(
+        &self,
+        spec: &ChannelGroupSpec<'_>,
+        owner_id: Uuid,
+        tenant_id: TenantId,
+        tier_member_cap: i32,
+    ) -> AppResult<CoachingGroup> {
+        let now = chrono::Utc::now();
+        let group = CoachingGroup {
+            id: Uuid::new_v4(),
+            tenant_id: tenant_id.to_string(),
+            name: spec.name.to_owned(),
+            description: Some(format!(
+                "Auto-created from {} group chat {}",
+                spec.channel_type, spec.channel_chat_id
+            )),
+            coach_id: spec.coach_id.to_owned(),
+            owner_id,
+            // No human coach until one redeems a coach-kind invite.
+            coach_user_id: None,
+            // Group-level kill switch — TRUE means "individual member
+            // consent is the gate", FALSE means admin nuked all sharing.
+            // Defaults to TRUE so a member who runs `/group consent yes`
+            // immediately starts surfacing their data to peers without an
+            // owner intervention.
+            peer_data_sharing: true,
+            // Auto-bound groups start in answer-everything mode — the chat
+            // behaves exactly as before binding; the owner narrows it via
+            // `/group respond mentions`.
+            respond_mode: GroupRespondMode::All,
+            // Clamped to the tenant tier's per-group cap by
+            // `create_group_with_owner`.
+            max_members: DEFAULT_REQUESTED_MEMBERS,
+            is_active: true,
+            channel_type: Some(spec.channel_type.to_owned()),
+            channel_chat_id: Some(spec.channel_chat_id.to_owned()),
+            created_at: now,
+            updated_at: now,
+        };
+
+        self.create_group_with_owner(
+            group,
+            owner_id,
+            tenant_id,
+            tier_member_cap,
+            OwnerGroupLimit::Exempt,
+        )
+        .await
+    }
+
+    /// Apply tier policy to `group`, persist it, enrol `owner_id` as Owner and
+    /// emit the catalogued `group.created` event.
+    ///
+    /// The single creation chokepoint behind both
+    /// [`create_group`](Self::create_group) (REST + `/coach` slash command)
+    /// and [`create_channel_group`](Self::create_channel_group) (messaging
+    /// auto-bind). Emitting here rather than at each transport is what makes
+    /// `group.created` fire for chat-created groups: `user_id` and
+    /// `tenant_id` are supplied inline because the messaging ingress span
+    /// carries neither, so the `NotifyLayer` has nothing to inherit there.
+    /// `limit` selects whether this creation spends the owner's tier group
+    /// allowance; the tier gate and member clamp apply either way.
+    async fn create_group_with_owner(
+        &self,
+        mut group: CoachingGroup,
+        owner_id: Uuid,
+        tenant_id: TenantId,
+        tier_member_cap: i32,
+        limit: OwnerGroupLimit,
+    ) -> AppResult<CoachingGroup> {
+        // Tier gate: a cap of 0 disables group coaching for the plan.
+        if tier_member_cap == 0 {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "Group coaching requires a Professional or Enterprise plan",
+            ));
+        }
+
+        // Per-owner group allowance, on the paths that spend it.
+        if matches!(limit, OwnerGroupLimit::Enforced) {
+            if let Some(max) = self.tier.max_groups() {
+                let current = self
+                    .repo
+                    .count_groups_for_owner(owner_id, tenant_id)
+                    .await?;
+                if current >= i64::try_from(max).unwrap_or_default() {
+                    return Err(AppError::invalid_input(format!(
+                        "Group limit reached ({max}). Upgrade your plan for more groups."
+                    )));
+                }
+            }
+        }
+
+        // Clamp the requested member count into the tier's per-group range.
+        // `max(MIN_MEMBERS)` on the upper bound keeps `clamp` from panicking
+        // on a hypothetical tier cap of 1, where min would exceed max.
+        group.max_members = group
+            .max_members
+            .clamp(MIN_MEMBERS, tier_member_cap.max(MIN_MEMBERS));
+
         let created = self.repo.create_group(tenant_id, &group).await?;
 
-        // Auto-add owner as member with Owner role
+        // Auto-add owner as member with Owner role. This membership is
+        // implied by `group.created` (which carries the owner's `user_id`),
+        // so it deliberately emits no `group.joined` — that event means "a
+        // second person came in", on every surface.
         let owner_member = GroupMember {
             id: Uuid::new_v4(),
             group_id: created.id,
@@ -358,8 +503,99 @@ impl GroupService {
         };
         self.repo.add_member(&owner_member).await?;
 
-        info!(group_id = %created.id, owner = %owner_id, "Created coaching group");
+        info!(
+            target: "notify",
+            event = "group.created",
+            user_id = %owner_id,
+            tenant_id = %tenant_id,
+            group_id = %created.id,
+            "coaching group created"
+        );
         Ok(created)
+    }
+
+    /// Look up the coaching group bound to a messaging chat, if one exists.
+    ///
+    /// Paired with [`create_channel_group`](Self::create_channel_group) and
+    /// [`enroll_channel_member`](Self::enroll_channel_member) so the messaging
+    /// ingress reaches the group domain only through this service.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error if the lookup fails.
+    pub async fn get_group_by_channel(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_chat_id: &str,
+    ) -> AppResult<Option<CoachingGroup>> {
+        self.repo
+            .get_group_by_channel(tenant_id, channel_type, channel_chat_id)
+            .await
+    }
+
+    /// Enrol a messaging-chat sender as a Member of the channel-bound group,
+    /// emitting the catalogued `group.joined` event on a real enrolment.
+    ///
+    /// Returns whether the user is a member of `group` once this returns —
+    /// `true` when they already were or were just added, `false` when the
+    /// group is at its member cap. Callers must not attach a conversation to
+    /// a group for which this returned `false`: `inject_group_context` builds
+    /// peer context from the conversation's `group_id` without re-checking
+    /// the requester's membership, so binding a non-member would surface
+    /// consenting peers' data to someone outside the group.
+    ///
+    /// # Errors
+    ///
+    /// Returns database errors from the member lookup or insert.
+    pub async fn enroll_channel_member(
+        &self,
+        group: &CoachingGroup,
+        user_id: Uuid,
+    ) -> AppResult<bool> {
+        let group_id = group.id.to_string();
+        if self.repo.get_member(&group_id, user_id).await?.is_some() {
+            return Ok(true);
+        }
+
+        let current_count = self.repo.count_members(&group_id).await?;
+        if current_count >= i64::from(group.max_members) {
+            warn!(
+                group_id = %group.id,
+                max_members = group.max_members,
+                "channel-bound group is at its member cap; sender stays ungrouped"
+            );
+            return Ok(false);
+        }
+
+        let now = chrono::Utc::now();
+        let member = GroupMember {
+            id: Uuid::new_v4(),
+            group_id: group.id,
+            user_id,
+            tenant_id: group.tenant_id.clone(),
+            role: GroupRole::Member,
+            peer_sharing_consent: false,
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        };
+        self.repo.add_member(&member).await?;
+
+        // The group's tenant, not the sender's home tenant — a chat runs
+        // under the channel's tenant (same distinction ADR-020 drew for
+        // peer-data resolution), and the group-adoption metric follows the
+        // group.
+        info!(
+            target: "notify",
+            event = "group.joined",
+            user_id = %user_id,
+            tenant_id = %group.tenant_id,
+            group_id = %group.id,
+            "user joined coaching group"
+        );
+        Ok(true)
     }
 
     /// Get a group by ID
@@ -483,7 +719,18 @@ impl GroupService {
             .increment_invite_use_count(&invite.id.to_string())
             .await?;
 
-        info!(group_id = %invite.group_id, user_id = %user_id, "Member joined group via invite");
+        // The invite's tenant is the *group's* tenant, which is what the
+        // caller passes in — athlete membership is cross-tenant by design, so
+        // the adoption metric must follow the group rather than the
+        // redeemer's home tenant.
+        info!(
+            target: "notify",
+            event = "group.joined",
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            group_id = %invite.group_id,
+            "user joined coaching group"
+        );
         Ok(created)
     }
 
@@ -571,10 +818,18 @@ impl GroupService {
             .increment_invite_use_count(&invite.id.to_string())
             .await?;
 
+        // Reuses the catalogued `group.joined` event (a coach redeeming a
+        // coach-kind invite is still a join); the message distinguishes the
+        // coach case for operators. Emitted after the attach succeeds, so
+        // re-redeeming the same invite — which returns early above — no
+        // longer double-counts the way the route-level emission did.
         info!(
+            target: "notify",
+            event = "group.joined",
+            user_id = %coach_user_id,
+            tenant_id = %tenant_id,
             group_id = %invite.group_id,
-            coach_user_id = %coach_user_id,
-            "Coach attached to group via invite"
+            "coach joined coaching group"
         );
 
         self.repo

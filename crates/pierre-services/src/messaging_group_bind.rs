@@ -10,6 +10,14 @@
 //! Slack channel, Discord channel), `resolve_or_create_channel_group`
 //! returns the `coaching_groups.id` to attach to the chat conversation.
 //!
+//! This module owns the *messaging-specific* decisions — which coach seeds
+//! the group, which tenant plan applies — and delegates every group write to
+//! [`GroupService`], which owns the tier gate, the member clamp and the
+//! catalogued `group.created` / `group.joined` emissions. Reaching past the
+//! service to the repository (as this module once did) silently skipped both:
+//! chat-created groups ignored the tenant's plan and never reached Slack or
+//! `PostHog`.
+//!
 //! Behavior:
 //!
 //! - If a `coaching_groups` row already exists for `(tenant, channel_type,
@@ -31,27 +39,51 @@
 //! tenant. If neither exists, returns `Ok(None)` — the chat operates
 //! without group context until a coach exists.
 
-use chrono::Utc;
-use pierre_core::errors::AppResult;
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::{AuthRepos, CoachRepos};
-use tracing::info;
-use uuid::Uuid;
+use pierre_groups::service::ChannelGroupSpec;
+use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_groups::GroupService;
+use tracing::warn;
+
+/// The chat a message arrived in, and the sender to bind to it.
+///
+/// Bundled rather than passed as loose arguments because every field travels
+/// together from the ingress layer down to the group row.
+pub struct ChannelChatBinding<'a> {
+    /// Tenant that owns the channel — *not* necessarily the sender's home
+    /// tenant. Group membership is cross-tenant by design.
+    pub tenant_id: TenantId,
+    /// Messaging platform: `telegram`, `slack`, `discord`.
+    pub channel_type: &'a str,
+    /// Platform-native chat identifier.
+    pub channel_chat_id: &'a str,
+    /// Sender's Dravr user id, as a string.
+    pub user_id: &'a str,
+    /// Name for the auto-created group (e.g. `"Telegram group -100123456"`);
+    /// operators can rename via REST.
+    pub chat_title_hint: &'a str,
+}
 
 /// Resolve (or auto-create on first sender) the `coaching_group` bound
 /// to a messaging chat.
 ///
 /// Returns `Ok(Some(group_id_string))` when a binding exists or was
-/// created; `Ok(None)` when no coach is available to bootstrap the group.
+/// created and the sender is enrolled in it; `Ok(None)` when the chat must
+/// stay ungrouped — no coach available to bootstrap, the tenant's plan does
+/// not include group coaching, or the group is already at its member cap.
 ///
-/// `chat_title_hint` is used as the auto-created group's name (e.g.
-/// `"Telegram group -100123456"`); operators can rename via REST.
+/// The `Ok(None)` on a failed enrolment is a privacy requirement, not a
+/// convenience: `GroupService::inject_group_context` builds peer context from
+/// the conversation's `group_id` without re-checking the requester's
+/// membership, so attaching a non-member to the conversation would surface
+/// consenting peers' snapshots to someone outside the group.
 ///
-/// Takes narrow `AuthRepos` (for `users` lookup of the bootstrapping
-/// sender's selected coach) plus `CoachRepos` (for `groups` and
-/// fallback `coaches` lookups) instead of the full `RepositoryRegistry`.
+/// Takes narrow `AuthRepos` (for the `users`/`tenants` lookups of the
+/// bootstrapping sender's selected coach and plan) plus `CoachRepos` (for the
+/// fallback system-coach lookup) instead of the full `RepositoryRegistry`.
 ///
 /// # Errors
 ///
@@ -59,56 +91,41 @@ use uuid::Uuid;
 pub async fn resolve_or_create_channel_group(
     auth: &AuthRepos,
     coach: &CoachRepos,
-    tenant_id: TenantId,
-    channel_type: &str,
-    channel_chat_id: &str,
-    user_id: &str,
-    chat_title_hint: &str,
+    groups: &GroupService,
+    binding: &ChannelChatBinding<'_>,
 ) -> AppResult<Option<String>> {
-    let user_uuid = parse_uuid(user_id)?;
-    let groups = coach.groups.as_ref();
+    let user_uuid = parse_uuid(binding.user_id)?;
 
     // 1. Existing channel binding — enroll caller if missing, return id.
     if let Some(group) = groups
-        .get_group_by_channel(tenant_id, channel_type, channel_chat_id)
+        .get_group_by_channel(
+            binding.tenant_id,
+            binding.channel_type,
+            binding.channel_chat_id,
+        )
         .await?
     {
-        let group_id_str = group.id.to_string();
-        let member = groups.get_member(&group_id_str, user_uuid).await?;
-        if member.is_none() {
-            let new_member = GroupMember {
-                id: Uuid::new_v4(),
-                group_id: group.id,
-                user_id: user_uuid,
-                tenant_id: group.tenant_id.clone(),
-                role: GroupRole::Member,
-                peer_sharing_consent: false,
-                consent_given_at: Utc::now(),
-                joined_at: Utc::now(),
-                left_at: None,
-                display_name: None,
-            };
-            groups.add_member(&new_member).await?;
-            info!(
-                group_id = %group.id,
-                channel_type,
-                channel_chat_id,
-                new_user_id = %user_id,
-                "Auto-enrolled new sender as Member of existing channel-bound group"
-            );
+        if groups.enroll_channel_member(&group, user_uuid).await? {
+            return Ok(Some(group.id.to_string()));
         }
-        return Ok(Some(group_id_str));
+        warn!(
+            group_id = %group.id,
+            channel_type = binding.channel_type,
+            channel_chat_id = binding.channel_chat_id,
+            "Channel-bound group is full; sender's conversation stays ungrouped"
+        );
+        return Ok(None);
     }
 
     // 2. No binding — first sender bootstraps. Pick a coach.
     let mut coach_id_choice = auth
         .tenants
-        .get_selected_coach(tenant_id, user_uuid)
+        .get_selected_coach(binding.tenant_id, user_uuid)
         .await?;
     if coach_id_choice.is_none() {
         let system_coaches = coach
             .coaches
-            .list_system_coaches(tenant_id)
+            .list_system_coaches(binding.tenant_id)
             .await
             .unwrap_or_default();
         coach_id_choice = system_coaches.first().map(|c| c.id.to_string());
@@ -120,64 +137,62 @@ pub async fn resolve_or_create_channel_group(
         return Ok(None);
     };
 
-    let group_uuid = Uuid::new_v4();
-    let now = Utc::now();
-    let group = CoachingGroup {
-        id: group_uuid,
-        tenant_id: tenant_id.to_string(),
-        name: chat_title_hint.to_owned(),
-        description: Some(format!(
-            "Auto-created from {channel_type} group chat {channel_chat_id}"
-        )),
-        coach_id,
-        owner_id: user_uuid,
-        // No human coach until one redeems a coach-kind invite.
-        coach_user_id: None,
-        // Group-level kill switch — TRUE means "individual member
-        // consent is the gate", FALSE means admin nuked all sharing.
-        // Defaults to TRUE so a member who runs `/group consent yes`
-        // immediately starts surfacing their data to peers without an
-        // owner intervention. Owner can flip to FALSE in the group
-        // settings to disable everyone's sharing in one move.
-        peer_data_sharing: true,
-        // Auto-bound groups start in answer-everything mode — the chat
-        // behaves exactly as before binding; the owner narrows it via
-        // `/group respond mentions`.
-        respond_mode: GroupRespondMode::All,
-        max_members: 20,
-        is_active: true,
-        channel_type: Some(channel_type.to_owned()),
-        channel_chat_id: Some(channel_chat_id.to_owned()),
-        created_at: now,
-        updated_at: now,
-    };
-    let created = groups.create_group(tenant_id, &group).await?;
-
     // First sender = Owner. (We can't reliably detect Telegram/Slack/Discord
     // chat-admin status across all three platforms without per-channel API
     // calls; first-sender = Owner is the channel-agnostic baseline. Operators
     // can transfer ownership via REST PUT /api/groups/{id}/members/{user}/role.)
-    let owner_member = GroupMember {
-        id: Uuid::new_v4(),
-        group_id: created.id,
-        user_id: user_uuid,
-        tenant_id: created.tenant_id.clone(),
-        role: GroupRole::Owner,
-        peer_sharing_consent: false,
-        consent_given_at: now,
-        joined_at: now,
-        left_at: None,
-        display_name: None,
+    let spec = ChannelGroupSpec {
+        name: binding.chat_title_hint,
+        coach_id: &coach_id,
+        channel_type: binding.channel_type,
+        channel_chat_id: binding.channel_chat_id,
     };
-    groups.add_member(&owner_member).await?;
+    let tier_member_cap = resolve_tier_member_cap(auth, binding.tenant_id).await;
 
-    info!(
-        group_id = %created.id,
-        channel_type,
-        channel_chat_id,
-        owner_user_id = %user_id,
-        "Auto-created coaching_group from channel chat (first-sender becomes Owner)"
-    );
+    match groups
+        .create_channel_group(&spec, user_uuid, binding.tenant_id, tier_member_cap)
+        .await
+    {
+        Ok(created) => Ok(Some(created.id.to_string())),
+        // The tenant's plan does not include group coaching at all. Not an
+        // ingress failure: the chat answers normally, just without group
+        // context, so this is a warn and an ungrouped conversation rather
+        // than an error the caller logs on every message.
+        //
+        // Only `PermissionDenied` — the tier gate — is swallowed. The
+        // per-owner group allowance deliberately does not apply to this path
+        // (`OwnerGroupLimit::Exempt`), so an `InvalidInput` here would mean
+        // something genuinely wrong with the request, and silently
+        // un-grouping the chat would hide it.
+        Err(e) if e.code == ErrorCode::PermissionDenied => {
+            warn!(
+                channel_type = binding.channel_type,
+                channel_chat_id = binding.channel_chat_id,
+                reason = %e.message,
+                "Tenant plan does not include group coaching; conversation stays ungrouped"
+            );
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
 
-    Ok(Some(created.id.to_string()))
+/// The tenant plan's per-group member cap, as `GroupService` expects it.
+///
+/// Fails closed: a tenant lookup that errors yields `0`, which
+/// `create_channel_group` rejects. An unreadable plan must not grant group
+/// coaching by default — that is exactly the bypass this path used to have.
+async fn resolve_tier_member_cap(auth: &AuthRepos, tenant_id: TenantId) -> i32 {
+    match auth.tenants.get_by_id(tenant_id).await {
+        Ok(tenant) => i32::try_from(tier_strategy_for(&tenant.plan).max_members_per_group())
+            .unwrap_or(i32::MAX),
+        Err(e) => {
+            warn!(
+                %tenant_id,
+                error = %e,
+                "Could not read tenant plan for group binding; withholding group coaching"
+            );
+            0
+        }
+    }
 }

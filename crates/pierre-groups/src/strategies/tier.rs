@@ -57,16 +57,44 @@ pub trait GroupTierStrategy: Send + Sync {
     fn member_context_strategy(&self) -> Arc<dyn GroupContextStrategy>;
 }
 
-/// Starter tier: groups disabled
+/// Whether a group-creation path spends one of the owner's tier group
+/// allowance ([`GroupTierStrategy::max_groups`]).
+///
+/// REST and `/coach select` are a user asking for a new group, so they spend
+/// it. A messaging auto-bind is not a request — the group materializes because
+/// somebody added the bot to a chat — and refusing it would leave that chat
+/// with no group context and only a log line to say why, so the per-group
+/// member cap is the gate there instead. That matters more than the tier
+/// numbers suggest: [`crate::GroupService`] is built once with a hardcoded
+/// `professional` strategy, so `max_groups` is the same `Some(3)` for every
+/// tenant regardless of plan, and an allowance that is not yet a real pricing
+/// signal must not silently un-group a live chat.
+pub(crate) enum OwnerGroupLimit {
+    /// Count the owner's groups against `max_groups` and refuse beyond it.
+    Enforced,
+    /// Skip the count — the member cap governs this path.
+    Exempt,
+}
+
+/// Starter tier: small groups, no group features.
+///
+/// The caps are deliberately generous relative to the feature set: a Starter
+/// tenant can hold a handful of people in a chat group, but every group
+/// *feature* below (roster, dashboard, peer sharing, digests) stays off. The
+/// member cap is what [`crate::GroupService::create_group`] and
+/// [`crate::GroupService::create_channel_group`] gate on — a cap of `0` there
+/// rejects creation outright, which is why this tier carries a real number
+/// rather than zero: adding the bot to a Telegram group is the primary way
+/// groups come into existence, and every tenant is created on Starter.
 pub struct StarterTierStrategy;
 
 impl GroupTierStrategy for StarterTierStrategy {
     fn max_groups(&self) -> Option<usize> {
-        Some(0)
+        Some(3)
     }
 
     fn max_members_per_group(&self) -> usize {
-        0
+        5
     }
 
     fn allowed_features(&self) -> GroupFeatureFlags {

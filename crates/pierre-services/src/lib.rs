@@ -75,6 +75,9 @@ pub mod coach_grading;
 /// Coach markdown import: URL fetching, security validation, warnings, definition conversion
 pub mod coach_import;
 
+/// Coach-selection recording — the one emit site for `coach.selected`
+pub mod coach_selection;
+
 /// Coach lifecycle operations: prerequisites, assignments, and generation
 pub mod coaches;
 

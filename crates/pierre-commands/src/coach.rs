@@ -23,6 +23,8 @@ use pierre_contremaitre::messaging_strings::{
 };
 #[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
+use tracing::warn;
 
 use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
 
@@ -140,6 +142,8 @@ impl CommandHandler for CoachSelectHandler {
                 .set_selected_coach(ctx.tenant_id, ctx.user_id, Some(coach_id))
                 .await?;
 
+            record_slash_selection(ctx, coach_id).await;
+
             return Ok(CommandResponse::text(reg.render(
                 KEY_COACH_USER_UPDATED,
                 locale,
@@ -203,6 +207,11 @@ impl CommandHandler for CoachSelectHandler {
                         .group_service()
                         .create_group(&request, ctx.user_id, ctx.tenant_id, tier_cap)
                         .await?;
+
+                    // Creating a group around a coach is also picking that
+                    // coach — `group.created` covers the group, this covers
+                    // the selection.
+                    record_slash_selection(ctx, coach_id).await;
 
                     return Ok(CommandResponse::text(reg.render(
                         KEY_COACH_GROUP_CREATED,
@@ -356,6 +365,32 @@ impl CommandHandler for CoachAssignHandler {
 }
 
 /// Update a group's coach via `UpdateGroupRequest`
+/// Record the coach selection a `/coach` command just made, emitting the
+/// catalogued `coach.selected` event through the shared recorder.
+///
+/// `/coach select` is the messaging equivalent of the web Coaches UI, so it
+/// is the same product event as `POST /api/coaches/{id}/usage` — before this
+/// call existed, the slash command was the one selection surface that emitted
+/// nothing, and it is the surface most Dravr users actually have.
+///
+/// Best-effort by design: the selection itself is already persisted by the
+/// caller, so a failed usage bump must not turn a working command into an
+/// error reply. The coach's visibility is verified by the caller's `get_by_id`
+/// lookup, so the recorder's "not visible" branch is unreachable here.
+async fn record_slash_selection(ctx: &PlatformCommandContext, coach_id: &str) {
+    if let Err(e) = record_coach_selection(
+        ctx.ctx.repos().coaches.as_ref(),
+        coach_id,
+        ctx.user_id,
+        ctx.tenant_id,
+        CoachSelectionSource::SlashCommand,
+    )
+    .await
+    {
+        warn!(coach_id, error = %e, "failed to record coach usage from slash command");
+    }
+}
+
 async fn update_group_coach(
     ctx: &PlatformCommandContext,
     group_id: &str,
@@ -378,6 +413,10 @@ async fn update_group_coach(
         .groups
         .update_group(group_id, ctx.tenant_id, &update)
         .await?;
+
+    // Shared by `/coach select` (single-group case) and `/coach assign`, so
+    // both surfaces record the selection exactly once.
+    record_slash_selection(ctx, coach_id).await;
 
     Ok(())
 }

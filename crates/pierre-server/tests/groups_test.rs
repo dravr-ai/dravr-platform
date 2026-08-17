@@ -217,8 +217,10 @@ async fn test_create_group() {
 }
 
 #[tokio::test]
-async fn test_starter_plan_cannot_create_group() {
-    // Starter tier has group coaching disabled (max_members_per_group == 0).
+async fn test_starter_plan_clamps_max_members_to_tier_cap() {
+    // Starter allows small groups (max_members_per_group == 5) so that adding
+    // the bot to a Telegram group works on the plan every tenant is created
+    // on. The tier still bites: a larger request is clamped down.
     let (router, auth, _user_id, coach_id) =
         setup_single_user_with("starteruser@test.com", "starter").await;
 
@@ -227,15 +229,20 @@ async fn test_starter_plan_cannot_create_group() {
         .json(&json!({
             "name": "Starter Club",
             "coach_id": &coach_id,
-            "max_members": 5
+            "max_members": 30
         }))
         .send(router)
         .await;
 
     assert_eq!(
         resp.status_code(),
-        StatusCode::FORBIDDEN,
-        "Starter plan must be denied group creation"
+        StatusCode::CREATED,
+        "Starter plan allows a small group"
+    );
+    let body: Value = resp.json();
+    assert_eq!(
+        body["max_members"], 5,
+        "requested 30 must be clamped to the Starter tier cap of 5"
     );
 }
 

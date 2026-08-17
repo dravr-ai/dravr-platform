@@ -24,7 +24,8 @@ use pierre_contremaitre::messaging_strings::{
     KEY_LINK_INITIAL_PROMPT, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
 };
 use pierre_core::errors::AppError;
-use pierre_services::messaging_group_bind::resolve_or_create_channel_group;
+use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
+use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
 
 use super::linking::hydrate_analytics_consent;
 use super::ResolvedSession;
@@ -214,8 +215,10 @@ pub(super) async fn handle_reset(
 }
 
 /// Best-effort `coach_assignments.use_count++` for messaging-channel
-/// conversations. Logs and swallows errors so transient DB issues don't
-/// break the user-visible turn.
+/// conversations, via the shared selection recorder that also emits
+/// `coach.selected` — the event the chat path used to be missing entirely.
+/// Logs and swallows errors so transient DB issues don't break the
+/// user-visible turn.
 async fn record_coach_usage(
     resources: &ServerContext,
     coach_id: &str,
@@ -225,22 +228,16 @@ async fn record_coach_usage(
     let Ok(user_id) = Uuid::parse_str(user_id_str) else {
         return;
     };
-    match resources
-        .coaches_manager()
-        .record_usage(coach_id, user_id, tenant_id)
-        .await
+    if let Err(e) = record_coach_selection(
+        resources.coaches_manager(),
+        coach_id,
+        user_id,
+        tenant_id,
+        CoachSelectionSource::MessagingSession,
+    )
+    .await
     {
-        Ok(true) => {}
-        Ok(false) => {
-            warn!(
-                coach_id,
-                %tenant_id,
-                "skipping coach usage bump from messaging path — coach not visible to caller's tenant"
-            );
-        }
-        Err(e) => {
-            warn!(coach_id, error = %e, "failed to record coach usage from messaging path");
-        }
+        warn!(coach_id, error = %e, "failed to record coach usage from messaging path");
     }
 }
 
@@ -577,16 +574,14 @@ async fn resolve_group_for_new_session(
         .map_or_else(|| format!("{channel_type} group {chat_id}"), str::to_owned);
     let auth = resources.common.repos.auth_repos();
     let coach = resources.common.repos.coach_repos();
-    match resolve_or_create_channel_group(
-        &auth,
-        &coach,
+    let binding = ChannelChatBinding {
         tenant_id,
         channel_type,
-        chat_id,
+        channel_chat_id: chat_id,
         user_id,
-        &chat_title_hint,
-    )
-    .await
+        chat_title_hint: &chat_title_hint,
+    };
+    match resolve_or_create_channel_group(&auth, &coach, resources.group_service(), &binding).await
     {
         Ok(opt) => opt,
         Err(e) => {
@@ -707,16 +702,14 @@ async fn resolve_group_for_retrofit(
 ) -> Option<String> {
     let auth = resources.common.repos.auth_repos();
     let coach = resources.common.repos.coach_repos();
-    match resolve_or_create_channel_group(
-        &auth,
-        &coach,
+    let binding = ChannelChatBinding {
         tenant_id,
         channel_type,
         channel_chat_id,
         user_id,
         chat_title_hint,
-    )
-    .await
+    };
+    match resolve_or_create_channel_group(&auth, &coach, resources.group_service(), &binding).await
     {
         Ok(opt) => opt,
         Err(e) => {

@@ -23,6 +23,7 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::{default_locale, TenantId};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
+use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 
 use super::common::get_tenant_id;
 use super::dto::resolve_scene_blocks;
@@ -73,33 +74,27 @@ async fn verify_group_membership(
     ))
 }
 
-/// Best-effort `coach_assignments.use_count++` for REST-created conversations.
+/// Best-effort `coach_assignments.use_count++` for REST-created conversations,
+/// via the shared selection recorder that also emits `coach.selected`.
 /// Logs and swallows errors so a transient DB hiccup doesn't fail the user-
-/// visible conversation create. An `Ok(false)` from `record_usage` means the
-/// caller passed a `coach_id` they cannot see (system coaches are accepted
-/// unconditionally now, so this should be rare); we still log it.
+/// visible conversation create. `record_coach_selection` logs the
+/// coach-not-visible case itself and emits nothing for it.
 async fn record_coach_usage_best_effort(
     resources: &ServerContext,
     coach_id: &str,
     user_id: Uuid,
     tenant_id: TenantId,
 ) {
-    match resources
-        .coaches_manager()
-        .record_usage(coach_id, user_id, tenant_id)
-        .await
+    if let Err(e) = record_coach_selection(
+        resources.coaches_manager(),
+        coach_id,
+        user_id,
+        tenant_id,
+        CoachSelectionSource::ChatConversation,
+    )
+    .await
     {
-        Ok(true) => {}
-        Ok(false) => {
-            tracing::warn!(
-                coach_id,
-                %tenant_id,
-                "skipping coach usage bump — coach not visible to caller's tenant"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(coach_id, error = %e, "failed to record coach usage");
-        }
+        tracing::warn!(coach_id, error = %e, "failed to record coach usage");
     }
 }
 

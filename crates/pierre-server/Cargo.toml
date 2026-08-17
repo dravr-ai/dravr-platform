@@ -152,7 +152,9 @@ client-admin = ["client-admin-api", "client-admin-ui", "client-api-keys", "clien
 client-mobile = ["protocol-rest"]        # Mobile-specific routes (subset)
 client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 
-client-messaging = ["protocol-rest", "dep:pierre-messaging", "dep:pierre-commands", "pierre-messaging/all-channels", "pierre-services/client-messaging"]
+# Depends on tools-groups: a non-DM chat auto-binds to a coaching group through
+# GroupService, which owns the tier gate and the group.created/joined events.
+client-messaging = ["protocol-rest", "dep:pierre-messaging", "dep:pierre-commands", "pierre-messaging/all-channels", "pierre-services/client-messaging", "tools-groups"]
 client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-social", "pierre-routes-social?/client-notifications", "pierre-services/client-notifications", "pierre-routes-coaches/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-social)
 
 client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]

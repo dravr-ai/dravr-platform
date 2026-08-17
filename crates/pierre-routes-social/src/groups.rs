@@ -15,7 +15,7 @@
 //! live in the sibling [`crate::group_analytics`] module and are merged
 //! into the same `/api/groups` mount by the composition root.
 
-use tracing::{field, info, warn, Span};
+use tracing::{field, warn, Span};
 
 use axum::{
     extract::{Path, State},
@@ -602,16 +602,12 @@ impl GroupRoutes {
             .create_group(&body, auth.user_id, tenant_id, tier_cap)
             .await?;
 
-        // notify: a new coaching group exists. group_id is the freshly
-        // minted Uuid from `created`; record on the span so future child
-        // spans inherit it.
+        // The `group.created` notify event is emitted by GroupService, which
+        // every creation surface (REST, `/coach` slash command, messaging
+        // auto-bind) funnels through — emitting here too would double-count
+        // the REST path and still miss the others. Record the id on the span
+        // so future child spans inherit it.
         Span::current().record("group_id", field::display(&created.id));
-        info!(
-            target: "notify",
-            event = "group.created",
-            group_id = %created.id,
-            "coaching group created"
-        );
 
         let response: GroupResponse = created.into();
         Ok((StatusCode::CREATED, Json(response)).into_response())
@@ -1082,18 +1078,13 @@ impl GroupRoutes {
                     .join_group(&body.invite_code, auth.user_id, group_tenant_id)
                     .await?;
 
-                // notify: user joined a group. The invite's tenant carries the
-                // group's tenant — record both so the Slack ping reflects the
-                // group context, not the caller's home tenant.
+                // `group.joined` is emitted by GroupService::join_group, under
+                // the group's tenant rather than the caller's home tenant.
+                // Record both here so the rest of this request's log lines
+                // carry the group context too.
                 let span = Span::current();
                 span.record("tenant_id", field::display(&group_tenant_id));
                 span.record("group_id", field::display(&invite.group_id));
-                info!(
-                    target: "notify",
-                    event = "group.joined",
-                    group_id = %invite.group_id,
-                    "user joined coaching group"
-                );
 
                 let response: MemberResponse = created.into();
                 Ok((StatusCode::CREATED, Json(response)).into_response())
@@ -1132,18 +1123,13 @@ impl GroupRoutes {
                     .redeem_coach_invite(&body.invite_code, auth.user_id, group_tenant_id)
                     .await?;
 
+                // `group.joined` is emitted by
+                // GroupService::redeem_coach_invite, which fires it only when
+                // the attach actually happens — re-redeeming the same invite
+                // returns early there and no longer double-counts.
                 let span = Span::current();
                 span.record("tenant_id", field::display(&group_tenant_id));
                 span.record("group_id", field::display(&invite.group_id));
-                // Reuses the catalogued `group.joined` event (a coach
-                // redeeming a coach-kind invite is still a join); the message
-                // distinguishes the coach case for operators.
-                info!(
-                    target: "notify",
-                    event = "group.joined",
-                    group_id = %invite.group_id,
-                    "coach joined coaching group"
-                );
 
                 let response: GroupResponse = group.into();
                 Ok((StatusCode::CREATED, Json(response)).into_response())

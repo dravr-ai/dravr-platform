@@ -4341,6 +4341,7 @@ dependencies = [
  "pierre-enforme",
  "pierre-evals",
  "pierre-fitness-compute",
+ "pierre-groups",
  "pierre-intelligence",
  "pierre-llm",
  "pierre-mcp-schema",

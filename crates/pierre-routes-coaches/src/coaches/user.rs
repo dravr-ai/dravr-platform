@@ -30,10 +30,11 @@ use pierre_database::database::ChatManager;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
+use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 use pierre_services::{coach_import, coaches as coaches_service, recipes as recipes_service};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use tracing::{field, info, warn, Span};
+use tracing::{field, warn, Span};
 use uuid::Uuid;
 
 use super::types::{
@@ -1257,27 +1258,21 @@ pub(super) async fn handle_record_usage<C: CoachesCtx + MiddlewareCtx>(
     let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    // Record IDs on the span so the NotifyLayer can attribute the
-    // coach.selected event to this user/tenant without re-passing them.
+    // Record IDs on the span so this request's log lines carry the caller.
     let span = Span::current();
     span.record("user_id", field::display(&auth.user_id));
     span.record("tenant_id", field::display(&tenant_id));
 
+    // `coach.selected` is emitted by `record_coach_selection`, which the web
+    // chat, `/coach select` and messaging ingress also call — the event
+    // follows the selection, not this transport.
     let manager = super::get_coaches_manager(&ctx);
-    let success = manager.record_usage(&id, auth.user_id, tenant_id).await?;
+    let src = CoachSelectionSource::Rest;
+    let success = record_coach_selection(manager, &id, auth.user_id, tenant_id, src).await?;
 
     if !success {
         return Err(AppError::not_found(format!("Coach {id}")));
     }
-
-    // notify: user picked this coach for a conversation. `id` is the
-    // coach slug from the URL — that's what the routing rule keys on.
-    info!(
-        target: "notify",
-        event = "coach.selected",
-        coach_slug = %id,
-        "user selected coach"
-    );
 
     let response = RecordUsageResponse { success };
     Ok((StatusCode::OK, Json(response)).into_response())
