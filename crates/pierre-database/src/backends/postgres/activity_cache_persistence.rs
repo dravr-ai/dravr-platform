@@ -155,6 +155,35 @@ impl ActivityCacheRepository for PostgresDatabase {
         Ok(row.map(|r| r.get::<DateTime<Utc>, _>("synced_at")))
     }
 
+    async fn latest_activity_sync_any(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Option<DateTime<Utc>>> {
+        let user_id_str = user_id.to_string();
+
+        let row = sqlx::query(
+            r"
+            SELECT synced_at
+            FROM cached_activities
+            WHERE user_id = $1 AND tenant_id = $2
+            ORDER BY synced_at DESC
+            LIMIT 1
+            ",
+        )
+        .bind(&user_id_str)
+        .bind(tenant_id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read activity sync time: {e}")))?;
+
+        row.map(|r| {
+            r.try_get::<DateTime<Utc>, _>("synced_at")
+                .map_err(|e| AppError::database(format!("activity col synced_at: {e}")))
+        })
+        .transpose()
+    }
+
     async fn prune_activities_before(
         &self,
         user_id: Uuid,

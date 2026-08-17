@@ -28,6 +28,7 @@ use tracing::error;
 
 use super::super::channel_profile::ChannelProfile;
 use super::super::turn::TurnInput;
+use super::commitments::inject_commitments;
 use super::followups::inject_pending_followups;
 use super::memory::{inject_okf_bundle, inject_playbooks, inject_training_plan};
 #[cfg(feature = "tools-groups")]
@@ -635,6 +636,20 @@ pub(crate) async fn assemble_prompt_and_messages(
         input.conversation_tenant_id,
         &input.user_id,
         conv.coach_id.as_deref(),
+        base_prompt,
+    )
+    .await;
+
+    // Stage 7f.1: Render the athlete's own open commitments. Scoped to the
+    // TOOL tenant — the tenant `commitment_create` writes under and the one
+    // their activity data lives in, so the block and the sweep agree on which
+    // promises exist. Deliberately above the training plan: a promise the
+    // athlete made themselves outranks a plan the coach wrote for them.
+    let base_prompt = inject_commitments(
+        &ctx.data,
+        &input.tool_tenant_id.to_string(),
+        &input.user_id,
+        user_timezone.as_deref(),
         base_prompt,
     )
     .await;

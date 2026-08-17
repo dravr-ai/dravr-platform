@@ -43,6 +43,15 @@ pub(crate) mod user_approval_notifier;
 #[cfg(feature = "client-messaging")]
 pub mod backfill_notifier;
 
+/// Spawns the coaching background workers (outcome evaluator, archetype
+/// aggregation, commitment sweep).
+pub mod coaching_workers;
+
+/// Delivers a swept commitment verdict back to the athlete, applying the
+/// per-channel proactive-messaging policy.
+#[cfg(feature = "client-messaging")]
+pub mod commitment_reporter;
+
 /// Outbound channel-message constructors shared by the proactive senders
 /// (backfill/approval notifiers) and the messaging-ingress reply paths.
 #[cfg(feature = "client-messaging")]

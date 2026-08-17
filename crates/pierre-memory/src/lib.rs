@@ -30,9 +30,14 @@
 //! - [`Playbook`] — a learned `trigger -> intervention` coaching pattern,
 //!   reinforced by automatic outcome labels; [`PendingAdvice`] tracks
 //!   in-flight advice awaiting its observed outcome
+//! - [`Commitment`] — a countable, time-boxed promise the athlete made and the
+//!   coach confirmed ("three easy runs this week"), counted against real
+//!   activity data once its window closes
 
 /// Claim verdicts from the verification pipeline.
 pub mod claims;
+/// Athlete commitments: countable, time-boxed promises swept against real data.
+pub mod commitments;
 /// Summaries that replace earlier conversation turns in long sessions.
 pub mod compaction;
 /// Structured user facts extracted from conversation turns.
@@ -51,14 +56,18 @@ pub mod sessions;
 pub mod training_plans;
 
 pub use claims::{ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, VerdictLayer};
+pub use commitments::{
+    Commitment, CommitmentOutcome, CommitmentStatus, MAX_STATEMENT_LEN, MAX_TARGET_SESSIONS,
+    MAX_WINDOW_DAYS, MIN_TARGET_SESSIONS,
+};
 pub use compaction::CompactionBlock;
 pub use facts::{FactKind, FactSource, UserFact, UserFactMetrics};
 pub use followups::{CoachFollowup, FollowupStatus};
 pub use notes::CoachNote;
 pub use playbooks::{
-    wilson_lower_bound_95, AdviceStatus, ArchetypePrior, Band, Intervention, InterventionKind,
-    LabelSource, MetricBaseline, OutcomeLabel, OutcomeMetric, PendingAdvice, Playbook, TriggerKind,
-    TriggerPattern,
+    sanitize_sport_slug, wilson_lower_bound_95, AdviceStatus, ArchetypePrior, Band, Intervention,
+    InterventionKind, LabelSource, MetricBaseline, OutcomeLabel, OutcomeMetric, PendingAdvice,
+    Playbook, TriggerKind, TriggerPattern, MAX_SPORT_SLUG_LEN,
 };
 pub use scope::MemoryScope;
 pub use sessions::{CoachSession, SessionStatus};

@@ -394,6 +394,33 @@ impl AdviceStatus {
     }
 }
 
+/// Max length of an accepted sport slug — a real slug (`run`, `bike_ride`,
+/// `cross_country_skiing`) fits comfortably; anything longer is not slug-shaped.
+pub const MAX_SPORT_SLUG_LEN: usize = 32;
+
+/// Narrow a caller-supplied sport to a bounded `[a-z0-9_]` slug, or `None`.
+///
+/// `sport` is the only free-text field in the trigger/outcome vocabulary, and
+/// it reaches the coach's system prompt verbatim through the playbook and
+/// commitment blocks. Constraining it here is why those renderers need no
+/// further fencing — "Ignore prior instructions", `RUN`, `run!` and `trail run`
+/// all reduce to sport-agnostic rather than reaching a prompt.
+///
+/// Shared by every writer of a stored sport slug so the guarantee holds at one
+/// place instead of once per caller.
+#[must_use]
+pub fn sanitize_sport_slug(sport: Option<&str>) -> Option<String> {
+    sport
+        .map(str::trim)
+        .filter(|s| {
+            !s.is_empty()
+                && s.len() <= MAX_SPORT_SLUG_LEN
+                && s.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        })
+        .map(str::to_owned)
+}
+
 /// z-score for a 95% one-sided Wilson confidence interval.
 const WILSON_Z_95: f64 = 1.959_963_984_540_054;
 

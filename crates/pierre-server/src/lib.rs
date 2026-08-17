@@ -126,6 +126,7 @@ pub mod test_utils;
 pub mod services;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
+pub use crate::services::coaching_workers::start_coaching_workers;
 pub use pierre_services::coach_followup_scheduler::start_followup_scheduler;
 #[cfg(feature = "client-messaging")]
 pub use pierre_services::messaging_outbound::start_outbound_worker;

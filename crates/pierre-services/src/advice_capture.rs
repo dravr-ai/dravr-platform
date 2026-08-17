@@ -28,8 +28,8 @@ use pierre_core::errors::AppError;
 use pierre_database::repositories::PlaybookRepository;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, LlmProvider};
 use pierre_memory::playbooks::{
-    AdviceStatus, Band, Intervention, InterventionKind, MetricBaseline, OutcomeMetric,
-    PendingAdvice, TriggerKind, TriggerPattern,
+    sanitize_sport_slug, AdviceStatus, Band, Intervention, InterventionKind, MetricBaseline,
+    OutcomeMetric, PendingAdvice, TriggerKind, TriggerPattern,
 };
 use serde::Deserialize;
 use tokio::sync::Semaphore;
@@ -47,11 +47,6 @@ const MIN_REPLY_LEN: usize = 40;
 /// Clamp range for the model-provided observation window, in days.
 const MIN_WINDOW_DAYS: u8 = 1;
 const MAX_WINDOW_DAYS: u8 = 30;
-
-/// Max length of an accepted sport slug — a real slug (`run`, `bike_ride`,
-/// `cross_country_skiing`) fits comfortably; anything longer is rejected as not
-/// slug-shaped.
-const MAX_SPORT_SLUG_LEN: usize = 32;
 
 /// Default ACWR ceiling for a `ramp_rate_within` outcome metric when the model
 /// does not (and cannot) specify one — the widely-cited 1.3 "sweet spot" upper
@@ -200,7 +195,7 @@ pub fn raw_to_pending(
     let window_days = raw.window_days.clamp(MIN_WINDOW_DAYS, MAX_WINDOW_DAYS);
     let trigger = TriggerPattern {
         kind: TriggerKind::parse_lenient(&raw.trigger_kind),
-        sport: sanitize_sport(raw.trigger_sport.as_deref()),
+        sport: sanitize_sport_slug(raw.trigger_sport.as_deref()),
         magnitude: Band::parse_lenient(&raw.trigger_magnitude),
     };
     let intervention = Intervention {
@@ -210,7 +205,7 @@ pub fn raw_to_pending(
     let outcome_metric = metric_from_raw(
         &raw.outcome_metric,
         window_days,
-        sanitize_sport(raw.outcome_sport.as_deref()),
+        sanitize_sport_slug(raw.outcome_sport.as_deref()),
     );
     let due_by = now + chrono::Duration::days(i64::from(window_days));
     Some(PendingAdvice {
@@ -267,29 +262,6 @@ impl From<RawAdvice> for RawAdvicePublic {
             window_days: r.window_days,
         }
     }
-}
-
-/// Constrain the extraction LLM's sport field to a bounded slug before it is
-/// stored and later interpolated into the coach's system prompt.
-///
-/// `sport` is the only trigger/outcome field that stays free text (every sibling
-/// is mapped to a closed enum), so without this it would be an unvalidated
-/// LLM-authored string flowing into the prompt. Keep only lowercase-ascii /
-/// digit / underscore slugs (the vocabulary the extractor is asked to emit,
-/// e.g. `run`, `bike_ride`), bounded in length; anything else is dropped to
-/// `None` (sport-agnostic). Defense in depth against prompt injection via the
-/// captured sport.
-#[must_use]
-fn sanitize_sport(sport: Option<&str>) -> Option<String> {
-    sport
-        .map(str::trim)
-        .filter(|s| {
-            !s.is_empty()
-                && s.len() <= MAX_SPORT_SLUG_LEN
-                && s.chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-        })
-        .map(str::to_owned)
 }
 
 /// Map an outcome-metric slug + window + sport to a typed [`OutcomeMetric`].

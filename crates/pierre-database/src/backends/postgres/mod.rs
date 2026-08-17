@@ -25,6 +25,8 @@ pub mod coaches;
 mod coaches_assignments;
 /// Coaching group repository implementation (group CRUD, membership, invites)
 pub mod coaching_groups;
+/// Athlete commitments (`Postgres`) backing `CommitmentRepository`.
+pub mod commitments;
 /// Email-verification token management — proving a registered address
 pub mod email_verification;
 /// Encryption support (AES-256-GCM)

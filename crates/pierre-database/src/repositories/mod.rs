@@ -18,6 +18,8 @@ pub mod chat;
 pub mod claim_verdicts;
 /// Repository traits for coaches catalogue, coaching groups, store listings.
 pub mod coaches;
+/// Repository trait for athlete commitments swept against real activity data.
+pub mod commitments;
 /// Repository traits for data source registration persistence.
 pub mod data_source;
 /// Repository traits for feature-flag tenant defaults + per-user overrides.
@@ -76,6 +78,7 @@ pub use api_keys::*;
 pub use chat::*;
 pub use claim_verdicts::*;
 pub use coaches::*;
+pub use commitments::*;
 pub use data_source::*;
 pub use feature_flags::*;
 pub use fitness_config::*;

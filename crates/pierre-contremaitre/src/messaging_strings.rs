@@ -183,6 +183,94 @@ pub const KEY_BACKFILL_LIST_HEADER: &str = "messaging.backfill.list_header";
 /// `{0}` = number of additional activities not shown.
 pub const KEY_BACKFILL_LIST_MORE: &str = "messaging.backfill.list_more";
 
+// ── Commitment verdict keys ───────────────────────────────────────────────
+// Emitted by the commitment sweep once a promise's window closes. Composed
+// from counts and the sanitized sport slug only — never from the athlete's or
+// the coach's stored text — because the sweep reads provider activity data and
+// an activity title must never be able to author a sentence the athlete reads.
+
+/// Key: the athlete completed everything they promised.
+/// `{0}` = sessions done, `{1}` = sessions promised, `{2}` = activity noun.
+pub const KEY_COMMITMENT_MET: &str = "messaging.commitment.met";
+/// Key: the athlete completed some but not all of what they promised.
+/// `{0}` = sessions done, `{1}` = sessions promised, `{2}` = activity noun.
+pub const KEY_COMMITMENT_PARTIAL: &str = "messaging.commitment.partial";
+/// Key: the athlete completed none of what they promised.
+/// `{0}` = sessions promised, `{1}` = activity noun.
+pub const KEY_COMMITMENT_MISSED: &str = "messaging.commitment.missed";
+/// Key: generic activity noun used when a commitment counts any sport, so the
+/// three verdict templates need no sport-present and sport-absent variants.
+pub const KEY_COMMITMENT_ACTIVITY_ANY: &str = "messaging.commitment.activity_any";
+/// Key: notification title when a verdict is delivered as an app push.
+pub const KEY_COMMITMENT_PUSH_TITLE: &str = "messaging.commitment.push_title";
+
+/// French default for [`KEY_COMMITMENT_MET`].
+pub(crate) const FR_COMMITMENT_MET: &str =
+    "Tu avais dit {1} × {2}. C'est fait : {0}/{1}. \u{1f44f}";
+/// English default for [`KEY_COMMITMENT_MET`].
+pub(crate) const EN_COMMITMENT_MET: &str = "You said {1} × {2}. Done: {0}/{1}. \u{1f44f}";
+/// Spanish default for [`KEY_COMMITMENT_MET`].
+pub(crate) const ES_COMMITMENT_MET: &str = "Dijiste {1} × {2}. Hecho: {0}/{1}. \u{1f44f}";
+/// German default for [`KEY_COMMITMENT_MET`].
+pub(crate) const DE_COMMITMENT_MET: &str =
+    "Du hattest {1} × {2} gesagt. Geschafft: {0}/{1}. \u{1f44f}";
+/// Portuguese default for [`KEY_COMMITMENT_MET`].
+pub(crate) const PT_COMMITMENT_MET: &str = "Disseste {1} × {2}. Feito: {0}/{1}. \u{1f44f}";
+
+/// French default for [`KEY_COMMITMENT_PARTIAL`].
+pub(crate) const FR_COMMITMENT_PARTIAL: &str =
+    "Tu avais dit {1} × {2}. Tu en as fait {0}. On garde le rythme cette semaine ?";
+/// English default for [`KEY_COMMITMENT_PARTIAL`].
+pub(crate) const EN_COMMITMENT_PARTIAL: &str =
+    "You said {1} × {2}. You got {0} in. Want to pick the rhythm back up this week?";
+/// Spanish default for [`KEY_COMMITMENT_PARTIAL`].
+pub(crate) const ES_COMMITMENT_PARTIAL: &str =
+    "Dijiste {1} × {2}. Hiciste {0}. ¿Retomamos el ritmo esta semana?";
+/// German default for [`KEY_COMMITMENT_PARTIAL`].
+pub(crate) const DE_COMMITMENT_PARTIAL: &str =
+    "Du hattest {1} × {2} gesagt. Geschafft hast du {0}. Diese Woche wieder in den Rhythmus?";
+/// Portuguese default for [`KEY_COMMITMENT_PARTIAL`].
+pub(crate) const PT_COMMITMENT_PARTIAL: &str =
+    "Disseste {1} × {2}. Fizeste {0}. Retomamos o ritmo esta semana?";
+
+/// French default for [`KEY_COMMITMENT_MISSED`].
+pub(crate) const FR_COMMITMENT_MISSED: &str =
+    "Tu avais dit {0} × {1} — rien d'enregistré. Qu'est-ce qui s'est mis en travers ?";
+/// English default for [`KEY_COMMITMENT_MISSED`].
+pub(crate) const EN_COMMITMENT_MISSED: &str =
+    "You said {0} × {1} — nothing landed. What got in the way?";
+/// Spanish default for [`KEY_COMMITMENT_MISSED`].
+pub(crate) const ES_COMMITMENT_MISSED: &str =
+    "Dijiste {0} × {1} y no quedó registrado ninguno. ¿Qué se cruzó?";
+/// German default for [`KEY_COMMITMENT_MISSED`].
+pub(crate) const DE_COMMITMENT_MISSED: &str =
+    "Du hattest {0} × {1} gesagt — aufgezeichnet wurde nichts. Was ist dazwischengekommen?";
+/// Portuguese default for [`KEY_COMMITMENT_MISSED`].
+pub(crate) const PT_COMMITMENT_MISSED: &str =
+    "Disseste {0} × {1} e não ficou nada registado. O que atrapalhou?";
+
+/// French default for [`KEY_COMMITMENT_ACTIVITY_ANY`].
+pub(crate) const FR_COMMITMENT_ACTIVITY_ANY: &str = "séances";
+/// English default for [`KEY_COMMITMENT_ACTIVITY_ANY`].
+pub(crate) const EN_COMMITMENT_ACTIVITY_ANY: &str = "sessions";
+/// Spanish default for [`KEY_COMMITMENT_ACTIVITY_ANY`].
+pub(crate) const ES_COMMITMENT_ACTIVITY_ANY: &str = "sesiones";
+/// German default for [`KEY_COMMITMENT_ACTIVITY_ANY`].
+pub(crate) const DE_COMMITMENT_ACTIVITY_ANY: &str = "Einheiten";
+/// Portuguese default for [`KEY_COMMITMENT_ACTIVITY_ANY`].
+pub(crate) const PT_COMMITMENT_ACTIVITY_ANY: &str = "sessões";
+
+/// French default for [`KEY_COMMITMENT_PUSH_TITLE`].
+pub(crate) const FR_COMMITMENT_PUSH_TITLE: &str = "Ton engagement de la semaine";
+/// English default for [`KEY_COMMITMENT_PUSH_TITLE`].
+pub(crate) const EN_COMMITMENT_PUSH_TITLE: &str = "Your commitment this week";
+/// Spanish default for [`KEY_COMMITMENT_PUSH_TITLE`].
+pub(crate) const ES_COMMITMENT_PUSH_TITLE: &str = "Tu compromiso de la semana";
+/// German default for [`KEY_COMMITMENT_PUSH_TITLE`].
+pub(crate) const DE_COMMITMENT_PUSH_TITLE: &str = "Deine Zusage diese Woche";
+/// Portuguese default for [`KEY_COMMITMENT_PUSH_TITLE`].
+pub(crate) const PT_COMMITMENT_PUSH_TITLE: &str = "O teu compromisso desta semana";
+
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
 // Emitted by messaging_ingress while the user is not yet linked to a Dravr
 // account, so locale resolution here cannot consult `users.locale`. Callers
@@ -1700,6 +1788,11 @@ pub(crate) const PT_COACH_ASSIGN_FORBIDDEN: &str =
 #[rustfmt::skip]
 const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── French (DEFAULT_LOCALE) ─────────────────────────────────────────
+    (KEY_COMMITMENT_MET, "fr", FR_COMMITMENT_MET),
+    (KEY_COMMITMENT_PARTIAL, "fr", FR_COMMITMENT_PARTIAL),
+    (KEY_COMMITMENT_MISSED, "fr", FR_COMMITMENT_MISSED),
+    (KEY_COMMITMENT_ACTIVITY_ANY, "fr", FR_COMMITMENT_ACTIVITY_ANY),
+    (KEY_COMMITMENT_PUSH_TITLE, "fr", FR_COMMITMENT_PUSH_TITLE),
     (KEY_ERROR_GENERIC, "fr", FR_ERROR_GENERIC),
     (KEY_GUARDIAN_DENIED, "fr", FR_GUARDIAN_DENIED),
     (KEY_GUARDIAN_CONFIRM_PROMPT, "fr", FR_GUARDIAN_CONFIRM_PROMPT),
@@ -1863,6 +1956,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_ASSIGN_FORBIDDEN, "fr", FR_COACH_ASSIGN_FORBIDDEN),
 
     // ── English ─────────────────────────────────────────────────────────
+    (KEY_COMMITMENT_MET, "en", EN_COMMITMENT_MET),
+    (KEY_COMMITMENT_PARTIAL, "en", EN_COMMITMENT_PARTIAL),
+    (KEY_COMMITMENT_MISSED, "en", EN_COMMITMENT_MISSED),
+    (KEY_COMMITMENT_ACTIVITY_ANY, "en", EN_COMMITMENT_ACTIVITY_ANY),
+    (KEY_COMMITMENT_PUSH_TITLE, "en", EN_COMMITMENT_PUSH_TITLE),
     (KEY_SCOPE_REFUSAL, "en", EN_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "en", EN_CAPABILITY_REFUSAL),
     (
@@ -2026,6 +2124,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_ASSIGN_FORBIDDEN, "en", EN_COACH_ASSIGN_FORBIDDEN),
 
     // ── Spanish ─────────────────────────────────────────────────────────
+    (KEY_COMMITMENT_MET, "es", ES_COMMITMENT_MET),
+    (KEY_COMMITMENT_PARTIAL, "es", ES_COMMITMENT_PARTIAL),
+    (KEY_COMMITMENT_MISSED, "es", ES_COMMITMENT_MISSED),
+    (KEY_COMMITMENT_ACTIVITY_ANY, "es", ES_COMMITMENT_ACTIVITY_ANY),
+    (KEY_COMMITMENT_PUSH_TITLE, "es", ES_COMMITMENT_PUSH_TITLE),
     (KEY_SCOPE_REFUSAL, "es", ES_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "es", ES_CAPABILITY_REFUSAL),
     (
@@ -2189,6 +2292,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_RESET_CONFIRM, "es", ES_RESET_CONFIRM),
 
     // ── German ──────────────────────────────────────────────────────────
+    (KEY_COMMITMENT_MET, "de", DE_COMMITMENT_MET),
+    (KEY_COMMITMENT_PARTIAL, "de", DE_COMMITMENT_PARTIAL),
+    (KEY_COMMITMENT_MISSED, "de", DE_COMMITMENT_MISSED),
+    (KEY_COMMITMENT_ACTIVITY_ANY, "de", DE_COMMITMENT_ACTIVITY_ANY),
+    (KEY_COMMITMENT_PUSH_TITLE, "de", DE_COMMITMENT_PUSH_TITLE),
     (KEY_SCOPE_REFUSAL, "de", DE_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "de", DE_CAPABILITY_REFUSAL),
     (
@@ -2352,6 +2460,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_RESET_CONFIRM, "de", DE_RESET_CONFIRM),
 
     // ── Portuguese ──────────────────────────────────────────────────────
+    (KEY_COMMITMENT_MET, "pt", PT_COMMITMENT_MET),
+    (KEY_COMMITMENT_PARTIAL, "pt", PT_COMMITMENT_PARTIAL),
+    (KEY_COMMITMENT_MISSED, "pt", PT_COMMITMENT_MISSED),
+    (KEY_COMMITMENT_ACTIVITY_ANY, "pt", PT_COMMITMENT_ACTIVITY_ANY),
+    (KEY_COMMITMENT_PUSH_TITLE, "pt", PT_COMMITMENT_PUSH_TITLE),
     (KEY_SCOPE_REFUSAL, "pt", PT_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "pt", PT_CAPABILITY_REFUSAL),
     (

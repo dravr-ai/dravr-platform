@@ -24,6 +24,8 @@ pub mod coach_authors;
 pub mod coaches;
 /// Coaching group storage, membership, and invite management
 pub mod coaching_groups;
+/// Athlete commitments (`SQLite`) backing `CommitmentRepository`.
+pub mod commitments;
 /// Email-verification token management — proving a registered address
 pub mod email_verification_tokens;
 /// Database error types

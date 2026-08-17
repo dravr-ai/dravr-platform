@@ -11,8 +11,8 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::database::Database as SqliteDatabase;
 use crate::repositories::{
     A2ARepository, ActivityCacheRepository, AdminRepository, ApiKeyRepository, ChatRepository,
-    ClaimVerdictRepository, CoachesRepository, CoachingGroupRepository, DataSourceRepository,
-    DossierRepository, EmailVerificationRepository, FeatureFlagsRepository,
+    ClaimVerdictRepository, CoachesRepository, CoachingGroupRepository, CommitmentRepository,
+    DataSourceRepository, DossierRepository, EmailVerificationRepository, FeatureFlagsRepository,
     FitnessConfigRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
     HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
@@ -47,6 +47,8 @@ pub struct RepositoryRegistry {
     pub chat: Arc<dyn ChatRepository>,
     /// Coach persona management
     pub coaches: Arc<dyn CoachesRepository>,
+    /// Athlete commitments swept against real activity data
+    pub commitments: Arc<dyn CommitmentRepository>,
     /// User fitness configuration
     pub fitness_config: Arc<dyn FitnessConfigRepository>,
     /// Admin impersonation sessions
@@ -181,6 +183,7 @@ impl RepositoryRegistry {
             api_keys: db.clone(),
             chat: db.clone(),
             coaches: db.clone(),
+            commitments: db.clone(),
             fitness_config: db.clone(),
             impersonation: db.clone(),
             llm_credentials: db.clone(),
@@ -247,6 +250,7 @@ impl RepositoryRegistry {
             api_keys: db.clone(),
             chat: db.clone(),
             coaches: db.clone(),
+            commitments: db.clone(),
             fitness_config: db.clone(),
             impersonation: db.clone(),
             llm_credentials: db.clone(),

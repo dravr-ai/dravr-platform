@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 102
+// Tool count: 104
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -397,6 +397,38 @@ export interface CoachNoteAddParams {
 
   /** Optional originating conversation ID for provenance. */
   conversation_id?: string;
+}
+
+
+/**
+ * Retract a commitment the athlete no longer wants to be held to, so it is never counted or reported. Use when they say they are dropping it or the circumstances changed — injury, travel, a plan revision. Retracting is not failing; do not use this to record that they missed it.
+ */
+export interface CommitmentCancelParams {
+
+  /** Id of the commitment to retract, as listed in your open-commitments block. */
+  commitment_id: string;
+}
+
+
+/**
+ * Record a commitment the athlete just made, so it can be checked against their real activity data when the window closes. Call this ONLY after the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both first and call this on their answer. Do not use it for your own plans or reminders.
+ */
+export interface CommitmentCreateParams {
+
+  /** Coach the athlete made the promise to. */
+  coach_id: string;
+
+  /** Last day that counts, as YYYY-MM-DD in the athlete's local calendar. For 'this week' use the date of the coming Sunday from the current-date anchor. */
+  due_date: string;
+
+  /** How many sessions the athlete committed to (1-30). */
+  sessions: number;
+
+  /** Optional lowercase sport slug the sessions must match ('run', 'ride', 'swim'). Omit to count any activity. */
+  sport?: string;
+
+  /** The promise in the athlete's own terms (≤ 200 characters), e.g. 'three easy runs this week'. */
+  statement: string;
 }
 
 
@@ -1682,7 +1714,7 @@ export interface McpErrorResponse {
 /**
  * Union type of all available tool names
  */
-export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
+export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "commitment_cancel" | "commitment_create" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
 
 /**
  * Map of tool names to their parameter types
@@ -1711,6 +1743,8 @@ export interface ToolParamsMap {
   "calculate_recovery_score": CalculateRecoveryScoreParams;
   "coach_followup_schedule": CoachFollowupScheduleParams;
   "coach_note_add": CoachNoteAddParams;
+  "commitment_cancel": CommitmentCancelParams;
+  "commitment_create": CommitmentCreateParams;
   "compare_activities": CompareActivitiesParams;
   "compute_training_history": ComputeTrainingHistoryParams;
   "connect_provider": ConnectProviderParams;

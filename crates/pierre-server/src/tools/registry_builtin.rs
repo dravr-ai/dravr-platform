@@ -123,6 +123,10 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-memory")]
     register_playbook_tools(registry);
 
+    // Athlete commitment tools (create / cancel)
+    #[cfg(feature = "tools-memory")]
+    register_commitment_tools(registry);
+
     // Verification tools (bullshit detector)
     #[cfg(feature = "tools-verification")]
     register_verification_tools(registry);
@@ -181,6 +185,24 @@ fn register_playbook_tools(registry: &mut ToolRegistry) {
     };
     registry.register_with_category(Arc::new(ListCoachingPlaybooksTool), "memory");
     registry.register_with_category(Arc::new(ForgetPlaybookTool), "playbook");
+}
+
+/// Register athlete-commitment tools.
+///
+/// Category `memory` so the coach can reach them on a chat turn — the sweep is
+/// worthless if the only surface that can record a promise is an operator one.
+#[cfg(feature = "tools-memory")]
+fn register_commitment_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::commitments::create_commitment_tools;
+
+    for tool in create_commitment_tools() {
+        registry.register_with_category(Arc::from(tool), "memory");
+    }
+
+    info!(
+        "Registered commitment tools (registry now has {} tools)",
+        registry.len()
+    );
 }
 
 /// Register verification tools.

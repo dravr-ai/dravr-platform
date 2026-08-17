@@ -234,9 +234,11 @@ async fn test_configuration_tools_count_in_total() {
     // forget_playbook added (92→94, total 98→100).
     // 2026-07-12: training-plan persistence tools get_training_plan +
     // save_training_plan added (94→96, total 100→102).
+    // 2026-08-17: athlete-commitment tools commitment_create +
+    // commitment_cancel added (96→98, total 102→104).
     assert_eq!(
-        fitness_tools, 96,
-        "Expected exactly 96 non-configuration tools"
+        fitness_tools, 98,
+        "Expected exactly 98 non-configuration tools"
     );
-    assert_eq!(tools.len(), 102, "Expected total of 102 tools"); // 96 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 104, "Expected total of 104 tools"); // 98 non-configuration + 6 configuration
 }

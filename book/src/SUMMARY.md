@@ -20,6 +20,7 @@
 
 - [Overview](coaching-harness-overview.md)
 - [Tier-by-Tier](coaching-harness-tiers.md)
+- [Commitment Sweep](commitment-sweep.md)
 - [Implementation Log](coaching-harness-sprints.md)
 - [Operator Guide](coaching-harness-ops.md)
 

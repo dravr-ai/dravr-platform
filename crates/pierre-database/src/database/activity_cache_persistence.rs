@@ -165,6 +165,41 @@ impl ActivityCacheRepository for Database {
         .transpose()
     }
 
+    async fn latest_activity_sync_any(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Option<DateTime<Utc>>> {
+        let user_id_str = user_id.to_string();
+
+        // `synced_at` is RFC3339 UTC text, so the lexical DESC order is also the
+        // chronological one — the same assumption every other read here makes.
+        let row = sqlx::query(
+            r"
+            SELECT synced_at
+            FROM cached_activities
+            WHERE user_id = ? AND tenant_id = ?
+            ORDER BY synced_at DESC
+            LIMIT 1
+            ",
+        )
+        .bind(&user_id_str)
+        .bind(tenant_id.to_string())
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read activity sync time: {e}")))?;
+
+        row.map(|r| {
+            let synced_at: String = r
+                .try_get("synced_at")
+                .map_err(|e| AppError::database(format!("activity col synced_at: {e}")))?;
+            DateTime::parse_from_rfc3339(&synced_at)
+                .map(|dt| dt.with_timezone(&Utc))
+                .map_err(|e| AppError::database(format!("Invalid synced_at timestamp: {e}")))
+        })
+        .transpose()
+    }
+
     async fn prune_activities_before(
         &self,
         user_id: Uuid,

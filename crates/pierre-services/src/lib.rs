@@ -81,6 +81,10 @@ pub mod coach_selection;
 /// Coach lifecycle operations: prerequisites, assignments, and generation
 pub mod coaches;
 
+/// Commitment sweep: counts due athlete commitments against real activity data
+/// and hands the verdict to a reporter for delivery.
+pub mod commitment_sweep;
+
 /// Conversation compaction: keeps long conversations under the context window
 pub mod conversation_compaction;
 

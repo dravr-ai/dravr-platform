@@ -29,6 +29,8 @@ pub mod auth_recovery;
 /// Capability-failure recovery: verify a "my data access is broken" claim
 /// with a real fetch, then re-ask with the data or route to re-auth.
 pub mod capability_recovery;
+/// Open athlete commitments rendered into the coach's system prompt.
+pub mod commitments;
 pub mod compaction;
 /// Deterministic completion for the calibration interview — the facts-landed
 /// check and the platform-rendered wrap-up.

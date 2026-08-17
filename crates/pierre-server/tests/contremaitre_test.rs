@@ -637,6 +637,8 @@ const EXPECTED_TOOLS: &[&str] = &[
     "calculate_recovery_score",
     "coach_followup_schedule",
     "coach_note_add",
+    "commitment_cancel",
+    "commitment_create",
     "compare_activities",
     "compute_training_history",
     "connect_provider",

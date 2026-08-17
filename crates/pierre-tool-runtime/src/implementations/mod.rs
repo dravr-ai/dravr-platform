@@ -90,6 +90,9 @@ pub mod goals;
 #[cfg(feature = "tools-groups")]
 pub mod groups;
 
+/// Athlete commitment tools: `commitment_create`, `commitment_cancel` (`tools-memory` feature).
+#[cfg(feature = "tools-memory")]
+pub mod commitments;
 /// Memory tools: coach-authored notes, followups, fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;

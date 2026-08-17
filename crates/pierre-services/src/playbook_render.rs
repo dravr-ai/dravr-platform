@@ -10,8 +10,8 @@
 //! markdown block the coach can reason over. Every rendered field is either a
 //! system-derived enum, a counter, or the `sport` slug — and `sport` is
 //! constrained to a bounded `[a-z0-9_]` slug at capture
-//! (`advice_capture::sanitize_sport`), not free text. So (unlike the OKF bundle)
-//! no StruQ fencing is needed here.
+//! (`pierre_memory::sanitize_sport_slug`), not free text. So (unlike the OKF
+//! bundle) no StruQ fencing is needed here.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;

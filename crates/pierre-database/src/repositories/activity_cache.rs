@@ -77,6 +77,21 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
     ) -> AppResult<Option<DateTime<Utc>>>;
 
+    /// Most recent `synced_at` for a user across **every** provider. `None` when
+    /// nothing has ever been cached for them.
+    ///
+    /// The provider-scoped sibling above answers "should I revalidate this
+    /// provider"; this one answers "is an empty window real, or has the cache
+    /// simply not caught up". A caller that has to distinguish *the athlete did
+    /// not do it* from *we do not know yet* cannot enumerate providers to find
+    /// out — an athlete who connected a second device mid-window would look
+    /// stale on the first one forever.
+    async fn latest_activity_sync_any(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Option<DateTime<Utc>>>;
+
     /// Delete a user's cached activities whose `start_date` is older than
     /// `cutoff` (retention pruning). Returns the number of rows removed.
     async fn prune_activities_before(

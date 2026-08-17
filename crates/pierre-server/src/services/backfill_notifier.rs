@@ -106,11 +106,20 @@ pub trait AdapterResolver: Send + Sync {
 
 /// Production [`AdapterResolver`]: loads the tenant's stored channel config and
 /// builds the real channel adapter from it.
-struct ConfigAdapterResolver {
+///
+/// Shared with the commitment reporter, which needs the same
+/// `(tenant, channel) -> adapter + config` resolution and the same fake-adapter
+/// test seam. Reach it through [`config_adapter_resolver`].
+pub(crate) struct ConfigAdapterResolver {
     /// Shared repository registry — the channel-config lookup goes through
     /// `repos.messaging`. Arc so the resolver is cheap to share with the
     /// notifier and any future caller.
-    repos: Arc<RepositoryRegistry>,
+    pub(crate) repos: Arc<RepositoryRegistry>,
+}
+
+/// Build the production adapter resolver.
+pub(crate) fn config_adapter_resolver(repos: Arc<RepositoryRegistry>) -> Arc<dyn AdapterResolver> {
+    Arc::new(ConfigAdapterResolver { repos })
 }
 
 #[async_trait]
@@ -125,22 +134,22 @@ impl AdapterResolver for ConfigAdapterResolver {
         let raw_config = match db.get_channel_config(tenant_id, channel_str).await {
             Ok(Some(cfg)) => cfg,
             Ok(None) => {
-                warn!(channel = %channel_str, "No channel config for backfill-ready notice");
+                warn!(channel = %channel_str, "No channel config for outbound notice");
                 return None;
             }
             Err(e) => {
-                warn!(error = %e, "Failed to load channel config for backfill-ready notice");
+                warn!(error = %e, "Failed to load channel config for outbound notice");
                 return None;
             }
         };
         let adapter = create_adapter_from_config(channel_type, &raw_config)
             .inspect_err(|e| {
-                warn!(error = %e, channel = %channel_str, "Failed to build adapter for backfill-ready notice");
+                warn!(error = %e, channel = %channel_str, "Failed to build adapter for outbound notice");
             })
             .ok()?;
         let channel_config: ChannelConfig = serde_json::from_value(raw_config)
             .inspect_err(|e| {
-                warn!(error = %e, "Failed to deserialize channel config for backfill-ready notice");
+                warn!(error = %e, "Failed to deserialize channel config for outbound notice");
             })
             .ok()?;
         Some((adapter, channel_config))
@@ -345,9 +354,7 @@ impl ServerBackfillNotifier {
         admin_jwt_secret: Arc<str>,
         base_url: String,
     ) -> Arc<dyn BackfillNotifier> {
-        let resolver: Arc<dyn AdapterResolver> = Arc::new(ConfigAdapterResolver {
-            repos: repos.clone(),
-        });
+        let resolver = config_adapter_resolver(repos.clone());
         Arc::new(Self {
             repos,
             strings,
