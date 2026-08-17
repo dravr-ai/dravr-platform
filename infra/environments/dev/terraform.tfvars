@@ -87,3 +87,12 @@ enable_sciotte_service = true
 # service. Rollback = set false + apply (in-process path stays compiled in
 # until Phase 4).
 backend_sciotte_remote = true
+
+# Coach visuals: deploy the photograveur chart-press service (min=0,
+# cpu_idle=true — ~$0 idle). Deploy-only: backend_photograveur stays
+# default-false, so PHOTOGRAVEUR_URL is empty and the API behaves as today.
+enable_photograveur_service = true
+
+# Pinned to the same rev the platform pins photograveur at in Cargo.toml, so
+# the renderer in the container matches the spec types compiled into the API.
+photograveur_image = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/photograveur:d4641cb"
