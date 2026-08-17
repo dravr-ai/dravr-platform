@@ -76,7 +76,15 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # chromium 151.0.7922.137-1~deb13u1 closes CVE-2026-19556..19560 — four
 # arbitrary-code-execution use-after-frees (V8, Blink, HTML, extensions) plus a
 # TabStrip sandbox escape — which gated the dev deploy on 2026-08-13.
-ARG APT_SECURITY_EPOCH=2026-08-13
+# util-linux 2.41.5-0+deb13u1 closes CVE-2026-53615, an integer overflow in
+# libblkid's DOS partition parser (libblkid/src/partitions/dos.c). Trivy reports
+# it once per binary package the source ships — bsdutils, libblkid1,
+# liblastlog2-2, libmount1, libsmartcols1, libuuid1, login, mount, util-linux —
+# so it reads as nine HIGH findings from one defect. trixie itself still carries
+# the vulnerable 1:2.41-5 and only trixie-security has the fix, which is why the
+# upgrade below is what pulls it rather than a newer base-image tag. Gated the
+# dev deploy on 2026-08-17.
+ARG APT_SECURITY_EPOCH=2026-08-17
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
