@@ -30,7 +30,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use axum::http::StatusCode;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration};
 use serial_test::serial;
 
 // ============================================================================
