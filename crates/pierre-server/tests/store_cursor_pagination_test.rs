@@ -102,9 +102,10 @@ fn test_store_cursor_newest_with_none_timestamp() {
     let decoded = StoreCursor::decode(&encoded, StoreSortOrder::Newest).unwrap();
     assert_eq!(decoded.sort_by, StoreSortOrder::Newest);
     assert_eq!(decoded.id, "coach-abc");
-    // When timestamp is None, the encoded value is 0, which DateTime::from_timestamp_millis
-    // converts to 1970-01-01, not None
-    assert!(decoded.published_at.is_some());
+    // A missing published_at encodes as the empty string and round-trips as
+    // None — the old integer encoding collapsed it to epoch 1970-01-01, which
+    // made "no timestamp" indistinguishable from a real epoch value.
+    assert!(decoded.published_at.is_none());
 }
 
 #[test]
