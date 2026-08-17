@@ -159,6 +159,27 @@ jobs:
 
           cargo update -p photograveur
 
+          # Assert the lockfile holds exactly one photograveur, at the tag just pinned.
+          # Borrowed from the sciotte chain, which learned it the expensive way: the
+          # platform depends on dravr-sciotte directly and again through dravr-enforme,
+          # so moving one arm produced a lockfile carrying two versions and a branch that
+          # could never merge — ci-backend hard-fails a build where a dravr-* crate
+          # resolves twice. photograveur has a single dependent today (pierre_mcp_server)
+          # and no such diamond, which is precisely why this belongs here now: the day
+          # something else pins it, that failure should surface in seconds rather than
+          # twenty minutes into CI, and on the cause rather than a symptom.
+          ENTRIES=$(grep -c '^name = "photograveur"$' Cargo.lock || true)
+          if [ "${ENTRIES}" != "1" ]; then
+            echo "::error::Cargo.lock holds ${ENTRIES} photograveur entries, expected 1 — a second consumer pins a different version, so this bump cannot merge"
+            grep -A2 '^name = "photograveur"$' Cargo.lock || true
+            exit 1
+          fi
+          if ! grep -q "source = \"git+https://github.com/dravr-ai/dravr-photograveur.git?tag=${VERSION}#" Cargo.lock; then
+            echo "::error::Cargo.lock does not resolve photograveur at ${VERSION} after the update"
+            grep -A2 '^name = "photograveur"$' Cargo.lock || true
+            exit 1
+          fi
+
       - name: Regenerate the scene types the frontends compile against
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
