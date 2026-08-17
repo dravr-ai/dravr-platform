@@ -15,9 +15,12 @@
 use std::sync::Arc;
 
 use pierre_services::archetype_aggregation::spawn_archetype_aggregation;
-use pierre_services::commitment_sweep::{spawn_commitment_sweep, CommitmentReporter};
+use pierre_services::commitment_sweep::{
+    spawn_commitment_sweep, ActivityRefresher, CommitmentReporter,
+};
 use pierre_services::outcome_evaluator::spawn_outcome_evaluator;
 
+use crate::services::commitment_refresher::ServerActivityRefresher;
 #[cfg(feature = "client-messaging")]
 use crate::services::commitment_reporter::ServerCommitmentReporter;
 
@@ -25,10 +28,14 @@ use crate::mcp::resources::ServerContext;
 
 /// Start the coaching background workers.
 ///
+/// Takes the composition-root `Arc` rather than a bare reference because the
+/// commitment sweep's activity refresher holds the `ToolRuntime` handle for
+/// the life of its background fetches.
+///
 /// Skipped wholesale for an in-memory database — that is how the LLM health
 /// probe and other throwaway test servers avoid a sweep (and, for the outcome
 /// evaluator, an LLM judge call) firing against a scratch database.
-pub fn start_coaching_workers(resources: &ServerContext) {
+pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
     if resources.common.config.database.url.is_memory() {
         return;
     }
@@ -64,5 +71,13 @@ pub fn start_coaching_workers(resources: &ServerContext) {
     #[cfg(not(feature = "client-messaging"))]
     let reporter: Option<Arc<dyn CommitmentReporter>> = None;
 
-    spawn_commitment_sweep(Arc::clone(&resources.common.repos), reporter);
+    // The refresher is the data half: when a due commitment's activity cache
+    // has not caught up, it fetches the window from every provider the athlete
+    // has connected — the same authenticated path a chat turn uses — so an
+    // athlete who never opens a conversation still gets a verdict.
+    let runtime = Arc::clone(resources);
+    let refresher: Option<Arc<dyn ActivityRefresher>> =
+        Some(Arc::new(ServerActivityRefresher::new(runtime)));
+
+    spawn_commitment_sweep(Arc::clone(&resources.common.repos), reporter, refresher);
 }

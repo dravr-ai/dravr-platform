@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
-use sqlx::Row;
+use sqlx::{Pool, Row, Sqlite};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -29,6 +29,54 @@ fn sport_type_string(activity: &Activity) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Later of the row-derived sync signal and the fetch-freshness mark.
+fn later(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (x, None) => x,
+        (None, y) => y,
+    }
+}
+
+/// Most recent `activity_fetch_freshness` mark for the user, optionally scoped
+/// to one provider. `None` when no successful fetch has been recorded.
+async fn latest_fetch_mark(
+    pool: &Pool<Sqlite>,
+    user_id: &str,
+    tenant_id: &str,
+    provider: Option<&str>,
+) -> AppResult<Option<DateTime<Utc>>> {
+    // `fetched_at` is RFC3339 UTC text, so the lexical DESC order is also the
+    // chronological one — the same assumption the `synced_at` reads make.
+    let row = sqlx::query(
+        r"
+        SELECT fetched_at
+        FROM activity_fetch_freshness
+        WHERE user_id = ? AND tenant_id = ?
+          AND (? IS NULL OR provider = ?)
+        ORDER BY fetched_at DESC
+        LIMIT 1
+        ",
+    )
+    .bind(user_id)
+    .bind(tenant_id)
+    .bind(provider)
+    .bind(provider)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AppError::database(format!("Failed to read activity fetch mark: {e}")))?;
+
+    row.map(|r| {
+        let fetched_at: String = r
+            .try_get("fetched_at")
+            .map_err(|e| AppError::database(format!("fetch mark col fetched_at: {e}")))?;
+        DateTime::parse_from_rfc3339(&fetched_at)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(|e| AppError::database(format!("Invalid fetched_at timestamp: {e}")))
+    })
+    .transpose()
 }
 
 #[async_trait]
@@ -156,13 +204,22 @@ impl ActivityCacheRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to read activity sync time: {e}")))?;
 
-        row.map(|r| {
-            let synced_at: String = r.get("synced_at");
-            DateTime::parse_from_rfc3339(&synced_at)
-                .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| AppError::database(format!("Invalid synced_at timestamp: {e}")))
-        })
-        .transpose()
+        let from_rows = row
+            .map(|r| {
+                let synced_at: String = r.get("synced_at");
+                DateTime::parse_from_rfc3339(&synced_at)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .map_err(|e| AppError::database(format!("Invalid synced_at timestamp: {e}")))
+            })
+            .transpose()?;
+        let mark = latest_fetch_mark(
+            self.pool(),
+            &user_id_str,
+            &tenant_id.to_string(),
+            Some(provider),
+        )
+        .await?;
+        Ok(later(from_rows, mark))
     }
 
     async fn latest_activity_sync_any(
@@ -189,15 +246,45 @@ impl ActivityCacheRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to read activity sync time: {e}")))?;
 
-        row.map(|r| {
-            let synced_at: String = r
-                .try_get("synced_at")
-                .map_err(|e| AppError::database(format!("activity col synced_at: {e}")))?;
-            DateTime::parse_from_rfc3339(&synced_at)
-                .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| AppError::database(format!("Invalid synced_at timestamp: {e}")))
-        })
-        .transpose()
+        let from_rows = row
+            .map(|r| {
+                let synced_at: String = r
+                    .try_get("synced_at")
+                    .map_err(|e| AppError::database(format!("activity col synced_at: {e}")))?;
+                DateTime::parse_from_rfc3339(&synced_at)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .map_err(|e| AppError::database(format!("Invalid synced_at timestamp: {e}")))
+            })
+            .transpose()?;
+        let mark =
+            latest_fetch_mark(self.pool(), &user_id_str, &tenant_id.to_string(), None).await?;
+        Ok(later(from_rows, mark))
+    }
+
+    async fn record_activity_fetch(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        fetched_at: DateTime<Utc>,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO activity_fetch_freshness (tenant_id, user_id, provider, fetched_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(tenant_id, user_id, provider) DO UPDATE SET
+                fetched_at = excluded.fetched_at
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id.to_string())
+        .bind(provider)
+        .bind(fetched_at.to_rfc3339())
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to record activity fetch: {e}")))?;
+
+        Ok(())
     }
 
     async fn prune_activities_before(

@@ -373,3 +373,85 @@ async fn read_sport_column(database: &Database, activity_id: &str) -> Option<Str
         .unwrap()
         .get::<Option<String>, _>("sport_type")
 }
+
+#[tokio::test]
+async fn fetch_mark_advances_freshness_without_rows() {
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = TenantId::generate();
+    let repo = &repos.activity_cache;
+
+    // Never fetched: both freshness reads say so.
+    assert_eq!(
+        repo.latest_activity_sync(user_id, &tenant_id, "strava")
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        repo.latest_activity_sync_any(user_id, &tenant_id)
+            .await
+            .unwrap(),
+        None
+    );
+
+    // A fetch that returned zero activities still recorded that it happened.
+    let fetched_at = Utc::now();
+    repo.record_activity_fetch(user_id, &tenant_id, "strava", fetched_at)
+        .await
+        .unwrap();
+
+    let per_provider = repo
+        .latest_activity_sync(user_id, &tenant_id, "strava")
+        .await
+        .unwrap()
+        .expect("the mark alone is a freshness signal");
+    assert_eq!(per_provider.timestamp(), fetched_at.timestamp());
+    let any = repo
+        .latest_activity_sync_any(user_id, &tenant_id)
+        .await
+        .unwrap()
+        .expect("the cross-provider read sees the mark too");
+    assert_eq!(any.timestamp(), fetched_at.timestamp());
+
+    // The mark is provider-scoped: garmin has still never been fetched.
+    assert_eq!(
+        repo.latest_activity_sync(user_id, &tenant_id, "garmin")
+            .await
+            .unwrap(),
+        None
+    );
+
+    // Rows arriving later win: the reads return the later of rows and mark.
+    repo.upsert_activities(
+        user_id,
+        &tenant_id,
+        "strava",
+        &[activity("m1", "strava", 1)],
+    )
+    .await
+    .unwrap();
+    let after_rows = repo
+        .latest_activity_sync(user_id, &tenant_id, "strava")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        after_rows >= per_provider,
+        "row-backed synced_at postdates the earlier mark"
+    );
+
+    // An overwriting mark newer than the rows wins the other way.
+    let much_later = Utc::now() + Duration::hours(2);
+    repo.record_activity_fetch(user_id, &tenant_id, "strava", much_later)
+        .await
+        .unwrap();
+    let re_marked = repo
+        .latest_activity_sync_any(user_id, &tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(re_marked.timestamp(), much_later.timestamp());
+}

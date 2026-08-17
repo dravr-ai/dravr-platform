@@ -47,6 +47,10 @@ pub mod backfill_notifier;
 /// aggregation, commitment sweep).
 pub mod coaching_workers;
 
+/// Turns a commitment sweep's refresh request into background provider
+/// fetches, so a quiet athlete's window still gets counted.
+pub mod commitment_refresher;
+
 /// Delivers a swept commitment verdict back to the athlete, applying the
 /// per-channel proactive-messaging policy.
 #[cfg(feature = "client-messaging")]

@@ -22,12 +22,14 @@
 //! trust here is telling someone they missed a run they actually did:
 //!
 //! - **Freshness.** The activity cache is warmed write-through by chat and tool
-//!   fetches; nothing back-fills it on a schedule. An athlete who promised
-//!   something and then never opened the app has an empty window that means "we
-//!   do not know", not "they did nothing". A shortfall is only labeled once the
-//!   cache has been refreshed past the window's end — otherwise the row defers
-//!   and retries, and expires unlabeled after [`SWEEP_STALENESS_SECS`] rather
-//!   than guessing.
+//!   fetches. An athlete who promised something and then never opened the app
+//!   has an empty window that means "we do not know", not "they did nothing".
+//!   A shortfall is only labeled once a successful fetch has covered the
+//!   window's end — otherwise the row defers, an [`ActivityRefresher`] is
+//!   asked to fetch the window from the athlete's connected providers, and
+//!   the next tick reads the warmed cache. A row whose data never catches up
+//!   (a dead provider connection, say) expires unlabeled after
+//!   [`SWEEP_STALENESS_SECS`] rather than guessing.
 //! - **Cadence.** One verdict per athlete per [`REPORT_CADENCE_SECS`]. A message
 //!   for every missed commitment is a reason to mute the coach; the value is in
 //!   being noticed, not in being scolded.
@@ -73,11 +75,10 @@ const ACTIVITY_SCAN_LIMIT: i64 = 200;
 ///
 /// The due scan is oldest-first and batch-capped, so without a backstop a row
 /// whose data never arrives would head-of-line block every newer commitment.
-///
-/// LIMITATION(registre#32): `SWEEP_STALENESS_SECS` closes out a commitment the
-/// activity cache never caught up with, and nothing warms that cache on a
-/// schedule — so an athlete who promises something and then never opens a chat
-/// gets no verdict at all, even if they held the promise.
+/// A deferring row asks an [`ActivityRefresher`] to fetch its window on every
+/// tick, so reaching this horizon means days of refreshes that produced no
+/// fresh data — typically a dead provider connection — and closing out
+/// unlabeled is then honest, not impatient.
 pub const SWEEP_STALENESS_SECS: i64 = 7 * 24 * 3600;
 
 /// How long a labeled verdict may wait for a delivery route before it is
@@ -136,9 +137,11 @@ pub fn count_sessions(starts: &[DateTime<Utc>]) -> u32 {
 
 /// Whether the activity cache is fresh enough to read a shortfall as real.
 ///
-/// `last_sync` is the most recent write-through into the cache across every
-/// provider. A sync that predates the window's close means the athlete may well
-/// have done the work and we simply have not fetched it.
+/// `last_sync` is the most recent successful activity fetch across every
+/// provider — the later of the cache's write-through stamp and the
+/// fetch-freshness mark, so a fetch that truthfully found nothing counts. A
+/// fetch that predates the window's close means the athlete may well have done
+/// the work and we simply have not fetched it.
 #[must_use]
 pub fn data_covers_window(last_sync: Option<DateTime<Utc>>, window_end: DateTime<Utc>) -> bool {
     last_sync.is_some_and(|synced| synced >= window_end)
@@ -159,6 +162,9 @@ pub struct SweepOutcome {
     pub reported: usize,
     /// Verdicts held back by the cadence cap or a closed delivery route.
     pub held: usize,
+    /// Background activity refreshes started for athletes whose data had not
+    /// caught up with a closed window.
+    pub refreshes: usize,
     /// Per-row failures — each is logged and skipped, never fatal to the tick.
     pub errors: usize,
 }
@@ -178,6 +184,29 @@ pub trait CommitmentReporter: Send + Sync {
     async fn report(&self, commitment: &Commitment) -> Option<String>;
 }
 
+/// Requests a background refresh of an athlete's activity data when the sweep
+/// finds their cache has not caught up with a closed commitment window.
+///
+/// Implemented in `pierre-server`, where the provider fetch machinery lives;
+/// this crate can read the activity cache but cannot reach a provider. The
+/// implementation fetches the window from **every** provider the athlete has
+/// connected through the same authenticated path a chat turn uses, owns its
+/// own de-duplication, and writes through to the cache — the warmed cache
+/// (and its fetch-freshness mark) is what lets a later tick label the row
+/// instead of deferring it into expiry.
+#[async_trait]
+pub trait ActivityRefresher: Send + Sync {
+    /// Request a refresh of the athlete's activity data covering the window
+    /// that starts at `window_start`. Returns `true` when a new background
+    /// refresh was started, `false` when one was already in flight.
+    async fn request_refresh(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        window_start: DateTime<Utc>,
+    ) -> bool;
+}
+
 /// Run one sweep + report pass.
 ///
 /// `now` is a parameter rather than a `Utc::now()` call so a test can place a
@@ -189,11 +218,12 @@ pub trait CommitmentReporter: Send + Sync {
 pub async fn tick(
     repos: &RepositoryRegistry,
     reporter: Option<&dyn CommitmentReporter>,
+    refresher: Option<&dyn ActivityRefresher>,
     now: DateTime<Utc>,
     batch_size: i64,
 ) -> AppResult<SweepOutcome> {
     let mut outcome = SweepOutcome::default();
-    sweep_due(repos, now, batch_size, &mut outcome).await?;
+    sweep_due(repos, refresher, now, batch_size, &mut outcome).await?;
     report_labeled(repos, reporter, now, batch_size, &mut outcome).await?;
     Ok(outcome)
 }
@@ -201,6 +231,7 @@ pub async fn tick(
 /// Pass 1 — count due commitments and record their verdicts.
 async fn sweep_due(
     repos: &RepositoryRegistry,
+    refresher: Option<&dyn ActivityRefresher>,
     now: DateTime<Utc>,
     batch_size: i64,
     outcome: &mut SweepOutcome,
@@ -216,7 +247,10 @@ async fn sweep_due(
             close_out(repos, commitment, outcome).await;
             continue;
         };
-        sweep_one(repos, commitment, user_id, &tenant_id, now, outcome).await;
+        sweep_one(
+            repos, refresher, commitment, user_id, &tenant_id, now, outcome,
+        )
+        .await;
     }
     Ok(())
 }
@@ -346,6 +380,7 @@ async fn write_verdict(
 /// Count one commitment and write its verdict, or leave it open to retry.
 async fn sweep_one(
     repos: &RepositoryRegistry,
+    refresher: Option<&dyn ActivityRefresher>,
     commitment: &Commitment,
     user_id: Uuid,
     tenant_id: &TenantId,
@@ -365,6 +400,17 @@ async fn sweep_one(
             Shortfall::Believable => {}
             Shortfall::Defer => {
                 outcome.deferred += 1;
+                // Nothing else warms the cache for an athlete who never opens
+                // a chat — ask for the window to be fetched so the next tick
+                // can label instead of deferring into expiry.
+                if let Some(refresher) = refresher {
+                    if refresher
+                        .request_refresh(user_id, tenant_id, commitment.window_start)
+                        .await
+                    {
+                        outcome.refreshes += 1;
+                    }
+                }
                 return;
             }
             Shortfall::GiveUp => {
@@ -574,6 +620,7 @@ fn parse_ids(commitment: &Commitment) -> Option<(Uuid, TenantId)> {
 pub fn spawn_commitment_sweep(
     repos: Arc<RepositoryRegistry>,
     reporter: Option<Arc<dyn CommitmentReporter>>,
+    refresher: Option<Arc<dyn ActivityRefresher>>,
 ) {
     let interval_secs = env::var(COMMITMENT_SWEEP_INTERVAL_ENV_VAR)
         .ok()
@@ -588,7 +635,13 @@ pub fn spawn_commitment_sweep(
         ticker.tick().await; // consume the immediate first tick
         loop {
             ticker.tick().await;
-            let pass = tick(&repos, reporter.as_deref(), Utc::now(), DEFAULT_BATCH_SIZE);
+            let pass = tick(
+                &repos,
+                reporter.as_deref(),
+                refresher.as_deref(),
+                Utc::now(),
+                DEFAULT_BATCH_SIZE,
+            );
             match AssertUnwindSafe(pass).catch_unwind().await {
                 Ok(Ok(outcome)) => {
                     if outcome.labeled > 0 || outcome.reported > 0 {
@@ -599,6 +652,7 @@ pub fn spawn_commitment_sweep(
                             expired = outcome.expired,
                             reported = outcome.reported,
                             held = outcome.held,
+                            refreshes = outcome.refreshes,
                             errors = outcome.errors,
                             "commitment sweep tick complete"
                         );

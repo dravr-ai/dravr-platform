@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, TimeZone, Utc};
 use pierre_core::models::{Activity, TenantId};
+use pierre_database::repositories::ActivityCacheRepository;
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -274,5 +275,26 @@ pub(crate) async fn write_through_activity_cache(
     {
         info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
     }
+    stamp_fetch_freshness(cache.as_ref(), user_id, tenant_id, provider).await;
     Some(persisted)
+}
+
+/// Record that this fetch happened, independent of how many rows it returned.
+///
+/// The fetch itself is the freshness signal: a provider that answered with
+/// zero activities is exactly as current as one that answered with ten, and
+/// the upserted rows cannot say so. Best-effort — a failed mark costs one
+/// deferred freshness read, never the fetch.
+async fn stamp_fetch_freshness(
+    cache: &dyn ActivityCacheRepository,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) {
+    if let Err(e) = cache
+        .record_activity_fetch(user_id, &tenant_id, provider, Utc::now())
+        .await
+    {
+        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: fetch freshness mark failed");
+    }
 }

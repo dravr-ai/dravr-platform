@@ -68,8 +68,12 @@ pub trait ActivityCacheRepository: Send + Sync {
         limit: i64,
     ) -> AppResult<Vec<Activity>>;
 
-    /// Most recent `synced_at` for a user+provider — the freshness signal that
-    /// drives background revalidation. `None` when never cached.
+    /// Most recent successful activity fetch for a user+provider — the
+    /// freshness signal that drives background revalidation. The later of the
+    /// cached rows' `synced_at` and the fetch mark recorded by
+    /// [`Self::record_activity_fetch`], so a fetch that truthfully returned
+    /// nothing still reads as fresh. `None` when the provider has never been
+    /// fetched.
     async fn latest_activity_sync(
         &self,
         user_id: Uuid,
@@ -77,8 +81,10 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
     ) -> AppResult<Option<DateTime<Utc>>>;
 
-    /// Most recent `synced_at` for a user across **every** provider. `None` when
-    /// nothing has ever been cached for them.
+    /// Most recent successful activity fetch for a user across **every**
+    /// provider — the later of the cached rows' `synced_at` and the fetch
+    /// marks recorded by [`Self::record_activity_fetch`]. `None` when nothing
+    /// has ever been fetched for them.
     ///
     /// The provider-scoped sibling above answers "should I revalidate this
     /// provider"; this one answers "is an empty window real, or has the cache
@@ -91,6 +97,23 @@ pub trait ActivityCacheRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
     ) -> AppResult<Option<DateTime<Utc>>>;
+
+    /// Record that a provider activity fetch completed successfully at
+    /// `fetched_at`, whether or not it returned any activities.
+    ///
+    /// The cached rows' `synced_at` only advances when a fetch returns rows,
+    /// so without this mark an athlete whose provider truthfully reports no
+    /// activities looks forever stale — and a freshness-guarded reader (the
+    /// commitment sweep) could never believe an honest zero. Both
+    /// `latest_activity_sync*` reads take the later of the row signal and
+    /// this mark.
+    async fn record_activity_fetch(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        fetched_at: DateTime<Utc>,
+    ) -> AppResult<()>;
 
     /// Delete a user's cached activities whose `start_date` is older than
     /// `cutoff` (retention pruning). Returns the number of rows removed.

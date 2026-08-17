@@ -62,6 +62,7 @@ pub mod activity_backfill;
 /// Shared provider activity fetching (used by group snapshots + coach recs).
 pub mod activity_fetch;
 pub mod capabilities;
+pub mod commitment_refresh;
 pub mod context;
 /// Conversions wiring host tool types onto the tronc MCP tool trait surface.
 pub mod conversions;

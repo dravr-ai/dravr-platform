@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
-use sqlx::Row;
+use sqlx::{Pool, Postgres, Row};
 use std::collections::HashSet;
 use uuid::Uuid;
 
@@ -29,6 +29,47 @@ fn sport_type_string(activity: &Activity) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Later of the row-derived sync signal and the fetch-freshness mark.
+fn later(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (x, None) => x,
+        (None, y) => y,
+    }
+}
+
+/// Most recent `activity_fetch_freshness` mark for the user, optionally scoped
+/// to one provider. `None` when no successful fetch has been recorded.
+async fn latest_fetch_mark(
+    pool: &Pool<Postgres>,
+    user_id: &str,
+    tenant_id: &str,
+    provider: Option<&str>,
+) -> AppResult<Option<DateTime<Utc>>> {
+    let row = sqlx::query(
+        r"
+        SELECT fetched_at
+        FROM activity_fetch_freshness
+        WHERE user_id = $1::uuid AND tenant_id = $2::uuid
+          AND ($3::text IS NULL OR provider = $3)
+        ORDER BY fetched_at DESC
+        LIMIT 1
+        ",
+    )
+    .bind(user_id)
+    .bind(tenant_id)
+    .bind(provider)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AppError::database(format!("Failed to read activity fetch mark: {e}")))?;
+
+    row.map(|r| {
+        r.try_get::<DateTime<Utc>, _>("fetched_at")
+            .map_err(|e| AppError::database(format!("fetch mark col fetched_at: {e}")))
+    })
+    .transpose()
 }
 
 #[async_trait]
@@ -152,7 +193,15 @@ impl ActivityCacheRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to read activity sync time: {e}")))?;
 
-        Ok(row.map(|r| r.get::<DateTime<Utc>, _>("synced_at")))
+        let from_rows = row.map(|r| r.get::<DateTime<Utc>, _>("synced_at"));
+        let mark = latest_fetch_mark(
+            &self.pool,
+            &user_id_str,
+            &tenant_id.to_string(),
+            Some(provider),
+        )
+        .await?;
+        Ok(later(from_rows, mark))
     }
 
     async fn latest_activity_sync_any(
@@ -177,11 +226,43 @@ impl ActivityCacheRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to read activity sync time: {e}")))?;
 
-        row.map(|r| {
-            r.try_get::<DateTime<Utc>, _>("synced_at")
-                .map_err(|e| AppError::database(format!("activity col synced_at: {e}")))
-        })
-        .transpose()
+        let from_rows = row
+            .map(|r| {
+                r.try_get::<DateTime<Utc>, _>("synced_at")
+                    .map_err(|e| AppError::database(format!("activity col synced_at: {e}")))
+            })
+            .transpose()?;
+        let mark =
+            latest_fetch_mark(&self.pool, &user_id_str, &tenant_id.to_string(), None).await?;
+        Ok(later(from_rows, mark))
+    }
+
+    async fn record_activity_fetch(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        fetched_at: DateTime<Utc>,
+    ) -> AppResult<()> {
+        // tenant_id/user_id are UUID columns (cf. activity_backfill_coverage):
+        // bind the string form and cast.
+        sqlx::query(
+            r"
+            INSERT INTO activity_fetch_freshness (tenant_id, user_id, provider, fetched_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4)
+            ON CONFLICT (tenant_id, user_id, provider) DO UPDATE SET
+                fetched_at = EXCLUDED.fetched_at
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id.to_string())
+        .bind(provider)
+        .bind(fetched_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to record activity fetch: {e}")))?;
+
+        Ok(())
     }
 
     async fn prune_activities_before(
