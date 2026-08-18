@@ -87,6 +87,15 @@ pub struct TenantContext {
     /// whole session (#2). Not an identity/audit field — its sole consumer is the
     /// Guardian turn key.
     pub session_id: Option<String>,
+    /// The chat conversation this MCP call belongs to, on a per-turn (ACP)
+    /// token only. `None` for a reused session token, which belongs to no
+    /// single turn.
+    ///
+    /// Read from the signed `turn_conversation_id` claim, never from a header:
+    /// its consumer is the router for detached follow-up work (the background
+    /// activity backfill's completion push), and a caller-settable route would
+    /// let one hand a notice to a conversation it does not own.
+    pub conversation_id: Option<String>,
 }
 
 impl TenantContext {
@@ -109,6 +118,7 @@ impl TenantContext {
             user_id,
             user_role: Some(user_role),
             session_id: None,
+            conversation_id: None,
         }
     }
 
@@ -132,6 +142,7 @@ impl TenantContext {
             user_id,
             user_role: None,
             session_id: None,
+            conversation_id: None,
         }
     }
 
@@ -140,6 +151,14 @@ impl TenantContext {
     #[must_use]
     pub fn with_session_id(mut self, session_id: Option<String>) -> Self {
         self.session_id = session_id;
+        self
+    }
+
+    /// Attach the originating chat conversation, from the signed per-turn
+    /// claim, so a natively-called tool can route detached work back to it.
+    #[must_use]
+    pub fn with_conversation_id(mut self, conversation_id: Option<String>) -> Self {
+        self.conversation_id = conversation_id;
         self
     }
 

@@ -815,6 +815,7 @@ impl ProviderToolRouter {
             provider_name,
             request_id,
             tenant_context.session_id.clone(),
+            tenant_context.conversation_id.clone(),
         )
         .await
     }
@@ -898,6 +899,7 @@ impl ProviderToolRouter {
         provider_name: &str,
         request_id: Value,
         turn_token: Option<String>,
+        conversation_id: Option<String>,
     ) -> McpResponse {
         // Register cancellation token if present
         if let (Some(progress_token), Some(cancellation_token)) = (
@@ -909,13 +911,10 @@ impl ProviderToolRouter {
                 .await;
         }
 
-        // Bind the JWT `jti` as the Guardian turn token so per-turn taint/budget
-        // key on it, even though this `/mcp` executor is built fresh per request
-        // (the headless loopback path — the ACP bridge mints a fresh jti per turn).
-        let executor = turn_token.map_or_else(
-            || UniversalToolExecutor::new(resources.clone()),
-            |token| UniversalToolExecutor::new(resources.clone()).with_turn_token(token),
-        );
+        // Guardian turn key + originating conversation, both from the per-turn
+        // claim the ACP bridge mints — see `for_mcp_turn`.
+        let executor =
+            UniversalToolExecutor::for_mcp_turn(resources.clone(), turn_token, conversation_id);
 
         let result = executor.execute_tool(universal_request.clone()).await;
 

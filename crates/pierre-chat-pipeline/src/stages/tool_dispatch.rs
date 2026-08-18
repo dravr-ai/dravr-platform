@@ -200,7 +200,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         match ctx.mcp_bridge.as_ref() {
             Some(bridge) => {
                 bridge
-                    .mcp_servers_for(&input.user_id, input.tool_tenant_id)
+                    .mcp_servers_for(&input.user_id, input.tool_tenant_id, &input.conversation_id)
                     .await
             }
             None => Vec::new(),

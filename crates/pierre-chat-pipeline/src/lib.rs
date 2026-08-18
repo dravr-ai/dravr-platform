@@ -33,9 +33,12 @@
 
 pub mod channel_profile;
 pub mod hooks;
+pub mod mcp_bridge;
 pub mod recorders;
 pub mod stages;
 pub mod turn;
+
+pub use mcp_bridge::McpBridgeProvider;
 
 pub use channel_profile::{Channel, ChannelProfile, MaxIterations, ModelPolicy};
 pub use hooks::{
@@ -99,20 +102,6 @@ use stages::persistence::{
 };
 #[cfg(feature = "tools-verification")]
 use stages::verification::persist_pending_verdicts;
-
-/// Mints the MCP servers an ACP-managed provider (Copilot Headless) exposes to
-/// the model for native tool calling on a turn.
-///
-/// Implemented in `pierre-server` (where auth + signing keys live) so the chat
-/// pipeline stays free of auth dependencies. The returned config points the
-/// agent at Dravr's own `/mcp` endpoint with a freshly-minted, short-TTL,
-/// `/mcp`-audience Bearer token scoped to `(user, tenant)`. Returns empty when
-/// the bridge is disabled or the token cannot be minted.
-#[async_trait::async_trait]
-pub trait McpBridgeProvider: Send + Sync {
-    /// Build the per-turn MCP server list for `(user_id, tenant_id)`.
-    async fn mcp_servers_for(&self, user_id: &str, tenant_id: TenantId) -> Vec<McpServerConfig>;
-}
 
 /// Shared state for every chat pipeline stage.
 ///

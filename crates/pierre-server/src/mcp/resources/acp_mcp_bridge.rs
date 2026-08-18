@@ -62,7 +62,12 @@ impl AcpMcpBridge {
 
 #[async_trait]
 impl McpBridgeProvider for AcpMcpBridge {
-    async fn mcp_servers_for(&self, user_id: &str, tenant_id: TenantId) -> Vec<McpServerConfig> {
+    async fn mcp_servers_for(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+        conversation_id: &str,
+    ) -> Vec<McpServerConfig> {
         if !self.enabled {
             return Vec::new();
         }
@@ -99,8 +104,10 @@ impl McpBridgeProvider for AcpMcpBridge {
             Some(tenant_id.to_string()),
             Duration::minutes(15),
             // Minted fresh per chat turn → the Guardian keys taint/budget on its
-            // jti for this turn's native tool calls (#2).
-            true,
+            // jti for this turn's native tool calls (#2), and the conversation
+            // rides along so a natively-called tool can route detached work back
+            // to the channel this turn came from.
+            Some(conversation_id),
         ) {
             Ok(token) => token,
             Err(e) => {

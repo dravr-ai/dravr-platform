@@ -418,6 +418,7 @@ fn turn_scoped_claim_gates_the_guardian_turn_token() {
         impersonator_id: None,
         impersonation_session_id: None,
         turn_scoped: None,
+        turn_conversation_id: None,
     };
     // A reused session token → no per-turn key (each call keyed independently).
     assert_eq!(session_token.guardian_turn_token(), None);
@@ -427,6 +428,65 @@ fn turn_scoped_claim_gates_the_guardian_turn_token() {
         ..session_token
     };
     assert_eq!(acp_token.guardian_turn_token(), Some("the-jti".to_owned()));
+}
+
+// The conversation a natively-called tool routes detached work back to rides the
+// SAME per-turn claim as the Guardian key, and is gated on it. A tool reached
+// over the ACP MCP bridge runs in its own HTTP request, where the pipeline's
+// task-local conversation id is out of scope; without this claim a background
+// activity backfill has no channel to push its completion notice to, which is
+// one of the two native-path defects the 2026-06-22 mitigation cited.
+#[test]
+fn the_conversation_claim_is_gated_on_the_token_being_turn_scoped() {
+    use pierre_auth::auth::Claims;
+    let base = Claims {
+        sub: "user".to_owned(),
+        email: "u@example.com".to_owned(),
+        iat: 0,
+        exp: 0,
+        iss: "pierre".to_owned(),
+        jti: "the-jti".to_owned(),
+        providers: Vec::new(),
+        aud: "mcp".to_owned(),
+        active_tenant_id: None,
+        impersonator_id: None,
+        impersonation_session_id: None,
+        turn_scoped: None,
+        turn_conversation_id: None,
+    };
+
+    // A per-turn ACP token carries its conversation through.
+    let acp_token = Claims {
+        turn_scoped: Some(true),
+        turn_conversation_id: Some("conv-abc".to_owned()),
+        ..base.clone()
+    };
+    assert_eq!(
+        acp_token.turn_conversation_id(),
+        Some("conv-abc".to_owned()),
+        "a natively-called tool must be able to recover the turn's conversation"
+    );
+
+    // A reused session token belongs to no single turn, so it routes nothing —
+    // even if a conversation somehow appears in its claims.
+    let session_token = Claims {
+        turn_scoped: None,
+        turn_conversation_id: Some("conv-abc".to_owned()),
+        ..base.clone()
+    };
+    assert_eq!(
+        session_token.turn_conversation_id(),
+        None,
+        "a session token must not route detached work to a conversation"
+    );
+
+    // Turn-scoped but no conversation (a chat turn with none in scope) is not an
+    // error — it simply routes nothing.
+    let no_conversation = Claims {
+        turn_scoped: Some(true),
+        ..base
+    };
+    assert_eq!(no_conversation.turn_conversation_id(), None);
 }
 
 // #10: the denial flag the chokepoint sets and the Copilot-headless loop consumes

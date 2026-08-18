@@ -215,6 +215,29 @@ impl UniversalExecutor {
         self
     }
 
+    /// Build an executor for a call arriving on the `/mcp` endpoint, from the
+    /// two per-turn values its token carries.
+    ///
+    /// Both come from the same signed claim the ACP bridge mints per chat turn:
+    /// the `jti` keys Guardian taint/budget to this turn, and the conversation
+    /// lets a natively-called tool route detached follow-up work back to the
+    /// channel that asked. Both are `None` for a reused session token, which
+    /// belongs to no single turn — and one constructor rather than a pair of
+    /// `if let`s at each call site keeps the two `/mcp` entry points from
+    /// drifting on which of the two they remembered to bind.
+    #[must_use]
+    pub fn for_mcp_turn(
+        resources: Arc<dyn ToolRuntime>,
+        turn_token: Option<String>,
+        conversation_id: Option<String>,
+    ) -> Self {
+        Self {
+            conversation_id,
+            turn_token,
+            ..Self::new(resources)
+        }
+    }
+
     /// Return a cheap clone of the current cageux intelligence config
     /// snapshot from the server's hot-reloadable registry.
     ///
