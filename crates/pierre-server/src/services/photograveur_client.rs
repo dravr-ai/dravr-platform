@@ -15,13 +15,16 @@
 //! channel show the same chart: the service has no geometry to disagree with.
 
 use std::env;
+use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
+use dravr_tronc::iam::IdTokenSource;
 use photograveur::RenderBlock;
 use pierre_core::errors::{AppError, ErrorCode};
 use reqwest::Client;
 use serde_json::json;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Environment variable naming the press service.
 ///
@@ -29,6 +32,13 @@ use tracing::debug;
 /// messaging path simply does not offer them. That is the correct default for
 /// a developer running the stack without the service.
 pub const PHOTOGRAVEUR_URL_ENV: &str = "PHOTOGRAVEUR_URL";
+
+/// Environment variable naming the audience to address identity tokens to.
+///
+/// Must match what the press accepts, which terraform guarantees by setting
+/// both from one local. A stable custom audience rather than the service URL,
+/// so neither side depends on a value Cloud Run generates at creation.
+pub const PHOTOGRAVEUR_AUDIENCE_ENV: &str = "PHOTOGRAVEUR_AUDIENCE";
 
 /// How long to wait for a press.
 ///
@@ -38,10 +48,31 @@ pub const PHOTOGRAVEUR_URL_ENV: &str = "PHOTOGRAVEUR_URL";
 const PRESS_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Client for the photograveur press service.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PhotograveurClient {
     http: Client,
     base_url: Option<String>,
+    /// Mints the identity token the press requires.
+    ///
+    /// `Arc` because the client is cloned per request handler and the source
+    /// caches a token behind a lock — cloning the source itself would give each
+    /// clone its own cache and mint a token per handler instead of per hour.
+    tokens: Option<Arc<IdTokenSource>>,
+}
+
+impl fmt::Debug for PhotograveurClient {
+    /// Written by hand rather than derived because this holds a credential
+    /// source. `IdTokenSource` caches a live identity token, and a derived
+    /// `Debug` would put it in any log line that formats the client — the
+    /// logging-hygiene rule this repo enforces exists for exactly that. Whether
+    /// a token source is configured is the only part worth reporting.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PhotograveurClient")
+            .field("http", &self.http)
+            .field("base_url", &self.base_url)
+            .field("tokens", &self.tokens.as_ref().map(|_| "<configured>"))
+            .finish()
+    }
 }
 
 impl PhotograveurClient {
@@ -55,10 +86,36 @@ impl PhotograveurClient {
             .ok()
             .map(|url| url.trim_end_matches('/').to_owned())
             .filter(|url| !url.is_empty());
+        let audience = env::var(PHOTOGRAVEUR_AUDIENCE_ENV)
+            .ok()
+            .filter(|a| !a.is_empty());
+
+        // Both or neither. A URL without an audience would post unsigned
+        // requests the press refuses, which surfaces as every chart silently
+        // becoming prose — the failure this whole change exists to end. Treating
+        // it as "not configured" makes the misconfiguration visible in one log
+        // line instead of as an absence nobody notices.
+        let tokens = match (&base_url, audience) {
+            (Some(_), Some(audience)) => Some(Arc::new(IdTokenSource::new(audience, http.clone()))),
+            (Some(_), None) => {
+                warn!(
+                    "{PHOTOGRAVEUR_URL_ENV} is set but {PHOTOGRAVEUR_AUDIENCE_ENV} is not; \
+                     disabling the press rather than sending requests it will refuse"
+                );
+                None
+            }
+            (None, _) => None,
+        };
+
         if base_url.is_none() {
             debug!("photograveur not configured; messaging charts are off");
         }
-        Self { http, base_url }
+
+        Self {
+            http,
+            base_url: if tokens.is_some() { base_url } else { None },
+            tokens,
+        }
     }
 
     /// Whether a press service is configured.
@@ -84,9 +141,26 @@ impl PhotograveurClient {
             )
         })?;
 
+        // Every press carries a Google-signed token naming this workload and
+        // addressed to the press. Minting is cached for the token's life, so
+        // this is a lock read on all but the first call each hour.
+        let tokens = self.tokens.as_ref().ok_or_else(|| {
+            AppError::new(
+                ErrorCode::ConfigError,
+                "photograveur has no identity-token source; cannot press a chart",
+            )
+        })?;
+        let token = tokens.token().await.map_err(|e| {
+            AppError::new(
+                ErrorCode::ExternalServiceError,
+                format!("could not mint an identity token for photograveur: {e}"),
+            )
+        })?;
+
         let response = self
             .http
             .post(format!("{base}/render"))
+            .bearer_auth(&token)
             .timeout(PRESS_TIMEOUT)
             .json(&json!({ "block": block, "theme": theme }))
             .send()

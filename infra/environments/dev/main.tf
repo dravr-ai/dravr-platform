@@ -447,6 +447,12 @@ module "backend" {
       # carry the coach's prose without images.
       PHOTOGRAVEUR_URL = var.backend_photograveur ? module.photograveur[0].service_url : ""
 
+      # The audience the API asks Google to address its identity token to. Must
+      # equal what the press accepts, which is why both read one local. Empty
+      # when the press is not wired, so the client stays disabled rather than
+      # minting tokens for a service it will never call.
+      PHOTOGRAVEUR_AUDIENCE = var.backend_photograveur ? local.photograveur_audience : ""
+
       # Detail-page enrichment. The all-activities N+1 (navigate to each detail
       # page) ran ~4.5 min and timed out on a real coaching turn, handing the
       # coach 0 activities — so it's OFF by default. The list page already carries
@@ -544,6 +550,12 @@ module "backend" {
 # -----------------------------------------------------------------------------
 
 locals {
+  # The audience identity tokens for the chart press must carry, named once and
+  # used three times: the service accepts it, the service requires it, and the
+  # API mints against it. Environment-scoped so a dev token cannot be replayed
+  # against prod.
+  photograveur_audience = "dravr-photograveur-${var.environment}"
+
   seed_env_vars = var.enable_database ? {
     DATABASE_HOST       = "/cloudsql/${module.database[0].connection_name}"
     DATABASE_NAME       = module.database[0].database_name
@@ -775,14 +787,34 @@ module "photograveur" {
   # image rather than a reply.
   request_timeout = "30s"
 
-  # Internal only: the sole caller is the API pod, and the athlete never
-  # fetches from here — the platform serves the PNG from its own signed,
-  # short-TTL route. Nothing about this service should be reachable publicly.
-  ingress               = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  # INGRESS_TRAFFIC_ALL is required, not preferred: the API pod egresses
+  # private-ranges-only, so its call to this service leaves by the public path
+  # and an internal-only ingress drops it. That is not theoretical — this
+  # service sat internal-only and unreachable from the API, failing silently,
+  # because the messaging path drops the chart and sends prose on any error.
+  # sciotte carries the same constraint and the same comment.
+  #
+  # Reachable is not the same as open. allow_unauthenticated stays false, so
+  # Cloud Run verifies a Google-signed identity token and roles/run.invoker
+  # before a request reaches the container, and only the API's service account
+  # holds that role. Ingress decides which networks may knock; IAM decides who
+  # may enter.
+  ingress               = "INGRESS_TRAFFIC_ALL"
   allow_unauthenticated = false
+  invoker_members       = ["serviceAccount:${module.service_accounts.app_service_account_email}"]
+
+  # A stable audience instead of this service's generated URL. Terraform can
+  # then configure caller and callee from one literal, rather than depending on
+  # an output of the resource it is creating. Environment-scoped on purpose: a
+  # shared audience would let a token minted for dev be replayed against prod,
+  # which is precisely what pinning an audience exists to prevent.
+  custom_audiences = [local.photograveur_audience]
 
   env_vars = {
     RUST_LOG = "info"
+    # The service refuses to start without this: a renderer that cannot pin the
+    # audience it accepts would take tokens minted for any other service.
+    PHOTOGRAVEUR_AUDIENCE = local.photograveur_audience
   }
 }
 

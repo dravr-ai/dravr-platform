@@ -166,6 +166,10 @@ resource "google_cloud_run_v2_service" "service" {
   # Disable IAM-based invoker checks for public access (bypasses org policy restrictions on allUsers)
   invoker_iam_disabled = var.allow_unauthenticated
 
+  # Audiences accepted in an identity token beyond the service's own URL.
+  # Empty means URL-only, which is Cloud Run's default behaviour.
+  custom_audiences = var.custom_audiences
+
   # CI/CD deploys (gcloud / GitHub Actions) mutate these outside Terraform, so
   # ignore them — otherwise the nightly drift monitor reds on deploy-stamped
   # metadata (which re-appears on every deploy) instead of only on real config
@@ -183,4 +187,28 @@ resource "google_cloud_run_v2_service" "service" {
       template[0].labels,
     ]
   }
+}
+
+# Who may invoke this service, when it is not open to everyone.
+#
+# `allow_unauthenticated = true` sets `invoker_iam_disabled`, which switches the
+# IAM check off entirely and makes these bindings inert — so the two are
+# alternatives, not layers. With the check on, Cloud Run verifies the caller's
+# Google-signed identity token and this role before the request reaches the
+# container, which is what lets a service drop its shared bearer key without
+# becoming reachable by anyone who finds the URL.
+#
+# Note this is orthogonal to `ingress`: ingress decides which *networks* may
+# reach the service, IAM decides which *principals* may. A caller on Cloud Run
+# with `private-ranges-only` egress leaves by the public path, so it needs
+# INGRESS_TRAFFIC_ALL to arrive at all — and then this is what keeps the door
+# shut to everyone else.
+resource "google_cloud_run_v2_service_iam_member" "invokers" {
+  for_each = toset(var.invoker_members)
+
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.service.name
+  role     = "roles/run.invoker"
+  member   = each.value
 }

@@ -227,7 +227,7 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "ce0dcf8a4b145c7b8f85e37ff9152fe8db18da18" }
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene as a message is serialized.
 photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.1.1" }
-dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.6.2", features = ["notifications"] }
+dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.7.0", features = ["notifications", "google-iam"] }
 pierre-weather = { path = "../pierre-weather", version = "0.3.0" }
 pierre-enforme = { path = "../pierre-enforme", version = "0.3.0", optional = true, features = ["provider-whoop"] }
 dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.4", optional = true }
@@ -333,7 +333,7 @@ hex = "0.4"
 subtle = "2.6"
 ed25519-dalek = "2.2"
 # Stripe billing webhook integration test signs payloads against StripeClient.
-dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.10" }
+dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.1.11" }
 
 # Flamegraph profiler hook for criterion benches (`-- --profile-time N`).
 # pprof builds on libc signals and does not compile on Windows, and cargo

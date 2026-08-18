@@ -187,3 +187,20 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "invoker_members" {
+  description = "IAM principals granted roles/run.invoker, e.g. [\"serviceAccount:app@project.iam.gserviceaccount.com\"]. Inert when allow_unauthenticated is true, which disables the IAM check outright."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for m in var.invoker_members : can(regex("^(serviceAccount|user|group|domain|principal|principalSet):", m))])
+    error_message = "Each invoker member must carry an IAM principal prefix (serviceAccount:, user:, group:, domain:, principal:, principalSet:)."
+  }
+}
+
+variable "custom_audiences" {
+  description = "Extra audiences this service accepts in an identity token, alongside its own URL. A stable string (e.g. \"dravr-photograveur-dev\") lets terraform configure caller and callee from one literal instead of depending on the URL Cloud Run generates at creation. Keep it environment-scoped, or a token minted for dev replays against prod."
+  type        = list(string)
+  default     = []
+}
