@@ -77,9 +77,7 @@ use pierre_core::narration;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
-use pierre_llm::{
-    ChatMessage, ChatProvider, ChatRequest, ChatResponse, LlmProvider, McpServerConfig,
-};
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse, LlmProvider};
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,

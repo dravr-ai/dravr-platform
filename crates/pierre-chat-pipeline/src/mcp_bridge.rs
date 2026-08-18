@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! The seam an ACP-managed provider reaches Dravr's own MCP tools through.
+
 use pierre_core::models::TenantId;
 use pierre_llm::McpServerConfig;
 

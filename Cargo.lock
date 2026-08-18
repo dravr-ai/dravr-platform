@@ -1548,7 +1548,7 @@ version = "0.1.12"
 source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.12#643174e5378244dc28fc192a2af7832cb91f8720"
 dependencies = [
  "chrono",
- "dravr-tronc 0.7.1",
+ "dravr-tronc",
  "hex",
  "hmac",
  "reqwest 0.12.28",
@@ -1558,24 +1558,6 @@ dependencies = [
  "subtle",
  "thiserror 2.0.18",
  "tracing",
-]
-
-[[package]]
-name = "dravr-tronc"
-version = "0.7.0"
-source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.0#bfddbf26997f3d2cd5c9eed1b224274d3986ca84"
-dependencies = [
- "async-trait",
- "axum",
- "bitflags 2.11.1",
- "clap",
- "futures",
- "serde",
- "serde_json",
- "subtle",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -3510,7 +3492,7 @@ version = "0.3.0"
 dependencies = [
  "bcrypt",
  "chrono",
- "dravr-tronc 0.7.1",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-config",
  "pierre-core",
@@ -3611,7 +3593,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dravr-contremaitre",
- "dravr-tronc 0.7.0",
+ "dravr-tronc",
  "futures-util",
  "jsonschema",
  "pierre-agui",
@@ -3724,7 +3706,7 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
- "dravr-tronc 0.7.1",
+ "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-database",
@@ -3964,7 +3946,7 @@ version = "0.3.0"
 dependencies = [
  "chrono",
  "dravr-sciotte",
- "dravr-tronc 0.7.1",
+ "dravr-tronc",
  "gethostname",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3983,7 +3965,7 @@ name = "pierre-mcp-schema"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "dravr-tronc 0.7.1",
+ "dravr-tronc",
  "pierre-config",
  "pierre-core",
  "serde",
@@ -4361,7 +4343,7 @@ dependencies = [
  "dashmap",
  "dravr-equilibre",
  "dravr-riviere",
- "dravr-tronc 0.7.1",
+ "dravr-tronc",
  "futures-util",
  "hex",
  "pierre-agui",
@@ -4433,7 +4415,7 @@ dependencies = [
  "bitflags 2.11.1",
  "chrono",
  "chrono-tz",
- "dravr-tronc 0.7.1",
+ "dravr-tronc",
  "futures-util",
  "lru",
  "num-traits",
@@ -4512,7 +4494,7 @@ dependencies = [
  "dravr-contremaitre",
  "dravr-equilibre",
  "dravr-stripe",
- "dravr-tronc 0.7.1",
+ "dravr-tronc",
  "ed25519-dalek",
  "embacle",
  "eventsource-stream",
