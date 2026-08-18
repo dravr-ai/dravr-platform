@@ -1407,8 +1407,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.20"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.20#be7ce991ecfc43ec67f5df04e2cfc294739a5a49"
+version = "0.4.21"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.21#d2bb45d8a7af16cb0a4ad90258a15ecb8afa8030"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2428,7 +2428,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4054,6 +4054,7 @@ dependencies = [
  "chrono",
  "dravr-equilibre",
  "dravr-sciotte",
+ "dravr-tronc",
  "futures-util",
  "hex",
  "num-traits",
@@ -4803,7 +4804,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4842,7 +4843,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
