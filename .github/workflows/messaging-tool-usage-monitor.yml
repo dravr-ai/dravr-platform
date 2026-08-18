@@ -1,0 +1,127 @@
+# ABOUTME: Daily check that messaging coach turns actually call tools, not just talk
+# ABOUTME: Exists because tool calling was off for eight weeks and nothing noticed
+#
+# On 2026-06-22 `COPILOT_HEADLESS_MCP_TOOL_CALLING` was set to "false" as a
+# mitigation. Every messaging turn from that day until 2026-08-13 executed zero
+# tools. Nothing failed: activities are pre-injected into the prompt, so the
+# coach still answered plausibly about training, and the replies read fine. The
+# only durable trace was `llm_usage.tool_calls_count = 0` on every row, which
+# nobody was reading.
+#
+# A single toolless turn is normal — "bonjour" needs no tool. What is not normal
+# is a whole day of messaging traffic with not one tool call in it. That is the
+# shape this checks: a floor on the RATE across the window, not a verdict on any
+# one turn.
+#
+# Read-only: it reads Cloud Logging and nothing else.
+
+name: "Monitor: Messaging Tool Usage (dev)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "How many hours back to scan"
+        required: false
+        default: "24"
+      min_turns:
+        description: "Minimum messaging turns before the rate is meaningful"
+        required: false
+        default: "5"
+  schedule:
+    # 06:00 Eastern — after a full day and night of real traffic.
+    - cron: "0 10 * * *"
+
+concurrency:
+  group: messaging-tool-usage
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  tool-usage:
+    name: Messaging turns are still calling tools
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Count messaging turns with and without tool calls
+        run: |
+          set -euo pipefail
+          HOURS="${{ github.event.inputs.hours || '24' }}"
+          MIN_TURNS="${{ github.event.inputs.min_turns || '5' }}"
+          SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-api"
+
+          # `Chat pipeline dispatch completed` is emitted once per turn by
+          # stages/tool_dispatch.rs and carries both fields this needs.
+          # web_chat is excluded deliberately: the regression was specific to
+          # the messaging transports, and mixing web traffic in would have let
+          # a healthy web rate mask a dead messaging one.
+          BASE="resource.type=\"cloud_run_revision\"
+                AND resource.labels.service_name=\"${SERVICE}\"
+                AND jsonPayload.message=\"Chat pipeline dispatch completed\"
+                AND jsonPayload.channel!=\"web_chat\""
+
+          gcloud logging read "${BASE}" \
+            --freshness="${HOURS}h" --limit=1000 \
+            --format='value(jsonPayload.channel,jsonPayload.tool_calls)' \
+            > /tmp/turns.tsv 2>/dev/null || true
+
+          TOTAL=$(grep -c . /tmp/turns.tsv || true)
+          WITH_TOOLS=$(awk -F'\t' '$2 != "" && $2 != "0" { n++ } END { print n+0 }' /tmp/turns.tsv)
+
+          {
+            echo "## Messaging tool usage — last ${HOURS}h"
+            echo ""
+            echo "| signal | value |"
+            echo "|---|---:|"
+            echo "| messaging turns | ${TOTAL} |"
+            echo "| turns that called >=1 tool | ${WITH_TOOLS} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${TOTAL}" -lt "${MIN_TURNS}" ]; then
+            echo "- verdict: **inconclusive** — ${TOTAL} turn(s) is below the ${MIN_TURNS}-turn floor." >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::Only ${TOTAL} messaging turn(s) in the window; too few to judge the rate."
+            exit 0
+          fi
+
+          # Per-channel breakdown, so a single dead transport is visible even
+          # when the others carry the aggregate.
+          {
+            echo ""
+            echo "### By channel"
+            echo ""
+            echo "| channel | turns | with tools |"
+            echo "|---|---:|---:|"
+            awk -F'\t' '{ t[$1]++; if ($2 != "" && $2 != "0") w[$1]++ }
+                        END { for (c in t) printf "| %s | %d | %d |\n", c, t[c], w[c]+0 }' \
+              /tmp/turns.tsv
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${WITH_TOOLS}" -eq 0 ]; then
+            {
+              echo ""
+              echo "**Not one of ${TOTAL} messaging turns called a tool.**"
+              echo ""
+              echo "Check \`COPILOT_HEADLESS_MCP_TOOL_CALLING\` on the api service"
+              echo "first — that flag being off is what caused this from 2026-06-22"
+              echo "to 2026-08-13, and the replies stayed plausible throughout"
+              echo "because activities are pre-injected into the prompt."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Zero tool calls across ${TOTAL} messaging turns in ${HOURS}h — the coach is answering without ever reading data."
+            exit 1
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ ${WITH_TOOLS}/${TOTAL} messaging turns called at least one tool." >> "$GITHUB_STEP_SUMMARY"
