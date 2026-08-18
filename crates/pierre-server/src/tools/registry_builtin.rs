@@ -89,6 +89,10 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-config")]
     register_fitness_config_tools(registry);
 
+    // Athlete physiology write (chat-callable, unlike the two above)
+    #[cfg(feature = "tools-config")]
+    register_physiology_tools(registry);
+
     // Nutrition tools
     #[cfg(feature = "tools-nutrition")]
     register_nutrition_tools(registry);
@@ -346,6 +350,26 @@ fn register_config_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered configuration tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register the athlete physiology write tool.
+///
+/// Category `physiology` rather than `configuration`: the category is what
+/// `ToolRegistry::chat_callable_schemas` gates on, and an athlete stating
+/// their FTP mid-conversation is self-report the coach must be able to save
+/// on that turn — not an operator configuration write.
+#[cfg(feature = "tools-config")]
+fn register_physiology_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::physiology::create_physiology_tools;
+
+    for tool in create_physiology_tools() {
+        registry.register_with_category(Arc::from(tool), "physiology");
+    }
+
+    info!(
+        "Registered physiology tools (registry now has {} tools)",
         registry.len()
     );
 }

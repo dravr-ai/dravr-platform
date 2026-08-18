@@ -214,47 +214,70 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
     // is missing, and — the regression that matters more — whether it wrongly
     // tells a connected one the same thing.
 
-    // This ordering once cited `setupDashboardMocks` registering its own
-    // `**/api/providers` handler that a later registration had to beat. That is
-    // false: `visual-test-helpers.ts` contains no providers route at all, so
-    // nothing here is racing a helper. The claim is removed rather than kept,
-    // because it sent three separate debugging attempts down a dead end.
-
-    // Resolves when the providers query has actually been answered.
+    // This suite owns the providers answer outright, via `skipProvidersRoute`.
     //
-    // `waitForNetworkIdle` is not a substitute. The banner reads a React Query
-    // result, and idle only says no request is in flight — it is satisfied both
-    // before the query starts and after it finishes. Asserting on the wrong side
-    // of that gap is why this passed alone and failed in a full run, and why it
-    // passed whenever a listener happened to be attached: that changed the
-    // timing, not the behaviour. Waiting on the response makes the ordering
-    // explicit instead of probable.
-    const waitForProviders = (page: Page) =>
-      page.waitForResponse(
-        (r) => r.url().includes('/api/providers') && r.status() === 200,
-        { timeout: 15_000 },
-      );
-
+    // Three facts drive that, each established by running it rather than
+    // reasoning about it:
+    //
+    // 1. `setupDashboardMocks` — which `loginAsUser` calls — DOES register
+    //    `**/api/providers`, returning an empty list. The comment that stood
+    //    here claimed the helpers contain no providers route at all; that was
+    //    false, and believing it is what sent earlier debugging attempts
+    //    hunting a race that was not there.
+    //
+    // 2. Registering a competing route cannot win. Playwright matches handlers
+    //    newest-first, so one registered before `loginAsUser` loses to the
+    //    default outright — a connected athlete gets `{providers: []}` and the
+    //    banner appears, failing the guard below for the wrong reason.
+    //
+    // 3. Registering after `loginAsUser` wins the route but arrives too late to
+    //    matter: the providers query has already been answered and cached under
+    //    `QUERY_KEYS.providers.status()`, so ChatTab mounts with `isSuccess`
+    //    already true and renders off the default payload. Anything the spec
+    //    registers afterwards only lands as a background refetch — which is
+    //    also why waiting for a second `/api/providers` response timed out at
+    //    15s and red this suite: React Query coalesces, so a second request is
+    //    not guaranteed to exist at all.
+    //
+    // Opting the default out leaves the gated route below as the only handler,
+    // so it answers the very first request. `release` holds that answer open
+    // until the test calls it, making "the query is still in flight" a state
+    // the test controls rather than a window it hopes to hit. Nothing on the
+    // login path waits for network idle (`loginToDashboard` waits for `main`
+    // plus a fixed delay), so a pending providers request cannot stall it.
     const routeProviders = async (page: Page, providers: unknown[]) => {
+      let release: () => void = () => {};
+      const answered = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       await page.route('**/api/providers', async (route) => {
+        await answered;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ providers }),
         });
       });
+      return release;
     };
+
+    // Present as soon as ChatTab renders, and independent of the providers
+    // query — so a banner assertion cannot pass merely because chat never
+    // loaded.
+    const chatComposer = (page: Page) => page.getByLabel('Message Dravr');
 
     test('shows the connect-provider banner in chat when nothing is connected', async ({
       page,
     }) => {
-      await loginAsUser(page, 'webtest');
-      await routeProviders(page, []);
-      const answered = waitForProviders(page);
+      const releaseProviders = await routeProviders(page, []);
+      await loginAsUser(page, 'webtest', { skipProvidersRoute: true });
       await navigateToTab(page, 'Chat');
-      await answered;
-      await waitForNetworkIdle(page);
+      await expect(chatComposer(page)).toBeVisible();
 
+      releaseProviders();
+
+      // Auto-retrying, so it holds until the query has answered and the banner
+      // renders — with no assumption about which request carried the answer.
       await expect(page.getByTestId('connect-provider-banner')).toBeVisible();
     });
 
@@ -262,14 +285,25 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
       // The regression guard. `hasConnectedProvider` defaults to false while the
       // providers query is in flight, so keying the banner off it alone flashed
       // a connect-provider nudge at connected users on every chat load.
-      await loginAsUser(page, 'webtest');
-      await routeProviders(page, [{ provider: 'strava', connected: true }]);
-      const answered = waitForProviders(page);
+      const releaseProviders = await routeProviders(page, [
+        { provider: 'strava', connected: true },
+      ]);
+      await loginAsUser(page, 'webtest', { skipProvidersRoute: true });
       await navigateToTab(page, 'Chat');
-      await answered;
+      await expect(chatComposer(page)).toBeVisible();
+
+      const banner = page.getByTestId('connect-provider-banner');
+
+      // Chat is up and the providers answer is still held, so this is the
+      // in-flight window itself — the exact state the flash regression lives
+      // in, asserted as a fact rather than caught by luck.
+      await expect(banner).toHaveCount(0);
+
+      releaseProviders();
       await waitForNetworkIdle(page);
 
-      await expect(page.getByTestId('connect-provider-banner')).not.toBeVisible();
+      // And still absent once the answer confirms the athlete is connected.
+      await expect(banner).toHaveCount(0);
     });
   });
 });

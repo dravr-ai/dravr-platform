@@ -47,8 +47,8 @@ pub struct DossierFact {
 ///
 /// Composed at read time from the per-tenant rows of:
 ///
-/// - `user_physiological_profiles` → [`UserPhysiologicalProfile`] (always
-///   present once the user has logged a profile; `None` until then)
+/// - `user_physiological_profiles` → [`UserPhysiologicalProfile`] (present
+///   once `set_physiology` has written the row; `None` until then)
 /// - `user_profiles` JSON column → free-form goal entries (`goals`)
 /// - `user_physiological_profiles.hr_zones_json` /
 ///   `power_zones_json` → typed [`HrZoneSet`] / [`PowerZoneSet`]
@@ -69,11 +69,16 @@ pub struct Dossier {
     pub tenant_id: Uuid,
 
     /// Physiological profile slot (FTP, threshold pace, fitness level, etc.).
-    /// `None` until the user has saved a profile.
+    ///
+    /// `None` until the athlete's measurements are written by the
+    /// `set_physiology` tool, which is the only production writer of
+    /// `user_physiological_profiles`.
     pub physiology: Option<UserPhysiologicalProfile>,
 
     /// Heart-rate zone definitions.
-    /// `None` until the user has saved zones (manually or via threshold tests).
+    ///
+    /// `None` until `set_physiology` derives them, which it does as soon as
+    /// both a resting and a maximum heart rate are on the profile.
     pub hr_zones: Option<HrZoneSet>,
 
     /// Power zone definitions (cycling / running power).

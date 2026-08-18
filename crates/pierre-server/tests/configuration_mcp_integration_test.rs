@@ -94,13 +94,11 @@ fn test_configuration_tool_schemas() {
         .find(|tool| tool.name == "calculate_personalized_zones")
         .expect("calculate_personalized_zones tool should exist");
 
-    assert!(zones_tool
-        .description
-        .contains("personalized training zones"));
-    assert_eq!(
-        zones_tool.input_schema.required,
-        Some(vec!["vo2_max".to_owned()])
-    );
+    assert!(zones_tool.description.contains("training zones"));
+    // Nothing is required: each input falls back to the athlete's saved
+    // physiology, and a zone family whose inputs are unknown is reported as
+    // unavailable rather than derived from a constant.
+    assert_eq!(zones_tool.input_schema.required, None);
 
     if let Some(properties) = &zones_tool.input_schema.properties {
         assert!(properties.contains_key("vo2_max"));
@@ -236,9 +234,14 @@ async fn test_configuration_tools_count_in_total() {
     // save_training_plan added (94→96, total 100→102).
     // 2026-08-17: athlete-commitment tools commitment_create +
     // commitment_cancel added (96→98, total 102→104).
+    // 2026-08-18: set_physiology added (98→99, total 104→105) — the write path
+    // for user_physiological_profiles. It is counted here rather than with the
+    // configuration tools: this split is by name prefix, and the tool is
+    // registered under the chat-callable `physiology` category precisely
+    // because it is not operator configuration.
     assert_eq!(
-        fitness_tools, 98,
-        "Expected exactly 98 non-configuration tools"
+        fitness_tools, 99,
+        "Expected exactly 99 non-configuration tools"
     );
-    assert_eq!(tools.len(), 104, "Expected total of 104 tools"); // 98 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 105, "Expected total of 105 tools"); // 99 non-configuration + 6 configuration
 }

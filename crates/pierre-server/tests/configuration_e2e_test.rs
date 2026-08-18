@@ -303,12 +303,31 @@ async fn test_calculate_personalized_zones_e2e() {
     assert_eq!(user_profile["resting_hr"], 60);
     assert_eq!(user_profile["max_hr"], 190);
 
-    // Verify personalized zones
+    // Verify personalized zones. Heart-rate and pace zones follow from the
+    // inputs this request supplied; power zones do not, because no FTP was
+    // given and this user has none saved. The tool used to answer with zones
+    // derived from DEFAULT_ESTIMATED_FTP and label them `estimated_ftp`, which
+    // presented a house number as the athlete's own.
     let zones = &result["personalized_zones"];
     assert!(zones["heart_rate_zones"].is_object());
     assert!(zones["pace_zones"].is_object());
-    assert!(zones["power_zones"].is_object());
-    assert!(zones["estimated_ftp"].is_number());
+    assert!(
+        zones["power_zones"].is_null(),
+        "power zones must be omitted without an FTP, got {:?}",
+        zones["power_zones"]
+    );
+    assert!(
+        result["unavailable"]["power_zones"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("ftp"),
+        "the response must say which input is missing, got {:?}",
+        result["unavailable"]
+    );
+    assert_eq!(
+        result["input_sources"]["vo2_max"], "provided",
+        "the response must say where each number came from"
+    );
 
     // Verify zone calculations metadata
     let calculations = &result["zone_calculations"];
@@ -519,11 +538,14 @@ async fn test_configuration_system_error_handling() {
     let response = executor.execute_tool(request).await;
     assert!(response.is_err());
 
-    // Test missing required parameter
-    let invalid_request = UniversalRequest {
+    // An argument-free call is no longer an error. Every input falls back to
+    // the athlete's saved physiology, and this user has none, so the honest
+    // answer is that every zone family is unavailable — not a failure, and
+    // not a set of zones built from constants.
+    let empty_request = UniversalRequest {
         user_id: test_user_id.clone(),
         tool_name: "calculate_personalized_zones".to_owned(),
-        parameters: json!({}), // Missing required vo2_max
+        parameters: json!({}),
         protocol: "mcp".to_owned(),
         tenant_id: None,
         progress_token: None,
@@ -531,8 +553,22 @@ async fn test_configuration_system_error_handling() {
         progress_reporter: None,
     };
 
-    let invalid_response = executor.execute_tool(invalid_request).await;
-    assert!(invalid_response.is_err());
+    let empty_response = executor
+        .execute_tool(empty_request)
+        .await
+        .expect("an argument-free call answers rather than failing");
+    assert!(empty_response.success);
+    let empty_result = empty_response.result.expect("Should have result");
+    for family in ["heart_rate_zones", "pace_zones", "power_zones"] {
+        assert!(
+            empty_result["personalized_zones"][family].is_null(),
+            "{family} must be omitted with no inputs at all"
+        );
+        assert!(
+            empty_result["unavailable"][family].is_string(),
+            "{family} must come with a reason"
+        );
+    }
 
     // Test invalid validation parameters
     let validation_request = UniversalRequest {

@@ -11,6 +11,20 @@ interface UserOptions {
   email?: string;
   displayName?: string;
   status?: 'active' | 'pending' | 'suspended';
+  /**
+   * Skip the default `/api/providers` mock below, leaving the spec's own the
+   * only handler for that route.
+   *
+   * A spec cannot achieve this by registering its own route instead. Playwright
+   * matches handlers newest-first, so one registered before `loginAsUser` loses
+   * to the default; and one registered after it wins too late, because the
+   * providers query has already been answered and cached under
+   * `QUERY_KEYS.providers.status()` by then — leaving the screen under test
+   * showing the default payload no matter what the spec mocked. Opting out is
+   * what lets a spec own the answer from the very first request, including
+   * while it is still in flight.
+   */
+  skipProvidersRoute?: boolean;
 }
 
 /**
@@ -79,6 +93,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     email = 'admin@test.com',
     displayName = 'Test Admin',
     status = 'active',
+    skipProvidersRoute = false,
   } = userOptions;
 
   // Theme pin + feature-flag stubs shared with spec-local helpers.
@@ -330,13 +345,18 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
   });
 
   // Mock providers status (needed by ChatTab and ProviderConnectionCards)
-  await page.route('**/api/providers', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ providers: [] }),
+  // Default: no connected providers. A spec that needs to control this —
+  // including controlling *when* the answer arrives — passes
+  // `skipProvidersRoute` and registers its own.
+  if (!skipProvidersRoute) {
+    await page.route('**/api/providers', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ providers: [] }),
+      });
     });
-  });
+  }
 
   // Default onboarding status: a fully onboarded user. Specs exercising the
   // forced-onboarding flow override this with `needs_provider_connection: true`

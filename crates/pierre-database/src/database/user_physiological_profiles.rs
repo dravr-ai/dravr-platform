@@ -138,11 +138,20 @@ impl UserPhysiologicalProfileRepository for Database {
         let primary_sport = serde_json::from_str(&primary_sport_str)
             .map_err(|e| AppError::database(format!("parse primary_sport: {e}")))?;
 
-        let resting_hr: Option<i64> = row.try_get("resting_hr").ok();
-        let max_hr: Option<i64> = row.try_get("max_hr").ok();
-        let age: Option<i64> = row.try_get("age").ok();
-        let training_years: Option<i64> = row.try_get("training_experience_years").ok();
-        let ftp_watts_db: Option<i64> = row.try_get("ftp_watts").ok();
+        // Every nullable numeric is decoded as `Option<T>`, never as a bare
+        // `T` recovered with `.ok()`. SQLite's C API answers a NULL column
+        // with 0 rather than an error, so the bare form turns "not measured"
+        // into a measured zero — a weight of 0 kg reaching the TSS engine
+        // reads as real data. Only a partially-filled profile shows it, which
+        // is why it survived until `set_physiology` began writing one.
+        let resting_hr = row.try_get::<Option<i64>, _>("resting_hr").ok().flatten();
+        let max_hr = row.try_get::<Option<i64>, _>("max_hr").ok().flatten();
+        let age = row.try_get::<Option<i64>, _>("age").ok().flatten();
+        let training_years = row
+            .try_get::<Option<i64>, _>("training_experience_years")
+            .ok()
+            .flatten();
+        let ftp_watts_db = row.try_get::<Option<i64>, _>("ftp_watts").ok().flatten();
 
         let hr_zones_json: Option<String> = row
             .try_get::<Option<String>, _>("hr_zones_json")
@@ -163,17 +172,23 @@ impl UserPhysiologicalProfileRepository for Database {
 
         Ok(Some(UserPhysiologicalProfile {
             user_id,
-            vo2_max: row.try_get("vo2_max").ok(),
+            vo2_max: row.try_get::<Option<f64>, _>("vo2_max").ok().flatten(),
             resting_hr: resting_hr.and_then(|v| u16::try_from(v).ok()),
             max_hr: max_hr.and_then(|v| u16::try_from(v).ok()),
-            lactate_threshold_percentage: row.try_get("lactate_threshold_percentage").ok(),
+            lactate_threshold_percentage: row
+                .try_get::<Option<f64>, _>("lactate_threshold_percentage")
+                .ok()
+                .flatten(),
             age: age.and_then(|v| u16::try_from(v).ok()),
-            weight: row.try_get("weight").ok(),
+            weight: row.try_get::<Option<f64>, _>("weight").ok().flatten(),
             fitness_level,
             primary_sport,
             training_experience_years: training_years.and_then(|v| u8::try_from(v).ok()),
             ftp_watts: ftp_watts_db.and_then(|v| u32::try_from(v).ok()),
-            threshold_pace_sec_per_km: row.try_get("threshold_pace_sec_per_km").ok(),
+            threshold_pace_sec_per_km: row
+                .try_get::<Option<f64>, _>("threshold_pace_sec_per_km")
+                .ok()
+                .flatten(),
             hr_zones,
             power_zones,
         }))

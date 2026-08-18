@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 104
+// Tool count: 105
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -316,27 +316,27 @@ export interface CalculateMetricsParams {
 
 
 /**
- * Calculate personalized training zones based on your fitness metrics
+ * Calculate training zones from the athlete's own measurements, falling back to their saved physiology for anything not supplied here. Zone families whose inputs are unknown are listed under `unavailable` instead of being estimated; `input_sources` says where each number came from.
  */
 export interface CalculatePersonalizedZonesParams {
 
-  /** Functional Threshold Power in watts */
+  /** Functional Threshold Power in watts. Omit to use the athlete's saved value; power zones are omitted when neither exists. */
   ftp?: number;
 
   /** Lactate threshold */
   lactate_threshold?: number;
 
-  /** Maximum heart rate in bpm */
+  /** Maximum heart rate in bpm. Omit to use the athlete's saved value, or the Tanaka estimate from their saved age. */
   max_hr?: number;
 
-  /** Resting heart rate in bpm */
+  /** Resting heart rate in bpm. Omit to use the athlete's saved value. */
   resting_hr?: number;
 
   /** Sport efficiency factor */
   sport_efficiency?: number;
 
-  /** VO2 max in ml/kg/min (required) */
-  vo2_max: number;
+  /** VO2 max in ml/kg/min. Omit to use the athlete's saved value; pace zones are omitted when neither exists. */
+  vo2_max?: number;
 }
 
 
@@ -1460,6 +1460,46 @@ export interface SetGoalParams {
 
 
 /**
+ * Save the athlete's physiological measurements — FTP, threshold pace, max and resting heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.
+ */
+export interface SetPhysiologyParams {
+
+  /** Age in years. */
+  age?: number;
+
+  /** One of beginner, recreational, intermediate, advanced, elite, professional. */
+  fitness_level?: string;
+
+  /** Functional Threshold Power in watts. Saving it also derives and stores the athlete's power zones. */
+  ftp_watts?: number;
+
+  /** Lactate threshold as a fraction of maximum heart rate, between 0.65 and 0.95. Combined with max_hr this gives the LTHR that heart-rate-based training load uses. */
+  lactate_threshold_percentage?: number;
+
+  /** Maximum heart rate in bpm. Saving it together with resting_hr derives and stores the athlete's heart-rate zones. */
+  max_hr?: number;
+
+  /** The athlete's main sport, e.g. run, ride, swim, trail_running. */
+  primary_sport?: string;
+
+  /** Resting heart rate in bpm. */
+  resting_hr?: number;
+
+  /** Threshold pace in seconds per kilometre — the running equivalent of FTP. A 4:10/km threshold is 250. */
+  threshold_pace_sec_per_km?: number;
+
+  /** Years of structured training experience. */
+  training_experience_years?: number;
+
+  /** VO2 max in ml/kg/min. */
+  vo2_max?: number;
+
+  /** Body weight in kilograms. */
+  weight?: number;
+}
+
+
+/**
  * Show a previously hidden coach
  */
 export interface ShowCoachParams {
@@ -1714,7 +1754,7 @@ export interface McpErrorResponse {
 /**
  * Union type of all available tool names
  */
-export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "commitment_cancel" | "commitment_create" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
+export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "commitment_cancel" | "commitment_create" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "set_physiology" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
 
 /**
  * Map of tool names to their parameter types
@@ -1811,6 +1851,7 @@ export interface ToolParamsMap {
   "search_recipes": SearchRecipesParams;
   "set_fitness_config": SetFitnessConfigParams;
   "set_goal": SetGoalParams;
+  "set_physiology": SetPhysiologyParams;
   "show_coach": ShowCoachParams;
   "suggest_goals": SuggestGoalsParams;
   "suggest_rest_day": SuggestRestDayParams;

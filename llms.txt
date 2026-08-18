@@ -826,8 +826,11 @@ defined in `src/protocols/universal/tool_registry.rs:12-45`
 - `get_configuration_profiles` - available configuration profiles
 - `get_user_configuration` - current user configuration
 - `update_user_configuration` - modify configuration parameters
-- `calculate_personalized_zones` - training zone calculation
+- `calculate_personalized_zones` - training zone calculation from the athlete's saved physiology
 - `validate_configuration` - config parameter validation
+
+### physiology (1 tool)
+- `set_physiology` - save the athlete's measurements (ftp, threshold pace, max/resting hr, lactate threshold, vo2 max, weight, age); the only writer of `user_physiological_profiles`, which every personalised computation reads
 
 ## development workflow
 

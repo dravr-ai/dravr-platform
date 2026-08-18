@@ -143,7 +143,7 @@ System-wide configuration management tools for physiological parameters and trai
 | `get_configuration_profiles` | Get available configuration profiles (Research, Elite, Recreational, etc.) | - | - |
 | `get_user_configuration` | Get current user's configuration settings and overrides | - | - |
 | `update_user_configuration` | Update user's configuration parameters and session overrides | - | `profile` (string), `parameters` (object) |
-| `calculate_personalized_zones` | Calculate personalized training zones based on VO2 max | `vo2_max` (number) | `resting_hr` (number), `max_hr` (number), `lactate_threshold` (number), `sport_efficiency` (number) |
+| `calculate_personalized_zones` | Calculate training zones, falling back to the athlete's saved physiology for anything not supplied | - | `vo2_max` (number), `resting_hr` (number), `max_hr` (number), `ftp` (number), `lactate_threshold` (number), `sport_efficiency` (number) |
 | `validate_configuration` | Validate configuration parameters against safety rules | `parameters` (object) | - |
 
 ### Parameter Details
@@ -154,10 +154,42 @@ System-wide configuration management tools for physiological parameters and trai
 
 **`calculate_personalized_zones` Parameters**:
 - `vo2_max`: VO2 max in ml/kg/min
-- `resting_hr`: Resting heart rate in bpm (default: 60)
-- `max_hr`: Maximum heart rate in bpm (default: 190)
-- `lactate_threshold`: Lactate threshold as percentage of VO2 max (default: 0.85)
+- `resting_hr`: Resting heart rate in bpm
+- `max_hr`: Maximum heart rate in bpm
+- `ftp`: Functional Threshold Power in watts
+- `lactate_threshold`: Lactate threshold as a fraction of maximum heart rate (default: 0.85)
 - `sport_efficiency`: Sport efficiency factor (default: 1.0)
+
+Nothing is required. Each athlete-specific input resolves as *argument → saved
+physiology → unknown*, except `max_hr`, which also falls back to the Tanaka
+estimate from a saved age. A zone family whose inputs are unknown is reported
+under `unavailable` rather than derived from a default, and `input_sources`
+names the origin of every number used.
+
+---
+
+## Physiology
+
+The athlete's typed measurements. `user_physiological_profiles` is read by
+training-load compute, the Endurance dossier and interval exports, the athlete
+snapshot, and `GET /api/v1/endurance/*`; `set_physiology` is its only writer.
+
+| Tool Name | Description | Required Parameters | Optional Parameters |
+|-----------|-------------|---------------------|---------------------|
+| `set_physiology` | Save the athlete's physiological measurements so personalised calculations use their real numbers | - | `ftp_watts` (integer), `threshold_pace_sec_per_km` (number), `max_hr` (integer), `resting_hr` (integer), `lactate_threshold_percentage` (number), `vo2_max` (number), `weight` (number), `age` (integer), `fitness_level` (string), `primary_sport` (string), `training_experience_years` (integer) |
+
+### Parameter Details
+
+**`set_physiology`**:
+- At least one field must be supplied; a call that sets nothing is rejected.
+- The write is read-modify-write: fields the call does not mention keep their
+  stored values.
+- Supplying `ftp_watts` also derives and stores power zones; supplying both
+  `resting_hr` and `max_hr` derives and stores heart-rate zones.
+- `fitness_level` is one of `beginner`, `recreational`, `intermediate`,
+  `advanced`, `elite`, `professional`.
+- The response carries the profile re-read from storage after the write, so a
+  caller can report what was actually persisted.
 
 ---
 

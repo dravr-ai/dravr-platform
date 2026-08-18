@@ -33,7 +33,7 @@ fn category_from_registry(category: Option<&str>, caps: ToolCapabilities) -> Too
         Some("coaches") => ToolCategory::Coaches,
         Some("analytics") => ToolCategory::Analysis,
         Some("goals") => ToolCategory::Goals,
-        Some("configuration" | "fitness_config") => ToolCategory::Configuration,
+        Some("configuration" | "fitness_config" | "physiology") => ToolCategory::Configuration,
         Some("recipes") => ToolCategory::Recipes,
         Some("sleep") => ToolCategory::Sleep,
         Some("admin") => ToolCategory::Admin,

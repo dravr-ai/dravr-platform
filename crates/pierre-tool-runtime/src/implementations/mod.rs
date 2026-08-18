@@ -21,6 +21,8 @@
 //! - `fitness_config` — get / set / list / delete fitness config (`tools-config`)
 //! - `memory` — coach-authored memory: notes, followups, fact recall
 //!   (`tools-memory`)
+//! - `physiology` — `set_physiology`, the athlete's typed measurements
+//!   (`tools-config`)
 //! - `mobility` — stretching exercises, yoga poses, mobility recommendations
 //!   (`tools-mobility`)
 //! - `recipes` — recipe constraints / validate / save / list / search
@@ -76,6 +78,11 @@ pub mod endurance_workouts;
 /// Fitness configuration tools (`tools-config` feature).
 #[cfg(feature = "tools-config")]
 pub mod fitness_config;
+
+/// Athlete physiology write tool: `set_physiology` — the only production
+/// writer of `user_physiological_profiles` (`tools-config` feature).
+#[cfg(feature = "tools-config")]
+pub mod physiology;
 
 /// Shared support for the fitness-provider API tools.
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]

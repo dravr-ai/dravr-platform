@@ -324,6 +324,12 @@ impl ToolRegistry {
             "recipes",
             "mobility",
             "memory",
+            // Athlete self-report (set_physiology). Physiology arrives mid-
+            // conversation — "my FTP is 285" — so the coach must be able to
+            // save it on the turn it is said. That is the opposite case from
+            // `configuration` / `fitness_config`, which are operator config
+            // writes and stay off the natural-language surface.
+            "physiology",
             // Consent-gated peer activity fetch (get_group_member_activities) —
             // the only path that reads a group peer's data. Must be chat-callable
             // or the coach is steered (by the group prompt) toward a tool the LLM

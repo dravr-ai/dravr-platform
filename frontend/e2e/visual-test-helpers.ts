@@ -476,7 +476,11 @@ async function setupSocialMocks(page: Page): Promise<void> {
  * Login to the application with mocked backend.
  * Sets up all necessary mocks before login.
  */
-export async function loginAsUser(page: Page, userKey: TestUserKey): Promise<void> {
+export async function loginAsUser(
+  page: Page,
+  userKey: TestUserKey,
+  options: { skipProvidersRoute?: boolean } = {}
+): Promise<void> {
   const user = TEST_USERS[userKey];
 
   // Setup dashboard mocks with appropriate role
@@ -484,6 +488,7 @@ export async function loginAsUser(page: Page, userKey: TestUserKey): Promise<voi
     role: user.role,
     email: user.email,
     displayName: user.displayName,
+    skipProvidersRoute: options.skipProvidersRoute,
   });
 
   // Setup additional API mocks (monitor, admin coaches, etc.)
