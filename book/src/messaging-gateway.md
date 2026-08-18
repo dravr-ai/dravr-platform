@@ -91,12 +91,20 @@ curl -X PUT http://localhost:8081/api/messaging/channels/telegram \
 
 ### 3. Register the Webhook with Telegram
 
+> **`allowed_updates` is required, not optional.** Omit it and Telegram sends
+> `message` updates only — button taps (`callback_query`) are never delivered,
+> so every inline keyboard the bot sends looks broken while the server logs
+> stay clean, because the tap never arrives. The coach picker was dead this way
+> until 2026-08-18. Verify with `getWebhookInfo`: `allowed_updates` must list
+> `callback_query`.
+
 ```bash
 curl -X POST "https://api.telegram.org/bot7123456789:AAHk.../setWebhook" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://your-domain.com/api/messaging/webhook/telegram",
-    "secret_token": "my-random-secret-string"
+    "secret_token": "my-random-secret-string",
+    "allowed_updates": ["message", "callback_query"]
   }'
 ```
 
@@ -139,8 +147,12 @@ curl -X PUT http://localhost:8081/api/messaging/channels/telegram \
 
 # Register webhook with Telegram
 curl -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
-  -d "url=https://your-domain.com/api/messaging/webhook/telegram" \
-  -d "secret_token=my-random-secret-string"
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-domain.com/api/messaging/webhook/telegram",
+    "secret_token": "my-random-secret-string",
+    "allowed_updates": ["message", "callback_query"]
+  }'
 ```
 
 ---
