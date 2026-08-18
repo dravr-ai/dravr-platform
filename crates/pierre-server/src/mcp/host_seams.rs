@@ -42,7 +42,9 @@ use pierre_core::models::TenantId;
 use pierre_mcp_schema::McpResponse;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_tool_runtime::context::AuthMethod;
+use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_execution::is_withheld_during_guided_flow;
 use serde_json::Value;
 use tracing::{debug, error, warn};
 use uuid::Uuid;
@@ -308,7 +310,7 @@ impl PierreToolDispatcher {
 #[async_trait]
 impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
     async fn list_tools(&self, _state: &Arc<dyn ToolRuntime>, ctx: &ToolContext) -> Vec<Tool> {
-        let schemas = if ctx.is_admin {
+        let mut schemas = if ctx.is_admin {
             self.resources.mcp.tool_registry.all_schemas()
         } else if let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) {
             let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
@@ -316,6 +318,31 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         } else {
             self.resources.mcp.tool_registry.user_visible_schemas()
         };
+
+        // A guided flow withholds plan-writing for its duration, and this is the
+        // surface the model actually reads on the native ACP path — tool
+        // visibility there comes from `tools/list`, not from `build_mcp_tools`.
+        // Filtering only the latter was correct while
+        // COPILOT_HEADLESS_MCP_TOOL_CALLING was false and became a silent no-op
+        // the moment it was re-enabled, which is exactly the drift the shared
+        // `guided_flow_is_active` predicate exists to prevent: discovery and
+        // execution now answer the question the same way instead of one quietly
+        // covering for the other.
+        //
+        // Fails closed. An unreadable onboarding state withholds rather than
+        // advertises: showing the tool during a walk is what derails it, and the
+        // server-side refusal would reject the call anyway.
+        if let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) {
+            if let Some(user_id) = ctx.user_id.as_deref() {
+                let active =
+                    guided_flow_is_active(&self.resources.common.repos, None, tenant_id, user_id)
+                        .await
+                        .unwrap_or(true);
+                if active {
+                    schemas.retain(|s| !is_withheld_during_guided_flow(&s.name));
+                }
+            }
+        }
 
         schemas.into_iter().map(schema_to_tool).collect()
     }

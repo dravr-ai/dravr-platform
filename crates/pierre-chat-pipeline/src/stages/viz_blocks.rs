@@ -240,15 +240,35 @@ fn schema_valid(schemas: &SchemaTexts, block: &Value) -> bool {
 
 /// `true` when the block's `source_tool` names a tool that actually ran.
 ///
-/// Compared case-sensitively against the exact tool names the loop recorded —
-/// a near-miss is a miss, because the point is that the citation be checkable
-/// rather than plausible.
+/// Compared case-sensitively — a near-miss is a miss, because the point is that
+/// the citation be checkable rather than plausible.
+///
+/// The one normalisation is the MCP server prefix. On the native ACP path the
+/// loop records a tool as `dravr-get_activities`, because that is the name the
+/// `/mcp` server exposes it under, while the model cites it as
+/// `get_activities` — the name in its own tool catalogue and in the block
+/// schema. Comparing those literally rejects a chart whose attribution is
+/// exactly right, which is not the fabrication this gate exists to catch. It
+/// cost the first genuine chart the coach ever produced (2026-08-18): correct
+/// data, correct source, refused on a prefix.
+/// Drop the MCP server prefix a natively-called tool is recorded under.
+///
+/// `dravr-get_activities` -> `get_activities`. Only the platform's own prefix
+/// is stripped: a tool from some other MCP server is a different tool and must
+/// not satisfy a citation for ours.
+fn strip_mcp_prefix(recorded: &str) -> &str {
+    recorded.strip_prefix("dravr-").unwrap_or(recorded)
+}
+
 fn source_tool_ran(block: &Value, tools_called: &[String]) -> bool {
     let claimed = block
         .get("source_tool")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    if tools_called.iter().any(|called| called == claimed) {
+    if tools_called
+        .iter()
+        .any(|called| called == claimed || strip_mcp_prefix(called) == claimed)
+    {
         return true;
     }
     warn!(

@@ -93,13 +93,14 @@ pub mod groups;
 /// Athlete commitment tools: `commitment_create`, `commitment_cancel` (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod commitments;
+/// Training-plan persistence tools (get/save).
+pub mod guided_flow;
 /// Memory tools: coach-authored notes, followups, fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;
 /// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
 #[cfg(feature = "tools-memory")]
 pub mod playbooks;
-/// Training-plan persistence tools (get/save).
 pub mod training_plans;
 
 /// Mobility / stretching / yoga tools (`tools-mobility` feature).

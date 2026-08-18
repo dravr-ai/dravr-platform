@@ -475,7 +475,6 @@ mod capability_recovery {
         None
     }
 
-
     /// The reply as it went **out**, not as it was stored.
     ///
     /// The distinction is the whole point of the test below: stage 19 strips the
@@ -798,5 +797,4 @@ mod capability_recovery {
             "the tool-call payload leaked into the delivered reply: {delivered:?}"
         );
     }
-
 }

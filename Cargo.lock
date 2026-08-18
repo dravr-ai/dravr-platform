@@ -1544,11 +1544,11 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.1.11"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.11#1fbcb9d32ec812a104f9cce56abcce61fa814f12"
+version = "0.1.12"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.12#643174e5378244dc28fc192a2af7832cb91f8720"
 dependencies = [
  "chrono",
- "dravr-tronc",
+ "dravr-tronc 0.7.1",
  "hex",
  "hmac",
  "reqwest 0.12.28",
@@ -1564,6 +1564,24 @@ dependencies = [
 name = "dravr-tronc"
 version = "0.7.0"
 source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.0#bfddbf26997f3d2cd5c9eed1b224274d3986ca84"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bitflags 2.11.1",
+ "clap",
+ "futures",
+ "serde",
+ "serde_json",
+ "subtle",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "dravr-tronc"
+version = "0.7.1"
+source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1#bd25fe1b793fd22fd269afb536aa716ca30bf86a"
 dependencies = [
  "async-trait",
  "axum",
@@ -2428,7 +2446,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3492,7 +3510,7 @@ version = "0.3.0"
 dependencies = [
  "bcrypt",
  "chrono",
- "dravr-tronc",
+ "dravr-tronc 0.7.1",
  "pierre-auth",
  "pierre-config",
  "pierre-core",
@@ -3593,7 +3611,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dravr-contremaitre",
- "dravr-tronc",
+ "dravr-tronc 0.7.0",
  "futures-util",
  "jsonschema",
  "pierre-agui",
@@ -3706,7 +3724,7 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
- "dravr-tronc",
+ "dravr-tronc 0.7.1",
  "hex",
  "pierre-core",
  "pierre-database",
@@ -3946,7 +3964,7 @@ version = "0.3.0"
 dependencies = [
  "chrono",
  "dravr-sciotte",
- "dravr-tronc",
+ "dravr-tronc 0.7.1",
  "gethostname",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3965,7 +3983,7 @@ name = "pierre-mcp-schema"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "dravr-tronc",
+ "dravr-tronc 0.7.1",
  "pierre-config",
  "pierre-core",
  "serde",
@@ -4343,7 +4361,7 @@ dependencies = [
  "dashmap",
  "dravr-equilibre",
  "dravr-riviere",
- "dravr-tronc",
+ "dravr-tronc 0.7.1",
  "futures-util",
  "hex",
  "pierre-agui",
@@ -4415,7 +4433,7 @@ dependencies = [
  "bitflags 2.11.1",
  "chrono",
  "chrono-tz",
- "dravr-tronc",
+ "dravr-tronc 0.7.1",
  "futures-util",
  "lru",
  "num-traits",
@@ -4494,7 +4512,7 @@ dependencies = [
  "dravr-contremaitre",
  "dravr-equilibre",
  "dravr-stripe",
- "dravr-tronc",
+ "dravr-tronc 0.7.1",
  "ed25519-dalek",
  "embacle",
  "eventsource-stream",
@@ -4803,7 +4821,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4842,7 +4860,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]

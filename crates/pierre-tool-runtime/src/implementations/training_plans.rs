@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Datelike, NaiveDate};
-use pierre_core::models::{ConversationRecord, LoadSnapshot, OnboardingState, Pillar, TenantId};
+use pierre_core::models::{ConversationRecord, LoadSnapshot, Pillar, TenantId};
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
 };
@@ -48,6 +48,8 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
+
+use crate::implementations::guided_flow::guided_flow_is_active;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -1091,36 +1093,6 @@ fn earliest_week(weeks: &[WeekPayload]) -> Option<&WeekPayload> {
         .filter_map(|w| parse_plan_date(&w.week_start).map(|date| (date, w)))
         .min_by_key(|(date, _)| *date)
         .map(|(_, week)| week)
-}
-
-/// Newest conversations consulted when resolving an athlete's guided-flow state
-/// without a conversation in scope. An interview keeps its conversation the
-/// most recently updated one, so a running walk is always inside this window.
-const GUIDED_FLOW_SCAN_LIMIT: i64 = 50;
-
-/// `true` when a guided interview owns the turn and write tools are withheld.
-///
-/// The conversation is authoritative when the call arrives through the chat
-/// pipeline, which puts its id in scope. A `tools/call` on the `/mcp` endpoint
-/// has none, so the state is resolved from the athlete's conversations instead —
-/// the `conversation_id` argument is model-supplied and cannot be trusted to
-/// answer a question about whether this same model may write.
-async fn guided_flow_is_active(
-    repos: &RepositoryRegistry,
-    conv: Option<&ConversationRecord>,
-    tenant: TenantId,
-    user_id: &str,
-) -> AppResult<bool> {
-    if let Some(conv) = conv {
-        return Ok(OnboardingState::from_column(conv.onboarding_state.as_deref()).is_some());
-    }
-    let states = repos
-        .chat
-        .list_user_onboarding_states(user_id, tenant, GUIDED_FLOW_SCAN_LIMIT)
-        .await?;
-    Ok(states
-        .iter()
-        .any(|raw| OnboardingState::from_column(Some(raw)).is_some()))
 }
 
 /// Measure the saved plan's opening week against the athlete's real recent

@@ -417,3 +417,9 @@ variable "notify_email_to" {
   type        = string
   default     = "jf@dravr.ai,phil@dravr.ai"
 }
+
+variable "backend_sciotte_iam" {
+  description = "Enforce Cloud Run IAM on the sciotte service (allow_unauthenticated=false + run.invoker for the app SA). Flip to true only after both the scraper and the API are deployed with identity-token auth — before that, Cloud Run would reject an API that is still sending the old shared bearer."
+  type        = bool
+  default     = false
+}
