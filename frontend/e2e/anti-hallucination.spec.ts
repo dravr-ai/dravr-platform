@@ -219,13 +219,22 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
     // false: `visual-test-helpers.ts` contains no providers route at all, so
     // nothing here is racing a helper. The claim is removed rather than kept,
     // because it sent three separate debugging attempts down a dead end.
+
+    // Resolves when the providers query has actually been answered.
     //
-    // LIMITATION(registre#38): `does NOT show the banner to a connected athlete`
-    // fails only in a full-file run. Established: the mock does intercept and
-    // does return a connected provider (logged 200 with the body), the banner
-    // never clears even at a 25s timeout, and the test passes both in isolation
-    // and whenever request logging is attached. Reordering registration before
-    // the login does not fix it. Mechanism still unknown.
+    // `waitForNetworkIdle` is not a substitute. The banner reads a React Query
+    // result, and idle only says no request is in flight — it is satisfied both
+    // before the query starts and after it finishes. Asserting on the wrong side
+    // of that gap is why this passed alone and failed in a full run, and why it
+    // passed whenever a listener happened to be attached: that changed the
+    // timing, not the behaviour. Waiting on the response makes the ordering
+    // explicit instead of probable.
+    const waitForProviders = (page: Page) =>
+      page.waitForResponse(
+        (r) => r.url().includes('/api/providers') && r.status() === 200,
+        { timeout: 15_000 },
+      );
+
     const routeProviders = async (page: Page, providers: unknown[]) => {
       await page.route('**/api/providers', async (route) => {
         await route.fulfill({
@@ -241,7 +250,9 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
     }) => {
       await loginAsUser(page, 'webtest');
       await routeProviders(page, []);
+      const answered = waitForProviders(page);
       await navigateToTab(page, 'Chat');
+      await answered;
       await waitForNetworkIdle(page);
 
       await expect(page.getByTestId('connect-provider-banner')).toBeVisible();
@@ -253,7 +264,9 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
       // a connect-provider nudge at connected users on every chat load.
       await loginAsUser(page, 'webtest');
       await routeProviders(page, [{ provider: 'strava', connected: true }]);
+      const answered = waitForProviders(page);
       await navigateToTab(page, 'Chat');
+      await answered;
       await waitForNetworkIdle(page);
 
       await expect(page.getByTestId('connect-provider-banner')).not.toBeVisible();
