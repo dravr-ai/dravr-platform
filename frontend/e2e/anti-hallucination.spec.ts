@@ -214,12 +214,18 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
     // is missing, and — the regression that matters more — whether it wrongly
     // tells a connected one the same thing.
 
-    // `loginAsUser` -> `setupDashboardMocks` registers its own
-    // `**/api/providers` handler returning an empty list, and the later
-    // registration wins. Both routes below are therefore installed AFTER the
-    // login, or the helper's empty list answers instead — which silently made
-    // the providerless case pass for the wrong reason and the connected case
-    // fail outright.
+    // This ordering once cited `setupDashboardMocks` registering its own
+    // `**/api/providers` handler that a later registration had to beat. That is
+    // false: `visual-test-helpers.ts` contains no providers route at all, so
+    // nothing here is racing a helper. The claim is removed rather than kept,
+    // because it sent three separate debugging attempts down a dead end.
+    //
+    // LIMITATION(registre#38): `does NOT show the banner to a connected athlete`
+    // fails only in a full-file run. Established: the mock does intercept and
+    // does return a connected provider (logged 200 with the body), the banner
+    // never clears even at a 25s timeout, and the test passes both in isolation
+    // and whenever request logging is attached. Reordering registration before
+    // the login does not fix it. Mechanism still unknown.
     const routeProviders = async (page: Page, providers: unknown[]) => {
       await page.route('**/api/providers', async (route) => {
         await route.fulfill({
