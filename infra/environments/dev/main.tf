@@ -323,15 +323,20 @@ module "backend" {
       #
       # TEMPORARILY DISABLED (2026-06-22): the native MCP-bridge path has two
       # open defects that break the messaging coach — (1) the originating
-      # conversation id is not carried through the bridged tool calls, so a
-      # chat-triggered historical-activity backfill is spawned untagged and the
-      # completion push never fires; (2) the model echoes the raw tool-result
-      # scaffolding instead of synthesizing, which the strip nukes to empty ->
-      # "Hmm, je n'ai pas réussi". Falling back to the text <tool_call> loop
-      # routes tool calls through the conversation-id-bound UniversalExecutor
-      # (push works) and the working synthesis strip. Re-enable once both native
-      # -path defects are fixed.
-      COPILOT_HEADLESS_MCP_TOOL_CALLING = "false"
+      # Re-enabled 2026-08-18. Disabled 2026-06-22 as a "temporary mitigation"
+      # whose premise was that turns would fall back to the text <tool_call>
+      # loop, which parses and executes those blocks. Measured today: they do
+      # not. Every messaging turn since has recorded tool_calls_count = 0 —
+      # eight weeks with no working tool path at all, which is strictly worse
+      # than either native defect it was avoiding. Replies looked grounded only
+      # because activities are pre-injected into the prompt.
+      #
+      # The two native-path defects it cited (conversation id not carried
+      # through bridged calls, so a chat-triggered backfill never pushes; and
+      # scaffolding parroted to empty) are real, but the second now has a
+      # response-boundary strip in front of it, and the first degrades a push
+      # notification rather than the turn.
+      COPILOT_HEADLESS_MCP_TOOL_CALLING = "true"
 
       # Deny every ACP permission request from the copilot subprocess.
       # embacle's default is AutoApprove, which leaves Copilot's own
@@ -441,6 +446,10 @@ module "backend" {
       # in-pod Chrome. Empty string = toggle off (the client treats it as
       # unset); the in-process path above stays live until Phase 4 deletes it.
       DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_remote ? module.sciotte[0].service_url : ""
+
+      # Audience the API addresses its identity token to. Must equal what the
+      # scraper accepts, which is why both read one local.
+      DRAVR_SCIOTTE_AUDIENCE = var.backend_sciotte_remote ? local.sciotte_audience : ""
 
       # Chart press. Empty = the capability is absent rather than broken: the
       # app still renders charts (geometry is in-process), and messaging replies
@@ -555,6 +564,10 @@ locals {
   # API mints against it. Environment-scoped so a dev token cannot be replayed
   # against prod.
   photograveur_audience = "dravr-photograveur-${var.environment}"
+
+  # Same contract for the scraper: the service accepts it, the service requires
+  # it, and the API mints against it.
+  sciotte_audience = "dravr-sciotte-${var.environment}"
 
   seed_env_vars = var.enable_database ? {
     DATABASE_HOST       = "/cloudsql/${module.database[0].connection_name}"
@@ -845,12 +858,25 @@ module "sciotte" {
   # 2FA window; first Strava scrape measured >120s with pagination + N+1).
   request_timeout = "600s"
 
-  # App-level bearer (DRAVR_SCIOTTE_API_KEY) is the auth boundary: the API pod
-  # egresses PRIVATE_RANGES_ONLY, so an internal-only ingress here would drop
-  # its calls. Revisit to IAM ID-token auth or internal ingress + ALL_TRAFFIC
-  # backend egress if the posture needs tightening.
-  ingress               = "INGRESS_TRAFFIC_ALL"
-  allow_unauthenticated = true
+  # INGRESS_TRAFFIC_ALL is required, not preferred: the API pod egresses
+  # PRIVATE_RANGES_ONLY, so an internal-only ingress here drops its calls. The
+  # tightening this comment used to defer — IAM ID-token auth — is what
+  # backend_sciotte_iam turns on, so reachable stops meaning open.
+  ingress = "INGRESS_TRAFFIC_ALL"
+
+  # Two-step on purpose. The audience below must reach both services before the
+  # image that requires it deploys, and Cloud Run must not start rejecting the
+  # API until the API is sending tokens. So this flips false -> true only after
+  # both sides are deployed; until then the container's own verifier is the gate.
+  allow_unauthenticated = !var.backend_sciotte_iam
+  invoker_members = var.backend_sciotte_iam ? [
+    "serviceAccount:${module.service_accounts.app_service_account_email}"
+  ] : []
+
+  # A stable audience rather than the generated URL, so terraform configures
+  # caller and callee from one literal instead of an output of the resource it
+  # is creating. Environment-scoped, or a dev token replays against prod.
+  custom_audiences = [local.sciotte_audience]
 
   # Hot-swappable extraction scripts / prompt overrides, same bucket the API
   # pod mounts today (both keep it until the Phase 4 in-process cutover).
@@ -863,6 +889,11 @@ module "sciotte" {
   }
 
   env_vars = {
+    # The audience this service requires in an identity token. It refuses to
+    # start without it: a scraper that cannot pin its audience would accept
+    # tokens minted for any other Google service.
+    DRAVR_SCIOTTE_AUDIENCE = local.sciotte_audience
+
     # Backpressure limiter — fail-fast required set (no crate defaults).
     # max_concurrent=2 matches the 2Gi memory sizing above.
     DRAVR_SCIOTTE_MAX_CONCURRENT          = "2"
