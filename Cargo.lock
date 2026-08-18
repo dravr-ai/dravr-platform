@@ -1452,7 +1452,7 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=8ea150f91195168a05e1bbd2012f6f2aac4dc7a0#8ea150f91195168a05e1bbd2012f6f2aac4dc7a0"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=c92da439f35753e099edd78c9bc044ee412c7f16#c92da439f35753e099edd78c9bc044ee412c7f16"
 
 [[package]]
 name = "dravr-enforme"
@@ -4054,7 +4054,6 @@ dependencies = [
  "chrono",
  "dravr-equilibre",
  "dravr-sciotte",
- "dravr-tronc",
  "futures-util",
  "hex",
  "num-traits",
