@@ -218,4 +218,20 @@ pub trait ChatRepository: Send + Sync {
         group_id: Option<&str>,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
+
+    /// Point an existing conversation at a different coach.
+    ///
+    /// A messaging channel holds one long-lived conversation per athlete, so
+    /// the coach they pick has to reach the thread they are already in.
+    /// Rebinding the row does that while keeping the history; forging a fresh
+    /// conversation is what `/reset` does, and losing the thread was the price
+    /// of every coach change before this existed.
+    ///
+    /// Tenant-scoped; returns `false` if the conversation does not exist.
+    async fn set_conversation_coach_id(
+        &self,
+        conversation_id: &str,
+        coach_id: Option<&str>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
 }

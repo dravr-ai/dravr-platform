@@ -421,6 +421,13 @@ async fn resume_existing_session(
         }
     }
 
+    // A messaging channel holds ONE long-lived conversation, so a coach the
+    // athlete picks after it was opened has to reach the thread they are
+    // already in. Bound only at creation, selection appeared to do nothing
+    // until `/reset` forged a new conversation — which is why `/reset` looked
+    // like the way to change coach, at the cost of the whole history.
+    rebind_conversation_coach(resources, tenant_id, &user_id, &conversation).await;
+
     if let Err(e) = db.touch_session(&session_id).await {
         error!(error = %e, session_id = %session_id, "Failed to touch session");
     }
@@ -432,6 +439,93 @@ async fn resume_existing_session(
         conversation,
         user_id,
     })
+}
+
+/// Point the session's conversation at the athlete's currently selected coach.
+///
+/// Web chat binds a coach per conversation, so it must not be rebound; a
+/// messaging channel has no such choice to make — one thread, one selection —
+/// and the selection is the athlete's latest word on who they are talking to.
+/// Deselection clears the binding for the same reason.
+///
+/// Best-effort, like the group retrofit beside it: a lookup failure leaves the
+/// existing binding in place rather than dropping the turn. It is logged at
+/// WARN because the visible symptom — the previous coach answering — reads to
+/// the athlete as the selection being ignored.
+async fn rebind_conversation_coach(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id: &str,
+    conversation_id: &str,
+) {
+    let selected = resolve_selected_coach_id(resources, tenant_id, user_id).await;
+    let chat = resources.common.repos.chat.as_ref();
+
+    let current = match chat
+        .get_conversation(conversation_id, user_id, tenant_id)
+        .await
+    {
+        Ok(Some(conv)) => conv.coach_id,
+        Ok(None) => return,
+        Err(e) => {
+            warn!(error = %e, conversation_id, "coach rebind: conversation unreadable");
+            return;
+        }
+    };
+    if current == selected {
+        return;
+    }
+
+    apply_coach_rebind(
+        resources,
+        tenant_id,
+        user_id,
+        conversation_id,
+        current.as_deref(),
+        selected.as_deref(),
+    )
+    .await;
+}
+
+/// Write the rebind and record the switch. Split from its caller only because
+/// the three outcomes plus their log lines push the combined function past the
+/// cognitive-complexity gate.
+async fn apply_coach_rebind(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id: &str,
+    conversation_id: &str,
+    previous: Option<&str>,
+    selected: Option<&str>,
+) {
+    let written = resources
+        .common
+        .repos
+        .chat
+        .set_conversation_coach_id(conversation_id, selected, tenant_id)
+        .await;
+
+    match written {
+        Ok(true) => {}
+        Ok(false) => {
+            warn!(conversation_id, "coach rebind: conversation row not found");
+            return;
+        }
+        Err(e) => {
+            warn!(error = %e, conversation_id, "coach rebind failed");
+            return;
+        }
+    }
+
+    info!(
+        conversation_id,
+        previous = previous.unwrap_or("none"),
+        selected = selected.unwrap_or("none"),
+        "Rebound messaging conversation to the athlete's selected coach"
+    );
+    if let Some(coach_id) = selected {
+        record_coach_usage(resources, coach_id, user_id, tenant_id).await;
+    }
 }
 
 /// Best-effort stamp of the durable channel of origin onto a freshly forged

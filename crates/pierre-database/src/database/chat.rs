@@ -1014,4 +1014,26 @@ impl ChatRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to set conversation group_id: {e}")))?;
         Ok(result.rows_affected() > 0)
     }
+
+    async fn set_conversation_coach_id(
+        &self,
+        conversation_id: &str,
+        coach_id: Option<&str>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE chat_conversations
+            SET coach_id = $1
+            WHERE id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(coach_id)
+        .bind(conversation_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set conversation coach_id: {e}")))?;
+        Ok(result.rows_affected() > 0)
+    }
 }
