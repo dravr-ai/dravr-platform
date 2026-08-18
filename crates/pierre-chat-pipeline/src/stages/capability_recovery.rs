@@ -39,6 +39,8 @@ use serde_json::json;
 use tracing::{info, warn};
 
 use super::prefetch::{needs_activity_grounding, REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
+use pierre_tool_runtime::tool_execution as chat_tool_loop;
+
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 use pierre_core::errors::AppError;
@@ -330,7 +332,18 @@ fn apply_reask_outcome(outcome: Result<ChatResponse, AppError>, result: &mut Too
                 "capability_failure_reask_recovered: re-ask with verified data \
                  produced a usable reply; the athlete keeps their turn"
             );
-            result.content = reply.content;
+            // Stripped, because this assignment lands downstream of every other
+            // strip in the turn. The tool loop cleans its own output and stage
+            // 19 cleans the durable copy; a re-ask reply assigned raw here is
+            // washed by neither, so on 2026-08-18 a Telegram athlete received
+            // the model's `<tool_call>` scaffolding while the persisted row for
+            // the same turn was empty.
+            //
+            // `contains_capability_failure` above is an accept-only-if-clean
+            // check for one property. Scaffolding is a second one, and a reply
+            // free of failure claims can still be raw tool-call XML — which is
+            // exactly the shape a re-challenged provider tends to produce.
+            result.content = chat_tool_loop::strip_simulation_artifacts(&reply.content);
         }
         Ok(_) => {
             warn!(

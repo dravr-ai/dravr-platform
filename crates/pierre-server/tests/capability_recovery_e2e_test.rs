@@ -73,11 +73,75 @@ mod capability_recovery {
     /// proves the verification data actually reached the wire.
     const REASK_MARKER: &str = "fetched successfully on your behalf";
 
+    /// A re-ask reply that passes the capability-claim check and still carries
+    /// raw tool-call scaffolding — the shape a re-challenged provider actually
+    /// produced on 2026-08-18, when the athlete received this verbatim.
+    const REASK_WITH_SCAFFOLDING: &str = concat!(
+        "<tool_call>\n",
+        r#"{"name": "get_activities", "arguments": {"after": 1784563200, "limit": 100}}"#,
+        "\n</tool_call>",
+    );
+
     /// Deterministic provider reproducing the incident shape: the main turn
     /// fabricates the access-failure apology; the recovery re-ask (recognised
     /// by the instruction appended after the verified tool result) answers
     /// cleanly, as the live model does once real data is in hand.
     struct ClaimThenCleanMockProvider;
+
+    /// Fabricates a capability failure, then answers the re-ask with raw
+    /// `<tool_call>` scaffolding instead of prose.
+    struct ClaimThenScaffoldingMockProvider;
+
+    #[async_trait]
+    impl LlmProvider for ClaimThenScaffoldingMockProvider {
+        fn name(&self) -> &'static str {
+            "claim_then_scaffolding_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Claim-then-scaffolding Mock LLM (capability-recovery e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let is_reask = request
+                .messages
+                .iter()
+                .any(|m| m.content.contains(REASK_MARKER));
+            let content = if is_reask {
+                REASK_WITH_SCAFFOLDING
+            } else {
+                FABRICATED_CLAIM
+            };
+            Ok(ChatResponse {
+                content: content.to_owned(),
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 30,
+                    completion_tokens: 40,
+                    total_tokens: 70,
+                }),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            Err(AppError::internal("streaming not used by this test"))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
 
     #[async_trait]
     impl LlmProvider for ClaimThenCleanMockProvider {
@@ -411,12 +475,51 @@ mod capability_recovery {
         None
     }
 
+
+    /// The reply as it went **out**, not as it was stored.
+    ///
+    /// The distinction is the whole point of the test below: stage 19 strips the
+    /// durable copy, so a persisted-only assertion passes while the athlete is
+    /// receiving raw scaffolding. `messaging_messages` records what was actually
+    /// delivered.
+    async fn wait_for_outbound_body(
+        resources: &Arc<ServerContext>,
+        tenant_id: TenantId,
+    ) -> Option<String> {
+        let pool = resources
+            .coach
+            .database
+            .sqlite_pool()
+            .expect("test fixture runs against SQLite");
+        let tenant_str = tenant_id.to_string();
+
+        for _ in 0..150 {
+            let row: Option<(String,)> = sqlx::query_as(
+                "SELECT content_body FROM messaging_messages \
+                 WHERE tenant_id = ?1 AND direction = 'outbound' \
+                 ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(&tenant_str)
+            .fetch_optional(pool)
+            .await
+            .unwrap();
+            if let Some((body,)) = row {
+                return Some(body);
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        None
+    }
+
     #[tokio::test]
     #[serial]
     async fn fabricated_claim_with_working_provider_is_reasked_away() {
         env::set_var("PIERRE_LLM_MODEL", "mock-model");
         let scraper_url = spawn_mock_scraper().await;
         env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
+        // The remote client is both-or-neither: a URL with no audience disables
+        // it, because unsigned requests are refused by the scraper rather than served.
+        env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
         env::remove_var("DRAVR_SCIOTTE_API_KEY");
 
         let mock = Arc::new(ClaimThenCleanMockProvider);
@@ -587,6 +690,9 @@ mod capability_recovery {
         env::set_var("PIERRE_LLM_MODEL", "mock-model");
         let scraper_url = spawn_mock_scraper().await;
         env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
+        // The remote client is both-or-neither: a URL with no audience disables
+        // it, because unsigned requests are refused by the scraper rather than served.
+        env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
         env::remove_var("DRAVR_SCIOTTE_API_KEY");
 
         let mock = Arc::new(UngroundedThenGroundedMockProvider);
@@ -633,4 +739,64 @@ mod capability_recovery {
             "a successfully re-grounded turn is ordinary history"
         );
     }
+    /// The re-ask reply must be stripped before it goes on the wire.
+    ///
+    /// `apply_reask_outcome` assigns the re-ask's content downstream of every
+    /// other strip in the turn: the tool loop cleans its own output, and stage
+    /// 19 cleans only the durable copy. A re-ask reply assigned raw is washed by
+    /// neither, and on 2026-08-18 a Telegram athlete received the model's
+    /// `<tool_call>` scaffolding verbatim while `chat_messages` recorded an
+    /// empty reply for the same turn.
+    ///
+    /// This asserts on the **outbound** row rather than the persisted one on
+    /// purpose. Stage 19 strips what is stored, so a persisted-only assertion —
+    /// which is what the test above does, and all this file had — passes with
+    /// the bug fully present. Two values for one reply is why the database
+    /// looked clean exactly when the delivery was worst.
+    #[tokio::test]
+    #[serial]
+    async fn a_reask_reply_is_stripped_before_it_is_delivered() {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        let scraper_url = spawn_mock_scraper().await;
+        env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
+        // The remote client is both-or-neither: a URL with no audience disables
+        // it, because unsigned requests are refused by the scraper rather than served.
+        env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
+        env::remove_var("DRAVR_SCIOTTE_API_KEY");
+
+        let mock = Arc::new(ClaimThenScaffoldingMockProvider);
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let (user_id, tenant_id) = create_user_with_connection(
+            &resources,
+            "reask-scaffolding@example.com",
+            "sciotte",
+            &ConnectionType::Manual,
+        )
+        .await;
+        seed_sciotte_session(&resources, user_id, tenant_id).await;
+
+        drive_slack_turn(
+            &resources,
+            tenant_id,
+            user_id,
+            "U_REASK_SCAFFOLD",
+            "reask_scaffolding_secret",
+            "Donne moi ma progression du dernier mois",
+        )
+        .await;
+
+        let delivered = wait_for_outbound_body(&resources, tenant_id)
+            .await
+            .expect("pipeline did not record an outbound messaging_messages row within 30s");
+
+        assert!(
+            !delivered.contains("<tool_call>"),
+            "raw tool-call scaffolding was delivered to the athlete: {delivered:?}"
+        );
+        assert!(
+            !delivered.contains("get_activities"),
+            "the tool-call payload leaked into the delivered reply: {delivered:?}"
+        );
+    }
+
 }

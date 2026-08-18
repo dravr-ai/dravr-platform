@@ -1147,11 +1147,11 @@ async fn run_turn(
     // Stage 19: Persist assistant response.
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
     let prompt_tokens = result.usage.as_ref().map(|u| u.prompt_tokens);
-    // Persist the stripped reply, never a parroted scaffolding echo: a real
-    // answer is unchanged by the strip, a pure `<tool_result>` echo reduces to
-    // empty. Belt-and-suspenders with the read-side strip; the outbound reply
-    // (`result.content`) is sent unchanged, only the durable copy is cleaned.
-    let persisted_assistant_content = chat_tool_loop::strip_simulation_artifacts(&result.content);
+    // Strip once; send and persist the same bytes. Cleaning only the durable copy
+    // left the wire carrying scaffolding the record never showed (registre#40) — a
+    // real answer is unchanged, scaffolding-only empties into a localized error.
+    result.content = chat_tool_loop::strip_simulation_artifacts(&result.content);
+    let persisted_assistant_content = result.content.clone();
     let assistant_params = AddMessageParams {
         tenant_id: input.conversation_tenant_id,
         conversation_id: &input.conversation_id,
