@@ -33,6 +33,7 @@ use super::{
 use crate::chain_guard::{CircuitTransition, CHAIN_GUARD};
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
+use crate::tool_bridge::{with_tool_defs, with_tools_response};
 use embacle::CliRunnerType;
 
 /// Unified chat provider that wraps Gemini, Groq, Local, `OpenRouter`, or embacle-based LLM
@@ -686,21 +687,19 @@ impl ChatProvider {
             Self::Local(provider) => provider.complete_with_tools(request, tools).await,
             Self::OpenRouter(provider) => provider.complete_with_tools(request, tools).await,
             Self::Cohere(provider) => provider.complete_with_tools(request, tools).await,
-            Self::Cli(_) => Err(AppError::invalid_input(
-                "Embacle-based providers do not support structured tool calling via this path",
-            )),
-            // Custom providers run through the plain `complete()` path. Tools
-            // are advertised via the system prompt; the mock in tests replies
-            // with plain text so there is no tool-call payload to decode.
+            // Both translate around the trait's only completion method (see
+            // `tool_bridge`). Capability is the provider's answer, not this
+            // enum's: `openai_api` advertises FUNCTION_CALLING and is routed
+            // in expecting to be asked — refusing broke its every tool turn.
+            Self::Cli(provider) => {
+                let forwarded = with_tool_defs(request, tools);
+                let response = provider.complete(&forwarded).await?;
+                Ok(with_tools_response(response))
+            }
             Self::Custom(inner) => {
-                let response = inner.complete(request).await?;
-                Ok(ChatResponseWithTools {
-                    content: Some(response.content),
-                    model: response.model,
-                    usage: response.usage,
-                    function_calls: None,
-                    finish_reason: response.finish_reason,
-                })
+                let forwarded = with_tool_defs(request, tools);
+                let response = inner.complete(&forwarded).await?;
+                Ok(with_tools_response(response))
             }
             Self::Chain { primary, secondary } => {
                 // Recursive async over `Self` requires Box::pin to satisfy

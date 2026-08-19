@@ -57,10 +57,11 @@ mod openrouter;
 pub mod pricing;
 /// System prompts for LLM interactions
 pub mod prompts;
-/// Unified LLM provider selector
 mod provider;
 /// Shared SSE parser for streaming responses
 pub mod sse_parser;
+/// Unified LLM provider selector
+mod tool_bridge;
 
 pub use cli_llm_provider::{CliLlmProvider, ProviderReadiness};
 pub use cohere::CohereProvider;
