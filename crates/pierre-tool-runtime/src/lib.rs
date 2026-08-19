@@ -93,6 +93,7 @@ pub mod security;
 /// - `run_headless_tool_loop`: ACP-managed tool calling (Copilot Headless)
 /// - `run_cli_tool_loop`: text-based `<tool_call>` blocks (CLI providers)
 #[cfg(feature = "client-chat")]
+pub mod function_dispatch;
 pub mod tool_execution;
 pub mod tool_selection;
 

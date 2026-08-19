@@ -24,6 +24,7 @@ use pierre_core::llm::tool_simulation;
 use pierre_core::tokens::estimate_chat_tokens;
 use tracing::{info, warn};
 
+use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
 use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
@@ -390,6 +391,7 @@ pub async fn run_api_tool_loop(
                     auth_required_provider,
                     guardian_denied,
                     guardian_confirm,
+                    executed,
                 } = execute_function_calls(
                     &params.executor,
                     function_calls,
@@ -403,7 +405,8 @@ pub async fn run_api_tool_loop(
                     tool_calls_count += function_calls.len() as u32;
                 }
 
-                tools_called.extend(function_calls.iter().map(|c| c.name.clone()));
+                // Ran, not requested — viz_blocks' source_tool gate reads this.
+                tools_called.extend(executed);
 
                 // Auth-required short-circuit: if any tool failed with
                 // `ProviderAuthRequired`, exit the loop immediately so the
@@ -521,6 +524,7 @@ pub async fn run_api_tool_loop(
                 auth_required_provider,
                 guardian_denied,
                 guardian_confirm,
+                executed,
             } = execute_function_calls(
                 &params.executor,
                 &text_tool_calls,
@@ -532,7 +536,8 @@ pub async fn run_api_tool_loop(
             {
                 tool_calls_count += text_tool_calls.len() as u32;
             }
-            tools_called.extend(text_tool_calls.iter().map(|c| c.name.clone()));
+            // Ran-only, as above.
+            tools_called.extend(executed);
             if let Some(provider) = auth_required_provider {
                 return Ok(ToolLoopResult {
                     content: String::new(),
@@ -819,6 +824,7 @@ pub async fn run_cli_tool_loop(
             auth_required_provider,
             guardian_denied,
             guardian_confirm,
+            executed,
         } = execute_function_calls(
             &params.executor,
             &parsed_tool_calls,
@@ -832,7 +838,8 @@ pub async fn run_cli_tool_loop(
             tool_calls_count += parsed_tool_calls.len() as u32;
         }
 
-        tools_called.extend(parsed_tool_calls.iter().map(|c| c.name.clone()));
+        // Ran-only, as in the api loop.
+        tools_called.extend(executed);
 
         // Auth-required short-circuit (mirror of the API loop): exit early so
         // the chat pipeline can render the deterministic hosted-login reply.
@@ -1245,130 +1252,9 @@ pub fn extract_activity_list(responses: &[FunctionResponse]) -> Option<String> {
 // Shared Infrastructure
 // ============================================================================
 
-/// Execute a batch of function calls via the MCP executor and return responses.
-///
-/// # Errors
-///
-/// Returns error if any tool execution produces an unrecoverable failure.
-pub async fn execute_function_calls(
-    executor: &UniversalExecutor,
-    function_calls: &[FunctionCall],
-    user_id: &str,
-    tenant_id: TenantId,
-) -> Result<ExecutedFunctionCalls, AppError> {
-    let mut responses = Vec::with_capacity(function_calls.len());
-    let mut auth_required_provider: Option<String> = None;
-    let mut guardian_denied: Option<GuardianDenial> = None;
-    let mut guardian_confirm: Option<GuardianConfirmRequest> = None;
-    for function_call in function_calls {
-        info!(
-            tool_name = %function_call.name,
-            args = %function_call.args,
-            "Executing tool"
-        );
-        let tool_start = Instant::now();
-        let tool_response = execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
-        let tool_duration_ms = u64::try_from(tool_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-
-        // Capture the auth-required provider before building the
-        // `FunctionResponse`, which intentionally drops `metadata` (the LLM
-        // doesn't need it). First tool to trip wins so we don't lose it across
-        // a multi-tool batch.
-        if auth_required_provider.is_none() {
-            if let Some(meta) = tool_response.metadata.as_ref() {
-                if let Some(serde_json::Value::String(p)) = meta.get(META_AUTH_REQUIRED_PROVIDER) {
-                    auth_required_provider = Some(p.clone());
-                }
-            }
-        }
-
-        // Capture the first Guardian denial (enforce mode) before
-        // `build_function_response` reshapes the payload. Key on the
-        // operator-stamped `metadata.blocked_reason == "guardian"` (set ONLY by
-        // the chokepoint's `guardian_denied_response`, never emittable by a tool
-        // body) AND require `!success` — NOT the tool-controllable
-        // `result.error_code`, so attacker-influenced tool output carrying
-        // `{"error_code":"guardian_denied"}` cannot spuriously abort the turn
-        // (S12: data-plane must not drive the control-plane). First to trip wins.
-        if guardian_denied.is_none() && guardian_confirm.is_none() && !tool_response.success {
-            let blocked_reason = tool_response
-                .metadata
-                .as_ref()
-                .and_then(|m| m.get("blocked_reason"))
-                .and_then(serde_json::Value::as_str);
-            match blocked_reason {
-                Some("guardian") => {
-                    let reason = tool_response
-                        .metadata
-                        .as_ref()
-                        .and_then(|m| m.get("guardian_reason"))
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("denied")
-                        .to_owned();
-                    guardian_denied = Some(GuardianDenial {
-                        tool_name: function_call.name.clone(),
-                        reason,
-                    });
-                }
-                // A parked confirm-required call, stamped by the chokepoint's
-                // `guardian_confirm_response` — same operator-set channel, so
-                // the same S12 guarantee applies.
-                Some("guardian_confirm") => {
-                    if let Some(pending_id) = tool_response
-                        .metadata
-                        .as_ref()
-                        .and_then(|m| m.get("pending_id"))
-                        .and_then(serde_json::Value::as_str)
-                    {
-                        guardian_confirm = Some(GuardianConfirmRequest {
-                            tool_name: function_call.name.clone(),
-                            pending_id: pending_id.to_owned(),
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let func_response = build_function_response(function_call, &tool_response);
-
-        // notify: visibility on every tool dispatch. Operational tier — the
-        // sink keys on the hashed tenant and drops the user dimension, so
-        // emit `tenant_id` inline and omit user.
-        info!(
-            target: "notify",
-            event = "messaging.tool_executed",
-            tenant_id = %tenant_id,
-            channel = "chat",
-            tool_name = %function_call.name,
-            success = tool_response.success,
-            duration_ms = tool_duration_ms,
-            "tool executed"
-        );
-
-        log_tool_response_size(&func_response);
-
-        responses.push(func_response);
-
-        // P4: once the Guardian denies or parks a tool in this batch, stop —
-        // do not execute the remaining siblings (they would commit side
-        // effects while the user is shown a "blocked"/"confirm" reply). The
-        // turn short-circuits anyway.
-        if guardian_denied.is_some() || guardian_confirm.is_some() {
-            break;
-        }
-    }
-    Ok(ExecutedFunctionCalls {
-        responses,
-        auth_required_provider,
-        guardian_denied,
-        guardian_confirm,
-    })
-}
-
 /// Measure a tool's serialized response size and estimated token cost, logging
 /// both for token-efficiency observability.
-fn log_tool_response_size(func_response: &FunctionResponse) {
+pub(crate) fn log_tool_response_size(func_response: &FunctionResponse) {
     use pierre_formatters::TokenEfficiencyMetrics;
 
     let serialized = serde_json::to_string(&func_response.response).unwrap_or_default();
@@ -1384,39 +1270,13 @@ fn log_tool_response_size(func_response: &FunctionResponse) {
     );
 }
 
-/// Output of [`execute_function_calls`].
-///
-/// Carries the function responses for the LLM plus an out-of-band signal
-/// for the tool loop when one of the calls failed with
-/// `AppError::ProviderAuthRequired`. The signal travels separately
-/// because `FunctionResponse` drops the underlying
-/// `UniversalResponse::metadata` to keep the LLM-visible payload minimal.
-pub struct ExecutedFunctionCalls {
-    /// LLM-visible function responses, one per call in input order.
-    pub responses: Vec<FunctionResponse>,
-    /// Provider slug of the first tool that returned `ProviderAuthRequired`,
-    /// or `None` if every call landed cleanly. The tool loop short-circuits
-    /// on `Some(_)` and the chat pipeline mints a hosted-login URL.
-    pub auth_required_provider: Option<String>,
-    /// The first tool the runtime Guardian blocked in `enforce` mode, or
-    /// `None` if no call was denied. The tool loop short-circuits on `Some(_)`
-    /// and the chat pipeline renders a localized "blocked for safety" reply.
-    /// Travels separately from `responses` because the in-band denial would
-    /// otherwise be fed back to the LLM as an ordinary failed tool result.
-    pub guardian_denied: Option<GuardianDenial>,
-    /// The first tool the Guardian parked pending user confirmation, or
-    /// `None`. Same out-of-band contract as `guardian_denied`; the chat
-    /// pipeline renders the localized confirmation ask.
-    pub guardian_confirm: Option<GuardianConfirmRequest>,
-}
-
 /// Execute a single MCP tool call and return the response.
 ///
 /// Runs the Sprint C10 post-LLM allowlist check before dispatch so a
 /// prompt-injected tool name that slipped past the catalog filter cannot
 /// actually reach the tool handler. Tool execution errors are converted
 /// to failed responses so the LLM can observe them in the next turn.
-async fn execute_mcp_tool(
+pub(crate) async fn execute_mcp_tool(
     executor: &UniversalExecutor,
     function_call: &FunctionCall,
     user_id: &str,
@@ -1463,7 +1323,7 @@ async fn execute_mcp_tool(
 }
 
 /// Build a function response from an MCP tool response.
-fn build_function_response(
+pub(crate) fn build_function_response(
     function_call: &FunctionCall,
     response: &UniversalResponse,
 ) -> FunctionResponse {
