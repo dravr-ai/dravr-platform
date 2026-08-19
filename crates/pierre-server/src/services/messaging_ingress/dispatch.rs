@@ -37,6 +37,7 @@ use pierre_services::usage_counter::UsageCounterService;
 use super::addressing::reply_recipient;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::connect;
+use super::intake;
 use super::viz_delivery::{
     plan_media, strip_viz_markers, target as viz_target, VizDelivery, VizMedia,
 };
@@ -102,6 +103,38 @@ async fn maybe_send_connect_card(dispatch: &PendingDispatch, channel_config: &Ch
 
     if let Err(e) = dispatch.adapter.send(&card, channel_config).await {
         warn!(error = %e, "connect card: send failed; the coach reply still went out");
+    }
+}
+
+/// Open the messaging intake behind a served turn, if one is owed.
+///
+/// Sits beside the connect card and the coach proposal because it is the same
+/// kind of thing: something the platform wants to say, appended to the reply
+/// the athlete actually asked for rather than replacing it. Once the first
+/// question is out, the athlete's answers are handled inline by
+/// `intake::try_handle_intake`, which replies with the next question directly —
+/// an answer deserves the next question, not a coaching turn.
+///
+/// Best-effort throughout: a failed send costs the intake this turn, and the
+/// next conversation opens it again.
+async fn maybe_send_intake_question(dispatch: &PendingDispatch, channel_config: &ChannelConfig) {
+    let Some(question) = intake::try_build_first_question(intake::FirstQuestionParams {
+        resources: &dispatch.resources,
+        tenant_id: dispatch.session_tenant_id,
+        conversation_id: &dispatch.session.conversation,
+        channel_type: dispatch.channel_type,
+        sender_id: &dispatch.sender_id,
+        user_id: dispatch.auth_result.user_id,
+        locale: &dispatch.locale,
+        is_direct_message: !dispatch.is_group_chat,
+    })
+    .await
+    else {
+        return;
+    };
+
+    if let Err(e) = dispatch.adapter.send(&question, channel_config).await {
+        warn!(error = %e, "intake: opening question failed to send; will re-open next conversation");
     }
 }
 
@@ -562,6 +595,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // their message. Best-effort — never blocks or fails the turn.
     maybe_send_coach_proposal(&dispatch, &channel_config).await;
     maybe_send_connect_card(&dispatch, &channel_config).await;
+    maybe_send_intake_question(&dispatch, &channel_config).await;
 
     // Register an AG-UI run for this messaging turn so in-process
     // consumers (channel-side status adapters, ops dashboards) can

@@ -15,6 +15,7 @@ use serde_json::Value;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use super::intake::maybe_start_intake;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use crate::services::outgoing::proactive_text;
@@ -117,7 +118,7 @@ pub(super) async fn forge_fresh_session_conversation(
         record_coach_usage(resources, coach_id_str, user_id, tenant_id).await;
     }
     let new_id = conversation.conversation.id.clone();
-    maybe_start_pillar_walk(resources, tenant_id, user_id, &new_id).await;
+    start_guided_flow(resources, tenant_id, user_id, &new_id).await;
     stamp_channel_origin(
         resources.common.repos.chat.as_ref(),
         &new_id,
@@ -593,7 +594,7 @@ async fn open_new_session(
     }
 
     let conversation_id = conversation.conversation.id.clone();
-    maybe_start_pillar_walk(resources, tenant_id, &user_id, &conversation_id).await;
+    start_guided_flow(resources, tenant_id, &user_id, &conversation_id).await;
     stamp_channel_origin(
         resources.common.repos.chat.as_ref(),
         &conversation_id,
@@ -873,6 +874,23 @@ pub async fn create_link_and_prompt(
 
     proactive_text(channel_type, sender_id.to_owned(), body)
 }
+/// Start whichever guided flow a fresh conversation owes this athlete.
+///
+/// Intake first, and only one of the two: both own the same `onboarding_state`
+/// column, and the web wizard asks profile type and the PAR-Q ahead of
+/// everything the coach reasons from. When the intake retires itself it hands
+/// the conversation to the pillar walk, so the walk is deferred here rather
+/// than skipped.
+async fn start_guided_flow(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id: &str,
+    conversation_id: &str,
+) {
+    if !maybe_start_intake(resources, user_id, conversation_id, tenant_id).await {
+        maybe_start_pillar_walk(resources, tenant_id, user_id, conversation_id).await;
+    }
+}
 
 /// Start the guided pillar walk on a freshly created messaging conversation when
 /// the athlete has told us nothing about themselves yet.
@@ -891,7 +909,7 @@ pub async fn create_link_and_prompt(
 /// Best-effort throughout. A failure here costs a conversational nicety, never
 /// the turn — the athlete still gets their answer, just without the follow-up
 /// question threaded into it.
-async fn maybe_start_pillar_walk(
+pub(super) async fn maybe_start_pillar_walk(
     resources: &ServerContext,
     tenant_id: TenantId,
     user_id_str: &str,

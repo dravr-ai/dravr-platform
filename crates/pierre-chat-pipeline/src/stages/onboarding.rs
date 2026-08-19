@@ -126,6 +126,14 @@ pub async fn resolve(
     let Some(state) = OnboardingState::from_column(conv.onboarding_state.as_deref()) else {
         return GuidedResolution::Inactive;
     };
+    // The intake is asked and parsed by the platform in messaging ingress, so
+    // this pipeline has no topic for it — but "no topic to probe" is how the
+    // resolver recognises a *finished* walk, and it would retire the marker on
+    // the way past. That would end an intake the athlete has not answered yet,
+    // silently, on the very turn that opened it. Step aside entirely instead.
+    if state.flow == GuidedFlow::Intake {
+        return GuidedResolution::Inactive;
+    }
     let Some(user_id) = conversation_user_id(conv) else {
         return GuidedResolution::Inactive;
     };
@@ -197,6 +205,11 @@ fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarge
             calibration_conditions(dossier, state.snapshot.as_ref()),
         )
         .map(GuidedTarget::Calibration),
+        // Unreachable: `resolve` returns before this for an intake, precisely so
+        // that `None` here is never read as "the walk is finished". Kept
+        // exhaustive rather than wildcarded so a third platform-driven flow has
+        // to make the same decision deliberately.
+        GuidedFlow::Intake => None,
     }
 }
 
@@ -219,7 +232,9 @@ async fn leave_guided_mode(
         GuidedFlow::Calibration => {
             Some(completion::render(ctx, conv, &state, tenant_id, dossier, locale).await)
         }
-        GuidedFlow::Pillars => None,
+        // The intake writes its own wrap-up when the platform closes it out, so
+        // there is nothing to render here.
+        GuidedFlow::Pillars | GuidedFlow::Intake => None,
     };
     // Read before the state is consumed by `completed`: this turn carries the
     // athlete's answer to the interview's last question, and the deterministic

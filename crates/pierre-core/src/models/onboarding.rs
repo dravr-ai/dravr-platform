@@ -58,6 +58,14 @@ pub enum GuidedFlow {
     Pillars,
     /// The difficulty-calibration interview — topics come from a fixed list.
     Calibration,
+    /// The messaging intake — profile type, then the seven PAR-Q+ questions.
+    ///
+    /// Unlike the other two, the platform asks and parses this one itself: the
+    /// PAR-Q+ is a standardised instrument whose wording is the instrument, and
+    /// a paraphrased question with an inferred yes/no is a different screen. So
+    /// an intake turn never reaches the model, and the guided-turn resolver
+    /// treats this flow as inactive.
+    Intake,
 }
 
 /// The athlete's recent training load, computed once when a calibration
@@ -226,6 +234,7 @@ impl OnboardingState {
                     GuidedFlow::Calibration => {
                         r#"{"active":true,"started_at":"","flow":"calibration"}"#
                     }
+                    GuidedFlow::Intake => r#"{"active":true,"started_at":"","flow":"intake"}"#,
                 }
                 .to_owned()
             },

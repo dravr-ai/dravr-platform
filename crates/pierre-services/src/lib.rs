@@ -112,6 +112,12 @@ pub mod okf;
 /// PAR-Q+ pre-participation medical-safety gate (structured Y/N → medical flags)
 pub mod parq;
 
+/// The messaging intake walk — profile type, then the PAR-Q+.
+///
+/// Asked by the platform rather than the coach, so a standardised instrument
+/// reaches the athlete verbatim instead of paraphrased.
+pub mod intake;
+
 /// Plan-save ramp check — the opening week against the athlete's real load.
 pub mod ramp_check;
 

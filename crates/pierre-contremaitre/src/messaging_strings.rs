@@ -486,6 +486,36 @@ pub const KEY_PILLARS_START_FAILED: &str = "commands.pillars.start_failed";
 /// Key: `/reset` note appended when the reset ended an in-progress profile walk.
 pub const KEY_RESET_WALK_INTERRUPTED: &str = "commands.reset.walk_interrupted";
 
+// ── messaging intake keys ─────────────────────────────────────────────────
+/// Key: intake opener — sent with the first question after a channel is linked.
+pub const KEY_INTAKE_OPENER: &str = "messaging.intake.opener";
+/// Key: intake profile-type question (athlete vs coach), numbered 1/2.
+pub const KEY_INTAKE_PERSONA: &str = "messaging.intake.persona";
+/// Key: framing sent with the first PAR-Q+ question — a "yes" blocks nothing.
+pub const KEY_INTAKE_PARQ_INTRO: &str = "messaging.intake.parq.intro";
+/// Key: PAR-Q+ Q1 — diagnosed heart condition.
+pub const KEY_INTAKE_PARQ_HEART_CONDITION: &str = "messaging.intake.parq.heart_condition";
+/// Key: PAR-Q+ Q2 — chest pain at rest or on exertion.
+pub const KEY_INTAKE_PARQ_CHEST_PAIN: &str = "messaging.intake.parq.chest_pain";
+/// Key: PAR-Q+ Q3 — dizziness or loss of consciousness.
+pub const KEY_INTAKE_PARQ_DIZZINESS: &str = "messaging.intake.parq.dizziness";
+/// Key: PAR-Q+ Q4 — another diagnosed chronic condition.
+pub const KEY_INTAKE_PARQ_CHRONIC_CONDITION: &str = "messaging.intake.parq.chronic_condition";
+/// Key: PAR-Q+ Q5 — prescribed medication for a chronic condition.
+pub const KEY_INTAKE_PARQ_MEDICATION: &str = "messaging.intake.parq.medication";
+/// Key: PAR-Q+ Q6 — bone, joint or soft-tissue problem.
+pub const KEY_INTAKE_PARQ_JOINT_PROBLEM: &str = "messaging.intake.parq.joint_problem";
+/// Key: PAR-Q+ Q7 — advised to train only under medical supervision.
+pub const KEY_INTAKE_PARQ_SUPERVISED_ONLY: &str = "messaging.intake.parq.supervised_only";
+/// Key: the 1/2 answer hint appended to every PAR-Q+ question, so the seven question strings stay the instrument's own wording.
+pub const KEY_INTAKE_YESNO_HINT: &str = "messaging.intake.yesno_hint";
+/// Key: re-ask after an unparsed answer. `{0}` is the question, repeated verbatim.
+pub const KEY_INTAKE_RETRY: &str = "messaging.intake.retry";
+/// Key: intake wrap-up when no PAR-Q+ flag was raised.
+pub const KEY_INTAKE_COMPLETE_CLEAR: &str = "messaging.intake.complete_clear";
+/// Key: intake wrap-up when at least one flag was raised. `{0}` is the count.
+pub const KEY_INTAKE_COMPLETE_FLAGGED: &str = "messaging.intake.complete_flagged";
+
 // ── /calibrate command keys ───────────────────────────────────────────────
 
 /// Key: `/calibrate` opener — states what was inferred and what follows.
@@ -799,6 +829,26 @@ pub(crate) const FR_TIMEZONE_INVALID: &str = "Fuseau horaire invalide. Donne un 
 
 pub(crate) const FR_PILLARS_OPENER: &str = "On va construire ton profil ensemble — je te pose quelques questions, une à la fois. Pour commencer : qu'est-ce qui te motive profondément à t'entraîner (ton « North Star ») ?";
 pub(crate) const FR_PILLARS_DM_ONLY: &str = "Le profil se construit en privé. Écris-moi <code>/pillars</code> en message direct et on commence.";
+
+pub(crate) const FR_INTAKE_OPENER: &str = "Avant de commencer, quelques questions rapides — une minute maintenant, et le coaching qui suit est plus précis et plus sûr.";
+pub(crate) const FR_INTAKE_PERSONA: &str = "D'abord : tu t'entraînes pour toi, ou tu entraînes d'autres personnes ?\n\n<b>1</b> — Je m'entraîne pour moi\n<b>2</b> — J'entraîne d'autres personnes";
+pub(crate) const FR_INTAKE_PARQ_INTRO: &str = "Maintenant sept questions de santé standard (le PAR-Q+). Un « oui » ne bloque rien — ça indique simplement à ton coach où être prudent.";
+pub(crate) const FR_INTAKE_PARQ_HEART_CONDITION: &str =
+    "Un médecin t'a-t-il déjà dit que tu avais un problème cardiaque ?";
+pub(crate) const FR_INTAKE_PARQ_CHEST_PAIN: &str = "Ressens-tu des douleurs à la poitrine au repos, pendant tes activités quotidiennes ou à l'effort ?";
+pub(crate) const FR_INTAKE_PARQ_DIZZINESS: &str = "Perds-tu l'équilibre à cause d'étourdissements, ou as-tu perdu connaissance au cours des 12 derniers mois ?";
+pub(crate) const FR_INTAKE_PARQ_CHRONIC_CONDITION: &str =
+    "As-tu reçu un diagnostic pour une autre maladie chronique (autre qu'une maladie cardiaque) ?";
+pub(crate) const FR_INTAKE_PARQ_MEDICATION: &str =
+    "Prends-tu actuellement des médicaments prescrits pour une maladie chronique ?";
+pub(crate) const FR_INTAKE_PARQ_JOINT_PROBLEM: &str = "As-tu un problème osseux, articulaire ou des tissus mous qui pourrait être aggravé par l'activité physique ?";
+pub(crate) const FR_INTAKE_PARQ_SUPERVISED_ONLY: &str = "Un médecin t'a-t-il dit que tu ne devais faire de l'activité physique que sous supervision médicale ?";
+pub(crate) const FR_INTAKE_YESNO_HINT: &str = "Réponds <b>1</b> pour oui, <b>2</b> pour non.";
+pub(crate) const FR_INTAKE_RETRY: &str =
+    "Désolé — j'ai besoin du chiffre seul, pour bien l'enregistrer.\n\n{0}";
+pub(crate) const FR_INTAKE_COMPLETE_CLEAR: &str =
+    "C'est tout, rien à signaler. Pose-moi ce que tu veux sur ton entraînement.";
+pub(crate) const FR_INTAKE_COMPLETE_FLAGGED: &str = "C'est tout. J'ai noté {0} point(s) à garder en tête pour ton coach — rien ne t'empêche de t'entraîner, et ça vaut un mot à ton médecin avant de forcer.";
 pub(crate) const FR_PILLARS_START_FAILED: &str =
     "Je n'ai pas réussi à démarrer le profil sur cette conversation. Réessaie dans un instant.";
 pub(crate) const FR_RESET_WALK_INTERRUPTED: &str =
@@ -1043,6 +1093,30 @@ pub(crate) const EN_TIMEZONE_INVALID: &str =
 
 pub(crate) const EN_PILLARS_OPENER: &str = "Let's build your profile together — I'll ask about a few areas, one at a time. To start: what's the deeper reason you train — your North Star?";
 pub(crate) const EN_PILLARS_DM_ONLY: &str = "Profile building happens in private. Send me <code>/pillars</code> in a direct message and we'll start.";
+
+pub(crate) const EN_INTAKE_OPENER: &str = "Before we start, a couple of quick questions — a minute now, and the coaching that follows is sharper and safer.";
+pub(crate) const EN_INTAKE_PERSONA: &str = "First: do you train for yourself, or do you coach other people?\n\n<b>1</b> — I train for myself\n<b>2</b> — I coach others";
+pub(crate) const EN_INTAKE_PARQ_INTRO: &str = "Now seven standard health questions (the PAR-Q+). A \"yes\" never blocks anything — it just tells your coach where to be careful.";
+pub(crate) const EN_INTAKE_PARQ_HEART_CONDITION: &str =
+    "Has a doctor ever said that you have a heart condition?";
+pub(crate) const EN_INTAKE_PARQ_CHEST_PAIN: &str =
+    "Do you feel pain in your chest at rest, during daily activities, or during exercise?";
+pub(crate) const EN_INTAKE_PARQ_DIZZINESS: &str =
+    "Do you lose balance from dizziness, or have you lost consciousness in the last 12 months?";
+pub(crate) const EN_INTAKE_PARQ_CHRONIC_CONDITION: &str =
+    "Have you been diagnosed with another chronic medical condition (other than heart disease)?";
+pub(crate) const EN_INTAKE_PARQ_MEDICATION: &str =
+    "Are you currently taking prescribed medications for a chronic medical condition?";
+pub(crate) const EN_INTAKE_PARQ_JOINT_PROBLEM: &str =
+    "Do you have a bone, joint, or soft-tissue problem that could be made worse by activity?";
+pub(crate) const EN_INTAKE_PARQ_SUPERVISED_ONLY: &str =
+    "Has a doctor said you should only do medically supervised physical activity?";
+pub(crate) const EN_INTAKE_YESNO_HINT: &str = "Reply <b>1</b> for yes, <b>2</b> for no.";
+pub(crate) const EN_INTAKE_RETRY: &str =
+    "Sorry — I need just the number, so I record this exactly right.\n\n{0}";
+pub(crate) const EN_INTAKE_COMPLETE_CLEAR: &str =
+    "That's everything, nothing to flag. Ask me anything about your training.";
+pub(crate) const EN_INTAKE_COMPLETE_FLAGGED: &str = "That's everything. I've noted {0} thing(s) for your coach to keep in mind — none of it stops you training, and it's worth a word with your doctor before you push hard.";
 pub(crate) const EN_PILLARS_START_FAILED: &str =
     "I couldn't start the profile walk on this conversation. Try again in a moment.";
 pub(crate) const EN_RESET_WALK_INTERRUPTED: &str =
@@ -1261,6 +1335,29 @@ pub(crate) const ES_TIMEZONE_INVALID: &str = "Zona horaria no válida. Indica un
 
 pub(crate) const ES_PILLARS_OPENER: &str = "Vamos a construir tu perfil juntos — te haré preguntas sobre algunos temas, uno a uno. Para empezar: ¿cuál es la razón profunda por la que entrenas, tu «North Star»?";
 pub(crate) const ES_PILLARS_DM_ONLY: &str = "El perfil se construye en privado. Escríbeme <code>/pillars</code> por mensaje directo y empezamos.";
+
+pub(crate) const ES_INTAKE_OPENER: &str = "Antes de empezar, unas preguntas rápidas: un minuto ahora y el acompañamiento que viene será más preciso y más seguro.";
+pub(crate) const ES_INTAKE_PERSONA: &str = "Primero: ¿entrenas para ti o entrenas a otras personas?\n\n<b>1</b> — Entreno para mí\n<b>2</b> — Entreno a otras personas";
+pub(crate) const ES_INTAKE_PARQ_INTRO: &str = "Ahora siete preguntas de salud estándar (el PAR-Q+). Un «sí» no bloquea nada: solo le indica a tu coach dónde ser prudente.";
+pub(crate) const ES_INTAKE_PARQ_HEART_CONDITION: &str =
+    "¿Alguna vez un médico te ha dicho que tienes un problema cardíaco?";
+pub(crate) const ES_INTAKE_PARQ_CHEST_PAIN: &str =
+    "¿Sientes dolor en el pecho en reposo, en tus actividades diarias o al hacer ejercicio?";
+pub(crate) const ES_INTAKE_PARQ_DIZZINESS: &str =
+    "¿Pierdes el equilibrio por mareos, o has perdido el conocimiento en los últimos 12 meses?";
+pub(crate) const ES_INTAKE_PARQ_CHRONIC_CONDITION: &str =
+    "¿Te han diagnosticado otra enfermedad crónica (distinta de una enfermedad cardíaca)?";
+pub(crate) const ES_INTAKE_PARQ_MEDICATION: &str =
+    "¿Tomas actualmente medicamentos recetados para una enfermedad crónica?";
+pub(crate) const ES_INTAKE_PARQ_JOINT_PROBLEM: &str = "¿Tienes algún problema óseo, articular o de tejidos blandos que la actividad física pueda empeorar?";
+pub(crate) const ES_INTAKE_PARQ_SUPERVISED_ONLY: &str =
+    "¿Un médico te ha dicho que solo deberías hacer actividad física bajo supervisión médica?";
+pub(crate) const ES_INTAKE_YESNO_HINT: &str = "Responde <b>1</b> para sí, <b>2</b> para no.";
+pub(crate) const ES_INTAKE_RETRY: &str =
+    "Perdona: necesito solo el número, para registrarlo con exactitud.\n\n{0}";
+pub(crate) const ES_INTAKE_COMPLETE_CLEAR: &str =
+    "Eso es todo, nada que señalar. Pregúntame lo que quieras sobre tu entrenamiento.";
+pub(crate) const ES_INTAKE_COMPLETE_FLAGGED: &str = "Eso es todo. He anotado {0} punto(s) para que tu coach los tenga en cuenta: nada te impide entrenar, y conviene comentarlo con tu médico antes de exigirte a fondo.";
 pub(crate) const ES_PILLARS_START_FAILED: &str =
     "No pude iniciar el perfil en esta conversación. Vuelve a intentarlo en un momento.";
 pub(crate) const ES_RESET_WALK_INTERRUPTED: &str =
@@ -1478,6 +1575,27 @@ pub(crate) const DE_TIMEZONE_INVALID: &str =
 
 pub(crate) const DE_PILLARS_OPENER: &str = "Wir bauen dein Profil gemeinsam auf — ich frage dich zu einigen Themen, eines nach dem anderen. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?";
 pub(crate) const DE_PILLARS_DM_ONLY: &str = "Das Profil entsteht privat. Schreib mir <code>/pillars</code> als Direktnachricht, dann legen wir los.";
+
+pub(crate) const DE_INTAKE_OPENER: &str = "Bevor wir loslegen, ein paar kurze Fragen — eine Minute jetzt, und das Coaching danach ist genauer und sicherer.";
+pub(crate) const DE_INTAKE_PERSONA: &str = "Zuerst: Trainierst du für dich selbst, oder trainierst du andere?\n\n<b>1</b> — Ich trainiere für mich\n<b>2</b> — Ich trainiere andere";
+pub(crate) const DE_INTAKE_PARQ_INTRO: &str = "Jetzt sieben Standard-Gesundheitsfragen (der PAR-Q+). Ein „Ja“ blockiert nichts — es sagt deinem Coach nur, wo Vorsicht angebracht ist.";
+pub(crate) const DE_INTAKE_PARQ_HEART_CONDITION: &str =
+    "Hat dir jemals eine Ärztin oder ein Arzt gesagt, dass du ein Herzproblem hast?";
+pub(crate) const DE_INTAKE_PARQ_CHEST_PAIN: &str =
+    "Hast du Schmerzen in der Brust — in Ruhe, im Alltag oder beim Sport?";
+pub(crate) const DE_INTAKE_PARQ_DIZZINESS: &str = "Verlierst du durch Schwindel das Gleichgewicht, oder hast du in den letzten 12 Monaten das Bewusstsein verloren?";
+pub(crate) const DE_INTAKE_PARQ_CHRONIC_CONDITION: &str =
+    "Wurde bei dir eine andere chronische Erkrankung diagnostiziert (außer einer Herzerkrankung)?";
+pub(crate) const DE_INTAKE_PARQ_MEDICATION: &str =
+    "Nimmst du derzeit verschriebene Medikamente gegen eine chronische Erkrankung?";
+pub(crate) const DE_INTAKE_PARQ_JOINT_PROBLEM: &str = "Hast du ein Knochen-, Gelenk- oder Weichteilproblem, das sich durch Bewegung verschlimmern könnte?";
+pub(crate) const DE_INTAKE_PARQ_SUPERVISED_ONLY: &str = "Hat dir jemand ärztlich gesagt, du solltest dich nur unter medizinischer Aufsicht körperlich betätigen?";
+pub(crate) const DE_INTAKE_YESNO_HINT: &str = "Antworte <b>1</b> für ja, <b>2</b> für nein.";
+pub(crate) const DE_INTAKE_RETRY: &str =
+    "Entschuldige — ich brauche nur die Zahl, damit ich es korrekt festhalte.\n\n{0}";
+pub(crate) const DE_INTAKE_COMPLETE_CLEAR: &str =
+    "Das war's, nichts anzumerken. Frag mich alles zu deinem Training.";
+pub(crate) const DE_INTAKE_COMPLETE_FLAGGED: &str = "Das war's. Ich habe {0} Punkt(e) für deinen Coach notiert — nichts davon hindert dich am Training, und ein Wort mit deiner Ärztin oder deinem Arzt lohnt sich, bevor du voll belastest.";
 pub(crate) const DE_PILLARS_START_FAILED: &str =
     "Ich konnte das Profil in dieser Unterhaltung nicht starten. Versuch es gleich noch einmal.";
 pub(crate) const DE_RESET_WALK_INTERRUPTED: &str =
@@ -1698,6 +1816,29 @@ pub(crate) const PT_TIMEZONE_INVALID: &str = "Fuso horário inválido. Indica um
 
 pub(crate) const PT_PILLARS_OPENER: &str = "Vamos construir o teu perfil juntos — vou fazer-te perguntas sobre alguns temas, um a um. Para começar: qual é a razão profunda pela qual treinas — o teu «North Star»?";
 pub(crate) const PT_PILLARS_DM_ONLY: &str = "O perfil constrói-se em privado. Escreve-me <code>/pillars</code> em mensagem direta e começamos.";
+
+pub(crate) const PT_INTAKE_OPENER: &str = "Antes de começarmos, algumas perguntas rápidas — um minuto agora, e o acompanhamento seguinte é mais preciso e mais seguro.";
+pub(crate) const PT_INTAKE_PERSONA: &str = "Primeiro: treinas para ti, ou treinas outras pessoas?\n\n<b>1</b> — Treino para mim\n<b>2</b> — Treino outras pessoas";
+pub(crate) const PT_INTAKE_PARQ_INTRO: &str = "Agora sete perguntas de saúde padrão (o PAR-Q+). Um «sim» não bloqueia nada — apenas indica ao teu coach onde ser prudente.";
+pub(crate) const PT_INTAKE_PARQ_HEART_CONDITION: &str =
+    "Algum médico já te disse que tens um problema cardíaco?";
+pub(crate) const PT_INTAKE_PARQ_CHEST_PAIN: &str =
+    "Sentes dor no peito em repouso, nas atividades diárias ou durante o exercício?";
+pub(crate) const PT_INTAKE_PARQ_DIZZINESS: &str =
+    "Perdes o equilíbrio por tonturas, ou perdeste a consciência nos últimos 12 meses?";
+pub(crate) const PT_INTAKE_PARQ_CHRONIC_CONDITION: &str =
+    "Foste diagnosticado com outra doença crónica (que não seja doença cardíaca)?";
+pub(crate) const PT_INTAKE_PARQ_MEDICATION: &str =
+    "Tomas atualmente medicamentos prescritos para uma doença crónica?";
+pub(crate) const PT_INTAKE_PARQ_JOINT_PROBLEM: &str = "Tens algum problema ósseo, articular ou dos tecidos moles que a atividade física possa agravar?";
+pub(crate) const PT_INTAKE_PARQ_SUPERVISED_ONLY: &str =
+    "Um médico disse-te que só deverias fazer atividade física sob supervisão médica?";
+pub(crate) const PT_INTAKE_YESNO_HINT: &str = "Responde <b>1</b> para sim, <b>2</b> para não.";
+pub(crate) const PT_INTAKE_RETRY: &str =
+    "Desculpa — preciso só do número, para registar corretamente.\n\n{0}";
+pub(crate) const PT_INTAKE_COMPLETE_CLEAR: &str =
+    "É tudo, nada a assinalar. Pergunta-me o que quiseres sobre o teu treino.";
+pub(crate) const PT_INTAKE_COMPLETE_FLAGGED: &str = "É tudo. Anotei {0} ponto(s) para o teu coach ter em conta — nada disto te impede de treinar, e vale a pena falar com o teu médico antes de forçares.";
 pub(crate) const PT_PILLARS_START_FAILED: &str =
     "Não consegui iniciar o perfil nesta conversa. Tenta outra vez dentro de um momento.";
 pub(crate) const PT_RESET_WALK_INTERRUPTED: &str =
@@ -1894,6 +2035,20 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "fr", FR_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "fr", FR_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "fr", FR_PILLARS_DM_ONLY),
+    (KEY_INTAKE_OPENER, "fr", FR_INTAKE_OPENER),
+    (KEY_INTAKE_PERSONA, "fr", FR_INTAKE_PERSONA),
+    (KEY_INTAKE_PARQ_INTRO, "fr", FR_INTAKE_PARQ_INTRO),
+    (KEY_INTAKE_PARQ_HEART_CONDITION, "fr", FR_INTAKE_PARQ_HEART_CONDITION),
+    (KEY_INTAKE_PARQ_CHEST_PAIN, "fr", FR_INTAKE_PARQ_CHEST_PAIN),
+    (KEY_INTAKE_PARQ_DIZZINESS, "fr", FR_INTAKE_PARQ_DIZZINESS),
+    (KEY_INTAKE_PARQ_CHRONIC_CONDITION, "fr", FR_INTAKE_PARQ_CHRONIC_CONDITION),
+    (KEY_INTAKE_PARQ_MEDICATION, "fr", FR_INTAKE_PARQ_MEDICATION),
+    (KEY_INTAKE_PARQ_JOINT_PROBLEM, "fr", FR_INTAKE_PARQ_JOINT_PROBLEM),
+    (KEY_INTAKE_PARQ_SUPERVISED_ONLY, "fr", FR_INTAKE_PARQ_SUPERVISED_ONLY),
+    (KEY_INTAKE_YESNO_HINT, "fr", FR_INTAKE_YESNO_HINT),
+    (KEY_INTAKE_RETRY, "fr", FR_INTAKE_RETRY),
+    (KEY_INTAKE_COMPLETE_CLEAR, "fr", FR_INTAKE_COMPLETE_CLEAR),
+    (KEY_INTAKE_COMPLETE_FLAGGED, "fr", FR_INTAKE_COMPLETE_FLAGGED),
     (KEY_PILLARS_START_FAILED, "fr", FR_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "fr", FR_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "fr", FR_CALIBRATE_OPENER),
@@ -2062,6 +2217,20 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "en", EN_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "en", EN_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "en", EN_PILLARS_DM_ONLY),
+    (KEY_INTAKE_OPENER, "en", EN_INTAKE_OPENER),
+    (KEY_INTAKE_PERSONA, "en", EN_INTAKE_PERSONA),
+    (KEY_INTAKE_PARQ_INTRO, "en", EN_INTAKE_PARQ_INTRO),
+    (KEY_INTAKE_PARQ_HEART_CONDITION, "en", EN_INTAKE_PARQ_HEART_CONDITION),
+    (KEY_INTAKE_PARQ_CHEST_PAIN, "en", EN_INTAKE_PARQ_CHEST_PAIN),
+    (KEY_INTAKE_PARQ_DIZZINESS, "en", EN_INTAKE_PARQ_DIZZINESS),
+    (KEY_INTAKE_PARQ_CHRONIC_CONDITION, "en", EN_INTAKE_PARQ_CHRONIC_CONDITION),
+    (KEY_INTAKE_PARQ_MEDICATION, "en", EN_INTAKE_PARQ_MEDICATION),
+    (KEY_INTAKE_PARQ_JOINT_PROBLEM, "en", EN_INTAKE_PARQ_JOINT_PROBLEM),
+    (KEY_INTAKE_PARQ_SUPERVISED_ONLY, "en", EN_INTAKE_PARQ_SUPERVISED_ONLY),
+    (KEY_INTAKE_YESNO_HINT, "en", EN_INTAKE_YESNO_HINT),
+    (KEY_INTAKE_RETRY, "en", EN_INTAKE_RETRY),
+    (KEY_INTAKE_COMPLETE_CLEAR, "en", EN_INTAKE_COMPLETE_CLEAR),
+    (KEY_INTAKE_COMPLETE_FLAGGED, "en", EN_INTAKE_COMPLETE_FLAGGED),
     (KEY_PILLARS_START_FAILED, "en", EN_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "en", EN_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "en", EN_CALIBRATE_OPENER),
@@ -2229,6 +2398,20 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "es", ES_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "es", ES_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "es", ES_PILLARS_DM_ONLY),
+    (KEY_INTAKE_OPENER, "es", ES_INTAKE_OPENER),
+    (KEY_INTAKE_PERSONA, "es", ES_INTAKE_PERSONA),
+    (KEY_INTAKE_PARQ_INTRO, "es", ES_INTAKE_PARQ_INTRO),
+    (KEY_INTAKE_PARQ_HEART_CONDITION, "es", ES_INTAKE_PARQ_HEART_CONDITION),
+    (KEY_INTAKE_PARQ_CHEST_PAIN, "es", ES_INTAKE_PARQ_CHEST_PAIN),
+    (KEY_INTAKE_PARQ_DIZZINESS, "es", ES_INTAKE_PARQ_DIZZINESS),
+    (KEY_INTAKE_PARQ_CHRONIC_CONDITION, "es", ES_INTAKE_PARQ_CHRONIC_CONDITION),
+    (KEY_INTAKE_PARQ_MEDICATION, "es", ES_INTAKE_PARQ_MEDICATION),
+    (KEY_INTAKE_PARQ_JOINT_PROBLEM, "es", ES_INTAKE_PARQ_JOINT_PROBLEM),
+    (KEY_INTAKE_PARQ_SUPERVISED_ONLY, "es", ES_INTAKE_PARQ_SUPERVISED_ONLY),
+    (KEY_INTAKE_YESNO_HINT, "es", ES_INTAKE_YESNO_HINT),
+    (KEY_INTAKE_RETRY, "es", ES_INTAKE_RETRY),
+    (KEY_INTAKE_COMPLETE_CLEAR, "es", ES_INTAKE_COMPLETE_CLEAR),
+    (KEY_INTAKE_COMPLETE_FLAGGED, "es", ES_INTAKE_COMPLETE_FLAGGED),
     (KEY_PILLARS_START_FAILED, "es", ES_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "es", ES_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "es", ES_CALIBRATE_OPENER),
@@ -2397,6 +2580,20 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "de", DE_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "de", DE_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "de", DE_PILLARS_DM_ONLY),
+    (KEY_INTAKE_OPENER, "de", DE_INTAKE_OPENER),
+    (KEY_INTAKE_PERSONA, "de", DE_INTAKE_PERSONA),
+    (KEY_INTAKE_PARQ_INTRO, "de", DE_INTAKE_PARQ_INTRO),
+    (KEY_INTAKE_PARQ_HEART_CONDITION, "de", DE_INTAKE_PARQ_HEART_CONDITION),
+    (KEY_INTAKE_PARQ_CHEST_PAIN, "de", DE_INTAKE_PARQ_CHEST_PAIN),
+    (KEY_INTAKE_PARQ_DIZZINESS, "de", DE_INTAKE_PARQ_DIZZINESS),
+    (KEY_INTAKE_PARQ_CHRONIC_CONDITION, "de", DE_INTAKE_PARQ_CHRONIC_CONDITION),
+    (KEY_INTAKE_PARQ_MEDICATION, "de", DE_INTAKE_PARQ_MEDICATION),
+    (KEY_INTAKE_PARQ_JOINT_PROBLEM, "de", DE_INTAKE_PARQ_JOINT_PROBLEM),
+    (KEY_INTAKE_PARQ_SUPERVISED_ONLY, "de", DE_INTAKE_PARQ_SUPERVISED_ONLY),
+    (KEY_INTAKE_YESNO_HINT, "de", DE_INTAKE_YESNO_HINT),
+    (KEY_INTAKE_RETRY, "de", DE_INTAKE_RETRY),
+    (KEY_INTAKE_COMPLETE_CLEAR, "de", DE_INTAKE_COMPLETE_CLEAR),
+    (KEY_INTAKE_COMPLETE_FLAGGED, "de", DE_INTAKE_COMPLETE_FLAGGED),
     (KEY_PILLARS_START_FAILED, "de", DE_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "de", DE_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "de", DE_CALIBRATE_OPENER),
@@ -2565,6 +2762,20 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "pt", PT_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "pt", PT_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "pt", PT_PILLARS_DM_ONLY),
+    (KEY_INTAKE_OPENER, "pt", PT_INTAKE_OPENER),
+    (KEY_INTAKE_PERSONA, "pt", PT_INTAKE_PERSONA),
+    (KEY_INTAKE_PARQ_INTRO, "pt", PT_INTAKE_PARQ_INTRO),
+    (KEY_INTAKE_PARQ_HEART_CONDITION, "pt", PT_INTAKE_PARQ_HEART_CONDITION),
+    (KEY_INTAKE_PARQ_CHEST_PAIN, "pt", PT_INTAKE_PARQ_CHEST_PAIN),
+    (KEY_INTAKE_PARQ_DIZZINESS, "pt", PT_INTAKE_PARQ_DIZZINESS),
+    (KEY_INTAKE_PARQ_CHRONIC_CONDITION, "pt", PT_INTAKE_PARQ_CHRONIC_CONDITION),
+    (KEY_INTAKE_PARQ_MEDICATION, "pt", PT_INTAKE_PARQ_MEDICATION),
+    (KEY_INTAKE_PARQ_JOINT_PROBLEM, "pt", PT_INTAKE_PARQ_JOINT_PROBLEM),
+    (KEY_INTAKE_PARQ_SUPERVISED_ONLY, "pt", PT_INTAKE_PARQ_SUPERVISED_ONLY),
+    (KEY_INTAKE_YESNO_HINT, "pt", PT_INTAKE_YESNO_HINT),
+    (KEY_INTAKE_RETRY, "pt", PT_INTAKE_RETRY),
+    (KEY_INTAKE_COMPLETE_CLEAR, "pt", PT_INTAKE_COMPLETE_CLEAR),
+    (KEY_INTAKE_COMPLETE_FLAGGED, "pt", PT_INTAKE_COMPLETE_FLAGGED),
     (KEY_PILLARS_START_FAILED, "pt", PT_PILLARS_START_FAILED),
     (KEY_RESET_WALK_INTERRUPTED, "pt", PT_RESET_WALK_INTERRUPTED),
     (KEY_CALIBRATE_OPENER, "pt", PT_CALIBRATE_OPENER),

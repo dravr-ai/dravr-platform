@@ -21,6 +21,14 @@ use pierre_memory::{FactKind, FactSource, MemoryScope};
 /// Months a PAR-Q flag stays fresh before it goes stale and prompts re-screening.
 const PARQ_VALID_DAYS: i64 = 365;
 
+/// The predicate every raised PAR-Q flag is filed under.
+///
+/// Public because it is the only way to tell a flag this screen raised from any
+/// other medical fact the coach may have extracted from conversation — a count
+/// that confused the two would report someone's mentioned knee twinge as a
+/// PAR-Q finding.
+pub const PARQ_PREDICATE: &str = "answered yes (PAR-Q)";
+
 /// A single PAR-Q+ pre-participation question.
 pub struct ParqQuestion {
     /// Stable identifier submitted in answers.
@@ -99,7 +107,7 @@ where
             kind: FactKind::Medical,
             pillar: None,
             subject: "you",
-            predicate: "answered yes (PAR-Q)",
+            predicate: PARQ_PREDICATE,
             object: text,
             confidence: 1.0,
             source: FactSource::Onboarding,

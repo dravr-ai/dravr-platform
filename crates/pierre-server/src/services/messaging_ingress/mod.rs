@@ -11,6 +11,8 @@ mod agui;
 /// In-chat provider-connect: in-process link-token mint + tappable connect Card.
 mod coach_choice;
 mod connect;
+/// Platform-asked intake: profile type then the PAR-Q+, verbatim and strictly parsed.
+mod intake;
 /// Per-channel fidelity negotiation: cards natively or as rich text, charts as media.
 pub mod viz_delivery;
 
@@ -657,6 +659,38 @@ async fn persist_single_message(
         }
         Err(_) => DEFAULT_LOCALE.to_owned(),
     };
+
+    // An answer to a question the platform asked: profile type, or one of the
+    // seven PAR-Q+ questions. Sits ahead of the coach-proposal reply because an
+    // intake is outstanding before a proposal ever goes out, so a bare "1" here
+    // is answering the intake, not choosing a coach.
+    //
+    // Returns None for a group chat, a conversation with no intake running, and
+    // the turn the intake stands aside on — ordinary messages fall through.
+    if let Some(mut intake_reply) = intake::try_handle_intake(intake::IntakeParams {
+        resources,
+        // The conversation, and the facts the intake writes, both live under the
+        // session tenant — for a DM that is the athlete's own tenant. Reading it
+        // with the channel tenant misses the row and the intake silently never
+        // sees an answer.
+        tenant_id: session_tenant_id,
+        conversation_id: &session.conversation,
+        channel_type,
+        sender_id: &message.sender_id,
+        user_id: auth_result.user_id,
+        locale: &choice_locale,
+        text: content_body_text(&message.content)
+            .unwrap_or_default()
+            .as_str(),
+        is_direct_message: message.is_direct_message,
+    })
+    .await
+    {
+        intake_reply.thread_id = thread_id;
+        apply_conversation_recipient(&mut intake_reply, message.conversation_id.as_deref());
+        send_channel_response(db, tenant_id, channel, adapter, intake_reply).await;
+        return Ok(PersistOutcome::HandledNotStored);
+    }
 
     // A bare number answering the coach proposal. Sits here — after auth, before
     // the model — because it is a selection, not conversation: the proposal told
