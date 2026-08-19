@@ -23,6 +23,11 @@
 
 pub(crate) mod inner;
 
+// The training-load payload builder is reachable from integration tests: this
+// crate keeps tests external, so content coverage of the JSON the model reads
+// needs the builder public. Its production caller is the tool handler below.
+pub use inner::{analyze_detailed_training_load, UserPhysiologicalParams};
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

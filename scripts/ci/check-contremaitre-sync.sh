@@ -229,6 +229,71 @@ else
     fi
 fi
 
+# ---------------------------------------------------------------------------
+# Check 4: the shipped contremaitre catalogues carry no retired ACWR framing
+# ---------------------------------------------------------------------------
+# Tool descriptions and persona prompts reach the model through the runtime
+# sync, not through include_str!, so no Rust test can see them: a test that
+# reads registry_builtin::get_tools() inspects the compiled-in fallback that
+# ToolRegistry::build_schema overwrites. This is the only gate that reads what
+# actually ships. It bans the framings, not the framework name — "ACWR →
+# Gabbett" as an attribution is fine, and the coach prompt legitimately explains
+# what "the retired injury-prediction use" was.
+CM_ROOT=""
+if [[ -n "$MANIFEST" && -d "${MANIFEST%Cargo.toml}tools" ]]; then
+    CM_ROOT="${MANIFEST%Cargo.toml}"
+elif [[ -d "../dravr-contremaitre/tools" ]]; then
+    CM_ROOT="../dravr-contremaitre/"
+fi
+
+if [[ -z "$CM_ROOT" ]]; then
+    echo -e "${YELLOW}⚠️  contremaitre corpus could not be resolved (offline?) — skipping the framing check.${NC}"
+else
+    # Couple the injury token to a load token before flagging: a strength coach
+    # citing Lauersen on resistance training reducing injury risk, and a mobility
+    # coach on warm-ups, are unrelated to the ratio. Lines that *forbid* the
+    # framing ("never present it as an injury risk") are excluded too.
+    FRAMING_HITS="$(python3 - "$CM_ROOT" <<'PYCHECK'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+INJURY = re.compile(r"injury risk|injury probabilit|risque de blessure|probabilit\w* de blessure", re.I)
+LOAD = re.compile(r"acwr|load spike|load increase|acute:chronic|charge aigu|pic de charge|hausses soudaines", re.I)
+NEGATED = re.compile(r"never|not present|jamais|retired|retir\u00e9|\bpas\b", re.I)
+GREEN = re.compile(r"green band|bande verte", re.I)
+ABS_TSB = re.compile(r"TSB\s*[<>]\s*[-\u2212+]?\d", re.I)
+hits = []
+for sub in ("tools", "prompts/personas", "prompts/coaches"):
+    d = root / sub
+    if not d.is_dir():
+        continue
+    for f in sorted(d.rglob("*")):
+        if f.suffix not in (".md", ".yaml", ".yml"):
+            continue
+        for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            why = None
+            if INJURY.search(line) and LOAD.search(line) and not NEGATED.search(line):
+                why = "ACWR presented as injury risk"
+            elif GREEN.search(line):
+                why = "red/green safety verdict"
+            elif ABS_TSB.search(line):
+                why = "absolute TSB band (use % of CTL)"
+            if why:
+                hits.append(f"{f}:{n}: [{why}] {line.strip()[:160]}")
+print("\n".join(hits))
+PYCHECK
+)"
+
+    if [[ -n "$FRAMING_HITS" ]]; then
+        echo -e "${RED}❌ Retired ACWR/TSB framing in the shipped contremaitre catalogues:${NC}"
+        echo -e "$FRAMING_HITS"
+        echo -e "${YELLOW}   Present ACWR as magnitude against the 28-day baseline, never injury risk or a${NC}"
+        echo -e "${YELLOW}   red/green verdict, and band TSB as a share of CTL (registre#26).${NC}"
+        FAILED=true
+    else
+        echo -e "${GREEN}✅ Contremaitre catalogues carry no retired ACWR/TSB framing.${NC}"
+    fi
+fi
+
 if [[ "$FAILED" == "true" ]]; then
     echo -e "${RED}❌ CONTREMAITRE COUPLING CHECK FAILED${NC}"
     echo -e "${RED}Fix the drift above before pushing — these reds otherwise land on main post-merge.${NC}"

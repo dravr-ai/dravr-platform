@@ -1238,26 +1238,24 @@ async fn test_analyze_training_load_tool() -> Result<()> {
     };
 
     let response = executor.execute_tool(request).await?;
-    if response.success {
-        // If it succeeds, verify the response structure
-        // Handler returns "load_status" (not "training_load_balance") and
-        // "recommendations" array (not "recovery_recommendation" string)
-        assert!(response.result.is_some());
-        let result = response.result.unwrap();
-        // load_status indicates the training load balance
-        assert!(
-            result["load_status"].is_string() || result["message"].is_string(),
-            "Expected 'load_status' or 'message' field in result: {result}"
-        );
-        // recommendations is an array when there's enough data
-        if result.get("recommendations").is_some() {
-            assert!(result["recommendations"].is_array());
-        }
-    } else {
-        println!("Error: {:?}", response.error);
-        // For test data, the handler may expect stored activities
-        assert!(response.error.is_some());
-    }
+
+    // This fixture is a fresh user id with no provider connection, and the
+    // handler sources activities from the connected provider rather than from
+    // the `activities` parameter above — so the only reachable arm is the error
+    // one. It used to be wrapped in `if response.success`, which made the
+    // payload assertions inside it dead code: `form_band`, `form_assessment` and
+    // `tsb_pct_of_ctl` could all have been deleted with every test still green.
+    // The payload itself is covered by `form_relative_banding_test`, against
+    // `analyze_detailed_training_load` directly.
+    assert!(
+        !response.success,
+        "no provider is connected for this fixture, so the tool must report an \
+         error rather than fabricate a load: {response:?}"
+    );
+    assert!(
+        response.error.is_some(),
+        "an unsuccessful response carries an error"
+    );
 
     Ok(())
 }

@@ -25,6 +25,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{GroupMember, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
+use pierre_groups::GroupService;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{MiddlewareCtx, SocialCtx};
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
@@ -217,9 +218,7 @@ impl GroupAnalyticsRoutes {
 
         let member_snapshots = Self::fetch_snapshots(&resources, &group_id, tenant_id).await?;
 
-        let flags = resources
-            .group_service()
-            .compute_health_flags(&member_snapshots);
+        let flags = GroupService::compute_health_flags(&member_snapshots);
 
         let response = HealthFlagsResponse {
             total: flags.len(),

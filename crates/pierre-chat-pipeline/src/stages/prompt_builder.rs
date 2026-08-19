@@ -39,9 +39,11 @@ use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 #[cfg(feature = "tools-groups")]
 use pierre_core::errors::AppResult;
 #[cfg(feature = "tools-groups")]
+use pierre_core::models::groups::MemberFitnessSnapshot;
+#[cfg(feature = "tools-groups")]
 use pierre_core::models::TenantId;
 #[cfg(feature = "tools-groups")]
-use pierre_tool_runtime::group_fitness::{fetch_member_snapshots, MemberSnapshot};
+use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 
 /// Resolve group context strictly from the conversation record's
 /// `group_id`.
@@ -68,7 +70,7 @@ pub async fn resolve_group_context(
     ctx: &ChatPipelineContext,
     conversation_group_id: Option<&str>,
     tool_tenant_id: TenantId,
-) -> AppResult<(Option<String>, Vec<MemberSnapshot>)> {
+) -> AppResult<(Option<String>, Vec<MemberFitnessSnapshot>)> {
     let Some(gid) = conversation_group_id else {
         return Ok((None, Vec::new()));
     };

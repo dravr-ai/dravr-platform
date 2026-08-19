@@ -120,7 +120,7 @@ pub use dravr_cageux::statistical_analysis::{
     RegressionResult, SignificanceLevel, StatisticalAnalyzer,
 };
 pub use dravr_cageux::training_load::{
-    OvertrainingRisk, RiskLevel, TrainingLoad, TrainingLoadCalculator, TrainingStatus, TssDataPoint,
+    FormBand, OvertrainingRisk, RiskLevel, TrainingLoad, TrainingLoadCalculator, TssDataPoint,
 };
 pub use dravr_cageux::visitor::{
     DecouplingDetector, NormalizedPowerCalculator, StatsCollector, StreamStats, TimeSeriesExt,

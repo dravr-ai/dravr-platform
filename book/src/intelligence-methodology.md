@@ -1260,97 +1260,120 @@ Confirm: API_tsb ≈ API_ctl - API_atl (±0.1)
 
 ## Training Stress Balance (TSB)
 
-TSB indicates form/freshness using piecewise classification:
-
-**training status classification**:
+TSB indicates form/freshness, but only once it is expressed as a share of the
+athlete's own chronic load. A raw TSB of −25 is a routine training block for a
+CTL-100 athlete and the deepest fatigue for a CTL-40 athlete, so the bands are
+defined on **form percentage**, following the TrainingPeaks/Friel and
+intervals.icu convention:
 
 ```
-TrainingStatus(TSB) = Overreaching,  if TSB < −10
-                    = Productive,    if −10 ≤ TSB < 0
-                    = Fresh,         if 0 ≤ TSB ≤ 10
-                    = Detraining,    if TSB > 10
+form_pct(TSB, CTL) = TSB / CTL × 100,   if CTL > 1
+                   = undefined,          otherwise
+```
+
+**form band classification**:
+
+```
+FormBand(form_pct) = InsufficientHistory, if form_pct is undefined
+                   = DeepFatigue,         if form_pct < −30%
+                   = HeavyBlock,          if −30% ≤ form_pct < −20%
+                   = Productive,          if −20% ≤ form_pct < −10%
+                   = Balanced,            if −10% ≤ form_pct < +5%
+                   = Fresh,               if +5% ≤ form_pct ≤ +20%
+                   = Detraining,          if form_pct > +20%
 ```
 
 **rust implementation**:
 
 ```rust
-pub fn interpret_tsb(tsb: f64) -> TrainingStatus {
-    match tsb {
-        t if t < -10.0 => TrainingStatus::Overreaching,
-        t if t < 0.0   => TrainingStatus::Productive,
-        t if t <= 10.0 => TrainingStatus::Fresh,
-        _              => TrainingStatus::Detraining,
-    }
+pub fn from_form_pct(form_pct: Option<f64>) -> Self {
+    let Some(pct) = form_pct else {
+        return Self::InsufficientHistory;
+    };
+    if pct < -30.0      { Self::DeepFatigue }
+    else if pct < -20.0 { Self::HeavyBlock }
+    else if pct < -10.0 { Self::Productive }
+    else if pct < 5.0   { Self::Balanced }
+    else if pct <= 20.0 { Self::Fresh }
+    else                { Self::Detraining }
 }
 ```
 
 **interpretation**:
-- **TSB < −10**: overreaching (high fatigue) - recovery needed
-- **−10 ≤ TSB < 0**: productive training - building fitness
-- **0 ≤ TSB ≤ 10**: fresh - ready for hard efforts
-- **TSB > 10**: risk of detraining
+- **below −30% of CTL**: the deepest fatigue band — the only band that carries a recovery prescription
+- **−30% to −20%**: the deep end of a productive block — worth a heads-up, not an alarm
+- **−20% to −10%**: productive training — building fitness under normal fatigue
+- **−10% to +5%**: balanced — neither fatigued nor peaked
+- **+5% to +20%**: fresh — ready for quality work or racing
+- **above +20%**: risk of detraining
+- **no chronic base** (CTL ≤ 1): form is not interpretable. The engine reports
+  insufficient history rather than banding the raw number, because a beginner's
+  first hard week would otherwise read as an elite's crisis.
 
-**reference**: Banister, E.W., Calvert, T.W., Savage, M.V., & Bach, T. (1975). A systems model of training. *Australian Journal of Sports Medicine*, 7(3), 57-61.
+Every surface that bands form — the analytics tools, the group health flags,
+the coach prompts — derives it from this one classification. Hand-rolling
+thresholds against raw TSB is what let the same athlete be called "productive"
+and "at risk" in a single response.
+
+**reference**: Banister, E.W., Calvert, T.W., Savage, M.V., & Bach, T. (1975). A systems model of training. *Australian Journal of Sports Medicine*, 7(3), 57-61. Form-as-percentage-of-CTL follows Friel's practice and the intervals.icu implementation.
 
 ---
 
 ## Overtraining Risk Detection
 
-**three-factor risk assessment**:
+**single-axis, graded risk assessment**:
+
+Acute-versus-chronic load and form are not independent observations of an
+athlete. Because `TSB = CTL − ATL`, form as a share of fitness expands to the
+acute:chronic ratio exactly:
 
 ```
-Risk Factor 1 (Acute Load Spike):
-  Triggered when: (CTL > 0) ∧ (ATL > 1.3 × CTL)
+form_pct = TSB / CTL × 100 = (1 − ATL/CTL) × 100
 
-Risk Factor 2 (Very High Acute Load):
-  Triggered when: ATL > 150
-
-Risk Factor 3 (Deep Fatigue):
-  Triggered when: TSB < −10
+form_pct < −30  ⟺  ATL > 1.3 × CTL
+form_pct < −20  ⟺  ATL > 1.2 × CTL
 ```
 
-**risk level classification**:
+An earlier three-factor scheme listed "ATL > 1.3 × CTL", "ATL > 1.5 × CTL" and
+"form below −30% of CTL" as separate factors and set severity by counting how
+many fired. Since the first and third are the same inequality and the second is
+a strict subset of the first, the count could only ever be 0, 2 or 3: every
+athlete past 1.3 was escalated to High by restatement, `Moderate` was
+unreachable for anyone with a chronic base, and the athlete was shown three
+bullets describing one observation. Severity now grades the depth of the single
+axis, and the athlete is handed one factor.
 
 ```
-RiskLevel = Low,       if |risk_factors| = 0
-          = Moderate,  if |risk_factors| = 1
-          = High,      if |risk_factors| ≥ 2
+RiskLevel = High,      if form_pct < −30           (FormBand::DeepFatigue)
+          = Moderate,  if −30 ≤ form_pct < −20     (FormBand::HeavyBlock)
+          = Low,       otherwise
+          = Low,       if CTL carries no chronic base (form not interpretable)
 ```
-
-Where `|risk_factors|` = count of triggered risk factors
 
 **rust implementation**:
 
 ```rust
-// src/intelligence/training_load.rs
+// dravr-cageux: src/training_load.rs
 pub fn check_overtraining_risk(training_load: &TrainingLoad) -> OvertrainingRisk {
-    let mut risk_factors = Vec::new();
+    let form_pct = FormBand::form_pct(training_load.tsb, training_load.ctl);
 
-    // 1. Acute load spike
-    if training_load.ctl > 0.0 && training_load.atl > training_load.ctl * 1.3 {
-        risk_factors.push(
-            "Acute load spike >30% above chronic load".to_string()
-        );
-    }
-
-    // 2. Very high acute load
-    if training_load.atl > 150.0 {
-        risk_factors.push(
-            "Very high acute load (>150 TSS/day)".to_string()
-        );
-    }
-
-    // 3. Deep fatigue
-    if training_load.tsb < -10.0 {
-        risk_factors.push(
-            "Deep fatigue (TSB < -10)".to_string()
-        );
-    }
-
-    let risk_level = match risk_factors.len() {
-        0 => RiskLevel::Low,
-        1 => RiskLevel::Moderate,
-        _ => RiskLevel::High,
+    let (risk_level, risk_factors) = match FormBand::from_form_pct(form_pct) {
+        FormBand::DeepFatigue => (
+            RiskLevel::High,
+            vec![format!(
+                "Acute load is carrying form to {:.0}% of chronic fitness, past the -30% band",
+                form_pct.unwrap_or_default()
+            )],
+        ),
+        FormBand::HeavyBlock => (
+            RiskLevel::Moderate,
+            vec![format!(
+                "Form at {:.0}% of chronic fitness - the deep end of a productive block",
+                form_pct.unwrap_or_default()
+            )],
+        ),
+        // No chronic base makes no claim at all.
+        _ => (RiskLevel::Low, Vec::new()),
     };
 
     OvertrainingRisk { risk_level, risk_factors }
@@ -1358,9 +1381,16 @@ pub fn check_overtraining_risk(training_load: &TrainingLoad) -> OvertrainingRisk
 ```
 
 **physiological interpretation**:
-- **Acute load spike**: fatigue (ATL) exceeds fitness (CTL) by >30%, indicating sudden increase
-- **Very high acute load**: average daily TSS >150 in past week, exceeding sustainable threshold
-- **Deep fatigue**: negative TSB <−10, indicating accumulated fatigue without recovery
+- **Deep fatigue (High)**: form past −30% of the athlete's own chronic load — the
+  acute block has carried fatigue well beyond what the fitness base absorbs.
+- **Heavy block (Moderate)**: form −30% to −20% — the deep end of a productive
+  block, which is training, not an emergency.
+- **No chronic base**: at a near-zero CTL a single session swings the ratio
+  wildly, so no risk level is asserted rather than one read off an absolute TSB.
+
+These describe the magnitude of a load pattern, never injury probability:
+fixed-threshold injury prediction from load ratios is not supported by the
+literature (Impellizzeri et al., 2020; Lolli et al., 2017).
 
 **reference**: Halson, S.L. (2014). Monitoring training load to understand fatigue. *Sports Medicine*, 44(Suppl 2), 139-147.
 

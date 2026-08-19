@@ -41,7 +41,7 @@ const PERSONA_OPTIONS: PersonaOption[] = [
     bullets: [
       'Headline answer first, key datum second. Replies under ~250 words.',
       'Acronyms (CTL, ACWR) glossed on first use, then used freely.',
-      'Push notifications: urgent and high priority (acute injury risk, near-overreached).',
+      'Push notifications: urgent and high priority (form deep below fitness, recovery breach).',
     ],
   },
   {

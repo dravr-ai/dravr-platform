@@ -14,6 +14,7 @@ use pierre_core::models::groups::{
     GroupTrend, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag,
     MemberGroupComparison, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
 };
+use pierre_core::models::FormBand;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::CoachingGroupRepository;
 use tracing::{info, warn};
@@ -22,12 +23,6 @@ use uuid::Uuid;
 // ============================================================================
 // Health Flag Thresholds
 // ============================================================================
-
-/// TSB threshold below which a member is flagged as overreaching (warning)
-pub const OVERREACHING_TSB_THRESHOLD: f64 = -20.0;
-
-/// TSB threshold below which a member is at high fatigue/injury risk (critical)
-pub const HIGH_FATIGUE_TSB_THRESHOLD: f64 = -30.0;
 
 /// Days without activity before a member is flagged as inactive
 pub const INACTIVITY_DAYS_THRESHOLD: i32 = 7;
@@ -984,16 +979,13 @@ impl GroupService {
     /// Get health flags for all members based on physiological thresholds.
     ///
     /// Flags produced:
-    /// - **Overreaching** (warning): TSB below [`OVERREACHING_TSB_THRESHOLD`] (-20)
-    /// - **`InjuryRisk`** (critical): TSB below [`HIGH_FATIGUE_TSB_THRESHOLD`] (-30)
+    /// - **`DeepFatigue`** (critical): [`FormBand::DeepFatigue`], form below -30 % of CTL
+    /// - **Overreaching** (warning): [`FormBand::HeavyBlock`], form -30 % to -20 % of CTL
     /// - **Inactive** (warning): no activity for [`INACTIVITY_DAYS_THRESHOLD`]+ days
     /// - **`VolumeDrop`**: weekly volume dropped more than
     ///   [`VOLUME_DROP_FRACTION_THRESHOLD`] (30%) from prior-week baseline
     #[must_use]
-    pub fn compute_health_flags(
-        &self,
-        snapshots: &[MemberFitnessSnapshot],
-    ) -> Vec<GroupHealthFlag> {
+    pub fn compute_health_flags(snapshots: &[MemberFitnessSnapshot]) -> Vec<GroupHealthFlag> {
         // Compute group average volume as baseline for volume-drop detection
         let baseline_volume = Self::compute_baseline_volume(snapshots);
 
@@ -1002,24 +994,32 @@ impl GroupService {
             .filter_map(|s| {
                 let mut flags = Vec::new();
 
-                // TSB-based flags
-                if let Some(tsb) = s.tsb {
-                    if tsb < HIGH_FATIGUE_TSB_THRESHOLD {
-                        flags.push(GroupHealthFlag {
+                // Form-based flags come off the shared band, never raw TSB.
+                // Without a chronic base the band is InsufficientHistory and
+                // no form flag is raised, so the risk level is the only signal.
+                let form_pct = s.tsb.zip(s.ctl).and_then(|(t, c)| FormBand::form_pct(t, c));
+                let band = FormBand::from_form_pct(form_pct);
+                if let (Some(pct), Some(tsb)) = (form_pct, s.tsb) {
+                    match band {
+                        FormBand::DeepFatigue => flags.push(GroupHealthFlag {
                             user_id: s.user_id,
                             display_name: s.display_name.clone(),
-                            flag_type: MemberFlag::InjuryRisk,
+                            flag_type: MemberFlag::DeepFatigue,
                             severity: HealthFlagSeverity::Critical,
-                            detail: format!("TSB at {tsb:+.0}, high injury risk"),
-                        });
-                    } else if tsb < OVERREACHING_TSB_THRESHOLD {
-                        flags.push(GroupHealthFlag {
+                            detail: format!(
+                                "Form at {pct:.0}% of fitness (TSB {tsb:+.0}), deepest fatigue band"
+                            ),
+                        }),
+                        FormBand::HeavyBlock => flags.push(GroupHealthFlag {
                             user_id: s.user_id,
                             display_name: s.display_name.clone(),
                             flag_type: MemberFlag::Overreaching,
                             severity: HealthFlagSeverity::Warning,
-                            detail: format!("TSB at {tsb:+.0}, recommend recovery"),
-                        });
+                            detail: format!(
+                                "Form at {pct:.0}% of fitness (TSB {tsb:+.0}), deep end of the productive zone"
+                            ),
+                        }),
+                        _ => {}
                     }
                 } else if matches!(s.overtraining_risk, OvertrainingRiskLevel::High) {
                     // Fall back to the risk level when TSB is absent
@@ -1097,7 +1097,7 @@ impl GroupService {
         group_name: &str,
     ) -> GroupWeeklyReport {
         let stats = self.compute_aggregate_stats(snapshots);
-        let flags = self.compute_health_flags(snapshots);
+        let flags = Self::compute_health_flags(snapshots);
 
         let trend_label = match stats.weekly_trend {
             GroupTrend::Improving => "improving",
@@ -1111,16 +1111,20 @@ impl GroupService {
             stats.active_members, stats.total_members, stats.avg_weekly_volume_km
         );
 
-        // Highlights: members with positive TSB (fresh form)
+        // Highlights: members whose form reads Fresh against their own chronic
+        // base. A merely positive TSB is not freshness — 0 to +5% of CTL is
+        // balanced, and the same +8 is fresh at CTL 40 but balanced at CTL 150.
         let highlights: Vec<String> = snapshots
             .iter()
-            .filter(|s| s.tsb.is_some_and(|tsb| tsb > 0.0))
-            .map(|s| {
-                format!(
-                    "{} is in fresh form (TSB {:+.0})",
-                    s.display_name,
-                    s.tsb.unwrap_or(0.0)
-                )
+            .filter_map(|s| {
+                let pct = FormBand::form_pct(s.tsb?, s.ctl?)?;
+                (FormBand::from_form_pct(Some(pct)) == FormBand::Fresh).then(|| {
+                    format!(
+                        "{} is in fresh form (TSB {:+.0}, {pct:.0}% of CTL)",
+                        s.display_name,
+                        s.tsb.unwrap_or_default()
+                    )
+                })
             })
             .collect();
 

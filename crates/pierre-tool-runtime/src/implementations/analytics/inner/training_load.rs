@@ -8,27 +8,38 @@ use crate::protocol::format::{apply_format_to_response, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+#[cfg(feature = "client-notifications")]
+use crate::runtime::ToolRuntime;
 use pierre_core::models::Activity;
+use pierre_core::models::FormBand;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::triggers as notification_triggers;
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::TenantId;
 use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+#[cfg(feature = "client-notifications")]
+use std::sync::Arc;
 use tracing::{debug, warn};
 #[cfg(feature = "client-notifications")]
-use {
-    crate::runtime::ToolRuntime, pierre_notifications::triggers as notification_triggers,
-    pierre_notifications::TenantId, std::sync::Arc, uuid::Uuid,
-};
+use uuid::Uuid;
 
 /// User physiological parameters for personalized TSS calculation
-struct UserPhysiologicalParams {
-    ftp: Option<f64>,
-    lthr: Option<f64>,
-    max_hr: Option<f64>,
-    resting_hr: Option<f64>,
-    weight_kg: Option<f64>,
+pub struct UserPhysiologicalParams {
+    /// Functional Threshold Power, watts
+    pub ftp: Option<f64>,
+    /// Lactate Threshold Heart Rate, bpm
+    pub lthr: Option<f64>,
+    /// Maximum heart rate, bpm
+    pub max_hr: Option<f64>,
+    /// Resting heart rate, bpm
+    pub resting_hr: Option<f64>,
+    /// Body mass, kilograms
+    pub weight_kg: Option<f64>,
 }
 
 /// Fetch user physiological parameters from stored configuration.
@@ -139,8 +150,14 @@ async fn fetch_recovery_context_for_training_load(
     })
 }
 
-/// Analyze detailed training load from activities using user-specific physiological data
-fn analyze_detailed_training_load(
+/// Analyze detailed training load from activities using user-specific physiological data.
+///
+/// Public so the payload it builds — `form_band`, `form_assessment`,
+/// `tsb_pct_of_ctl` and the banded `taper_status` — has content coverage. The
+/// tool handler that wraps it sources activities from a connected provider, so a
+/// protocol-level test on an unconnected fixture can only ever exercise the
+/// error arm and asserts nothing about these fields.
+pub fn analyze_detailed_training_load(
     activities: &[Activity],
     timeframe: &str,
     params: &UserPhysiologicalParams,
@@ -183,38 +200,25 @@ fn analyze_detailed_training_load(
     let ctl = training_load.ctl;
     let atl = training_load.atl;
     let tsb = training_load.tsb;
+    // Form as % of CTL, and the single band derived from it. Every wording in
+    // this payload comes off `band`, so the response cannot tell the athlete
+    // that one number is both a normal training block and an elevated risk.
+    let form_pct = FormBand::form_pct(tsb, ctl);
+    let band = FormBand::from_form_pct(form_pct);
 
     // Calculate weekly TSS totals from TSS history
     let weekly_tss = calculate_weekly_tss_from_history(&training_load.tss_history);
 
-    // Determine load status
-    let load_status = determine_load_status(ctl, atl, tsb);
-
-    // Check for overtraining risk
-    let overtraining_risk = if tsb < -30.0 {
-        "high"
-    } else if tsb < -20.0 {
-        "moderate"
-    } else {
-        "low"
-    };
-
-    // Taper recommendations
-    let taper_recommendation = if tsb > 10.0 {
-        "Well tapered - ready for peak performance"
-    } else if tsb > 0.0 {
-        "Good taper status"
-    } else if tsb > -10.0 {
-        "Consider light taper for upcoming events"
-    } else {
-        "Significant taper needed before racing"
-    };
+    let taper_recommendation = taper_status(band);
 
     // Periodization suggestions
     let mut periodization_suggestions = Vec::new();
     if atl > ctl * 1.5 {
         periodization_suggestions
             .push("Recent spike in training - allow adaptation time".to_owned());
+    } else if ctl > 30.0 && atl < ctl * 0.8 {
+        periodization_suggestions
+            .push("Well adapted to current load - room to build gradually".to_owned());
     }
     if ctl < 30.0 {
         periodization_suggestions
@@ -230,21 +234,22 @@ fn analyze_detailed_training_load(
             "ctl": ctl.round(),
             "atl": atl.round(),
             "tsb": tsb.round(),
+            "tsb_pct_of_ctl": form_pct.map(f64::round),
             "weekly_tss": weekly_tss,
         },
-        "load_status": load_status,
-        "overtraining_risk": overtraining_risk,
+        "form_band": band,
+        "form_assessment": band.label(),
         "taper_status": taper_recommendation,
         "periodization_suggestions": periodization_suggestions,
         "training_zones": classify_training_load(ctl),
-        "recommendations": generate_load_recommendations(ctl, atl, tsb),
+        "recommendations": generate_load_recommendations(ctl, band, form_pct),
         "activities_analyzed": training_load.tss_history.len(),
         "interpretation": {
             "ctl": "Chronic Training Load - fitness level (42-day average TSS)",
             "atl": "Acute Training Load - fatigue level (7-day average TSS)",
-            "tsb": "Training Stress Balance - form indicator (CTL - ATL)",
-            "positive_tsb": "Fresh and recovered, ready for hard training",
-            "negative_tsb": "Fatigued, prioritize recovery",
+            "tsb": "Training Stress Balance - form (CTL - ATL); interpret via tsb_pct_of_ctl, not the raw number",
+            "tsb_pct_of_ctl": "Form relative to this athlete's own fitness. null when there is no chronic base to normalize against, in which case form cannot be judged at all",
+            "form_band": "The band tsb_pct_of_ctl falls in: insufficient_history when tsb_pct_of_ctl is null, deep_fatigue below -30%, heavy_block -30% to -20%, productive -20% to -10%, balanced -10% to +5%, fresh +5% to +20%, detraining above +20%. Describes fatigue relative to fitness; it is not an injury prediction",
         },
     })
 }
@@ -283,18 +288,22 @@ fn calculate_weekly_tss_from_history(tss_history: &[TssDataPoint]) -> Vec<serde_
         .collect()
 }
 
-/// Determine overall load status
-fn determine_load_status(_ctl: f64, _atl: f64, tsb: f64) -> String {
-    if tsb < -25.0 {
-        "Overreached - high fatigue".to_owned()
-    } else if tsb < -10.0 {
-        "Productive - building fitness under fatigue".to_owned()
-    } else if tsb < 5.0 {
-        "Balanced - good training stress balance".to_owned()
-    } else if tsb < 15.0 {
-        "Fresh - ready for quality work".to_owned()
-    } else {
-        "Very fresh - possibly detraining".to_owned()
+/// Taper reading for each form band.
+///
+/// Shares [`FormBand`]'s edges rather than re-deriving them, so the taper
+/// advice cannot disagree with the band the same response reports.
+const fn taper_status(band: FormBand) -> &'static str {
+    match band {
+        FormBand::InsufficientHistory => "Not enough chronic history to judge taper status",
+        FormBand::DeepFatigue => {
+            "Deep fatigue relative to fitness - reduce volume, keep short intensity"
+        }
+        FormBand::HeavyBlock | FormBand::Productive => {
+            "Productive training zone - taper before racing, not before training"
+        }
+        FormBand::Balanced => "Close to fresh - a light taper reaches race form",
+        FormBand::Fresh => "Race-ready form - well tapered",
+        FormBand::Detraining => "Very fresh - possibly detrained, sharpen with intensity",
     }
 }
 
@@ -324,39 +333,53 @@ fn classify_training_load(ctl: f64) -> serde_json::Value {
     })
 }
 
-/// Generate load-specific recommendations
-fn generate_load_recommendations(ctl: f64, atl: f64, tsb: f64) -> Vec<String> {
+/// Generate load-specific recommendations from the athlete's form band.
+///
+/// Descriptive, banded on the athlete's own chronic load — never absolute
+/// TSB thresholds, which misread elite athletes' normal training blocks
+/// as emergencies. `form_pct` is carried only to quote the number back.
+fn generate_load_recommendations(ctl: f64, band: FormBand, form_pct: Option<f64>) -> Vec<String> {
     let mut recommendations = Vec::new();
 
-    // TSB-based recommendations
-    if tsb < -25.0 {
-        recommendations.push("⚠️ Critical fatigue - take 2-3 rest days immediately".to_owned());
-        recommendations.push("Reduce training volume by 50% this week".to_owned());
-    } else if tsb < -15.0 {
-        recommendations.push("High fatigue - schedule recovery week".to_owned());
-        recommendations.push("Reduce intensity and add extra rest day".to_owned());
-    } else if tsb < -5.0 {
-        recommendations
-            .push("Moderate fatigue - maintain current load or slight reduction".to_owned());
-    } else if tsb > 15.0 {
-        recommendations.push("Very fresh - good time for breakthrough workout or race".to_owned());
-    }
-
-    // CTL/ATL ratio analysis
-    let ratio = if ctl > 0.0 { atl / ctl } else { 0.0 };
-    if ratio > 1.5 {
-        recommendations
-            .push("Recent training spike detected - allow 1-2 weeks adaptation".to_owned());
-    } else if ratio < 0.8 && ctl > 30.0 {
-        recommendations.push("Well adapted to training - can increase load gradually".to_owned());
+    // Deep fatigue is the only band that asks the athlete to back off, and it
+    // splits by depth; every other band is normal training or freshness.
+    match (band, form_pct) {
+        (FormBand::DeepFatigue, Some(pct)) if pct < -40.0 => {
+            recommendations.push(format!(
+                "Form is {pct:.0}% of fitness - deepest fatigue band; reduce volume and reassess in 2-3 days"
+            ));
+        }
+        (FormBand::DeepFatigue, Some(pct)) => {
+            recommendations.push(format!(
+                "Form is {pct:.0}% of fitness - past the productive zone; favor recovery over added volume"
+            ));
+        }
+        (FormBand::HeavyBlock, Some(pct)) => {
+            recommendations.push(format!(
+                "Form is {pct:.0}% of fitness - the deep end of a productive block; hold the block, keep recovery honest"
+            ));
+        }
+        (FormBand::Detraining, Some(pct)) => {
+            recommendations.push(format!(
+                "Form is +{pct:.0}% of fitness - very fresh; good window for a breakthrough workout or race"
+            ));
+        }
+        (FormBand::InsufficientHistory, _) => {
+            recommendations.push(
+                "Not enough chronic training history to judge form - keep logging sessions before reading TSB".to_owned(),
+            );
+        }
+        _ => {}
     }
 
     // Progressive load recommendations
     if ctl < 30.0 {
-        recommendations.push("Build weekly TSS by 3-5 points per week".to_owned());
-    } else if ctl > 80.0 {
         recommendations
-            .push("High load - incorporate recovery weeks (reduce by 20-30%)".to_owned());
+            .push("Building base - grow weekly TSS gradually (3-5 points/week)".to_owned());
+    } else if ctl > 80.0 {
+        recommendations.push(
+            "High chronic load - schedule periodic recovery weeks (reduce 20-30%)".to_owned(),
+        );
     }
 
     if recommendations.is_empty() {
@@ -620,11 +643,6 @@ pub fn handle_analyze_training_load(
 #[cfg(feature = "client-notifications")]
 const TRAINING_LOAD_ALERT_ATL_RATIO: f64 = 1.5;
 
-/// TSB threshold below which we trigger an overtraining warning notification.
-/// A TSB below -30 indicates significant fatigue accumulation.
-#[cfg(feature = "client-notifications")]
-const OVERTRAINING_TSB_THRESHOLD: f64 = -30.0;
-
 /// Fire notification triggers based on training load analysis results.
 /// Checks ATL/CTL ratio for training load alerts and TSB for overtraining warnings.
 /// All triggers are fire-and-forget — failures are logged but never block the caller.
@@ -657,8 +675,11 @@ fn fire_training_load_notifications(
         notification_triggers::trigger_training_load_alert(service, user_id, tenant_id, atl);
     }
 
-    // Trigger overtraining warning when TSB drops below threshold
-    if tsb < OVERTRAINING_TSB_THRESHOLD {
+    // Trigger overtraining warning when form drops into the deepest fatigue
+    // band relative to the athlete's own chronic load. Athletes with no
+    // chronic base band as InsufficientHistory and are never warned on a
+    // number that cannot be interpreted.
+    if FormBand::from_tsb(tsb, ctl) == FormBand::DeepFatigue {
         notification_triggers::trigger_overtraining_warning(service, user_id, tenant_id);
     }
 }

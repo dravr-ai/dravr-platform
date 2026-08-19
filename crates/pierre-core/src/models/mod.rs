@@ -74,6 +74,9 @@ pub use dravr_cageux::models::activity::{
 };
 pub use dravr_cageux::models::sport;
 pub use dravr_cageux::models::sport::SportType;
+// Form banding lives in the sports-science engine (dravr-cageux) so every
+// surface reads the same edges; see `FormBand` for why raw TSB is never banded.
+pub use dravr_cageux::training_load::FormBand;
 
 mod sport_type_alias;
 pub use sport_type_alias::resolve_sport_type;

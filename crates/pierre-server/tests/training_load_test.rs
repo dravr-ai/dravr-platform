@@ -9,7 +9,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{Activity, SportType};
-use pierre_intelligence::{RiskLevel, TrainingLoad, TrainingLoadCalculator, TrainingStatus};
+use pierre_intelligence::{FormBand, RiskLevel, TrainingLoad, TrainingLoadCalculator};
 
 fn create_test_activity(
     date: DateTime<Utc>,
@@ -48,32 +48,57 @@ fn test_calculate_tsb() {
 }
 
 #[test]
-fn test_interpret_tsb() {
+fn test_form_band_is_relative_to_ctl() {
+    // Same TSB, different athletes: -25 on a CTL-100 elite is the deep end of
+    // a normal block; -25 on a CTL-40 athlete is the deepest fatigue band.
+    assert_eq!(FormBand::from_tsb(-25.0, 100.0), FormBand::HeavyBlock);
+    assert_eq!(FormBand::from_tsb(-25.0, 40.0), FormBand::DeepFatigue);
+    // Band edges on form as % of CTL
+    assert_eq!(FormBand::from_tsb(-35.0, 100.0), FormBand::DeepFatigue);
+    assert_eq!(FormBand::from_tsb(-15.0, 100.0), FormBand::Productive);
+    assert_eq!(FormBand::from_tsb(10.0, 100.0), FormBand::Fresh);
+    assert_eq!(FormBand::from_tsb(25.0, 100.0), FormBand::Detraining);
+    // No chronic base: the honest answer is that form cannot be judged, not
+    // a band read off the absolute number.
     assert_eq!(
-        TrainingLoadCalculator::interpret_tsb(-15.0),
-        TrainingStatus::Overreaching
-    );
-    assert_eq!(
-        TrainingLoadCalculator::interpret_tsb(-5.0),
-        TrainingStatus::Productive
-    );
-    assert_eq!(
-        TrainingLoadCalculator::interpret_tsb(5.0),
-        TrainingStatus::Fresh
-    );
-    assert_eq!(
-        TrainingLoadCalculator::interpret_tsb(15.0),
-        TrainingStatus::Detraining
+        FormBand::from_tsb(-35.0, 0.0),
+        FormBand::InsufficientHistory
     );
 }
 
 #[test]
-fn test_recommend_recovery_days() {
-    assert_eq!(TrainingLoadCalculator::recommend_recovery_days(-25.0), 5);
-    assert_eq!(TrainingLoadCalculator::recommend_recovery_days(-18.0), 3);
-    assert_eq!(TrainingLoadCalculator::recommend_recovery_days(-12.0), 2);
-    assert_eq!(TrainingLoadCalculator::recommend_recovery_days(-5.0), 1);
-    assert_eq!(TrainingLoadCalculator::recommend_recovery_days(5.0), 0);
+fn test_recommend_recovery_days_is_relative_to_ctl() {
+    // Elite (CTL 100): -25% form is a normal block, no rest prescription
+    assert_eq!(
+        TrainingLoadCalculator::recommend_recovery_days(-25.0, 100.0),
+        0
+    );
+    assert_eq!(
+        TrainingLoadCalculator::recommend_recovery_days(-35.0, 100.0),
+        1
+    );
+    assert_eq!(
+        TrainingLoadCalculator::recommend_recovery_days(-45.0, 100.0),
+        2
+    );
+    assert_eq!(
+        TrainingLoadCalculator::recommend_recovery_days(-55.0, 100.0),
+        3
+    );
+    // Low chronic base (CTL 40): the same -25 TSB is -62.5% form → 3 days
+    assert_eq!(
+        TrainingLoadCalculator::recommend_recovery_days(-25.0, 40.0),
+        3
+    );
+    assert_eq!(
+        TrainingLoadCalculator::recommend_recovery_days(5.0, 100.0),
+        0
+    );
+    // No chronic base: no prescription derived from an uninterpretable number
+    assert_eq!(
+        TrainingLoadCalculator::recommend_recovery_days(-35.0, 0.0),
+        0
+    );
 }
 
 #[test]
@@ -127,7 +152,29 @@ fn test_overtraining_risk_detection() {
 
     let risk = TrainingLoadCalculator::check_overtraining_risk(&high_risk);
     assert_eq!(risk.risk_level, RiskLevel::High);
-    assert!(risk.risk_factors.len() >= 2);
+    // One observation yields one factor. This used to assert `>= 2`, which the
+    // old scheme satisfied by restating a single inequality: because
+    // tsb == ctl - atl, "ATL 30% above CTL" and form below -30% are the same
+    // condition, so severity was decided by counting it twice.
+    assert_eq!(
+        risk.risk_factors.len(),
+        1,
+        "one axis must yield one factor, got {:?}",
+        risk.risk_factors
+    );
+
+    // Moderate is reachable again — it was unreachable for any athlete with a
+    // chronic base while the count decided severity.
+    let heavy_block = TrainingLoad {
+        ctl: 100.0,
+        atl: 125.0,
+        tsb: -25.0, // form -25%: the deep end of a productive block
+        tss_history: Vec::new(),
+    };
+    assert_eq!(
+        TrainingLoadCalculator::check_overtraining_risk(&heavy_block).risk_level,
+        RiskLevel::Moderate
+    );
 
     let low_risk = TrainingLoad {
         ctl: 90.0,

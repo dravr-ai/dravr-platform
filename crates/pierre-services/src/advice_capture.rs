@@ -48,9 +48,13 @@ const MIN_REPLY_LEN: usize = 40;
 const MIN_WINDOW_DAYS: u8 = 1;
 const MAX_WINDOW_DAYS: u8 = 30;
 
-/// Default ACWR ceiling for a `ramp_rate_within` outcome metric when the model
-/// does not (and cannot) specify one — the widely-cited 1.3 "sweet spot" upper
-/// bound (Gabbett 2016).
+/// Default acute:chronic ceiling for a `ramp_rate_within` outcome metric when
+/// the model does not (and cannot) specify one.
+///
+/// 1.3 is not borrowed from the retired injury-prediction literature: because
+/// `tsb == ctl - atl`, an acute:chronic ratio of 1.3 is exactly where form
+/// crosses -30% of CTL — the edge of `FormBand::DeepFatigue`. The ceiling names
+/// the same band boundary every other surface bands on, in ratio form.
 const DEFAULT_RAMP_CEILING: f32 = 1.3;
 
 /// Global semaphore bounding concurrent captures.

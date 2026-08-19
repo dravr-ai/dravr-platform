@@ -223,7 +223,7 @@ fn format_volume_progression(pattern: &VolumeProgressionPattern) -> serde_json::
 
     if pattern.volume_spikes_detected {
         insights.push(format!(
-            "Volume spikes detected in weeks: {} - monitor for injury risk",
+            "Volume spikes detected in weeks: {} - sharp jumps above your recent baseline; build in recovery before adding more",
             pattern
                 .spike_weeks
                 .iter()

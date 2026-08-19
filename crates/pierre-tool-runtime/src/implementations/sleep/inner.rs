@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::protocol::sleep_helpers::{convert_sleep_session_to_data, fetch_provider_sleep_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
-use pierre_core::models::Activity;
+use pierre_core::models::{Activity, FormBand};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::algorithms::RecoveryAggregationAlgorithm;
 use pierre_intelligence::{RecoveryCalculator, SleepAnalyzer, SleepData, TrainingLoadCalculator};
@@ -1403,9 +1403,11 @@ pub fn handle_optimize_sleep_schedule(
 
         // Calculate recommended sleep duration
         let base_recommendation = config.sleep_duration.athlete_optimal_hours;
-        let fatigued_tsb = config.training_stress_balance.fatigued_tsb;
+        // Fatigue vs this athlete's own base: -10 absolute flagged CTL-150 at -7%.
+        let band = FormBand::from_tsb(training_load.tsb, training_load.ctl);
+        let carrying_fatigue = matches!(band, FormBand::DeepFatigue | FormBand::HeavyBlock);
 
-        let recommended_hours = if training_load.tsb < fatigued_tsb {
+        let recommended_hours = if carrying_fatigue {
             // High fatigue: add extra sleep
             base_recommendation
                 + executor
@@ -1464,10 +1466,8 @@ pub fn handle_optimize_sleep_schedule(
         ));
         recommendations.push(format!("Recommended bedtime: {bedtime}"));
 
-        if training_load.tsb < fatigued_tsb {
-            recommendations.push(
-                "Extra sleep needed due to accumulated training fatigue (negative TSB)".to_owned(),
-            );
+        if carrying_fatigue {
+            recommendations.push("Extra sleep needed - form is below -20% of fitness".to_owned());
         }
 
         if upcoming_workout_intensity == "high" {

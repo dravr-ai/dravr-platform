@@ -20,6 +20,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
+use pierre_core::models::FormBand;
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
@@ -1088,7 +1089,7 @@ fn build_snapshot_from_activities(
     let (ctl, atl, tsb) = compute_training_metrics(activities, algorithm_config);
     let weekly = compute_weekly_metrics(activities, now);
     let primary_sport = determine_primary_sport(activities);
-    let overtraining_risk = assess_overtraining_risk(ctl, atl, tsb);
+    let overtraining_risk = assess_overtraining_risk(ctl, tsb);
     let last_activity_per_provider = compute_last_activity_per_provider(activities);
     let recent_activities = compute_recent_activities(activities, now);
 
@@ -1224,42 +1225,28 @@ fn determine_primary_sport(activities: &[Activity]) -> Option<String> {
         .map(|(sport, _)| format!("{sport:?}"))
 }
 
-/// Assess overtraining risk based on training load metrics.
+/// Assess overtraining risk from the athlete's form band:
+/// [`FormBand::DeepFatigue`] → High, [`FormBand::HeavyBlock`] → Moderate,
+/// otherwise Low.
 ///
-/// Uses TSB (Training Stress Balance) and ATL/CTL ratio to determine risk:
-/// - TSB < -30 or ATL/CTL > 1.5 → High risk
-/// - TSB < -10 or ATL/CTL > 1.3 → Moderate risk
-/// - Otherwise → Low risk
-fn assess_overtraining_risk(
-    ctl: Option<f64>,
-    atl: Option<f64>,
-    tsb: Option<f64>,
-) -> OvertrainingRiskLevel {
-    // Check TSB threshold
-    if let Some(tsb_val) = tsb {
-        if tsb_val < -30.0 {
-            return OvertrainingRiskLevel::High;
-        }
-        if tsb_val < -10.0 {
-            return OvertrainingRiskLevel::Moderate;
-        }
+/// The ATL/CTL ratio is deliberately absent: because `tsb == ctl - atl`,
+/// `DeepFatigue` (form below -30% of CTL) *is* `atl > 1.3 * ctl`, so a ratio
+/// test alongside the band is the same inequality counted twice — it read as a
+/// second corroborating signal while adding no information. One axis, stated
+/// once.
+///
+/// An athlete with no chronic base bands as [`FormBand::InsufficientHistory`]
+/// and is reported Low: at a near-zero CTL a single session swings the ratio
+/// wildly, so there is no honest risk claim to make, and inventing one is how
+/// beginners collected critical flags for an ordinary hard week.
+fn assess_overtraining_risk(ctl: Option<f64>, tsb: Option<f64>) -> OvertrainingRiskLevel {
+    match tsb
+        .zip(ctl)
+        .map_or(FormBand::InsufficientHistory, |(t, c)| {
+            FormBand::from_tsb(t, c)
+        }) {
+        FormBand::DeepFatigue => OvertrainingRiskLevel::High,
+        FormBand::HeavyBlock => OvertrainingRiskLevel::Moderate,
+        _ => OvertrainingRiskLevel::Low,
     }
-
-    // Check ATL/CTL ratio
-    if let (Some(atl_val), Some(ctl_val)) = (atl, ctl) {
-        if ctl_val > 0.0 {
-            let ratio = atl_val / ctl_val;
-            if ratio > 1.5 {
-                return OvertrainingRiskLevel::High;
-            }
-            if ratio > 1.3 {
-                return OvertrainingRiskLevel::Moderate;
-            }
-        }
-    }
-
-    OvertrainingRiskLevel::Low
 }
-
-/// Alias for backwards compatibility with external references
-pub type MemberSnapshot = MemberFitnessSnapshot;

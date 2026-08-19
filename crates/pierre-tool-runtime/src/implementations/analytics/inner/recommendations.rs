@@ -18,8 +18,8 @@ use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::training_load::TrainingLoad;
 use pierre_intelligence::{
-    AlgorithmConfig, PatternDetector, PerformancePredictor, RiskLevel, TrainingLoadCalculator,
-    TrainingStatus,
+    AlgorithmConfig, FormBand, PatternDetector, PerformancePredictor, RiskLevel,
+    TrainingLoadCalculator,
 };
 use pierre_mcp_schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
@@ -296,33 +296,49 @@ fn process_tsb_recommendations(
     priority: &mut &str,
     recovery_status: &mut &str,
     reasoning: &mut String,
-) {
-    let status = TrainingLoadCalculator::interpret_tsb(load.tsb);
-    let recovery_days = TrainingLoadCalculator::recommend_recovery_days(load.tsb);
+) -> FormBand {
+    let band = FormBand::from_tsb(load.tsb, load.ctl);
+    let recovery_days = TrainingLoadCalculator::recommend_recovery_days(load.tsb, load.ctl);
 
-    match status {
-        TrainingStatus::Overreaching => {
+    match band {
+        FormBand::InsufficientHistory => {
+            recommendations.push(
+                "Not enough chronic training history to read form yet - keep logging sessions"
+                    .to_owned(),
+            );
+            *recovery_status = "insufficient_history";
+            "CTL is too low to express TSB as a share of fitness, so form cannot be judged"
+                .clone_into(reasoning);
+        }
+        FormBand::DeepFatigue => {
             recommendations.push(format!(
-                "You're overreaching (TSB: {:.1}) - take {recovery_days} recovery days",
-                load.tsb
+                "Form is deep relative to your fitness (TSB {:.1} on CTL {:.0}) - favor {recovery_days} lighter day(s)",
+                load.tsb, load.ctl
             ));
             *priority = "high";
-            *recovery_status = "overreaching";
+            *recovery_status = "deep_fatigue";
             *reasoning = format!(
-                "TSB is {:.1}, indicating deep fatigue requiring immediate recovery",
-                load.tsb
+                "TSB {:.1} is beyond -30% of CTL {:.0} - the deepest fatigue band relative to this athlete's own chronic load",
+                load.tsb, load.ctl
             );
         }
-        TrainingStatus::Productive => {
+        FormBand::HeavyBlock => {
+            recommendations.push(
+                "Deep end of a productive block - hold the load and keep recovery honest"
+                    .to_owned(),
+            );
+            *recovery_status = "heavy_block";
+        }
+        FormBand::Productive | FormBand::Balanced => {
             recommendations
                 .push("Good training zone - maintain current load with recovery days".to_owned());
             *recovery_status = "productive";
         }
-        TrainingStatus::Fresh => {
+        FormBand::Fresh => {
             recommendations.push("Well-recovered - ready for quality training".to_owned());
             *recovery_status = "fresh";
         }
-        TrainingStatus::Detraining => {
+        FormBand::Detraining => {
             recommendations
                 .push("TSB is high - consider increasing training load gradually".to_owned());
             *recovery_status = "detraining_risk";
@@ -337,6 +353,40 @@ fn process_tsb_recommendations(
         for factor in &risk.risk_factors {
             recommendations.push(format!("⚠️ {factor}"));
         }
+    }
+
+    band
+}
+
+/// Concrete recovery actions for each form band.
+///
+/// Keyed on [`FormBand`] rather than the `recovery_status` string so the two
+/// cannot drift: a status this function does not recognise used to fall through
+/// to the generic "stay hydrated" list, which is how deep-fatigue athletes were
+/// handed maintenance advice next to `priority: "high"`.
+const fn recovery_actions_for(band: FormBand) -> &'static [&'static str] {
+    match band {
+        FormBand::DeepFatigue => &[
+            "Take complete rest days",
+            "Focus on sleep quality (8-9 hours)",
+            "Light stretching or yoga only",
+            "Monitor resting heart rate daily",
+        ],
+        FormBand::HeavyBlock => &[
+            "Protect the easy days - keep them genuinely easy",
+            "Focus on sleep quality (8-9 hours)",
+            "Hold the block, but add a recovery day before the next quality session",
+        ],
+        FormBand::Productive | FormBand::Balanced => &[
+            "Include 1-2 easy recovery days per week",
+            "Maintain 7-8 hours of sleep",
+            "Active recovery (easy swimming/walking)",
+        ],
+        FormBand::Fresh | FormBand::Detraining | FormBand::InsufficientHistory => &[
+            "Maintain current recovery routine",
+            "7-9 hours of sleep per night",
+            "Stay hydrated (2-3L water daily)",
+        ],
     }
 }
 
@@ -363,16 +413,20 @@ fn generate_recovery_recommendations(
     let mut recovery_status = "unknown";
     let mut reasoning = String::from("Based on training stress balance analysis");
 
-    // TSB-based recovery recommendations (highest priority)
-    if let Some(load) = &training_load {
-        process_tsb_recommendations(
-            load,
-            &mut recommendations,
-            &mut priority,
-            &mut recovery_status,
-            &mut reasoning,
-        );
-    }
+    // TSB-based recovery recommendations (highest priority). The band drives
+    // both the narrative above and the concrete actions below, so they cannot
+    // disagree about how fatigued the athlete is.
+    let form_band = training_load
+        .as_ref()
+        .map_or(FormBand::InsufficientHistory, |load| {
+            process_tsb_recommendations(
+                load,
+                &mut recommendations,
+                &mut priority,
+                &mut recovery_status,
+                &mut reasoning,
+            )
+        });
 
     // Overtraining signal detection
     if overtraining_signals.hr_drift_detected {
@@ -396,25 +450,8 @@ fn generate_recovery_recommendations(
             .push("Insufficient recovery between hard sessions - add easy days".to_owned());
     }
 
-    // Provide recovery-specific tips based on status
-    let recovery_actions = match recovery_status {
-        "overreaching" => vec![
-            "Take complete rest days",
-            "Focus on sleep quality (8-9 hours)",
-            "Light stretching or yoga only",
-            "Monitor resting heart rate daily",
-        ],
-        "productive" => vec![
-            "Include 1-2 easy recovery days per week",
-            "Maintain 7-8 hours of sleep",
-            "Active recovery (easy swimming/walking)",
-        ],
-        _ => vec![
-            "Maintain current recovery routine",
-            "7-9 hours of sleep per night",
-            "Stay hydrated (2-3L water daily)",
-        ],
-    };
+    // Provide recovery-specific tips for the band the narrative just reported
+    let recovery_actions = recovery_actions_for(form_band);
 
     serde_json::json!({
         "recommendation_type": "recovery",
@@ -827,16 +864,29 @@ fn generate_comprehensive_recommendations(
     let mut priority = "medium";
     let mut key_insights = Vec::new();
 
-    // Training load insights
+    // Training load insights. Form and chronic base are independent readings —
+    // banding them in one else-if chain hid the fitness insight from exactly the
+    // athletes carrying the most fatigue.
     if let Some(load) = &training_load {
-        if load.tsb < -10.0 {
-            recommendations.push(format!(
-                "Immediate recovery needed - TSB is {:.1} (overreaching zone)",
-                load.tsb
-            ));
-            priority = "high";
-            key_insights.push("Fatigue is accumulating faster than fitness".to_owned());
-        } else if load.ctl > 80.0 {
+        let form_pct = FormBand::form_pct(load.tsb, load.ctl);
+        match FormBand::from_form_pct(form_pct) {
+            FormBand::DeepFatigue => {
+                if let Some(pct) = form_pct {
+                    recommendations.push(format!(
+                        "Form is {pct:.0}% of fitness - past the productive zone; favor recovery over added volume"
+                    ));
+                }
+                priority = "high";
+                key_insights.push("Fatigue is accumulating faster than fitness".to_owned());
+            }
+            FormBand::HeavyBlock => {
+                key_insights
+                    .push("Deep end of a productive block - keep recovery honest".to_owned());
+            }
+            _ => {}
+        }
+
+        if load.ctl > 80.0 {
             key_insights.push(format!("Strong fitness base (CTL: {:.1})", load.ctl));
         } else if load.ctl < 40.0 {
             key_insights.push("Building fitness - continue gradual progression".to_owned());

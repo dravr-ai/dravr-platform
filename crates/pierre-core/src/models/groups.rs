@@ -490,8 +490,8 @@ pub enum MemberFlag {
     FreshForm,
     /// Set a personal record recently
     PersonalRecord,
-    /// Injury risk indicators
-    InjuryRisk,
+    /// Form far below the athlete's chronic fitness (deepest fatigue band)
+    DeepFatigue,
     /// No activity for extended period
     Inactive,
     /// Weekly volume dropped significantly from baseline

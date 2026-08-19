@@ -9,6 +9,8 @@ use std::fmt::Write;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use pierre_core::models::FormBand;
+
 use pierre_core::models::groups::{
     GroupSummaryBlock, MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, OvertrainingRiskLevel,
     SummaryDetailLevel,
@@ -98,10 +100,19 @@ impl RosterCardSummarizer {
             flags.push(MemberFlag::Overreaching);
         }
 
-        if let Some(tsb) = snapshot.tsb {
-            if tsb > 10.0 {
-                flags.push(MemberFlag::FreshForm);
-            }
+        // Form flags read against the athlete's own chronic base. `tsb > 10`
+        // labelled a CTL-40 athlete "fresh" at +28% of fitness (detraining) while
+        // missing a CTL-150 athlete at +6% who genuinely is fresh — on the same
+        // card that prints the percentage.
+        match snapshot
+            .tsb
+            .zip(snapshot.ctl)
+            .map_or(FormBand::InsufficientHistory, |(tsb, ctl)| {
+                FormBand::from_tsb(tsb, ctl)
+            }) {
+            FormBand::Fresh => flags.push(MemberFlag::FreshForm),
+            FormBand::DeepFatigue => flags.push(MemberFlag::DeepFatigue),
+            _ => {}
         }
 
         if let Some(days) = snapshot.days_since_last_activity {
@@ -127,6 +138,11 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
         }
         if let Some(tsb) = snapshot.tsb {
             let _ = write!(text, " TSB {tsb:+.0}");
+            // Form as % of CTL so the LLM reads TSB relative to this
+            // athlete's own chronic load, not against absolute bands.
+            if let Some(pct) = snapshot.ctl.and_then(|ctl| FormBand::form_pct(tsb, ctl)) {
+                let _ = write!(text, " ({pct:.0}% of CTL)");
+            }
         }
         // Render duration alongside distance so HR/duration-only sources
         // (WHOOP, indoor trainers) don't collapse to a misleading "0km/wk".
@@ -146,7 +162,7 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
                 MemberFlag::FreshForm => text.push_str(" [FRESH]"),
                 MemberFlag::Inactive => text.push_str(" [INACTIVE]"),
                 MemberFlag::PersonalRecord => text.push_str(" [PR]"),
-                MemberFlag::InjuryRisk => text.push_str(" [INJURY RISK]"),
+                MemberFlag::DeepFatigue => text.push_str(" [DEEP FATIGUE]"),
                 MemberFlag::VolumeDrop => text.push_str(" [VOLUME DROP]"),
             }
         }
@@ -213,7 +229,16 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
             let _ = writeln!(text, "  Sources: {freshness}");
         }
         if let (Some(ctl), Some(atl), Some(tsb)) = (snapshot.ctl, snapshot.atl, snapshot.tsb) {
-            let _ = writeln!(text, "  CTL: {ctl:.0} | ATL: {atl:.0} | TSB: {tsb:+.0}");
+            // Form as % of CTL keeps the LLM from reading one athlete's
+            // normal training block as another athlete's emergency.
+            if let Some(pct) = FormBand::form_pct(tsb, ctl) {
+                let _ = writeln!(
+                    text,
+                    "  CTL: {ctl:.0} | ATL: {atl:.0} | TSB: {tsb:+.0} ({pct:.0}% of CTL)"
+                );
+            } else {
+                let _ = writeln!(text, "  CTL: {ctl:.0} | ATL: {atl:.0} | TSB: {tsb:+.0}");
+            }
         }
         if let Some(vdot) = snapshot.vdot {
             let _ = writeln!(text, "  VDOT: {vdot:.1}");
@@ -271,7 +296,7 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                     MemberFlag::FreshForm => "fresh form",
                     MemberFlag::Inactive => "inactive",
                     MemberFlag::PersonalRecord => "new PR",
-                    MemberFlag::InjuryRisk => "injury risk",
+                    MemberFlag::DeepFatigue => "deep fatigue",
                     MemberFlag::VolumeDrop => "volume drop",
                 })
                 .collect();

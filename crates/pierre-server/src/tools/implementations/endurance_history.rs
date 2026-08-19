@@ -125,11 +125,11 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
             "compute_training_history",
             "Compute and persist Endurance daily training-state rollups for the \
              authenticated user across the requested window — CTL, ATL, TSB \
-             (Coggan), ACWR (Gabbett), monotony + strain (Foster), ramp rate, \
-             and daily TSS load. Use this to seed the `training_history` table \
-             on first use, after a long gap in syncs, or when the user asks for \
-             a specific historical window. Default window is the last 90 days. \
-             Mirrors the work the post-sync hook does automatically.",
+             (Coggan), acute:chronic load balance, monotony + strain (Foster), \
+             ramp rate, and daily TSS load. Use this to seed the \
+             `training_history` table on first use, after a long gap in syncs, \
+             or when the user asks for a specific historical window. Default \
+             window is the last 90 days.",
             schema,
             Some(write_safe_annotations()),
         )
@@ -184,9 +184,12 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
              authenticated user across the requested window. Returns \
              chronological CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load \
              rows. Use this BEFORE prescribing new load so coaching advice can \
-             cite the framework values (Coggan / Gabbett / Foster) on every \
-             numeric claim per the Endurance deterministic-output rule. \
-             Default window is the last 90 days.",
+             cite the framework values (Coggan / Foster) on every numeric claim \
+             per the Endurance deterministic-output rule. Interpret TSB relative \
+             to CTL (form as % of fitness), and report `acwr` strictly as the \
+             magnitude of 7-day load against the 28-day baseline — a \
+             descriptive ratio, not a predictor of harm. Default window is the \
+             last 90 days.",
             schema,
             Some(read_only_annotations()),
         )

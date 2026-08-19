@@ -167,7 +167,7 @@ impl GroupContextStrategy for GroupOverviewContext {
                         MemberFlag::FreshForm => "fresh form",
                         MemberFlag::Inactive => "inactive",
                         MemberFlag::PersonalRecord => "new PR",
-                        MemberFlag::InjuryRisk => "injury risk",
+                        MemberFlag::DeepFatigue => "deep fatigue",
                         MemberFlag::VolumeDrop => "volume drop",
                     })
                     .collect();

@@ -466,12 +466,27 @@ fn test_recovery_category_edge_cases() {
 // COMPREHENSIVE TESTS FOR TRAINING READINESS DETERMINATION
 // ============================================================================
 
+/// A physically consistent load at the given CTL whose TSB is `tsb`.
+///
+/// `determine_training_readiness` now bands form against the athlete's own CTL,
+/// so these fixtures carry the chronic load the raw TSB used to imply. CTL 100
+/// keeps each case in the band its name describes: +10 is fresh, -2 balanced,
+/// -15 productive.
+fn load_at(ctl: f64, tsb: f64) -> TrainingLoad {
+    TrainingLoad {
+        ctl,
+        atl: ctl - tsb,
+        tsb,
+        tss_history: Vec::new(),
+    }
+}
+
 #[test]
 fn test_training_readiness_excellent_recovery() {
     let config = test_config();
     let readiness = RecoveryCalculator::determine_training_readiness(
-        90.0, // overall_score
-        10.0, // tsb
+        90.0,                  // overall_score
+        &load_at(100.0, 10.0), // fresh: +10% of CTL
         SleepQualityCategory::Excellent,
         Some(HrvRecoveryStatus::Recovered),
         &config,
@@ -487,8 +502,8 @@ fn test_training_readiness_excellent_recovery() {
 fn test_training_readiness_good_recovery() {
     let config = test_config();
     let readiness = RecoveryCalculator::determine_training_readiness(
-        75.0, // overall_score
-        5.0,  // tsb
+        75.0,                 // overall_score
+        &load_at(100.0, 5.0), // +5% of CTL
         SleepQualityCategory::Good,
         Some(HrvRecoveryStatus::Normal),
         &config,
@@ -504,8 +519,8 @@ fn test_training_readiness_good_recovery() {
 fn test_training_readiness_fair_recovery() {
     let config = test_config();
     let readiness = RecoveryCalculator::determine_training_readiness(
-        60.0, // overall_score
-        -2.0, // tsb
+        60.0,                  // overall_score
+        &load_at(100.0, -2.0), // balanced: -2% of CTL
         SleepQualityCategory::Fair,
         Some(HrvRecoveryStatus::Normal),
         &config,
@@ -521,8 +536,8 @@ fn test_training_readiness_fair_recovery() {
 fn test_training_readiness_poor_recovery() {
     let config = test_config();
     let readiness = RecoveryCalculator::determine_training_readiness(
-        35.0,  // overall_score
-        -15.0, // tsb
+        35.0,                   // overall_score
+        &load_at(100.0, -15.0), // productive: -15% of CTL
         SleepQualityCategory::Poor,
         Some(HrvRecoveryStatus::Fatigued),
         &config,
@@ -539,8 +554,8 @@ fn test_training_readiness_high_tsb_but_poor_sleep() {
     let config = test_config();
     // Edge case: Good TSB but poor sleep should limit readiness
     let readiness = RecoveryCalculator::determine_training_readiness(
-        55.0, // overall_score - fair due to poor sleep
-        12.0, // tsb - fresh
+        55.0,                  // overall_score - fair due to poor sleep
+        &load_at(100.0, 12.0), // fresh: +12% of CTL
         SleepQualityCategory::Poor,
         None,
         &config,

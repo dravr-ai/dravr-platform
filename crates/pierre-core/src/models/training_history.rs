@@ -14,7 +14,7 @@ use uuid::Uuid;
 /// `training_history_compute` service. Frameworks:
 ///
 /// - `ctl` / `atl` / `tsb` / `daily_load` — Coggan TSS-based EMA
-/// - `acwr` — Gabbett Acute:Chronic Workload Ratio (7d / 28d)
+/// - `acwr` — acute:chronic load balance (7d / 28d), a descriptive magnitude
 /// - `monotony` — Foster (mean weekly load / std dev weekly load)
 /// - `strain` — Foster (weekly load × monotony)
 /// - `ramp_rate` — CTL change over the prior 7 days (`CTL_today` - `CTL_7d_ago`)
@@ -33,12 +33,11 @@ pub struct DailyTrainingState {
     pub atl: f64,
     /// Training Stress Balance (`CTL - ATL`) — proxy for form / freshness.
     pub tsb: f64,
-    /// Acute:Chronic Workload Ratio (Gabbett). `None` until 28+ days of history.
+    /// Acute:Chronic Workload Ratio. `None` until 28+ days of history.
     ///
-    /// LIMITATION(registre#26): `acwr` reaches the model as a raw Gabbett ratio with no
-    /// descriptive-only framing, so downstream narration can present it as injury risk —
-    /// a use the literature retired (Lolli 2017; Impellizzeri 2020). Present magnitude
-    /// of load change only, never injury risk.
+    /// Surfaced downstream as a descriptive magnitude of recent-vs-monthly load
+    /// only, never as injury risk — the coupled-ratio injury-prediction framing
+    /// was retired by the literature (Lolli 2017; Impellizzeri 2020).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acwr: Option<f64>,
     /// Foster monotony — weekly mean / weekly std dev of daily load.

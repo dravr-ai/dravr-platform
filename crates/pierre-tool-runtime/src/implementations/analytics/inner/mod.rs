@@ -30,5 +30,7 @@ pub use metrics::handle_calculate_metrics;
 pub use patterns::handle_detect_patterns;
 pub use performance::handle_predict_performance;
 pub use recommendations::handle_generate_recommendations;
-pub use training_load::handle_analyze_training_load;
+pub use training_load::{
+    analyze_detailed_training_load, handle_analyze_training_load, UserPhysiologicalParams,
+};
 pub use trends::handle_analyze_performance_trends;

@@ -23,8 +23,9 @@ export type MemberFlag =
   | 'overreaching'
   | 'fresh_form'
   | 'personal_record'
-  | 'injury_risk'
-  | 'inactive';
+  | 'deep_fatigue'
+  | 'inactive'
+  | 'volume_drop';
 
 /** Severity level for health flags */
 export type HealthFlagSeverity = 'info' | 'warning' | 'critical';
