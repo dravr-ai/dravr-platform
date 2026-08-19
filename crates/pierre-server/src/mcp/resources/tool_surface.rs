@@ -35,6 +35,7 @@ use async_trait::async_trait;
 use embacle::types::RunnerError;
 use embacle::McpToolDefinition;
 use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, ToolSurface};
+use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::McpBridgeProvider;
 use pierre_core::models::TenantId;
 use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
@@ -197,6 +198,12 @@ impl HostedToolBridge {
                     // Namespaces the tools in the model's view, and is the
                     // prefix the agent reports them back under.
                     server_name: "dravr".to_owned(),
+                    // Served at `initialize`, which an opting-in agent folds
+                    // into its SYSTEM prompt. That is the only route we have
+                    // into the system layer of a CLI runner with no
+                    // system-prompt flag — and without it the coach answers as
+                    // the underlying model and the reply is withheld.
+                    instructions: Some(IDENTITY_ANCHOR.to_owned()),
                     ..ToolHostConfig::default()
                 })
                 .await;

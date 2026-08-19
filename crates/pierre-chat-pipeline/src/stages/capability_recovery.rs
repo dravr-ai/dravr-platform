@@ -48,7 +48,8 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::protocol::{
     UniversalExecutor, UniversalRequest, META_AUTH_REQUIRED_PROVIDER,
 };
-use pierre_tool_runtime::tool_execution::{format_tool_results_as_text, ToolLoopResult};
+use pierre_tool_runtime::tool_execution::ToolLoopResult;
+use pierre_tool_runtime::tool_results::format_tool_results_as_text;
 
 /// The read-only verification tool. Every connected provider serves it, so
 /// one fetch adjudicates the claim regardless of which backend the athlete

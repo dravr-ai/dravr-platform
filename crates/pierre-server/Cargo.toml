@@ -179,8 +179,8 @@ server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-we
 openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui", "pierre-core/openapi", "pierre-routes-coaches/openapi", "pierre-routes-social?/openapi"]
 
 [dependencies]
-embacle = { version = "0.21" }
-embacle-tool-host = "0.21"
+embacle = { version = "0.21.1" }
+embacle-tool-host = "0.21.1"
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
@@ -322,7 +322,7 @@ cron = "0.15.0"
 [dev-dependencies]
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
-embacle = { version = "0.21" }
+embacle = { version = "0.21.1" }
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }

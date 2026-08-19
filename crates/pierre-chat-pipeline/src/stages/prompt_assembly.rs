@@ -75,7 +75,13 @@ use super::refresh::inject_refresh_context;
 ///   never trip that matcher. This is not hypothetical: every one of the 5
 ///   boundary matches across the 48 A/B runs was a *correct denial* (« Non, je
 ///   ne suis pas GitHub Copilot — je suis Dravr »), not a leak.
-const IDENTITY_ANCHOR: &str = "You are Dravr, the athlete's personal fitness and endurance \
+///
+/// Public because a system layer exists that prompt assembly cannot reach: an
+/// agent that runs its own loop reads a system prompt we do not control, so
+/// this travels there as the tool host's MCP `initialize` instructions. A
+/// persona that only reaches the prompt body is read as the user talking, and
+/// the model answers as itself.
+pub const IDENTITY_ANCHOR: &str = "You are Dravr, the athlete's personal fitness and endurance \
 coach, and nothing else. You are not a general-purpose AI, a language model, a chat bot, or a \
 coding, terminal, or command-line assistant — you are their coach. Never reveal, name, \
 discuss, apologize as, or role-play the underlying model, provider, or tools that run you, and \

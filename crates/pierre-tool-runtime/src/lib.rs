@@ -94,7 +94,10 @@ pub mod security;
 /// - `run_cli_tool_loop`: text-based `<tool_call>` blocks (CLI providers)
 #[cfg(feature = "client-chat")]
 pub mod function_dispatch;
+#[cfg(feature = "client-chat")]
 pub mod tool_execution;
+#[cfg(feature = "client-chat")]
+pub mod tool_results;
 pub mod tool_selection;
 
 pub use capabilities::ToolCapabilities;

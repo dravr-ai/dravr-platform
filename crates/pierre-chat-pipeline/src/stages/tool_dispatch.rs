@@ -199,7 +199,14 @@ pub(crate) async fn dispatch_llm_with_tools(
     // bridge, so a single provider config controls both.
     // Held for the whole turn: dropping it revokes the agent's credential, so
     // the binding must outlive the tool loop and die with it.
-    let tool_session = if provider.capabilities().supports_sdk_tool_calling() {
+    // Opened for every provider that will NOT receive tools as structured
+    // declarations, which is both the ACP path and the CLI runners. Gating on
+    // `supports_sdk_tool_calling()` alone left `copilot` — which now executes
+    // MCP tools itself — with nothing to execute.
+    let tool_session = if provider.capabilities().supports_function_calling() {
+        // Structured declarations reach this provider on the request itself.
+        None
+    } else {
         match ctx.mcp_bridge.as_ref() {
             Some(bridge) => {
                 bridge
@@ -208,8 +215,6 @@ pub(crate) async fn dispatch_llm_with_tools(
             }
             None => None,
         }
-    } else {
-        None
     };
     let mcp_servers = tool_session
         .as_ref()

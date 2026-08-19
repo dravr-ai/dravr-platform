@@ -36,7 +36,7 @@ transport-sse = [
 ]
 
 [dependencies]
-embacle-tool-host = "0.21"
+embacle-tool-host = "0.21.1"
 pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }

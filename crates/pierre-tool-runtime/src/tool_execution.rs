@@ -29,6 +29,7 @@ use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
 use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use crate::registry::ToolRegistry;
+use crate::tool_results::extract_activity_list;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_llm::{
@@ -278,7 +279,12 @@ pub async fn run_api_tool_loop(
 
     for iteration in 0..params.max_iterations {
         let llm_request = {
-            let req = ChatRequest::new(llm_messages.clone()).with_model(params.model);
+            // Not only on the ACP path: a CLI runner that accepts them —
+            // `copilot` takes `--additional-mcp-config` — executes those tools
+            // itself, which is the only way it will touch them.
+            let req = ChatRequest::new(llm_messages.clone())
+                .with_model(params.model)
+                .with_mcp_servers(params.mcp_servers.clone());
             match params.temperature {
                 Some(t) => req.with_temperature(t),
                 None => req,
@@ -680,10 +686,18 @@ pub async fn run_cli_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
-    // Convert pierre-llm declarations to embacle declarations and generate catalog
-    let embacle_decls = to_embacle_declarations(&params.tools.function_declarations);
-    let tool_catalog = tool_simulation::generate_tool_catalog(&embacle_decls);
-    tool_simulation::inject_tool_catalog(llm_messages, &tool_catalog);
+    // The text catalog goes in ONLY when the runner has no MCP servers to
+    // reach the same tools through. Handing a model both is handing it the
+    // same tools twice and letting it pick — and it picks the prose, which is
+    // the form that does not work: a model with a real toolset answers "that
+    // isn't part of my real toolset" to a catalog, and taking the prose route
+    // means it never opens an MCP session, so the server's `initialize`
+    // instructions — the caller's persona — never reach its system prompt.
+    if params.mcp_servers.is_empty() {
+        let embacle_decls = to_embacle_declarations(&params.tools.function_declarations);
+        let tool_catalog = tool_simulation::generate_tool_catalog(&embacle_decls);
+        tool_simulation::inject_tool_catalog(llm_messages, &tool_catalog);
+    }
 
     let mut captured_activity_list: Option<String> = None;
     let mut tool_calls_count: u32 = 0;
@@ -966,7 +980,9 @@ fn from_embacle_calls(calls: Vec<tool_simulation::FunctionCall>) -> Vec<Function
 }
 
 /// Convert pierre-llm function responses to embacle `tool_simulation` responses.
-fn to_embacle_responses(resps: &[FunctionResponse]) -> Vec<tool_simulation::FunctionResponse> {
+pub(crate) fn to_embacle_responses(
+    resps: &[FunctionResponse],
+) -> Vec<tool_simulation::FunctionResponse> {
     resps
         .iter()
         .map(|r| tool_simulation::FunctionResponse {
@@ -1217,35 +1233,6 @@ pub fn parse_lenient_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
         }
     }
     calls
-}
-
-/// Format pierre-llm function responses as `<tool_result>` text blocks.
-///
-/// Thin wrapper around [`embacle::tool_simulation::format_tool_results_as_text`] that
-/// handles type conversion.
-#[must_use]
-pub fn format_tool_results_as_text(responses: &[FunctionResponse]) -> String {
-    let embacle_responses = to_embacle_responses(responses);
-    tool_simulation::format_tool_results_as_text(&embacle_responses)
-}
-
-/// Extract activity list from function responses (for `get_activities` results).
-pub fn extract_activity_list(responses: &[FunctionResponse]) -> Option<String> {
-    for resp in responses {
-        if resp.name == "get_activities" {
-            if let Some(activity_list) = resp
-                .response
-                .get("activity_list")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                let list_len = activity_list.len();
-                info!("Extracted activity list ({list_len} chars) to prepend to response");
-                return Some(activity_list.to_owned());
-            }
-        }
-    }
-    None
 }
 
 // ============================================================================
