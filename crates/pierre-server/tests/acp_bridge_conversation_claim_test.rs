@@ -65,7 +65,7 @@ async fn a_turn_scoped_token_round_trips_its_conversation() {
     // Both claims come from the one argument, so they cannot disagree.
     assert_eq!(
         claims.guardian_turn_token(),
-        Some(claims.jti.clone()),
+        Some(claims.jti),
         "a token carrying a conversation is by construction turn-scoped"
     );
 }
