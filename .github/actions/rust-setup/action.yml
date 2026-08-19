@@ -35,19 +35,72 @@ runs:
         docker-images: ${{ inputs.keep-docker != 'true' }}
         swap-storage: true
 
+    # mold is 2.5 MB. `clang` was installed beside it purely to act as the
+    # linker driver, and dragged in 21 more packages with it — 91.5 MB of
+    # archives on EVERY Rust job, six times a push, cached nowhere.
+    #
+    # gcc is already on the runner image and drives mold through -fuse-ld=mold
+    # (GCC 12+). So install mold alone and then PROVE the driver works before
+    # committing to it; if it cannot, fall back to clang and carry on. That
+    # fallback is why this cannot break a build: the worst case is exactly the
+    # behaviour and the download we had before.
+    #
+    # Bounded and retried, which is the other half. On 2026-08-19 a degraded
+    # Ubuntu mirror served this step at 18 kB/s and wedged three separate runs
+    # for 70-250 minutes each; one of them held a runner for over four hours
+    # before anything cancelled it. Unbounded network work in a step every job
+    # depends on turns a mirror wobble into a lost afternoon.
     - name: Install mold linker
+      id: mold
       shell: bash
-      run: sudo apt-get update && sudo apt-get install -y mold clang
+      run: |
+        # `sudo timeout` rather than `timeout sudo`: the timeout must be the
+        # parent of apt-get itself, or SIGTERM lands on sudo and apt keeps going.
+        apt_try() {
+          sudo timeout 300 apt-get update -qq \
+            && sudo timeout 300 apt-get install -y --no-install-recommends "$@"
+        }
+
+        installed=false
+        for attempt in 1 2 3; do
+          if apt_try mold; then installed=true; break; fi
+          echo "::warning::apt attempt ${attempt} for mold failed or timed out; retrying"
+          sleep $((attempt * 15))
+        done
+        if [ "${installed}" != true ]; then
+          echo "::error::could not install mold after 3 attempts"
+          exit 1
+        fi
+
+        printf 'int main(void){return 0;}\n' > /tmp/mold-probe.c
+        if cc -fuse-ld=mold /tmp/mold-probe.c -o /tmp/mold-probe 2>/dev/null; then
+          echo "driver=cc" >> "$GITHUB_OUTPUT"
+          echo "mold is driven by the preinstalled cc — clang not installed"
+        else
+          echo "::warning::cc cannot drive mold on this image; installing clang as the driver"
+          for attempt in 1 2 3; do
+            if apt_try clang; then break; fi
+            echo "::warning::apt attempt ${attempt} for clang failed or timed out; retrying"
+            sleep $((attempt * 15))
+          done
+          echo "driver=clang" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Configure mold
       shell: bash
       run: |
         mkdir -p .cargo
-        cat >> .cargo/config.toml << 'TOML'
-        [target.x86_64-unknown-linux-gnu]
-        linker = "clang"
-        rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-        TOML
+        {
+          echo '[target.x86_64-unknown-linux-gnu]'
+          # Only pin a linker when the probe had to fall back. Left unset, rustc
+          # uses its default `cc`, which the probe just proved can drive mold.
+          if [ "${{ steps.mold.outputs.driver }}" = "clang" ]; then
+            echo 'linker = "clang"'
+          fi
+          echo 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]'
+        } >> .cargo/config.toml
+        echo "--- .cargo/config.toml ---"
+        cat .cargo/config.toml
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@1.96.0
