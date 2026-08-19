@@ -23,6 +23,7 @@ use crate::channel_profile::ChannelProfile;
 use crate::recorders::{ChatRepoToolMessageRecorder, UsageRepoCallRecorder};
 use crate::turn::TurnInput;
 use crate::{call_type_for_profile, ChatPipelineContext};
+use embacle_tool_host::ToolSession;
 
 use super::compaction::apply_tier1_compaction;
 use super::prefetch::{
@@ -196,18 +197,24 @@ pub(crate) async fn dispatch_llm_with_tools(
     // over ACP instead of fragile text-based `<tool_call>` simulation. The
     // same capability flag that routes the turn to the headless loop gates the
     // bridge, so a single provider config controls both.
-    let mcp_servers = if provider.capabilities().supports_sdk_tool_calling() {
+    // Held for the whole turn: dropping it revokes the agent's credential, so
+    // the binding must outlive the tool loop and die with it.
+    let tool_session = if provider.capabilities().supports_sdk_tool_calling() {
         match ctx.mcp_bridge.as_ref() {
             Some(bridge) => {
                 bridge
-                    .mcp_servers_for(&input.user_id, input.tool_tenant_id, &input.conversation_id)
+                    .open_tool_session(&input.user_id, input.tool_tenant_id, &input.conversation_id)
                     .await
             }
-            None => Vec::new(),
+            None => None,
         }
     } else {
-        Vec::new()
+        None
     };
+    let mcp_servers = tool_session
+        .as_ref()
+        .map(ToolSession::mcp_servers)
+        .unwrap_or_default();
 
     // Stage 13: the coaching tool surface. Every turn sees the full
     // chat-callable set (`ToolRegistry::chat_callable_schemas`), so a capable

@@ -19,7 +19,6 @@
 use std::env;
 
 #[cfg(feature = "client-chat")]
-use super::acp_mcp_bridge::AcpMcpBridge;
 use super::slices::{
     A2ASlice, AuthSlice, BillingSlice, CoachSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };
@@ -38,6 +37,8 @@ use dravr_contremaitre::system::{
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::structured_output::{self, SchemaTexts};
 use pierre_chat_pipeline::McpBridgeProvider;
+
+use super::tool_surface::HostedToolBridge;
 use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-messaging")]
 use pierre_core::models::TenantId;
@@ -343,17 +344,14 @@ impl ServerContext {
         // when set, ACP turns expose Dravr tools natively via the MCP bridge.
         let mcp_bridge_enabled = env::var("COPILOT_HEADLESS_MCP_TOOL_CALLING")
             .is_ok_and(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"));
-        // The Copilot ACP subprocess runs inside this container, so it reaches
-        // our MCP endpoint over loopback on the server's own HTTP port — NOT
-        // `base_url`, which is the public/front-end origin (used for OAuth
-        // redirects) and does not serve `/mcp`.
-        let mcp_self_url = format!("http://localhost:{}", self.common.config.http_port);
-        let mcp_bridge: Option<Arc<dyn McpBridgeProvider>> = Some(Arc::new(AcpMcpBridge::new(
-            self.auth.auth_manager.clone(),
-            self.auth.jwks_manager.clone(),
-            self.common.repos.clone(),
-            &mcp_self_url,
+        // The tool surface is published on embacle's own loopback listener, so
+        // the server no longer needs to know its own reachable address — the
+        // subprocess never dials back into `/mcp`.
+        let mcp_bridge: Option<Arc<dyn McpBridgeProvider>> = Some(Arc::new(HostedToolBridge::new(
             mcp_bridge_enabled,
+            self.mcp.tool_registry.clone(),
+            self.common.repos.clone(),
+            tool_runtime.clone(),
         )));
         pierre_chat_pipeline::ChatPipelineContext {
             repos: self.common.repos.clone(),

@@ -1,34 +1,42 @@
-// ABOUTME: The seam the chat pipeline uses to hand an ACP provider Dravr's own MCP tools
-// ABOUTME: Trait only — the impl lives in pierre-server, where auth and signing keys are
+// ABOUTME: The seam an ACP-managed provider reaches Dravr's own tools through
+// ABOUTME: Returns a session guard, because the credential must die with the turn
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The seam an ACP-managed provider reaches Dravr's own MCP tools through.
+//! How a native-tool-calling provider is handed Dravr's tools.
+//!
+//! An ACP agent runs its own tool loop in its own subprocess and reaches its
+//! caller only over MCP, so the tools it may call have to be published on a
+//! listener it can dial. `embacle-tool-host` owns that listener; this seam is
+//! how the pipeline asks for a turn-scoped session on it.
+//!
+//! The return type is a guard, not a config, and that is the whole point.
+//! Dropping a [`ToolSession`] revokes its bearer, so a turn that ends —
+//! normally, by error, or because the athlete walked away — leaves no live
+//! credential an orphaned agent subprocess can still spend on an irreversible
+//! action. A seam returning a bare `Vec<McpServerConfig>` would have to leak
+//! the session to keep it valid.
 
+use embacle_tool_host::ToolSession;
 use pierre_core::models::TenantId;
-use pierre_llm::McpServerConfig;
 
-/// Mints the MCP servers an ACP-managed provider (Copilot Headless) exposes to
-/// the model for native tool calling on a turn.
+/// Opens the turn-scoped tool session an ACP-managed provider calls into.
 ///
-/// Implemented in `pierre-server` (where auth + signing keys live) so the chat
-/// pipeline stays free of auth dependencies. The returned config points the
-/// agent at Dravr's own `/mcp` endpoint with a freshly-minted, short-TTL,
-/// `/mcp`-audience Bearer token scoped to `(user, tenant)`. Returns empty when
-/// the bridge is disabled or the token cannot be minted.
+/// Implemented in `pierre-server`, where the tool registry and the executor
+/// live. Returns `None` when native tool calling is disabled or a session
+/// cannot be opened, in which case the turn proceeds with no tools rather than
+/// failing — a coach that cannot reach data should say so, not error.
 #[async_trait::async_trait]
 pub trait McpBridgeProvider: Send + Sync {
-    /// Build the per-turn MCP server list for `(user_id, tenant_id)`.
+    /// Open a session exposing this turn's tools to the agent.
     ///
-    /// `conversation_id` is the turn's own conversation. It travels into the
-    /// minted token so a tool the model calls natively — in a separate HTTP
-    /// request, where the pipeline's task-local is out of scope — can still
-    /// route detached follow-up work back to the channel that asked.
-    async fn mcp_servers_for(
+    /// The caller holds the returned guard for exactly as long as the turn may
+    /// legitimately call tools.
+    async fn open_tool_session(
         &self,
         user_id: &str,
         tenant_id: TenantId,
         conversation_id: &str,
-    ) -> Vec<McpServerConfig>;
+    ) -> Option<ToolSession>;
 }

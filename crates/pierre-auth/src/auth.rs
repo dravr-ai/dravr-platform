@@ -190,18 +190,6 @@ pub struct Claims {
     /// to avoid accumulating budget/taint across the whole session (finding #2).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_scoped: Option<bool>,
-    /// The chat conversation this turn belongs to, on a turn-scoped token only.
-    ///
-    /// A tool reached over the ACP MCP bridge runs in a separate HTTP request
-    /// from the chat turn that provoked it, so the pipeline's task-local
-    /// conversation id is not in scope there. Detached follow-up work — the
-    /// background activity backfill and its completion push — needs it to route
-    /// the notice back to the channel that asked. Carrying it as a signed claim
-    /// rather than a header keeps it unforgeable: routing input that a caller
-    /// could set freely would let one hand a notice to a conversation it does
-    /// not own.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn_conversation_id: Option<String>,
 }
 
 impl Claims {
@@ -214,19 +202,6 @@ impl Claims {
     #[must_use]
     pub fn guardian_turn_token(&self) -> Option<String> {
         self.turn_scoped.unwrap_or(false).then(|| self.jti.clone())
-    }
-
-    /// The originating chat conversation, on a turn-scoped token only.
-    ///
-    /// Gated on [`Self::turn_scoped`] for the same reason the turn token is: a
-    /// reused session token is not one turn, so nothing it does belongs to one
-    /// conversation.
-    #[must_use]
-    pub fn turn_conversation_id(&self) -> Option<String> {
-        self.turn_scoped
-            .unwrap_or(false)
-            .then(|| self.turn_conversation_id.clone())
-            .flatten()
     }
 }
 
@@ -382,7 +357,7 @@ impl AuthManager {
             active_tenant_id,
             Duration::hours(self.token_expiry_hours),
             // A normal reusable session token — NOT per-turn (#2).
-            None,
+            false,
         )
     }
 
@@ -402,13 +377,10 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
         ttl: Duration,
-        // `Some(conversation_id)` only for a token minted fresh per chat turn
-        // (the ACP callback): the Guardian may then key taint/budget on its jti
-        // (#2), and detached tool work can route back to that conversation.
-        // `None` for a reusable session token, which must be keyed per-call and
-        // belongs to no single turn. One parameter for both so the two claims
-        // cannot disagree.
-        turn_scope: Option<&str>,
+        // True only for a token minted fresh per chat turn, so the Guardian may
+        // key taint/budget on its jti (#2). A reusable session token must be
+        // keyed per-call and belongs to no single turn.
+        turn_scoped: bool,
     ) -> AppResult<String> {
         let now = Utc::now();
         let expiry = now + ttl;
@@ -426,10 +398,8 @@ impl AuthManager {
             impersonator_id: None,
             impersonation_session_id: None,
             // Per-turn only for the ACP callback; a normal reused session token
-            // stays per-call (#2). Both claims derive from `turn_scope`, so a
-            // conversation can never ride a token that is not turn-scoped.
-            turn_scoped: turn_scope.is_some().then_some(true),
-            turn_conversation_id: turn_scope.map(str::to_owned),
+            // stays per-call (#2).
+            turn_scoped: turn_scoped.then_some(true),
         };
 
         // Get active RSA key from JWKS manager
@@ -479,7 +449,6 @@ impl AuthManager {
             impersonator_id: Some(impersonator_id.to_string()),
             impersonation_session_id: Some(session_id.to_owned()),
             turn_scoped: None,
-            turn_conversation_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -854,7 +823,6 @@ impl AuthManager {
             // A normal session token, reused across turns — NOT a per-turn key
             // (the Guardian falls back to per-call keying for it, #2).
             turn_scoped: None,
-            turn_conversation_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -907,7 +875,6 @@ impl AuthManager {
             // A normal session token, reused across turns — NOT a per-turn key
             // (the Guardian falls back to per-call keying for it, #2).
             turn_scoped: None,
-            turn_conversation_id: None,
         };
 
         // Get active RSA key from JWKS manager

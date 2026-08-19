@@ -1068,10 +1068,10 @@ impl ToolHandlers {
             // Route through the unified executor so every registry tool call
             // passes the Guardian chokepoint and resolves identity/admin/tenant
             // consistently via `build_tool_context`.
-            let executor = UniversalToolExecutor::for_mcp_turn(
-                ctx.resources.clone(),
-                ctx.tenant_context.session_id.clone(),
-                ctx.tenant_context.conversation_id.clone(),
+            // Guardian turn key only — a `/mcp` caller has no chat turn.
+            let executor = ctx.tenant_context.session_id.clone().map_or_else(
+                || UniversalToolExecutor::new(ctx.resources.clone()),
+                |turn| UniversalToolExecutor::new(ctx.resources.clone()).with_turn_token(turn),
             );
             let request = UniversalRequest {
                 tool_name: tool_name.to_owned(),

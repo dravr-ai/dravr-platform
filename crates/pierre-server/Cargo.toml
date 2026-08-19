@@ -179,6 +179,8 @@ server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-we
 openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui", "pierre-core/openapi", "pierre-routes-coaches/openapi", "pierre-routes-social?/openapi"]
 
 [dependencies]
+embacle = { version = "0.21" }
+embacle-tool-host = "0.21"
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
