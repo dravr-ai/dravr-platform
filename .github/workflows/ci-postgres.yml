@@ -52,6 +52,20 @@ jobs:
   postgres-tests:
     name: Database Tests (PostgreSQL ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    # A backstop, not a performance budget. Successful runs land in 29-47 min;
+    # this only ever fires on a job that has stopped making progress.
+    #
+    # It exists because `cancel-in-progress: false` above — correct on its own
+    # terms — makes a hung job unrecoverable on this lane: nothing displaces it,
+    # so every later PG run queues behind it and only the newest waiting run
+    # survives. On 2026-08-19 shard 3/4 hung 212 min in `Setup Rust environment`
+    # and three subsequent main pushes never got a PostgreSQL verdict at all.
+    #
+    # The existing `timeout-minutes: 75` further down guards only the test step,
+    # which is why it did not help: the job hung before ever reaching it. A job
+    # bound is the one that catches a hang wherever it happens, and it has to
+    # live here — composite actions cannot bound their own steps.
+    timeout-minutes: 90
 
     strategy:
       # One shard's failure must not cancel the others — we want every shard's

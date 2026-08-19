@@ -52,6 +52,16 @@ jobs:
     name: Run Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || inputs.flamegraph != true
+    # A backstop, not a performance budget. Successful runs land in 31-51 min.
+    #
+    # On main `cancel-in-progress` is false (see above, and for a good reason:
+    # a follow-up push must not kill a run between benching and the baseline
+    # save). The cost of that is a hung job nothing can displace — on
+    # 2026-08-19 this job sat 316 min in `Setup Rust environment` and every
+    # later push queued behind it, so main went five hours with no benchmark
+    # verdict. The bound lives on the job because composite actions cannot
+    # bound their own steps.
+    timeout-minutes: 75
 
     steps:
       - name: Checkout repository
@@ -146,6 +156,9 @@ jobs:
     name: Tool-Dispatch Flamegraphs
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && inputs.flamegraph == true
+    # Same backstop, same reason. Manual-dispatch only, so a hang here is
+    # likelier to go unwatched than one on a push.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
