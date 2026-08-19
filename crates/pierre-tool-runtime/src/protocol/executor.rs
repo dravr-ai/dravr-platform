@@ -30,9 +30,11 @@ use pierre_intelligence::physiological_constants::efficiency_defaults::{
 };
 use pierre_intelligence::IntelligenceConfig;
 use pierre_services::onboarding_gate::user_has_connected_provider;
+use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -457,6 +459,12 @@ impl UniversalExecutor {
             })?;
 
         let (ctx, is_admin) = build_tool_context(&self.resources, &request).await?;
+        // Captured before `request` is torn apart: the charge and the operator
+        // event below are owed for every transport, and `protocol` is the only
+        // thing that says which one this was.
+        let protocol = request.protocol.clone();
+        let charged_user = request.user_id.clone();
+        let dispatch_start = Instant::now();
         let args = request.parameters;
         let tool_name = request.tool_name;
 
@@ -609,7 +617,64 @@ impl UniversalExecutor {
             }
         }
 
-        Ok(tool_response_to_universal_response(&tool_name, &response))
+        let universal = tool_response_to_universal_response(&tool_name, &response);
+        self.record_dispatch(DispatchRecord {
+            tool_name: &tool_name,
+            protocol: &protocol,
+            user_id: &charged_user,
+            response: &universal,
+            tenant_uuid,
+            started: dispatch_start,
+        })
+        .await;
+        Ok(universal)
+    }
+
+    /// Charge the athlete's tool budget and tell operators a tool ran.
+    ///
+    /// Both belong HERE and nowhere else. Every transport funnels through
+    /// `execute_tool` — the chat `ReAct` loop, MCP-direct, A2A, and the
+    /// per-request Copilot-headless `/mcp` executors — so a charge levied here
+    /// is levied exactly once per real dispatch. Levied at the turn's end
+    /// instead, an ACP turn paid twice for one tool (once at the loopback, once
+    /// for the turn) and paid again for tools that were never ours: Copilot's
+    /// own `noop` and shell calls are counted in the ACP-reported total but
+    /// never reach this function, so they now cost nothing.
+    ///
+    /// Only a successful dispatch is charged and reported. A refused or errored
+    /// call consumed the athlete's quota under the old scheme, which is the
+    /// same mistake as letting it satisfy a citation.
+    ///
+    /// Fire-and-forget: a counter write must never fail a tool the athlete
+    /// already received an answer from.
+    async fn record_dispatch(&self, r: DispatchRecord<'_>) {
+        let duration_ms = u64::try_from(r.started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let tenant_id = r.tenant_uuid.map(|t| t.to_string()).unwrap_or_default();
+
+        info!(
+            target: "notify",
+            event = "messaging.tool_executed",
+            tenant_id = %tenant_id,
+            channel = %r.protocol,
+            tool_name = %r.tool_name,
+            success = r.response.success,
+            duration_ms = duration_ms,
+            "tool executed"
+        );
+
+        if !r.response.success || tenant_id.is_empty() {
+            return;
+        }
+
+        let repo = self.resources.repos().usage_counters.as_ref();
+        for counter_type in ["daily_tool_calls", "weekly_tool_calls"] {
+            if let Err(e) = increment_counter(repo, &tenant_id, r.user_id, counter_type, 1).await {
+                warn!(
+                    tool_name = r.tool_name,
+                    counter_type, "failed to charge tool call: {e}"
+                );
+            }
+        }
     }
 
     /// Check if executor has a specific tool
@@ -617,6 +682,18 @@ impl UniversalExecutor {
     pub fn has_tool(&self, tool_name: &str) -> bool {
         self.resources.tool_registry().get(tool_name).is_some()
     }
+}
+
+/// What [`UniversalExecutor::record_dispatch`] needs to charge and report one
+/// dispatch. A struct because the six values trip the too-many-arguments lint.
+struct DispatchRecord<'a> {
+    tool_name: &'a str,
+    /// The transport this call arrived on — `chat`, `mcp`, `a2a`.
+    protocol: &'a str,
+    user_id: &'a str,
+    response: &'a UniversalResponse,
+    tenant_uuid: Option<Uuid>,
+    started: Instant,
 }
 
 /// Confirmation TTL for a parked destructive call. Short by design: the

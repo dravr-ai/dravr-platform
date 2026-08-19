@@ -65,12 +65,7 @@ impl<'a> UsageCounterService<'a> {
         counter_type: &str,
         amount: i64,
     ) -> AppResult<i64> {
-        let period = current_period(counter_type);
-        let record = self
-            .repo
-            .increment_counter(tenant_id, user_id, counter_type, &period, amount)
-            .await?;
-        Ok(record.value)
+        increment_counter(self.repo, tenant_id, user_id, counter_type, amount).await
     }
 
     /// Get the current value of a counter for the current period
@@ -319,6 +314,30 @@ impl<'a> UsageCounterService<'a> {
             .await?
             .and_then(|v| v.as_f64()))
     }
+}
+
+/// Increment a usage counter, without an [`AdminConfigLookup`] in scope.
+///
+/// Incrementing never consults config — only the limit checks do — but the
+/// service cannot be constructed without one. Tool dispatch runs where no admin
+/// config is available, and the counter it writes must be the same counter the
+/// limit checks later read, so this is that one body and
+/// [`UsageCounterService::increment`] delegates to it rather than repeating it.
+///
+/// # Errors
+/// Returns an error if the repository write fails.
+pub async fn increment_counter(
+    repo: &dyn UsageCounterRepository,
+    tenant_id: &str,
+    user_id: &str,
+    counter_type: &str,
+    amount: i64,
+) -> AppResult<i64> {
+    let period = current_period(counter_type);
+    let record = repo
+        .increment_counter(tenant_id, user_id, counter_type, &period, amount)
+        .await?;
+    Ok(record.value)
 }
 
 /// Compute the current period string for a counter type

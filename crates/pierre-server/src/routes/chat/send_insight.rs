@@ -189,14 +189,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
 
     let total_tokens_used =
         i64::from(prompt_tokens.unwrap_or(0)) + i64::from(token_count.unwrap_or(0));
-    increment_usage_counters(
-        &resources,
-        &tenant_id_str,
-        &user_id_str,
-        total_tokens_used,
-        result.tool_calls_count,
-    )
-    .await;
+    increment_usage_counters(&resources, &tenant_id_str, &user_id_str, total_tokens_used).await;
 
     let response = ChatCompletionResponse {
         user_message: MessageResponse {

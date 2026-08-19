@@ -29,7 +29,7 @@ use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
-use pierre_services::usage_counter::UsageCounterService;
+use pierre_services::usage_counter::{increment_counter, UsageCounterService};
 use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::guardian::{self, DenyReason, GateOutcome, TurnKey};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -634,7 +634,19 @@ impl ToolHandlers {
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = user_id.to_string();
 
-        Self::increment_tool_counters(resources, &tenant_id_str, &user_id_str, tool_name).await;
+        // The charge for a REGISTRY tool is levied at the dispatch chokepoint
+        // in `UniversalExecutor::execute_tool`, which every transport passes
+        // through; charging again here billed an ACP turn twice for one tool.
+        // The three OAuth carve-outs above never reach that chokepoint, so
+        // their charge is still owed here — same three constants the router
+        // matches on, so the two cannot drift into disagreement.
+        if matches!(
+            tool_name,
+            CONNECT_PROVIDER | GET_CONNECTION_STATUS | DISCONNECT_PROVIDER
+        ) {
+            Self::charge_carve_out_tool_call(resources, &tenant_id_str, &user_id_str, tool_name)
+                .await;
+        }
         Self::insert_tool_llm_usage(
             resources,
             &tenant_id_str,
@@ -645,38 +657,22 @@ impl ToolHandlers {
         .await;
     }
 
-    /// Increment shared daily/weekly tool call counters (fire-and-forget)
-    async fn increment_tool_counters(
+    /// Charge one tool call for a carve-out tool, which bypasses the executor.
+    ///
+    /// Fire-and-forget: a counter write must never fail a tool the caller has
+    /// already been answered by.
+    async fn charge_carve_out_tool_call(
         resources: &Arc<ServerContext>,
         tenant_id: &str,
         user_id: &str,
         tool_name: &str,
     ) {
-        // Record against tier defaults even when admin config is absent,
-        // so the always-on enforcement path keeps seeing real counts.
-        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
-            Some(c) => c,
-            None => default_admin_config(),
-        };
-
-        let usage_svc =
-            UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
-        for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
-            if let Err(e) = usage_svc
-                .increment(tenant_id, user_id, counter_type, 1)
-                .await
-            {
-                warn!(
-                    tool_name,
-                    counter_type, "Failed to increment MCP tool counter: {e}"
-                );
+        let repo = resources.common.repos.usage_counters.as_ref();
+        for counter_type in ["daily_tool_calls", "weekly_tool_calls"] {
+            if let Err(e) = increment_counter(repo, tenant_id, user_id, counter_type, 1).await {
+                warn!(tool_name, counter_type, "failed to charge tool call: {e}");
             }
         }
-
-        debug!(
-            tool_name,
-            tenant_id, user_id, "MCP tool call counters incremented"
-        );
     }
 
     /// Record MCP tool execution in `llm_usage` table for analytics (fire-and-forget)

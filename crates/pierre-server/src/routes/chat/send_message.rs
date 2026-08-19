@@ -369,7 +369,6 @@ pub async fn send_message(
         &tenant_id_str,
         &user_id_str,
         total_tokens_used,
-        dispatch.tool_calls_count,
         &inc_scope,
     )
     .await;
@@ -554,7 +553,6 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                                 &tenant_id_str,
                                 &user_id_str,
                                 total_tokens,
-                                dispatch.tool_calls_count,
                                 &inc_scope,
                             )
                             .await;

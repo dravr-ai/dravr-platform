@@ -845,11 +845,6 @@ async fn increment_messaging_usage_counters(dispatch: &PendingDispatch, result: 
         counters.push(("daily_tokens", total_tokens));
         counters.push(("weekly_tokens", total_tokens));
     }
-    if result.tool_calls_count > 0 {
-        let tool_calls = i64::from(result.tool_calls_count);
-        counters.push(("daily_tool_calls", tool_calls));
-        counters.push(("weekly_tool_calls", tool_calls));
-    }
 
     for (counter_type, amount) in counters {
         if let Err(e) = usage_svc

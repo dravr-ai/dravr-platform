@@ -136,14 +136,12 @@ pub async fn increment_usage_counters(
     tenant_id: &str,
     user_id: &str,
     total_tokens: i64,
-    tool_calls_count: u32,
 ) {
     increment_usage_counters_scoped(
         resources,
         tenant_id,
         user_id,
         total_tokens,
-        tool_calls_count,
         &UsageIncrementScope::default(),
     )
     .await;
@@ -159,7 +157,6 @@ pub async fn increment_usage_counters_scoped(
     tenant_id: &str,
     user_id: &str,
     total_tokens: i64,
-    tool_calls_count: u32,
     scope: &UsageIncrementScope<'_>,
 ) {
     // Record against tier defaults even when admin config is absent, so
@@ -173,14 +170,7 @@ pub async fn increment_usage_counters_scoped(
     let usage_svc =
         UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
 
-    increment_base_counters(
-        &usage_svc,
-        tenant_id,
-        user_id,
-        total_tokens,
-        tool_calls_count,
-    )
-    .await;
+    increment_base_counters(&usage_svc, tenant_id, user_id, total_tokens).await;
     increment_scoped_counters(&usage_svc, tenant_id, user_id, scope).await;
 }
 
@@ -189,17 +179,11 @@ async fn increment_base_counters(
     tenant_id: &str,
     user_id: &str,
     total_tokens: i64,
-    tool_calls_count: u32,
 ) {
     let mut counters: Vec<(&str, i64)> = vec![("daily_messages", 1), ("weekly_messages", 1)];
     if total_tokens > 0 {
         counters.push(("daily_tokens", total_tokens));
         counters.push(("weekly_tokens", total_tokens));
-    }
-    if tool_calls_count > 0 {
-        let tool_calls = i64::from(tool_calls_count);
-        counters.push(("daily_tool_calls", tool_calls));
-        counters.push(("weekly_tool_calls", tool_calls));
     }
 
     for (counter_type, amount) in counters {

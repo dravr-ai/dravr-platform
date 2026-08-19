@@ -17,8 +17,6 @@
 //! the anti-fabrication gate on coach visuals checks a cited `source_tool`
 //! against, so it must contain nothing a tool did not actually produce.
 
-use std::time::Instant;
-
 use tracing::info;
 
 use pierre_core::errors::AppError;
@@ -87,9 +85,7 @@ pub async fn execute_function_calls(
             args = %function_call.args,
             "Executing tool"
         );
-        let tool_start = Instant::now();
         let tool_response = execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
-        let tool_duration_ms = u64::try_from(tool_start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         // Capture the auth-required provider before building the
         // `FunctionResponse`, which intentionally drops `metadata` (the LLM
@@ -152,20 +148,6 @@ pub async fn execute_function_calls(
         }
 
         let func_response = build_function_response(function_call, &tool_response);
-
-        // notify: visibility on every tool dispatch. Operational tier — the
-        // sink keys on the hashed tenant and drops the user dimension, so
-        // emit `tenant_id` inline and omit user.
-        info!(
-            target: "notify",
-            event = "messaging.tool_executed",
-            tenant_id = %tenant_id,
-            channel = "chat",
-            tool_name = %function_call.name,
-            success = tool_response.success,
-            duration_ms = tool_duration_ms,
-            "tool executed"
-        );
 
         log_tool_response_size(&func_response);
 
