@@ -24,7 +24,7 @@ use photograveur::RenderBlock;
 use pierre_core::errors::{AppError, ErrorCode};
 use reqwest::Client;
 use serde_json::json;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// Environment variable naming the press service.
 ///
@@ -46,6 +46,21 @@ pub const PHOTOGRAVEUR_AUDIENCE_ENV: &str = "PHOTOGRAVEUR_AUDIENCE";
 /// the athlete is waiting on an image rather than a reply, and the reply is
 /// what matters — the caller drops the chart and sends the prose.
 const PRESS_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Whether a press URL points at this machine's own loopback.
+///
+/// Only a developer's own process can be there — a Cloud Run service never is,
+/// from the platform's point of view — so a loopback press is the one case
+/// where skipping the ID token cannot widen anything.
+fn is_loopback(url: &str) -> bool {
+    let host = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split(['/', ':'])
+        .next()
+        .unwrap_or_default();
+    matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]")
+}
 
 /// Client for the photograveur press service.
 #[derive(Clone)]
@@ -75,6 +90,33 @@ impl fmt::Debug for PhotograveurClient {
     }
 }
 
+/// Resolve the identity-token source for a press, or `None` when it needs none.
+///
+/// Both or neither, with loopback as the one exemption. A remote URL without an
+/// audience would post unsigned requests the press refuses, which surfaces as
+/// every chart silently becoming prose — the failure the press wiring exists to
+/// end. Treating it as "not configured" makes the misconfiguration visible in
+/// one log line instead of as an absence nobody notices.
+fn token_source(
+    base_url: Option<&String>,
+    audience: Option<String>,
+    local: bool,
+    http: &Client,
+) -> Option<Arc<IdTokenSource>> {
+    match (base_url, audience) {
+        _ if local => None,
+        (Some(_), Some(audience)) => Some(Arc::new(IdTokenSource::new(audience, http.clone()))),
+        (Some(_), None) => {
+            warn!(
+                "{PHOTOGRAVEUR_URL_ENV} is set but {PHOTOGRAVEUR_AUDIENCE_ENV} is not; \
+                 disabling the press rather than sending requests it will refuse"
+            );
+            None
+        }
+        (None, _) => None,
+    }
+}
+
 impl PhotograveurClient {
     /// Build a client from the environment.
     ///
@@ -90,30 +132,32 @@ impl PhotograveurClient {
             .ok()
             .filter(|a| !a.is_empty());
 
-        // Both or neither. A URL without an audience would post unsigned
-        // requests the press refuses, which surfaces as every chart silently
-        // becoming prose — the failure this whole change exists to end. Treating
-        // it as "not configured" makes the misconfiguration visible in one log
-        // line instead of as an absence nobody notices.
-        let tokens = match (&base_url, audience) {
-            (Some(_), Some(audience)) => Some(Arc::new(IdTokenSource::new(audience, http.clone()))),
-            (Some(_), None) => {
-                warn!(
-                    "{PHOTOGRAVEUR_URL_ENV} is set but {PHOTOGRAVEUR_AUDIENCE_ENV} is not; \
-                     disabling the press rather than sending requests it will refuse"
-                );
-                None
-            }
-            (None, _) => None,
-        };
+        // A press on the caller's own loopback is a developer running one, and
+        // it cannot be reached by anything else — so it needs no ID token. A
+        // deployed press is never at 127.0.0.1 from the platform's side, which
+        // is what makes this safe to key on rather than a "dev mode" flag
+        // somebody could set in production.
+        let local = base_url.as_deref().is_some_and(is_loopback);
+
+        let tokens = token_source(base_url.as_ref(), audience, local, &http);
 
         if base_url.is_none() {
             debug!("photograveur not configured; messaging charts are off");
         }
+        if local {
+            info!(
+                url = base_url.as_deref().unwrap_or_default(),
+                "photograveur on loopback; calling it unauthenticated (development)"
+            );
+        }
 
         Self {
             http,
-            base_url: if tokens.is_some() { base_url } else { None },
+            base_url: if local || tokens.is_some() {
+                base_url
+            } else {
+                None
+            },
             tokens,
         }
     }
@@ -141,36 +185,42 @@ impl PhotograveurClient {
             )
         })?;
 
-        // Every press carries a Google-signed token naming this workload and
-        // addressed to the press. Minting is cached for the token's life, so
-        // this is a lock read on all but the first call each hour.
-        let tokens = self.tokens.as_ref().ok_or_else(|| {
-            AppError::new(
-                ErrorCode::ConfigError,
-                "photograveur has no identity-token source; cannot press a chart",
-            )
-        })?;
-        let token = tokens.token().await.map_err(|e| {
-            AppError::new(
-                ErrorCode::ExternalServiceError,
-                format!("could not mint an identity token for photograveur: {e}"),
-            )
-        })?;
-
-        let response = self
-            .http
-            .post(format!("{base}/render"))
-            .bearer_auth(&token)
-            .timeout(PRESS_TIMEOUT)
-            .json(&json!({ "block": block, "theme": theme }))
-            .send()
-            .await
-            .map_err(|e| {
+        // A deployed press carries a Google-signed token naming this workload
+        // and addressed to the press. Minting is cached for the token's life,
+        // so this is a lock read on all but the first call each hour.
+        //
+        // `None` here is the loopback case and nothing else: the constructor
+        // keeps `base_url` only when the press is local OR a token source
+        // exists, so having a base and no tokens means a developer's press on
+        // 127.0.0.1, which takes the request unauthenticated. Demanding a token
+        // anyway made every local chart 500 while the startup log cheerfully
+        // announced the unauthenticated mode it never actually used.
+        let token = match self.tokens.as_ref() {
+            Some(tokens) => Some(tokens.token().await.map_err(|e| {
                 AppError::new(
                     ErrorCode::ExternalServiceError,
-                    format!("photograveur unreachable: {e}"),
+                    format!("could not mint an identity token for photograveur: {e}"),
                 )
-            })?;
+            })?),
+            None => None,
+        };
+
+        let request = self
+            .http
+            .post(format!("{base}/render"))
+            .timeout(PRESS_TIMEOUT)
+            .json(&json!({ "block": block, "theme": theme }));
+        let request = match token.as_deref() {
+            Some(token) => request.bearer_auth(token),
+            None => request,
+        };
+
+        let response = request.send().await.map_err(|e| {
+            AppError::new(
+                ErrorCode::ExternalServiceError,
+                format!("photograveur unreachable: {e}"),
+            )
+        })?;
 
         let status = response.status();
         if !status.is_success() {

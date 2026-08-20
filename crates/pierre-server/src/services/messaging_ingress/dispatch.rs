@@ -310,31 +310,41 @@ async fn deliver_reply(
     // either an image or nothing, so the placeholder is noise either way.
     let content = strip_viz_markers(&content);
 
-    if let Some(wiring) = messaging_agui {
-        if wiring.finalize_reply(&content).await {
-            return;
-        }
-    }
-
-    // Use conversation_id (channel/chat/thread) as the reply target
-    // when available; fall back to sender_id for DM-only platforms
-    // (e.g., WhatsApp).
-    let reply_target =
-        reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id).to_owned();
-
-    // The outbound reply carries the turn id from the inbound utterance,
-    // so a consumer inspecting the `DeliveryReceipt` can look up the full
-    // turn trace via `/internal/conversation-turn`. `.into()` bridges
-    // pierre-core's newtype to canot's.
-    let outgoing = OutgoingMessage {
-        channel_type: dispatch.channel_type,
-        recipient_id: reply_target,
-        content: MessageContent::Text { body: content },
-        turn_id: turn_id.into(),
-        reply_to: Some(dispatch.channel_message_id.clone()),
-        thread_id: dispatch.thread_id.clone(),
+    // AG-UI streams the reply by editing the status message it already posted,
+    // so when it finalizes, the prose is delivered and a second send would
+    // duplicate it. It settles the PROSE only — the charts below are a
+    // different message and still have to go out.
+    //
+    // This used to `return` here, which silently dropped every chart on any
+    // channel with status streaming. Slack has it on always, so a granted coach
+    // could emit a perfectly valid chart, have it lifted and stored, and the
+    // athlete would still only ever see the paragraph (observed 2026-08-20).
+    let prose_sent_by_agui = match messaging_agui {
+        Some(wiring) => wiring.finalize_reply(&content).await,
+        None => false,
     };
-    send_outbound_response(dispatch, channel_config, &outgoing).await;
+
+    if !prose_sent_by_agui {
+        // Use conversation_id (channel/chat/thread) as the reply target
+        // when available; fall back to sender_id for DM-only platforms
+        // (e.g., WhatsApp).
+        let reply_target =
+            reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id).to_owned();
+
+        // The outbound reply carries the turn id from the inbound utterance,
+        // so a consumer inspecting the `DeliveryReceipt` can look up the full
+        // turn trace via `/internal/conversation-turn`. `.into()` bridges
+        // pierre-core's newtype to canot's.
+        let outgoing = OutgoingMessage {
+            channel_type: dispatch.channel_type,
+            recipient_id: reply_target,
+            content: MessageContent::Text { body: content },
+            turn_id: turn_id.into(),
+            reply_to: Some(dispatch.channel_message_id.clone()),
+            thread_id: dispatch.thread_id.clone(),
+        };
+        send_outbound_response(dispatch, channel_config, &outgoing).await;
+    }
 
     // Charts follow the prose, in the order the coach placed them. Sent as
     // separate messages because no channel here renders several images inside
@@ -752,7 +762,16 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
             target: viz_target(
                 dispatch.session.conversation.clone(),
                 dispatch.auth_result.user_id.to_string(),
-                dispatch.user_tenant_id,
+                // `session_tenant_id`, NOT `user_tenant_id`: the viz route
+                // re-reads the message through the tenant-scoped repository, so
+                // the token has to name the tenant the conversation was written
+                // under — the same one handed to the pipeline as
+                // `conversation_tenant_id` above. The two differ whenever a
+                // messaging user belongs to a different tenant than the bot
+                // owning the webhook, which is every Slack channel chat: the
+                // token named the athlete's tenant, the lookup found nothing
+                // there, and every chart 404'd for the channel that fetched it.
+                dispatch.session_tenant_id,
                 dispatch_result.assistant_message.id.clone(),
             ),
             stored_blocks: dispatch_result.assistant_message.content_blocks.as_deref(),

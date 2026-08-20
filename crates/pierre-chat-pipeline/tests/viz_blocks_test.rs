@@ -8,6 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use dravr_contremaitre::schemas::{DRAVR_VIZ_SCHEMA, STRUCTURED_WORKOUT_SCHEMA};
+use pierre_chat_pipeline::stages::prefetch::PREFETCH_TOOL;
 use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
 use pierre_chat_pipeline::stages::viz_blocks::{extract_viz_blocks, marker, markers_intact};
 
@@ -267,4 +268,59 @@ fn markers_intact_detects_a_rewritten_reply() {
 
     // Zero blocks is vacuously intact — nothing to place.
     assert!(markers_intact(canned, 0));
+}
+
+/// The provenance a prefetched turn carries: the platform ran `get_activities`
+/// itself in [`pierre_chat_pipeline::stages::prefetch`], and the tool loop
+/// recorded nothing because the model never had to call anything.
+fn prefetch_only_provenance() -> Vec<String> {
+    vec![PREFETCH_TOOL.to_owned()]
+}
+
+/// A chart built from pre-loaded activities must render.
+///
+/// The platform prefetches the athlete's activity window before dispatch and
+/// then tells the coach to use those rows *without* re-fetching. A coach that
+/// obeys calls no tool, so the tool loop reported an empty `tools_called` and
+/// this gate refused the chart as unsourced — leaving the raw ```dravr-viz```
+/// fence in the reply. Observed on Slack 2026-08-20: the athlete asked for a
+/// graph and got a wall of JSON.
+///
+/// The data was real and the citation was accurate; only the bookkeeping was
+/// missing. The gate must accept the prefetch's own run as the source.
+#[test]
+fn a_chart_sourced_from_the_prefetch_is_lifted() {
+    let reply = format!("Voici tes distances par semaine.\n\n{}", fenced(TABLE));
+    let out = extract_viz_blocks(&schemas(), &granted(), &prefetch_only_provenance(), &reply)
+        .expect("a block citing the prefetched tool must be extracted");
+
+    assert_eq!(out.blocks.len(), 1, "exactly one block was fenced");
+    assert_eq!(out.blocks[0]["source_tool"], "get_activities");
+    assert_eq!(
+        out.blocks[0]["rows"].as_array().map(Vec::len),
+        Some(2),
+        "the block must survive extraction with its rows intact"
+    );
+    assert!(
+        out.text.contains(&marker(0)),
+        "prose keeps a positional marker where the block sat: {}",
+        out.text
+    );
+    assert!(
+        !out.text.contains("dravr-viz"),
+        "the fence must not survive as literal text: {}",
+        out.text
+    );
+}
+
+/// Prefetch provenance is not a blanket pass: a block citing a tool that
+/// neither the prefetch nor the model ran is still refused. Otherwise recording
+/// the prefetch would have widened the gate into an escape hatch.
+#[test]
+fn prefetch_provenance_does_not_excuse_an_uncited_tool() {
+    let reply = format!("Ta charge grimpe.\n\n{}", fenced(CHART));
+    assert!(
+        extract_viz_blocks(&schemas(), &granted(), &prefetch_only_provenance(), &reply,).is_none(),
+        "a chart citing analyze_training_load must stay refused when only the prefetch ran"
+    );
 }

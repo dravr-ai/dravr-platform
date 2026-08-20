@@ -136,6 +136,14 @@ pub fn startup_query_preview(query: &str) -> String {
     query.chars().take(STARTUP_QUERY_PREVIEW_CHARS).collect()
 }
 
+/// The tool this stage invokes on the athlete's behalf.
+///
+/// Exported because a prefetch is a real tool run, just one the platform
+/// decided on rather than the model: downstream provenance checks — the
+/// `dravr-viz` anti-fabrication gate above all — have to see it, or a chart
+/// built from pre-loaded data reads as invented and gets refused.
+pub const PREFETCH_TOOL: &str = "get_activities";
+
 /// Pre-fetch activity data based on structured `DataRequirements`.
 ///
 /// Calls `get_activities` deterministically with exact parameters from the
@@ -194,7 +202,7 @@ pub async fn prefetch_activity_context(
     // `UniversalResponse` shape this prefetch already consumes via
     // `extract_prefetch_content`, so the rest of the stage is unchanged.
     let request = UniversalRequest {
-        tool_name: "get_activities".to_owned(),
+        tool_name: PREFETCH_TOOL.to_owned(),
         parameters: params,
         user_id: user_id.to_owned(),
         protocol: "chat".to_owned(),
@@ -230,6 +238,11 @@ pub async fn prefetch_activity_context(
 ///
 /// Without `data_requirements`, the startup query is injected as-is for
 /// the LLM to interpret (tool-calling fallback).
+///
+/// Returns `true` when a non-empty activity window reached the prompt — the
+/// caller records that as a [`PREFETCH_TOOL`] run so provenance checks can see
+/// the platform's own fetch. A startup query alone grounds nothing and returns
+/// `false`, as does an empty window.
 pub async fn inject_startup_context(
     executor: &Arc<UniversalExecutor>,
     llm_messages: &mut Vec<ChatMessage>,
@@ -238,12 +251,16 @@ pub async fn inject_startup_context(
     user_id: &str,
     tenant_id: TenantId,
     guided_flow_active: bool,
-) {
+) -> bool {
     let Some((startup_query, data_reqs)) =
         get_startup_context_if_applicable(history.len(), coach_ctx, guided_flow_active)
     else {
-        return;
+        return false;
     };
+
+    // Set only when a non-empty activity window actually reached the prompt.
+    // An empty window injects nothing, so it grounds nothing.
+    let mut prefetched = false;
 
     if let Some(data_reqs) = &data_reqs {
         // Full context assembly: pre-fetch activity data deterministically.
@@ -266,6 +283,7 @@ pub async fn inject_startup_context(
                 // injection exists to remove. Index 1 keeps it directly after
                 // the system prompt and before the athlete's turn.
                 llm_messages.insert(1, ChatMessage::user(&context_msg));
+                prefetched = true;
             }
         }
 
@@ -280,6 +298,8 @@ pub async fn inject_startup_context(
         log_inject("startup query (no data_requirements)", query);
         llm_messages.insert(1, ChatMessage::user(query));
     }
+
+    prefetched
 }
 
 /// Lowercase substrings that mark the latest user message as a turn whose
@@ -498,10 +518,14 @@ pub fn inject_activity_refresh(
 /// Must run AFTER [`super::compaction::apply_tier1_compaction`]: the injected
 /// block is then safe from summarization, and the insertion cannot desync the
 /// `source_ids`/`llm_messages` parallel vectors that compaction consumes.
+///
+/// Returns `true` when a refreshed window reached the prompt, which the caller
+/// records as a [`PREFETCH_TOOL`] run — same provenance contract as
+/// [`inject_startup_context`].
 pub async fn maybe_refresh_activity_context(
     inputs: ActivityRefreshInputs<'_>,
     llm_messages: &mut Vec<ChatMessage>,
-) {
+) -> bool {
     let ActivityRefreshInputs {
         executor,
         history,
@@ -517,23 +541,25 @@ pub async fn maybe_refresh_activity_context(
         latest_user_message,
         guided_flow_active,
     ) {
-        return;
+        return false;
     }
 
     // The gate above guaranteed a coach with a parseable activity window; this
     // re-extracts it for the fetch parameters (a deterministic re-parse, not a
     // second decision — the gate remains the single decision authority).
     let Some(data_reqs) = coach_ctx.and_then(parse_data_requirements) else {
-        return;
+        return false;
     };
 
     let Some(activity_context) =
         prefetch_activity_context(executor, user_id, tenant_id, &data_reqs).await
     else {
-        return;
+        return false;
     };
 
-    inject_activity_refresh(llm_messages, &activity_context);
+    // Propagate rather than assume: an empty window injects nothing, so it
+    // grounds nothing and must not be reported as a fetch that happened.
+    inject_activity_refresh(llm_messages, &activity_context)
 }
 
 /// Read-only inputs for [`maybe_refresh_activity_context`], bundled so the

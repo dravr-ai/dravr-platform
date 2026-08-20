@@ -27,7 +27,7 @@ use embacle_tool_host::ToolSession;
 
 use super::compaction::apply_tier1_compaction;
 use super::prefetch::{
-    inject_startup_context, maybe_refresh_activity_context, ActivityRefreshInputs,
+    inject_startup_context, maybe_refresh_activity_context, ActivityRefreshInputs, PREFETCH_TOOL,
 };
 
 /// Pre-dispatch prep plus the multi-turn tool execution loop.
@@ -112,7 +112,12 @@ pub(crate) async fn dispatch_llm_with_tools(
     );
 
     // Stage 10: Deterministic activity prefetch driven by coach DataRequirements.
-    inject_startup_context(
+    //
+    // The return value is provenance, not status: `true` means a real
+    // `get_activities` run put the athlete's activities in front of the model.
+    // Stage 14 folds that into `tools_called` so downstream gates can tell
+    // platform-fetched data from anything the model made up.
+    let mut prefetched_activities = inject_startup_context(
         &executor,
         llm_messages,
         history,
@@ -146,7 +151,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     // real activities, not the coach persona alone. Runs AFTER compaction so
     // the freshly injected block is never summarized away and cannot desync
     // the `source_ids`/`llm_messages` vectors compaction consumed above.
-    maybe_refresh_activity_context(
+    prefetched_activities |= maybe_refresh_activity_context(
         ActivityRefreshInputs {
             executor: &executor,
             history,
@@ -255,7 +260,23 @@ pub(crate) async fn dispatch_llm_with_tools(
         mcp_servers,
     };
     let loop_start = Instant::now();
-    let result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await?;
+    let mut result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await?;
+
+    // Record the prefetch as what it is: a tool run. Stage 10/12b invoked
+    // `get_activities` on the athlete's behalf and put the rows in the prompt,
+    // and the platform contract then tells the coach to use them WITHOUT
+    // re-fetching — so the model answering from pre-loaded data calls nothing
+    // and the loop reports an empty `tools_called`.
+    //
+    // Downstream that read as "no data was fetched", which is the opposite of
+    // what happened. The `dravr-viz` anti-fabrication gate refused every chart
+    // built from pre-loaded activities and left the raw fence in the reply, so
+    // the athlete got a wall of JSON instead of a graph (observed on Slack,
+    // 2026-08-20). Appended rather than inserted so a tool the model really did
+    // call still leads the list.
+    if prefetched_activities && !result.tools_called.iter().any(|t| t == PREFETCH_TOOL) {
+        result.tools_called.push(PREFETCH_TOOL.to_owned());
+    }
     let dispatch_ms = u64::try_from(loop_start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // Copilot CLI sometimes surfaces auth/entitlement failures as streamed
