@@ -134,3 +134,14 @@ absolute_paths = "deny"
 # Disallow anyhow::Context methods - use structured ProviderError types instead
 # Configuration in clippy.toml specifies which methods are banned
 disallowed_methods = "deny"
+
+# ============================================================================
+# Source convergence
+# ============================================================================
+# Every platform crate takes dravr-tronc from crates.io, as embacle already
+# does. dravr-stripe is the one consumer whose declaration we do not own, and
+# it names the git tag — which Cargo resolves as a second package, so the
+# Security Audit gate hard-fails on the duplicate. Redirect that git source
+# onto the published 0.7.1; the two source trees are byte-identical.
+[patch."https://github.com/dravr-ai/dravr-tronc.git"]
+dravr-tronc = "0.7.1"

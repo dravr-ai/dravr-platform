@@ -9,10 +9,10 @@
 use pierre_core::llm::MessageRole;
 use pierre_llm::{ChatMessage, FunctionDeclaration, FunctionResponse};
 use pierre_tool_runtime::tool_execution::{
-    extract_activity_list, format_tool_results_as_text, generate_tool_catalog,
-    inject_tool_catalog_into_system_prompt, parse_lenient_tool_call_blocks, parse_tool_call_blocks,
-    strip_simulation_artifacts,
+    generate_tool_catalog, inject_tool_catalog_into_system_prompt, parse_lenient_tool_call_blocks,
+    parse_tool_call_blocks, strip_simulation_artifacts,
 };
+use pierre_tool_runtime::tool_results::{extract_activity_list, format_tool_results_as_text};
 
 #[test]
 fn test_parse_single_tool_call() {

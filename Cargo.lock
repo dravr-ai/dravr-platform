@@ -1548,7 +1548,7 @@ version = "0.1.12"
 source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.1.12#643174e5378244dc28fc192a2af7832cb91f8720"
 dependencies = [
  "chrono",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "hex",
  "hmac",
  "reqwest 0.12.28",
@@ -1565,24 +1565,6 @@ name = "dravr-tronc"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "093da91f657ddd82a910366e11d9d3fa86f2b78402feae493b9e12ff7193ade9"
-dependencies = [
- "async-trait",
- "axum",
- "bitflags 2.11.1",
- "clap",
- "futures",
- "serde",
- "serde_json",
- "subtle",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "dravr-tronc"
-version = "0.7.1"
-source = "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1#bd25fe1b793fd22fd269afb536aa716ca30bf86a"
 dependencies = [
  "async-trait",
  "axum",
@@ -1720,7 +1702,7 @@ checksum = "63e8c153a617c2ecb471fb7bbcd2f09ac9aed1126b4fb5563079dff7fbe2ce13"
 dependencies = [
  "async-trait",
  "axum",
- "dravr-tronc 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dravr-tronc",
  "embacle",
  "rand 0.8.6",
  "serde_json",
@@ -3530,7 +3512,7 @@ version = "0.3.0"
 dependencies = [
  "bcrypt",
  "chrono",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "pierre-auth",
  "pierre-config",
  "pierre-core",
@@ -3631,7 +3613,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dravr-contremaitre",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "embacle-tool-host",
  "futures-util",
  "jsonschema",
@@ -3745,7 +3727,7 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-database",
@@ -3985,7 +3967,7 @@ version = "0.3.0"
 dependencies = [
  "chrono",
  "dravr-sciotte",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "gethostname",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -4004,7 +3986,7 @@ name = "pierre-mcp-schema"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "pierre-config",
  "pierre-core",
  "serde",
@@ -4382,7 +4364,7 @@ dependencies = [
  "dashmap",
  "dravr-equilibre",
  "dravr-riviere",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "futures-util",
  "hex",
  "pierre-agui",
@@ -4454,7 +4436,7 @@ dependencies = [
  "bitflags 2.11.1",
  "chrono",
  "chrono-tz",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "futures-util",
  "lru",
  "num-traits",
@@ -4533,7 +4515,7 @@ dependencies = [
  "dravr-contremaitre",
  "dravr-equilibre",
  "dravr-stripe",
- "dravr-tronc 0.7.1 (git+https://github.com/dravr-ai/dravr-tronc.git?tag=v0.7.1)",
+ "dravr-tronc",
  "ed25519-dalek",
  "embacle",
  "embacle-tool-host",

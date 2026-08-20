@@ -44,4 +44,9 @@ pub mod strava_pool;
 pub mod tokens;
 pub mod types;
 /// Admin endpoints for listing tenant users and managing their access.
+///
+/// LIMITATION(registre#43): no create or invite handler lives here, so an admin cannot
+/// pre-add a user from an email address alone. The only admin-side creation path is
+/// `POST /api/auth/admin/register` (`pierre_routes_auth::login::handle_register`), which
+/// requires a password chosen by the admin and has no web-app or api-client caller.
 pub mod users;

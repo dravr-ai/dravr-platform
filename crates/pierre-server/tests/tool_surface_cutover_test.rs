@@ -28,6 +28,7 @@ use common::{create_test_server_resources, create_test_user};
 use embacle_tool_host::ToolSurface;
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
 use serde_json::json;
 use uuid::Uuid;
@@ -36,11 +37,7 @@ use uuid::Uuid;
 const WITHHELD: &str = "save_training_plan";
 const ALWAYS_VISIBLE: &str = "get_activities";
 
-async fn surface_for(
-    resources: &Arc<pierre_mcp_server::mcp::resources::ServerContext>,
-    user_id: Uuid,
-    tenant: TenantId,
-) -> TurnToolSurface {
+fn surface_for(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) -> TurnToolSurface {
     let executor = Arc::new(
         UniversalToolExecutor::new(resources.clone())
             .with_conversation_id("conv-under-test".into()),
@@ -63,7 +60,7 @@ async fn the_surface_publishes_the_chat_callable_tools() {
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
-    let surface = surface_for(&resources, user_id, tenant).await;
+    let surface = surface_for(&resources, user_id, tenant);
     let tools = surface.list_tools().await;
 
     assert!(
@@ -90,7 +87,7 @@ async fn a_successful_call_carries_its_payload() {
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
-    let surface = surface_for(&resources, user_id, tenant).await;
+    let surface = surface_for(&resources, user_id, tenant);
     let outcome = surface.call("list_fitness_configs", &json!({})).await;
 
     assert!(
@@ -113,7 +110,7 @@ async fn an_unknown_tool_is_refused_not_faked() {
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
-    let surface = surface_for(&resources, user_id, tenant).await;
+    let surface = surface_for(&resources, user_id, tenant);
     let outcome = surface.call("analyze_my_vibes", &json!({})).await;
 
     assert!(
@@ -131,7 +128,7 @@ async fn a_guided_walk_withholds_the_write_tool_on_a_later_listing() {
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
-    let surface = surface_for(&resources, user_id, tenant).await;
+    let surface = surface_for(&resources, user_id, tenant);
 
     // No walk yet: the write tool is offered.
     let before = surface.list_tools().await;
