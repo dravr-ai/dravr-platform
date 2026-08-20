@@ -80,6 +80,12 @@ fn unknown_pillar_error(arg: &str) -> AppError {
 /// to a private chat, so a group walk would ask the athlete about motivations,
 /// sleep and stress in DM while the extraction worker stamped their answers
 /// under the *channel* tenant — a fact space disjoint from their own dossier.
+///
+/// LIMITATION(registre#44): `PillarsHandler` has no group-context form, so an
+/// athlete cannot walk the pillars where their coach can see. The gate is the
+/// symptom, not the gap: per-member flow state, a speaker-scoped fact-write
+/// tenant, a room-visible reply path and an interview-visibility consent
+/// distinct from `peer_sharing_consent` all have to exist first.
 pub struct PillarsHandler;
 
 #[async_trait]

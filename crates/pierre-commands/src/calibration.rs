@@ -41,6 +41,12 @@ const PROFILE_KEY_LAST_STARTED_AT: &str = "last_started_at";
 /// the athlete about injuries and recovery in DM while the extraction worker
 /// stamped their answers under the *channel* tenant — a fact space disjoint
 /// from their own dossier.
+///
+/// LIMITATION(registre#44): `CalibrateHandler` has no group-context form, so an
+/// athlete cannot calibrate where their coach can see. Lifting the DM gate alone
+/// is not the fix: `OnboardingState` is one column on the shared conversation
+/// row, so a room admits a single walk and reads every member's next message as
+/// its answer.
 pub struct CalibrateHandler;
 
 /// The previous interview's start, if this athlete has calibrated before.
