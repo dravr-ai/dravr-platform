@@ -1,7 +1,7 @@
 # ABOUTME: Cleanup - delete the coach created in the editor flow test
 # ABOUTME: Navigates to coach detail screen and uses the delete button
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

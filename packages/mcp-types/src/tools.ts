@@ -472,7 +472,7 @@ export interface ConnectProviderParams {
   /** Provider to connect (e.g., 'strava', 'fitbit', 'garmin') */
   provider: string;
 
-  /** Optional redirect URL for mobile app OAuth flows (supports pierre://, exp://, http://localhost, https://) */
+  /** Optional redirect URL for mobile app OAuth flows (supports dravr://, exp://, http://localhost, https://) */
   redirect_url?: string;
 }
 

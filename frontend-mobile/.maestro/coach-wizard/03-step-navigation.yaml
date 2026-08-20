@@ -1,7 +1,7 @@
 # ABOUTME: Test coach editor scrollable sections
 # ABOUTME: Verifies system prompt section is expanded and tags section is accessible
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

@@ -1,7 +1,7 @@
 # ABOUTME: Test Social Feed screen display and interaction
 # ABOUTME: Verifies social feed loads correctly with items or empty state
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

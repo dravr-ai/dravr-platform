@@ -305,8 +305,8 @@ jobs:
           # Replace native app ID with Expo Go app ID in all Maestro YAML files.
           # The checked-in helpers (launch-app, login, dismiss-*) already use
           # host.exp.Exponent natively; this sed catches remaining test files and
-          # other helpers that still use the native bundle ID com.pierre.fitness.
-          find frontend-mobile/.maestro -name "*.yaml" -exec sed -i '' 's/appId: com.pierre.fitness/appId: host.exp.Exponent/g' {} +
+          # other helpers that still use the native bundle ID ai.dravr.app.
+          find frontend-mobile/.maestro -name "*.yaml" -exec sed -i '' 's/appId: ai.dravr.app/appId: host.exp.Exponent/g' {} +
           echo "=== launch-app.yaml ==="
           cat frontend-mobile/.maestro/helpers/launch-app.yaml
           echo "=== login.yaml ==="

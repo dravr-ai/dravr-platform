@@ -89,7 +89,7 @@ export function ConnectionsScreen() {
 
       // Create return URL for the mobile app (deep link)
       // Server will redirect to this URL after OAuth completes
-      // Uses custom scheme (pierre://) for consistent behavior in dev and prod
+      // Uses custom scheme (dravr://) for consistent behavior in dev and prod
       const returnUrl = getOAuthCallbackUrl();
 
       // Call the mobile OAuth init endpoint which returns the authorization URL

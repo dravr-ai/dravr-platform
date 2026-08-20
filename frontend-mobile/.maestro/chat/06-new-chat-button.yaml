@@ -1,7 +1,7 @@
 # ABOUTME: Test creating new chat from the tab bar quick action
 # ABOUTME: Converted from chat.test.js "should create new chat when + button is pressed"
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

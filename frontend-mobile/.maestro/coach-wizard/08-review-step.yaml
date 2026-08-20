@@ -1,7 +1,7 @@
 # ABOUTME: Test token counter visibility in coach editor
 # ABOUTME: Verifies the token counter appears when system prompt has content
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

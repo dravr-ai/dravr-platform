@@ -1,7 +1,7 @@
 # ABOUTME: Test coach editor navigation from coach library
 # ABOUTME: Taps create button and verifies the editor screen opens
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

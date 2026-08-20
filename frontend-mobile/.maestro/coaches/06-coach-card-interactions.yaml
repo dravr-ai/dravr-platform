@@ -1,7 +1,7 @@
 # ABOUTME: Test coach card interactions (create, tap to detail, verify)
 # ABOUTME: Creates a test coach, verifies it in the library, taps to detail screen
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

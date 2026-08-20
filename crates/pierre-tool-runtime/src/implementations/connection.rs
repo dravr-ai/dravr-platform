@@ -62,7 +62,7 @@ fn user_facing_canonical(name: &str) -> Option<&'static str> {
 
 /// Validate redirect URL scheme for OAuth mobile flows
 fn validate_redirect_url_scheme(url: &str) -> bool {
-    url.starts_with("pierre://")
+    url.starts_with("dravr://")
         || url.starts_with("exp://")
         || url.starts_with("http://localhost")
         || url.starts_with("https://")
@@ -237,7 +237,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional redirect URL for mobile app OAuth flows (supports pierre://, exp://, http://localhost, https://)".to_owned(),
+                    "Optional redirect URL for mobile app OAuth flows (supports dravr://, exp://, http://localhost, https://)".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -347,7 +347,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         if let Some(url) = redirect_url {
             if !validate_redirect_url_scheme(url) {
                 return Ok(ToolResult::error(json!({
-                    "error": "Invalid redirect_url scheme. Allowed: pierre://, exp://, http://localhost, https://"
+                    "error": "Invalid redirect_url scheme. Allowed: dravr://, exp://, http://localhost, https://"
                 })));
             }
         }

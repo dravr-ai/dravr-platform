@@ -209,7 +209,7 @@ jobs:
         run: |
           # Replace app IDs with Android Expo Go package name (lowercase).
           # Two patterns: native bundle ID and iOS Expo Go ID (from checked-in helpers).
-          find frontend-mobile/.maestro -name "*.yaml" -exec sed -i 's/appId: com.pierre.fitness/appId: host.exp.exponent/g' {} +
+          find frontend-mobile/.maestro -name "*.yaml" -exec sed -i 's/appId: ai.dravr.app/appId: host.exp.exponent/g' {} +
           find frontend-mobile/.maestro -name "*.yaml" -exec sed -i 's/appId: host.exp.Exponent/appId: host.exp.exponent/g' {} +
 
           # Override launch helper for Android Expo Go.

@@ -14,7 +14,7 @@ import * as Linking from 'expo-linking';
 
 jest.mock('expo-web-browser', () => ({ openAuthSessionAsync: jest.fn() }));
 jest.mock('expo-linking', () => ({ parse: jest.fn() }));
-jest.mock('../../../utils/oauth', () => ({ getOAuthCallbackUrl: () => 'pierre://oauth-callback' }));
+jest.mock('../../../utils/oauth', () => ({ getOAuthCallbackUrl: () => 'dravr://oauth-callback' }));
 jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true, user: { id: 'u1', display_name: 'Jean' }, logout: jest.fn() }),
 }));
@@ -65,7 +65,7 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
   });
 
   it('falls back to the Sciotte modal when the Strava OAuth callback returns an error', async () => {
-    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'pierre://oauth-callback?success=false&error=cap_exceeded' });
+    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=cap_exceeded' });
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'cap_exceeded' } });
 
     renderScreen();

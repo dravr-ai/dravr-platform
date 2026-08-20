@@ -1,7 +1,7 @@
 # ABOUTME: Test complete coach editor flow to create a coach
 # ABOUTME: Fills required fields in the single-page editor and saves
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

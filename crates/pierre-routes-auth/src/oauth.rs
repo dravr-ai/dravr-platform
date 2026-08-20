@@ -558,7 +558,7 @@ pub async fn handle_mobile_oauth_init(
         let extra_origins = &resources.config.security.allowed_mobile_redirect_origins;
         if !oauth_redirects::is_allowed_redirect_url(url, base_url, extra_origins) {
             return Err(AppError::invalid_input(
-                "Invalid redirect_url. Must use pierre://, exp://, http://localhost, or an HTTPS origin matching the server's base_url.",
+                "Invalid redirect_url. Must use dravr://, exp://, http://localhost, or an HTTPS origin matching the server's base_url.",
             ));
         }
     }

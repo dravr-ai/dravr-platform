@@ -1,7 +1,7 @@
 # ABOUTME: Test fork option for system coaches
 # ABOUTME: Verifies that system coaches show a Fork option in the action menu
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

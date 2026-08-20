@@ -1,7 +1,7 @@
 # ABOUTME: Test coach editor layout shows form elements
 # ABOUTME: Verifies title input, category picker, and description are visible
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

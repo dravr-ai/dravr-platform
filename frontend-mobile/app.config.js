@@ -3,7 +3,7 @@
 
 module.exports = {
   name: 'Dravr',
-  slug: 'pierre-mobile',
+  slug: 'dravr-app',
   version: '1.0.0',
   runtimeVersion: {
     policy: 'sdkVersion',
@@ -14,7 +14,7 @@ module.exports = {
   // back to the tuned dark variant on OLED night use. See ThemeProvider in
   // app/_layout.tsx for the runtime switch.
   userInterfaceStyle: 'automatic',
-  scheme: 'pierre',
+  scheme: 'dravr',
   splash: {
     image: './assets/splash-icon.png',
     resizeMode: 'contain',
@@ -22,9 +22,10 @@ module.exports = {
   },
   ios: {
     supportsTablet: true,
-    // Keep the legacy bundle id — renaming breaks OAuth deep links, Keychain
-    // storage, and push tokens. Flag for a separate migration.
-    bundleIdentifier: 'com.pierre.fitness',
+    // Apple freezes the bundle id once an app record ships, so this is set
+    // before the first TestFlight submission. Deep links are unaffected: they
+    // come from `scheme` above, not from the bundle id.
+    bundleIdentifier: 'ai.dravr.app',
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
       NSMicrophoneUsageDescription:
@@ -39,7 +40,7 @@ module.exports = {
       backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
     },
     edgeToEdgeEnabled: true,
-    package: 'com.pierre.fitness',
+    package: 'ai.dravr.app',
     permissions: ['android.permission.RECORD_AUDIO'],
   },
   web: {
@@ -48,7 +49,7 @@ module.exports = {
   owner: 'dravr',
   extra: {
     eas: {
-      projectId: '6c63325e-a0da-49cf-b4bd-e6aeae6fd981',
+      projectId: '74a36e57-41ac-4c07-95bc-89a1cde64bc7',
     },
   },
   plugins: [

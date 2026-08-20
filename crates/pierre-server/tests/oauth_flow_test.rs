@@ -9,9 +9,9 @@
 use pierre_mcp_server::oauth_redirects;
 
 #[test]
-fn test_app_scheme_pierre_allowed() {
+fn test_app_scheme_dravr_allowed() {
     assert!(oauth_redirects::is_allowed_redirect_url(
-        "pierre://oauth/callback",
+        "dravr://oauth/callback",
         "https://api.dravr.ai",
         &[],
     ));
@@ -114,7 +114,7 @@ fn test_data_scheme_rejected() {
 fn test_extract_state_with_allowed_redirect() {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 
-    let redirect = "pierre://oauth/callback";
+    let redirect = "dravr://oauth/callback";
     let encoded = URL_SAFE_NO_PAD.encode(redirect.as_bytes());
     let state = format!("user-id:random-uuid:{encoded}");
 
@@ -149,8 +149,8 @@ fn test_extract_state_without_redirect() {
 fn test_oauth_return_url_appends_query_when_none() {
     // Mobile deep link / SPA return: no existing query, so the result params
     // are joined with `?`.
-    let url = oauth_redirects::oauth_return_url("pierre://oauth-callback", "strava", true, None);
-    assert_eq!(url, "pierre://oauth-callback?provider=strava&success=true");
+    let url = oauth_redirects::oauth_return_url("dravr://oauth-callback", "strava", true, None);
+    assert_eq!(url, "dravr://oauth-callback?provider=strava&success=true");
 }
 
 #[test]

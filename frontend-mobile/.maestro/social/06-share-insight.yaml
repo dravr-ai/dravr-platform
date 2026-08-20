@@ -1,7 +1,7 @@
 # ABOUTME: Test Share Insight flow from suggestions banner
 # ABOUTME: Share button is inside conditional suggestions banner
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

@@ -64,8 +64,23 @@ slate, bronze) fading in from the left into the brand greens. The badge is self-
 ### Framing variants
 | Variant | Files | Composition |
 |---------|-------|-------------|
-| **Badge** | `dravr-icon.svg`, `dravr-favicon.svg`, web/server `dravr-logo*.svg`, mobile `icon`/`favicon`/`dravr-logo`, splash | Forest-green rounded square + Momentum ribbons + node. Mobile `icon` is full-bleed (the OS masks corners). |
-| **Foreground** | mobile `adaptive-icon.svg` | Transparent Momentum ribbons inside the Android ~66% safe zone, atop the green background layer. |
+| **Badge** | `dravr-icon.svg`, `dravr-favicon.svg`, web/server `dravr-logo*.svg`, mobile `dravr-logo` | Forest-green rounded square + Momentum ribbons + node. |
+
+## Mobile app icon — "Boreal Ripple"
+
+The installable app carries a different mark from the web surfaces: a boreal
+forest and its reflection on the left, concentric ripple arcs on the right, in
+forest ink on the `#f9f9f6` surface. It covers the mobile `icon`, `adaptive-icon`,
+`splash-icon` and `favicon`.
+
+This is a real split, not a migration in flight: every web, server and marketing
+surface still ships Momentum, and reconciling the two is not scheduled. The
+master and the regeneration pipeline live in
+`frontend-mobile/assets/sources/` — see the README there for the fill
+percentages, the Android safe zone, and why the App Store icon carries no alpha.
+
+Like the bare ribbons, this mark gets muddy small; unlike them it is used small
+anyway, so the 48px favicon reads as a dark disc.
 
 ### Logo Don'ts
 - Don't bake the "Dravr" wordmark into the icon — it is a mark-only symbol (the wordmark is set in HTML using Plus Jakarta Sans).

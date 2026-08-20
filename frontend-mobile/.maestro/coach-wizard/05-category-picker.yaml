@@ -1,7 +1,7 @@
 # ABOUTME: Test category picker functionality in coach editor
 # ABOUTME: Verifies selecting a category from the modal picker
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

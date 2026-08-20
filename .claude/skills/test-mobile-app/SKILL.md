@@ -125,9 +125,9 @@ Two bundle ids are in play and confusing them wastes a run:
 | Runtime | Bundle id | How it loads |
 |---|---|---|
 | Expo Go (default) | `host.exp.Exponent` | deep link `exp://127.0.0.1:8082` |
-| Native / dev-client build | `com.pierre.fitness` | installed app, Metro on 8082 |
+| Native / dev-client build | `ai.dravr.app` | installed app, Metro on 8082 |
 
-`.maestro/config.yaml` declares `appId: com.pierre.fitness`, but every flow enters through
+`.maestro/config.yaml` declares `appId: ai.dravr.app`, but every flow enters through
 `helpers/launch-app.yaml`, which declares `host.exp.Exponent` and opens the `exp://` link. That
 is deliberate, not drift.
 
@@ -419,7 +419,7 @@ that decide whether your new test guards anything:
 # ABOUTME: <what this flow covers, one line>
 # ABOUTME: <the regression it guards>
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 - runFlow:

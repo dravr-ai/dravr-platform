@@ -1,7 +1,7 @@
 # ABOUTME: Test social feed empty state and interaction
 # ABOUTME: Social settings toggle is not yet accessible via UI navigation
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

@@ -18,7 +18,7 @@ jest.mock('expo-linking', () => ({
   parse: jest.fn(),
 }));
 jest.mock('../../../utils/oauth', () => ({
-  getOAuthCallbackUrl: () => 'pierre://oauth-callback',
+  getOAuthCallbackUrl: () => 'dravr://oauth-callback',
 }));
 jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true }),
@@ -78,7 +78,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     const connect = await screen.findByText('Connect');
     fireEvent.press(connect);
 
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('strava', 'pierre://oauth-callback'));
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('strava', 'dravr://oauth-callback'));
     expect(screen.queryByText('sciotte-modal:strava')).toBeNull();
   });
 
@@ -95,7 +95,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
 
   it('falls back to the Sciotte modal when the Strava OAuth callback returns an error', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
-    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'pierre://oauth-callback?success=false&error=cap_exceeded' });
+    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=cap_exceeded' });
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'cap_exceeded' } });
 
     render(<ConnectionsScreen />);

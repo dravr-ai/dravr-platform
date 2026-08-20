@@ -1,7 +1,7 @@
 # ABOUTME: Test text expansion modal for system prompt
 # ABOUTME: Verifies the expand button opens a fullscreen editing modal
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

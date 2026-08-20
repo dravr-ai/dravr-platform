@@ -9,12 +9,12 @@ use urlencoding::encode;
 
 /// App-specific URL schemes that are always allowed for mobile OAuth redirects.
 /// These are deep-link schemes that cannot be intercepted by external websites.
-const APP_SCHEMES: &[&str] = &["pierre://", "exp://", "http://localhost"];
+const APP_SCHEMES: &[&str] = &["dravr://", "exp://", "http://localhost"];
 
 /// Validate a mobile OAuth redirect URL against the allowlist.
 ///
 /// Allowed redirect targets:
-/// - `pierre://` deep links (mobile app)
+/// - `dravr://` deep links (mobile app)
 /// - `exp://` deep links (Expo development)
 /// - `http://localhost` (local development)
 /// - `https://` URLs whose origin matches `base_url` or an entry in
@@ -148,7 +148,7 @@ pub fn decode_and_validate_redirect_url(
 /// Append the `provider`/`success`/`error` result params to a post-OAuth URL.
 ///
 /// Chooses `&` when `base` already carries a query string and `?` otherwise.
-/// Mobile deep links (`pierre://oauth-callback`) and the SPA (`/oauth-callback`)
+/// Mobile deep links (`dravr://oauth-callback`) and the SPA (`/oauth-callback`)
 /// have no query so they get `?`; the channel-initiated hosted connect flow
 /// returns to `/providers/connect?token=…`, which already has one and must get
 /// `&` — otherwise a second `?` would corrupt the URL and the picker would drop

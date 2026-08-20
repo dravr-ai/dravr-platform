@@ -1,7 +1,7 @@
 # ABOUTME: Visual tests for social settings accessibility
 # ABOUTME: Social settings is not yet navigable from main settings screen
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login

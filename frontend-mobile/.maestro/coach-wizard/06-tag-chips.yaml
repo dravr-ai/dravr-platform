@@ -1,7 +1,7 @@
 # ABOUTME: Test tag chips add/remove functionality in coach editor
 # ABOUTME: Verifies adding and removing tags via the collapsible tags section
 
-appId: com.pierre.fitness
+appId: ai.dravr.app
 
 ---
 # Launch and login
