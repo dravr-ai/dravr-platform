@@ -88,6 +88,14 @@ enable_sciotte_service = true
 # until Phase 4).
 backend_sciotte_remote = true
 
+# registre#36 close-out: Cloud Run IAM on the scraper (allow_unauthenticated
+# = false + run.invoker for the app SA), so a reachable URL stops meaning an
+# open one and any future route that forgets an app-level gate is still
+# rejected before the container. Flipped 2026-08-21, after both the scraper
+# (identity-token verifier, rev 00013) and the API (IdTokenSource caller,
+# rev 00822) were serving the token auth this depends on.
+backend_sciotte_iam = true
+
 # Coach visuals: deploy the photograveur chart-press service (min=0,
 # cpu_idle=true — ~$0 idle).
 enable_photograveur_service = true
