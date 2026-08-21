@@ -200,6 +200,7 @@ mod inject_tests {
             last_activity_per_provider: HashMap::new(),
             recent_activities: vec![],
             needs_reauth_providers: vec![],
+            served_stale: false,
             computed_at: Utc::now(),
         }
     }
@@ -430,6 +431,79 @@ mod inject_tests {
         assert!(
             out.contains("PhilPeer needs to reconnect: whoop"),
             "alert must name the member and the dead provider, got: {out}"
+        );
+    }
+
+    /// A visible member whose snapshot was served from an unrefreshed cache
+    /// surfaces a "Stale snapshots" directive: fetch fresh data via
+    /// `get_group_member_activities` before answering, and never read a stale
+    /// snapshot's activity dates as connection health. This is the peer
+    /// analogue of the self path's freshness hint — its absence is how a
+    /// healthy Strava connection got narrated as "pas resynchronisé depuis
+    /// 33 jours" around an inverted recovery verdict (2026-08-13).
+    #[tokio::test]
+    async fn inject_surfaces_stale_snapshot_directive_for_visible_member() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (requester, tenant_id) = seed_user(&resources, "stalereq").await;
+        let coach_id = seed_coach(&resources, requester, tenant_id).await;
+        let peer = seed_bare_user(&resources, "stalepeer").await;
+
+        let gid = create_group(
+            &resources,
+            tenant_id,
+            coach_id,
+            requester,
+            "Stale Squad",
+            true,
+        )
+        .await;
+        add_member(
+            &resources,
+            gid,
+            requester,
+            tenant_id,
+            GroupRole::Member,
+            false,
+        )
+        .await;
+        add_member(&resources, gid, peer, tenant_id, GroupRole::Member, true).await;
+
+        let mut peer_snapshot = snapshot(peer, "RaphPeer");
+        peer_snapshot.served_stale = true;
+        let snapshots = vec![snapshot(requester, "RequesterRunner"), peer_snapshot];
+
+        let out = resources
+            .group_service()
+            .inject_group_context(
+                BASE_PROMPT,
+                &coach_id.to_string(),
+                requester,
+                tenant_id,
+                Some(&gid.to_string()),
+                &snapshots,
+            )
+            .await
+            .unwrap();
+
+        let stale_section = out
+            .split("## Stale snapshots")
+            .nth(1)
+            .unwrap_or_else(|| panic!("expected a stale-snapshots section, got: {out}"));
+        assert!(
+            stale_section.contains("- RaphPeer"),
+            "the directive must name the stale member, got: {stale_section}"
+        );
+        assert!(
+            stale_section.contains("get_group_member_activities"),
+            "the directive must name the tool that fetches fresh data, got: {stale_section}"
+        );
+        assert!(
+            stale_section.contains("never tell anyone to reconnect"),
+            "the directive must forbid reading staleness as connection health, got: {stale_section}"
+        );
+        assert!(
+            !stale_section.contains("RequesterRunner"),
+            "a fresh member must not appear in the stale section, got: {stale_section}"
         );
     }
 

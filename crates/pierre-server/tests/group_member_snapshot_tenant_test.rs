@@ -181,4 +181,100 @@ mod snapshot_tenant_tests {
             snapshots[0].needs_reauth_providers
         );
     }
+
+    /// A warm-but-stale cache whose bounded refresh cannot freshen anything
+    /// (here: a second connected provider with no rows and no credentials)
+    /// must serve the cached rows AND mark the snapshot `served_stale` — the
+    /// signal the context renderer turns into a fetch-fresh-data directive.
+    /// The rows themselves must survive: a refresh whose providers all fail
+    /// must never replace real cached activities with emptiness.
+    #[tokio::test]
+    async fn stale_unrefreshable_cache_is_served_but_marked() {
+        let resources = create_test_server_resources().await.unwrap();
+        let member = seed_user(&resources, "stalesnap").await;
+        let tenant_a = create_tenant_owned_by(&resources, member).await;
+
+        // Strava: cached rows (warm). WHOOP: connected but rowless, which
+        // makes the member's cache stale as a whole; with no stored token the
+        // refresh attempt completes immediately without freshening it.
+        for provider in ["strava", "whoop"] {
+            resources
+                .common
+                .repos
+                .provider_connections
+                .register_connection(member, tenant_a, provider, &ConnectionType::OAuth, None)
+                .await
+                .unwrap();
+        }
+        resources
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities(member, &tenant_a, "strava", &[recent_ride("ride-stale-1")])
+            .await
+            .unwrap();
+
+        let fallback_tenant = TenantId::generate();
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+
+        let snapshots = fetch_member_snapshots(&runtime, &[member], fallback_tenant).await;
+
+        assert_eq!(snapshots.len(), 1);
+        let snap = &snapshots[0];
+        assert!(
+            snap.served_stale,
+            "an unrefreshable stale cache must mark the snapshot served_stale"
+        );
+        assert!(
+            snap.weekly_activity_count >= 1,
+            "the cached ride must still be served — a failed refresh must not \
+             replace real rows with emptiness, got weekly_activity_count={}",
+            snap.weekly_activity_count
+        );
+        assert!(
+            snap.weekly_volume_km > 0.0,
+            "cached volume must survive the failed refresh, got {}",
+            snap.weekly_volume_km
+        );
+    }
+
+    /// The control: a member whose every connected provider has fresh cached
+    /// rows is NOT marked stale — the directive must never fire for members
+    /// whose snapshot the turn can trust.
+    #[tokio::test]
+    async fn fresh_cache_is_not_marked_stale() {
+        let resources = create_test_server_resources().await.unwrap();
+        let member = seed_user(&resources, "freshsnap").await;
+        let tenant_a = create_tenant_owned_by(&resources, member).await;
+
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(member, tenant_a, "strava", &ConnectionType::OAuth, None)
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities(member, &tenant_a, "strava", &[recent_ride("ride-fresh-1")])
+            .await
+            .unwrap();
+
+        let fallback_tenant = TenantId::generate();
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+
+        let snapshots = fetch_member_snapshots(&runtime, &[member], fallback_tenant).await;
+
+        assert_eq!(snapshots.len(), 1);
+        assert!(
+            !snapshots[0].served_stale,
+            "a fully fresh cache must not carry the stale marker"
+        );
+        assert!(
+            snapshots[0].weekly_activity_count >= 1,
+            "the fresh ride must be served"
+        );
+    }
 }

@@ -291,8 +291,37 @@ impl GroupService {
             )
         };
 
+        // Stale snapshots: the third member state, distinct from both "quiet"
+        // (fresh snapshot, no recent training) and "broken" (connection alerts
+        // above). A stale snapshot's numbers and activity dates describe an
+        // old cache, and without this directive the model has been observed
+        // narrating that age as a provider fault ("son Strava n'a pas
+        // resynchronisé depuis 33 jours — il devrait le reconnecter") while
+        // the member's connection was healthy — the 2026-08-13 incident where
+        // that story wrapped an inverted recovery verdict.
+        let mut stale_lines: Vec<String> = visible_snapshots
+            .iter()
+            .filter(|s| s.served_stale)
+            .map(|s| format!("- {}", s.display_name))
+            .collect();
+        let stale_directives = if stale_lines.is_empty() {
+            String::new()
+        } else {
+            stale_lines.sort();
+            format!(
+                "\n\n## Stale snapshots\n\
+                These members' snapshots were served from a cache that could not be \
+                refreshed for this turn. Before answering ANYTHING about them, call \
+                `get_group_member_activities` to fetch their current data. A stale \
+                snapshot's activity dates say nothing about the member's provider \
+                connection — never tell anyone to reconnect or resync a provider unless \
+                it is listed under Connection alerts:\n{}",
+                stale_lines.join("\n")
+            )
+        };
+
         Ok(format!(
-            "{base_system_prompt}{context_block}{reauth_alerts}"
+            "{base_system_prompt}{context_block}{reauth_alerts}{stale_directives}"
         ))
     }
 

@@ -388,6 +388,15 @@ pub struct MemberFitnessSnapshot {
     /// provider ("Phil's WHOOP needs reconnecting") instead of treating it as merely quiet.
     /// Empty when all of the member's connections are healthy.
     pub needs_reauth_providers: Vec<String>,
+    /// True when this member's activities came from a cache that was stale and
+    /// could not be freshened within the turn's refresh budget. The group
+    /// context renderer turns this into a directive: call
+    /// `get_group_member_activities` for fresh data before answering about
+    /// this member, and never read activity recency in a stale snapshot as
+    /// connection health. Distinct from both "quiet" (fresh snapshot, no
+    /// recent training) and "broken" ([`Self::needs_reauth_providers`]).
+    #[serde(default)]
+    pub served_stale: bool,
     /// When this snapshot was computed
     pub computed_at: DateTime<Utc>,
 }

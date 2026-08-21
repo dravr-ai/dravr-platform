@@ -42,6 +42,7 @@ fn snapshot(ctl: f64, atl: f64, tsb: f64) -> MemberFitnessSnapshot {
         last_activity_per_provider: HashMap::new(),
         recent_activities: Vec::new(),
         needs_reauth_providers: Vec::new(),
+        served_stale: false,
         computed_at: Utc::now(),
     }
 }

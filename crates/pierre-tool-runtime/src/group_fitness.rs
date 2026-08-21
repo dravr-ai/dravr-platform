@@ -21,7 +21,7 @@ use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
 use pierre_core::models::FormBand;
-use pierre_core::models::{Activity, ProviderConnection, TenantId};
+use pierre_core::models::{Activity, ProviderConnection, RefreshConfig, TenantId};
 use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
@@ -753,19 +753,27 @@ fn member_connection_tenants(
 /// and deduplicated. The same provider connected under two tenants can surface
 /// a workout twice, so a final dedup runs across the merged set even though each
 /// per-tenant fetch already dedups within itself.
+/// The second element is true when ANY tenant's rows were served stale — one
+/// unrefreshed leg is enough to make the merged training load untrustworthy.
 async fn fetch_member_activities_across_tenants(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenants: &[TenantId],
-) -> Vec<Activity> {
+) -> (Vec<Activity>, bool) {
     let mut all = Vec::new();
+    let mut any_stale = false;
     for &tenant_id in tenants {
-        all.extend(fetch_member_activities(runtime, user_id, tenant_id).await);
+        let (activities, served_stale) = fetch_member_activities(runtime, user_id, tenant_id).await;
+        all.extend(activities);
+        any_stale = any_stale || served_stale;
     }
     if tenants.len() > 1 {
-        return TimeWindowDeduplicator::from_env().deduplicate(all);
+        return (
+            TimeWindowDeduplicator::from_env().deduplicate(all),
+            any_stale,
+        );
     }
-    all
+    (all, any_stale)
 }
 
 /// Fetch a single member's fitness snapshot.
@@ -801,7 +809,8 @@ async fn fetch_single_member_snapshot(
         });
 
     let tenants = member_connection_tenants(user_id, &connections, fallback_tenant_id);
-    let activities = fetch_member_activities_across_tenants(runtime, user_id, &tenants).await;
+    let (activities, served_stale) =
+        fetch_member_activities_across_tenants(runtime, user_id, &tenants).await;
     // Emit one log line per fetched activity so an operator can verify
     // what reached the training-load calc when a snapshot looks stale
     // (e.g. "Phil rode 250km yesterday but ATL=19" — either the ride
@@ -842,6 +851,7 @@ async fn fetch_single_member_snapshot(
         .filter(|c| c.status.requires_reauth())
         .map(|c| c.provider.clone())
         .collect();
+    snapshot.served_stale = served_stale;
     snapshot
 }
 
@@ -849,11 +859,17 @@ async fn fetch_single_member_snapshot(
 ///
 /// Fetches from ALL providers, merges, and deduplicates to produce a complete
 /// activity list for training load computation.
+///
+/// The second element is true when the rows come from a cache that was stale
+/// and could not be freshened within the turn's refresh budget — the caller
+/// marks the snapshot [`MemberFitnessSnapshot::served_stale`] so the context
+/// renderer can direct the model to fetch fresh data instead of narrating the
+/// staleness as a provider problem.
 async fn fetch_member_activities(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
-) -> Vec<Activity> {
+) -> (Vec<Activity>, bool) {
     let data = runtime.data();
     let providers = get_connected_providers(&data, user_id, tenant_id).await;
     if providers.is_empty() {
@@ -862,7 +878,7 @@ async fn fetch_member_activities(
             tenant_id = %tenant_id,
             "Snapshot: member has no connected providers — emitting empty snapshot (weekly counts and CTL/ATL/TSB will all be zero/None)"
         );
-        return Vec::new();
+        return (Vec::new(), false);
     }
 
     let now = Utc::now();
@@ -888,13 +904,24 @@ async fn fetch_member_activities(
 
     if cached.is_empty() {
         // Cold cache: fetch live now; write-through persists for next time.
-        return fetch_and_persist_live(runtime, &providers, user_id, tenant_id).await;
+        return (
+            fetch_and_persist_live(runtime, &providers, user_id, tenant_id).await,
+            false,
+        );
     }
 
-    // Warm cache: revalidate in the background only when stale, then serve cached.
-    if activity_cache_is_stale(&data, user_id, tenant_id, &providers, now).await {
-        spawn_activity_revalidation(runtime, providers, user_id, tenant_id);
-    }
+    // Warm-but-stale cache: refresh within the same bounded budget the self
+    // path spends (`RefreshConfig::wait_for_refresh_timeout`) instead of
+    // detaching the refresh and serving rows the very turn that kicked it —
+    // the 2026-08-13 incident where a coach read a stale TSB of +43 ("très
+    // frais") while the refresh that would have shown −66 (overreaching)
+    // landed 3 seconds after the answer.
+    let (cached, served_stale) =
+        if activity_cache_is_stale(&data, user_id, tenant_id, &providers, now).await {
+            refresh_stale_cache(runtime, &providers, user_id, tenant_id, now, cached).await
+        } else {
+            (cached, false)
+        };
 
     // Dedup on read. Write-through persists each provider's activities under its
     // own cache key, so a workout synced from two providers (e.g. Strava +
@@ -907,9 +934,61 @@ async fn fetch_member_activities(
         user_id = %user_id,
         before_dedup,
         after_dedup = cached.len(),
+        served_stale,
         "Snapshot: served activities from cache (stale-while-revalidate, deduplicated)"
     );
-    cached
+    (cached, served_stale)
+}
+
+/// Refresh a warm-but-stale cache within the bounded budget, re-read the rows
+/// write-through produced, and report whether what is served is still stale.
+///
+/// The re-read is the point: fresh rows land only via write-through, so the
+/// refresh task's own return value is never served — a refresh whose providers
+/// all failed must not replace real cached rows with nothing. `cached` is the
+/// pre-refresh row set, served as the fallback when the re-read itself errors.
+async fn refresh_stale_cache(
+    runtime: &Arc<dyn ToolRuntime>,
+    providers: &[String],
+    user_id: Uuid,
+    tenant_id: TenantId,
+    now: DateTime<Utc>,
+    cached: Vec<Activity>,
+) -> (Vec<Activity>, bool) {
+    let completed = revalidate_within_budget(runtime, providers.to_vec(), user_id, tenant_id).await;
+
+    let data = runtime.data();
+    let window_start = now - Duration::days(activity_cache_retention_days());
+    let read_limit = i64::try_from(
+        runtime
+            .config()
+            .activity_fetch_limit
+            .saturating_mul(providers.len()),
+    )
+    .unwrap_or(i64::MAX);
+    let rows = match data
+        .repos()
+        .activity_cache
+        .get_cached_activities(user_id, &tenant_id, None, window_start, now, read_limit)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            info!(
+                user_id = %user_id,
+                error = %e,
+                "Activity cache: re-read after revalidation failed; serving the pre-refresh rows"
+            );
+            cached
+        }
+    };
+
+    // Still-stale after the attempt (budget elapsed, another turn's refresh in
+    // flight, or dead providers): the rows are served, but marked so the
+    // renderer directs the model to fetch fresh data.
+    let served_stale =
+        !completed || activity_cache_is_stale(&data, user_id, tenant_id, providers, now).await;
+    (rows, served_stale)
 }
 
 /// Fetch activities live from all connected providers and persist them
@@ -1032,32 +1111,37 @@ impl Drop for RevalidationGuard {
     }
 }
 
-/// Spawn a detached background task that re-fetches and persists activities so
-/// the next chat turn sees fresh data. Errors are logged, never surfaced.
+/// Re-fetch and persist a member's activities, waiting up to the same bounded
+/// budget the self path spends on a blocking refresh
+/// ([`RefreshConfig::wait_for_refresh_timeout`]) so the very turn that found
+/// the cache stale can serve the refreshed rows. Returns true when the refresh
+/// finished inside that budget.
 ///
-/// Deduplicated and timeout-bound: only one revalidation runs per `(user,
-/// tenant)` at a time (concurrent stale-cache turns are dropped), and each is
-/// capped at [`REVALIDATION_TIMEOUT_SECS`] so a hung scrape releases the slot
-/// instead of blocking later refreshes behind the per-profile Chrome lock.
-fn spawn_activity_revalidation(
+/// Past the budget the task keeps running detached — capped at
+/// [`REVALIDATION_TIMEOUT_SECS`] so a hung scrape releases its slot — and its
+/// write-through still lands for the next turn. Deduplicated: only one
+/// revalidation runs per `(user, tenant)` at a time; when one is already in
+/// flight this reports "not fresh" rather than waiting on a task it has no
+/// handle to.
+async fn revalidate_within_budget(
     runtime: &Arc<dyn ToolRuntime>,
     providers: Vec<String>,
     user_id: Uuid,
     tenant_id: TenantId,
-) {
+) -> bool {
     let Some(guard) = RevalidationRegistry::global().try_claim((user_id, tenant_id)) else {
         debug!(
             user_id = %user_id,
-            "Activity cache: revalidation already in flight; skipping duplicate"
+            "Activity cache: revalidation already in flight; serving cached rows"
         );
-        return;
+        return false;
     };
 
     let runtime = Arc::clone(runtime);
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         // Hold the slot for the whole refresh; dropping `guard` frees it.
         let _guard = guard;
-        info!(user_id = %user_id, "Activity cache: background revalidation started");
+        info!(user_id = %user_id, "Activity cache: revalidation started");
         match timeout(
             StdDuration::from_secs(REVALIDATION_TIMEOUT_SECS),
             fetch_and_persist_live(&runtime, &providers, user_id, tenant_id),
@@ -1067,15 +1151,32 @@ fn spawn_activity_revalidation(
             Ok(activities) => info!(
                 user_id = %user_id,
                 refreshed = activities.len(),
-                "Activity cache: background revalidation complete"
+                "Activity cache: revalidation complete"
             ),
             Err(_elapsed) => warn!(
                 user_id = %user_id,
                 timeout_secs = REVALIDATION_TIMEOUT_SECS,
-                "Activity cache: background revalidation timed out; releasing slot"
+                "Activity cache: revalidation timed out; releasing slot"
             ),
         }
     });
+
+    let budget = RefreshConfig::default().wait_for_refresh_timeout();
+    match timeout(budget, task).await {
+        Ok(Ok(())) => true,
+        Ok(Err(join_error)) => {
+            // The refresh task panicked; its guard already freed the slot.
+            warn!(
+                user_id = %user_id,
+                error = %join_error,
+                "Activity cache: revalidation task failed"
+            );
+            false
+        }
+        // Budget elapsed: the task keeps running detached so the refresh
+        // still lands for the next turn.
+        Err(_elapsed) => false,
+    }
 }
 
 /// Compute all fitness metrics from activities and assemble the snapshot.
@@ -1112,6 +1213,9 @@ fn build_snapshot_from_activities(
         // Populated by the caller (fetch_single_member_snapshot), which holds the repos
         // needed to read connection status. Activity data alone can't tell needs_reauth.
         needs_reauth_providers: Vec::new(),
+        // Also populated by the caller — freshness is a property of how the
+        // activities were fetched, which this pure computation never sees.
+        served_stale: false,
         computed_at: now,
     }
 }
@@ -1202,6 +1306,7 @@ fn empty_snapshot(
         last_activity_per_provider: HashMap::new(),
         recent_activities: Vec::new(),
         needs_reauth_providers: Vec::new(),
+        served_stale: false,
         computed_at,
     }
 }
