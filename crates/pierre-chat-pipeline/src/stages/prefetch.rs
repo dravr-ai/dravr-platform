@@ -33,6 +33,7 @@
 //! so the freshly injected block is never summarized away and cannot desync
 //! the `source_ids`/`llm_messages` vectors compaction consumes.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use pierre_core::models::coaches::DataRequirements;
@@ -273,7 +274,10 @@ pub async fn inject_startup_context(
             if prefetch_window_is_empty(&activity_context) {
                 info!("startup grounding: activity window empty, skipping pre-load injection");
             } else {
-                let context_msg = format!("{STARTUP_GROUNDING_LEAD}\n\n{activity_context}");
+                let context_msg = format!(
+                    "{STARTUP_GROUNDING_LEAD}\n\n{}",
+                    injectable_activity_text(&activity_context)
+                );
                 log_inject("activity context", &context_msg);
                 // `User`, not `System`. The live provider (copilot_headless)
                 // keeps only the first system message and filters every other
@@ -359,6 +363,35 @@ pub fn should_refresh_activity_context(
 /// window as empty only when we can parse that field and it is `0`. When the
 /// content cannot be parsed we assume non-empty rather than risk dropping real
 /// grounding data on a serialization hiccup.
+/// Reduce a `get_activities` payload to the part the coach actually reads.
+///
+/// The tool answers with the same activities two or three times over: a
+/// pre-rendered `activity_list` prose block, the structured `activities` (or
+/// `activities_toon`) array, and a `retrieval_context` sidecar. Injecting the
+/// whole serialized response put every copy in the prompt — 12,448 bytes for a
+/// 30-activity window, roughly 3k tokens, on every grounded turn.
+///
+/// `activity_list` alone carries what the coach cites: date, sport, name,
+/// distance, duration, elevation, temperature — one line each — and the
+/// formatter folds the fragment-dedup note into it, so the "count sessions, not
+/// rows" signal survives without the sidecar. The structured copy exists for
+/// tool consumers, and the prefetch is not one; the coach reads prose.
+///
+/// Falls back to the raw payload whenever the list is absent or empty, so a
+/// response shape this does not recognise still reaches the model intact.
+fn injectable_activity_text(raw: &str) -> Cow<'_, str> {
+    // Owned, not a slice of `raw`: the decoded prose carries real newlines
+    // where the JSON holds `\n` escapes, so it is not a substring of the
+    // payload and cannot be borrowed out of it.
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| {
+            let list = value.get("activity_list")?.as_str()?;
+            (!list.trim().is_empty()).then(|| Cow::Owned(list.to_owned()))
+        })
+        .unwrap_or(Cow::Borrowed(raw))
+}
+
 fn prefetch_window_is_empty(content: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(content)
         .ok()
@@ -404,7 +437,8 @@ pub fn inject_activity_refresh(
          your analysis and any plan on these specific activities, cite them by \
          name and date, infer the sport mix from them rather than asking, and \
          do not answer from memory:\n\n\
-         {activity_context}"
+         {}",
+        injectable_activity_text(activity_context)
     );
     log_inject("activity refresh", &context_msg);
     // `User`, not `System` — same reason as the startup pre-load above: a

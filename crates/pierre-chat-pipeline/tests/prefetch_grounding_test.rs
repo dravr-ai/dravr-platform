@@ -269,3 +269,117 @@ fn injection_is_conservative_when_the_window_cannot_be_parsed() {
     assert_eq!(messages.len(), 3);
     assert!(messages[1].content.contains("not json at all"));
 }
+
+/// A realistic `get_activities` payload: the same activities three times over.
+///
+/// The tool answers with a pre-rendered `activity_list`, the structured
+/// `activities` array, and a `retrieval_context` sidecar. Shapes mirror what a
+/// live dev turn returned on 2026-08-21.
+fn tool_payload(n: usize) -> String {
+    let prose: Vec<String> = (1..=n)
+        .map(|i| {
+            format!(
+                "{i}. [course à pied] Morning Run #{i} - 2026-08-{:02} - 12.34 km - 58:33 - +236m - 14°C",
+                (i % 28) + 1
+            )
+        })
+        .collect();
+    let structured: Vec<serde_json::Value> = (1..=n)
+        .map(|i| {
+            serde_json::json!({
+                "id": format!("17836429807609663{i:03}"),
+                "name": format!("Morning Run #{i}"),
+                "sport_type": "run",
+                "start_date": format!("2026-08-{:02}T11:03:00Z", (i % 28) + 1),
+                "distance_meters": 12_340.0,
+                "moving_time_seconds": 3513,
+                "total_elevation_gain": 236.0,
+                "average_heartrate": 137.0,
+                "max_heartrate": 168.0,
+                "average_speed": 3.51,
+                "provider": "strava",
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "activity_list": prose.join("\n"),
+        "activities": structured,
+        "provider": "strava",
+        "count": n,
+        "mode": "full",
+        "format": "json",
+        "retrieval_context": {
+            "analysis_type": "general",
+            "sufficiency": "sufficient",
+            "fragment_dedup": { "groups": [], "has_fragments": false },
+        },
+    })
+    .to_string()
+}
+
+/// Grounding must inject the activities once, not three times.
+///
+/// The prefetch used to serialize the whole tool response into the prompt —
+/// 12,448 bytes for a 30-activity window on a live dev turn, roughly 3k tokens,
+/// every grounded turn. Now that grounding fires on every qualifying turn rather
+/// than only on a keyword match, that payload is paid far more often, so the
+/// duplication is worth removing rather than tolerating.
+#[test]
+fn grounding_injects_the_readable_list_not_the_whole_tool_response() {
+    let payload = tool_payload(30);
+    let mut messages = vec![
+        ChatMessage::system("system prompt"),
+        ChatMessage::user("montre-moi l'évolution de mon volume hebdomadaire"),
+    ];
+
+    assert!(inject_activity_refresh(&mut messages, &payload));
+    let injected = &messages[1].content;
+
+    // What the coach cites survives: name, date, distance, duration, elevation.
+    assert!(
+        injected.contains("Morning Run #1")
+            && injected.contains("12.34 km")
+            && injected.contains("+236m"),
+        "the citable activity lines must reach the model"
+    );
+
+    // The structured duplicate does not.
+    for key in [
+        "distance_meters",
+        "moving_time_seconds",
+        "average_heartrate",
+        "retrieval_context",
+        "sufficiency",
+    ] {
+        assert!(
+            !injected.contains(key),
+            "{key:?} is the second copy of the same data and must not be injected"
+        );
+    }
+
+    assert!(
+        injected.len() * 3 < payload.len(),
+        "expected a large reduction; injected {} bytes from a {} byte payload",
+        injected.len(),
+        payload.len()
+    );
+}
+
+/// An unrecognised payload still reaches the model whole — the reducer must
+/// never be the reason a coach is left with nothing.
+#[test]
+fn an_unrecognised_payload_is_injected_verbatim() {
+    let odd = r#"{"count":3,"rows":"something this stage has never seen"}"#;
+    let mut messages = vec![
+        ChatMessage::system("system prompt"),
+        ChatMessage::user("analyse ma charge"),
+    ];
+
+    assert!(inject_activity_refresh(&mut messages, odd));
+    assert!(
+        messages[1]
+            .content
+            .contains("something this stage has never seen"),
+        "a shape without activity_list must fall back to the raw payload"
+    );
+}
