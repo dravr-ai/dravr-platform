@@ -84,7 +84,12 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # the vulnerable 1:2.41-5 and only trixie-security has the fix, which is why the
 # upgrade below is what pulls it rather than a newer base-image tag. Gated the
 # dev deploy on 2026-08-17.
-ARG APT_SECURITY_EPOCH=2026-08-17
+# chromium 151.0.7922.169-1~deb13u1 closes CVE-2026-76033..76052 — 22 HIGH
+# findings in one source package, among them a site-isolation bypass, arbitrary
+# code execution in Dawn and V8, and information disclosure. Gated the dev
+# deploy on 2026-08-21, on a commit that touched no Docker and no dependency:
+# the buildx registry cache was still serving the 137 layer.
+ARG APT_SECURITY_EPOCH=2026-08-21
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
