@@ -38,7 +38,7 @@ use std::sync::Arc;
 use serde_json::json;
 use tracing::{info, warn};
 
-use super::prefetch::{needs_activity_grounding, REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
+use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 use pierre_core::errors::AppError;
@@ -173,15 +173,109 @@ impl RecoveryTrigger {
     }
 }
 
+/// Lowercase substrings that make a turn *look like* a data ask.
+///
+/// This list used to gate whether the athlete's activities were fetched at all,
+/// and in that job it was actively harmful: "Montre-moi l'évolution de mon
+/// volume hebdomadaire sur les 3 derniers mois" matches none of these terms, so
+/// a real Telegram turn reached the model with no activity data and the coach
+/// answered from memory (2026-08-21). Grounding no longer consults it — a coach
+/// that declares an activity window now always gets one.
+///
+/// It survives here because the job is different. Missing a term no longer
+/// starves the model; it only means this best-effort repair pass does not run
+/// on a turn where it might have helped. A lossy trigger for an extra check is
+/// tolerable in a way that a lossy gate on the athlete's own data never was.
+const DATA_ASK_TERMS: &[&str] = &[
+    // Planning / prescription — needs the real training history to be specific.
+    "plan",
+    "programme",
+    "program",
+    "séance",
+    "seance",
+    "workout",
+    "entraîne",
+    "entraine",
+    "semaine",
+    "week",
+    "taper",
+    "périodis",
+    "periodis",
+    // Analysis / review / comparison — must cite real activities.
+    "analys",
+    "compare",
+    "comparer",
+    "comparaison",
+    "progress",
+    "progrès",
+    "progres",
+    "tendance",
+    "trend",
+    "charge",
+    "training load",
+    "forme",
+    "performance",
+    // Recommendation / guidance grounded in the athlete's data.
+    "recommand",
+    "recommend",
+    "conseil",
+    "suggèr",
+    "sugger",
+    "suggest",
+    "que dois-je",
+    "que faire",
+    "what should i",
+    "how am i",
+    "comment je m",
+    "dois-je",
+    // Temporal + meal + outing words: a "qu'est-ce que je mange/fais
+    // aujourd'hui" or "ma course de ce soir" question must ground in real
+    // recent training (the coach's meal/session advice depends on today's
+    // load). Their absence let the 2026-07-24 coach decline to fetch on a
+    // recommendation turn. Errs toward a wasted fetch, per the contract above.
+    "aujourd'hui",
+    "aujourd hui",
+    "today",
+    "hier",
+    "yesterday",
+    "ce soir",
+    "tonight",
+    "demain",
+    "tomorrow",
+    "cette semaine",
+    "dîner",
+    "diner",
+    "souper",
+    "déjeuner",
+    "dejeuner",
+    "manger",
+    "repas",
+    "course",
+    "sortie",
+    "ravito",
+    "ravitaillement",
+];
+
+/// Whether `message` reads as a request that ought to stand on real activities.
+///
+/// Deliberately a substring test and deliberately incomplete — see
+/// [`DATA_ASK_TERMS`] for why that is acceptable at this call site and was not
+/// at the one it came from.
+fn looks_like_a_data_ask(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    DATA_ASK_TERMS.iter().any(|&term| lower.contains(term))
+}
+
 /// Decide whether this turn needs verification, and say why.
 ///
 /// The structural arm is the load-bearing one. The 2026-08-11 root-cause
 /// review found the model answers data asks with no tool call and no injected
 /// data, then rationalises the gap in whatever words it likes; the words are a
-/// symptom the platform has chased three times. `needs_activity_grounding` is
-/// the same intent predicate the prefetch stage already trusts to decide a
-/// turn needs real activities, so a turn it flags that produced neither a tool
-/// call nor an injected block is ungrounded by construction.
+/// symptom the platform has chased three times. [`looks_like_a_data_ask`] is a
+/// deliberately lossy read of the athlete's wording: a turn it flags that
+/// produced neither a tool call nor an injected block is ungrounded by
+/// construction. Turns it misses simply do not get this repair pass — which is
+/// why the same predicate must never gate the fetch itself.
 fn recovery_trigger(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
@@ -190,7 +284,7 @@ fn recovery_trigger(
     if narration::contains_capability_failure(&result.content) {
         return Some(RecoveryTrigger::ClaimedFailure);
     }
-    let ungrounded = needs_activity_grounding(&input.content)
+    let ungrounded = looks_like_a_data_ask(&input.content)
         && result.tool_calls_count == 0
         && !turn_carries_activity_block(deps.llm_messages);
     ungrounded.then_some(RecoveryTrigger::UngroundedDataAsk)

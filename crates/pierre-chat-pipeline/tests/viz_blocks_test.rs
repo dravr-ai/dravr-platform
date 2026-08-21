@@ -10,7 +10,9 @@
 use dravr_contremaitre::schemas::{DRAVR_VIZ_SCHEMA, STRUCTURED_WORKOUT_SCHEMA};
 use pierre_chat_pipeline::stages::prefetch::PREFETCH_TOOL;
 use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
-use pierre_chat_pipeline::stages::viz_blocks::{extract_viz_blocks, marker, markers_intact};
+use pierre_chat_pipeline::stages::viz_blocks::{
+    extract_viz_blocks, marker, markers_intact, strip_fences,
+};
 
 /// The full schema set, as production assembles it. Every test hands over the
 /// same map: compiled validators live in a process-wide `OnceLock`, so the
@@ -95,16 +97,49 @@ fn preserves_order_across_several_blocks() {
     );
 }
 
+/// Assert a reply's fences were all refused: nothing is lifted, and — the part
+/// that matters to the athlete — no JSON survives in the text.
+///
+/// The old contract left a refused fence in place as literal text. That shipped
+/// a screenful of raw JSON to the athlete AND persisted it as the assistant
+/// message, so the coach read its own transcript on the next turn, believed it
+/// had already drawn a chart, and refused to draw again (Telegram 2026-08-21).
+fn assert_all_refused_with(granted: &[String], tools: &[String], reply: &str) -> String {
+    let out = extract_viz_blocks(&schemas(), granted, tools, reply)
+        .expect("a reply containing a fence is still processed, to strip it");
+    assert!(
+        out.blocks.is_empty(),
+        "no block may be lifted; got {:?}",
+        out.blocks
+    );
+    assert!(
+        !out.text.contains("dravr-viz"),
+        "the fence must not survive into the reply: {}",
+        out.text
+    );
+    assert!(
+        !out.text.contains("\"type\":"),
+        "no block JSON may survive into the reply: {}",
+        out.text
+    );
+    out.text
+}
+
+/// [`assert_all_refused_with`] for the common grant and provenance.
+fn assert_all_refused(reply: &str) -> String {
+    assert_all_refused_with(&granted(), &tools_called(), reply)
+}
+
 #[test]
-fn an_invalid_block_stays_visible_in_the_reply() {
-    // Missing source_tool — schema-invalid. It must NOT be deleted: silently
-    // dropping content the coach meant to show is worse than showing a fence.
+fn an_invalid_block_is_stripped_from_the_reply() {
+    // Missing source_tool — schema-invalid.
     let bad = r#"{"type":"chart","kind":"line","x":{"label":"Date","type":"time"},"series":[{"label":"CTL","points":[["a",1],["b",2]]}]}"#;
     let reply = format!("Voici.\n\n{}\n\nFin.", fenced(bad));
 
+    let text = assert_all_refused(&reply);
     assert!(
-        extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply).is_none(),
-        "no valid blocks means the reply is left untouched"
+        text.contains("Voici.") && text.contains("Fin."),
+        "the coach's prose must survive untouched: {text}"
     );
 }
 
@@ -117,8 +152,9 @@ fn a_valid_block_survives_alongside_an_invalid_one() {
 
     assert_eq!(out.blocks.len(), 1, "only the valid block is lifted");
     assert!(
-        out.text.contains("scatter"),
-        "the rejected block stays in the reply as literal text"
+        !out.text.contains("scatter"),
+        "the rejected block is stripped, not shown as JSON: {}",
+        out.text
     );
     assert!(
         out.text.contains(&marker(0)),
@@ -132,10 +168,7 @@ fn rejects_a_table_whose_rows_do_not_match_its_columns() {
     let ragged = r#"{"type":"table","source_tool":"get_activities","columns":["Day","Distance"],"rows":[["Tue","12 km"],["Sun"]]}"#;
     let reply = format!("Voici.\n\n{}", fenced(ragged));
 
-    assert!(
-        extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply).is_none(),
-        "a ragged table must be rejected, not rendered with holes"
-    );
+    assert_all_refused(&reply);
 }
 
 #[test]
@@ -197,10 +230,19 @@ fn a_block_citing_a_tool_that_did_not_run_is_rejected() {
     let reply = format!("Voici.\n\n{}\n\nFin.", fenced(CHART));
     let only_activities = vec!["get_activities".to_owned()];
 
-    assert!(
-        extract_viz_blocks(&schemas(), &granted(), &only_activities, &reply).is_none(),
-        "a source_tool that did not run must reject the block"
-    );
+    {
+        let out = extract_viz_blocks(&schemas(), &granted(), &only_activities, &reply)
+            .expect("a reply containing a fence is still processed, to strip it");
+        assert!(
+            out.blocks.is_empty(),
+            "a source_tool that did not run must reject the block"
+        );
+        assert!(
+            !out.text.contains("dravr-viz"),
+            "the refused fence must not survive into the reply: {}",
+            out.text
+        );
+    }
 }
 
 #[test]
@@ -208,10 +250,19 @@ fn a_turn_with_no_tool_calls_renders_no_blocks() {
     // No tool ran, so there is no data any visual could truthfully be built
     // from. Every block must be refused, whatever it claims.
     let reply = format!("Voici.\n\n{}", fenced(CHART));
-    assert!(
-        extract_viz_blocks(&schemas(), &granted(), &[], &reply).is_none(),
-        "an empty tool record must reject every block"
-    );
+    {
+        let out = extract_viz_blocks(&schemas(), &granted(), &[], &reply)
+            .expect("a reply containing a fence is still processed, to strip it");
+        assert!(
+            out.blocks.is_empty(),
+            "an empty tool record must reject every block"
+        );
+        assert!(
+            !out.text.contains("dravr-viz"),
+            "the refused fence must not survive into the reply: {}",
+            out.text
+        );
+    }
 }
 
 #[test]
@@ -220,10 +271,19 @@ fn source_tool_matching_is_exact() {
     // remaining uncheckable against the recorded name. A near-miss is a miss.
     let reply = format!("Voici.\n\n{}", fenced(TABLE));
     let near_miss = vec!["Get_Activities".to_owned()];
-    assert!(
-        extract_viz_blocks(&schemas(), &granted(), &near_miss, &reply).is_none(),
-        "source_tool comparison must be exact"
-    );
+    {
+        let out = extract_viz_blocks(&schemas(), &granted(), &near_miss, &reply)
+            .expect("a reply containing a fence is still processed, to strip it");
+        assert!(
+            out.blocks.is_empty(),
+            "source_tool comparison must be exact"
+        );
+        assert!(
+            !out.text.contains("dravr-viz"),
+            "the refused fence must not survive into the reply: {}",
+            out.text
+        );
+    }
 }
 
 #[test]
@@ -233,10 +293,7 @@ fn a_kind_outside_the_grant_is_rejected() {
     // permission set, not a boolean.
     let tables_only = vec!["table".to_owned()];
     let chart_reply = format!("Voici.\n\n{}", fenced(CHART));
-    assert!(
-        extract_viz_blocks(&schemas(), &tables_only, &tools_called(), &chart_reply).is_none(),
-        "a chart from a tables-only coach must be refused"
-    );
+    assert_all_refused_with(&tables_only, &tools_called(), &chart_reply);
 
     let table_reply = format!("Voici.\n\n{}", fenced(TABLE));
     assert!(
@@ -319,8 +376,87 @@ fn a_chart_sourced_from_the_prefetch_is_lifted() {
 #[test]
 fn prefetch_provenance_does_not_excuse_an_uncited_tool() {
     let reply = format!("Ta charge grimpe.\n\n{}", fenced(CHART));
-    assert!(
-        extract_viz_blocks(&schemas(), &granted(), &prefetch_only_provenance(), &reply,).is_none(),
-        "a chart citing analyze_training_load must stay refused when only the prefetch ran"
+    assert_all_refused_with(&granted(), &prefetch_only_provenance(), &reply);
+}
+
+/// The reply the athlete reads must never contain a chart spec.
+///
+/// This is the compound failure observed on Telegram, 2026-08-21. A block was
+/// refused, the fence stayed in the reply as literal text, and that text became
+/// the persisted assistant message. The athlete saw a screenful of JSON; worse,
+/// on the next turn the coach read its own transcript, concluded it had already
+/// drawn the chart, and answered "le graphique est déjà juste au-dessus" —
+/// refusing to draw a real one. One refusal poisoned every turn after it.
+///
+/// Asserting on the shape of the surviving text rather than on `is_none()`
+/// keeps this honest: what matters is that nothing machine-shaped reaches the
+/// athlete or the transcript, however the refusal was decided.
+#[test]
+fn a_refused_block_leaves_no_machine_text_for_the_next_turn_to_read() {
+    // Cites a tool that did not run — the exact gate that fired on 2026-08-21.
+    let uncited = r#"{"type":"chart","kind":"bar","source_tool":"analyze_training_load","title":"Volume hebdo (km) — 12 semaines","x":{"label":"Semaine","type":"time"},"series":[{"label":"km/semaine","accent":"activity","points":[["2026-05-18",25.5],["2026-05-25",33.6]]}]}"#;
+    let reply = format!(
+        "Voici ton volume hebdomadaire.\n\n{}\n\nDeux trous complets début juin.",
+        fenced(uncited)
     );
+
+    let text = assert_all_refused_with(&granted(), &prefetch_only_provenance(), &reply);
+
+    // The coaching survives in full — the visual contract already requires the
+    // prose to carry the interpretation on its own.
+    assert!(
+        text.contains("Voici ton volume hebdomadaire.") && text.contains("Deux trous complets"),
+        "the prose must survive intact: {text}"
+    );
+    // Nothing a later turn could mistake for "I already showed a chart".
+    for shard in [
+        "dravr-viz",
+        "source_tool",
+        "\"kind\"",
+        "points",
+        "Volume hebdo",
+        "```",
+    ] {
+        assert!(
+            !text.contains(shard),
+            "refused-block text {shard:?} must not reach the athlete or the transcript: {text}"
+        );
+    }
+}
+
+/// Stored history must never replay a fence back to the coach.
+///
+/// Fixes ship forward, conversations do not: every transcript that already
+/// carries a leaked fence would keep telling the coach it had drawn a chart.
+/// Stripping on replay heals those conversations instead of requiring surgery
+/// on the message table.
+#[test]
+fn a_stored_fence_is_stripped_before_the_coach_reads_its_own_transcript() {
+    let poisoned = format!(
+        "Voici ton volume hebdomadaire.\n\n{}\n\nDeux trous complets début juin.",
+        fenced(CHART)
+    );
+
+    let clean = strip_fences(&poisoned);
+
+    assert!(
+        !clean.contains("dravr-viz") && !clean.contains("source_tool"),
+        "no fence may survive into replayed history: {clean}"
+    );
+    assert!(
+        clean.contains("Voici ton volume hebdomadaire.") && clean.contains("Deux trous complets"),
+        "the coach's own prose must survive: {clean}"
+    );
+}
+
+/// Ordinary replies are handed back untouched — no allocation, no rewriting.
+#[test]
+fn history_without_a_fence_is_left_exactly_as_it_was() {
+    let plain = "Ta charge grimpe depuis trois semaines. On coupe jeudi.";
+    assert_eq!(strip_fences(plain), plain);
+
+    // A marker is not a fence: it means a chart really was delivered, and the
+    // coach may legitimately remember showing it.
+    let with_marker = format!("Voici.\n\n{}\n\nEt donc.", marker(0));
+    assert_eq!(strip_fences(&with_marker), with_marker);
 }

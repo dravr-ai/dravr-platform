@@ -158,7 +158,6 @@ pub(crate) async fn dispatch_llm_with_tools(
             coach_ctx,
             user_id: &input.user_id,
             tenant_id: input.tool_tenant_id,
-            latest_user_message: &input.content,
             guided_flow_active,
         },
         llm_messages,

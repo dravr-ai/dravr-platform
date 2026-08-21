@@ -24,12 +24,12 @@
 //!
 //! First-turn dispatch runs the full startup prefetch
 //! ([`inject_startup_context`]: activity data + the coach's startup query).
-//! Later turns are grounded on demand by [`maybe_refresh_activity_context`]:
-//! when the coach declares activity `data_requirements` and the latest user
-//! message asks for something that must be grounded in real training
-//! ([`needs_activity_grounding`] — a plan, analysis, comparison, or
-//! recommendation), the coach's activity window is re-fetched and injected as
-//! fresh system context. That later-turn refresh runs AFTER Tier-1 compaction,
+//! Later turns are grounded by [`maybe_refresh_activity_context`] whenever the
+//! coach declares an activity `data_requirements` window: it is re-fetched and
+//! injected as fresh context. Whether the athlete's wording "sounds like" a data
+//! question is deliberately not consulted — a keyword test there sent a real
+//! Telegram turn to the model with no data at all, and the coach answered from
+//! memory. That later-turn refresh runs AFTER Tier-1 compaction,
 //! so the freshly injected block is never summarized away and cannot desync
 //! the `source_ids`/`llm_messages` vectors compaction consumes.
 
@@ -302,123 +302,26 @@ pub async fn inject_startup_context(
     prefetched
 }
 
-/// Lowercase substrings that mark the latest user message as a turn whose
-/// answer must be grounded in the athlete's real recent activities — a plan,
-/// a review/analysis, a comparison, or a data-driven recommendation. These
-/// are exactly the asks that read as generic when the model answers from the
-/// coach persona alone instead of the activity list. Bilingual (fr/en) because
-/// the coaching surface is fr-first; matching is case-insensitive containment,
-/// so stems (`analys`, `recommand`, `entraîne`) cover their inflections.
-///
-/// This governs only whether to inject a fresh activity block — it never gates
-/// which tools the model may call. The full chat-callable coaching surface is
-/// sent every turn, so a missing term here degrades grounding at worst, never
-/// removes a tool the coach needs.
-const GROUNDING_INTENT_TERMS: &[&str] = &[
-    // Planning / prescription — needs the real training history to be specific.
-    "plan",
-    "programme",
-    "program",
-    "séance",
-    "seance",
-    "workout",
-    "entraîne",
-    "entraine",
-    "semaine",
-    "week",
-    "taper",
-    "périodis",
-    "periodis",
-    // Analysis / review / comparison — must cite real activities.
-    "analys",
-    "compare",
-    "comparer",
-    "comparaison",
-    "progress",
-    "progrès",
-    "progres",
-    "tendance",
-    "trend",
-    "charge",
-    "training load",
-    "forme",
-    "performance",
-    // Recommendation / guidance grounded in the athlete's data.
-    "recommand",
-    "recommend",
-    "conseil",
-    "suggèr",
-    "sugger",
-    "suggest",
-    "que dois-je",
-    "que faire",
-    "what should i",
-    "how am i",
-    "comment je m",
-    "dois-je",
-    // Temporal + meal + outing words: a "qu'est-ce que je mange/fais
-    // aujourd'hui" or "ma course de ce soir" question must ground in real
-    // recent training (the coach's meal/session advice depends on today's
-    // load). Their absence let the 2026-07-24 coach decline to fetch on a
-    // recommendation turn. Errs toward a wasted fetch, per the contract above.
-    "aujourd'hui",
-    "aujourd hui",
-    "today",
-    "hier",
-    "yesterday",
-    "ce soir",
-    "tonight",
-    "demain",
-    "tomorrow",
-    "cette semaine",
-    "dîner",
-    "diner",
-    "souper",
-    "déjeuner",
-    "dejeuner",
-    "manger",
-    "repas",
-    "course",
-    "sortie",
-    "ravito",
-    "ravitaillement",
-];
-
-/// True when the latest user message needs grounding in real activities.
-///
-/// A plan, analysis, comparison, or recommendation must be answered from the
-/// athlete's real recent activities, not the coach persona alone. Errs toward
-/// `true`: a false positive costs one wasted activity fetch, while a false
-/// negative reproduces the ungrounded-generic-plan failure this stage prevents.
-#[must_use]
-pub fn needs_activity_grounding(message: &str) -> bool {
-    let lower = message.to_lowercase();
-    GROUNDING_INTENT_TERMS
-        .iter()
-        .any(|&term| lower.contains(term))
-}
-
 /// Whether a later turn should re-ground the model in fresh activity data.
 ///
-/// True only when all hold: it is past the first turn (turn 1 is already
-/// grounded by [`inject_startup_context`]); no guided flow owns the turn; a
-/// coach is bound; the coach declares an activity `data_requirements` window;
-/// and the latest user message [`needs_activity_grounding`]. A
+/// True when all hold: it is past the first turn (turn 1 is already grounded by
+/// [`inject_startup_context`]); no guided flow owns the turn; a coach is bound;
+/// and that coach declares an activity `data_requirements` window. A
 /// nutrition/mobility coach with no activity window is left untouched. Pure, so
 /// the full gate is unit-testable without an executor.
 ///
-/// The guided-flow gate matters more here than the turn-1 gate suggests:
-/// [`GROUNDING_INTENT_TERMS`] contains `plan`, `semaine`, `entraîne`, `course`,
-/// `performance` — the ordinary vocabulary of an athlete answering a Training &
-/// Movement or Fuelling question. Without the gate, an honest pillar answer
-/// pulls in an activity dump whose instruction reads "base your analysis and any
-/// plan on these specific activities", which is the opposite of what a profile
-/// interview turn should do.
+/// Deliberately no test of what the athlete asked. The declared window is the
+/// decision — a coach that asks for 12 weeks of activities is a coach whose
+/// answers are supposed to stand on them, whatever the wording of the question.
+///
+/// The guided-flow gate carries real weight on its own: a pillar interview turn
+/// must not pull in an activity dump instructing the coach to "base your
+/// analysis and any plan on these specific activities", which is the opposite of
+/// what a profile interview should do.
 #[must_use]
 pub fn should_refresh_activity_context(
     history_len: usize,
     coach_ctx: Option<&CoachRuntimeContext>,
-    latest_user_message: &str,
     guided_flow_active: bool,
 ) -> bool {
     if history_len <= 1 || guided_flow_active {
@@ -433,7 +336,19 @@ pub fn should_refresh_activity_context(
     if data_reqs.activities.is_none() {
         return false;
     }
-    needs_activity_grounding(latest_user_message)
+    // No intent test. There used to be one — a 61-term bilingual keyword list
+    // that had to match the athlete's phrasing before their own data was
+    // fetched — and it failed exactly the way substring routing always fails:
+    // "Montre-moi l'évolution de mon volume hebdomadaire sur les 3 derniers
+    // mois" matched none of the 61 terms, so the coach answered a question
+    // about training data with no training data, from conversation history
+    // alone (live on Telegram, 2026-08-21). Adding "évolution" would only have
+    // moved the blind spot.
+    //
+    // A coach that declares an activity window is a coach whose every answer is
+    // supposed to be grounded in it. The window is bounded and cached, so the
+    // honest rule is the simple one: if it declared the requirement, satisfy it.
+    true
 }
 
 /// Positively confirm that a `get_activities` prefetch returned an empty
@@ -532,15 +447,9 @@ pub async fn maybe_refresh_activity_context(
         coach_ctx,
         user_id,
         tenant_id,
-        latest_user_message,
         guided_flow_active,
     } = inputs;
-    if !should_refresh_activity_context(
-        history.len(),
-        coach_ctx,
-        latest_user_message,
-        guided_flow_active,
-    ) {
+    if !should_refresh_activity_context(history.len(), coach_ctx, guided_flow_active) {
         return false;
     }
 
@@ -576,8 +485,6 @@ pub struct ActivityRefreshInputs<'a> {
     pub user_id: &'a str,
     /// Tenant the activity data lives under.
     pub tenant_id: TenantId,
-    /// This turn's inbound message, matched against [`GROUNDING_INTENT_TERMS`].
-    pub latest_user_message: &'a str,
     /// Whether a guided conversational flow owns this turn.
     pub guided_flow_active: bool,
 }

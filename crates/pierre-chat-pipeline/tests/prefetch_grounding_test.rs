@@ -21,8 +21,8 @@
 //! window; inject conservatively when the window cannot be parsed).
 
 use pierre_chat_pipeline::stages::prefetch::{
-    get_startup_context_if_applicable, inject_activity_refresh, needs_activity_grounding,
-    should_refresh_activity_context, startup_query_preview,
+    get_startup_context_if_applicable, inject_activity_refresh, should_refresh_activity_context,
+    startup_query_preview,
 };
 use pierre_core::models::{CoachCategory, CoachRuntimeContext};
 use pierre_llm::{ChatMessage, MessageRole};
@@ -48,87 +48,57 @@ fn coach(data_requirements: Option<&str>) -> CoachRuntimeContext {
 const WITH_ACTIVITIES: &str = r#"{"activities":{"count":30,"time_frame":"12w"}}"#;
 
 #[test]
-fn grounding_intent_matches_plan_analysis_and_recommendation_asks() {
-    // fr coaching surface (the primary one) + en.
-    for message in [
-        "Fait moi donc un plan d'entraînement pour la semaine?",
-        "analyse ma charge d'entraînement",
-        "Compare le avec ton approche",
-        "que dois-je faire cette semaine",
-        "comment je m'en sors ?",
-        "recommande-moi une séance",
-        "montre-moi ma progression",
-        "how am I doing this week",
-        "what should I do tomorrow",
-        "give me a training plan",
-        // Temporal / meal / outing asks — the 2026-07-24 incident phrasing,
-        // which previously matched no grounding term so the coach answered a
-        // recommendation from memory (or declined to fetch).
-        "Tu me recommandes quoi comme dîner et course en ce 24 juillet",
-        "qu'est-ce que je mange ce soir?",
-        "je fais quoi comme course aujourd'hui",
-        "ma sortie de demain, ravito ou juste de l'eau?",
-        "c'est quoi mon souper de récup ce soir",
-    ] {
-        assert!(
-            needs_activity_grounding(message),
-            "expected a grounding intent for: {message:?}"
-        );
-    }
-}
-
-#[test]
-fn grounding_intent_ignores_acknowledgments_and_smalltalk() {
-    for message in ["merci beaucoup!", "ok parfait", "oui", "salut ça va", "👍"] {
-        assert!(
-            !needs_activity_grounding(message),
-            "expected NO grounding intent for: {message:?}"
-        );
-    }
-}
-
-#[test]
-fn refresh_gate_fires_only_on_a_later_grounding_turn_with_an_activity_window() {
+fn refresh_gate_fires_on_any_later_turn_with_an_activity_window() {
     let with_activities = coach(Some(WITH_ACTIVITIES));
 
-    // The happy path: a later turn, a coach with an activity window, a plan ask.
+    // The happy path: a later turn and a coach that declared a window.
     assert!(should_refresh_activity_context(
         3,
         Some(&with_activities),
-        "fais-moi un plan pour la semaine",
         false
     ));
 
+    // The phrasing is no longer consulted, and this is the case that proves it.
+    // "Montre-moi l'évolution de mon volume hebdomadaire sur les 3 derniers
+    // mois" matched none of the 61 terms the old gate tested, so a real
+    // Telegram turn reached the model with no activity data at all and the
+    // coach answered from conversation history (2026-08-21). Nothing about the
+    // wording may decide whether the athlete's own data is fetched.
+    assert!(
+        should_refresh_activity_context(3, Some(&with_activities), false),
+        "grounding must not depend on how the athlete phrased the question"
+    );
+
     // Turn 1 is owned by inject_startup_context, never this stage.
     assert!(
-        !should_refresh_activity_context(1, Some(&with_activities), "fais-moi un plan", false),
+        !should_refresh_activity_context(1, Some(&with_activities), false),
         "turn 1 must be left to inject_startup_context"
+    );
+
+    // A guided pillar interview must not pull in an activity dump.
+    assert!(
+        !should_refresh_activity_context(3, Some(&with_activities), true),
+        "a guided flow owns its turn"
     );
 
     // No coach bound → nothing to ground against.
     assert!(
-        !should_refresh_activity_context(3, None, "fais-moi un plan", false),
+        !should_refresh_activity_context(3, None, false),
         "no coach context → no refresh"
     );
 
-    // A grounding ask but no activity window (e.g. a profile-only coach).
+    // A coach with no activity window (e.g. a profile-only coach).
     let no_window = coach(Some(r#"{"athlete_profile":true}"#));
     assert!(
-        !should_refresh_activity_context(3, Some(&no_window), "fais-moi un plan", false),
+        !should_refresh_activity_context(3, Some(&no_window), false),
         "a coach without an activity window is left untouched"
     );
 
     // No data_requirements at all.
     let no_reqs = coach(None);
     assert!(
-        !should_refresh_activity_context(3, Some(&no_reqs), "fais-moi un plan", false),
+        !should_refresh_activity_context(3, Some(&no_reqs), false),
         "a coach without data_requirements is left untouched"
-    );
-
-    // A later turn with an activity window but a non-grounding message.
-    assert!(
-        !should_refresh_activity_context(3, Some(&with_activities), "merci beaucoup!", false),
-        "an acknowledgment turn must not re-fetch"
     );
 }
 
@@ -136,31 +106,22 @@ fn refresh_gate_fires_only_on_a_later_grounding_turn_with_an_activity_window() {
 fn refresh_gate_never_fires_while_a_guided_flow_owns_the_turn() {
     let with_activities = coach(Some(WITH_ACTIVITIES));
 
-    // Every one of these is a plausible pillar answer that happens to contain a
-    // GROUNDING_INTENT_TERMS word. Mid-walk they must not pull an activity dump
-    // (whose instruction reads "base your analysis and any plan on these
-    // specific activities") into a profile question's turn.
-    for answer in [
-        "je m'entraîne 10h par semaine",
-        "ma course objectif c'est l'Unbound",
-        "je veux progresser en montagne",
-        "la performance compte moins que le plaisir",
-    ] {
-        assert!(
-            needs_activity_grounding(answer),
-            "precondition: {answer:?} must look like a grounding ask"
-        );
-        assert!(
-            !should_refresh_activity_context(2, Some(&with_activities), answer, true),
-            "guided flow active must suppress the refresh for: {answer:?}"
-        );
-        // Same message outside the walk still grounds — the gate is the flow,
-        // not the wording.
-        assert!(
-            should_refresh_activity_context(2, Some(&with_activities), answer, false),
-            "outside a guided flow the same message must still ground: {answer:?}"
-        );
-    }
+    // Mid-walk, a pillar answer must not pull an activity dump (whose
+    // instruction reads "base your analysis and any plan on these specific
+    // activities") into a profile question's turn. This gate used to share the
+    // work with an intent predicate; now that grounding no longer reads the
+    // wording, the guided flag is the only thing standing between an interview
+    // turn and a 12 KB activity block, so it carries the whole load.
+    assert!(
+        !should_refresh_activity_context(2, Some(&with_activities), true),
+        "guided flow active must suppress the refresh"
+    );
+
+    // Outside the walk, the same coach and turn number ground normally.
+    assert!(
+        should_refresh_activity_context(2, Some(&with_activities), false),
+        "outside a guided flow the coach's declared window is honoured"
+    );
 }
 
 #[test]

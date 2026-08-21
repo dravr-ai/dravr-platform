@@ -22,6 +22,7 @@ use pierre_database::database::MessageRecord;
 use pierre_memory::CompactionBlock;
 use uuid::Uuid;
 
+use super::viz_blocks;
 #[cfg(feature = "tools-groups")]
 use crate::ChatPipelineContext;
 use pierre_core::models::ConnectionType;
@@ -307,7 +308,11 @@ fn push_history_row(
     // authority. For a training-prescription product the payoff is fabricated
     // volume and intensity history driving a real prescription.
     let replayed = match msg.role.as_str() {
-        "assistant" | "tool_call" => Cow::Owned(scrub_replayed_narration(&stripped).cleaned),
+        // Fence strip first, then narration scrub: a stored fence is machine
+        // text the coach would otherwise read back as a chart it already drew.
+        "assistant" | "tool_call" => {
+            Cow::Owned(scrub_replayed_narration(&viz_blocks::strip_fences(&stripped)).cleaned)
+        }
         "user" | "tool_result" => defang_platform_markers(&stripped),
         _ => Cow::Borrowed(stripped.as_str()),
     };

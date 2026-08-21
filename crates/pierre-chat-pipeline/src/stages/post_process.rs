@@ -165,6 +165,13 @@ fn lift_viz_blocks(
     // but if it did, keeping the marker text without the blocks would leave the
     // athlete reading a bare `⟦viz:0⟧`.
     let count = extraction.blocks.len();
+    // Every fence was refused: the stage still hands back the cleaned text (the
+    // fences are gone from it), but there is nothing to store. Serializing the
+    // empty vec would persist a literal "[]" on the message and have the egress
+    // negotiate media for zero blocks.
+    if count == 0 {
+        return (extraction.text, None, 0);
+    }
     match serde_json::to_string(&extraction.blocks) {
         Ok(json) => (extraction.text, Some(json), count),
         Err(e) => {

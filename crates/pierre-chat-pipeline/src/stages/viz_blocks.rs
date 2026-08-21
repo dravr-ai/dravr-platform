@@ -30,6 +30,8 @@
 //! visible code fence rather than vanishing. Ugly is recoverable; silent loss
 //! is not.
 
+use std::borrow::Cow;
+
 use serde_json::Value;
 use tracing::warn;
 
@@ -66,10 +68,21 @@ pub struct VizExtraction {
 /// Returns `None` when the reply contains no such fence, so the caller can keep
 /// the reply untouched rather than round-tripping it through this stage.
 ///
-/// A fence that is malformed, unparseable, or fails schema validation is **left
-/// in place as literal text** and logged. That is deliberate: the alternative is
-/// deleting content the coach meant the athlete to see, and a visible broken
-/// fence is a bug someone reports rather than one that hides.
+/// A fence that is malformed, unparseable, or fails schema validation is
+/// **removed** from the reply and logged at WARN with its reason.
+///
+/// It used to be left in place as literal text, on the reasoning that a visible
+/// broken fence is a bug someone reports rather than one that hides. In
+/// practice it hid better that way: the athlete got a screenful of raw JSON —
+/// which reads as a broken product, not a bug report — and the same text was
+/// persisted as the assistant message, so on every later turn the coach read
+/// its own transcript, saw a chart spec it had "emitted", and refused to draw
+/// again ("le graphique est déjà juste au-dessus", Telegram 2026-08-21). One
+/// refusal poisoned the whole conversation.
+///
+/// The reason it was kept visible is still honoured — the WARN names the fence
+/// and why it failed — but the athlete sees the prose, which the visual
+/// contract already requires to carry the interpretation on its own.
 #[must_use]
 pub fn extract_viz_blocks(
     schemas: &SchemaTexts,
@@ -83,6 +96,7 @@ pub fn extract_viz_blocks(
 
     let mut text = String::with_capacity(reply.len());
     let mut blocks: Vec<Value> = Vec::new();
+    let mut dropped = 0_usize;
     let mut rest = reply;
 
     while let Some(fence) = next_fence(rest) {
@@ -92,22 +106,62 @@ pub fn extract_viz_blocks(
                 text.push_str(&marker(blocks.len()));
                 blocks.push(block);
             }
-            // Invalid: keep the original fence verbatim, including its
-            // delimiters, so nothing the coach wrote is lost.
-            None => text.push_str(&rest[fence.start..fence.end]),
+            // Refused: drop the fence entirely. `parse_block` has already
+            // logged which rule it broke, so the failure stays legible to us
+            // without being spelled out to the athlete in JSON.
+            None => dropped += 1,
         }
         rest = &rest[fence.end..];
     }
 
-    if blocks.is_empty() {
+    if blocks.is_empty() && dropped == 0 {
         return None;
     }
     text.push_str(rest);
+
+    if dropped > 0 {
+        warn!(
+            dropped,
+            kept = blocks.len(),
+            "viz-blocks: refused block(s) removed from the reply; the prose stands alone"
+        );
+    }
 
     Some(VizExtraction {
         text: text.trim().to_owned(),
         blocks,
     })
+}
+
+/// Remove every ```` ```dravr-viz ```` fence from replayed transcript text.
+///
+/// Nothing written today persists a raw fence — a lifted block leaves a marker
+/// and a refused one is stripped — so any fence still sitting in stored history
+/// predates that and is pure poison. Left in place it is read back to the coach
+/// as its own prior work: on 2026-08-21 a coach read one and answered "le
+/// graphique est déjà juste au-dessus", refusing to draw a chart the athlete
+/// had never actually been shown.
+///
+/// Shares [`next_fence`] with the extractor on purpose. A second opinion about
+/// what a fence looks like is how the two drift apart.
+#[must_use]
+pub fn strip_fences(text: &str) -> Cow<'_, str> {
+    if !text.contains(FENCE_INFO) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut found = false;
+    while let Some(fence) = next_fence(rest) {
+        found = true;
+        out.push_str(&rest[..fence.start]);
+        rest = &rest[fence.end..];
+    }
+    if !found {
+        return Cow::Borrowed(text);
+    }
+    out.push_str(rest);
+    Cow::Owned(out.trim().to_owned())
 }
 
 /// A located fence: byte range in the haystack plus the body between delimiters.
