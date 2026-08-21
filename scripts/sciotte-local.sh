@@ -16,13 +16,14 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; NC
 # --- Config (override via env) ---------------------------------------------
 PORT="${SCIOTTE_LOCAL_PORT:-8091}"
 HOST="${SCIOTTE_LOCAL_HOST:-127.0.0.1}"
-API_KEY="${DRAVR_SCIOTTE_API_KEY:-localtest}"
 SCIOTTE_REPO="${SCIOTTE_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../dravr-sciotte" 2>/dev/null && pwd || echo ../dravr-sciotte)}"
 BASE="http://${HOST}:${PORT}"
 BIN="${SCIOTTE_REPO}/target/debug/dravr-sciotte-server"
 
+# No auth material: a loopback-bound scraper serves unauthenticated (its
+# development mode — deployed instances require Google identity tokens).
+
 # Server-side queue knobs (fail-fast if unset). Mirror the dev values.
-export DRAVR_SCIOTTE_API_KEY="${API_KEY}"
 export DRAVR_SCIOTTE_MAX_CONCURRENT="${DRAVR_SCIOTTE_MAX_CONCURRENT:-2}"
 export DRAVR_SCIOTTE_MAX_QUEUE="${DRAVR_SCIOTTE_MAX_QUEUE:-8}"
 export DRAVR_SCIOTTE_QUEUE_TIMEOUT_SECS="${DRAVR_SCIOTTE_QUEUE_TIMEOUT_SECS:-10}"
@@ -36,7 +37,7 @@ export DRAVR_SCIOTTE_LOGIN_TIMEOUT="${DRAVR_SCIOTTE_LOGIN_TIMEOUT:-300}"
 export DRAVR_SCIOTTE_EMAIL_STEP_TIMEOUT="${DRAVR_SCIOTTE_EMAIL_STEP_TIMEOUT:-60}"
 export DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT="${DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT:-180}"
 
-hdr=(-H "Authorization: Bearer ${API_KEY}" -H "Content-Type: application/json")
+hdr=(-H "Content-Type: application/json")
 
 info() { echo -e "${BLUE}==>${NC} $*"; }
 ok()   { echo -e "${GREEN}✓${NC} $*"; }

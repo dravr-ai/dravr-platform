@@ -193,13 +193,14 @@ fn a_session_death_401_is_classified_as_provider_auth_required() {
 }
 
 #[test]
-fn a_bad_api_key_401_is_not_an_athlete_relogin() {
-    // `authentication_error` is tronc's bad-`DRAVR_SCIOTTE_API_KEY` answer:
-    // operator misconfiguration, which must keep alerting as an internal
-    // fault instead of sending the athlete on a pointless re-login.
+fn a_rejected_identity_token_401_is_not_an_athlete_relogin() {
+    // `unauthorized` is the service gate's rejected-identity-token answer
+    // (audience mismatch, expired token): operator misconfiguration, which
+    // must keep alerting as an internal fault instead of sending the athlete
+    // on a pointless re-login.
     assert!(auth_required_error(
         StatusCode::UNAUTHORIZED,
-        &json!({ "error": "authentication_error", "message": "Invalid API key" }),
+        &json!({ "error": "unauthorized", "message": "Missing bearer identity token" }),
     )
     .is_none());
     // A markerless 401 body is unclassifiable and must stay internal too.
@@ -223,8 +224,12 @@ fn a_genuine_failure_is_not_backpressure() {
         "a 500 with no shed marker is a real fault and must keep alerting"
     );
     assert!(
-        backpressure_error(StatusCode::UNAUTHORIZED, &json!({ "error": "bad api key" })).is_none(),
-        "a misconfigured DRAVR_SCIOTTE_API_KEY must not masquerade as backpressure"
+        backpressure_error(
+            StatusCode::UNAUTHORIZED,
+            &json!({ "error": "unauthorized" })
+        )
+        .is_none(),
+        "a rejected identity token must not masquerade as backpressure"
     );
     assert!(
         shed_retry_after_secs(&AppError::internal("chrome crashed")).is_none(),

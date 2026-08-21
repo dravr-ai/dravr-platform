@@ -1,5 +1,5 @@
 // ABOUTME: HTTP client for the dedicated dravr-sciotte scraper service (ADR-021).
-// ABOUTME: Reads DRAVR_SCIOTTE_REMOTE_URL + DRAVR_SCIOTTE_API_KEY; the sole scrape path since the Phase 4 cutover.
+// ABOUTME: Reads DRAVR_SCIOTTE_REMOTE_URL + DRAVR_SCIOTTE_AUDIENCE; the sole scrape path since the Phase 4 cutover.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,24 +24,36 @@
 //!
 //! ## Auth
 //!
-//! Requests carry the `DRAVR_SCIOTTE_API_KEY` bearer the server gates on. The
-//! key is read once at construction; it is never logged.
+//! Requests carry a Google-signed identity token addressed to
+//! `DRAVR_SCIOTTE_AUDIENCE`, which the scraper service verifies (its previous
+//! shared-key gate failed open when the key variable was unset — the defect
+//! behind registre#36). The token source is metadata-server backed and caches
+//! the live token, so minting is a lock read on all but the first call each
+//! hour. A scraper on this machine's own loopback is the one exemption: only a
+//! developer's own process can be there, so it is called unauthenticated.
 
 use std::env;
+use std::sync::Arc;
 use std::time::Duration;
 
 use dravr_sciotte::models::{Activity as SciotteActivity, AuthSession};
+use dravr_tronc::iam::IdTokenSource;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Environment variable holding the remote scraper's base URL. Required since
 /// the Phase 4 cutover — unset makes `require_from_env` error (no fallback).
 pub const ENV_REMOTE_URL: &str = "DRAVR_SCIOTTE_REMOTE_URL";
-/// Environment variable holding the bearer the scraper service gates on.
-pub const ENV_API_KEY: &str = "DRAVR_SCIOTTE_API_KEY";
+/// Environment variable naming the audience identity tokens are addressed to.
+///
+/// Must match what the scraper service accepts, which terraform guarantees by
+/// setting both from one local. A stable custom audience rather than the
+/// service URL, so neither side depends on a value Cloud Run generates at
+/// creation.
+pub const ENV_AUDIENCE: &str = "DRAVR_SCIOTTE_AUDIENCE";
 
 /// Value of the `error` field the scraper service sheds with — its
 /// `busy_response` answers a saturated Chrome budget with
@@ -204,10 +216,10 @@ pub fn shed_retry_after_secs(error: &AppError) -> Option<u64> {
 /// Body `error` markers on a scraper-service `401` that mean the ATHLETE's
 /// session is gone or dead: `session_not_found` (no session held) and
 /// `session_expired` (the upstream provider rejected the session's cookies).
-/// Deliberately NOT `authentication_error` — that is the service's
-/// bad-`DRAVR_SCIOTTE_API_KEY` answer, an operator misconfiguration that
-/// must keep alerting as an internal fault instead of sending the athlete
-/// on a pointless re-login.
+/// Deliberately NOT `unauthorized` — that is the service's rejected-identity-
+/// token answer (audience mismatch, expired token), an operator
+/// misconfiguration that must keep alerting as an internal fault instead of
+/// sending the athlete on a pointless re-login.
 const SESSION_AUTH_ERROR_MARKERS: &[&str] = &["session_not_found", "session_expired"];
 
 /// The auth-shaped error for a scraper-service `401` whose body carries a
@@ -259,7 +271,29 @@ async fn scrape_failure(operation: &str, resp: reqwest::Response) -> AppError {
 pub struct RemoteSciotteClient {
     http: Client,
     base_url: String,
-    api_key: Option<String>,
+    /// Mints the identity token the scraper service requires, or `None` when
+    /// the service is on this machine's own loopback (a developer's process,
+    /// called unauthenticated).
+    ///
+    /// `Arc` because the client is cloned per call site and the source caches a
+    /// token behind a lock — cloning the source itself would give each clone
+    /// its own cache and mint a token per call instead of per hour.
+    tokens: Option<Arc<IdTokenSource>>,
+}
+
+/// Whether a scraper URL points at this machine's own loopback.
+///
+/// Only a developer's own process can be there — a Cloud Run service never is,
+/// from the platform's point of view — so a loopback scraper is the one case
+/// where skipping the ID token cannot widen anything.
+fn is_loopback(url: &str) -> bool {
+    let host = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split(['/', ':'])
+        .next()
+        .unwrap_or_default();
+    matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]")
 }
 
 impl RemoteSciotteClient {
@@ -287,12 +321,30 @@ impl RemoteSciotteClient {
             .timeout(Duration::from_secs(330))
             .build()
             .map_err(|e| AppError::internal(format!("build sciotte http client: {e}")))?;
-        let api_key = env::var(ENV_API_KEY).ok().filter(|k| !k.is_empty());
+
+        // Both or neither, with loopback as the one exemption. A remote URL
+        // without an audience would send unsigned requests the scraper refuses,
+        // so it is treated as "not configured" — one warning at construction
+        // instead of a 401 on every scrape that reads as a session problem.
+        let audience = env::var(ENV_AUDIENCE).ok().filter(|a| !a.is_empty());
+        let tokens = if is_loopback(&base_url) {
+            debug!(base_url = %base_url, "sciotte on loopback; calling it unauthenticated (development)");
+            None
+        } else if let Some(audience) = audience {
+            Some(Arc::new(IdTokenSource::new(audience, http.clone())))
+        } else {
+            warn!(
+                "{ENV_REMOTE_URL} is set but {ENV_AUDIENCE} is not; disabling the \
+                 remote sciotte client rather than sending requests it will refuse"
+            );
+            return Ok(None);
+        };
+
         debug!(base_url = %base_url, "Remote sciotte client enabled");
         Ok(Some(Self {
             http,
             base_url,
-            api_key,
+            tokens,
         }))
     }
 
@@ -309,20 +361,37 @@ impl RemoteSciotteClient {
     pub fn require_from_env() -> AppResult<Self> {
         Self::from_env()?.ok_or_else(|| {
             AppError::internal(
-                "DRAVR_SCIOTTE_REMOTE_URL must be set — the in-process sciotte \
-                 scrape path was removed in the ADR-021 Phase 4 cutover",
+                "DRAVR_SCIOTTE_REMOTE_URL must be set (with DRAVR_SCIOTTE_AUDIENCE \
+                 for a non-loopback service) — the in-process sciotte scrape path \
+                 was removed in the ADR-021 Phase 4 cutover",
             )
         })
     }
 
-    fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+    /// Build a request carrying the identity token the scraper requires.
+    ///
+    /// `None` in `tokens` is the loopback case and nothing else — the
+    /// constructor refuses a non-loopback URL without an audience — so having
+    /// no source means a developer's scraper on 127.0.0.1, which takes the
+    /// request unauthenticated.
+    async fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+    ) -> AppResult<reqwest::RequestBuilder> {
         let mut req = self
             .http
             .request(method, format!("{}{path}", self.base_url));
-        if let Some(key) = &self.api_key {
-            req = req.bearer_auth(key);
+        if let Some(tokens) = &self.tokens {
+            let token = tokens.token().await.map_err(|e| {
+                AppError::new(
+                    ErrorCode::ExternalServiceError,
+                    format!("could not mint an identity token for sciotte: {e}"),
+                )
+            })?;
+            req = req.bearer_auth(token);
         }
-        req
+        Ok(req)
     }
 
     /// POST `/auth/login-with-credentials` — start an interactive login on
@@ -347,6 +416,7 @@ impl RemoteSciotteClient {
         });
         let resp = self
             .request(reqwest::Method::POST, "/auth/login-with-credentials")
+            .await?
             .json(&body)
             .send()
             .await
@@ -368,6 +438,7 @@ impl RemoteSciotteClient {
     ) -> AppResult<RemoteLoginOutcome> {
         let resp = self
             .request(reqwest::Method::POST, "/auth/submit-otp")
+            .await?
             .json(&serde_json::json!({ "code": code, "flow_id": flow_id }))
             .send()
             .await
@@ -389,6 +460,7 @@ impl RemoteSciotteClient {
     ) -> AppResult<RemoteLoginOutcome> {
         let resp = self
             .request(reqwest::Method::POST, "/auth/select-2fa")
+            .await?
             .json(&serde_json::json!({ "option_id": option_id, "flow_id": flow_id }))
             .send()
             .await
@@ -415,6 +487,7 @@ impl RemoteSciotteClient {
                 reqwest::Method::GET,
                 &format!("/auth/sessions/{session_id}/export"),
             )
+            .await?
             .send()
             .await
             .map_err(|e| AppError::internal(format!("sciotte export request: {e}")))?;
@@ -447,6 +520,7 @@ impl RemoteSciotteClient {
         }
         let resp = self
             .request(reqwest::Method::POST, "/auth/import-session")
+            .await?
             .json(&serde_json::json!({ "provider": provider, "session": session }))
             .send()
             .await
@@ -486,6 +560,7 @@ impl RemoteSciotteClient {
         }
         let mut req = self
             .request(reqwest::Method::GET, "/api/activities")
+            .await?
             .header("X-Session-Id", session_id);
         let mut params: Vec<(&str, String)> = Vec::new();
         if let Some(l) = query.limit {
@@ -529,6 +604,7 @@ impl RemoteSciotteClient {
     pub async fn get_athlete(&self, session_id: &str) -> AppResult<RemoteAthleteProfile> {
         let resp = self
             .request(reqwest::Method::GET, "/api/athlete")
+            .await?
             .header("X-Session-Id", session_id)
             .send()
             .await
@@ -560,6 +636,7 @@ impl RemoteSciotteClient {
                 reqwest::Method::GET,
                 &format!("/api/activities/{activity_id}"),
             )
+            .await?
             .header("X-Session-Id", session_id)
             .send()
             .await
@@ -634,11 +711,11 @@ impl RemoteSciotteClient {
             )),
             // No recognizable login status → a transport/auth/server fault, NOT a
             // login rejection. Surfacing it as an error (rather than Failed) keeps
-            // a misconfigured DRAVR_SCIOTTE_API_KEY (401) from masquerading as bad
+            // a rejected identity token (401) from masquerading as bad
             // credentials — which is exactly what bit the first e2e run.
             _ => Err(AppError::internal(format!(
                 "sciotte returned HTTP {http_status} with no recognizable login status \
-                 (body: {body}); check DRAVR_SCIOTTE_API_KEY / service health"
+                 (body: {body}); check DRAVR_SCIOTTE_AUDIENCE / IAM / service health"
             ))),
         }
     }

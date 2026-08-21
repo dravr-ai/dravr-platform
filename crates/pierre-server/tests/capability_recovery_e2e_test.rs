@@ -519,7 +519,6 @@ mod capability_recovery {
         // The remote client is both-or-neither: a URL with no audience disables
         // it, because unsigned requests are refused by the scraper rather than served.
         env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
-        env::remove_var("DRAVR_SCIOTTE_API_KEY");
 
         let mock = Arc::new(ClaimThenCleanMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
@@ -692,7 +691,6 @@ mod capability_recovery {
         // The remote client is both-or-neither: a URL with no audience disables
         // it, because unsigned requests are refused by the scraper rather than served.
         env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
-        env::remove_var("DRAVR_SCIOTTE_API_KEY");
 
         let mock = Arc::new(UngroundedThenGroundedMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
@@ -761,7 +759,6 @@ mod capability_recovery {
         // The remote client is both-or-neither: a URL with no audience disables
         // it, because unsigned requests are refused by the scraper rather than served.
         env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
-        env::remove_var("DRAVR_SCIOTTE_API_KEY");
 
         let mock = Arc::new(ClaimThenScaffoldingMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();

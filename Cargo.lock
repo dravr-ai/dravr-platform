@@ -4075,6 +4075,7 @@ dependencies = [
  "chrono",
  "dravr-equilibre",
  "dravr-sciotte",
+ "dravr-tronc",
  "futures-util",
  "hex",
  "num-traits",

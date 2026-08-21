@@ -86,8 +86,8 @@ async fn every_sciotte_login_status_maps_to_its_outcome() {
     let number = r#"{"status":"number_match","number":"78","flow_id":"6a7f4723-a59a880","provider":"strava"}"#;
     let failed = r#"{"status":"failed","reason":"Wrong password. Try again."}"#;
 
-    // A 401 from a misconfigured DRAVR_SCIOTTE_API_KEY carries no login status.
-    let no_status = r#"{"error":"unauthorized","message":"invalid api key"}"#;
+    // A 401 from the service's identity-token gate carries no login status.
+    let no_status = r#"{"error":"unauthorized","message":"Missing bearer identity token"}"#;
 
     let base = stub_server(vec![
         (200, otp.to_owned()),
