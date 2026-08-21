@@ -37,6 +37,35 @@ use tracing::warn;
 
 use super::structured_output::{validator_for, SchemaTexts, DRAVR_VIZ};
 
+/// What a conversation with no coach persona bound may draw.
+///
+/// The `visuals:` grant is a *coach author's* choice, so it only exists when a
+/// coach is bound. A group chat binds none — the platform itself is answering —
+/// and reading "no coach" as "no grant" left the visual contract out of the
+/// prompt entirely. The model then reported, accurately, that it had no way to
+/// draw: "Je peux pas générer de graphique dans ce chat — pas d'outil pour ça
+/// de mon côté" (Telegram group, 2026-08-21), having already fetched the data.
+///
+/// So absence of a coach means no author expressed a preference, and the
+/// platform baseline applies. A coach that IS bound still governs its own
+/// reply, including a deliberately empty grant meaning "this persona does not
+/// draw".
+pub const DEFAULT_VISUALS: &[&str] = &["chart", "table"];
+
+/// The visual kinds this turn may emit.
+///
+/// One rule, two readers: the prompt-assembly stage decides whether to teach the
+/// contract, and the post-process stage decides whether to honour a fence. They
+/// must agree — a coach told it may draw whose blocks are then refused produces
+/// exactly the raw-JSON reply this pipeline works to avoid.
+#[must_use]
+pub fn granted_visuals(coach_visuals: Option<&[String]>) -> Vec<String> {
+    coach_visuals.map_or_else(
+        || DEFAULT_VISUALS.iter().map(|k| (*k).to_owned()).collect(),
+        <[String]>::to_vec,
+    )
+}
+
 /// Info string that marks a fenced block as a Dravr visual.
 const FENCE_INFO: &str = "dravr-viz";
 

@@ -37,6 +37,7 @@ use super::prompt_builder::{
     build_llm_messages_with_blocks, build_provider_context, TOOL_BOUNDARY,
 };
 use super::refresh::inject_refresh_context;
+use super::viz_blocks;
 
 /// Identity anchor appended to the tail of every assembled system prompt.
 ///
@@ -785,9 +786,14 @@ pub(crate) async fn assemble_prompt_and_messages(
     // which leaves no prose for a block to be embedded in. Handing a coach both
     // would be handing it two contradictory output shapes and letting recency
     // pick — the 2026-07-24 derail's exact mechanism.
+    //
+    // The grant is read through `granted_visuals`, so "no coach bound" means the
+    // platform baseline rather than "no visuals". A group chat binds no coach —
+    // the platform is answering — and treating that as an empty grant withheld
+    // the contract entirely, leaving the model to report it had no way to draw.
     let visual_contract_active = !structured_contract_active
         && onboarding.is_none()
-        && coach_ctx.is_some_and(|c| !c.visuals.is_empty());
+        && !viz_blocks::granted_visuals(coach_ctx.map(|c| c.visuals.as_slice())).is_empty();
     let raw_system_prompt = if visual_contract_active {
         format!("{raw_system_prompt}\n\n{}", ctx.visual_blocks_prompt)
     } else {

@@ -11,7 +11,7 @@ use dravr_contremaitre::schemas::{DRAVR_VIZ_SCHEMA, STRUCTURED_WORKOUT_SCHEMA};
 use pierre_chat_pipeline::stages::prefetch::PREFETCH_TOOL;
 use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
 use pierre_chat_pipeline::stages::viz_blocks::{
-    extract_viz_blocks, marker, markers_intact, strip_fences,
+    extract_viz_blocks, granted_visuals, marker, markers_intact, strip_fences, DEFAULT_VISUALS,
 };
 
 /// The full schema set, as production assembles it. Every test hands over the
@@ -459,4 +459,59 @@ fn history_without_a_fence_is_left_exactly_as_it_was() {
     // coach may legitimately remember showing it.
     let with_marker = format!("Voici.\n\n{}\n\nEt donc.", marker(0));
     assert_eq!(strip_fences(&with_marker), with_marker);
+}
+
+/// A chat with no coach bound may still draw.
+///
+/// The `visuals:` grant belongs to a coach author, so it only exists when a
+/// coach is bound. A Telegram group binds none — the platform answers directly
+/// — and reading that as an empty grant withheld the visual contract from the
+/// prompt. The model then told the group it had no way to draw a chart
+/// ("pas d'outil pour ça de mon côté", 2026-08-21) *after* successfully calling
+/// `get_activities`: it had the data and no permission to picture it.
+#[test]
+fn a_conversation_with_no_coach_falls_back_to_the_platform_grant() {
+    let grant = granted_visuals(None);
+
+    assert!(
+        !grant.is_empty(),
+        "no coach bound must not read as 'no visuals'"
+    );
+    for kind in DEFAULT_VISUALS {
+        assert!(
+            grant.iter().any(|g| g == kind),
+            "the platform baseline must include {kind:?}"
+        );
+    }
+
+    // And the grant is live: a chart extracts under it.
+    let reply = format!("Voici ton volume.\n\n{}", fenced(CHART));
+    let out = extract_viz_blocks(&schemas(), &grant, &tools_called(), &reply)
+        .expect("a coach-less turn must still lift a valid chart");
+    assert_eq!(out.blocks.len(), 1);
+    assert_eq!(out.blocks[0]["kind"], "line");
+}
+
+/// A bound coach still governs its own reply — including choosing not to draw.
+///
+/// The fallback must not become "everyone draws". An author who ships a coach
+/// with no `visuals:` made a decision, and 13 of the 26 catalogue coaches have
+/// made exactly that one.
+#[test]
+fn a_bound_coach_governs_its_own_grant() {
+    assert!(
+        granted_visuals(Some(&[])).is_empty(),
+        "a coach that declares no visuals must not inherit the platform default"
+    );
+
+    let tables_only = vec!["table".to_owned()];
+    let grant = granted_visuals(Some(&tables_only));
+    assert_eq!(
+        grant, tables_only,
+        "a declared grant passes through verbatim"
+    );
+
+    // ...and it is still enforced.
+    let chart_reply = format!("Voici.\n\n{}", fenced(CHART));
+    assert_all_refused_with(&grant, &tools_called(), &chart_reply);
 }

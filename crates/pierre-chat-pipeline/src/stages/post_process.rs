@@ -147,12 +147,15 @@ fn lift_viz_blocks(
     // in its reply is not something we asked for. Extracting it anyway would
     // make the grant advisory; refusing keeps it a permission. The fence stays
     // in the text, visible, rather than being silently swallowed.
-    let Some(granted) = coach_ctx
-        .map(|c| c.visuals.as_slice())
-        .filter(|v| !v.is_empty())
-    else {
+    // Same rule the prompt-assembly stage used to decide whether to teach the
+    // contract. If the two ever disagree, a coach is told it may draw and then
+    // has its block refused — which is precisely the raw-JSON reply this stage
+    // exists to prevent.
+    let granted = viz_blocks::granted_visuals(coach_ctx.map(|c| c.visuals.as_slice()));
+    if granted.is_empty() {
         return (raw_content, None, 0);
-    };
+    }
+    let granted = granted.as_slice();
     let Some(extraction) = viz_blocks::extract_viz_blocks(
         &ctx.structured_output_schemas,
         granted,
