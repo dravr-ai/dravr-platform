@@ -32,6 +32,8 @@ module.exports = {
         'Dravr needs microphone access to capture your voice for speech-to-text transcription.',
       NSSpeechRecognitionUsageDescription:
         'Dravr uses speech recognition to transcribe your voice messages into text queries.',
+      NSPhotoLibraryUsageDescription:
+        'Dravr needs access to your photo library to allow selecting images for profile customization and activity attachments.',
     },
   },
   android: {
