@@ -69,6 +69,9 @@ pub mod conversions;
 pub mod decorators;
 /// Unified tool execution engine
 pub mod engine;
+/// Stale-while-revalidate activity cache backing the group member snapshots
+#[cfg(feature = "tools-groups")]
+pub mod group_activity_cache;
 /// Batch fitness snapshot fetcher for group coaching context
 #[cfg(feature = "tools-groups")]
 pub mod group_fitness;

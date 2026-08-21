@@ -22,6 +22,9 @@ pub use pierre_core::models;
 /// Strategy traits for group coaching behavior
 pub mod strategies;
 
+/// Member-state alert sections (broken / stale) appended to the group context
+mod context_alerts;
+
 /// Central group coaching service and context injection
 pub mod service;
 

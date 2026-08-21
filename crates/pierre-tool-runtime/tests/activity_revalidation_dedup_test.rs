@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! Tests for [`pierre_tool_runtime::group_fitness::RevalidationRegistry`].
+//! Tests for [`pierre_tool_runtime::group_activity_cache::RevalidationRegistry`].
 //!
 //! The stale-while-revalidate path spawns a background refresh when a user's
 //! cached activities are stale. Concurrent chat turns must collapse onto a
@@ -16,7 +16,7 @@
 //! lock. These tests pin the claim/release behavior that prevents that.
 
 use pierre_core::models::TenantId;
-use pierre_tool_runtime::group_fitness::RevalidationRegistry;
+use pierre_tool_runtime::group_activity_cache::RevalidationRegistry;
 use uuid::Uuid;
 
 fn key() -> (Uuid, TenantId) {
