@@ -38,20 +38,20 @@ This section provides a comprehensive mapping between MCP tools and their underl
 
 | Tool Name | Algorithm/Intelligence | Implementation | Test File |
 |-----------|----------------------|----------------|-----------|
-| `analyze_sleep_quality` | NSF/AASM sleep scoring + HRV trend analysis | `src/tools/implementations/sleep.rs:96-193` | `tests/intelligence_sleep_analysis_test.rs` |
-| `calculate_recovery_score` | Weighted multi-factor aggregation (TSB + Sleep + HRV) | `src/tools/implementations/sleep.rs:199-329` | `tests/intelligence_recovery_calculator_test.rs` |
-| `suggest_rest_day` | Recovery threshold analysis + confidence scoring | `src/tools/implementations/sleep.rs:335-470` | `tests/sleep_recovery_integration_test.rs` |
-| `track_sleep_trends` | Rolling average comparison + trend detection | `src/tools/implementations/sleep.rs:588-686` | `tests/sleep_recovery_integration_test.rs` |
-| `optimize_sleep_schedule` | TSB-based sleep duration adjustment | `src/tools/implementations/sleep.rs:696-815` | `tests/sleep_recovery_integration_test.rs` |
+| `analyze_sleep_quality` | NSF/AASM sleep scoring + HRV trend analysis | `crates/pierre-tool-runtime/src/implementations/sleep/inner.rs:96-193` | `tests/intelligence_sleep_analysis_test.rs` |
+| `calculate_recovery_score` | Weighted multi-factor aggregation (TSB + Sleep + HRV) | `crates/pierre-tool-runtime/src/implementations/sleep/inner.rs:199-329` | `tests/intelligence_recovery_calculator_test.rs` |
+| `suggest_rest_day` | Recovery threshold analysis + confidence scoring | `crates/pierre-tool-runtime/src/implementations/sleep/inner.rs:335-470` | `tests/sleep_recovery_integration_test.rs` |
+| `track_sleep_trends` | Rolling average comparison + trend detection | `crates/pierre-tool-runtime/src/implementations/sleep/inner.rs:588-686` | `tests/sleep_recovery_integration_test.rs` |
+| `optimize_sleep_schedule` | Form-band sleep duration adjustment | `crates/pierre-tool-runtime/src/implementations/sleep/inner.rs:696-815` | `tests/sleep_recovery_integration_test.rs` |
 
 ### Intelligence Module Dependencies
 
 | Module | Algorithm | Source File |
 |--------|-----------|-------------|
-| `SleepAnalyzer` | NSF/AASM sleep quality scoring | `src/intelligence/sleep_analysis.rs` |
-| `RecoveryCalculator` | Multi-factor recovery aggregation | `src/intelligence/recovery_calculator.rs` |
-| `TrainingLoadCalculator` | TSB calculation (CTL/ATL) | `src/intelligence/training_load.rs` |
-| `RecoveryAggregationAlgorithm` | Weighted average scoring | `src/intelligence/algorithms.rs` |
+| `SleepAnalyzer` | NSF/AASM sleep quality scoring | `dravr-cageux src/sleep_analysis.rs` |
+| `RecoveryCalculator` | Multi-factor recovery aggregation | `dravr-cageux src/recovery_calculator.rs` |
+| `TrainingLoadCalculator` | TSB calculation (CTL/ATL) | `dravr-cageux src/training_load.rs` |
+| `RecoveryAggregationAlgorithm` | Weighted average scoring | `dravr-cageux src/algorithms/` |
 
 ### Algorithm Reference Summary
 
@@ -61,7 +61,7 @@ This section provides a comprehensive mapping between MCP tools and their underl
 | **Sleep Stage Score** | AASM stage distribution | Deep: 15-25%, REM: 20-25%, Light: 50-60% |
 | **Sleep Efficiency Score** | Time asleep / time in bed | Excellent: >90%, Good: 85-90% |
 | **HRV Trend Analysis** | Plews et al. (2013) | Baseline deviation, 7-day rolling average |
-| **Recovery Aggregation** | Weighted average | TSB: 40%, Sleep: 35%, HRV: 25% (full data) |
+| **Recovery Aggregation** | Weighted average | TSB: 40%, Sleep: 40%, HRV: 20% (full data) |
 | **Rest Day Threshold** | Recovery score thresholds | Rest if score < 40, easy if < 60 |
 
 ---
@@ -170,13 +170,13 @@ Pierre combines three recovery indicators:
 pub enum RecoveryAggregationAlgorithm {
     WeightedAverage {
         // Full data (TSB + Sleep + HRV)
-        tsb_weight_full: f64,    // Default: 0.40
-        sleep_weight_full: f64,  // Default: 0.35
-        hrv_weight_full: f64,    // Default: 0.25
+        tsb_weight_full: f64,    // Default: 0.4
+        sleep_weight_full: f64,  // Default: 0.4
+        hrv_weight_full: f64,    // Default: 0.2
 
         // No HRV data (TSB + Sleep only)
-        tsb_weight_no_hrv: f64,  // Default: 0.55
-        sleep_weight_no_hrv: f64, // Default: 0.45
+        tsb_weight_no_hrv: f64,  // Default: 0.5
+        sleep_weight_no_hrv: f64, // Default: 0.5
     },
 }
 ```
@@ -250,7 +250,7 @@ Base recommendations adjusted by training load:
 
 | Condition | Adjustment |
 |-----------|------------|
-| TSB < -10 (fatigued) | +0.5-1.0 hours |
+| `FormBand::DeepFatigue` or `HeavyBlock` (form below -20% of the athlete's own CTL) | + `fatigue_bonus_hours` |
 | ATL > 100 (high acute load) | +0.5 hours |
 | High-intensity workout planned | Prioritize quality |
 | Rest day | Base recommendation |
@@ -296,13 +296,13 @@ efficiency_fair = 75.0
 ```toml
 [recovery_scoring]
 # Full data weights (must sum to 1.0)
-tsb_weight_full = 0.40
-sleep_weight_full = 0.35
-hrv_weight_full = 0.25
+tsb_weight_full = 0.4
+sleep_weight_full = 0.4
+hrv_weight_full = 0.2
 
 # No HRV weights (must sum to 1.0)
-tsb_weight_no_hrv = 0.55
-sleep_weight_no_hrv = 0.45
+tsb_weight_no_hrv = 0.5
+sleep_weight_no_hrv = 0.5
 ```
 
 ### TSB Thresholds

@@ -234,6 +234,8 @@ Routing (use the `obsidian-writer` skill, which writes to the live vault):
 | Plan / phased build | dravr-vault `Work Log/` (`kind: plan`) |
 | Runbook / oncall procedure | dravr-vault `Development/Runbooks/` |
 | Audit / design analysis / session handoff / report | dravr-vault `Work Log/` (`kind:` audit / design / handoff / report) |
+| Training science: a formula, threshold, or framing rule | dravr-vault `Methodology/` (see the standing-folders block below) |
+| Feature R&D / feasibility analysis, not yet committed to | dravr-vault `Features/Potential/` (`stage: potential` + `verdict:`) |
 | Reference docs that ship | repo `book/src/` (mdBook) |
 | Directory-scoped specs | repo `<dir>/README.md` |
 
@@ -241,6 +243,25 @@ Routing (use the `obsidian-writer` skill, which writes to the live vault):
 - **Claude Code for Web (containerized, no vault checkout):** `gh gist create` is the only durable output — acceptable there as a fallback; drop the gist link in chat so a later local session can backfill it into the vault.
 - Gists are also fine for pasteable snippets, cross-project material, and ephemeral share-with-stranger artifacts.
 - Writing markdown via the Write tool is limited to the `claude_docs/` folder under the repo — a per-dev, gitignored symlink into the vault's `Work Log/` (create it if missing; without the symlink, output stays local and never reaches the vault). Notes there need `type: worklog` plus `kind:`/`area:`/`status:`/`date:` or they stay invisible to `Work Log.base` — `obsidian-writer` applies that contract for you.
+</important>
+
+<important if="you changed an algorithm, threshold, config default, or athlete-facing framing — or you shipped, planned, or investigated a feature">
+
+Three vault folders are **standing** documents: they describe the product as it is
+*now*. `Work Log/` is dated and append-only, so it ages honestly; these do not —
+they go stale silently and are read as current, by humans and by you.
+
+| Folder | Source of truth for | **Read** it when | **Update** it when |
+|---|---|---|---|
+| `Methodology/` | the science the product encodes — formulas, bands, config defaults, citations, and the athlete-facing **framing rules** | you touch `dravr-cageux`, `pierre-fitness-compute`, analytics / recovery / nutrition / mobility tools, or coach prompts — or you need the evidence behind a number | you change a formula, band, threshold, or config **default** that reaches an athlete; you move a module it quotes; you change how a metric is *framed*; you register a `LIMITATION` against a documented algorithm |
+| `Features/` | the portfolio — what exists, its `stage:`, who is in the alpha, distilled feedback | **before proposing any feature** (it usually already exists), or you need a feature's history and decisions | a feature changes stage, ships, gets blocked, or a phase lands — bump `phases_done` and `updated:` |
+| `Pillars/` | the six-pillar framework and its evidence base | you touch `Pillar`, the pillars walk, coverage, or onboarding topics | the pillar set, its definitions, or its assessment approach changes |
+
+- **Update in the same session as the change**, not "later" — a note whose `updated:` trails its source is how a folder quietly stops being maintained.
+- **The code wins every disagreement.** Most `Methodology/` notes mirror `book/src/*-methodology.md` and name it in `source:`, but the repo doc drifts from the code too: the 2026-08-21 review found published recovery weights of `TSB 40 / Sleep 35 / HRV 25` against shipped defaults of `40 / 40 / 20`. A note faithful to a stale mirror is still wrong. Read thresholds from the source, never from memory — and when the repo doc is the one at fault, fix it there too.
+- **Some framing rules in `Methodology/` are CI-enforced, not advisory.** ACWR and load ratios ship as descriptive magnitudes, never injury risk (`scripts/ci/check-contremaitre-sync.sh` Check 4, all five locales); form is banded as a share of the athlete's own CTL, never absolute TSB. Breaking either fails a push — read the note before writing a prompt, tool description, or locale string.
+- `Methodology/README.md` carries the sync contract and a runnable drift check; `Features/README.md` carries the frontmatter contract that `Features.base` selects on. These are enforced by Bases views and human review, not by CI — which is exactly why they need you to follow them.
+- R&D that is not yet committed to goes in `Features/Potential/` with `stage: potential` and a `verdict:`, plus a row in that folder's README index — not in `Work Log/`.
 </important>
 
 <important if="you are adding an abstraction, a dependency, or refactoring an existing system">
