@@ -55,9 +55,11 @@ pub(crate) fn activity_cache_retention_days() -> i64 {
         .unwrap_or(DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS)
 }
 
-/// Fold the athlete's OTHER connected providers into a primary recent-window
-/// fetch, then deduplicate. No-op when the caller pinned an explicit
-/// `provider` argument or the ask is the coverage-gated historical branch.
+/// Fold the athlete's OTHER connected providers into a primary fetch.
+///
+/// No-op when the caller pinned an explicit `provider` argument or the ask
+/// is the coverage-gated historical branch; otherwise every remaining
+/// connection is fetched and the union deduplicated.
 ///
 /// `resolve_provider_for_tool` picks ONE provider (arg, env, or most recently
 /// used connection), which shows a multi-provider athlete only a slice of
