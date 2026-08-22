@@ -222,7 +222,7 @@ mod messaging_quota_gate_tests {
     // ════════════════════════════════════════════════════════════════
 
     /// Exhaust the Starter tier's daily message budget (50/day, 1.5x burst →
-    /// refusals from 75) under the USER's tenant, then drive a WhatsApp turn.
+    /// refusals from 75) under the USER's tenant, then drive a `WhatsApp` turn.
     /// The reply must be the localized quota denial — asserted against the
     /// exact registry string — and no chat turn may be persisted: the gate
     /// runs before the pipeline stores the user message, so a refused turn
