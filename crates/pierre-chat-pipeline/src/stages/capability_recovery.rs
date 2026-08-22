@@ -161,6 +161,13 @@ enum RecoveryTrigger {
     /// escapes in three weeks). An answer built with no data behind it is the
     /// failure, whatever words it wears.
     UngroundedDataAsk,
+    /// Tools ran (or activity data was injected) and the reply is a dangling
+    /// fragment — the exact complement of [`Self::UngroundedDataAsk`]: there
+    /// the model had no data and answered anyway; here it had data and failed
+    /// to answer at all. Live incident 2026-08-22 (Telegram group): the
+    /// fallback provider dispatched four tool calls and delivered «by
+    /// Dravr.» — nine characters of sign-off with the answer missing.
+    DegenerateReply,
 }
 
 impl RecoveryTrigger {
@@ -169,6 +176,7 @@ impl RecoveryTrigger {
         match self {
             Self::ClaimedFailure => "claimed_failure",
             Self::UngroundedDataAsk => "ungrounded_data_ask",
+            Self::DegenerateReply => "degenerate_reply",
         }
     }
 }
@@ -283,6 +291,13 @@ fn recovery_trigger(
 ) -> Option<RecoveryTrigger> {
     if narration::contains_capability_failure(&result.content) {
         return Some(RecoveryTrigger::ClaimedFailure);
+    }
+    // Gated on tools-ran-or-data-injected so a short reply on a purely social
+    // turn («Bravo !») never reaches the check — see `is_degenerate_reply`.
+    if narration::is_degenerate_reply(&result.content)
+        && (result.tool_calls_count > 0 || turn_carries_activity_block(deps.llm_messages))
+    {
+        return Some(RecoveryTrigger::DegenerateReply);
     }
     let ungrounded = looks_like_a_data_ask(&input.content)
         && result.tool_calls_count == 0

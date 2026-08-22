@@ -389,4 +389,104 @@ mod peer_fetch_tests {
             "error should explain the member was not found, got: {err}"
         );
     }
+
+    /// Querying your own name used to fall through to the generic "no member
+    /// matching" error — a dead end no retry can escape (the 2026-08-22
+    /// fallback thrash retried name variants against errors carrying no
+    /// gradient). A self-lookup must name the actual mistake and the tool
+    /// that serves it.
+    #[tokio::test]
+    async fn self_query_is_redirected_to_get_activities() {
+        let resources = create_test_server_resources().await.unwrap();
+        let requester = seed_user(&resources, "philtool").await;
+        let host_tenant = create_tenant_owned_by(&resources, requester).await;
+        let coach = seed_coach(&resources, requester, host_tenant).await;
+
+        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        add_member(
+            &resources,
+            gid,
+            requester,
+            host_tenant,
+            GroupRole::Owner,
+            false,
+        )
+        .await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let ctx = tool_context(requester, host_tenant);
+        let response = GetGroupMemberActivitiesTool
+            .execute(&runtime, &ctx, json!({ "member": "philtool" }))
+            .await;
+
+        let payload = structured(&response);
+        let err = payload
+            .get("error")
+            .and_then(Value::as_str)
+            .expect("a self-query must be refused with a redirect");
+        assert!(
+            err.contains("is you") && err.contains("get_activities"),
+            "the error must say the query matched the requester and name the \
+             tool for their own data, got: {err}"
+        );
+    }
+
+    /// A consenting peer whose every provider fetch fails (no token, empty
+    /// cache) is an OUTAGE, not an empty week. The old unconditional
+    /// `ok(count: 0)` taught the coach the peer had not trained; the reply
+    /// must now be an error naming the fetch failure.
+    #[tokio::test]
+    async fn peer_fetch_outage_is_an_error_not_an_empty_week() {
+        let resources = create_test_server_resources().await.unwrap();
+        let requester = seed_user(&resources, "philtool").await;
+        let host_tenant = create_tenant_owned_by(&resources, requester).await;
+        let coach = seed_coach(&resources, requester, host_tenant).await;
+
+        let peer = seed_user(&resources, "raphtool").await;
+        let peer_tenant = create_tenant_owned_by(&resources, peer).await;
+        // A connection with no OAuth token and nothing in the activity cache:
+        // the live fetch fails to authenticate and the stale-cache fallback is
+        // empty, so every fetch for this peer returns None.
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(peer, peer_tenant, "strava", &ConnectionType::OAuth, None)
+            .await
+            .unwrap();
+
+        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        add_member(
+            &resources,
+            gid,
+            requester,
+            host_tenant,
+            GroupRole::Owner,
+            false,
+        )
+        .await;
+        add_member(&resources, gid, peer, peer_tenant, GroupRole::Member, true).await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let ctx = tool_context(requester, host_tenant);
+        let response = GetGroupMemberActivitiesTool
+            .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
+            .await;
+
+        let payload = structured(&response);
+        let err = payload
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| {
+                panic!("an all-connections-failed fetch must be an error, got: {payload}")
+            });
+        assert!(
+            err.contains("did not respond"),
+            "the error must present the outage as temporary, got: {err}"
+        );
+        assert!(
+            payload.get("count").is_none(),
+            "no activity count may be fabricated for a failed fetch, got: {payload}"
+        );
+    }
 }

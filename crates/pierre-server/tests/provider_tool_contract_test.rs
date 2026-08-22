@@ -48,9 +48,10 @@ use uuid::Uuid;
 /// so the round trip turns on the contract rather than on seeded state.
 const ROUND_TRIP_TOOL: &str = "get_connection_status";
 
-/// One scripted turn: either a structured tool call, or a final answer.
+/// One scripted turn: either a structured tool call with its arguments, or a
+/// final answer.
 enum Scripted {
-    CallsTool(&'static str),
+    CallsTool(&'static str, serde_json::Value),
     Answers(&'static str),
 }
 
@@ -60,6 +61,12 @@ struct ContractProvider {
     /// How many requests arrived carrying tool declarations. Proves the
     /// platform's tools reached the provider, not merely that it replied.
     saw_tools: AtomicUsize,
+    /// Every `[Tool Result for ...]` feedback message this provider was
+    /// shown, in arrival order — the tool results the loop fed back for
+    /// synthesis (the API loop injects them as user messages, not tool-role
+    /// messages). Lets a test assert on WHAT the tool answered, not merely
+    /// that it was dispatched.
+    tool_results: Mutex<Vec<String>>,
     models: Vec<String>,
 }
 
@@ -68,6 +75,7 @@ impl ContractProvider {
         Self {
             script: Mutex::new(script.into_iter().collect()),
             saw_tools: AtomicUsize::new(0),
+            tool_results: Mutex::new(Vec::new()),
             models: vec!["contract-model".to_owned()],
         }
     }
@@ -95,6 +103,17 @@ impl LlmProvider for ContractProvider {
         if request.tools.as_ref().is_some_and(|t| !t.is_empty()) {
             self.saw_tools.fetch_add(1, Ordering::SeqCst);
         }
+        {
+            let mut seen = self.tool_results.lock().unwrap();
+            seen.clear();
+            seen.extend(
+                request
+                    .messages
+                    .iter()
+                    .filter(|m| m.content.contains("[Tool Result for "))
+                    .map(|m| m.content.clone()),
+            );
+        }
         let next = self
             .script
             .lock()
@@ -103,12 +122,12 @@ impl LlmProvider for ContractProvider {
             .expect("contract provider ran out of script");
 
         let (content, tool_calls) = match next {
-            Scripted::CallsTool(name) => (
+            Scripted::CallsTool(name, arguments) => (
                 String::new(),
                 Some(vec![ToolCallRequest {
                     id: "call-1".to_owned(),
                     function_name: name.to_owned(),
-                    arguments: json!({}),
+                    arguments,
                 }]),
             ),
             Scripted::Answers(text) => (text.to_owned(), None),
@@ -167,7 +186,7 @@ async fn a_contract_provider_completes_a_tool_round_trip_through_the_generic_loo
         .expect("test user");
 
     let provider = Arc::new(ContractProvider::new(vec![
-        Scripted::CallsTool(ROUND_TRIP_TOOL),
+        Scripted::CallsTool(ROUND_TRIP_TOOL, json!({})),
         Scripted::Answers("Tu es connecté."),
     ]));
     let chat_provider = ChatProvider::Custom(provider.clone());
@@ -286,4 +305,126 @@ async fn a_contract_provider_that_calls_nothing_answers_directly() {
     assert_eq!(result.content, "Bonjour.");
     assert_eq!(result.tool_calls_count, 0);
     assert!(result.tools_called.is_empty());
+}
+
+/// A `{"parameters": {...}}` argument envelope is lifted before dispatch, so
+/// the tool body sees the flat arguments the model meant to send.
+///
+/// Cohere's v1 tool-call format keyed arguments under `parameters` and command
+/// models still emit that shape on the v2 surface. On 2026-08-22 the
+/// headless-fallback path dispatched four such calls to
+/// `get_group_member_activities`; the tool saw no `member` argument and every
+/// retry died on the same "Missing required 'member'" error. This pins the
+/// repair at the loop level: the tool's answer must show the `member` argument
+/// ARRIVED (a roster miss for the queried name), never that it was absent.
+#[cfg(feature = "tools-groups")]
+#[tokio::test]
+async fn a_parameters_argument_envelope_is_lifted_before_dispatch() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, _) = create_test_user(&resources.coach.database)
+        .await
+        .expect("test user");
+
+    let provider = Arc::new(ContractProvider::new(vec![
+        Scripted::CallsTool(
+            "get_group_member_activities",
+            json!({"parameters": {"member": "Phil"}}),
+        ),
+        Scripted::Answers("Phil n'est pas dans ton groupe."),
+    ]));
+    let chat_provider = ChatProvider::Custom(provider.clone());
+    let executor =
+        Arc::new(UniversalToolExecutor::new(resources).with_turn_token("contract-env".to_owned()));
+    let tools = advertised_tools();
+    let user = user_id.to_string();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+
+    let params = ToolLoopParams {
+        provider: &chat_provider,
+        executor,
+        tools: &tools,
+        model: "contract-model",
+        user_id: &user,
+        tenant_id: tenant,
+        max_iterations: 3,
+        call_recorder: None,
+        tool_message_recorder: None,
+        temperature: None,
+        stream_sink: None,
+        mcp_servers: Vec::new(),
+    };
+
+    let mut messages = vec![
+        ChatMessage::system("You are a test coach."),
+        ChatMessage::user("compare-moi avec Phil"),
+    ];
+
+    let result = run_tool_loop(&params, &mut messages)
+        .await
+        .expect("the loop completes the enveloped round trip");
+
+    assert_eq!(
+        result.tool_calls_count, 1,
+        "the enveloped call must dispatch"
+    );
+    assert_eq!(
+        result.content, "Phil n'est pas dans ton groupe.",
+        "the turn must reach synthesis with the tool's real answer in context"
+    );
+
+    let tool_results = provider.tool_results.lock().unwrap().clone();
+    let fed_back = tool_results.join("\n");
+    assert!(
+        fed_back.contains("No group member matching"),
+        "the tool must have received member='Phil' and answered with a roster \
+         miss for that name; instead the model was shown: {fed_back}"
+    );
+    assert!(
+        !fed_back.contains("Missing required 'member'"),
+        "the envelope must be lifted before dispatch — the tool must never \
+         see the arguments hidden under a 'parameters' key: {fed_back}"
+    );
+}
+
+/// The envelope lift is surgical: sole-key object envelopes only, and never
+/// for a tool whose schema really declares a top-level `parameters` argument.
+#[test]
+fn parameters_envelope_lift_is_guarded() {
+    use pierre_tool_runtime::function_dispatch::unwrap_parameters_envelope;
+
+    // The observed Cohere shape is lifted.
+    assert_eq!(
+        unwrap_parameters_envelope(&json!({"parameters": {"member": "Phil"}}), false),
+        Some(json!({"member": "Phil"}))
+    );
+
+    // A tool that really takes `parameters` (e.g. validate_configuration)
+    // receives its call untouched.
+    assert_eq!(
+        unwrap_parameters_envelope(&json!({"parameters": {"ftp": 285}}), true),
+        None
+    );
+
+    // A sibling key means the model meant what it wrote — no lift.
+    assert_eq!(
+        unwrap_parameters_envelope(
+            &json!({"parameters": {"member": "Phil"}, "limit": 5}),
+            false
+        ),
+        None
+    );
+
+    // A non-object `parameters` value is not an envelope.
+    assert_eq!(
+        unwrap_parameters_envelope(&json!({"parameters": "Phil"}), false),
+        None
+    );
+
+    // Flat arguments pass through.
+    assert_eq!(
+        unwrap_parameters_envelope(&json!({"member": "Phil"}), false),
+        None
+    );
 }

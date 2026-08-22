@@ -33,6 +33,7 @@ mod capability_recovery {
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use chrono::Utc;
+    use embacle::types::ToolCallRequest;
     use futures_util::stream;
     use hmac::{Hmac, Mac};
     use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
@@ -734,6 +735,131 @@ mod capability_recovery {
                 .as_deref(),
             Some("capability_claim_unverified"),
             "a successfully re-grounded turn is ordinary history"
+        );
+    }
+
+    /// The nine-character fragment delivered to a live Telegram group on
+    /// 2026-08-22 in place of a training-comparison answer.
+    const DEGENERATE_REPLY: &str = "by Dravr.";
+
+    /// Calls a real tool, then "answers" the synthesis turn with the dangling
+    /// fragment; the recovery re-ask (recognised by its instruction marker)
+    /// answers cleanly, as a re-challenged model does with data in hand.
+    struct ToolThenFragmentMockProvider;
+
+    #[async_trait]
+    impl LlmProvider for ToolThenFragmentMockProvider {
+        fn name(&self) -> &'static str {
+            "tool_then_fragment_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Tool-then-fragment Mock LLM (degenerate-reply e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::FUNCTION_CALLING | LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let is_reask = request
+                .messages
+                .iter()
+                .any(|m| m.content.contains(REASK_MARKER));
+            let has_tool_results = request
+                .messages
+                .iter()
+                .any(|m| m.content.contains("[Tool Result for "));
+            let (content, tool_calls) = if is_reask {
+                (CLEAN_REPLY.to_owned(), None)
+            } else if has_tool_results {
+                (DEGENERATE_REPLY.to_owned(), None)
+            } else {
+                (
+                    String::new(),
+                    Some(vec![ToolCallRequest {
+                        id: "call-1".to_owned(),
+                        function_name: "get_activities".to_owned(),
+                        arguments: json!({ "limit": 5 }),
+                    }]),
+                )
+            };
+            Ok(ChatResponse {
+                content,
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 30,
+                    completion_tokens: 40,
+                    total_tokens: 70,
+                }),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            Err(AppError::internal("streaming not used by this test"))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    /// Tools ran, real data came back, and the model still delivered a
+    /// dangling fragment — the exact complement of the ungrounded case above
+    /// (there the model had no data and answered anyway; here it had data and
+    /// failed to answer at all). The `DegenerateReply` trigger must run the
+    /// verification fetch and re-ask, so the athlete receives the grounded
+    /// answer instead of «by Dravr.».
+    #[tokio::test]
+    #[serial]
+    async fn a_degenerate_fragment_after_tool_calls_is_reasked_into_an_answer() {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        let scraper_url = spawn_mock_scraper().await;
+        env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
+        // The remote client is both-or-neither: a URL with no audience disables
+        // it, because unsigned requests are refused by the scraper rather than served.
+        env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
+
+        let mock = Arc::new(ToolThenFragmentMockProvider);
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let (user_id, tenant_id) = create_user_with_connection(
+            &resources,
+            "capability-degenerate@example.com",
+            "sciotte",
+            &ConnectionType::Manual,
+        )
+        .await;
+        seed_sciotte_session(&resources, user_id, tenant_id).await;
+
+        drive_slack_turn(
+            &resources,
+            tenant_id,
+            user_id,
+            "U_CAP_DEGEN",
+            "capability_degenerate_secret",
+            "Compare mes heures d'entraînement de cette semaine avec la précédente",
+        )
+        .await;
+
+        let reply = wait_for_persisted_assistant_reply(&resources, tenant_id)
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        assert!(
+            reply.contains("45 min"),
+            "a degenerate fragment on a turn with tool calls must be re-asked \
+             into the grounded answer, got: {reply:?}"
+        );
+        assert!(
+            !reply.contains(DEGENERATE_REPLY),
+            "the dangling fragment must not survive as the durable reply, got: {reply:?}"
         );
     }
     /// The re-ask reply must be stripped before it goes on the wire.

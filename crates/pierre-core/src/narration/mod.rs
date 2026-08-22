@@ -238,6 +238,30 @@ pub fn contains_capability_failure(text: &str) -> bool {
     matches_capability(&fold_separators(text))
 }
 
+/// `true` when a reply is degenerate — present, but carrying no answer.
+///
+/// Copilot ACP and the runtime-fallback providers intermittently end a turn
+/// with a fragment instead of a synthesis: the 2026-08-22 Telegram group turn
+/// delivered «by Dravr.» — nine characters of sign-off with the answer
+/// missing — after four dispatched tool calls. Empty content was already
+/// caught at the headless boundary; a dangling non-empty fragment was not.
+///
+/// A reply is degenerate when, after trimming, it is empty or has at most two
+/// whitespace-separated tokens none of which carries an ASCII digit. The
+/// digit escape keeps legitimately terse data answers («TSB: -12») out.
+/// Short social replies («Bravo !») are also caught, which is why the
+/// pipeline consumer gates this on turns where tools ran or activity data was
+/// injected — a substantive turn deserves a substantive answer, and a purely
+/// social turn never reaches the check.
+#[must_use]
+pub fn is_degenerate_reply(reply: &str) -> bool {
+    let trimmed = reply.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    trimmed.split_whitespace().count() <= 2 && !trimmed.bytes().any(|b| b.is_ascii_digit())
+}
+
 /// `true` when the sentence references internal scaffolding vocabulary.
 /// Matching is separator-folded.
 ///

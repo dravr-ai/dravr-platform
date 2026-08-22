@@ -259,7 +259,31 @@ pub(crate) async fn dispatch_llm_with_tools(
         mcp_servers,
     };
     let loop_start = Instant::now();
-    let mut result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await?;
+    let loop_result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await;
+
+    // The loopback seam is otherwise invisible: ACP reports tool-call titles,
+    // but only the platform's own MCP host knows how many calls it actually
+    // served. `None` = the turn ran without a loopback session (native
+    // function calling); `Some(0)` on an ACP turn = the subprocess never
+    // reached our tools — the discriminating signal the 2026-08-22 silent-ACP
+    // triage lacked. Read before the error return so a timed-out turn still
+    // reports whether a tool round completed before the stall.
+    let loopback_calls_served = tool_session.as_ref().map(ToolSession::calls_served);
+    let mut result = match loop_result {
+        Ok(result) => result,
+        Err(e) => {
+            warn!(
+                conversation_id = %input.conversation_id,
+                turn_id = %input.turn_id,
+                channel = profile.channel.as_str(),
+                loopback_calls_served = ?loopback_calls_served,
+                dispatch_ms = u64::try_from(loop_start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                error = %e,
+                "Chat pipeline dispatch failed in the tool loop"
+            );
+            return Err(e);
+        }
+    };
 
     // Record the prefetch as what it is: a tool run. Stage 10/12b invoked
     // `get_activities` on the athlete's behalf and put the rows in the prompt,
@@ -306,6 +330,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         // how long the agentic loop took. One structured line per turn answers
         // "which tools fired and was it slow" without grepping per-call logs.
         tools_called = ?result.tools_called,
+        loopback_calls_served = ?loopback_calls_served,
         dispatch_ms,
         tokens = result.usage.as_ref().map_or(0, |u| u.total_tokens),
         "Chat pipeline dispatch completed"

@@ -28,8 +28,10 @@
 //! exercises.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::OnceCell;
+use tokio::time::timeout;
 
 use async_trait::async_trait;
 use embacle::types::RunnerError;
@@ -47,6 +49,18 @@ use tracing::{info, warn};
 
 use pierre_database::RepositoryRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
+
+/// Upper bound on one loopback tool call, enforced platform-side.
+///
+/// The ACP subprocess awaits the call inside its own turn; a call that never
+/// resolves parks the whole session in silence until the whole-turn ACP cap
+/// guillotines it — the leading hypothesis for the 2026-08-22 group-turn
+/// stall (4m15s of silence after a tool result returned). Every legitimate
+/// tool answers well inside this bound: a live provider fetch degrades to the
+/// stale cache long before it, and long-running backfills detach. Must stay
+/// below the ACP idle timeout so a bounded call can never read as a dead
+/// session.
+const LOOPBACK_TOOL_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// One turn's view of Dravr's tools, and the executor that runs them.
 ///
@@ -125,8 +139,8 @@ impl ToolSurface for TurnToolSurface {
             progress_reporter: None,
         };
 
-        match self.executor.execute_tool(request).await {
-            Ok(response) => {
+        match timeout(LOOPBACK_TOOL_TIMEOUT, self.executor.execute_tool(request)).await {
+            Ok(Ok(response)) => {
                 let payload = response.result.unwrap_or(Value::Null);
                 if response.success {
                     ToolOutcome::json(payload)
@@ -143,9 +157,23 @@ impl ToolSurface for TurnToolSurface {
                     .with_structured(payload)
                 }
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 warn!(tool_name, error = %e, "tool dispatch failed for the agent");
                 ToolOutcome::refused(e.to_string())
+            }
+            Err(_) => {
+                warn!(
+                    tool_name,
+                    timeout_secs = LOOPBACK_TOOL_TIMEOUT.as_secs(),
+                    "loopback tool call hit the platform bound; refusing so the \
+                     agent's turn continues instead of stalling"
+                );
+                ToolOutcome::refused(format!(
+                    "The tool did not respond within {}s. Do not retry it this \
+                     turn — answer from the data you already have and say which \
+                     data you could not refresh.",
+                    LOOPBACK_TOOL_TIMEOUT.as_secs()
+                ))
             }
         }
     }

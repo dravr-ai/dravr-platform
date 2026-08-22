@@ -15,19 +15,18 @@
 //! identical [`ToolLoopResult`] output.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
+use pierre_core::narration::is_degenerate_reply;
 use pierre_core::tokens::estimate_chat_tokens;
 use tracing::{info, warn};
 
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
-use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
-use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
+use crate::protocol::{UniversalExecutor, UniversalResponse};
 use crate::registry::ToolRegistry;
 use crate::tool_results::extract_activity_list;
 use pierre_core::errors::AppError;
@@ -1257,58 +1256,6 @@ pub(crate) fn log_tool_response_size(func_response: &FunctionResponse) {
     );
 }
 
-/// Execute a single MCP tool call and return the response.
-///
-/// Runs the Sprint C10 post-LLM allowlist check before dispatch so a
-/// prompt-injected tool name that slipped past the catalog filter cannot
-/// actually reach the tool handler. Tool execution errors are converted
-/// to failed responses so the LLM can observe them in the next turn.
-pub(crate) async fn execute_mcp_tool(
-    executor: &UniversalExecutor,
-    function_call: &FunctionCall,
-    user_id: &str,
-    tenant_id: TenantId,
-) -> UniversalResponse {
-    // The tenant tool-disable allowlist (formerly enforced here, chat-only) now
-    // runs inside `UniversalExecutor::execute_tool` via the Guardian, so every
-    // transport — not just chat — honours it. See `guardian::tenant_tool_enabled`.
-    let request = UniversalRequest {
-        tool_name: function_call.name.clone(),
-        parameters: function_call.args.clone(),
-        user_id: user_id.to_owned(),
-        protocol: "chat".to_owned(),
-        tenant_id: Some(tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
-    };
-
-    match executor.execute_tool(request).await {
-        Ok(response) => response,
-        Err(e) => {
-            // Preserve the `ProviderAuthRequired` signal across the
-            // `ProtocolError → UniversalResponse` boundary by stuffing the
-            // provider slug into `metadata` under `META_AUTH_REQUIRED_PROVIDER`.
-            // The tool loop scans for this key and exits early; the chat
-            // pipeline mints a hosted-login URL and surfaces it deterministically.
-            let metadata = e.provider_auth_required_provider().map(|provider| {
-                let mut m: HashMap<String, serde_json::Value> = HashMap::new();
-                m.insert(
-                    META_AUTH_REQUIRED_PROVIDER.to_owned(),
-                    serde_json::Value::String(provider.to_owned()),
-                );
-                m
-            });
-            UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Tool execution failed: {e}")),
-                metadata,
-            }
-        }
-    }
-}
-
 /// Build a function response from an MCP tool response.
 pub(crate) fn build_function_response(
     function_call: &FunctionCall,
@@ -1889,13 +1836,14 @@ fn headless_denial_key(params: &ToolLoopParams<'_>) -> TurnKey {
 /// assemble the [`ToolLoopResult`].
 ///
 /// Copilot ACP intermittently ends a turn without synthesizing an answer:
-/// it returns empty content, or parrots the injected tool-result turn
+/// it returns empty content, parrots the injected tool-result turn
 /// verbatim (the `format_tool_results_as_text` preamble + `<tool_result>`
-/// blocks) instead of reasoning over it. The scaffolding is stripped
-/// unconditionally so a parroted echo never leaks to the user; when
-/// stripping leaves nothing the turn is degenerate, so [`retry_headless_turn`]
-/// runs once — the failure is intermittent (~5% per call) and the next turn
-/// recovers in practice.
+/// blocks) instead of reasoning over it, or emits a dangling fragment («by
+/// Dravr.», delivered to a live Telegram group on 2026-08-22). The
+/// scaffolding is stripped unconditionally so a parroted echo never leaks to
+/// the user; when what remains fails [`is_degenerate_reply`] the turn is
+/// degenerate, so [`retry_headless_turn`] runs once — the failure is
+/// intermittent (~5% per call) and the next turn recovers in practice.
 async fn finalize_headless_turn(
     headless_response: pierre_llm::HeadlessToolResponse,
     headless_runner: &pierre_llm::CopilotHeadlessRunner,
@@ -1916,11 +1864,12 @@ async fn finalize_headless_turn(
     let mut usage = headless_response.usage;
     let mut finish_reason = headless_response.finish_reason;
 
-    if content.is_empty() {
+    if is_degenerate_reply(&content) {
         warn!(
             provider = %params.provider.name(),
             model = %params.model,
-            "Headless turn produced no synthesized answer (empty or parroted tool-result echo); retrying converse once"
+            content_len = content.len(),
+            "Headless turn produced no synthesized answer (empty, parroted tool-result echo, or a dangling fragment); retrying converse once"
         );
         let retry = retry_headless_turn(headless_runner, request, params, last_user_prompt).await?;
         content = retry.content;

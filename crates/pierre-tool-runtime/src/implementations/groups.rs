@@ -38,7 +38,9 @@ use pierre_core::models::groups::GroupMember;
 use pierre_core::models::Activity;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_providers::core::ActivityQueryParams;
+use pierre_runtime_context::DataContext;
 use pierre_tools_core::ToolResult;
+use uuid::Uuid;
 
 use crate::activity_fetch::fetch_provider_activities;
 use crate::capabilities::ToolCapabilities;
@@ -75,6 +77,49 @@ struct MemberMatch {
     group_allows_sharing: bool,
     display_name: String,
     member: GroupMember,
+}
+
+/// Scan every group the requester belongs to for members whose display name
+/// contains `query_lower`. Returns the peer matches plus whether the
+/// requester themself matched — the signal for the self-query redirect.
+///
+/// `list_groups_for_user` is requester-scoped and cross-tenant, so any match
+/// proves shared membership without trusting a conversation tenant.
+async fn scan_shared_rosters(
+    data: &DataContext,
+    requester: Uuid,
+    query_lower: &str,
+) -> AppResult<(Vec<MemberMatch>, bool)> {
+    let groups = data.repos().groups.list_groups_for_user(requester).await?;
+    let mut matches: Vec<MemberMatch> = Vec::new();
+    let mut requester_matched = false;
+    for group in &groups {
+        let members = data
+            .repos()
+            .groups
+            .list_members(&group.id.to_string())
+            .await?;
+        for member in members {
+            if member.left_at.is_some() {
+                continue;
+            }
+            let display_name = fetch_user_display_name(data, member.user_id).await;
+            if !display_name.to_lowercase().contains(query_lower) {
+                continue;
+            }
+            if member.user_id == requester {
+                requester_matched = true;
+                continue;
+            }
+            matches.push(MemberMatch {
+                group_name: group.name.clone(),
+                group_allows_sharing: group.peer_data_sharing,
+                display_name,
+                member,
+            });
+        }
+    }
+    Ok((matches, requester_matched))
 }
 
 /// Collapse the match set to a single peer, or an error payload explaining why
@@ -240,27 +285,22 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             let data = runtime.data();
 
             // Resolve the target peer across the groups the requester belongs to.
-            // list_groups_for_user is requester-scoped and cross-tenant, so any
-            // match proves shared membership without trusting a conversation tenant.
-            let groups = data.repos().groups.list_groups_for_user(requester).await?;
             let query_lower = member_query.to_lowercase();
-            let mut matches: Vec<MemberMatch> = Vec::new();
-            for group in &groups {
-                let members = data.repos().groups.list_members(&group.id.to_string()).await?;
-                for member in members {
-                    if member.user_id == requester || member.left_at.is_some() {
-                        continue;
-                    }
-                    let display_name = fetch_user_display_name(&data, member.user_id).await;
-                    if display_name.to_lowercase().contains(&query_lower) {
-                        matches.push(MemberMatch {
-                            group_name: group.name.clone(),
-                            group_allows_sharing: group.peer_data_sharing,
-                            display_name,
-                            member,
-                        });
-                    }
-                }
+            let (matches, requester_matched) =
+                scan_shared_rosters(&data, requester, &query_lower).await?;
+
+            // A self-lookup used to fall through to the generic "no member
+            // matching" error — a dead end with no gradient out, since no
+            // retry of your own name can ever succeed. Name the actual
+            // mistake and the tool that serves it instead.
+            if matches.is_empty() && requester_matched {
+                return Ok(ToolResult::error(json!({
+                    "error": format!(
+                        "'{member_query}' is you, the requester. This tool reads a \
+                         consenting PEER's activities; your own activities come from \
+                         `get_activities`."
+                    )
+                })));
             }
 
             let resolved = match resolve_unique_peer(&matches, member_query) {
@@ -315,20 +355,48 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 
             // Fetch under the peer's OWN connection tenant(s) — cross-tenant lookup,
             // so a peer whose Strava lives in a non-host tenant still resolves.
+            // Errors propagate: a repo failure answered with an empty `ok` would
+            // read downstream as "the peer didn't train".
             let connections = data
                 .repos()
                 .provider_connections
                 .get_for_user(peer_id, None)
-                .await
-                .unwrap_or_default();
+                .await?;
+            if connections.is_empty() {
+                return Ok(ToolResult::error(json!({
+                    "error": format!(
+                        "{} has no connected training data source, so there are no \
+                         activities to fetch for them.",
+                        resolved.display_name
+                    )
+                })));
+            }
+            // `fetch_provider_activities` returns `None` when the live fetch
+            // fails and the stale cache is empty. Every connection failing is an
+            // outage, and it must be reported as one: the old unconditional
+            // `ok(count: 0)` taught the coach the peer had not trained.
+            // A successful fetch that genuinely finds nothing in the window
+            // still answers `ok` with a zero count — that emptiness is real.
             let mut activities = Vec::new();
+            let mut any_fetch_succeeded = false;
             for conn in &connections {
                 if let Some(fetched) =
                     fetch_provider_activities(runtime, &conn.provider, peer_id, &conn.tenant_id, &params)
                         .await
                 {
+                    any_fetch_succeeded = true;
                     activities.extend(fetched);
                 }
+            }
+            if !any_fetch_succeeded {
+                return Ok(ToolResult::error(json!({
+                    "error": format!(
+                        "Couldn't fetch {}'s activities right now — their data source \
+                         did not respond. This is a temporary failure, not evidence \
+                         they haven't trained.",
+                        resolved.display_name
+                    )
+                })));
             }
 
             let mut activities = TimeWindowDeduplicator::from_env().deduplicate(activities);

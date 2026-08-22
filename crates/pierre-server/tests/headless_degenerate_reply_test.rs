@@ -7,15 +7,17 @@
 //! Degenerate headless-reply detection contract.
 //!
 //! `run_headless_tool_loop` in `pierre-tool-runtime` treats a turn as
-//! degenerate — and retries `converse()` once — when
-//! [`strip_simulation_artifacts`] reduces the model's reply to nothing.
-//! That happens in two intermittent Copilot-ACP failure modes:
+//! degenerate — and retries `converse()` once — when the model's reply,
+//! after [`strip_simulation_artifacts`], fails [`is_degenerate_reply`].
+//! That happens in three intermittent failure modes:
 //!
 //! 1. The model returns empty content outright.
 //! 2. The model parrots the injected tool-result turn verbatim (the
 //!    `format_tool_results_as_text` preamble plus `<tool_result>` blocks)
 //!    instead of reasoning over it — observed leaking raw training-history
 //!    JSON into a coach reply (dev 2026-06-04).
+//! 3. The model emits a dangling non-empty fragment instead of an answer —
+//!    «by Dravr.» reached a live Telegram group on 2026-08-22.
 //!
 //! These tests pin the linchpin of that fix: a pure parrot strips to empty
 //! (so the loop retries), a real answer survives untouched, and a partial
@@ -23,6 +25,7 @@
 //! changes the echo format, the degenerate check would silently stop
 //! firing — these assertions catch that.
 
+use pierre_core::narration::is_degenerate_reply;
 use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
 
 /// A pure parroted tool-result echo — preamble + a single `<tool_result>`
@@ -69,4 +72,30 @@ fn partial_echo_keeps_prose_and_is_not_degenerate() {
         !cleaned.is_empty(),
         "a reply with real prose must not be treated as degenerate"
     );
+}
+
+/// A dangling non-empty fragment is degenerate: «by Dravr.» reached a live
+/// Telegram group on 2026-08-22 after four dispatched tool calls, because the
+/// boundary only tested for EMPTY content. The predicate must flag the
+/// as-delivered fragment so the headless loop retries and the pipeline's
+/// recovery stage re-asks.
+#[test]
+fn dangling_fragment_is_degenerate() {
+    assert!(is_degenerate_reply("by Dravr."));
+    assert!(is_degenerate_reply(""));
+    assert!(is_degenerate_reply("   \n  "));
+    assert!(is_degenerate_reply("Voilà!"));
+}
+
+/// Terse but substantive replies survive: a two-token answer carrying a
+/// number is data, and any three-token reply is prose. Neither may trigger a
+/// retry that could replace a correct answer.
+#[test]
+fn terse_data_answers_are_not_degenerate() {
+    assert!(!is_degenerate_reply("TSB: -12"));
+    assert!(!is_degenerate_reply("42 km"));
+    assert!(!is_degenerate_reply("Repos complet aujourd'hui."));
+    assert!(!is_degenerate_reply(
+        "Ton TSB est à -12, récupération conseillée demain."
+    ));
 }
