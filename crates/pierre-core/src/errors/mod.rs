@@ -478,13 +478,24 @@ impl AppError {
         err
     }
 
-    /// Rate limit exceeded
+    /// Rate limit exceeded — a request-pacing breach, as opposed to a consumed
+    /// budget ([`Self::quota_exceeded`]). Carries the same details shape so
+    /// both render as one 429 wire format with a usable retry window.
     #[must_use]
-    pub fn rate_limit_exceeded(limit: u32) -> Self {
-        Self::new(
+    pub fn rate_limit_exceeded(current: i64, limit: i64, retry_after_secs: u64) -> Self {
+        let mut err = Self::new(
             ErrorCode::RateLimitExceeded,
-            format!("Rate limit of {limit} requests exceeded"),
-        )
+            format!(
+                "Rate limit exceeded: {current}/{limit} requests, retry after {retry_after_secs}s"
+            ),
+        );
+        err.details = Some(Box::new(serde_json::json!({
+            "limit_type": "requests",
+            "current": current,
+            "limit": limit,
+            "retry_after_secs": retry_after_secs,
+        })));
+        err
     }
 
     /// Resource not found

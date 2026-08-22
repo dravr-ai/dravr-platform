@@ -44,6 +44,7 @@ pub use locale::{detect_turn_locale, resolve_messaging_locale};
 
 pub(crate) use dispatch::dispatch_and_respond;
 mod channel_auth_outcome;
+mod quota_gate;
 use channel_auth_outcome::{
     handle_channel_auth_outcome, resolve_channel_user_email, ChannelAuthOutcomeInputs,
 };
@@ -159,8 +160,11 @@ pub(crate) struct PendingDispatch {
     /// Resolved session info
     pub(super) session: ResolvedSession,
     /// Channel/bot-owner tenant — used ONLY for channel-scoped delivery
-    /// machinery: the channel-link lookup, the channel-config load, the outbound
-    /// send + its retry queue, and usage counters. The bot credential lives here.
+    /// machinery: the channel-link lookup, the channel-config load, and the
+    /// outbound send + its retry queue. The bot credential lives here. Usage
+    /// counters deliberately do NOT use it: quota enforcement reads under the
+    /// user's tenant, so recording here hid messaging usage from every quota
+    /// check (registre#9).
     pub(super) channel_tenant_id: TenantId,
     /// User's own tenant — used for tool execution (OAuth, activities, etc.).
     /// May differ from `channel_tenant_id` when the user belongs to a different

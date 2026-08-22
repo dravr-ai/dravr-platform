@@ -25,10 +25,10 @@ use pierre_chat_pipeline::{self, DispatchResult, PipelineHooks, TurnInput};
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_COACH_PROPOSAL_FOOTER,
     KEY_COACH_PROPOSAL_WELCOME, KEY_COACH_PROPOSAL_WELCOME_GENERIC, KEY_EMPTY_REPLY,
-    KEY_ERROR_GENERIC,
+    KEY_ERROR_GENERIC, KEY_QUOTA_EXCEEDED,
 };
 use pierre_core::error_helpers::panic_payload_str;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::analytics::hash_id;
@@ -38,6 +38,7 @@ use super::addressing::reply_recipient;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::connect;
 use super::intake;
+use super::quota_gate::MessagingQuotaGate;
 use super::viz_delivery::{
     plan_media, strip_viz_markers, target as viz_target, VizDelivery, VizMedia,
 };
@@ -46,6 +47,7 @@ use super::{
     PendingDispatch, CONVERSATION_DISPATCH_LOCKS,
 };
 use pierre_services::onboarding_gate::user_has_connected_provider;
+use pierre_services::user_status_gate::messaging_key_for_status;
 
 /// Auto-send the one-time onboarding coach proposal for this user, if it hasn't
 /// been sent on this channel link yet.
@@ -408,6 +410,34 @@ async fn report_dispatch_failure(
     send_error_reply(dispatch, channel_config, &user_message).await;
 }
 
+/// Send the localized denial for a quota or rate-limit refusal.
+///
+/// WARN, not ERROR, and no notify event: a budget refusing a turn is the
+/// user's plan working as designed, and paging on-call for it teaches them to
+/// tune the channel out. The reply key comes from the same status→string map
+/// the channel-auth denial path uses (`messaging_key_for_status`), so both
+/// refusal surfaces speak with one voice; the generic-quota key is the
+/// fallback only for a quota-shaped error the map somehow does not know.
+async fn send_quota_denial_reply(
+    dispatch: &PendingDispatch,
+    channel_config: &ChannelConfig,
+    err: &AppError,
+) {
+    warn!(
+        error = %err,
+        channel = %dispatch.channel,
+        conversation_id = %dispatch.session.conversation,
+        "messaging turn refused by quota/rate limit"
+    );
+    let key = messaging_key_for_status(err.code).unwrap_or(KEY_QUOTA_EXCEEDED);
+    let body = dispatch
+        .resources
+        .mcp
+        .messaging_strings_registry
+        .get(key, &dispatch.locale);
+    send_error_reply(dispatch, channel_config, &body).await;
+}
+
 /// Maximum ambient-transcript lines injected into a group turn's prompt.
 const AMBIENT_TRANSCRIPT_MAX_LINES: usize = 25;
 
@@ -627,8 +657,15 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // AG-UI event as a `set_status` call so the user sees the pipeline
     // stage in real time.
     let messaging_agui = setup_messaging_agui(&dispatch, &channel_config).await;
+    // Pre-dispatch quota enforcement, scoped to the USER's tenant — the same
+    // `TierQuotaConfig` matrix web chat enforces inline. Without this hook a
+    // messaging turn bypassed every message/token cap (registre#9).
+    let quota_gate = MessagingQuotaGate {
+        resources: Arc::clone(&dispatch.resources),
+    };
     let hooks = PipelineHooks {
         agui: messaging_agui.as_ref().map(|w| w.run()),
+        quota_gate: Some(&quota_gate),
         ..PipelineHooks::none()
     };
 
@@ -651,6 +688,19 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     ));
     let dispatch_result = match run.catch_unwind().await {
         Ok(Ok(result)) => result,
+        // A quota or rate-limit refusal is the user's plan speaking, not a
+        // fault: send the localized denial instead of the generic apology,
+        // and log at WARN — paging on-call for a budget working as designed
+        // is how real faults get tuned out.
+        Ok(Err(e))
+            if matches!(
+                e.code,
+                ErrorCode::QuotaExceeded | ErrorCode::RateLimitExceeded
+            ) =>
+        {
+            send_quota_denial_reply(&dispatch, &channel_config, &e).await;
+            return;
+        }
         Ok(Err(e)) => {
             report_dispatch_failure(&dispatch, &channel_config, &e).await;
             return;
@@ -878,7 +928,12 @@ async fn increment_messaging_usage_counters(dispatch: &PendingDispatch, result: 
             None => default_admin_config(),
         };
 
-    let tenant_id_str = dispatch.channel_tenant_id.to_string();
+    // The USER's tenant, not the bot's: enforcement — web's inline check and
+    // the messaging `QuotaGate` — reads counters under the user tenant, so
+    // recording under `channel_tenant_id` made messaging usage invisible to
+    // every quota read except the coincidence where the two tenants matched
+    // (registre#9).
+    let tenant_id_str = dispatch.user_tenant_id.to_string();
     let usage_svc = UsageCounterService::new(
         dispatch.resources.common.repos.usage_counters.as_ref(),
         admin_config,

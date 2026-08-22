@@ -69,6 +69,5 @@ fn identity_post_process_returns_input_unchanged() {
 fn hooks_none_is_all_none() {
     let hooks = PipelineHooks::none();
     assert!(hooks.quota_gate.is_none());
-    assert!(hooks.usage_recorder.is_none());
     assert!(hooks.response_post_process.is_none());
 }

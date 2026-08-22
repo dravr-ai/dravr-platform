@@ -340,6 +340,20 @@ pub const KEY_ACCOUNT_PENDING: &str = "messaging.account.pending";
 /// [`pierre_core::models::UserStatus::Suspended`].
 pub const KEY_ACCOUNT_SUSPENDED: &str = "messaging.account.suspended";
 
+/// Key: the sender is rate-limited.
+///
+/// Messages are arriving faster than the plan's request budget allows. The
+/// turn is refused before dispatch; the reply asks them to slow down and
+/// retry, instead of the silence this breach used to produce (registre#8).
+pub const KEY_RATE_LIMITED: &str = "messaging.rate_limited";
+
+/// Key: a chat quota is exhausted for the sender's plan.
+///
+/// Daily/weekly messages or tokens, emitted by the pre-dispatch quota gate;
+/// distinct from [`KEY_RATE_LIMITED`], which is about request pacing rather
+/// than a consumed budget.
+pub const KEY_QUOTA_EXCEEDED: &str = "messaging.quota_exceeded";
+
 /// Key: user has not connected any fitness provider yet.
 ///
 /// Surfaced by [`super::super::services::onboarding_gate`] when a messaging
@@ -793,6 +807,8 @@ pub(crate) const FR_LINK_SUCCESS: &str = "Ton compte est maintenant lié ! Tu pe
 pub(crate) const FR_ACCOUNT_PENDING: &str = "Ton compte est lié à ce canal, mais il est en attente d'approbation par un administrateur. Tu pourras discuter avec Dravr dès qu'il sera activé — on te préviendra ici.";
 pub(crate) const FR_ACCOUNT_SUSPENDED: &str =
     "Ton compte Dravr est suspendu. Contacte le support pour rétablir l'accès.";
+pub(crate) const FR_RATE_LIMITED: &str = "Tu envoies des messages un peu trop vite pour ton forfait. Attends un moment, puis réessaie — je serai là.";
+pub(crate) const FR_QUOTA_EXCEEDED: &str = "Tu as atteint la limite de conversation de ton forfait pour le moment. Elle se réinitialise automatiquement — reviens un peu plus tard.";
 pub(crate) const FR_NO_PROVIDER_CONNECTED: &str = "Avant de discuter, connecte un service de fitness (Strava, Garmin, Whoop) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi ici :\n{0}";
 pub(crate) const FR_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Avant de discuter, connecte un service de fitness (Strava, Garmin, Whoop) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi avec ton compte {1} ici :\n{0}";
 pub(crate) const FR_CONNECT_PROMPT: &str = "Connectons ton service de fitness (Strava, Garmin ou Whoop) pour que je puisse te coacher sur tes vraies données. Touche le bouton ci-dessous pour te connecter en toute sécurité.";
@@ -1055,6 +1071,8 @@ pub(crate) const EN_LINK_SUCCESS: &str = "Your account has been linked successfu
 pub(crate) const EN_ACCOUNT_PENDING: &str = "Your account is linked to this channel, but it's still waiting for admin approval. You'll be able to chat with Dravr as soon as it's activated — you'll get a heads-up here.";
 pub(crate) const EN_ACCOUNT_SUSPENDED: &str =
     "Your Dravr account is suspended. Contact support to restore access.";
+pub(crate) const EN_RATE_LIMITED: &str = "You're sending messages a little faster than your plan allows. Give it a moment and try again — I'll be here.";
+pub(crate) const EN_QUOTA_EXCEEDED: &str = "You've reached your plan's chat limit for now. It resets automatically — check back a bit later.";
 pub(crate) const EN_NO_PROVIDER_CONNECTED: &str = "Before we chat, connect a fitness service (Strava, Garmin, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nConnect here:\n{0}";
 pub(crate) const EN_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Before we chat, connect a fitness service (Strava, Garmin, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nSign in with your {1} account here:\n{0}";
 pub(crate) const EN_CONNECT_PROMPT: &str = "Let's connect your fitness service (Strava, Garmin or Whoop) so I can coach you on your real data. Tap the button below to connect securely.";
@@ -1299,6 +1317,8 @@ pub(crate) const ES_LINK_SUCCESS: &str = "¡Tu cuenta se ha vinculado correctame
 pub(crate) const ES_ACCOUNT_PENDING: &str = "Tu cuenta está vinculada a este canal, pero aún espera la aprobación de un administrador. Podrás hablar con Dravr en cuanto se active — te avisaremos por aquí.";
 pub(crate) const ES_ACCOUNT_SUSPENDED: &str =
     "Tu cuenta de Dravr está suspendida. Contacta con soporte para recuperar el acceso.";
+pub(crate) const ES_RATE_LIMITED: &str = "Estás enviando mensajes un poco más rápido de lo que permite tu plan. Espera un momento y vuelve a intentarlo — aquí estaré.";
+pub(crate) const ES_QUOTA_EXCEEDED: &str = "Has alcanzado el límite de conversación de tu plan por ahora. Se reinicia automáticamente — vuelve un poco más tarde.";
 pub(crate) const ES_NO_PROVIDER_CONNECTED: &str = "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nConéctate aquí:\n{0}";
 pub(crate) const ES_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nInicia sesión con tu cuenta {1} aquí:\n{0}";
 pub(crate) const ES_CONNECT_PROMPT: &str = "Conectemos tu servicio de fitness (Strava, Garmin o Whoop) para que pueda orientarte con tus datos reales. Toca el botón de abajo para conectarte de forma segura.";
@@ -1537,6 +1557,8 @@ pub(crate) const DE_LINK_SUCCESS: &str = "Dein Konto ist jetzt verknüpft! Du ka
 pub(crate) const DE_ACCOUNT_PENDING: &str = "Dein Konto ist mit diesem Kanal verknüpft, wartet aber noch auf die Freigabe durch einen Admin. Sobald es aktiviert ist, kannst du mit Dravr chatten — du wirst hier benachrichtigt.";
 pub(crate) const DE_ACCOUNT_SUSPENDED: &str =
     "Dein Dravr-Konto ist gesperrt. Wende dich an den Support, um den Zugang wiederherzustellen.";
+pub(crate) const DE_RATE_LIMITED: &str = "Du sendest Nachrichten etwas schneller, als dein Tarif erlaubt. Warte einen Moment und versuch es dann noch einmal — ich bin hier.";
+pub(crate) const DE_QUOTA_EXCEEDED: &str = "Du hast das Chat-Kontingent deines Tarifs vorerst erreicht. Es setzt sich automatisch zurück — schau etwas später wieder vorbei.";
 pub(crate) const DE_NO_PROVIDER_CONNECTED: &str = "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, Whoop) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nVerbinde dich hier:\n{0}";
 pub(crate) const DE_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, Whoop) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nMelde dich mit deinem Konto {1} hier an:\n{0}";
 pub(crate) const DE_CONNECT_PROMPT: &str = "Verbinden wir deinen Fitness-Dienst (Strava, Garmin oder Whoop), damit ich dich mit echten Daten coachen kann. Tippe unten auf den Button, um dich sicher zu verbinden.";
@@ -1780,6 +1802,8 @@ pub(crate) const PT_LINK_SUCCESS: &str = "A tua conta foi ligada com sucesso! J�
 pub(crate) const PT_ACCOUNT_PENDING: &str = "A tua conta está ligada a este canal, mas ainda aguarda aprovação de um administrador. Vais poder falar com o Dravr assim que for ativada — avisamos-te por aqui.";
 pub(crate) const PT_ACCOUNT_SUSPENDED: &str =
     "A tua conta Dravr está suspensa. Contacta o suporte para restabelecer o acesso.";
+pub(crate) const PT_RATE_LIMITED: &str = "Estás a enviar mensagens um pouco mais depressa do que o teu plano permite. Aguarda um momento e tenta novamente — eu estarei aqui.";
+pub(crate) const PT_QUOTA_EXCEEDED: &str = "Atingiste o limite de conversa do teu plano por agora. Ele repõe-se automaticamente — volta um pouco mais tarde.";
 pub(crate) const PT_NO_PROVIDER_CONNECTED: &str = "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nLiga-te aqui:\n{0}";
 pub(crate) const PT_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nEntra com a tua conta {1} aqui:\n{0}";
 pub(crate) const PT_CONNECT_PROMPT: &str = "Vamos ligar o teu serviço de fitness (Strava, Garmin ou Whoop) para que eu possa ajudar-te com os teus dados reais. Toca no botão abaixo para te ligares em segurança.";
@@ -2000,6 +2024,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "fr", FR_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "fr", FR_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "fr", FR_ACCOUNT_SUSPENDED),
+    (KEY_RATE_LIMITED, "fr", FR_RATE_LIMITED),
+    (KEY_QUOTA_EXCEEDED, "fr", FR_QUOTA_EXCEEDED),
     (KEY_NO_PROVIDER_CONNECTED, "fr", FR_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2182,6 +2208,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "en", EN_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "en", EN_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "en", EN_ACCOUNT_SUSPENDED),
+    (KEY_RATE_LIMITED, "en", EN_RATE_LIMITED),
+    (KEY_QUOTA_EXCEEDED, "en", EN_QUOTA_EXCEEDED),
     (KEY_NO_PROVIDER_CONNECTED, "en", EN_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2364,6 +2392,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "es", ES_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "es", ES_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "es", ES_ACCOUNT_SUSPENDED),
+    (KEY_RATE_LIMITED, "es", ES_RATE_LIMITED),
+    (KEY_QUOTA_EXCEEDED, "es", ES_QUOTA_EXCEEDED),
     (KEY_NO_PROVIDER_CONNECTED, "es", ES_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2546,6 +2576,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "de", DE_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "de", DE_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "de", DE_ACCOUNT_SUSPENDED),
+    (KEY_RATE_LIMITED, "de", DE_RATE_LIMITED),
+    (KEY_QUOTA_EXCEEDED, "de", DE_QUOTA_EXCEEDED),
     (KEY_NO_PROVIDER_CONNECTED, "de", DE_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2728,6 +2760,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_SUCCESS, "pt", PT_LINK_SUCCESS),
     (KEY_ACCOUNT_PENDING, "pt", PT_ACCOUNT_PENDING),
     (KEY_ACCOUNT_SUSPENDED, "pt", PT_ACCOUNT_SUSPENDED),
+    (KEY_RATE_LIMITED, "pt", PT_RATE_LIMITED),
+    (KEY_QUOTA_EXCEEDED, "pt", PT_QUOTA_EXCEEDED),
     (KEY_NO_PROVIDER_CONNECTED, "pt", PT_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,

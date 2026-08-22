@@ -20,7 +20,8 @@
 use pierre_core::errors::ErrorCode;
 
 use pierre_contremaitre::messaging_strings::{
-    KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED, KEY_NO_PROVIDER_CONNECTED,
+    KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED, KEY_NO_PROVIDER_CONNECTED, KEY_QUOTA_EXCEEDED,
+    KEY_RATE_LIMITED,
 };
 
 /// Resolve the messaging-strings key for an account-status error.
@@ -37,6 +38,8 @@ pub const fn messaging_key_for_status(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::AccountPending => Some(KEY_ACCOUNT_PENDING),
         ErrorCode::AccountSuspended => Some(KEY_ACCOUNT_SUSPENDED),
         ErrorCode::NoProviderConnected => Some(KEY_NO_PROVIDER_CONNECTED),
+        ErrorCode::RateLimitExceeded => Some(KEY_RATE_LIMITED),
+        ErrorCode::QuotaExceeded => Some(KEY_QUOTA_EXCEEDED),
         _ => None,
     }
 }

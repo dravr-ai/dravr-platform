@@ -20,7 +20,9 @@ mod common;
 mod conversations;
 mod dto;
 mod feedback;
-mod quotas;
+// Crate-visible: the quota policy is one function with two call sites — web
+// chat inline here, and messaging ingress through its `QuotaGate` hook.
+pub(crate) mod quotas;
 mod send_insight;
 mod send_message;
 mod usage;

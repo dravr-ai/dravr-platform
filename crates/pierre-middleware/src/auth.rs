@@ -13,7 +13,6 @@ use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_auth::security::cookies::get_cookie_value;
 use pierre_auth::user_status::enforce_user_status;
 use pierre_core::constants::key_prefixes;
-use pierre_core::errors::provider::ProviderError;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
@@ -264,24 +263,18 @@ impl McpAuthMiddleware {
             .rate_limit_calculator
             .calculate_api_key_rate_limit(&db_key, current_usage);
 
-        // Check rate limit
+        // Check rate limit. A breach is a 429 with a retry window — it used to
+        // surface as `ExternalServiceError` (HTTP 502), which read as "server
+        // broken" to clients and misfired their backoff (registre#10).
         if rate_limit.is_rate_limited {
-            let err = ProviderError::RateLimitExceeded {
-                provider: "API Key Authentication".to_owned(),
-                retry_after_secs: rate_limit.reset_at.map_or(3600, |dt| {
-                    let now = chrono::Utc::now().timestamp();
-                    let reset = dt.timestamp();
-                    u64::try_from((reset - now).max(0)).unwrap_or(3600)
-                }),
-                limit_type: format!(
-                    "Rate limit reached for API key: {}/{} requests",
-                    current_usage,
-                    rate_limit.limit.unwrap_or(0)
-                ),
-            };
-            return Err(AppError::external_service(
-                "API Key Authentication",
-                err.to_string(),
+            let retry_after = rate_limit.reset_at.map_or(3600, |dt| {
+                let now = chrono::Utc::now().timestamp();
+                u64::try_from((dt.timestamp() - now).max(0)).unwrap_or(3600)
+            });
+            return Err(AppError::rate_limit_exceeded(
+                i64::from(current_usage),
+                i64::from(rate_limit.limit.unwrap_or(0)),
+                retry_after,
             ));
         }
 
@@ -339,7 +332,8 @@ impl McpAuthMiddleware {
     /// - [`AppError::account_pending`] / [`AppError::account_suspended`] —
     ///   linked user is not active (callers map this to the localized
     ///   `KEY_ACCOUNT_PENDING` / `KEY_ACCOUNT_SUSPENDED` reply).
-    /// - [`AppError::external_service`] — rate limit exceeded.
+    /// - [`AppError::rate_limit_exceeded`] — the user's request budget is
+    ///   breached (callers map this to the localized `KEY_RATE_LIMITED` reply).
     /// - [`AppError::database`] — DB lookup failures.
     pub async fn authenticate_channel(
         &self,
@@ -411,23 +405,27 @@ impl McpAuthMiddleware {
             .rate_limit_calculator
             .calculate_jwt_rate_limit(&user, current_usage);
 
+        // A breach is a rate-limit error, not an external-service fault: the
+        // messaging denial arm matches `ErrorCode::RateLimitExceeded` to send
+        // the localized "slow down" reply, and the old `ExternalServiceError`
+        // shape fell through to the operator-error catch-all instead — the
+        // rate-limited user got silence and on-call got paged (registre#8).
         if rate_limit.is_rate_limited {
             let retry_after = rate_limit.reset_at.map_or(3600, |dt| {
                 let now = chrono::Utc::now().timestamp();
                 u64::try_from((dt.timestamp() - now).max(0)).unwrap_or(3600)
             });
-            return Err(AppError::external_service(
-                "Messaging Channel",
-                ProviderError::RateLimitExceeded {
-                    provider: "Messaging Channel".to_owned(),
-                    retry_after_secs: retry_after,
-                    limit_type: format!(
-                        "Rate limit reached on channel {channel}: {}/{} requests",
-                        current_usage,
-                        rate_limit.limit.unwrap_or(0)
-                    ),
-                }
-                .to_string(),
+            warn!(
+                user_id = %user_id,
+                channel = %channel,
+                current_usage,
+                limit = rate_limit.limit.unwrap_or(0),
+                "Channel rate limit exceeded; refusing the turn"
+            );
+            return Err(AppError::rate_limit_exceeded(
+                i64::from(current_usage),
+                i64::from(rate_limit.limit.unwrap_or(0)),
+                retry_after,
             ));
         }
 
@@ -490,10 +488,19 @@ impl McpAuthMiddleware {
             .rate_limit_calculator
             .calculate_jwt_rate_limit(&user, current_usage);
 
-        // Check rate limit
+        // Check rate limit. A 429 with a retry window, not a 401: "slow down"
+        // and "bad credentials" demand opposite client reactions, and the old
+        // auth_invalid shape sent rate-limited clients into re-login loops
+        // (registre#10).
         if rate_limit.is_rate_limited {
-            return Err(AppError::auth_invalid(
-                "Authentication failed: JWT token rate limit exceeded",
+            let retry_after = rate_limit.reset_at.map_or(3600, |dt| {
+                let now = chrono::Utc::now().timestamp();
+                u64::try_from((dt.timestamp() - now).max(0)).unwrap_or(3600)
+            });
+            return Err(AppError::rate_limit_exceeded(
+                i64::from(current_usage),
+                i64::from(rate_limit.limit.unwrap_or(0)),
+                retry_after,
             ));
         }
 

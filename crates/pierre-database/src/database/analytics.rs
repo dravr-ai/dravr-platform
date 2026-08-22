@@ -7,7 +7,7 @@
 use super::Database;
 use crate::repositories::UsageRepository;
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::RequestLog as CoreRequestLog;
 use pierre_core::models::TenantId;
@@ -116,7 +116,19 @@ impl Database {
     ///
     /// Returns an error if the database operation fails.
     pub async fn get_jwt_current_usage_impl(&self, user_id: Uuid) -> AppResult<u32> {
-        let window_start = Utc::now() - Duration::hours(1); // 1 hour window
+        // Month-to-date, matching the PostgreSQL backend's
+        // `DATE_TRUNC('month', CURRENT_DATE)` and the monthly limit + monthly
+        // reset the rate-limit calculator advertises. This used to be a
+        // rolling 1-hour window, which made the tier's monthly limit
+        // effectively decorative on this backend.
+        let now = Utc::now();
+        let window_start = now
+            .with_day(1)
+            .and_then(|dt| dt.with_hour(0))
+            .and_then(|dt| dt.with_minute(0))
+            .and_then(|dt| dt.with_second(0))
+            .and_then(|dt| dt.with_nanosecond(0))
+            .unwrap_or(now);
 
         let count: i32 = sqlx::query_scalar(
             r"

@@ -1,5 +1,5 @@
 // ABOUTME: Hook traits for channel-specific side effects in the unified chat pipeline
-// ABOUTME: QuotaGate, UsageRecorder, ResponsePostProcess plug channel adapters into the pipeline edges
+// ABOUTME: QuotaGate and ResponsePostProcess plug channel adapters into the pipeline edges
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,21 +12,19 @@
 //!
 //! Three extension points:
 //!
-//! - [`QuotaGate`] — runs before LLM dispatch. Web chat uses this to enforce
-//!   message/token quotas and emit HTTP 402/429; messaging uses a more
-//!   permissive variant that produces a polite reply and a Slack alert on
-//!   quota exhaustion.
-//! - [`UsageRecorder`] — runs after the assistant reply is persisted. Records
-//!   LLM cost into the usage ledger and increments quota counters. Web
-//!   records synchronously; messaging records from the `dispatch_and_respond`
-//!   wrapper so the pipeline can stay agnostic of channel concurrency.
+//! - [`QuotaGate`] — runs before LLM dispatch. Messaging ingress implements
+//!   it (its `MessagingQuotaGate` delegates to the same
+//!   `check_pre_chat_quotas_scoped` policy web chat calls inline before
+//!   invoking the pipeline), refusing the turn with a localized denial reply
+//!   on breach. One policy function, two call sites — the hook is plumbing,
+//!   not a second quota system.
 //! - [`ResponsePostProcess`] — transforms the final reply content before
 //!   persistence. Web's insight-generation flow uses this to parse JSON from
 //!   the LLM; conversational flows use a no-op.
 
 use async_trait::async_trait;
 
-use super::turn::{DispatchResult, TurnContext};
+use super::turn::TurnContext;
 use pierre_agui::AgUiSink;
 use pierre_core::errors::AppResult;
 pub use pierre_services::chat_stream::{ChatStreamEvent, ChatStreamSink};
@@ -51,18 +49,6 @@ pub struct QuotaWarning {
 pub trait QuotaGate: Send + Sync {
     /// Check whether the turn may proceed.
     async fn pre_check(&self, ctx: &TurnContext) -> AppResult<Option<QuotaWarning>>;
-}
-
-/// Post-dispatch usage recording hook.
-///
-/// Called after the assistant reply is persisted. Implementations are
-/// responsible for both cost tracking (LLM ledger) and quota counter
-/// increments. Errors should be logged and swallowed — a usage-recording
-/// failure must never cause a successful turn to fail.
-#[async_trait]
-pub trait UsageRecorder: Send + Sync {
-    /// Record usage for a completed turn.
-    async fn record(&self, ctx: &TurnContext, result: &DispatchResult, elapsed_ms: u64);
 }
 
 /// Synchronous, pure post-processing of the assistant reply content.
@@ -104,8 +90,6 @@ pub struct AgUiRun<'a> {
 pub struct PipelineHooks<'a> {
     /// Optional pre-dispatch quota gate.
     pub quota_gate: Option<&'a dyn QuotaGate>,
-    /// Optional post-dispatch usage recorder.
-    pub usage_recorder: Option<&'a dyn UsageRecorder>,
     /// Optional post-processor for the assistant reply content.
     pub response_post_process: Option<&'a dyn ResponsePostProcess>,
     /// Optional AG-UI progress feedback wiring. When present, the
@@ -125,7 +109,6 @@ impl PipelineHooks<'_> {
     pub const fn none() -> Self {
         Self {
             quota_gate: None,
-            usage_recorder: None,
             response_post_process: None,
             agui: None,
             stream_sink: None,

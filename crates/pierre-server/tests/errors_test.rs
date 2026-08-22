@@ -29,7 +29,7 @@ fn test_app_error_creation() {
 
 #[test]
 fn test_error_response_serialization() {
-    let error = AppError::rate_limit_exceeded(1000);
+    let error = AppError::rate_limit_exceeded(1001, 1000, 900);
     let response = ErrorResponse::from(error);
 
     let json = serde_json::to_string(&response).unwrap();
@@ -279,9 +279,18 @@ fn test_app_error_convenience_methods() {
     assert_eq!(auth_expired.code, ErrorCode::AuthExpired);
     assert_eq!(auth_expired.message, "Authentication token has expired");
 
-    let rate_limit = AppError::rate_limit_exceeded(100);
+    let rate_limit = AppError::rate_limit_exceeded(101, 100, 60);
     assert_eq!(rate_limit.code, ErrorCode::RateLimitExceeded);
-    assert_eq!(rate_limit.message, "Rate limit of 100 requests exceeded");
+    assert_eq!(
+        rate_limit.message,
+        "Rate limit exceeded: 101/100 requests, retry after 60s"
+    );
+    assert_eq!(
+        rate_limit.http_status(),
+        429,
+        "a pacing breach is 429 with a retry window — never 401 (re-login \
+         loop) or 502 (reads as a server fault); registre#10"
+    );
 
     let not_found = AppError::not_found("User");
     assert_eq!(not_found.code, ErrorCode::ResourceNotFound);
@@ -467,7 +476,7 @@ fn test_error_response_timestamp_format() {
 fn test_multiple_error_types_serialization() {
     let errors = vec![
         AppError::auth_required(),
-        AppError::rate_limit_exceeded(1000),
+        AppError::rate_limit_exceeded(1001, 1000, 900),
         AppError::not_found("Resource"),
         AppError::internal("Server error"),
         AppError::database("Connection timeout"),

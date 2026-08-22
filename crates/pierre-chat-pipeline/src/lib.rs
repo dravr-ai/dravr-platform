@@ -16,8 +16,9 @@
 //! - Channel adapters (the Axum `send_message` handler, the messaging ingress
 //!   `dispatch_and_respond` wrapper) own transport and quota UX: they extract
 //!   auth, decide how to reply (HTTP body vs. webhook outbound delivery),
-//!   serialize quota violations per channel, and record usage through the
-//!   [`hooks::UsageRecorder`] trait.
+//!   serialize quota violations per channel, and record usage after the run
+//!   returns — each adapter writes the ledger and counters itself, so the
+//!   pipeline stays agnostic of channel concurrency.
 //! - [`run`] owns everything between "I have a persisted user message" and
 //!   "the assistant reply is persisted and post-processed". It is pure enough
 //!   to be tested without HTTP or webhook plumbing.
@@ -43,7 +44,7 @@ pub use mcp_bridge::McpBridgeProvider;
 pub use channel_profile::{Channel, ChannelProfile, MaxIterations, ModelPolicy};
 pub use hooks::{
     AgUiRun, ChatStreamEvent, ChatStreamSink, PipelineHooks, QuotaGate, QuotaWarning,
-    ResponsePostProcess, UsageRecorder,
+    ResponsePostProcess,
 };
 // Re-exported so that flows which build `ToolLoopParams` directly (the
 // insight route, the messaging ingress) can attach the same per-call
@@ -56,7 +57,6 @@ pub use turn::{
 use std::mem;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Instant;
 
 use chrono::Utc;
 use pierre_agui::AgUiEvent;
@@ -986,7 +986,6 @@ async fn run_turn(
     profile: &ChannelProfile,
     hooks: &PipelineHooks<'_>,
 ) -> AppResult<DispatchResult> {
-    let turn_started = Instant::now();
     let turn_ctx = TurnContext::from_input(&input);
 
     // Stage 1: Pre-dispatch quota gate (hook).
@@ -1035,9 +1034,6 @@ async fn run_turn(
     let onboarding_turn = match resolve_guided_or_answer(GuidedStageInputs {
         ctx,
         input: &input,
-        hooks,
-        turn_ctx: &turn_ctx,
-        turn_started,
         active_model: &active_model,
         user_message: &user_message,
         conv: &conv,
@@ -1210,15 +1206,6 @@ async fn run_turn(
         identity_leak,
     };
 
-    // Stage 22: UsageRecorder hook.
-    #[allow(clippy::cast_possible_truncation)]
-    let elapsed_ms = turn_started.elapsed().as_millis() as u64;
-    if let Some(recorder) = hooks.usage_recorder {
-        recorder
-            .record(&turn_ctx, &dispatch_result, elapsed_ms)
-            .await;
-    }
-
     Ok(dispatch_result)
 }
 
@@ -1226,9 +1213,6 @@ async fn run_turn(
 struct GuidedStageInputs<'a> {
     ctx: &'a ChatPipelineContext,
     input: &'a TurnInput,
-    hooks: &'a PipelineHooks<'a>,
-    turn_ctx: &'a TurnContext,
-    turn_started: Instant,
     active_model: &'a str,
     user_message: &'a MessageRecord,
     conv: &'a ConversationRecord,
@@ -1254,9 +1238,6 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
     let GuidedStageInputs {
         ctx,
         input,
-        hooks,
-        turn_ctx,
-        turn_started,
         active_model,
         user_message,
         conv,
@@ -1280,9 +1261,6 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
                 DeterministicReplyInputs {
                     ctx,
                     input,
-                    hooks,
-                    turn_ctx,
-                    turn_started,
                     active_model: active_model.to_owned(),
                     user_message: user_message.clone(),
                     conv,
@@ -1313,9 +1291,6 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
 struct DeterministicReplyInputs<'a> {
     ctx: &'a ChatPipelineContext,
     input: &'a TurnInput,
-    hooks: &'a PipelineHooks<'a>,
-    turn_ctx: &'a TurnContext,
-    turn_started: Instant,
     active_model: String,
     user_message: MessageRecord,
     conv: &'a ConversationRecord,
@@ -1326,8 +1301,8 @@ struct DeterministicReplyInputs<'a> {
 /// Used when the reply is something only the platform can state truthfully —
 /// today, the calibration wrap-up, whose whole value is reporting what the
 /// extractor actually wrote. Everything downstream of the dispatch still runs
-/// as usual: the reply is persisted, the conversation reloaded, and the usage
-/// hook fired, so the turn is indistinguishable from any other to callers.
+/// as usual: the reply is persisted and the conversation reloaded, so the
+/// turn is indistinguishable from any other to callers.
 ///
 /// Deliberately skipped: post-processing (guardrails, claim verification,
 /// identity-leak detection) and assistant-side learning. All of them exist to
@@ -1345,9 +1320,6 @@ async fn deliver_deterministic_reply(
     let DeterministicReplyInputs {
         ctx,
         input,
-        hooks,
-        turn_ctx,
-        turn_started,
         active_model,
         user_message,
         conv,
@@ -1395,14 +1367,6 @@ async fn deliver_deterministic_reply(
         conversation: updated_conversation,
         identity_leak: None,
     };
-
-    #[allow(clippy::cast_possible_truncation)]
-    let elapsed_ms = turn_started.elapsed().as_millis() as u64;
-    if let Some(recorder) = hooks.usage_recorder {
-        recorder
-            .record(turn_ctx, &dispatch_result, elapsed_ms)
-            .await;
-    }
 
     Ok(dispatch_result)
 }
