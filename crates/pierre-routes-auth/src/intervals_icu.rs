@@ -59,6 +59,10 @@ async fn authenticate(
 /// `GET /api/v1/athlete/{id}` round-trip) before persisting, so a bad key is
 /// rejected at link time rather than on the first data fetch.
 ///
+/// LIMITATION(registre#47): `handle_intervals_icu_link` stores a per-athlete API key as a
+/// `ConnectionType::Manual` connection; no intervals.icu OAuth app is registered, so athletes
+/// link on the key model intervals.icu reserves for single-user scripts (5,000 requests/day).
+///
 /// # Errors
 ///
 /// Returns [`AppError`] when the request is unauthenticated, the body is

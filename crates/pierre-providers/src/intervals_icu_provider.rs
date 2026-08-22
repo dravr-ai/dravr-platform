@@ -106,6 +106,10 @@ pub fn default_config() -> ProviderConfig {
 }
 
 /// Intervals.icu activity payload shape (subset we map to `Activity`).
+///
+/// LIMITATION(registre#46): `IntervalsIcuActivity` and `IntervalsIcuWellness` deserialize the
+/// numeric fields only — `feel` (inverted: 1 is best), `icu_rpe`, `session_rpe`, `description`,
+/// the per-activity message stream and wellness `comments` / `lactate` are dropped on read.
 #[derive(Debug, Deserialize)]
 struct IntervalsIcuActivity {
     id: String,
@@ -766,9 +770,9 @@ impl FitnessProvider for IntervalsIcuProvider {
     }
 
     async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        // Personal records aren't part of the Intervals.icu pull-only
-        // surface in Phase 4. Return an empty list so callers see "no
-        // records yet" rather than an error.
+        // LIMITATION(registre#45): `IntervalsIcuProvider::get_personal_records` returns an empty
+        // list — nothing derives records from intervals.icu's best-effort curves, so a caller
+        // cannot tell a recordless athlete from one this provider never read.
         Ok(Vec::new())
     }
 
@@ -777,6 +781,9 @@ impl FitnessProvider for IntervalsIcuProvider {
         workout: &WorkoutTemplate,
         date: NaiveDate,
     ) -> AppResult<String> {
+        // LIMITATION(registre#48): `push_planned_workout` only creates events (`POST /events`);
+        // the returned event id is discarded and no `PUT` / `DELETE` path exists, so a prescribed
+        // workout cannot be modified afterwards and a re-prescription creates a duplicate.
         let (athlete_id, api_key) = self.require_credentials().await?;
         let url = self.athlete_url(&athlete_id, "/events");
         let body = json!({
