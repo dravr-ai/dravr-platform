@@ -12,8 +12,9 @@
 
 use chrono::{TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_tool_runtime::activity_fetch::activity_date_span;
 use pierre_tool_runtime::implementations::data::{
-    activity_coverage_note, activity_date_span, HISTORICAL_WINDOW_READ_LIMIT,
+    activity_coverage_note, HISTORICAL_WINDOW_READ_LIMIT,
 };
 
 fn act_on(id: &str, year: i32, month: u32, day: u32) -> Activity {

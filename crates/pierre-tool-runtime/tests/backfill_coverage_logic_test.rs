@@ -11,8 +11,9 @@ use chrono::{TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_tool_runtime::activity_backfill::backfill_covered_floor_ts;
+use pierre_tool_runtime::activity_fetch::sort_activities;
 use pierre_tool_runtime::implementations::data::{
-    historical_depth_covered, historical_head_slice, response_cache_eligible, sort_activities,
+    historical_depth_covered, historical_head_slice, response_cache_eligible,
 };
 
 // Jan 1 2022 and a few reference points (unix seconds).

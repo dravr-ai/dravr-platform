@@ -20,14 +20,13 @@
 //! athlete, stats) bridge into the shared `fitness_api` handlers because those
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
-use std::cmp::{Ordering, Reverse};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::TenantId;
 use serde_json::{json, Value};
 use tracing::{debug, field, info, warn, Span};
 
@@ -37,7 +36,9 @@ use uuid::Uuid;
 use crate::activity_backfill::{
     is_historical_backfill_window, spawn_activity_backfill, ActivityBackfillJob,
 };
-use crate::activity_fetch::read_cached_window;
+use crate::activity_fetch::{
+    activity_date_span, maybe_merge_other_connections, read_cached_window, sort_activities,
+};
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
@@ -193,57 +194,6 @@ pub fn response_cache_eligible(
     is_custom_sort: bool,
 ) -> bool {
     !auto_promote_to_detail && !is_historical && !is_custom_sort
-}
-
-/// Order a fetched activity list in place by the requested key.
-///
-/// Applied BEFORE the display limit so a "longest to shortest" ask keeps the
-/// longest activities rather than the most recent. Recognized keys:
-/// `date_desc` (default, newest first), `date_asc`, `distance_desc`,
-/// `distance_asc`, `duration_desc`, `duration_asc`. An unknown value falls back
-/// to `date_desc`. A missing distance sorts as 0 m, so an activity with no
-/// recorded distance lands last on a `distance_desc` sort. `pub` so the ordering
-/// is exercisable by the integration test suite.
-pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
-    // f64 distances have no total order (NaN), so the distance arms keep
-    // `sort_by` with `partial_cmp`; the Ord-keyed arms (date, duration) use
-    // `sort_by_key` to satisfy clippy::unnecessary_sort_by.
-    let distance = |a: &Activity| a.distance_meters().unwrap_or(0.0);
-    match sort_by {
-        "date_asc" => activities.sort_by_key(Activity::start_date),
-        "distance_desc" => activities.sort_by(|a, b| {
-            distance(b)
-                .partial_cmp(&distance(a))
-                .unwrap_or(Ordering::Equal)
-        }),
-        "distance_asc" => activities.sort_by(|a, b| {
-            distance(a)
-                .partial_cmp(&distance(b))
-                .unwrap_or(Ordering::Equal)
-        }),
-        "duration_desc" => activities.sort_by_key(|a| Reverse(a.duration_seconds())),
-        "duration_asc" => activities.sort_by_key(Activity::duration_seconds),
-        // "date_desc" and any unrecognized value: newest first (the historical
-        // default that cached responses also produce).
-        _ => activities.sort_by_key(|a| Reverse(a.start_date())),
-    }
-}
-
-/// Oldest/newest activity date (`"YYYY-MM-DD"`) across `activities`, or `None`
-/// when the slice is empty.
-///
-/// Captured over the FULL post-filter set BEFORE the display-limit truncation so
-/// the response can frame the served window's true span — otherwise the LLM
-/// anchors on the oldest activity in the truncated slice (e.g. "depuis le 21
-/// août") instead of the window's real start.
-#[must_use]
-pub fn activity_date_span(activities: &[Activity]) -> Option<(String, String)> {
-    let oldest = activities.iter().map(Activity::start_date).min()?;
-    let newest = activities.iter().map(Activity::start_date).max()?;
-    Some((
-        oldest.format("%Y-%m-%d").to_string(),
-        newest.format("%Y-%m-%d").to_string(),
-    ))
 }
 
 /// Build the LLM-facing `coverage` sidecar for a served activity window.
@@ -1030,6 +980,20 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 }
             }
 
+            // Fold in the athlete's other connections and dedup (no-op for an
+            // explicit provider arg or the coverage-gated historical branch) —
+            // see `maybe_merge_other_connections` for the 2026-08-22 incident
+            // this exists for.
+            let activities = maybe_merge_other_connections(
+                &context,
+                &args,
+                is_historical,
+                &provider_name,
+                &query_params,
+                activities,
+            )
+            .await;
+
             // Apply sport_type filter server-side before any further work.
             let mut filtered_activities =
                 filter_activities_by_sport_type(activities, sport_type_filter.as_deref());
@@ -1077,6 +1041,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     if rank >= detail_budget {
                         // Past the budget: keep the summary. Rationing, not
                         // truncation — every activity is still returned.
+                        detailed.push(activity.clone());
+                        continue;
+                    }
+                    // A merged-in row from another provider cannot be detailed
+                    // through the primary provider's client — its id would 404
+                    // (or worse, collide). Keep its summary.
+                    if activity.provider() != provider_name
+                        && activity.provider() != display_provider
+                    {
                         detailed.push(activity.clone());
                         continue;
                     }

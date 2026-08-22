@@ -30,20 +30,20 @@ mod helpers;
 mod capability_recovery {
     use crate::common::create_test_server_resources_with_llm;
     use crate::helpers::axum_test::AxumTestRequest;
+    use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use chrono::Utc;
     use embacle::types::ToolCallRequest;
     use futures_util::stream;
     use hmac::{Hmac, Mac};
-    use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
     use pierre_core::errors::AppError;
     use pierre_core::llm::{
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
     use pierre_core::models::ConnectionType;
-    use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus};
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
@@ -198,91 +198,6 @@ mod capability_recovery {
         async fn health_check(&self) -> Result<bool, AppError> {
             Ok(true)
         }
-    }
-
-    /// Spawn a local stand-in for the `dravr-sciotte` scraper service: session
-    /// import always succeeds and the activity list serves one canned ride.
-    /// Returns the base URL for `DRAVR_SCIOTTE_REMOTE_URL`.
-    async fn spawn_mock_scraper() -> String {
-        use axum::routing::{get, post};
-        use axum::{Json, Router};
-        use tokio::net::TcpListener;
-
-        let app = Router::new()
-            .route(
-                "/auth/import-session",
-                post(|| async { Json(json!({ "session_id": "cap-verified-session" })) }),
-            )
-            .route(
-                "/api/athlete",
-                get(|| async { Json(json!({ "display_name": "Cap Tester" })) }),
-            )
-            .route(
-                "/api/activities",
-                get(|| async {
-                    Json(json!({
-                        "count": 1,
-                        "activities": [{
-                            "id": "15551234567",
-                            "name": "Sortie vélo matinale",
-                            "sport_type": "ride",
-                            "start_date": "2026-08-10T12:00:00Z",
-                            "duration_seconds": 2700,
-                            "provider": "strava",
-                            "distance_meters": 21000.0,
-                            "elevation_gain": 250.0
-                        }]
-                    }))
-                }),
-            );
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        format!("http://{addr}")
-    }
-
-    /// Seed a live sciotte scrape session the way the hosted login stores it:
-    /// a `UserOAuthToken` row whose `access_token` is the serialized
-    /// `AuthSession` (the provider deserializes it in `set_credentials`).
-    async fn seed_sciotte_session(
-        resources: &Arc<ServerContext>,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) {
-        let session_json = json!({
-            "session_id": "cap-verified-session",
-            "cookies": [{
-                "name": "_strava4_session",
-                "value": "test-cookie",
-                "domain": ".strava.com",
-                "path": "/",
-                "secure": true,
-                "http_only": true
-            }],
-            "created_at": Utc::now().to_rfc3339(),
-            "expires_at": (Utc::now() + chrono::Duration::hours(6)).to_rfc3339(),
-        })
-        .to_string();
-
-        let mut token = UserOAuthToken::new(
-            user_id,
-            tenant_id.to_string(),
-            "sciotte".to_owned(),
-            session_json,
-            None,
-            Some(Utc::now() + chrono::Duration::hours(6)),
-            None,
-        );
-        TOKEN_TYPE_SESSION.clone_into(&mut token.token_type);
-        resources
-            .common
-            .repos
-            .oauth_tokens
-            .upsert_token(&token)
-            .await
-            .expect("upsert sciotte session token");
     }
 
     /// Compute the Slack webhook signature (`v0=<hex-hmac-sha256>` over

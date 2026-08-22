@@ -11,6 +11,7 @@
 //! group analytics snapshot builder or the coach recommender. This module
 //! owns that single path so neither re-implements it.
 
+use std::cmp::{Ordering, Reverse};
 use std::env;
 use std::sync::Arc;
 
@@ -21,8 +22,12 @@ use pierre_providers::core::ActivityQueryParams;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
+use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
 use crate::runtime::ToolRuntime;
+use pierre_providers::backend_resolver;
+use serde_json::Value;
 
 /// Cache fallback window when the request carries no `after` lower bound.
 const STALE_FALLBACK_WINDOW_DAYS: i64 = 90;
@@ -48,6 +53,85 @@ pub(crate) fn activity_cache_retention_days() -> i64 {
         .and_then(|v| v.parse::<i64>().ok())
         .filter(|days| *days > 0)
         .unwrap_or(DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS)
+}
+
+/// Fold the athlete's OTHER connected providers into a primary recent-window
+/// fetch, then deduplicate. No-op when the caller pinned an explicit
+/// `provider` argument or the ask is the coverage-gated historical branch.
+///
+/// `resolve_provider_for_tool` picks ONE provider (arg, env, or most recently
+/// used connection), which shows a multi-provider athlete only a slice of
+/// their training: on 2026-08-22 a most-recently-used WHOOP connection hid a
+/// 200km Strava ride behind WHOOP's distance-less, misclassified "run" record
+/// of the same session. This reuses the peer tool's cache-degrading
+/// [`fetch_provider_activities`] per remaining connection (cross-tenant, like
+/// the peer path, so a provider connected under the athlete's own tenant
+/// resolves from a group conversation) and the snapshot's deduplicator, whose
+/// `pick_best` keeps the GPS row and whose cross-sport rule pairs a watch's
+/// misclassified sport with the GPS provider's record of the same workout.
+///
+/// Best-effort by design: a secondary connection that fails to fetch is
+/// skipped (the helper already logs it) — the primary path alone decides
+/// auth errors and reconnect handoffs.
+pub async fn maybe_merge_other_connections(
+    context: &ToolExecutionContext,
+    args: &Value,
+    is_historical: bool,
+    primary_backend: &str,
+    params: &ActivityQueryParams,
+    mut activities: Vec<Activity>,
+) -> Vec<Activity> {
+    let explicit_provider_arg = args
+        .get("provider")
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.is_empty());
+    if explicit_provider_arg || is_historical {
+        return activities;
+    }
+
+    let tenant = context.tenant_id.map(TenantId::from_uuid);
+    let Ok(connections) = context
+        .resources
+        .repos()
+        .provider_connections
+        .get_for_user(context.user_id, None)
+        .await
+    else {
+        return activities;
+    };
+
+    let mut merged_any = false;
+    for conn in &connections {
+        let canonical = backend_resolver::resolve_backend(
+            &context.resources.repos().auth_repos(),
+            context.user_id,
+            tenant,
+            &conn.provider,
+        )
+        .await;
+        if canonical == primary_backend {
+            continue;
+        }
+        if let Some(fetched) = fetch_provider_activities(
+            &context.resources,
+            &conn.provider,
+            context.user_id,
+            &conn.tenant_id,
+            params,
+        )
+        .await
+        {
+            if !fetched.is_empty() {
+                merged_any = true;
+            }
+            activities.extend(fetched);
+        }
+    }
+
+    if merged_any {
+        activities = TimeWindowDeduplicator::from_env().deduplicate(activities);
+    }
+    activities
 }
 
 /// Fetch activities for a single provider connection, authenticating (and
@@ -297,4 +381,55 @@ async fn stamp_fetch_freshness(
     {
         info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: fetch freshness mark failed");
     }
+}
+
+/// Order a fetched activity list in place by the requested key.
+///
+/// Applied BEFORE the display limit so a "longest to shortest" ask keeps the
+/// longest activities rather than the most recent. Recognized keys:
+/// `date_desc` (default, newest first), `date_asc`, `distance_desc`,
+/// `distance_asc`, `duration_desc`, `duration_asc`. An unknown value falls back
+/// to `date_desc`. A missing distance sorts as 0 m, so an activity with no
+/// recorded distance lands last on a `distance_desc` sort. `pub` so the ordering
+/// is exercisable by the integration test suite.
+pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
+    // f64 distances have no total order (NaN), so the distance arms keep
+    // `sort_by` with `partial_cmp`; the Ord-keyed arms (date, duration) use
+    // `sort_by_key` to satisfy clippy::unnecessary_sort_by.
+    let distance = |a: &Activity| a.distance_meters().unwrap_or(0.0);
+    match sort_by {
+        "date_asc" => activities.sort_by_key(Activity::start_date),
+        "distance_desc" => activities.sort_by(|a, b| {
+            distance(b)
+                .partial_cmp(&distance(a))
+                .unwrap_or(Ordering::Equal)
+        }),
+        "distance_asc" => activities.sort_by(|a, b| {
+            distance(a)
+                .partial_cmp(&distance(b))
+                .unwrap_or(Ordering::Equal)
+        }),
+        "duration_desc" => activities.sort_by_key(|a| Reverse(a.duration_seconds())),
+        "duration_asc" => activities.sort_by_key(Activity::duration_seconds),
+        // "date_desc" and any unrecognized value: newest first (the historical
+        // default that cached responses also produce).
+        _ => activities.sort_by_key(|a| Reverse(a.start_date())),
+    }
+}
+
+/// Oldest/newest activity date (`"YYYY-MM-DD"`) across `activities`, or `None`
+/// when the slice is empty.
+///
+/// Captured over the FULL post-filter set BEFORE the display-limit truncation so
+/// the response can frame the served window's true span — otherwise the LLM
+/// anchors on the oldest activity in the truncated slice (e.g. "depuis le 21
+/// août") instead of the window's real start.
+#[must_use]
+pub fn activity_date_span(activities: &[Activity]) -> Option<(String, String)> {
+    let oldest = activities.iter().map(Activity::start_date).min()?;
+    let newest = activities.iter().map(Activity::start_date).max()?;
+    Some((
+        oldest.format("%Y-%m-%d").to_string(),
+        newest.format("%Y-%m-%d").to_string(),
+    ))
 }

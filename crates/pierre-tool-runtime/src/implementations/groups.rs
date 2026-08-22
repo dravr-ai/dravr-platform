@@ -42,11 +42,12 @@ use pierre_runtime_context::DataContext;
 use pierre_tools_core::ToolResult;
 use uuid::Uuid;
 
+use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::activity_fetch::fetch_provider_activities;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
-use crate::group_fitness::{fetch_user_display_name, ActivityDeduplicator, TimeWindowDeduplicator};
+use crate::group_fitness::fetch_user_display_name;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 

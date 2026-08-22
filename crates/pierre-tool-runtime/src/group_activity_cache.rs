@@ -27,10 +27,9 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::activity_fetch::activity_cache_retention_days;
-use crate::group_fitness::{
-    ActivityDeduplicator, ActivityMergeStrategy, AllProvidersMerge, TimeWindowDeduplicator,
-};
+use crate::group_fitness::{ActivityMergeStrategy, AllProvidersMerge};
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 

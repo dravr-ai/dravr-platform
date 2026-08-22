@@ -60,6 +60,7 @@
 #[cfg(feature = "tools-data")]
 pub mod activity_backfill;
 /// Shared provider activity fetching (used by group snapshots + coach recs).
+pub mod activity_dedup;
 pub mod activity_fetch;
 pub mod capabilities;
 pub mod commitment_refresh;

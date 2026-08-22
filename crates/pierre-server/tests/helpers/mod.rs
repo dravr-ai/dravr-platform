@@ -11,4 +11,5 @@ pub mod chat_scenario;
 pub mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_webhooks;
+pub mod sciotte_mock;
 pub mod synthetic_data;
