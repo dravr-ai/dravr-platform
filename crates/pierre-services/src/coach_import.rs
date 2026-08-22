@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -42,15 +42,23 @@ pub async fn fetch_markdown_from_url(url: &str) -> AppResult<String> {
     validate_url_security(url)?;
     // Literal-host checks (validate_url_security) miss hostnames that RESOLVE to an
     // internal address, so resolve here and reject any private/loopback result.
-    resolve_and_guard_host(url).await?;
+    let pinned = resolve_and_guard_host(url).await?;
 
-    let client = reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .timeout(FETCH_TIMEOUT)
         .user_agent(USER_AGENT)
         // Never follow redirects: a redirect to an internal URL would bypass the
         // pre-flight host validation (SSRF pivot). A 3xx becomes a non-success status
         // and is rejected below.
-        .redirect(Policy::none())
+        .redirect(Policy::none());
+    // Pin the connection to exactly the addresses that were vetted: reqwest
+    // skips its own connect-time lookup for a pre-resolved host, so a DNS
+    // record that flips to an internal address between our lookup and the
+    // connect (DNS rebinding) can no longer redirect the request.
+    if let Some((host, addrs)) = &pinned {
+        builder = builder.resolve_to_addrs(host, addrs);
+    }
+    let client = builder
         .build()
         .map_err(|e| AppError::internal(format!("Failed to create HTTP client: {e}")))?;
 
@@ -164,23 +172,23 @@ pub fn validate_url_security(url: &str) -> AppResult<()> {
     }
 }
 
-/// Resolve the URL's host to IP addresses and reject if ANY resolves to a private
-/// or loopback address.
+/// Resolve the URL's host, reject any private/loopback result, and return the
+/// vetted addresses so the connection can be pinned to them.
 ///
 /// [`validate_url_security`] only inspects literal-IP hosts, so an attacker-controlled
 /// hostname that resolves to an internal address (e.g. cloud metadata at
 /// `169.254.169.254`) would otherwise pass. Literal-IP hosts were already checked, so
-/// they short-circuit here.
+/// they short-circuit here as `None` — there is nothing to pin for them.
 ///
-/// Note: this is resolve-then-connect, so a DNS-rebinding record that flips between the
-/// pre-flight lookup and reqwest's own connect-time lookup is a known residual.
-/// LIMITATION(registre#5): pinning the connection to the vetted IP (custom resolver) closes it.
+/// Returning the addresses is what closes the DNS-rebinding gap this check used
+/// to leave open: the caller hands them to `resolve_to_addrs`, so the request
+/// connects to what was vetted rather than re-resolving at connect time.
 ///
 /// # Errors
 ///
 /// Returns `InvalidInput` if the host resolves to a private address, or
 /// `ExternalServiceError` if resolution fails or yields no addresses.
-async fn resolve_and_guard_host(url: &str) -> AppResult<()> {
+async fn resolve_and_guard_host(url: &str) -> AppResult<Option<(String, Vec<SocketAddr>)>> {
     let parsed = Url::parse(url)
         .map_err(|e| AppError::new(ErrorCode::InvalidInput, format!("Invalid URL: {e}")))?;
 
@@ -188,7 +196,7 @@ async fn resolve_and_guard_host(url: &str) -> AppResult<()> {
     // validate_url_security (and short-circuit here).
     let host = match parsed.host() {
         Some(Host::Domain(host)) => host.to_owned(),
-        Some(Host::Ipv4(_) | Host::Ipv6(_)) => return Ok(()),
+        Some(Host::Ipv4(_) | Host::Ipv6(_)) => return Ok(None),
         None => {
             return Err(AppError::new(
                 ErrorCode::InvalidInput,
@@ -198,32 +206,49 @@ async fn resolve_and_guard_host(url: &str) -> AppResult<()> {
     };
 
     let port = parsed.port_or_known_default().unwrap_or(443);
-    let mut resolved = lookup_host((host.as_str(), port)).await.map_err(|e| {
+    let resolved = lookup_host((host.as_str(), port)).await.map_err(|e| {
         AppError::new(
             ErrorCode::ExternalServiceError,
             format!("Failed to resolve host: {e}"),
         )
     })?;
 
-    let mut saw_any = false;
-    for addr in &mut resolved {
-        saw_any = true;
+    let vetted = vet_resolved_addrs(resolved)?;
+    Ok(Some((host, vetted)))
+}
+
+/// The SSRF address policy: every resolved address must be public, and there
+/// must be at least one.
+///
+/// Pure so the policy is auditable and testable on its own; the addresses it
+/// passes are exactly what [`fetch_markdown_from_url`] pins the connection to.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` if any address is private/loopback, or
+/// `ExternalServiceError` when the iterator yields no addresses.
+pub fn vet_resolved_addrs(
+    resolved: impl IntoIterator<Item = SocketAddr>,
+) -> AppResult<Vec<SocketAddr>> {
+    let mut vetted = Vec::new();
+    for addr in resolved {
         if is_private_ip(&addr.ip()) {
             return Err(AppError::new(
                 ErrorCode::InvalidInput,
                 "URL host resolves to a private or loopback address",
             ));
         }
+        vetted.push(addr);
     }
 
-    if !saw_any {
+    if vetted.is_empty() {
         return Err(AppError::new(
             ErrorCode::ExternalServiceError,
             "URL host did not resolve to any address",
         ));
     }
 
-    Ok(())
+    Ok(vetted)
 }
 
 /// Whether an IP address is private, loopback, or otherwise non-public (SSRF guard).
