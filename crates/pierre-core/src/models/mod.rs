@@ -114,7 +114,8 @@ pub use roster::CoachAthleteAssignment;
 
 // User domain
 pub use user::{
-    default_locale, CoachingPersona, User, UserId, UserPhysiologicalProfile, UserStatus, UserTier,
+    default_locale, CoachingPersona, PreApprovedEmail, User, UserId, UserPhysiologicalProfile,
+    UserStatus, UserTier,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain

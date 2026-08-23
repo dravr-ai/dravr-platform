@@ -57,6 +57,8 @@ pub mod oauth_notifications;
 pub mod password_reset_tokens;
 /// `SQLite` `PlaybookRepository` impl — procedural coaching memory.
 pub mod playbooks;
+/// Pre-approved email allow-list consulted at registration (`SQLite`)
+pub mod pre_approved_emails;
 /// Endurance `prescribed_workouts` audit-trail repository (`SQLite`)
 pub mod prescribed_workouts;
 /// Provider connections: unified connection tracking for all provider types

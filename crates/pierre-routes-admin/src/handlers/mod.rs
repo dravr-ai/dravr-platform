@@ -45,8 +45,9 @@ pub mod tokens;
 pub mod types;
 /// Admin endpoints for listing tenant users and managing their access.
 ///
-/// LIMITATION(registre#43): no create or invite handler lives here, so an admin cannot
-/// pre-add a user from an email address alone. The only admin-side creation path is
-/// `POST /api/auth/admin/register` (`pierre_routes_auth::login::handle_register`), which
-/// requires a password chosen by the admin and has no web-app or api-client caller.
+/// LIMITATION(registre#43): no create or invite handler lives here, so the admin *web
+/// app* cannot pre-add a user from an email address. The operator path is `pierre-cli
+/// user allow --email X` — a standing pre-approval consumed at registration (the account
+/// lands active, `approved_by` attributed). Still missing from this surface: the HTTP
+/// endpoints + api-client methods, and the single-use invite email flow from the issue.
 pub mod users;

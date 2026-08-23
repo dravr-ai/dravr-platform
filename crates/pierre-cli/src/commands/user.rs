@@ -16,6 +16,7 @@ use pierre_core::permissions::UserRole;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
+use pierre_services::auth::AuthService;
 
 type Result<T> = AppResult<T>;
 use tracing::{error, info, warn};
@@ -430,6 +431,126 @@ pub async fn approve(
         "Success: {} approved (status: {})",
         updated.email, updated.user_status
     );
+    Ok(())
+}
+
+/// Normalize an operator-supplied email for allow-list operations: trimmed,
+/// lowercased, and shape-checked before it becomes a lookup key.
+fn normalize_email(email: &str) -> Result<String> {
+    let normalized = email.trim().to_lowercase();
+    if !AuthService::is_valid_email(&normalized) {
+        return Err(AppError::invalid_input(format!(
+            "'{normalized}' is not a valid email address"
+        )));
+    }
+    Ok(normalized)
+}
+
+/// Pre-approve an email address so it gets in without the approval queue.
+///
+/// Three cases: no account yet -> record a standing allow that registration
+/// consumes (the account lands active, `approved_by` set to the acting
+/// operator); a pending account -> approve it now, exactly like `user
+/// approve`, default MCP token included; an active account -> no-op. A
+/// suspended account is left untouched: suspension is a deliberate operator
+/// act, reversed explicitly with `user approve`, never as a side effect of a
+/// bulk allow.
+pub async fn allow(repos: &RepositoryRegistry, email: String, note: Option<String>) -> Result<()> {
+    let email = normalize_email(&email)?;
+
+    if let Some(user) = repos.users.get_by_email(&email).await? {
+        match user.user_status {
+            UserStatus::Active => {
+                println!("{email} already has an active account (no change)");
+            }
+            UserStatus::Suspended => {
+                println!(
+                    "{email} has a suspended account — left unchanged. \
+                     Reinstate explicitly with: pierre-cli user approve --email {email}"
+                );
+            }
+            UserStatus::Pending => {
+                let actor = admin_actor(repos).await;
+                let updated =
+                    admin_ops::transition_user_status(repos, user.id, UserStatus::Active, actor)
+                        .await?;
+                admin_ops::create_default_mcp_token_for_user(
+                    repos.user_mcp_tokens.as_ref(),
+                    user.id,
+                )
+                .await;
+                info!(
+                    target_user_id = %user.id,
+                    "Pending user approved via pierre-cli user allow"
+                );
+                println!(
+                    "Success: {} had a pending account — approved now (status: {})",
+                    updated.email, updated.user_status
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    let actor = admin_actor(repos).await;
+    let added = repos
+        .pre_approved_emails
+        .allow(&email, actor, note.as_deref())
+        .await?;
+    if added {
+        println!(
+            "Success: {email} pre-approved — their registration will land active (no approval queue)"
+        );
+    } else {
+        println!("{email} is already pre-approved (no change)");
+    }
+    Ok(())
+}
+
+/// Remove a standing pre-approval. Never touches an existing account's
+/// status — an already-registered user keeps whatever status they hold.
+pub async fn disallow(repos: &RepositoryRegistry, email: String) -> Result<()> {
+    let email = normalize_email(&email)?;
+    let removed = repos.pre_approved_emails.remove(&email).await?;
+    if removed {
+        println!("Success: {email} removed from the pre-approved list");
+    } else {
+        println!("{email} was not on the pre-approved list (nothing to remove)");
+    }
+    if let Ok(Some(user)) = repos.users.get_by_email(&email).await {
+        println!(
+            "Note: an account already exists for {email} (status: {}) — disallow does not change it",
+            user.user_status
+        );
+    }
+    Ok(())
+}
+
+/// List standing pre-approvals with each address's registration state.
+pub async fn list_allowed(repos: &RepositoryRegistry) -> Result<()> {
+    let entries = repos.pre_approved_emails.list().await?;
+    if entries.is_empty() {
+        println!("No pre-approved emails");
+        return Ok(());
+    }
+    println!("Pre-approved emails ({} total):", entries.len());
+    println!(
+        "{:<36}  {:<10}  {:<17}  NOTE",
+        "EMAIL", "ACCOUNT", "ALLOWED AT"
+    );
+    for entry in entries {
+        let account = match repos.users.get_by_email(&entry.email).await? {
+            Some(user) => user.user_status.to_string(),
+            None => "not yet".to_owned(),
+        };
+        println!(
+            "{:<36}  {:<10}  {:<17}  {}",
+            entry.email,
+            account,
+            entry.created_at.format("%Y-%m-%d %H:%M"),
+            entry.note.as_deref().unwrap_or("-")
+        );
+    }
     Ok(())
 }
 

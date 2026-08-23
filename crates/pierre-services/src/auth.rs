@@ -21,7 +21,9 @@ use pierre_config::environment::ServerConfig;
 use pierre_core::constants::{error_messages, limits, tiers};
 use pierre_core::error_helpers::{user_state_error, validation_error};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::models::{
+    CoachingPersona, PreApprovedEmail, Tenant, TenantId, User, UserStatus, UserTier,
+};
 use pierre_core::permissions::UserRole;
 use pierre_runtime_context::DataContext;
 
@@ -94,10 +96,13 @@ impl AuthService {
         // Create user — determine_approval_status sets Pending or Active below
         let mut user = User::new(request.email.clone(), password_hash, request.display_name); // Safe: String ownership needed for user model
 
-        // Check if user should be auto-approved (global setting or domain allow-list)
-        let (status, approved_at) = self.determine_approval_status(&request.email).await;
+        // Check if user should be auto-approved (global setting, domain
+        // allow-list, or a per-email pre-approval carrying its operator)
+        let (status, approved_at, approved_by) =
+            self.determine_approval_status(&request.email).await;
         user.user_status = status;
         user.approved_at = approved_at;
+        user.approved_by = approved_by;
 
         // Save user to database
         let user_id = self
@@ -524,13 +529,35 @@ impl AuthService {
         }
     }
 
+    /// Fetch the standing per-email pre-approval for `email`, if any.
+    ///
+    /// Lookup failures degrade to `None` with a warning: a broken allow-list
+    /// read must leave registration in the safe posture (pending queue),
+    /// never fail it.
+    async fn pre_approval_for(&self, email: &str) -> Option<PreApprovedEmail> {
+        match self.data.repos().pre_approved_emails.get(email).await {
+            Ok(entry) => entry,
+            Err(e) => {
+                warn!("Pre-approved email lookup failed, treating as not allowed: {e}");
+                None
+            }
+        }
+    }
+
     /// Check if a specific email should be auto-approved.
     ///
     /// Returns true when:
     /// - Global auto-approval is enabled (`AUTO_APPROVE_USERS=true`), OR
+    /// - The address is on the per-email pre-approval list (`pierre-cli user
+    ///   allow --email X`), OR
     /// - The email domain is in the `AUTO_APPROVE_DOMAINS` allow-list
     async fn should_auto_approve_email(&self, email: &str) -> bool {
         if self.is_auto_approval_enabled().await {
+            return true;
+        }
+
+        if self.pre_approval_for(email).await.is_some() {
+            tracing::debug!("Auto-approving pre-approved email");
             return true;
         }
 
@@ -552,17 +579,31 @@ impl AuthService {
         approved
     }
 
-    /// Determine user approval status based on auto-approval setting and email domain
+    /// Determine user approval status from the per-email pre-approval list,
+    /// the global auto-approval setting, and the email-domain allow-list.
+    ///
+    /// A per-email pre-approval also carries the operator who recorded it, so
+    /// the new account's `approved_by` attributes the decision to a person;
+    /// the global switch and domain list are policy, not a person, and leave
+    /// it `None`.
     async fn determine_approval_status(
         &self,
         email: &str,
-    ) -> (UserStatus, Option<chrono::DateTime<Utc>>) {
+    ) -> (
+        UserStatus,
+        Option<chrono::DateTime<Utc>>,
+        Option<uuid::Uuid>,
+    ) {
         let now = Utc::now();
+        if let Some(entry) = self.pre_approval_for(email).await {
+            tracing::debug!("Auto-approval granted via pre-approved email");
+            return (UserStatus::Active, Some(now), entry.allowed_by);
+        }
         if self.should_auto_approve_email(email).await {
             tracing::debug!("Auto-approval granted for new user");
-            (UserStatus::Active, Some(now))
+            (UserStatus::Active, Some(now), None)
         } else {
-            (UserStatus::Pending, None)
+            (UserStatus::Pending, None, None)
         }
     }
 
@@ -570,7 +611,7 @@ impl AuthService {
     async fn create_firebase_user(&self, claims: &FirebaseClaims, email: &str) -> AppResult<User> {
         tracing::info!(firebase_uid = %claims.sub, "Creating new Firebase user");
 
-        let (user_status, approved_at) = self.determine_approval_status(email).await;
+        let (user_status, approved_at, approved_by) = self.determine_approval_status(email).await;
         let user_id = uuid::Uuid::new_v4();
         let display_name = claims
             .name
@@ -593,7 +634,7 @@ impl AuthService {
             user_status,
             is_admin: false,
             role: UserRole::User,
-            approved_by: None,
+            approved_by,
             approved_at,
             firebase_uid: Some(claims.sub.clone()),
             auth_provider: claims.provider.clone(),
@@ -643,11 +684,14 @@ impl AuthService {
         Ok(())
     }
 
-    /// Re-evaluate domain auto-approval for existing Pending users.
+    /// Re-evaluate auto-approval for existing Pending users.
     ///
-    /// When `AUTO_APPROVE_DOMAINS` is updated after a user registered,
-    /// their account stays Pending forever. This method promotes them to
-    /// Active on their next login if their email domain now qualifies.
+    /// When `AUTO_APPROVE_DOMAINS` gains a domain — or an operator allow-lists
+    /// the exact address — after a user registered, their account stays
+    /// Pending forever. This method promotes them to Active on their next
+    /// login if their email now qualifies, attributing `approved_by` to the
+    /// allow-listing operator when the promotion comes from a per-email
+    /// pre-approval.
     async fn auto_approve_if_eligible(&self, user: &mut User) -> AppResult<()> {
         if user.user_status != UserStatus::Pending {
             return Ok(());
@@ -660,14 +704,18 @@ impl AuthService {
         tracing::info!(
             user_id = %user.id,
             email = %user.email,
-            "Retroactive domain auto-approval for pending user"
+            "Retroactive auto-approval for pending user"
         );
 
+        let approver = self
+            .pre_approval_for(&user.email)
+            .await
+            .and_then(|entry| entry.allowed_by);
         let updated = self
             .data
             .repos()
             .users
-            .update_status(user.id, UserStatus::Active, None)
+            .update_status(user.id, UserStatus::Active, approver)
             .await?;
         user.user_status = updated.user_status;
         user.approved_at = updated.approved_at;
@@ -680,8 +728,8 @@ impl AuthService {
     /// Verification and approval are separate gates on purpose. Confirming an
     /// address proves the person owns the inbox; it does not decide whether this
     /// deployment lets them in. So a verified user is promoted to `Active` only
-    /// when the auto-approval decision already says yes — the global switch, or a
-    /// domain on the allow-list.
+    /// when the auto-approval decision already says yes — the global switch, a
+    /// per-email pre-approval, or a domain on the allow-list.
     ///
     /// That keeps one code path working in both postures. While the deployment is
     /// invite-only the user stays `Pending`, but *verified* pending, so the waiting

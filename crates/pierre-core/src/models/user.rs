@@ -626,3 +626,22 @@ impl UserPhysiologicalProfile {
         })
     }
 }
+
+/// A standing per-email pre-approval recorded by an operator before the person
+/// has an account.
+///
+/// The registration approval decision consults this allow-list so an allowed
+/// address lands [`UserStatus::Active`] without the pending queue, and
+/// `allowed_by` feeds the new account's `approved_by` for audit attribution.
+/// Managed by `pierre-cli user allow / disallow / list-allowed`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreApprovedEmail {
+    /// The allowed address, stored lowercase.
+    pub email: String,
+    /// The operator who recorded the allow, when known (`None` pre-bootstrap).
+    pub allowed_by: Option<Uuid>,
+    /// Operator note (cohort, reason).
+    pub note: Option<String>,
+    /// When the allow was recorded.
+    pub created_at: DateTime<Utc>,
+}

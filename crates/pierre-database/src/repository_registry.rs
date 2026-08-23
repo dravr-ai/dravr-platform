@@ -17,14 +17,14 @@ use crate::repositories::{
     HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
     OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, PlaybookRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, ShortLinkRepository, SleepRepository, SocialRepository,
-    StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
-    ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
-    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
+    RouteSummaryRepository, SecurityRepository, SeederRepository, ShortLinkRepository,
+    SleepRepository, SocialRepository, StoreListingsRepository, SubscriptionsRepository,
+    SyncCursorRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
+    TrainingPlanRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
+    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
+    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
     WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
@@ -73,6 +73,9 @@ pub struct RepositoryRegistry {
     pub email_verification: Arc<dyn EmailVerificationRepository>,
     /// Password reset token management
     pub password_reset: Arc<dyn PasswordResetRepository>,
+    /// Standing per-email pre-approvals consulted by the registration approval
+    /// decision; managed by `pierre-cli user allow / disallow / list-allowed`
+    pub pre_approved_emails: Arc<dyn PreApprovedEmailRepository>,
     /// Provider connection tracking
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
     /// Recipe CRUD with nutrition
@@ -196,6 +199,7 @@ impl RepositoryRegistry {
             oauth_tokens: db.clone(),
             email_verification: db.clone(),
             password_reset: db.clone(),
+            pre_approved_emails: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
@@ -263,6 +267,7 @@ impl RepositoryRegistry {
             oauth_tokens: db.clone(),
             email_verification: db.clone(),
             password_reset: db.clone(),
+            pre_approved_emails: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),

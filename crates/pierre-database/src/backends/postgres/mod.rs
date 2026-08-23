@@ -50,6 +50,8 @@ pub mod mobility;
 pub mod oauth;
 /// Postgres `PlaybookRepository` impl — procedural coaching memory.
 pub mod playbooks;
+/// Pre-approved email allow-list consulted at registration (Postgres)
+pub mod pre_approved_emails;
 /// Endurance `prescribed_workouts` audit-trail repository (Postgres)
 pub mod prescribed_workouts;
 /// Recipe repository implementation (CRUD with nutrition caching)

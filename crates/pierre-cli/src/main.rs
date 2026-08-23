@@ -339,6 +339,27 @@ enum UserCommand {
         reason: Option<String>,
     },
 
+    /// Pre-approve an email: registration lands active, and a pending account is approved now
+    Allow {
+        /// Email address to allow
+        #[arg(long)]
+        email: String,
+
+        /// Operator note recorded on the allow (cohort, reason)
+        #[arg(long)]
+        note: Option<String>,
+    },
+
+    /// Remove a pre-approved email (an existing account's status is not touched)
+    Disallow {
+        /// Email address to remove from the pre-approved list
+        #[arg(long)]
+        email: String,
+    },
+
+    /// List pre-approved emails and whether each has registered
+    ListAllowed,
+
     /// Suspend a user (status → suspended); they can no longer log in
     Suspend {
         /// Email of the user
@@ -827,6 +848,15 @@ async fn main() -> Result<()> {
             }
             UserCommand::Approve { email, reason } => {
                 commands::user::approve(&repos, email, reason).await?;
+            }
+            UserCommand::Allow { email, note } => {
+                commands::user::allow(&repos, email, note).await?;
+            }
+            UserCommand::Disallow { email } => {
+                commands::user::disallow(&repos, email).await?;
+            }
+            UserCommand::ListAllowed => {
+                commands::user::list_allowed(&repos).await?;
             }
             UserCommand::Suspend { email, reason } => {
                 commands::user::suspend(&repos, email, reason).await?;

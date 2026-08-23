@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
-use pierre_core::models::{CoachingPersona, User, UserStatus, UserTier};
+use pierre_core::models::{CoachingPersona, PreApprovedEmail, User, UserStatus, UserTier};
 use pierre_core::models::{Dossier, UserPhysiologicalProfile};
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::impersonation::ImpersonationSession;
@@ -209,6 +209,31 @@ pub trait EmailVerificationRepository: Send + Sync {
     async fn mark_verified(&self, user_id: Uuid) -> AppResult<()>;
     /// Whether this user's address has been proven.
     async fn is_verified(&self, user_id: Uuid) -> AppResult<bool>;
+}
+
+/// Standing per-email pre-approvals — an operator "allow" recorded before the
+/// person has an account.
+///
+/// The registration approval decision consults this list so an allowed address
+/// lands `Active` without the pending queue; `pierre-cli user allow / disallow /
+/// list-allowed` manages it. Implementations store and compare emails
+/// lowercase, so lookups are case-insensitive.
+#[async_trait]
+pub trait PreApprovedEmailRepository: Send + Sync {
+    /// Record an allow for `email`. Idempotent: returns `false` when the
+    /// address was already on the list (the original row is kept).
+    async fn allow(
+        &self,
+        email: &str,
+        allowed_by: Option<Uuid>,
+        note: Option<&str>,
+    ) -> AppResult<bool>;
+    /// Remove the allow for `email`. Returns `false` when none existed.
+    async fn remove(&self, email: &str) -> AppResult<bool>;
+    /// Fetch the allow for `email`, if present.
+    async fn get(&self, email: &str) -> AppResult<Option<PreApprovedEmail>>;
+    /// Every standing allow, oldest first.
+    async fn list(&self) -> AppResult<Vec<PreApprovedEmail>>;
 }
 
 /// Impersonation session management repository
