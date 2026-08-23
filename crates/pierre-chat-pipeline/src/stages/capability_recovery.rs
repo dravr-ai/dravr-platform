@@ -623,7 +623,17 @@ async fn reask_with_peer_evidence(
     true
 }
 
-/// The re-ask completion itself; `None` when the provider call failed.
+/// The re-ask completion itself; `None` when the provider call failed or
+/// only produced degenerate output.
+///
+/// The messaging provider intermittently ends a completion with empty or
+/// fragment content (the ACP empty-turn class, ~5% per call), and an empty
+/// repair must never be "verified clean" — zero claims is not a corrected
+/// reply, it is a lost turn (live 2026-08-23: the gate caught a fabricated
+/// «8.1h» but the empty re-ask sailed through acceptance and the athlete got
+/// the generic apology). One bounded retry mirrors the headless loop's
+/// degenerate-turn retry; a second degenerate completion reports failure so
+/// the caller keeps the original, stamped.
 async fn request_peer_reask(
     deps: &CapabilityRecoveryDeps<'_>,
     provider: &pierre_llm::ChatProvider,
@@ -634,16 +644,28 @@ async fn request_peer_reask(
         "{tool_text}\n\n{PEER_REASK_INSTRUCTION}"
     )));
     let request = ChatRequest::new(messages).with_model(deps.active_model);
-    match provider.complete(&request).await {
-        Ok(reply) => Some(reply.content),
-        Err(e) => {
-            warn!(
-                error = %e,
-                "peer_claim_reask_failed: re-ask did not complete; keeping the original reply"
-            );
-            None
+    for attempt in 0..2u8 {
+        match provider.complete(&request).await {
+            Ok(reply) if !narration::is_degenerate_reply(&reply.content) => {
+                return Some(reply.content);
+            }
+            Ok(reply) => {
+                warn!(
+                    attempt,
+                    reply_len = reply.content.len(),
+                    "peer_claim_reask_degenerate: repair completion carried no answer"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "peer_claim_reask_failed: re-ask did not complete; keeping the original reply"
+                );
+                return None;
+            }
         }
     }
+    None
 }
 
 /// Whether the re-ask's reply may replace the original: the repair is held
