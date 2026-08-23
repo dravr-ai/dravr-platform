@@ -119,7 +119,6 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
 
     let payload = response
         .structured_content
-        .clone()
         .expect("tool result carries structured content");
     assert!(
         payload.get("error").is_none(),

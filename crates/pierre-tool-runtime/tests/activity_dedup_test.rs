@@ -17,7 +17,7 @@
 
 use chrono::{Duration, TimeZone, Utc};
 use pierre_core::models::{ActivityBuilder, SportType};
-use pierre_tool_runtime::group_fitness::{ActivityDeduplicator, TimeWindowDeduplicator};
+use pierre_tool_runtime::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 
 fn now() -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 6, 6, 12, 0, 0).unwrap()

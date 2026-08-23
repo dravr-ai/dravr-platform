@@ -19,6 +19,8 @@ use uuid::Uuid;
 /// Spawn a local stand-in for the `dravr-sciotte` scraper service: session
 /// import always succeeds and the activity list serves one canned ride.
 /// Returns the base URL for `DRAVR_SCIOTTE_REMOTE_URL`.
+// Shared across test binaries; any single binary may use only part of it.
+#[allow(dead_code)]
 pub async fn spawn_mock_scraper() -> String {
     let app = Router::new()
         .route(
@@ -58,6 +60,8 @@ pub async fn spawn_mock_scraper() -> String {
 /// Seed a live sciotte scrape session the way the hosted login stores it:
 /// a `UserOAuthToken` row whose `access_token` is the serialized
 /// `AuthSession` (the provider deserializes it in `set_credentials`).
+// Shared across test binaries; any single binary may use only part of it.
+#[allow(dead_code)]
 pub async fn seed_sciotte_session(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
