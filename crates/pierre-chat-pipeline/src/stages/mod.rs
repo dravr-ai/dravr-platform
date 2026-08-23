@@ -45,6 +45,8 @@ pub mod guardian_denied;
 pub mod guardrails;
 pub mod memory;
 pub mod onboarding;
+/// Peer-mention grounding: a turn naming a roster member fetches their data.
+pub mod peer_grounding;
 pub mod persistence;
 /// Per-persona output-format conformance check (post-LLM, advisory).
 pub mod persona_conformance;

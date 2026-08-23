@@ -8,7 +8,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::CoachRuntimeContext;
+use pierre_core::models::{CoachRuntimeContext, MemberFitnessSnapshot};
+use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::MessageRecord;
 use pierre_llm::ChatMessage;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
@@ -26,6 +27,7 @@ use crate::{call_type_for_profile, ChatPipelineContext};
 use embacle_tool_host::ToolSession;
 
 use super::compaction::apply_tier1_compaction;
+use super::peer_grounding::{inject_peer_grounding, mentioned_peers, PEER_FETCH_TOOL};
 use super::prefetch::{
     inject_startup_context, maybe_refresh_activity_context, ActivityRefreshInputs, PREFETCH_TOOL,
 };
@@ -69,6 +71,11 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// withhold the plan-writing tool — is true of any guided interview, and a
     /// second flow should not have to re-thread these call sites.
     pub guided_flow_active: bool,
+    /// Group roster snapshots (empty outside a group conversation). A turn
+    /// whose inbound message names a roster member gets that member's real
+    /// activities injected before dispatch — the deterministic half of the
+    /// fabrication gate (see `peer_grounding`).
+    pub peer_roster: &'a [MemberFitnessSnapshot],
 }
 
 #[tracing::instrument(
@@ -97,6 +104,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         history,
         source_ids,
         guided_flow_active,
+        peer_roster,
     } = inputs;
     // Stage 9: MCP executor for tool calls. Bind the originating conversation id
     // so a tool that spawns detached work (e.g. a historical activity backfill)
@@ -163,6 +171,27 @@ pub(crate) async fn dispatch_llm_with_tools(
         llm_messages,
     )
     .await;
+
+    // Stage 12c: Peer-mention grounding. A group turn that names a roster
+    // member gets that member's real activities fetched platform-side and
+    // injected as this-turn tool evidence, so the model never answers about
+    // a person whose data it has not seen (the 2026-08-22 fabrication ran on
+    // exactly that gap). Deterministic name matching; the consent-gated tool
+    // itself decides whether the data may flow.
+    let peer_mentions = mentioned_peers(
+        &input.content,
+        peer_roster,
+        parse_uuid(&input.user_id).unwrap_or_default(),
+    );
+    let peer_grounded = !peer_mentions.is_empty()
+        && inject_peer_grounding(
+            &executor,
+            &input.user_id,
+            input.tool_tenant_id,
+            &peer_mentions,
+            llm_messages,
+        )
+        .await;
 
     info!(
         provider = %provider_name,
@@ -299,6 +328,12 @@ pub(crate) async fn dispatch_llm_with_tools(
     // call still leads the list.
     if prefetched_activities && !result.tools_called.iter().any(|t| t == PREFETCH_TOOL) {
         result.tools_called.push(PREFETCH_TOOL.to_owned());
+    }
+    // Same provenance contract for the peer grounding: the platform ran the
+    // consent-gated peer fetch on the model's behalf, so downstream gates
+    // (viz `source_tool`, the peer-claim verifier) must see it as a real run.
+    if peer_grounded && !result.tools_called.iter().any(|t| t == PEER_FETCH_TOOL) {
+        result.tools_called.push(PEER_FETCH_TOOL.to_owned());
     }
     let dispatch_ms = u64::try_from(loop_start.elapsed().as_millis()).unwrap_or(u64::MAX);
 

@@ -70,7 +70,7 @@ use pierre_contremaitre::{
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    AddMessageParams, CoachRuntimeContext, OnboardingState, TenantId,
+    AddMessageParams, CoachRuntimeContext, MemberFitnessSnapshot, OnboardingState, TenantId,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_core::narration;
@@ -262,23 +262,6 @@ async fn assemble_prompt_stage(
     .await;
     emit_step_finished(args.hooks, "prompt_assembly").await;
     result
-}
-
-/// Resolve the coach runtime context for a conversation, if it has a coach.
-async fn resolve_coach_ctx(
-    ctx: &ChatPipelineContext,
-    conv: &ConversationRecord,
-    tenant_id: TenantId,
-) -> AppResult<Option<CoachRuntimeContext>> {
-    match conv.coach_id.as_deref() {
-        Some(coach_id) => {
-            ctx.repos
-                .coaches
-                .get_coach_runtime_context(coach_id, tenant_id)
-                .await
-        }
-        None => Ok(None),
-    }
 }
 
 /// Fire the Tier 2 background fact extraction for a completed turn, stamping the
@@ -544,6 +527,8 @@ struct DispatchStageArgs<'a> {
     /// Whether a guided conversational flow owns this turn (see
     /// `DispatchLlmInputs::guided_flow_active`).
     guided_flow_active: bool,
+    /// Group roster (empty outside a group conversation) for peer grounding.
+    peer_roster: &'a [MemberFitnessSnapshot],
 }
 
 /// Run the dispatch stage with AG-UI step emissions.
@@ -564,6 +549,7 @@ async fn dispatch_stage(
             history: args.history,
             source_ids: args.source_ids,
             guided_flow_active: args.guided_flow_active,
+            peer_roster: args.peer_roster,
         },
         llm_messages,
         max_iterations,
@@ -698,6 +684,8 @@ struct RecoveryAndPostProcessInputs<'a> {
     llm_messages: &'a [ChatMessage],
     /// Model the turn ran on, so the re-ask does not drift to another one.
     active_model: &'a str,
+    /// Group roster (empty outside a group conversation) for the claim verifier.
+    peer_roster: &'a [MemberFitnessSnapshot],
 }
 
 /// Wrap stages 14b–18: run the auth-recovery short-circuit, then either
@@ -718,6 +706,7 @@ async fn run_recovery_and_post_process(
         prompt_guard,
         llm_messages,
         active_model,
+        peer_roster,
     } = inputs;
     // Guardian short-circuits take precedence over re-auth: a tool blocked by
     // the runtime Guardian (enforce mode) renders the deterministic "blocked
@@ -760,6 +749,7 @@ async fn run_recovery_and_post_process(
             ctx,
             llm_messages,
             active_model,
+            peer_roster,
         },
         input,
         result,
@@ -1069,11 +1059,13 @@ async fn run_turn(
     .await?;
 
     // Stage 6: Resolve coach runtime context.
-    let coach_ctx = resolve_coach_ctx(ctx, &conv, input.conversation_tenant_id).await?;
+    let coach_ctx =
+        stages::prompt_assembly::resolve_coach_ctx(ctx, &conv, input.conversation_tenant_id)
+            .await?;
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (prompt_guard, pending_followup_ids, mut llm_messages, source_ids) =
+    let (prompt_guard, pending_followup_ids, mut llm_messages, source_ids, group_roster) =
         assemble_prompt_stage(AssemblePromptArgs {
             hooks,
             ctx,
@@ -1098,6 +1090,7 @@ async fn run_turn(
             history: &history,
             source_ids: &source_ids,
             guided_flow_active: onboarding_turn.is_some(),
+            peer_roster: &group_roster,
         },
         &mut llm_messages,
     )
@@ -1117,6 +1110,7 @@ async fn run_turn(
             prompt_guard: &prompt_guard,
             llm_messages: &llm_messages,
             active_model: &active_model,
+            peer_roster: &group_roster,
         },
         &mut result,
         hooks,

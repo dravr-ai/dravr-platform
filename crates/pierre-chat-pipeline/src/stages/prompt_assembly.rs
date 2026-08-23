@@ -17,7 +17,9 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::{CoachRuntimeContext, CoachingPersona, OnboardingState};
+use pierre_core::models::{
+    CoachRuntimeContext, CoachingPersona, MemberFitnessSnapshot, OnboardingState, TenantId,
+};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -447,14 +449,17 @@ pub fn resolve_coach_base_prompt(
 }
 
 /// Output of [`assemble_prompt_and_messages`]: the hardened prompt guard,
-/// pending-followup ids, the flattened LLM message list, and the parallel
+/// pending-followup ids, the flattened LLM message list, the parallel
 /// `source_ids` vector (`None` for the system prompt, `Some(history-row id)`
-/// per surviving message) that Tier 1 compaction uses to anchor block ids.
+/// per surviving message) that Tier 1 compaction uses to anchor block ids,
+/// and the group roster snapshots (empty outside a group conversation) that
+/// peer grounding and the peer-claim verifier match names against.
 pub(crate) type AssembledPrompt = (
     prompt_leak::PromptGuard,
     Vec<String>,
     Vec<ChatMessage>,
     Vec<Option<String>>,
+    Vec<MemberFitnessSnapshot>,
 );
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -575,10 +580,11 @@ pub(crate) async fn assemble_prompt_and_messages(
     // explicitly group-scoped. Personal 1:1 chats never inherit group context
     // from the user's membership.
     #[cfg(feature = "tools-groups")]
-    let base_prompt = {
+    let (base_prompt, group_roster) = {
         let (resolved_group_id, snapshots) =
             resolve_group_context(ctx, conv.group_id.as_deref(), input.tool_tenant_id).await?;
-        ctx.group_service
+        let injected = ctx
+            .group_service
             .inject_group_context(
                 &base_prompt,
                 "",
@@ -588,8 +594,11 @@ pub(crate) async fn assemble_prompt_and_messages(
                 &snapshots,
             )
             .await
-            .unwrap_or(base_prompt)
+            .unwrap_or(base_prompt);
+        (injected, snapshots)
     };
+    #[cfg(not(feature = "tools-groups"))]
+    let group_roster: Vec<MemberFitnessSnapshot> = Vec::new();
 
     // Stage 7d: Trigger background provider refresh and append freshness hint.
     let base_prompt = if profile.emit_data_freshness_hint {
@@ -932,5 +941,28 @@ pub(crate) async fn assemble_prompt_and_messages(
         }
     }
 
-    Ok((prompt_guard, pending_followup_ids, llm_messages, source_ids))
+    Ok((
+        prompt_guard,
+        pending_followup_ids,
+        llm_messages,
+        source_ids,
+        group_roster,
+    ))
+}
+
+/// Resolve the coach runtime context for a conversation, if it has a coach.
+pub(crate) async fn resolve_coach_ctx(
+    ctx: &ChatPipelineContext,
+    conv: &ConversationRecord,
+    tenant_id: TenantId,
+) -> AppResult<Option<CoachRuntimeContext>> {
+    match conv.coach_id.as_deref() {
+        Some(coach_id) => {
+            ctx.repos
+                .coaches
+                .get_coach_runtime_context(coach_id, tenant_id)
+                .await
+        }
+        None => Ok(None),
+    }
 }

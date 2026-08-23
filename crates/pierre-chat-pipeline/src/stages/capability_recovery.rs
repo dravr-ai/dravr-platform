@@ -38,11 +38,16 @@ use std::sync::Arc;
 use serde_json::json;
 use tracing::{info, warn};
 
+use super::peer_grounding::{
+    fetch_peer_activities, mentioned_peers, PeerMention, PEER_FETCH_TOOL, PEER_GROUNDING_LEAD,
+};
 use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 use pierre_core::errors::AppError;
+use pierre_core::models::MemberFitnessSnapshot;
 use pierre_core::narration;
+use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::protocol::{
@@ -79,6 +84,9 @@ pub struct CapabilityRecoveryDeps<'a> {
     pub llm_messages: &'a [ChatMessage],
     /// Model the turn ran on, so the re-ask does not drift to another one.
     pub active_model: &'a str,
+    /// Group roster snapshots (empty outside a group conversation), matched
+    /// against the reply to catch unverified claims about a named peer.
+    pub peer_roster: &'a [MemberFitnessSnapshot],
 }
 
 /// Apply capability-failure recovery in place.
@@ -109,6 +117,14 @@ pub async fn apply_capability_recovery(
         reply_len = result.content.len(),
         "capability_recovery_triggered: running a verification fetch"
     );
+
+    // A peer claim is adjudicated against this turn's evidence by the claim
+    // verifier, not by a self-fetch — the athlete's own activities say
+    // nothing about what a PEER did.
+    if matches!(trigger, RecoveryTrigger::UnverifiedPeerClaim) {
+        apply_peer_claim_recovery(&deps, input, result).await;
+        return;
+    }
 
     match run_verification_fetch(deps.ctx, input).await {
         VerificationOutcome::AuthRequired(provider_slug) => {
@@ -168,6 +184,13 @@ enum RecoveryTrigger {
     /// fallback provider dispatched four tool calls and delivered «by
     /// Dravr.» — nine characters of sign-off with the answer missing.
     DegenerateReply,
+    /// The reply names a group roster member and carries numbers. Numeric
+    /// claims about another person are the highest-stakes content a coach
+    /// produces, and the 2026-08-22 challenge turn fabricated both a duration
+    /// («4h30», real: 0h53) and a missing-distance detail against the peer's
+    /// true record sitting in its own context — so every such reply is
+    /// checked against this turn's evidence by the claim verifier.
+    UnverifiedPeerClaim,
 }
 
 impl RecoveryTrigger {
@@ -177,6 +200,7 @@ impl RecoveryTrigger {
             Self::ClaimedFailure => "claimed_failure",
             Self::UngroundedDataAsk => "ungrounded_data_ask",
             Self::DegenerateReply => "degenerate_reply",
+            Self::UnverifiedPeerClaim => "unverified_peer_claim",
         }
     }
 }
@@ -299,10 +323,33 @@ fn recovery_trigger(
     {
         return Some(RecoveryTrigger::DegenerateReply);
     }
+    // Peer claims outrank the ungrounded check: a reply naming a roster
+    // member with numbers gets the claim verifier, whatever else it is. The
+    // digit gate keeps pure social peer talk ("bravo Phil!") out.
+    if !deps.peer_roster.is_empty()
+        && result.content.bytes().any(|b| b.is_ascii_digit())
+        && !peers_named_in_reply(deps, input, result).is_empty()
+    {
+        return Some(RecoveryTrigger::UnverifiedPeerClaim);
+    }
     let ungrounded = looks_like_a_data_ask(&input.content)
         && result.tool_calls_count == 0
         && !turn_carries_activity_block(deps.llm_messages);
     ungrounded.then_some(RecoveryTrigger::UngroundedDataAsk)
+}
+
+/// Roster peers the REPLY names (not the inbound message — the 2026-08-22
+/// fabrication answered « J'en doute », which named nobody; the reply did).
+fn peers_named_in_reply(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+    result: &ToolLoopResult,
+) -> Vec<PeerMention> {
+    mentioned_peers(
+        &result.content,
+        deps.peer_roster,
+        parse_uuid(&input.user_id).unwrap_or_default(),
+    )
 }
 
 /// Whether the prefetch stage put an activity block in this turn's messages.
@@ -427,6 +474,308 @@ async fn reask_with_verified_data(
     let request = ChatRequest::new(messages).with_model(deps.active_model);
 
     apply_reask_outcome(provider.complete(&request).await, result);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Peer-claim verification (the checking half of the fabrication gate)
+// ════════════════════════════════════════════════════════════════════════
+
+/// Cap on the evidence text handed to the claim verifier.
+const EVIDENCE_CHAR_CAP: usize = 12_000;
+
+/// Header of the injected group roster section inside the system prompt; the
+/// slice starting here carries the member snapshot rows the verifier may
+/// treat as evidence.
+const GROUP_CONTEXT_HEADER: &str = "Group Coaching Context";
+
+/// How much of the system prompt's group section counts as evidence.
+const GROUP_CONTEXT_SLICE_CAP: usize = 4_000;
+
+/// Appended after the fetched peer data on the peer re-ask. English on
+/// purpose, like [`REASK_INSTRUCTION`].
+const PEER_REASK_INSTRUCTION: &str =
+    "The reply you drafted made claims about this group member that are not supported by any \
+     data in this conversation. Their real activities were just fetched and appear above. \
+     Rewrite your reply in the athlete's language: keep only what the fetched data or the \
+     roster context supports, correct any numbers, and openly say so if something you claimed \
+     cannot be confirmed. Never invent activity details.";
+
+/// Adjudicate a reply's claims about a named peer, and repair when they fail.
+///
+/// The flow mirrors [`apply_capability_recovery`]'s verify-then-re-ask
+/// contract: (1) a verifier completion checks every claim about the peer
+/// against this turn's evidence; (2) unsupported claims trigger one real
+/// consent-gated peer fetch; (3) one re-ask with the fetched data attached
+/// replaces the reply only if a second verification passes. A reply whose
+/// unsupported claims survive is stamped `capability_claim_unverified`, so
+/// the fabrication cannot replay into later prompts and become established
+/// fact — the same no-replay machinery the access-failure claims use.
+async fn apply_peer_claim_recovery(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+    result: &mut ToolLoopResult,
+) {
+    let peers = peers_named_in_reply(deps, input, result);
+    let Some(peer) = peers.first() else {
+        return;
+    };
+    let Ok(provider) = chat_provider_from_resources_arc(
+        deps.ctx.chat_provider.as_ref(),
+        deps.ctx.llm_provider.as_ref(),
+    ) else {
+        warn!("peer claim recovery found no provider for the verifier; leaving the reply");
+        return;
+    };
+
+    let evidence = collect_turn_evidence(deps.llm_messages);
+    let unsupported = verify_peer_claims(
+        provider.as_ref(),
+        deps.active_model,
+        &evidence,
+        &result.content,
+        &peer.display_name,
+    )
+    .await;
+    if unsupported.is_empty() {
+        info!(
+            peer = %peer.display_name,
+            "peer_claim_verified: every claim about the peer is supported by this turn's evidence"
+        );
+        return;
+    }
+
+    warn!(
+        peer = %peer.display_name,
+        unsupported = ?unsupported,
+        "peer_claim_unsupported: reply carries claims about a peer that no evidence backs"
+    );
+
+    let Some(tool_text) = fetch_peer_evidence(deps, input, &peer.display_name, result).await else {
+        // No truth to repair with (consent, kill-switch, outage): the reply
+        // stands — it may still be right — but it must never teach.
+        result.capability_claim_unverified = true;
+        return;
+    };
+
+    let accepted = reask_with_peer_evidence(
+        deps,
+        provider.as_ref(),
+        &peer.display_name,
+        &evidence,
+        &tool_text,
+        result,
+    )
+    .await;
+    if !accepted {
+        result.capability_claim_unverified = true;
+    }
+}
+
+/// Run the consent-gated peer fetch, book it as a real tool run, and format
+/// the payload as re-ask evidence. `None` when the fetch declined or failed.
+async fn fetch_peer_evidence(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+    peer_name: &str,
+    result: &mut ToolLoopResult,
+) -> Option<String> {
+    // Same construction as the verification fetch above: conversation id for
+    // detached-work routing, per-utterance turn token for Guardian budget.
+    let executor = Arc::new(
+        UniversalExecutor::new(Arc::clone(&deps.ctx.tool_runtime))
+            .with_conversation_id(input.conversation_id.clone())
+            .with_turn_token(input.turn_id.0.to_string()),
+    );
+    let payload =
+        fetch_peer_activities(&executor, &input.user_id, input.tool_tenant_id, peer_name).await?;
+    result.tool_calls_count += 1;
+    result.tools_called.push(PEER_FETCH_TOOL.to_owned());
+    let function_response = FunctionResponse {
+        name: PEER_FETCH_TOOL.to_owned(),
+        response: payload,
+    };
+    Some(format_tool_results_as_text(&[function_response]))
+}
+
+/// One re-ask with the fetched peer data attached; `true` when the verified
+/// clean reply replaced the original.
+async fn reask_with_peer_evidence(
+    deps: &CapabilityRecoveryDeps<'_>,
+    provider: &pierre_llm::ChatProvider,
+    peer_name: &str,
+    evidence: &str,
+    tool_text: &str,
+    result: &mut ToolLoopResult,
+) -> bool {
+    let Some(content) = request_peer_reask(deps, provider, tool_text).await else {
+        return false;
+    };
+    let evidence_with_fetch = format!("{evidence}\n{tool_text}");
+    if !reask_reply_is_clean(deps, provider, peer_name, &evidence_with_fetch, &content).await {
+        return false;
+    }
+    info!(
+        peer = %peer_name,
+        reply_len = content.len(),
+        "peer_claim_reask_recovered: re-ask with fetched peer data verified clean"
+    );
+    result.content = content;
+    true
+}
+
+/// The re-ask completion itself; `None` when the provider call failed.
+async fn request_peer_reask(
+    deps: &CapabilityRecoveryDeps<'_>,
+    provider: &pierre_llm::ChatProvider,
+    tool_text: &str,
+) -> Option<String> {
+    let mut messages = deps.llm_messages.to_vec();
+    messages.push(ChatMessage::user(format!(
+        "{tool_text}\n\n{PEER_REASK_INSTRUCTION}"
+    )));
+    let request = ChatRequest::new(messages).with_model(deps.active_model);
+    match provider.complete(&request).await {
+        Ok(reply) => Some(reply.content),
+        Err(e) => {
+            warn!(
+                error = %e,
+                "peer_claim_reask_failed: re-ask did not complete; keeping the original reply"
+            );
+            None
+        }
+    }
+}
+
+/// Whether the re-ask's reply may replace the original: the repair is held
+/// to the same standard as the original — it must verify against the
+/// enlarged evidence set (otherwise the repair could fabricate too) and
+/// carry no capability-failure claim.
+async fn reask_reply_is_clean(
+    deps: &CapabilityRecoveryDeps<'_>,
+    provider: &pierre_llm::ChatProvider,
+    peer_name: &str,
+    evidence_with_fetch: &str,
+    reply: &str,
+) -> bool {
+    let still_unsupported = verify_peer_claims(
+        provider,
+        deps.active_model,
+        evidence_with_fetch,
+        reply,
+        peer_name,
+    )
+    .await;
+    if !still_unsupported.is_empty() || narration::contains_capability_failure(reply) {
+        warn!(
+            peer = %peer_name,
+            still_unsupported = ?still_unsupported,
+            "peer_claim_reask_persisted: re-ask still unsupported; keeping the original reply, \
+             stamped so it never replays"
+        );
+        return false;
+    }
+    true
+}
+
+/// This turn's evidence: every tool-result or platform-injected data block in
+/// the message list, plus the group roster section of the system prompt.
+fn collect_turn_evidence(llm_messages: &[ChatMessage]) -> String {
+    let mut evidence = String::new();
+    for message in llm_messages {
+        let content = &message.content;
+        if message.role.as_str() == "system" {
+            if let Some(at) = content.find(GROUP_CONTEXT_HEADER) {
+                let slice = &content[at..];
+                evidence.push_str(truncate_chars(slice, GROUP_CONTEXT_SLICE_CAP));
+                evidence.push('\n');
+            }
+            continue;
+        }
+        if content.contains("[Tool Result for ")
+            || content.contains(STARTUP_GROUNDING_LEAD)
+            || content.contains(REFRESH_GROUNDING_LEAD)
+            || content.contains(PEER_GROUNDING_LEAD)
+        {
+            evidence.push_str(content);
+            evidence.push('\n');
+        }
+    }
+    truncate_chars(&evidence, EVIDENCE_CHAR_CAP).to_owned()
+}
+
+/// The longest prefix of `s` holding at most `cap` characters, cut on a char
+/// boundary.
+fn truncate_chars(s: &str, cap: usize) -> &str {
+    match s.char_indices().nth(cap) {
+        Some((at, _)) => &s[..at],
+        None => s,
+    }
+}
+
+/// Ask the verifier model which claims about `peer` the evidence fails to
+/// support. Fail-open: a verifier outage or an unparseable verdict reports
+/// "supported" (and logs), because a flaky judge must never cost the athlete
+/// a legitimate reply.
+async fn verify_peer_claims(
+    provider: &pierre_llm::ChatProvider,
+    model: &str,
+    evidence: &str,
+    reply: &str,
+    peer: &str,
+) -> Vec<String> {
+    let prompt = format!(
+        "You are a strict fact checker for a fitness coach.\n\nEVIDENCE (tool results and \
+         pre-loaded data from this conversation turn):\n{evidence}\n\nREPLY the coach wrote:\n\
+         {reply}\n\nList every specific numeric or factual claim the REPLY makes about \
+         \"{peer}\" that the EVIDENCE does not support, verbatim or by simple arithmetic \
+         (sums, averages, unit conversions) over evidence rows. General encouragement and \
+         advice are not claims. Respond with ONLY a JSON object of the form \
+         {{\"unsupported\": [\"<claim>\", ...]}} — and {{\"unsupported\": []}} when every \
+         claim is supported."
+    );
+    let request = ChatRequest::new(vec![ChatMessage::user(prompt)]).with_model(model);
+    match provider.complete(&request).await {
+        Ok(verdict) => parse_unsupported_verdict(&verdict.content),
+        Err(e) => {
+            warn!(error = %e, "peer_claim_verifier_failed: treating the reply as supported");
+            Vec::new()
+        }
+    }
+}
+
+/// Extract the `unsupported` list from a verifier reply.
+///
+/// Tolerates prose around the JSON (first `{` to last `}`); anything that
+/// still fails to parse reports "supported" — the fail-open contract of
+/// [`verify_peer_claims`], surfaced here so it is unit-testable.
+#[must_use]
+pub fn parse_unsupported_verdict(text: &str) -> Vec<String> {
+    let Some(start) = text.find('{') else {
+        warn!("peer_claim_verdict_unparseable: no JSON object in the verifier reply");
+        return Vec::new();
+    };
+    let Some(end) = text.rfind('}') else {
+        warn!("peer_claim_verdict_unparseable: unterminated JSON in the verifier reply");
+        return Vec::new();
+    };
+    let parsed: Result<serde_json::Value, _> = serde_json::from_str(&text[start..=end]);
+    match parsed {
+        Ok(value) => value
+            .get("unsupported")
+            .and_then(serde_json::Value::as_array)
+            .map(|claims| {
+                claims
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Err(e) => {
+            warn!(error = %e, "peer_claim_verdict_unparseable: treating the reply as supported");
+            Vec::new()
+        }
+    }
 }
 
 /// Take the re-ask's reply if it is free of capability-failure claims;
