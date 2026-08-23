@@ -109,7 +109,7 @@ fn test_provider_descriptor_to_config() {
     assert_eq!(config.api_base_url, "https://www.strava.com/api/v3");
     assert!(config.revoke_url.is_some());
     if let Some(ref revoke_url) = config.revoke_url {
-        assert_eq!(revoke_url, "https://www.strava.com/oauth/deauthorize");
+        assert_eq!(revoke_url, "https://www.strava.com/oauth/revoke");
     }
     assert!(!config.default_scopes.is_empty());
     assert!(config
@@ -174,7 +174,7 @@ fn test_strava_oauth_endpoints() {
         assert_eq!(ep.token_url, "https://www.strava.com/oauth/token");
         assert!(ep.revoke_url.is_some());
         if let Some(revoke_url) = ep.revoke_url {
-            assert_eq!(revoke_url, "https://www.strava.com/oauth/deauthorize");
+            assert_eq!(revoke_url, "https://www.strava.com/oauth/revoke");
         }
     }
 }

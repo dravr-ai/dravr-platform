@@ -287,6 +287,30 @@ impl ActivityCacheRepository for Database {
         Ok(())
     }
 
+    async fn delete_provider_activities(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM cached_activities
+            WHERE user_id = ? AND tenant_id = ? AND provider = ?
+            ",
+        )
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to delete provider cached activities: {e}"))
+        })?;
+
+        Ok(result.rows_affected())
+    }
+
     async fn prune_activities_before(
         &self,
         user_id: Uuid,

@@ -386,7 +386,7 @@ impl ProviderDescriptor for StravaDescriptor {
         Some(OAuthEndpoints {
             auth_url: "https://www.strava.com/oauth/authorize",
             token_url: "https://www.strava.com/oauth/token",
-            revoke_url: Some("https://www.strava.com/oauth/deauthorize"),
+            revoke_url: Some("https://www.strava.com/oauth/revoke"),
         })
     }
 

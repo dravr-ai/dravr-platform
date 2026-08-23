@@ -115,7 +115,7 @@ async fn test_email_validation() {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {
@@ -342,7 +342,7 @@ async fn test_password_validation() {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {
@@ -541,7 +541,7 @@ async fn test_duplicate_user_registration() {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {
@@ -731,7 +731,7 @@ async fn test_login_with_correct_credentials() {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {
@@ -974,7 +974,7 @@ async fn test_login_with_wrong_password() {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {
@@ -1172,7 +1172,7 @@ async fn test_login_with_non_existent_user() {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {

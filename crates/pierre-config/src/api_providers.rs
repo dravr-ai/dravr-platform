@@ -99,8 +99,12 @@ pub struct StravaApiConfig {
     pub auth_url: String,
     /// Strava token URL
     pub token_url: String,
-    /// Strava deauthorize URL
-    pub deauthorize_url: String,
+    /// Strava token-revocation URL.
+    ///
+    /// The June-2026 `/oauth/revoke` endpoint (HTTP Basic auth with the
+    /// client credentials, `token` form param) — the legacy
+    /// `/oauth/deauthorize` retires 2027-06-01, so nothing may point at it.
+    pub revoke_url: String,
     /// Default activities per page when fetching
     pub default_activities_per_page: usize,
     /// Maximum activities per API request
@@ -119,10 +123,7 @@ impl StravaApiConfig {
             base_url: env_var_or("STRAVA_API_BASE", "https://www.strava.com/api/v3"),
             auth_url: env_var_or("STRAVA_AUTH_URL", "https://www.strava.com/oauth/authorize"),
             token_url: env_var_or("STRAVA_TOKEN_URL", "https://www.strava.com/oauth/token"),
-            deauthorize_url: env_var_or(
-                "STRAVA_DEAUTHORIZE_URL",
-                "https://www.strava.com/oauth/deauthorize",
-            ),
+            revoke_url: env_var_or("STRAVA_REVOKE_URL", "https://www.strava.com/oauth/revoke"),
             default_activities_per_page: env::var("STRAVA_DEFAULT_ACTIVITIES_PER_PAGE")
                 .ok()
                 .and_then(|s| s.parse().ok())

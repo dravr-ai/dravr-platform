@@ -457,12 +457,6 @@ impl FitnessProvider for SciotteProvider {
     async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
         Ok(vec![])
     }
-
-    async fn disconnect(&self) -> AppResult<()> {
-        *self.session.write().await = None;
-        info!("Sciotte provider disconnected");
-        Ok(())
-    }
 }
 
 /// Factory for creating `SciotteProvider` instances

@@ -279,7 +279,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {
@@ -800,7 +800,7 @@ async fn test_input_validation() -> Result<()> {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {

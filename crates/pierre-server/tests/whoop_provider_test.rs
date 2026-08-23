@@ -145,34 +145,6 @@ fn test_whoop_provider_default() {
     assert_eq!(provider.name(), oauth_providers::WHOOP);
 }
 
-#[tokio::test]
-async fn test_whoop_provider_disconnect() {
-    ensure_http_clients_initialized();
-    let provider = WhoopProvider::new();
-
-    // Set credentials
-    let credentials = OAuth2Credentials {
-        client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
-        access_token: Some("test_access_token".to_owned()),
-        refresh_token: Some("test_refresh_token".to_owned()),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
-        scopes: vec!["read:profile".to_owned()],
-    };
-
-    provider
-        .set_credentials(credentials)
-        .await
-        .expect("Failed to set credentials");
-    assert!(provider.is_authenticated().await);
-
-    // Disconnect
-    provider.disconnect().await.expect("Failed to disconnect");
-
-    // No longer authenticated
-    assert!(!provider.is_authenticated().await);
-}
-
 #[test]
 fn test_whoop_provider_scopes() {
     ensure_http_clients_initialized();

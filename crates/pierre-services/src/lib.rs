@@ -161,8 +161,14 @@ pub mod channel_error_reply;
 /// Myth-busting summary over claim verdicts (top recurring claims, coaches, categories)
 pub mod myth_busting;
 
+/// Best-effort bridge notification after a successful OAuth connection
+mod oauth_bridge_notify;
+
 /// OAuth flow orchestration: state validation, token exchange, credential storage
 pub mod oauth_flow;
+
+/// Upstream grant revocation + provider-data purge for the disconnect chokepoint
+mod provider_revocation;
 
 /// Post-OAuth redirect URL validation and construction (allowlist, state decoding)
 pub mod oauth_redirects;

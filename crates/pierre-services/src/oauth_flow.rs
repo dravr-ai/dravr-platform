@@ -9,17 +9,17 @@ use std::{
     env,
     fmt::Write,
     sync::Arc,
-    time::Duration as StdDuration,
 };
 
 use chrono::Utc;
-use serde_json::{json, Value as JsonValue};
 use tokio::sync::broadcast;
 use tracing::{debug, error, field, info, warn, Span};
 use urlencoding::encode;
 
 use crate::analytics::cache_user_email;
+use crate::oauth_bridge_notify;
 use crate::oauth_redirects::extract_mobile_redirect_from_state;
+use crate::provider_revocation;
 use pierre_auth::config::oauth::get_oauth_config;
 use pierre_auth::dto::auth::{ConnectionStatus, OAuthAuthorizationResponse};
 use pierre_auth::oauth2_client::{
@@ -28,7 +28,6 @@ use pierre_auth::oauth2_client::{
 use pierre_auth::strava_pool;
 use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::http_client::{api_client, SharedHttpError};
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
 use pierre_database::database::repositories::UserRepository;
 use pierre_mcp_schema::OAuthCompletedNotification;
@@ -43,7 +42,8 @@ use pierre_runtime_context::DataContext;
 /// OAuth service for OAuth flow business logic
 #[derive(Clone)]
 pub struct OAuthService {
-    data: DataContext,
+    /// Crate-visible for the `provider_revocation` companion module.
+    pub(crate) data: DataContext,
     config: Arc<ServerConfig>,
     oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
 }
@@ -199,7 +199,7 @@ impl OAuthService {
             .await?;
         self.send_oauth_notifications(user_id, provider, &expires_at)
             .await?;
-        self.notify_bridge_oauth_success(provider, token).await;
+        oauth_bridge_notify::notify_bridge_oauth_success(&self.config, provider, token).await;
 
         // Health data backfill is triggered by the callback handler after this returns.
         // The scheduler will also auto-detect this user on subsequent cycles.
@@ -461,7 +461,7 @@ impl OAuthService {
     ///
     /// # Errors
     /// Returns error if provider is unsupported or no credentials are configured
-    async fn create_oauth_config_with_user(
+    pub(crate) async fn create_oauth_config_with_user(
         &self,
         provider: &str,
         user_id: uuid::Uuid,
@@ -791,81 +791,6 @@ impl OAuthService {
             }
         }
     }
-
-    /// Build OAuth token data for bridge notification
-    fn build_bridge_token_data(token: &OAuth2Token) -> JsonValue {
-        // Calculate expires_in from expires_at if available
-        let expires_in = token.expires_at.map(|expires_at| {
-            let duration = expires_at - chrono::Utc::now();
-            duration.num_seconds().max(0)
-        });
-
-        json!({
-            "access_token": token.access_token,
-            "refresh_token": token.refresh_token,
-            "expires_in": expires_in,
-            "token_type": token.token_type,
-            "scope": token.scope
-        })
-    }
-
-    /// Log bridge notification response
-    fn log_bridge_notification_result(
-        result: Result<reqwest::Response, SharedHttpError>,
-        provider: &str,
-    ) {
-        match result {
-            Ok(response) if response.status().is_success() => {
-                info!(
-                    "Successfully notified bridge about {} OAuth completion",
-                    provider
-                );
-            }
-            Ok(response) => {
-                warn!(
-                    "Bridge notification responded with status {} for provider {}",
-                    response.status(),
-                    provider
-                );
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to notify bridge about {} OAuth (bridge may not be running): {}",
-                    provider, e
-                );
-            }
-        }
-    }
-
-    /// Notify bridge about successful OAuth (for client-side token storage and focus recovery)
-    async fn notify_bridge_oauth_success(&self, provider: &str, token: &OAuth2Token) {
-        let oauth_callback_port = self.config.oauth_callback_port;
-        let callback_url =
-            format!("http://localhost:{oauth_callback_port}/oauth/provider-callback/{provider}");
-
-        let token_data = Self::build_bridge_token_data(token);
-
-        debug!(
-            "Notifying bridge about {} OAuth success at {}",
-            provider, callback_url
-        );
-
-        // Best-effort notification with configured timeout - don't fail OAuth flow if bridge notification fails
-        // Timeout is sourced from ServerConfig.http_client (loaded at startup via HttpClientConfig::from_env)
-        let timeout_secs = self
-            .config
-            .http_client
-            .oauth_callback_notification_timeout_secs;
-        let result = api_client()
-            .post(&callback_url)
-            .json(&token_data)
-            .timeout(StdDuration::from_secs(timeout_secs))
-            .send()
-            .await;
-
-        Self::log_bridge_notification_result(result, provider);
-    }
-
     /// Disconnect OAuth provider for user
     ///
     /// The domain chokepoint for provider disconnects: every surface (REST
@@ -907,6 +832,11 @@ impl OAuthService {
         )
         .await;
 
+        // Revoke the grant at the provider BEFORE deleting the local rows —
+        // the stored token is the credential the revocation call spends
+        // (best-effort by contract; see `provider_revocation`).
+        provider_revocation::revoke_for_disconnect(self, user_id, tenant_id, &backend).await;
+
         // Delete the token and the connection row in lockstep. They are
         // separate sources of truth (oauth_tokens → resolve_backend + scrape
         // session; provider_connections → the "connected" badge + coaching
@@ -927,6 +857,8 @@ impl OAuthService {
             .map_err(|e| {
                 AppError::database(format!("Failed to remove provider connection: {e}"))
             })?;
+
+        provider_revocation::purge_provider_cache(&self.data, user_id, tenant_id, &backend).await;
 
         // notify: provider revoked. Emitted here rather than on any transport
         // so chat/MCP disconnects count the same as REST ones, and carries

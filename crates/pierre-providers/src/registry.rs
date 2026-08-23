@@ -137,7 +137,7 @@ impl ProviderRegistry {
                 "https://www.strava.com/oauth/authorize",
                 "https://www.strava.com/oauth/token",
                 "https://www.strava.com/api/v3",
-                Some("https://www.strava.com/oauth/deauthorize"),
+                Some("https://www.strava.com/oauth/revoke"),
                 &[oauth_providers::STRAVA_DEFAULT_SCOPES.to_owned()],
             );
         registry.set_default_config(

@@ -815,12 +815,6 @@ impl FitnessProvider for IntervalsIcuProvider {
         })?;
         Ok(created.id.to_string())
     }
-
-    async fn disconnect(&self) -> AppResult<()> {
-        let mut guard = self.credentials.write().await;
-        *guard = None;
-        Ok(())
-    }
 }
 
 /// Factory that builds [`IntervalsIcuProvider`] instances for the

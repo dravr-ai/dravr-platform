@@ -275,7 +275,7 @@ impl DashboardTestSetup {
                     base_url: "https://www.strava.com/api/v3".to_owned(),
                     auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                     token_url: "https://www.strava.com/oauth/token".to_owned(),
-                    deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                    revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                     ..Default::default()
                 },
                 fitbit_api: FitbitApiConfig {
@@ -710,7 +710,7 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
-                deauthorize_url: "https://www.strava.com/oauth/deauthorize".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
             fitbit_api: FitbitApiConfig {

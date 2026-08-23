@@ -1065,40 +1065,6 @@ impl FitnessProvider for FitbitProvider {
 
         Ok(metrics)
     }
-
-    async fn disconnect(&self) -> AppResult<()> {
-        // Clone access token and revoke URL to avoid holding lock across await
-        let (access_token_opt, revoke_url_opt) = {
-            let guard = self.credentials.read().await;
-            guard.as_ref().map_or((None, None), |credentials| {
-                (
-                    credentials.access_token.clone(), // Safe: String ownership for revoke request
-                    self.config.revoke_url.clone(),   // Safe: String ownership for revoke request
-                )
-            })
-        };
-
-        if let (Some(access_token), Some(revoke_url)) = (access_token_opt, revoke_url_opt) {
-            // Fitbit uses POST with token in body
-            self.client
-                .post(&revoke_url)
-                .form(&[("token", access_token.as_str())])
-                .send()
-                .await
-                .inspect_err(|e| {
-                    warn!(
-                        error = ?e,
-                        "Failed to revoke Fitbit access token - continuing with credential cleanup"
-                    );
-                })
-                .ok();
-            info!("Attempted to revoke Fitbit access token");
-        }
-
-        // Clear credentials regardless of revoke success
-        *self.credentials.write().await = None;
-        Ok(())
-    }
 }
 
 // ============================================================================

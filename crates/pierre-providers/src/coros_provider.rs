@@ -984,29 +984,6 @@ impl FitnessProvider for CorosProvider {
 
         Ok(metrics)
     }
-
-    async fn disconnect(&self) -> AppResult<()> {
-        // Clear stored credentials
-        *self.credentials.write().await = None;
-
-        // If revoke URL is available, attempt to revoke the token
-        if let Some(revoke_url) = &self.config.revoke_url {
-            if let Some(creds) = self.credentials.read().await.as_ref() {
-                if let Some(access_token) = &creds.access_token {
-                    let params = [("token", access_token.as_str())];
-
-                    let response = self.client.post(revoke_url).form(&params).send().await;
-
-                    if let Err(e) = response {
-                        warn!("Failed to revoke COROS token: {e}");
-                    }
-                }
-            }
-        }
-
-        info!("COROS provider disconnected");
-        Ok(())
-    }
 }
 
 // ============================================================================

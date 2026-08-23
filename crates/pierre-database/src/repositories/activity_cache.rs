@@ -68,6 +68,19 @@ pub trait ActivityCacheRepository: Send + Sync {
         limit: i64,
     ) -> AppResult<Vec<Activity>>;
 
+    /// Delete every cached activity a provider contributed for a user.
+    ///
+    /// The provider-disconnect path calls this so revoking consent also
+    /// removes the provider-derived rows we hold (Strava API Policy §7.4
+    /// treats deletion on deauthorization as an obligation, not hygiene).
+    /// Returns the number of rows removed.
+    async fn delete_provider_activities(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<u64>;
+
     /// Most recent successful activity fetch for a user+provider — the
     /// freshness signal that drives background revalidation. The later of the
     /// cached rows' `synced_at` and the fetch mark recorded by

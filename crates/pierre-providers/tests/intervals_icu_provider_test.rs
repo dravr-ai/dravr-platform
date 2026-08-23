@@ -136,18 +136,6 @@ async fn refresh_token_is_noop_for_api_key_auth() {
 }
 
 #[tokio::test]
-async fn disconnect_clears_credentials() {
-    let provider = IntervalsIcuProvider::new();
-    provider
-        .set_credentials(good_credentials())
-        .await
-        .expect("set creds");
-    assert!(provider.is_authenticated().await);
-    provider.disconnect().await.expect("disconnect");
-    assert!(!provider.is_authenticated().await);
-}
-
-#[tokio::test]
 async fn unauthenticated_calls_return_auth_error() {
     let provider = IntervalsIcuProvider::new();
     let err = provider.get_athlete().await.expect_err("missing auth");

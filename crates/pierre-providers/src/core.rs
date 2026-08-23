@@ -109,7 +109,6 @@
 //! #   async fn get_personal_records(&self) -> AppResult<Vec<pierre_core::models::PersonalRecord>> {
 //! #       Ok(vec![])
 //! #   }
-//! #   async fn disconnect(&self) -> AppResult<()> { Ok(()) }
 //! }
 //! ```
 //!
@@ -195,7 +194,7 @@ pub struct OAuth2Credentials {
 ///     auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
 ///     token_url: "https://www.strava.com/oauth/token".to_owned(),
 ///     api_base_url: "https://www.strava.com/api/v3".to_owned(),
-///     revoke_url: Some("https://www.strava.com/oauth/deauthorize".to_owned()),
+///     revoke_url: Some("https://www.strava.com/oauth/revoke".to_owned()),
 ///     default_scopes: vec!["activity:read_all".to_owned()],
 ///};
 /// ```
@@ -534,14 +533,6 @@ pub trait FitnessProvider: Send + Sync {
             self.name()
         )))
     }
-
-    /// Revoke access tokens (disconnect)
-    ///
-    /// LIMITATION(registre#33): `FitnessProvider::disconnect` has no production caller —
-    /// the user-facing `disconnect_provider` chokepoint (pierre-services `oauth_flow.rs`)
-    /// deletes local token rows only, so the upstream grant (e.g. Strava's) stays live
-    /// after a user disconnects.
-    async fn disconnect(&self) -> AppResult<()>;
 }
 
 /// Provider factory for creating instances
@@ -651,9 +642,5 @@ impl FitnessProvider for TenantProvider {
 
     async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
         self.inner.get_personal_records().await
-    }
-
-    async fn disconnect(&self) -> AppResult<()> {
-        self.inner.disconnect().await
     }
 }

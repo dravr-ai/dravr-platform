@@ -383,21 +383,6 @@ impl FitnessProvider for TerraProvider {
             .await;
         Ok(metrics)
     }
-
-    async fn disconnect(&self) -> AppResult<()> {
-        let user_id = self.get_user_id().await?;
-
-        // Deauthenticate via API if client is available
-        if let Some(ref client) = self.api_client {
-            client.deauthenticate_user(&user_id).await?;
-        }
-
-        // Clear credentials and user ID
-        *self.credentials.write().await = None;
-        *self.terra_user_id.write().await = None;
-
-        Ok(())
-    }
 }
 
 /// Terra provider descriptor for SPI
