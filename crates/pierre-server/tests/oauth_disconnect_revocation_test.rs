@@ -25,6 +25,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::spawn_blocking;
+use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::common::create_test_server_resources;
@@ -180,7 +181,7 @@ async fn disconnect_revokes_upstream_and_deletes_provider_data() {
     // Bounded wait: revocation is best-effort in production, so a skipped
     // call would otherwise leave this await pending forever instead of
     // failing with a reason.
-    let request = tokio::time::timeout(StdDuration::from_secs(15), captured)
+    let request = timeout(StdDuration::from_secs(15), captured)
         .await
         .expect("no revocation request reached the stub within 15s — the best-effort path bailed (see WARN logs)")
         .expect("revocation request captured");
