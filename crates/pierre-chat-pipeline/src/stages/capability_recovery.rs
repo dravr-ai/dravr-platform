@@ -498,7 +498,9 @@ const PEER_REASK_INSTRUCTION: &str =
      data in this conversation. Their real activities were just fetched and appear above. \
      Rewrite your reply in the athlete's language: keep only what the fetched data or the \
      roster context supports, correct any numbers, and openly say so if something you claimed \
-     cannot be confirmed. Never invent activity details.";
+     cannot be confirmed. Never invent activity details. If your original reply included a \
+     dravr-viz block (a chart or table), produce it again in the rewrite, rebuilt from the \
+     fetched data — the athlete asked for it and the correction must not silently drop it.";
 
 /// Adjudicate a reply's claims about a named peer, and repair when they fail.
 ///
