@@ -241,13 +241,15 @@ fn parse_block(
     tools_called: &[String],
     body: &str,
 ) -> Option<Value> {
-    let block: Value = match serde_json::from_str(body.trim()) {
+    let mut block: Value = match serde_json::from_str(body.trim()) {
         Ok(value) => value,
         Err(e) => {
             warn!(error = %e, "viz-blocks: fence body is not valid JSON; leaving it in the reply");
             return None;
         }
     };
+
+    drop_unknown_accents(&mut block);
 
     if !schema_valid(schemas, &block) {
         return None;
@@ -277,6 +279,41 @@ fn parse_block(
     }
 
     Some(block)
+}
+
+/// The series accents the dravr-viz schema accepts — mirrors the schema's
+/// enum and photograveur's `Accent`.
+const KNOWN_ACCENTS: [&str; 4] = ["activity", "nutrition", "recovery", "mobility"];
+
+/// Remove model-invented accent values so a styling slip cannot reject a
+/// valid chart.
+///
+/// Live 2026-08-23 (Telegram group): the model wrote `"accent": "neutral"`
+/// on one series of a two-athlete comparison — a plausible word, not a
+/// schema value — and the whole otherwise-valid block failed validation and
+/// was stripped; the athlete asked for a graph and got prose. An accent is a
+/// styling hint, and the renderer already assigns distinct cycle colours to
+/// unpinned series, so the correct handling of an unknown value is to drop
+/// the field, not the chart.
+fn drop_unknown_accents(block: &mut Value) {
+    let Some(series) = block.get_mut("series").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for entry in series {
+        let unknown = entry
+            .get("accent")
+            .and_then(Value::as_str)
+            .is_some_and(|accent| !KNOWN_ACCENTS.contains(&accent));
+        if unknown {
+            if let Some(fields) = entry.as_object_mut() {
+                warn!(
+                    accent = fields.get("accent").and_then(|v| v.as_str()).unwrap_or(""),
+                    "viz-blocks: unknown series accent dropped; the renderer's cycle colours apply"
+                );
+                fields.remove("accent");
+            }
+        }
+    }
 }
 
 /// `true` when the block's kind appears in the coach's grant.
