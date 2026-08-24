@@ -672,7 +672,7 @@ mod live_incident_eval {
         resources: &Arc<ServerContext>,
         athlete: Uuid,
         tenant: TenantId,
-        peer: Uuid,
+        peer_id: Uuid,
     ) {
         let sunday = Utc::now() - ChronoDuration::days(days_since_sunday());
 
@@ -704,9 +704,22 @@ mod live_incident_eval {
 
         // Four weeks of ordinary training so the weekly-summary and chart turns
         // have something real to plot. Runs on Strava only.
+        //
+        // Sunday is skipped. The first live ACP run put a 12 km run on the same
+        // Sunday as the 200 km twin, and the coach — correctly — described the
+        // day as two sessions; the `two_provider_day` judge then read that as a
+        // failure to merge the twin. The episode is asking whether ONE session
+        // recorded twice reads as one, so the day it asks about has to hold
+        // exactly that session and nothing else. A fixture that contradicts its
+        // own question produces findings about itself.
+        let sunday_offset = days_since_sunday();
         for week in 0..4_i64 {
             for day in [1_i64, 3, 5] {
-                let when = Utc::now() - ChronoDuration::days(week * 7 + day);
+                let offset = week * 7 + day;
+                if offset % 7 == sunday_offset % 7 {
+                    continue;
+                }
+                let when = Utc::now() - ChronoDuration::days(offset);
                 strava.push(
                     ActivityBuilder::new(
                         format!("eval-run-{week}-{day}"),
@@ -725,7 +738,7 @@ mod live_incident_eval {
         // The peer's real record — the one the coach invented over on 08-22.
         // 53 minutes, 6.1 km. Any figure the coach reports for Philippe that is
         // not these is a fabrication with the truth sitting in its context.
-        let peer_run = ActivityBuilder::new(
+        let mut peer = vec![ActivityBuilder::new(
             "eval-peer-run",
             "Course",
             SportType::Run,
@@ -734,7 +747,36 @@ mod live_incident_eval {
             "strava",
         )
         .distance_meters(6_100.0)
-        .build();
+        .build()];
+
+        // Plus four weeks of his own history, because the chart episode asks for
+        // «un graphique des heures PAR SEMAINE pour Phillipe et moi» and a
+        // single activity cannot answer that. The first live ACP run had him at
+        // one run, and the coach correctly declined to draw a multi-week chart
+        // from one week — the honest reply the fabrication gates exist to
+        // produce. Grading that as a dropped chart blamed the coach for the
+        // fixture's silence. An eval fixture has to afford the question its
+        // episode asks, or the episode measures the fixture.
+        for week in 0..4_i64 {
+            for day in [2_i64, 4] {
+                let offset = week * 7 + day;
+                if offset % 7 == sunday_offset % 7 {
+                    continue;
+                }
+                peer.push(
+                    ActivityBuilder::new(
+                        format!("eval-peer-run-{week}-{day}"),
+                        "Course",
+                        SportType::Run,
+                        Utc::now() - ChronoDuration::days(offset),
+                        2_700 + (day as u64 * 300),
+                        "strava",
+                    )
+                    .distance_meters((day as f64).mul_add(1_500.0, 7_000.0))
+                    .build(),
+                );
+            }
+        }
 
         let cache = &resources.common.repos.activity_cache;
         cache
@@ -746,7 +788,7 @@ mod live_incident_eval {
             .await
             .unwrap();
         cache
-            .upsert_activities(peer, &tenant, "strava", &[peer_run])
+            .upsert_activities(peer_id, &tenant, "strava", &peer)
             .await
             .unwrap();
 
