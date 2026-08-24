@@ -457,12 +457,63 @@ jobs:
           echo "::warning::rolled back to ${PREV}; main carries the bump, the deployed image does not"
 
   # ---------------------------------------------------------------------------
+  # 7. Ship the platform binary, which is where the geometry actually runs
+  # ---------------------------------------------------------------------------
+  #
+  # Everything above deploys the photograveur SERVICE, which only rasterises an
+  # already-resolved Scene. The geometry — scales, ticks, band widths, facets —
+  # is `photograveur::layout`, compiled into the PLATFORM binary as a Rust crate:
+  # `photograveur_client.rs` posts an already-resolved Scene to the service. So a
+  # layout change reaches an athlete only when dravr-mcp-server-api is rebuilt.
+  #
+  # Nothing rebuilt it. `publish-images.yml` deploys the platform on `workflow_run`
+  # of "CI: Backend (Rust)" against main, and the squash merge above is pushed with
+  # GITHUB_TOKEN, which by design does not trigger downstream workflows. A bump that
+  # lands on a quiet main therefore reported six green jobs and shipped nothing,
+  # while the pin and the running binary silently disagreed until somebody else
+  # happened to push. Both of 2026-08-24's releases hit this: v0.1.5 reached the
+  # binary only because unrelated commits landed on top of it minutes later, and
+  # v0.1.6 sat undeployed until a hand-run dispatch (carnet#94).
+  #
+  # Dispatching explicitly is the same move this workflow already makes to put the
+  # CI gates on the bump branch, and it runs AFTER the service deploy: photograveur
+  # owns the Scene types the platform serialises into, so the reader has to
+  # understand the new shape before the writer starts emitting it.
+  platform:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    needs: [resolve, merge, deploy]
+    if: >-
+      ${{ !cancelled()
+          && needs.merge.result == 'success'
+          && needs.deploy.result == 'success' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up ${VERSION}"
+          echo "### Platform deploy dispatched" >> "$GITHUB_STEP_SUMMARY"
+          echo "The photograveur service is on ${VERSION}; the platform binary that" \
+               "resolves Scenes is now rebuilding to match." >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
   # Anything that stops the chain becomes a tracked issue
   # ---------------------------------------------------------------------------
   report-failure:
     name: File the stall on the register
     runs-on: ubuntu-latest
-    needs: [resolve, bump, gate, merge, image, deploy]
+    needs: [resolve, bump, gate, merge, image, deploy, platform]
     if: failure() && needs.resolve.outputs.needed == 'true'
     steps:
       - uses: actions/checkout@v6

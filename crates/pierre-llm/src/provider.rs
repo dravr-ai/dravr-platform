@@ -23,7 +23,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::{
     ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider,
@@ -872,10 +872,21 @@ fn cli_runner_type_for(provider_type: LlmProviderType) -> Option<CliRunnerType> 
     }
 }
 
-/// Check if the active model is recognized by the provider and log a warning on mismatch.
+/// Check if the active model is recognized by the provider and log on mismatch.
 ///
-/// This is a soft check — it does NOT block startup. Warnings help operators
-/// detect misconfigurations like sending a Gemini model name to the Claude Code CLI.
+/// Deliberately soft — it does NOT block startup. A provider's published model
+/// list goes stale against the real API, so hard-failing boot on a name the
+/// vendor added last week would take the service down over a stale constant.
+///
+/// It logs at ERROR rather than WARN because a mismatch is not a risk, it is a
+/// misconfiguration that WILL fail every dispatch — and the failure it causes
+/// arrives minutes later wearing the provider's face. `PIERRE_LLM_MODEL` is a
+/// unified override applied to whichever provider `PIERRE_LLM_PROVIDER` selects,
+/// so changing only the provider leaves the previous provider's model id in
+/// place: pointing at Cohere with a Copilot model pinned produced "Cohere: model
+/// 'claude-sonnet-5' not found", which reads as an outage and cost a whole eval
+/// run to diagnose (2026-08-24, carnet#88). Naming the two variables and the
+/// consequence here is what connects that error back to its cause.
 fn validate_model_for_provider(provider: &ChatProvider) {
     let model = provider.default_model();
     let available = provider.available_models();
@@ -893,12 +904,16 @@ fn validate_model_for_provider(provider: &ChatProvider) {
             "Model validated against provider's available models"
         );
     } else {
-        warn!(
+        error!(
             provider = provider.name(),
             model,
             available = ?available,
-            "Active model is not in this provider's known model list — \
-             this may cause runtime errors. Check PIERRE_LLM_MODEL and PIERRE_LLM_PROVIDER"
+            "Model {model:?} is not published by provider {:?} — every dispatch will \
+             fail with that provider's own not-found error, which does NOT look like a \
+             config problem. PIERRE_LLM_MODEL overrides the model for whichever \
+             provider PIERRE_LLM_PROVIDER selects, so it must be changed with it or \
+             unset to take the provider's default",
+            provider.name()
         );
     }
 }
