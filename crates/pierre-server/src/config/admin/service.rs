@@ -17,26 +17,30 @@ use pierre_config::admin_definitions::{
     register_training_stress_balance, register_usage_quotas, register_weather_analysis,
     ParameterDefinition,
 };
+use pierre_config::admin_env::{EnvConfigError, EnvConfigPins};
 use pierre_config::admin_types::{
-    AdminConfigCategory, AdminConfigParameter, ConfigAuditEntry, ConfigAuditFilter,
-    ConfigCatalogResponse, ConfigDataType, ConfigOverride, ConfigValidationError,
+    validate_parameter_value, AdminConfigCategory, AdminConfigParameter, ConfigAuditEntry,
+    ConfigAuditFilter, ConfigCatalogResponse, ConfigOverride, ConfigScope, ConfigValidationError,
     ResetConfigRequest, ResetConfigResponse, UpdateConfigRequest, UpdateConfigResponse,
     ValidateConfigRequest, ValidateConfigResponse,
 };
 use pierre_core::errors::{AppError, AppResult};
+use pierre_runtime_context::ConfigLookupScope;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// Admin configuration service for managing runtime configuration
 pub struct AdminConfigService {
     manager: Box<dyn AdminConfigRepository>,
     /// Cached parameter definitions (loaded at startup)
     definitions: Arc<RwLock<HashMap<String, ParameterDefinition>>>,
-    /// Cached effective values (refreshed on changes)
-    cache: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+    /// Environment pins captured once at construction. Layered under
+    /// per-tenant and per-user overrides but above the system-wide row, so a
+    /// deploy-time pin beats a runtime admin edit at the same scope.
+    env_pins: EnvConfigPins,
     /// Category metadata
     categories: Arc<RwLock<Vec<AdminConfigCategory>>>,
 }
@@ -71,25 +75,52 @@ impl AdminConfigService {
         // Load categories from database
         let categories = manager.get_categories().await.unwrap_or_default();
 
-        let service = Self {
+        let definitions = Self::build_definitions();
+        info!(
+            "Initialized {} admin configuration parameter definitions",
+            definitions.len()
+        );
+
+        // Capture environment pins once: the process environment does not
+        // change under a running server, and re-reading it per lookup would
+        // make config resolution depend on ambient state.
+        let (env_pins, env_errors) = EnvConfigPins::capture(&definitions);
+        if !env_errors.is_empty() {
+            let detail = env_errors
+                .iter()
+                .map(EnvConfigError::describe)
+                .collect::<Vec<_>>()
+                .join("; ");
+            // Fail the boot rather than degrade to "ignored". A pin that
+            // silently does nothing is the exact failure this layer exists to
+            // remove.
+            return Err(AppError::invalid_input(format!(
+                "Invalid config environment {}: {detail}",
+                if env_errors.len() == 1 {
+                    "variable"
+                } else {
+                    "variables"
+                }
+            )));
+        }
+        if !env_pins.is_empty() {
+            info!(
+                pinned = env_pins.len(),
+                "Admin config parameters pinned by environment variables"
+            );
+        }
+
+        Ok(Self {
             manager,
-            definitions: Arc::new(RwLock::new(HashMap::new())),
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            definitions: Arc::new(RwLock::new(definitions)),
+            env_pins,
             categories: Arc::new(RwLock::new(categories)),
-        };
-
-        // Initialize parameter definitions
-        service.initialize_definitions().await;
-
-        // Load overrides into cache
-        service.refresh_cache(None).await?;
-
-        Ok(service)
+        })
     }
 
-    /// Initialize parameter definitions with all configurable parameters
-    async fn initialize_definitions(&self) {
-        // Build definitions locally first, then acquire lock briefly at the end
+    /// Build the parameter catalog. Pure — the caller owns where it lands,
+    /// so env pins can be validated against it before the service exists.
+    fn build_definitions() -> HashMap<String, ParameterDefinition> {
         let mut defs = HashMap::new();
 
         // Rate Limiting Parameters — see config::admin::definitions::register_rate_limiting
@@ -158,41 +189,7 @@ impl AdminConfigService {
         // Group Permissions — see config::admin::definitions::register_group_permissions
         register_group_permissions(&mut defs);
 
-        // Acquire lock briefly and insert all definitions at once
-        let def_count = defs.len();
-        self.definitions.write().await.extend(defs);
-
-        info!("Initialized {def_count} admin configuration parameter definitions");
-    }
-
-    /// Refresh the cache from database overrides
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if reading overrides from the database fails.
-    pub async fn refresh_cache(&self, tenant_id: Option<&str>) -> AppResult<()> {
-        let overrides = self.manager.get_overrides(tenant_id).await?;
-
-        // Build the new cache entries
-        let new_entries: HashMap<String, serde_json::Value> = overrides
-            .into_iter()
-            .map(|o| {
-                let key = format!("{}.{}", o.category, o.config_key);
-                (key, o.config_value)
-            })
-            .collect();
-
-        let entry_count = new_entries.len();
-
-        // Update the cache with new entries
-        {
-            let mut cache = self.cache.write().await;
-            cache.clear();
-            cache.extend(new_entries);
-        }
-
-        debug!("Refreshed config cache with {entry_count} overrides");
-        Ok(())
+        defs
     }
 
     /// Get the full configuration catalog
@@ -200,17 +197,44 @@ impl AdminConfigService {
     /// # Errors
     ///
     /// Returns an error if reading from the database fails.
-    pub async fn get_catalog(&self, tenant_id: Option<&str>) -> AppResult<ConfigCatalogResponse> {
+    pub async fn get_catalog(
+        &self,
+        lookup: ConfigLookupScope<'_>,
+    ) -> AppResult<ConfigCatalogResponse> {
         // Clone categories and definitions before await to avoid holding locks across await
         let categories = self.categories.read().await.clone();
         let definitions = self.definitions.read().await.clone();
-        let overrides = self.manager.get_overrides(tenant_id).await?;
+        // Collect every scope the lookup spans, narrowest last is irrelevant —
+        // `scope_rank` decides the winner — but all three must be present or a
+        // tenant-governed key would be reported as unset for that user.
+        let mut overrides = self.manager.get_overrides_at(ConfigScope::Global).await?;
+        if let Some(tenant_id) = lookup.tenant_id {
+            overrides.extend(
+                self.manager
+                    .get_overrides_at(ConfigScope::Tenant(tenant_id))
+                    .await?,
+            );
+        }
+        if let Some(user_id) = lookup.user_id {
+            overrides.extend(
+                self.manager
+                    .get_overrides_at(ConfigScope::User(user_id))
+                    .await?,
+            );
+        }
 
-        // Build override lookup
-        let override_map: HashMap<String, &ConfigOverride> = overrides
-            .iter()
-            .map(|o| (format!("{}.{}", o.category, o.config_key), o))
-            .collect();
+        // Build the override lookup. A scoped listing returns the rows at
+        // that scope *and* the system-wide rows they layer over, so two rows
+        // can share a key — keep the narrower one rather than letting
+        // iteration order decide.
+        let mut override_map: HashMap<String, &ConfigOverride> = HashMap::new();
+        for o in &overrides {
+            let full_key = format!("{}.{}", o.category, o.config_key);
+            let existing_rank = override_map.get(&full_key).map_or(0, |e| scope_rank(e));
+            if scope_rank(o) >= existing_rank {
+                override_map.insert(full_key, o);
+            }
+        }
 
         let mut result_categories = Vec::new();
         let mut total_params = 0;
@@ -224,9 +248,36 @@ impl AdminConfigService {
                 .map(|def| {
                     let full_key = format!("{}.{}", def.category, def.key);
                     let override_val = override_map.get(&full_key);
-                    let current_value = override_val
-                        .map_or_else(|| def.default_value.clone(), |o| o.config_value.clone());
-                    let is_modified = override_val.is_some();
+                    let env_pinned = self.env_pins.get(&def.key);
+                    // Same precedence the lookups use: a stored row at this
+                    // scope wins, then the environment pin, then the default.
+                    let current_value = override_val.map_or_else(
+                        || {
+                            env_pinned
+                                .cloned()
+                                .unwrap_or_else(|| def.default_value.clone())
+                        },
+                        |o| o.config_value.clone(),
+                    );
+                    let is_modified = override_val.is_some() || env_pinned.is_some();
+                    let value_source = override_val.map_or_else(
+                        || {
+                            if env_pinned.is_some() {
+                                "env"
+                            } else {
+                                "default"
+                            }
+                        },
+                        |o| {
+                            if o.user_id.is_some() {
+                                "user"
+                            } else if o.tenant_id.is_some() {
+                                "tenant"
+                            } else {
+                                "global"
+                            }
+                        },
+                    );
 
                     total_params += 1;
                     if def.is_runtime_configurable {
@@ -248,7 +299,9 @@ impl AdminConfigService {
                         enum_options: def.enum_options.clone(),
                         units: def.units.clone(),
                         scientific_basis: def.scientific_basis.clone(),
-                        env_variable: def.env_variable.clone(),
+                        env_variable: def.env.as_ref().map(|b| b.name.clone()),
+                        env_pinned: env_pinned.is_some(),
+                        value_source: value_source.to_owned(),
                         is_runtime_configurable: def.is_runtime_configurable,
                         requires_restart: def.requires_restart,
                     }
@@ -307,97 +360,7 @@ impl AdminConfigService {
         def: &ParameterDefinition,
         value: &serde_json::Value,
     ) -> Result<(), Box<ConfigValidationError>> {
-        match def.data_type {
-            ConfigDataType::Float => {
-                let num = value.as_f64().ok_or_else(|| {
-                    Box::new(ConfigValidationError {
-                        parameter: def.key.clone(),
-                        message: "Expected a floating point number".to_owned(),
-                        provided_value: value.clone(),
-                        valid_range: def.valid_range.clone(),
-                    })
-                })?;
-
-                if let Some(range) = &def.valid_range {
-                    let min = range.min.as_f64().unwrap_or(f64::MIN);
-                    let max = range.max.as_f64().unwrap_or(f64::MAX);
-                    if num < min || num > max {
-                        return Err(Box::new(ConfigValidationError {
-                            parameter: def.key.clone(),
-                            message: format!("Value must be between {min} and {max}"),
-                            provided_value: value.clone(),
-                            valid_range: Some(range.clone()),
-                        }));
-                    }
-                }
-            }
-            ConfigDataType::Integer => {
-                let num = value.as_i64().ok_or_else(|| {
-                    Box::new(ConfigValidationError {
-                        parameter: def.key.clone(),
-                        message: "Expected an integer".to_owned(),
-                        provided_value: value.clone(),
-                        valid_range: def.valid_range.clone(),
-                    })
-                })?;
-
-                if let Some(range) = &def.valid_range {
-                    let min = range.min.as_i64().unwrap_or(i64::MIN);
-                    let max = range.max.as_i64().unwrap_or(i64::MAX);
-                    if num < min || num > max {
-                        return Err(Box::new(ConfigValidationError {
-                            parameter: def.key.clone(),
-                            message: format!("Value must be between {min} and {max}"),
-                            provided_value: value.clone(),
-                            valid_range: Some(range.clone()),
-                        }));
-                    }
-                }
-            }
-            ConfigDataType::Boolean => {
-                if !value.is_boolean() {
-                    return Err(Box::new(ConfigValidationError {
-                        parameter: def.key.clone(),
-                        message: "Expected a boolean (true/false)".to_owned(),
-                        provided_value: value.clone(),
-                        valid_range: None,
-                    }));
-                }
-            }
-            ConfigDataType::String => {
-                if !value.is_string() {
-                    return Err(Box::new(ConfigValidationError {
-                        parameter: def.key.clone(),
-                        message: "Expected a string".to_owned(),
-                        provided_value: value.clone(),
-                        valid_range: None,
-                    }));
-                }
-            }
-            ConfigDataType::Enum => {
-                let str_val = value.as_str().ok_or_else(|| {
-                    Box::new(ConfigValidationError {
-                        parameter: def.key.clone(),
-                        message: "Expected a string value for enum".to_owned(),
-                        provided_value: value.clone(),
-                        valid_range: None,
-                    })
-                })?;
-
-                if let Some(options) = &def.enum_options {
-                    if !options.contains(&str_val.to_owned()) {
-                        return Err(Box::new(ConfigValidationError {
-                            parameter: def.key.clone(),
-                            message: format!("Value must be one of: {}", options.join(", ")),
-                            provided_value: value.clone(),
-                            valid_range: None,
-                        }));
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        validate_parameter_value(def, value)
     }
 }
 
@@ -411,12 +374,24 @@ pub struct UpdateConfigContext<'a> {
     pub admin_user_id: &'a str,
     /// Admin email (operator-visible attribution).
     pub admin_email: &'a str,
-    /// Tenant scope; `None` records a system-wide change.
-    pub tenant_id: Option<&'a str>,
+    /// Which scope the change targets: system-wide, one tenant, or one user.
+    pub scope: ConfigScope<'a>,
     /// Client IP captured at request time for forensic tracing.
     pub ip_address: Option<&'a str>,
     /// Client user-agent captured at request time.
     pub user_agent: Option<&'a str>,
+}
+
+/// Narrowness rank of a stored row: per-user beats per-tenant beats
+/// system-wide. Used to collapse a scoped listing down to one row per key.
+const fn scope_rank(o: &ConfigOverride) -> u8 {
+    if o.user_id.is_some() {
+        2
+    } else if o.tenant_id.is_some() {
+        1
+    } else {
+        0
+    }
 }
 
 impl AdminConfigService {
@@ -433,7 +408,7 @@ impl AdminConfigService {
         let UpdateConfigContext {
             admin_user_id,
             admin_email,
-            tenant_id,
+            scope,
             ip_address,
             user_agent,
         } = ctx;
@@ -462,10 +437,7 @@ impl AdminConfigService {
         for (key, value) in &request.parameters {
             if let Some(def) = definitions.get(key) {
                 // Get old value for audit
-                let old_override = self
-                    .manager
-                    .get_override(&def.category, key, tenant_id)
-                    .await?;
+                let old_override = self.manager.get_override(&def.category, key, scope).await?;
                 let old_value = old_override.map(|o| o.config_value);
 
                 // Set the new override
@@ -476,7 +448,7 @@ impl AdminConfigService {
                         value,
                         data_type: def.data_type,
                         admin_user_id,
-                        tenant_id,
+                        scope,
                         reason: request.reason.as_deref(),
                     })
                     .await?;
@@ -492,7 +464,7 @@ impl AdminConfigService {
                         new_value: value,
                         data_type: def.data_type,
                         reason: request.reason.as_deref(),
-                        tenant_id,
+                        scope,
                         ip_address,
                         user_agent,
                     })
@@ -505,11 +477,9 @@ impl AdminConfigService {
             }
         }
 
-        // Refresh cache
-        self.refresh_cache(tenant_id).await?;
-
         info!(
             updated_count = updated_count,
+            scope = scope.label(),
             "Admin updated configuration parameters"
         );
 
@@ -562,12 +532,11 @@ impl AdminConfigService {
             )
             .await?
         } else {
-            self.reset_entire_category(&definitions, category, ctx.tenant_id)
+            self.reset_entire_category(&definitions, category, ctx.scope)
                 .await?
         };
 
         // Refresh cache
-        self.refresh_cache(ctx.tenant_id).await?;
 
         info!(
             reset_count = reset_count,
@@ -600,13 +569,10 @@ impl AdminConfigService {
             if def.category != category {
                 continue;
             }
-            let old_override = self
-                .manager
-                .get_override(category, key, ctx.tenant_id)
-                .await?;
+            let old_override = self.manager.get_override(category, key, ctx.scope).await?;
             if self
                 .manager
-                .delete_override(category, key, ctx.tenant_id)
+                .delete_override(category, key, ctx.scope)
                 .await?
             {
                 if let Some(old) = old_override {
@@ -620,7 +586,7 @@ impl AdminConfigService {
                             new_value: &def.default_value,
                             data_type: def.data_type,
                             reason,
-                            tenant_id: ctx.tenant_id,
+                            scope: ctx.scope,
                             ip_address: ctx.ip_address,
                             user_agent: ctx.user_agent,
                         })
@@ -639,11 +605,11 @@ impl AdminConfigService {
         &self,
         definitions: &HashMap<String, ParameterDefinition>,
         category: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<(usize, Vec<String>)> {
         let reset_count = self
             .manager
-            .delete_category_overrides(category, tenant_id)
+            .delete_category_overrides(category, scope)
             .await?;
         let reset_keys = definitions
             .values()
@@ -675,48 +641,30 @@ impl AdminConfigService {
     pub async fn get_value(
         &self,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigLookupScope<'_>,
     ) -> AppResult<Option<serde_json::Value>> {
-        // Check cache first
-        {
-            let cache = self.cache.read().await;
-            if let Some(val) = cache.get(key) {
-                return Ok(Some(val.clone()));
-            }
-        }
-
-        // Get definition to find category and default
         let definitions = self.definitions.read().await;
-        if let Some(def) = definitions.get(key) {
-            let category = def.category.clone();
-            let default_value = def.default_value.clone();
-            drop(definitions); // Release lock before await
+        let Some(def) = definitions.get(key) else {
+            return Ok(None);
+        };
+        let category = def.category.clone();
+        let default_value = def.default_value.clone();
+        drop(definitions);
 
-            // Check database
-            if let Some(override_val) = self
-                .manager
-                .get_effective_override(&category, key, tenant_id)
-                .await?
-            {
-                return Ok(Some(override_val.config_value));
-            }
-
-            // Return default
-            return Ok(Some(default_value));
+        if let Some(found) = self.resolve_override(&category, key, scope).await? {
+            return Ok(Some(found));
         }
-
-        Ok(None)
+        Ok(Some(default_value))
     }
 
-    /// Read an explicit override (cache + `admin_config_overrides` row)
-    /// without falling back to the parameter definition's default.
+    /// Read an explicit override for `key` — a stored row or an environment
+    /// pin — without falling back to the parameter definition's default.
     ///
-    /// Returns `Ok(None)` when no override exists, so the caller can
+    /// Returns `Ok(None)` when nothing overrides the key, so callers can
     /// resolve a domain-specific default (e.g.
-    /// [`pierre_core::models::TierQuotaConfig`]) instead of the
-    /// catalog's flat default. This is the canonical entry point for
-    /// quota lookups — the [`Self::get_value`] flat-default behaviour
-    /// would otherwise mask tier-keyed caps.
+    /// [`pierre_core::models::TierQuotaConfig`]) instead of the catalog's
+    /// flat default. That flat default would otherwise mask tier-keyed caps:
+    /// every tier would read the Starter number.
     ///
     /// # Errors
     ///
@@ -724,24 +672,57 @@ impl AdminConfigService {
     pub async fn get_override_value(
         &self,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigLookupScope<'_>,
     ) -> AppResult<Option<serde_json::Value>> {
-        {
-            let cache = self.cache.read().await;
-            if let Some(val) = cache.get(key) {
-                return Ok(Some(val.clone()));
+        let definitions = self.definitions.read().await;
+        let Some(def) = definitions.get(key) else {
+            return Ok(None);
+        };
+        let category = def.category.clone();
+        drop(definitions);
+
+        self.resolve_override(&category, key, scope).await
+    }
+
+    /// The one place override precedence is defined:
+    /// per-user row → per-tenant row → environment pin → system-wide row.
+    ///
+    /// The environment rung sits above the system-wide row because a pin is a
+    /// deploy-time, fleet-wide decision and should beat a runtime admin edit
+    /// at the same scope — the same posture `GUARDIAN_*` takes over the
+    /// persisted guardian document. A tenant or per-user exemption is
+    /// narrower than the fleet, so it still wins over the pin.
+    async fn resolve_override(
+        &self,
+        category: &str,
+        key: &str,
+        scope: ConfigLookupScope<'_>,
+    ) -> AppResult<Option<serde_json::Value>> {
+        if let Some(user_id) = scope.user_id {
+            if let Some(row) = self
+                .manager
+                .get_override(category, key, ConfigScope::User(user_id))
+                .await?
+            {
+                return Ok(Some(row.config_value));
             }
         }
-        let definitions = self.definitions.read().await;
-        let category = match definitions.get(key) {
-            Some(def) => def.category.clone(),
-            None => return Ok(None),
-        };
-        drop(definitions);
-        let override_row = self
+        if let Some(tenant_id) = scope.tenant_id {
+            if let Some(row) = self
+                .manager
+                .get_override(category, key, ConfigScope::Tenant(tenant_id))
+                .await?
+            {
+                return Ok(Some(row.config_value));
+            }
+        }
+        if let Some(pinned) = self.env_pins.get(key) {
+            return Ok(Some(pinned.clone()));
+        }
+        Ok(self
             .manager
-            .get_effective_override(&category, key, tenant_id)
-            .await?;
-        Ok(override_row.map(|o| o.config_value))
+            .get_override(category, key, ConfigScope::Global)
+            .await?
+            .map(|row| row.config_value))
     }
 }

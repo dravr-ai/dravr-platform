@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use pierre_config::admin_types::{
     AdminConfigCategory, ConfigAuditEntry, ConfigAuditFilter, ConfigDataType, ConfigOverride,
+    ConfigScope,
 };
 use pierre_core::errors::AppResult;
 
@@ -27,8 +28,9 @@ pub struct SetOverrideParams<'a> {
     pub data_type: ConfigDataType,
     /// Admin user performing the change (audit attribution).
     pub admin_user_id: &'a str,
-    /// Tenant scope; `None` records a system-wide override.
-    pub tenant_id: Option<&'a str>,
+    /// Which single row this write targets: system-wide, one tenant, or
+    /// one user.
+    pub scope: ConfigScope<'a>,
     /// Free-form reason captured in the audit log.
     pub reason: Option<&'a str>,
 }
@@ -55,8 +57,9 @@ pub struct LogChangeParams<'a> {
     pub data_type: ConfigDataType,
     /// Free-form reason captured in the audit log.
     pub reason: Option<&'a str>,
-    /// Tenant scope, `None` for system-wide change.
-    pub tenant_id: Option<&'a str>,
+    /// Which row the change targeted, recorded so a per-user edit stays
+    /// distinguishable from a system-wide one after the fact.
+    pub scope: ConfigScope<'a>,
     /// Client IP captured at request time for forensic tracing.
     pub ip_address: Option<&'a str>,
     /// Client user-agent captured at request time.
@@ -68,41 +71,36 @@ pub struct LogChangeParams<'a> {
 /// Implemented by `AdminConfigManager` (`SQLite`) and `PostgresAdminConfigManager` (`PostgreSQL`).
 #[async_trait]
 pub trait AdminConfigRepository: Send + Sync {
-    /// Get all configuration overrides, optionally filtered by tenant
-    async fn get_overrides(&self, tenant_id: Option<&str>) -> AppResult<Vec<ConfigOverride>>;
+    /// Get the rows stored at exactly `scope`. Composing the scopes a lookup
+    /// spans is the service's job — it also owns the environment rung, which
+    /// no repository can see.
+    async fn get_overrides_at(&self, scope: ConfigScope<'_>) -> AppResult<Vec<ConfigOverride>>;
 
-    /// Get a specific configuration override
+    /// Get the override stored at exactly `scope`, without walking to a
+    /// broader one.
     async fn get_override(
         &self,
         category: &str,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<Option<ConfigOverride>>;
 
-    /// Get effective value for a config key (tenant override > system override > default)
-    async fn get_effective_override(
-        &self,
-        category: &str,
-        key: &str,
-        tenant_id: Option<&str>,
-    ) -> AppResult<Option<ConfigOverride>>;
-
-    /// Set a configuration override
+    /// Set a configuration override at the scope named in `params`
     async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride>;
 
-    /// Delete a configuration override (reset to default)
+    /// Delete a configuration override (reset to the next-broadest scope)
     async fn delete_override(
         &self,
         category: &str,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<bool>;
 
-    /// Delete all overrides for a category
+    /// Delete all overrides for a category at `scope`
     async fn delete_category_overrides(
         &self,
         category: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<usize>;
 
     /// Record a configuration change in the audit log

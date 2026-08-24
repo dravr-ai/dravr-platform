@@ -32,7 +32,7 @@
 //! `ci-postgres` these assertions run against `PostgresAdminConfigManager`'s own
 //! SQL rather than a `SQLite` stand-in.
 
-use pierre_config::admin_types::ConfigDataType;
+use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
@@ -107,7 +107,7 @@ async fn count_rows(db: &Database, tenant: Option<&str>) -> i64 {
              WHERE category = $1 AND config_key = $2 AND tenant_id = $3"
         } else {
             "SELECT COUNT(*) FROM admin_config_overrides \
-             WHERE category = $1 AND config_key = $2 AND tenant_id IS NULL"
+             WHERE category = $1 AND config_key = $2 AND tenant_id IS NULL AND user_id IS NULL"
         };
         let mut q = sqlx::query_scalar(sql).bind(CATEGORY).bind(KEY);
         if let Some(t) = tenant {
@@ -121,7 +121,7 @@ async fn count_rows(db: &Database, tenant: Option<&str>) -> i64 {
          WHERE category = ?1 AND config_key = ?2 AND tenant_id = ?3"
     } else {
         "SELECT COUNT(*) FROM admin_config_overrides \
-         WHERE category = ?1 AND config_key = ?2 AND tenant_id IS NULL"
+         WHERE category = ?1 AND config_key = ?2 AND tenant_id IS NULL AND user_id IS NULL"
     };
     let mut q = sqlx::query_scalar(sql).bind(CATEGORY).bind(KEY);
     if let Some(t) = tenant {
@@ -146,7 +146,7 @@ async fn system_wide_save_updates_in_place_instead_of_appending_a_row() {
         value: &everyone,
         data_type: ConfigDataType::Enum,
         admin_user_id: &admin,
-        tenant_id: None,
+        scope: ConfigScope::Global,
         reason: Some("open group creation to every member"),
     })
     .await
@@ -160,7 +160,7 @@ async fn system_wide_save_updates_in_place_instead_of_appending_a_row() {
             value: &admins_only,
             data_type: ConfigDataType::Enum,
             admin_user_id: &admin,
-            tenant_id: None,
+            scope: ConfigScope::Global,
             reason: Some("lock group creation down to admins"),
         })
         .await
@@ -176,7 +176,7 @@ async fn system_wide_save_updates_in_place_instead_of_appending_a_row() {
     );
 
     let read_back = repo
-        .get_override(CATEGORY, KEY, None)
+        .get_override(CATEGORY, KEY, ConfigScope::Global)
         .await
         .unwrap()
         .expect("the system-wide override must exist after two saves");
@@ -185,14 +185,21 @@ async fn system_wide_save_updates_in_place_instead_of_appending_a_row() {
         "the read must return the operator's latest value, not the first one written"
     );
 
-    let effective = repo
-        .get_effective_override(CATEGORY, KEY, None)
-        .await
-        .unwrap()
+    // The precedence walk itself now lives in `AdminConfigService` (it has an
+    // environment rung the repository cannot see), so assert the same property
+    // through the listing enforcement reads from.
+    let listed = repo.get_overrides_at(ConfigScope::Global).await.unwrap();
+    let effective = listed
+        .iter()
+        .find(|o| o.category == CATEGORY && o.config_key == KEY)
         .expect("the effective system-wide override must exist");
     assert_eq!(
         effective.config_value, admins_only,
         "the effective value backs enforcement and must track the latest save"
+    );
+    assert_eq!(
+        effective.user_id, None,
+        "a system-wide override must not be attributed to a user"
     );
 
     assert_eq!(
@@ -216,7 +223,7 @@ async fn tenant_override_still_upserts_and_leaves_the_system_wide_row_alone() {
         value: &everyone,
         data_type: ConfigDataType::Enum,
         admin_user_id: &admin,
-        tenant_id: None,
+        scope: ConfigScope::Global,
         reason: Some("system-wide default"),
     })
     .await
@@ -230,7 +237,7 @@ async fn tenant_override_still_upserts_and_leaves_the_system_wide_row_alone() {
             value: &admins_only,
             data_type: ConfigDataType::Enum,
             admin_user_id: &admin,
-            tenant_id: Some(&tenant),
+            scope: ConfigScope::Tenant(&tenant),
             reason: Some(reason),
         })
         .await
@@ -249,7 +256,7 @@ async fn tenant_override_still_upserts_and_leaves_the_system_wide_row_alone() {
     );
 
     let system_wide = repo
-        .get_override(CATEGORY, KEY, None)
+        .get_override(CATEGORY, KEY, ConfigScope::Global)
         .await
         .unwrap()
         .expect("the system-wide override must survive tenant writes");
@@ -258,13 +265,17 @@ async fn tenant_override_still_upserts_and_leaves_the_system_wide_row_alone() {
         "a tenant override must not overwrite the system-wide value"
     );
 
-    let effective = repo
-        .get_effective_override(CATEGORY, KEY, Some(&tenant))
+    let tenant_row = repo
+        .get_override(CATEGORY, KEY, ConfigScope::Tenant(&tenant))
         .await
         .unwrap()
-        .expect("the tenant must resolve an effective override");
+        .expect("the tenant must have its own override row");
     assert_eq!(
-        effective.config_value, admins_only,
+        tenant_row.config_value, admins_only,
         "a tenant override must win over the system-wide value for that tenant"
+    );
+    assert_ne!(
+        tenant_row.config_value, system_wide.config_value,
+        "the two scopes must hold distinct values for this assertion to mean anything"
     );
 }

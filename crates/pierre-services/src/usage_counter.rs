@@ -18,7 +18,7 @@ use tracing::debug;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TierQuotaConfig, UserTier};
 use pierre_database::database::repositories::UsageCounterRepository;
-use pierre_runtime_context::AdminConfigLookup;
+use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
 
 /// Result of a limit check against a usage counter
 #[derive(Debug, Clone, Serialize)]
@@ -122,18 +122,22 @@ impl<'a> UsageCounterService<'a> {
         tier: &UserTier,
     ) -> AppResult<LimitCheckResult> {
         let config_key = counter_type_to_config_key(counter_type);
+        // Resolve against the user so a per-user exemption outranks the
+        // tenant's cap, which in turn outranks the environment pin and the
+        // system-wide row.
+        let scope = ConfigLookupScope::user(user_id, tenant_id);
         let limit = self
-            .read_limit_override_i64(&config_key, Some(tenant_id))
+            .read_limit_override_i64(&config_key, scope)
             .await?
             .unwrap_or_else(|| default_limit(counter_type, tier));
 
         let warning_pct = self
-            .read_config_i64("usage_quotas.warning_threshold_percent", Some(tenant_id))
+            .read_config_i64("usage_quotas.warning_threshold_percent", scope)
             .await?
             .unwrap_or(80);
 
         let burst_multiplier = self
-            .read_config_f64("usage_quotas.burst_multiplier", Some(tenant_id))
+            .read_config_f64("usage_quotas.burst_multiplier", scope)
             .await?
             .unwrap_or(1.5);
 
@@ -193,18 +197,19 @@ impl<'a> UsageCounterService<'a> {
     ) -> AppResult<LimitCheckResult> {
         let scoped_counter_type = format!("{base_counter_type}:{dimension}");
         let config_key = counter_type_to_config_key(base_counter_type);
+        let scope = ConfigLookupScope::user(user_id, tenant_id);
         let limit = self
-            .read_config_i64(&config_key, Some(tenant_id))
+            .read_limit_override_i64(&config_key, scope)
             .await?
             .unwrap_or_else(|| default_limit(base_counter_type, tier));
 
         let warning_pct = self
-            .read_config_i64("usage_quotas.warning_threshold_percent", Some(tenant_id))
+            .read_config_i64("usage_quotas.warning_threshold_percent", scope)
             .await?
             .unwrap_or(80);
 
         let burst_multiplier = self
-            .read_config_f64("usage_quotas.burst_multiplier", Some(tenant_id))
+            .read_config_f64("usage_quotas.burst_multiplier", scope)
             .await?
             .unwrap_or(1.5);
 
@@ -280,10 +285,14 @@ impl<'a> UsageCounterService<'a> {
 
     /// Read an integer config value (falls back to parameter
     /// definition default when no override exists).
-    async fn read_config_i64(&self, key: &str, tenant_id: Option<&str>) -> AppResult<Option<i64>> {
+    async fn read_config_i64(
+        &self,
+        key: &str,
+        scope: ConfigLookupScope<'_>,
+    ) -> AppResult<Option<i64>> {
         Ok(self
             .config
-            .get_value(key, tenant_id)
+            .get_value(key, scope)
             .await?
             .and_then(|v| v.as_i64()))
     }
@@ -296,21 +305,25 @@ impl<'a> UsageCounterService<'a> {
     async fn read_limit_override_i64(
         &self,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigLookupScope<'_>,
     ) -> AppResult<Option<i64>> {
         Ok(self
             .config
-            .get_override_value(key, tenant_id)
+            .get_override_value(key, scope)
             .await?
             .and_then(|v| v.as_i64()))
     }
 
     /// Read a float config value (falls back to parameter definition
     /// default when no override exists).
-    async fn read_config_f64(&self, key: &str, tenant_id: Option<&str>) -> AppResult<Option<f64>> {
+    async fn read_config_f64(
+        &self,
+        key: &str,
+        scope: ConfigLookupScope<'_>,
+    ) -> AppResult<Option<f64>> {
         Ok(self
             .config
-            .get_value(key, tenant_id)
+            .get_value(key, scope)
             .await?
             .and_then(|v| v.as_f64()))
     }

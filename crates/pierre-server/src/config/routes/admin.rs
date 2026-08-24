@@ -20,11 +20,12 @@ use axum::{
 };
 use pierre_auth::security::cookies::get_cookie_value;
 use pierre_config::admin_types::{
-    ConfigAuditFilter, ConfigAuditResponse, ResetConfigRequest, UpdateConfigRequest,
+    ConfigAuditFilter, ConfigAuditResponse, ConfigScope, ResetConfigRequest, UpdateConfigRequest,
     ValidateConfigRequest,
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_middleware::require_admin;
+use pierre_runtime_context::ConfigLookupScope;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -87,13 +88,6 @@ struct AdminAuthInfo {
 // Request/Response Types
 // ============================================================================
 
-/// Query parameters for catalog endpoint
-#[derive(Debug, Deserialize)]
-pub struct CatalogQuery {
-    /// Optional tenant ID for tenant-specific overrides
-    pub tenant_id: Option<String>,
-}
-
 /// Query parameters for audit log endpoint
 #[derive(Debug, Deserialize)]
 pub struct AuditLogQuery {
@@ -111,11 +105,48 @@ pub struct AuditLogQuery {
     pub offset: Option<usize>,
 }
 
-/// Query parameters for update/reset endpoints
+/// Scope selector shared by every config endpoint — catalog, category,
+/// validate, update and reset all take the same two dimensions.
+///
+/// Naming both `user_id` and `tenant_id` is rejected rather than silently
+/// picking one: a caller that meant "this user" and a caller that meant
+/// "this tenant" must not be served the same row.
 #[derive(Debug, Deserialize)]
-pub struct TenantQuery {
+pub struct ConfigScopeQuery {
     /// Optional tenant ID for tenant-specific changes
     pub tenant_id: Option<String>,
+    /// Optional user ID for per-user overrides — the narrowest scope
+    pub user_id: Option<String>,
+}
+
+impl ConfigScopeQuery {
+    /// Resolve the query into the read scope: naming both a user and a tenant
+    /// is meaningful here — it asks "what does this user see inside this
+    /// tenant", which is what enforcement resolves.
+    #[must_use]
+    pub fn lookup(&self) -> ConfigLookupScope<'_> {
+        ConfigLookupScope {
+            user_id: self.user_id.as_deref(),
+            tenant_id: self.tenant_id.as_deref(),
+        }
+    }
+
+    /// Resolve the query into exactly one write scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::invalid_input`] when both a user and a tenant are
+    /// named, since a stored row belongs to one scope only.
+    pub fn scope(&self) -> AppResult<ConfigScope<'_>> {
+        match (self.user_id.as_deref(), self.tenant_id.as_deref()) {
+            (Some(_), Some(_)) => Err(AppError::invalid_input(
+                "Specify user_id or tenant_id, not both — an override row belongs to one scope",
+            )),
+            (Some(user_id), None) => Ok(ConfigScope::User(user_id)),
+            (None, Some(tenant_id)) => Ok(ConfigScope::Tenant(tenant_id)),
+            (None, None) => Ok(ConfigScope::Global),
+        }
+    }
 }
 
 /// Generic success response
@@ -144,19 +175,17 @@ pub struct AdminConfigApiResponse<T> {
 pub async fn get_catalog(
     State(state): State<Arc<AdminConfigState>>,
     headers: HeaderMap,
-    Query(query): Query<CatalogQuery>,
+    Query(query): Query<ConfigScopeQuery>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
     info!(
         user_id = %auth.user_id,
         tenant_id = ?query.tenant_id,
+        user_id_scope = ?query.user_id,
         "Admin fetching configuration catalog"
     );
 
-    let catalog = state
-        .service
-        .get_catalog(query.tenant_id.as_deref())
-        .await?;
+    let catalog = state.service.get_catalog(query.lookup()).await?;
 
     Ok(Json(AdminConfigApiResponse {
         success: true,
@@ -176,19 +205,17 @@ pub async fn get_catalog(
 pub async fn get_config(
     State(state): State<Arc<AdminConfigState>>,
     headers: HeaderMap,
-    Query(query): Query<TenantQuery>,
+    Query(query): Query<ConfigScopeQuery>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
     info!(
         user_id = %auth.user_id,
         tenant_id = ?query.tenant_id,
+        user_id_scope = ?query.user_id,
         "Admin fetching current configuration"
     );
 
-    let catalog = state
-        .service
-        .get_catalog(query.tenant_id.as_deref())
-        .await?;
+    let catalog = state.service.get_catalog(query.lookup()).await?;
 
     Ok(Json(AdminConfigApiResponse {
         success: true,
@@ -209,20 +236,18 @@ pub async fn get_category_config(
     State(state): State<Arc<AdminConfigState>>,
     headers: HeaderMap,
     Path(category_name): Path<String>,
-    Query(query): Query<TenantQuery>,
+    Query(query): Query<ConfigScopeQuery>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
     info!(
         user_id = %auth.user_id,
         category = %category_name,
         tenant_id = ?query.tenant_id,
+        user_id_scope = ?query.user_id,
         "Admin fetching category configuration"
     );
 
-    let mut catalog = state
-        .service
-        .get_catalog(query.tenant_id.as_deref())
-        .await?;
+    let mut catalog = state.service.get_catalog(query.lookup()).await?;
 
     // Filter to requested category
     catalog.categories.retain(|c| c.name == category_name);
@@ -290,15 +315,17 @@ pub async fn validate_config(
 pub async fn update_config(
     State(state): State<Arc<AdminConfigState>>,
     headers: HeaderMap,
-    Query(query): Query<TenantQuery>,
+    Query(query): Query<ConfigScopeQuery>,
     Json(request): Json<UpdateConfigRequest>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
+    let scope = query.scope()?;
     let user_id = auth.user_id;
     let user_email = &auth.email;
     info!(
         user_id = %user_id,
         tenant_id = ?query.tenant_id,
+        user_id_scope = ?query.user_id,
         parameter_count = request.parameters.len(),
         "Admin updating configuration"
     );
@@ -310,7 +337,7 @@ pub async fn update_config(
             UpdateConfigContext {
                 admin_user_id: &user_id,
                 admin_email: user_email,
-                tenant_id: query.tenant_id.as_deref(),
+                scope,
                 // IP address - would come from request headers in production
                 ip_address: None,
                 // User agent - would come from request headers in production
@@ -347,25 +374,24 @@ pub async fn update_category_config(
     State(state): State<Arc<AdminConfigState>>,
     headers: HeaderMap,
     Path(category_name): Path<String>,
-    Query(query): Query<TenantQuery>,
+    Query(query): Query<ConfigScopeQuery>,
     Json(request): Json<UpdateConfigRequest>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
+    let scope = query.scope()?;
     let user_id = auth.user_id;
     let user_email = &auth.email;
     info!(
         user_id = %user_id,
         category = %category_name,
         tenant_id = ?query.tenant_id,
+        user_id_scope = ?query.user_id,
         parameter_count = request.parameters.len(),
         "Admin updating category configuration"
     );
 
     // Filter parameters to only those in the requested category
-    let catalog = state
-        .service
-        .get_catalog(query.tenant_id.as_deref())
-        .await?;
+    let catalog = state.service.get_catalog(query.lookup()).await?;
     let category_keys: HashSet<String> = catalog
         .categories
         .iter()
@@ -398,7 +424,7 @@ pub async fn update_category_config(
             UpdateConfigContext {
                 admin_user_id: &user_id,
                 admin_email: user_email,
-                tenant_id: query.tenant_id.as_deref(),
+                scope,
                 ip_address: None,
                 user_agent: None,
             },
@@ -432,15 +458,17 @@ pub async fn update_category_config(
 pub async fn reset_config(
     State(state): State<Arc<AdminConfigState>>,
     headers: HeaderMap,
-    Query(query): Query<TenantQuery>,
+    Query(query): Query<ConfigScopeQuery>,
     Json(request): Json<ResetConfigRequest>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
+    let scope = query.scope()?;
     let user_id = auth.user_id;
     let user_email = &auth.email;
     info!(
         user_id = %user_id,
         tenant_id = ?query.tenant_id,
+        user_id_scope = ?query.user_id,
         category = ?request.category,
         "Admin resetting configuration"
     );
@@ -452,7 +480,7 @@ pub async fn reset_config(
             UpdateConfigContext {
                 admin_user_id: &user_id,
                 admin_email: user_email,
-                tenant_id: query.tenant_id.as_deref(),
+                scope,
                 ip_address: None,
                 user_agent: None,
             },

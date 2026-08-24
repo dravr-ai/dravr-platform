@@ -27,7 +27,8 @@ use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{
-    default_admin_config, resolve_tenant, tenant::require, AdminConfigLookup, TenantMode,
+    default_admin_config, resolve_tenant, tenant::require, AdminConfigLookup, ConfigLookupScope,
+    TenantMode,
 };
 use pierre_services::usage_counter::{LimitCheckResult, UsageCounterService};
 
@@ -150,7 +151,7 @@ impl UsageRoutes {
         let max_conversations = admin_config
             .get_value(
                 "usage_quotas.max_active_conversations",
-                Some(&tenant_id_str),
+                ConfigLookupScope::user(&user_id_str, &tenant_id_str),
             )
             .await
             .ok()
@@ -167,7 +168,10 @@ impl UsageRoutes {
         );
 
         let max_coaches = admin_config
-            .get_value("usage_quotas.max_coaches_per_user", Some(&tenant_id_str))
+            .get_value(
+                "usage_quotas.max_coaches_per_user",
+                ConfigLookupScope::user(&user_id_str, &tenant_id_str),
+            )
             .await
             .ok()
             .flatten()

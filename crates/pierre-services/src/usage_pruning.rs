@@ -18,7 +18,7 @@ use tracing::{debug, info, warn};
 
 use crate::usage_counter::UsageCounterService;
 use pierre_database::backends::UsageCounterRepository;
-use pierre_runtime_context::AdminConfigLookup;
+use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
 
 /// Number of seconds in one hour
 const HOUR_SECONDS: u64 = 3_600;
@@ -56,7 +56,10 @@ async fn run_pruning_cycle(
     admin_config: &dyn AdminConfigLookup,
 ) {
     let retention_days = admin_config
-        .get_value("usage_quotas.counter_retention_days", None)
+        .get_value(
+            "usage_quotas.counter_retention_days",
+            ConfigLookupScope::global(),
+        )
         .await
         .ok()
         .flatten()

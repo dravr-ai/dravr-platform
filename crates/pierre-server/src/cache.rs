@@ -9,6 +9,7 @@ use std::time::Duration;
 use pierre_cache::redis_config::RedisConnectionConfig;
 use pierre_cache::{Cache, CacheConfig, CacheTtlConfig, CacheTtlConfigProvider};
 use pierre_core::errors::AppResult;
+use pierre_runtime_context::ConfigLookupScope;
 
 use crate::config::admin::service::AdminConfigService;
 use crate::constants::get_server_config;
@@ -59,7 +60,15 @@ impl CacheTtlConfigProvider for AdminConfigService {
         key: &str,
         tenant_id: Option<&str>,
     ) -> AppResult<Option<serde_json::Value>> {
-        Self::get_value(self, key, tenant_id).await
+        Self::get_value(
+            self,
+            key,
+            ConfigLookupScope {
+                user_id: None,
+                tenant_id,
+            },
+        )
+        .await
     }
 }
 

@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_config::admin_types::{
     AdminConfigCategory, ConfigAuditEntry, ConfigAuditFilter, ConfigDataType, ConfigOverride,
+    ConfigScope,
 };
 use pierre_core::errors::{AppError, AppResult};
 use sqlx::sqlite::SqliteRow;
@@ -36,32 +37,49 @@ impl AdminConfigManager {
     /// # Errors
     ///
     /// Returns an error if database query fails
-    pub async fn get_overrides(&self, tenant_id: Option<&str>) -> AppResult<Vec<ConfigOverride>> {
-        let rows = if let Some(tid) = tenant_id {
-            sqlx::query(
-                r"
-                SELECT id, category, config_key, config_value, data_type, tenant_id,
+    pub async fn get_overrides_at(&self, scope: ConfigScope<'_>) -> AppResult<Vec<ConfigOverride>> {
+        let rows = match scope {
+            ConfigScope::Tenant(tid) => {
+                sqlx::query(
+                    r"
+                SELECT id, category, config_key, config_value, data_type, tenant_id, user_id,
                        created_by, created_at, updated_at, reason
                 FROM admin_config_overrides
-                WHERE tenant_id = ?1 OR tenant_id IS NULL
+                WHERE tenant_id = ?1 AND user_id IS NULL
                 ORDER BY category, config_key
                 ",
-            )
-            .bind(tid)
-            .fetch_all(&self.pool)
-            .await
-        } else {
-            sqlx::query(
-                r"
-                SELECT id, category, config_key, config_value, data_type, tenant_id,
+                )
+                .bind(tid)
+                .fetch_all(&self.pool)
+                .await
+            }
+            ConfigScope::User(uid) => {
+                sqlx::query(
+                    r"
+                SELECT id, category, config_key, config_value, data_type, tenant_id, user_id,
                        created_by, created_at, updated_at, reason
                 FROM admin_config_overrides
-                WHERE tenant_id IS NULL
+                WHERE user_id = ?1
                 ORDER BY category, config_key
                 ",
-            )
-            .fetch_all(&self.pool)
-            .await
+                )
+                .bind(uid)
+                .fetch_all(&self.pool)
+                .await
+            }
+            ConfigScope::Global => {
+                sqlx::query(
+                    r"
+                SELECT id, category, config_key, config_value, data_type, tenant_id, user_id,
+                       created_by, created_at, updated_at, reason
+                FROM admin_config_overrides
+                WHERE tenant_id IS NULL AND user_id IS NULL
+                ORDER BY category, config_key
+                ",
+                )
+                .fetch_all(&self.pool)
+                .await
+            }
         }
         .map_err(|e| AppError::database(format!("Failed to get config overrides: {e}")))?;
 
@@ -81,60 +99,62 @@ impl AdminConfigManager {
         &self,
         category: &str,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<Option<ConfigOverride>> {
-        let row = if let Some(tid) = tenant_id {
-            sqlx::query(
-                r"
-                SELECT id, category, config_key, config_value, data_type, tenant_id,
+        // One literal query per scope rather than a composed predicate: the
+        // scope comes from a closed enum, so each arm can stay a static
+        // string and no SQL is ever built from a runtime value.
+        let row = match scope {
+            ConfigScope::Tenant(tid) => {
+                sqlx::query(
+                    r"
+                SELECT id, category, config_key, config_value, data_type, tenant_id, user_id,
                        created_by, created_at, updated_at, reason
                 FROM admin_config_overrides
-                WHERE category = ?1 AND config_key = ?2 AND tenant_id = ?3
+                WHERE category = ?1 AND config_key = ?2
+                  AND tenant_id = ?3 AND user_id IS NULL
                 ",
-            )
-            .bind(category)
-            .bind(key)
-            .bind(tid)
-            .fetch_optional(&self.pool)
-            .await
-        } else {
-            sqlx::query(
-                r"
-                SELECT id, category, config_key, config_value, data_type, tenant_id,
+                )
+                .bind(category)
+                .bind(key)
+                .bind(tid)
+                .fetch_optional(&self.pool)
+                .await
+            }
+            ConfigScope::User(uid) => {
+                sqlx::query(
+                    r"
+                SELECT id, category, config_key, config_value, data_type, tenant_id, user_id,
                        created_by, created_at, updated_at, reason
                 FROM admin_config_overrides
-                WHERE category = ?1 AND config_key = ?2 AND tenant_id IS NULL
+                WHERE category = ?1 AND config_key = ?2 AND user_id = ?3
                 ",
-            )
-            .bind(category)
-            .bind(key)
-            .fetch_optional(&self.pool)
-            .await
+                )
+                .bind(category)
+                .bind(key)
+                .bind(uid)
+                .fetch_optional(&self.pool)
+                .await
+            }
+            ConfigScope::Global => {
+                sqlx::query(
+                    r"
+                SELECT id, category, config_key, config_value, data_type, tenant_id, user_id,
+                       created_by, created_at, updated_at, reason
+                FROM admin_config_overrides
+                WHERE category = ?1 AND config_key = ?2
+                  AND tenant_id IS NULL AND user_id IS NULL
+                ",
+                )
+                .bind(category)
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+            }
         }
         .map_err(|e| AppError::database(format!("Failed to get config override: {e}")))?;
 
         Ok(row.map(|r| Self::row_to_override(&r)))
-    }
-
-    /// Get effective value for a config key (tenant override > system override > default)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database query fails
-    pub async fn get_effective_override(
-        &self,
-        category: &str,
-        key: &str,
-        tenant_id: Option<&str>,
-    ) -> AppResult<Option<ConfigOverride>> {
-        // First try tenant-specific override
-        if let Some(tid) = tenant_id {
-            if let Some(override_val) = self.get_override(category, key, Some(tid)).await? {
-                return Ok(Some(override_val));
-            }
-        }
-        // Fall back to system-wide override
-        self.get_override(category, key, None).await
     }
 
     /// Set a configuration override
@@ -149,71 +169,98 @@ impl AdminConfigManager {
             value,
             data_type,
             admin_user_id,
-            tenant_id,
+            scope,
             reason,
         } = params;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let value_str = serde_json::to_string(value)?;
 
-        if let Some(tid) = tenant_id {
-            sqlx::query(
-                r"
+        // Each scope upserts against its own arbiter. NULL is distinct from
+        // NULL under `UNIQUE(category, config_key, tenant_id)`, so neither the
+        // system-wide nor the per-user row can be arbitrated by that
+        // constraint; both name a partial unique index instead, and SQLite
+        // requires the index predicate to be restated to infer it.
+        match scope {
+            ConfigScope::Tenant(tid) => {
+                sqlx::query(
+                    r"
                 INSERT INTO admin_config_overrides
-                    (id, category, config_key, config_value, data_type, tenant_id, created_by, created_at, updated_at, reason)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)
+                    (id, category, config_key, config_value, data_type, tenant_id, user_id, created_by, created_at, updated_at, reason)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?8, ?9)
                 ON CONFLICT(category, config_key, tenant_id) DO UPDATE SET
                     config_value = ?4,
                     data_type = ?5,
                     updated_at = ?8,
                     reason = ?9
                 ",
-            )
-            .bind(&id)
-            .bind(category)
-            .bind(key)
-            .bind(&value_str)
-            .bind(data_type.as_str())
-            .bind(tid)
-            .bind(admin_user_id)
-            .bind(&now)
-            .bind(reason)
-            .execute(&self.pool)
-            .await
-        } else {
-            // A system-wide row stores tenant_id as NULL, and NULL is distinct
-            // from NULL under `UNIQUE(category, config_key, tenant_id)`, so that
-            // constraint can never arbitrate this INSERT. The conflict target is
-            // instead the partial unique index over the tenant-less rows
-            // (`idx_admin_config_overrides_global_unique`), whose predicate must
-            // be restated here for SQLite to infer it.
-            sqlx::query(
-                r"
+                )
+                .bind(&id)
+                .bind(category)
+                .bind(key)
+                .bind(&value_str)
+                .bind(data_type.as_str())
+                .bind(tid)
+                .bind(admin_user_id)
+                .bind(&now)
+                .bind(reason)
+                .execute(&self.pool)
+                .await
+            }
+            ConfigScope::User(uid) => {
+                sqlx::query(
+                    r"
                 INSERT INTO admin_config_overrides
-                    (id, category, config_key, config_value, data_type, tenant_id, created_by, created_at, updated_at, reason)
-                VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?7, ?8)
-                ON CONFLICT (category, config_key) WHERE tenant_id IS NULL DO UPDATE SET
+                    (id, category, config_key, config_value, data_type, tenant_id, user_id, created_by, created_at, updated_at, reason)
+                VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, ?8, ?9)
+                ON CONFLICT (category, config_key, user_id) WHERE user_id IS NOT NULL DO UPDATE SET
+                    config_value = ?4,
+                    data_type = ?5,
+                    updated_at = ?8,
+                    reason = ?9
+                ",
+                )
+                .bind(&id)
+                .bind(category)
+                .bind(key)
+                .bind(&value_str)
+                .bind(data_type.as_str())
+                .bind(uid)
+                .bind(admin_user_id)
+                .bind(&now)
+                .bind(reason)
+                .execute(&self.pool)
+                .await
+            }
+            ConfigScope::Global => {
+                sqlx::query(
+                    r"
+                INSERT INTO admin_config_overrides
+                    (id, category, config_key, config_value, data_type, tenant_id, user_id, created_by, created_at, updated_at, reason)
+                VALUES (?1, ?2, ?3, ?4, ?5, NULL, NULL, ?6, ?7, ?7, ?8)
+                ON CONFLICT (category, config_key) WHERE tenant_id IS NULL AND user_id IS NULL DO UPDATE SET
                     config_value = ?4,
                     data_type = ?5,
                     updated_at = ?7,
                     reason = ?8
                 ",
-            )
-            .bind(&id)
-            .bind(category)
-            .bind(key)
-            .bind(&value_str)
-            .bind(data_type.as_str())
-            .bind(admin_user_id)
-            .bind(&now)
-            .bind(reason)
-            .execute(&self.pool)
-            .await
+                )
+                .bind(&id)
+                .bind(category)
+                .bind(key)
+                .bind(&value_str)
+                .bind(data_type.as_str())
+                .bind(admin_user_id)
+                .bind(&now)
+                .bind(reason)
+                .execute(&self.pool)
+                .await
+            }
         }
         .map_err(|e| AppError::database(format!("Failed to set config override: {e}")))?;
 
         // Return the created/updated override
-        self.get_override(category, key, tenant_id)
+        self.get_override(category, key, scope)
             .await?
             .ok_or_else(|| AppError::internal("Failed to retrieve created override"))
     }
@@ -227,38 +274,56 @@ impl AdminConfigManager {
         &self,
         category: &str,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<bool> {
-        let result = if let Some(tid) = tenant_id {
-            sqlx::query(
-                r"
+        let result = match scope {
+            ConfigScope::Tenant(tid) => {
+                sqlx::query(
+                    r"
                 DELETE FROM admin_config_overrides
-                WHERE category = ?1 AND config_key = ?2 AND tenant_id = ?3
+                WHERE category = ?1 AND config_key = ?2
+                  AND tenant_id = ?3 AND user_id IS NULL
                 ",
-            )
-            .bind(category)
-            .bind(key)
-            .bind(tid)
-            .execute(&self.pool)
-            .await
-        } else {
-            sqlx::query(
-                r"
+                )
+                .bind(category)
+                .bind(key)
+                .bind(tid)
+                .execute(&self.pool)
+                .await
+            }
+            ConfigScope::User(uid) => {
+                sqlx::query(
+                    r"
                 DELETE FROM admin_config_overrides
-                WHERE category = ?1 AND config_key = ?2 AND tenant_id IS NULL
+                WHERE category = ?1 AND config_key = ?2 AND user_id = ?3
                 ",
-            )
-            .bind(category)
-            .bind(key)
-            .execute(&self.pool)
-            .await
+                )
+                .bind(category)
+                .bind(key)
+                .bind(uid)
+                .execute(&self.pool)
+                .await
+            }
+            ConfigScope::Global => {
+                sqlx::query(
+                    r"
+                DELETE FROM admin_config_overrides
+                WHERE category = ?1 AND config_key = ?2
+                  AND tenant_id IS NULL AND user_id IS NULL
+                ",
+                )
+                .bind(category)
+                .bind(key)
+                .execute(&self.pool)
+                .await
+            }
         }
         .map_err(|e| AppError::database(format!("Failed to delete config override: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }
 
-    /// Delete all overrides for a category
+    /// Delete all overrides for a category at `scope`
     ///
     /// # Errors
     ///
@@ -266,29 +331,44 @@ impl AdminConfigManager {
     pub async fn delete_category_overrides(
         &self,
         category: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<usize> {
-        let result = if let Some(tid) = tenant_id {
-            sqlx::query(
-                r"
+        let result = match scope {
+            ConfigScope::Tenant(tid) => {
+                sqlx::query(
+                    r"
                 DELETE FROM admin_config_overrides
-                WHERE category = ?1 AND tenant_id = ?2
+                WHERE category = ?1 AND tenant_id = ?2 AND user_id IS NULL
                 ",
-            )
-            .bind(category)
-            .bind(tid)
-            .execute(&self.pool)
-            .await
-        } else {
-            sqlx::query(
-                r"
+                )
+                .bind(category)
+                .bind(tid)
+                .execute(&self.pool)
+                .await
+            }
+            ConfigScope::User(uid) => {
+                sqlx::query(
+                    r"
                 DELETE FROM admin_config_overrides
-                WHERE category = ?1 AND tenant_id IS NULL
+                WHERE category = ?1 AND user_id = ?2
                 ",
-            )
-            .bind(category)
-            .execute(&self.pool)
-            .await
+                )
+                .bind(category)
+                .bind(uid)
+                .execute(&self.pool)
+                .await
+            }
+            ConfigScope::Global => {
+                sqlx::query(
+                    r"
+                DELETE FROM admin_config_overrides
+                WHERE category = ?1 AND tenant_id IS NULL AND user_id IS NULL
+                ",
+                )
+                .bind(category)
+                .execute(&self.pool)
+                .await
+            }
         }
         .map_err(|e| AppError::database(format!("Failed to delete category overrides: {e}")))?;
 
@@ -315,7 +395,7 @@ impl AdminConfigManager {
             new_value,
             data_type,
             reason,
-            tenant_id,
+            scope,
             ip_address,
             user_agent,
         } = params;
@@ -328,8 +408,8 @@ impl AdminConfigManager {
             r"
             INSERT INTO admin_config_audit
                 (id, timestamp, admin_user_id, admin_email, category, config_key,
-                 old_value, new_value, data_type, reason, tenant_id, ip_address, user_agent)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 old_value, new_value, data_type, reason, tenant_id, user_id, ip_address, user_agent)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             ",
         )
         .bind(&id)
@@ -342,7 +422,8 @@ impl AdminConfigManager {
         .bind(&new_value_str)
         .bind(data_type.as_str())
         .bind(reason)
-        .bind(tenant_id)
+        .bind(scope.tenant_id())
+        .bind(scope.user_id())
         .bind(ip_address)
         .bind(user_agent)
         .execute(&self.pool)
@@ -512,6 +593,7 @@ impl AdminConfigManager {
             config_value,
             data_type,
             tenant_id: row.get("tenant_id"),
+            user_id: row.get("user_id"),
             created_by: row.get("created_by"),
             created_at,
             updated_at,
@@ -522,26 +604,17 @@ impl AdminConfigManager {
 
 #[async_trait]
 impl AdminConfigRepository for AdminConfigManager {
-    async fn get_overrides(&self, tenant_id: Option<&str>) -> AppResult<Vec<ConfigOverride>> {
-        self.get_overrides(tenant_id).await
+    async fn get_overrides_at(&self, scope: ConfigScope<'_>) -> AppResult<Vec<ConfigOverride>> {
+        self.get_overrides_at(scope).await
     }
 
     async fn get_override(
         &self,
         category: &str,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<Option<ConfigOverride>> {
-        self.get_override(category, key, tenant_id).await
-    }
-
-    async fn get_effective_override(
-        &self,
-        category: &str,
-        key: &str,
-        tenant_id: Option<&str>,
-    ) -> AppResult<Option<ConfigOverride>> {
-        self.get_effective_override(category, key, tenant_id).await
+        self.get_override(category, key, scope).await
     }
 
     async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride> {
@@ -552,17 +625,17 @@ impl AdminConfigRepository for AdminConfigManager {
         &self,
         category: &str,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<bool> {
-        self.delete_override(category, key, tenant_id).await
+        self.delete_override(category, key, scope).await
     }
 
     async fn delete_category_overrides(
         &self,
         category: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigScope<'_>,
     ) -> AppResult<usize> {
-        self.delete_category_overrides(category, tenant_id).await
+        self.delete_category_overrides(category, scope).await
     }
 
     async fn log_change(&self, params: LogChangeParams<'_>) -> AppResult<String> {
@@ -609,6 +682,7 @@ impl AdminConfigManager {
             data_type,
             reason: row.get("reason"),
             tenant_id: row.get("tenant_id"),
+            user_id: row.get("user_id"),
             ip_address: row.get("ip_address"),
             user_agent: row.get("user_agent"),
         }

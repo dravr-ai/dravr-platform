@@ -146,16 +146,20 @@ impl pierre_runtime_context::SseCtx for ServerContext {
 // the resources.rs decomposition.
 #[async_trait::async_trait]
 impl pierre_runtime_context::AdminConfigLookup for AdminConfigService {
-    async fn get_value(&self, key: &str, tenant_id: Option<&str>) -> AppResult<Option<Value>> {
-        Self::get_value(self, key, tenant_id).await
+    async fn get_value(
+        &self,
+        key: &str,
+        scope: pierre_runtime_context::ConfigLookupScope<'_>,
+    ) -> AppResult<Option<Value>> {
+        Self::get_value(self, key, scope).await
     }
 
     async fn get_override_value(
         &self,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: pierre_runtime_context::ConfigLookupScope<'_>,
     ) -> AppResult<Option<Value>> {
-        Self::get_override_value(self, key, tenant_id).await
+        Self::get_override_value(self, key, scope).await
     }
 }
 
@@ -214,7 +218,11 @@ mod social_ctx_impl {
             tenant_id: Option<&str>,
         ) -> Option<serde_json::Value> {
             let service = self.coach.admin_config.as_ref()?;
-            service.get_value(key, tenant_id).await.ok().flatten()
+            let scope = pierre_runtime_context::ConfigLookupScope {
+                user_id: None,
+                tenant_id,
+            };
+            service.get_value(key, scope).await.ok().flatten()
         }
     }
 }

@@ -477,6 +477,11 @@ export const adminApi = {
           enum_options?: string[];
           units?: string;
           scientific_basis?: string;
+          env_variable?: string;
+          /** An environment pin is supplying this value; only a tenant or user override beats it. */
+          env_pinned: boolean;
+          /** Which rung supplied current_value: user | tenant | env | global | default. */
+          value_source: string;
           is_runtime_configurable: boolean;
           requires_restart: boolean;
         }>;
@@ -538,7 +543,7 @@ export const adminApi = {
   async updateConfig(request: {
     parameters: Record<string, unknown>;
     reason?: string;
-  }, tenantId?: string): Promise<{
+  }, tenantId?: string, userId?: string): Promise<{
     success: boolean;
     data: {
       updated_count: number;
@@ -548,6 +553,7 @@ export const adminApi = {
   }> {
     const params = new URLSearchParams();
     if (tenantId) params.append('tenant_id', tenantId);
+    if (userId) params.append('user_id', userId);
     const queryString = params.toString();
     const url = queryString ? `/api/admin/config?${queryString}` : '/api/admin/config';
     const response = await axios.put(url, request);
@@ -557,9 +563,10 @@ export const adminApi = {
   async resetConfig(request: {
     category?: string;
     parameters?: string[];
-  }, tenantId?: string): Promise<{ success: boolean; data: { reset_count: number } }> {
+  }, tenantId?: string, userId?: string): Promise<{ success: boolean; data: { reset_count: number } }> {
     const params = new URLSearchParams();
     if (tenantId) params.append('tenant_id', tenantId);
+    if (userId) params.append('user_id', userId);
     const queryString = params.toString();
     const url = queryString ? `/api/admin/config/reset?${queryString}` : '/api/admin/config/reset';
     const response = await axios.post(url, request);

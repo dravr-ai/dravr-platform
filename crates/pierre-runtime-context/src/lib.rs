@@ -236,7 +236,54 @@ pub trait CommandCtx: Send + Sync + 'static {
     fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry>;
 }
 
-/// Read-only accessor for tenant-aware admin config values.
+/// The identity a config read resolves against.
+///
+/// Overrides are stored per scope and resolved most-specific-first: a
+/// per-user row wins over the user's tenant row, which wins over the
+/// system-wide row. A field left `None` simply drops that rung from the
+/// walk, so [`Self::global`] resolves system-wide values only.
+///
+/// Both dimensions travel in one struct rather than as two positional
+/// `Option<&str>` arguments: a caller that swapped them would compile
+/// and silently read the wrong scope.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConfigLookupScope<'a> {
+    /// User the lookup is for. Highest-priority rung when set.
+    pub user_id: Option<&'a str>,
+    /// Tenant the lookup is for. Consulted when no per-user row exists.
+    pub tenant_id: Option<&'a str>,
+}
+
+impl<'a> ConfigLookupScope<'a> {
+    /// System-wide scope: no per-user or per-tenant rung.
+    #[must_use]
+    pub const fn global() -> Self {
+        Self {
+            user_id: None,
+            tenant_id: None,
+        }
+    }
+
+    /// Resolve against a tenant, then system-wide.
+    #[must_use]
+    pub const fn tenant(tenant_id: &'a str) -> Self {
+        Self {
+            user_id: None,
+            tenant_id: Some(tenant_id),
+        }
+    }
+
+    /// Resolve against a user, then their tenant, then system-wide.
+    #[must_use]
+    pub const fn user(user_id: &'a str, tenant_id: &'a str) -> Self {
+        Self {
+            user_id: Some(user_id),
+            tenant_id: Some(tenant_id),
+        }
+    }
+}
+
+/// Read-only accessor for scope-aware admin config values.
 ///
 /// Wraps the slice of `AdminConfigService` the route + service layers
 /// actually consume (quota lookups, feature thresholds). The concrete
@@ -254,7 +301,7 @@ pub trait AdminConfigLookup: Send + Sync + 'static {
     async fn get_value(
         &self,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigLookupScope<'_>,
     ) -> AppResult<Option<serde_json::Value>>;
 
     /// Look up an explicit admin override for `key`, ignoring the
@@ -269,7 +316,7 @@ pub trait AdminConfigLookup: Send + Sync + 'static {
     async fn get_override_value(
         &self,
         key: &str,
-        tenant_id: Option<&str>,
+        scope: ConfigLookupScope<'_>,
     ) -> AppResult<Option<serde_json::Value>>;
 }
 
@@ -287,14 +334,18 @@ pub struct DefaultAdminConfig;
 
 #[async_trait]
 impl AdminConfigLookup for DefaultAdminConfig {
-    async fn get_value(&self, _: &str, _: Option<&str>) -> AppResult<Option<serde_json::Value>> {
+    async fn get_value(
+        &self,
+        _: &str,
+        _: ConfigLookupScope<'_>,
+    ) -> AppResult<Option<serde_json::Value>> {
         Ok(None)
     }
 
     async fn get_override_value(
         &self,
         _: &str,
-        _: Option<&str>,
+        _: ConfigLookupScope<'_>,
     ) -> AppResult<Option<serde_json::Value>> {
         Ok(None)
     }

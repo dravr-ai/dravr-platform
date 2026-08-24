@@ -29,7 +29,7 @@ use pierre_database::database::coaches::compute_request_hash;
 use pierre_database::database::ChatManager;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
+use pierre_runtime_context::{CoachesCtx, ConfigLookupScope, MiddlewareCtx};
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 use pierre_services::{coach_import, coaches as coaches_service, recipes as recipes_service};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
@@ -773,7 +773,7 @@ pub(super) async fn handle_create<C: CoachesCtx + MiddlewareCtx>(
         let max_coaches = admin_config
             .get_value(
                 "usage_quotas.max_coaches_per_user",
-                Some(&tenant_id.to_string()),
+                ConfigLookupScope::user(&auth.user_id.to_string(), &tenant_id.to_string()),
             )
             .await
             .ok()

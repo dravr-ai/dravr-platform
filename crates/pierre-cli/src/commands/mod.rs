@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 pub mod auth;
+pub mod config;
 pub mod drift;
 #[cfg(feature = "tools-verification")]
 pub mod harness;

@@ -19,6 +19,8 @@
 
 /// Admin configuration parameter catalog (per-category builders + `ParameterDefinition`)
 pub mod admin_definitions;
+/// Environment pins for admin config parameters (typed, range-validated, captured once)
+pub mod admin_env;
 /// Admin configuration data types (parameters, categories, audit, request/response)
 pub mod admin_types;
 /// External API provider configuration (Strava, Fitbit, Garmin APIs)

@@ -686,3 +686,46 @@ export ADMIN_PASSWORD="adminpass123"
 # export TOKIO_WORKER_THREADS=""               # Default: CPU count
 # export TOKIO_THREAD_STACK_SIZE=""            # Default: ~2MB
 export TOKIO_THREAD_NAME="pierre-worker"
+
+# ============================================================================
+# USAGE QUOTAS
+# ============================================================================
+
+# Chat quota caps. These are read by the admin-config layer as fleet-wide
+# pins: they sit above the system-wide stored override, and below a
+# per-tenant or per-user override set with `pierre-cli config set`.
+#
+#   per-user row  >  per-tenant row  >  these pins  >  global row  >  tier default
+#
+# Values are validated against the same ranges the admin API enforces, and an
+# unparseable or out-of-range value FAILS THE BOOT rather than being ignored.
+# Inspect what is actually pinned with `pierre-cli config env`.
+#
+# A pin is a flat cap across every tier in scope: pinning
+# QUOTA_DAILY_MESSAGE_CAP=500 also lowers Enterprise, which is otherwise
+# uncapped. To lift limits for one person, prefer a tier bump
+# (`pierre-cli user set <email> --tier professional`) or a per-user override
+# (`pierre-cli config set usage_quotas.daily_message_cap 500 --user <email>`).
+#
+# Integers accept `_` as a digit separator, so 2_000_000 is valid.
+
+# export QUOTA_DAILY_MESSAGE_CAP=""            # Default: 50      Range: 5..1000
+# export QUOTA_WEEKLY_MESSAGE_CAP=""           # Default: 250     Range: 25..5000
+# export QUOTA_DAILY_TOKEN_BUDGET=""           # Default: 500_000 Range: 10_000..10_000_000
+# export QUOTA_WEEKLY_TOKEN_BUDGET=""          # Default: 2_000_000 Range: 50_000..50_000_000
+# export QUOTA_DAILY_TOOL_CALL_LIMIT=""        # Default: 100     Range: 10..5000
+# export QUOTA_WEEKLY_TOOL_CALL_LIMIT=""       # Default: 500     Range: 50..25_000
+# export QUOTA_MAX_ACTIVE_CONVERSATIONS=""     # Default: 10      Range: 1..50
+# export QUOTA_MAX_COACHES_PER_USER=""         # Default: 3       Range: 1..20
+# export QUOTA_BURST_MULTIPLIER=""             # Default: 1.5     Range: 1.0..5.0
+# export QUOTA_WARNING_THRESHOLD_PERCENT=""    # Default: 80      Range: 50..99
+# export QUOTA_COUNTER_RETENTION_DAYS=""       # Retention for usage_counters rows
+
+# Two caps have no config key and so cannot be pinned or overridden: the
+# per-conversation message cap and the per-coach daily cap. They come from
+# the tier matrix in pierre-core (TierQuotaConfig); change a user's tier to
+# move them.
+
+# Full quota bypass for named users — emergency on-call hatch, not a tuning
+# knob. Comma-separated user UUIDs; listed users skip every quota check.
+# export QUOTA_BYPASS_USER_IDS=""

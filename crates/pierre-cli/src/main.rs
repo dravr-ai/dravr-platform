@@ -148,6 +148,13 @@ enum Command {
         action: StravaPoolCommand,
     },
 
+    /// Runtime configuration parameters at global, tenant, or user scope
+    Config {
+        /// Verb to run against the config catalog
+        #[command(subcommand)]
+        action: commands::config::ConfigCommand,
+    },
+
     /// Remote server settings (Guardian security policy, chat harness)
     Settings {
         #[command(subcommand)]
@@ -886,6 +893,12 @@ async fn main() -> Result<()> {
     if let Command::Settings { action } = cli.command {
         return commands::settings::dispatch(action).await;
     }
+    // `config` is remote for the same reason: it reads and writes the
+    // admin-config catalog over HTTP, so it works against a deployed
+    // environment whose database a laptop cannot reach.
+    if let Command::Config { action } = cli.command {
+        return commands::config::dispatch(action).await;
+    }
 
     // `user get` / `user set` are remote too, and have to dispatch here for the
     // reason they exist: every other user command holds a repository handle and
@@ -945,6 +958,9 @@ async fn main() -> Result<()> {
         }
         Command::Settings { .. } => {
             unreachable!("Settings is handled in the early return above")
+        }
+        Command::Config { .. } => {
+            unreachable!("Config is handled in the early return above")
         }
         Command::User { action } => match action {
             UserCommand::Create {

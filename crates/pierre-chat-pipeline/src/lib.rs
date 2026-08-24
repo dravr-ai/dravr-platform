@@ -78,7 +78,7 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse, LlmProvider};
-use pierre_runtime_context::{AdminConfigLookup, DataContext};
+use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
 };
@@ -1426,7 +1426,7 @@ async fn resolve_max_iterations(
 
     if let Some(ref admin_config) = ctx.admin_config {
         if let Ok(Some(val)) = admin_config
-            .get_value("tool_execution.max_iterations", None)
+            .get_value("tool_execution.max_iterations", ConfigLookupScope::global())
             .await
         {
             if let Some(config_val) = val.as_i64() {

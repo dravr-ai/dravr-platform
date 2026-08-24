@@ -22,7 +22,7 @@ use pierre_core::errors::AppError;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{default_locale, TenantId};
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
+use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 
 use super::common::get_tenant_id;
@@ -118,7 +118,7 @@ pub async fn create_conversation(
     let max_conversations = admin_config
         .get_value(
             "usage_quotas.max_active_conversations",
-            Some(&tenant_id.to_string()),
+            ConfigLookupScope::user(&user_id_str, &tenant_id.to_string()),
         )
         .await
         .ok()

@@ -933,6 +933,89 @@ openssl rand -base64 32
 
 Must be exactly 32 bytes (base64 encoded = 44 characters).
 
+## Runtime Configuration Scopes
+
+Catalogued parameters (`usage_quotas.*`, `cache_ttl.*`, `monitoring.*`, …)
+resolve through five rungs, most specific first. The first rung that answers
+wins:
+
+```text
+per-user row  ->  per-tenant row  ->  environment pin  ->  system-wide row  ->  parameter default
+```
+
+Per-user and per-tenant rows are stored overrides in `admin_config_overrides`.
+The environment pin is the parameter's `env_variable` read from the process
+environment at startup. The default is the compiled-in `default_value` from the
+catalogue.
+
+### Why the environment pin outranks the system-wide row
+
+A pin is a deploy-time, fleet-wide decision; a system-wide stored override is a
+runtime admin edit. The pin wins at that scope, matching the posture `GUARDIAN_*`
+takes over the persisted guardian document. Anything narrower than the fleet — a
+tenant, a user — still beats the pin.
+
+A pin is also a **flat cap across every tier in scope**. Pinning
+`QUOTA_DAILY_MESSAGE_CAP=500` lowers Enterprise too, which is otherwise
+uncapped. To lift limits for one person, bump their tier or write a per-user
+override.
+
+### Environment pins are validated at boot
+
+Pins are parsed to the parameter's declared type and validated against the same
+range the admin API enforces. An unparseable or out-of-range value **fails the
+boot** with the variable named — it is never silently ignored. Integers and
+floats accept `_` as a digit separator (`2_000_000`).
+
+Only parameters the config layer owns are read. Boot-time settings — Tokio
+runtime sizing, SQLx pool tuning, provider client limits — declare
+`EnvSource::BootLoader` in the catalogue: their variable is documented for
+operators but loaded by their own struct, before a database exists. Two readers
+for one variable would silently disagree.
+
+See `.envrc.example` for the quota block.
+
+### Managing configuration with `pierre-cli`
+
+These commands speak the admin API over HTTP, so they work against a deployed
+environment as well as a laptop. Log in first with `pierre-cli auth login
+--server <url>`.
+
+```bash
+# What is in effect, and which rung supplied it
+pierre-cli config show --category usage_quotas
+pierre-cli config show --user jf@dravr.ai --modified
+
+# One parameter, with its source and default
+pierre-cli config get usage_quotas.daily_message_cap --user jf@dravr.ai
+
+# Write at a scope (default is system-wide)
+pierre-cli config set usage_quotas.daily_message_cap 500
+pierre-cli config set usage_quotas.daily_message_cap 500 --tenant <tenant-id>
+pierre-cli config set usage_quotas.daily_message_cap 900 --user jf@dravr.ai
+
+# Remove overrides so the next-broadest scope applies again
+pierre-cli config reset --category usage_quotas --key usage_quotas.daily_message_cap --user jf@dravr.ai
+
+# What this server's environment pins, and what it could pin
+pierre-cli config env
+```
+
+`--user` accepts an email or a UUID; an email is resolved through the admin API
+before the write. `--tenant` and `--user` are mutually exclusive — a stored row
+belongs to exactly one scope.
+
+### Caps that no override can reach
+
+The per-conversation message cap and the per-coach daily cap have no catalogue
+entry, so neither a pin nor an override moves them. They come from the tier
+matrix in `crates/pierre-core/src/models/tier_quota.rs`; change the user's tier
+instead:
+
+```bash
+pierre-cli user set <email> --tier professional
+```
+
 ## References
 
 All configuration constants: `src/constants/mod.rs`
