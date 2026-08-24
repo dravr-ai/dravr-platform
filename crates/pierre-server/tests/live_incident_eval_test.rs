@@ -78,7 +78,7 @@ mod live_incident_eval {
     use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{
-        ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
+        ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus, UserTier,
     };
     use pierre_core::permissions::UserRole;
     use pierre_database::backends::{
@@ -456,6 +456,14 @@ mod live_incident_eval {
         let mut user = User::new(email.to_owned(), password_hash, Some(display.to_owned()));
         user.is_admin = true;
         user.role = UserRole::Admin;
+        // Enterprise, or the corpus cannot finish. Quota comes from the USER's
+        // tier, not the tenant's `plan` string — Starter is the default and caps
+        // `max_conversations_per_day` at 10 against an 11-turn corpus. The first
+        // ACP run truncated at turn 8 with «Tu as atteint la limite de
+        // conversation de ton forfait», which the lane correctly filed as
+        // infrastructure rather than as a coach regression — but four turns went
+        // ungraded because the fixture had put itself on the free tier.
+        user.tier = UserTier::Enterprise;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
         user.approved_at = Some(Utc::now());

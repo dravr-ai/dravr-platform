@@ -872,21 +872,10 @@ fn cli_runner_type_for(provider_type: LlmProviderType) -> Option<CliRunnerType> 
     }
 }
 
-/// Check if the active model is recognized by the provider and log on mismatch.
+/// Check the active model against the provider's list; log ERROR on mismatch.
 ///
-/// Deliberately soft — it does NOT block startup. A provider's published model
-/// list goes stale against the real API, so hard-failing boot on a name the
-/// vendor added last week would take the service down over a stale constant.
-///
-/// It logs at ERROR rather than WARN because a mismatch is not a risk, it is a
-/// misconfiguration that WILL fail every dispatch — and the failure it causes
-/// arrives minutes later wearing the provider's face. `PIERRE_LLM_MODEL` is a
-/// unified override applied to whichever provider `PIERRE_LLM_PROVIDER` selects,
-/// so changing only the provider leaves the previous provider's model id in
-/// place: pointing at Cohere with a Copilot model pinned produced "Cohere: model
-/// 'claude-sonnet-5' not found", which reads as an outage and cost a whole eval
-/// run to diagnose (2026-08-24, carnet#88). Naming the two variables and the
-/// consequence here is what connects that error back to its cause.
+/// Soft — a stale published list must not fail boot. ERROR not WARN: a mismatch
+/// fails EVERY dispatch, and `PIERRE_LLM_MODEL` moves with `PIERRE_LLM_PROVIDER`.
 fn validate_model_for_provider(provider: &ChatProvider) {
     let model = provider.default_model();
     let available = provider.available_models();
@@ -908,12 +897,8 @@ fn validate_model_for_provider(provider: &ChatProvider) {
             provider = provider.name(),
             model,
             available = ?available,
-            "Model {model:?} is not published by provider {:?} — every dispatch will \
-             fail with that provider's own not-found error, which does NOT look like a \
-             config problem. PIERRE_LLM_MODEL overrides the model for whichever \
-             provider PIERRE_LLM_PROVIDER selects, so it must be changed with it or \
-             unset to take the provider's default",
-            provider.name()
+            "Model not published by this provider; EVERY dispatch will fail. Change \
+             PIERRE_LLM_MODEL with PIERRE_LLM_PROVIDER, or unset it for the default"
         );
     }
 }
