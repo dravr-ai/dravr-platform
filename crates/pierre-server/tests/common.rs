@@ -503,8 +503,8 @@ async fn create_test_server_resources_inner(
 /// anything that has to be recognised by variant. The headless tool loop reaches
 /// the Copilot ACP runner through `ChatProvider::as_cli_provider`, and `Custom`
 /// answers `None` to that — so a test handing in a real CLI provider as a trait
-/// object gets "Headless tool loop requires CopilotHeadlessRunner but provider
-/// is not a CLI provider" and silently exercises a different code path than
+/// object gets "Headless tool loop requires `CopilotHeadlessRunner` but
+/// provider is not a CLI provider" and silently exercises a different path than
 /// production. Anything driving the real ACP path must come through here.
 pub async fn create_test_server_resources_with_real_chat_provider(
     provider: Arc<ChatProvider>,

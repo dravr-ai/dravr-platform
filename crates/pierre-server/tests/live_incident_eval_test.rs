@@ -93,6 +93,7 @@ mod live_incident_eval {
     use serial_test::serial;
     use sha2::Sha256;
     use std::env;
+    use std::fmt::Write as _;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
     use tokio::task::spawn_blocking;
@@ -116,6 +117,11 @@ mod live_incident_eval {
 
     /// Poll interval while waiting for the delivered message to land.
     const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+    /// How much of a delivered reply the failure report quotes. Enough to see
+    /// what the athlete actually got; short enough that eleven of them stay
+    /// readable in a CI log.
+    const DELIVERED_EXCERPT_CHARS: usize = 400;
 
     /// Seconds to wait between turns, from `LIVE_INCIDENT_EVAL_TURN_DELAY_SECS`.
     ///
@@ -710,7 +716,7 @@ mod live_incident_eval {
                         3_600 + (day as u64 * 600),
                         "strava",
                     )
-                    .distance_meters(10_000.0 + (day as f64 * 2_000.0))
+                    .distance_meters((day as f64).mul_add(2_000.0, 10_000.0))
                     .build(),
                 );
             }
@@ -1122,23 +1128,22 @@ mod live_incident_eval {
             println!("  INFRA {}[turn {}]: {}", e.episode, e.turn_index, e.detail);
         }
 
+        // Rendered by writing into one buffer rather than formatting per finding
+        // and collecting: every finding carries a 400-char excerpt, so a bad
+        // night allocates a string per turn for no reason.
+        let mut report = String::new();
+        for f in &findings {
+            let delivered: String = f.delivered.chars().take(DELIVERED_EXCERPT_CHARS).collect();
+            let _ = write!(
+                report,
+                "\n  {} [turn {}] — {}\n    incident: {}\n    asked: {}\n    delivered: {delivered}",
+                f.episode, f.turn_index, f.detail, f.incident, f.user,
+            );
+        }
         assert!(
             findings.is_empty(),
-            "the live corpus reproduced {} regression(s):\n{}",
+            "the live corpus reproduced {} regression(s):{report}",
             findings.len(),
-            findings
-                .iter()
-                .map(|f| format!(
-                    "\n  {} [turn {}] — {}\n    incident: {}\n    asked: {}\n    delivered: {}",
-                    f.episode,
-                    f.turn_index,
-                    f.detail,
-                    f.incident,
-                    f.user,
-                    f.delivered.chars().take(400).collect::<String>()
-                ))
-                .collect::<Vec<_>>()
-                .join("")
         );
 
         // A lane that observed almost nothing must not report success. "0
