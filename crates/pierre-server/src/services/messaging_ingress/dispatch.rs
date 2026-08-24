@@ -423,10 +423,17 @@ async fn send_quota_denial_reply(
     channel_config: &ChannelConfig,
     err: &AppError,
 ) {
+    // `user_tenant_id`, not `channel_tenant_id`: the gate checks — and
+    // `increment_messaging_usage_counters` records — under the requester's own
+    // tenant, so that is where the `usage_counters` row that tripped lives. In
+    // a group the bot's tenant owns the channel and differs, and naming it here
+    // (as the neighbouring dispatch-failure event does) sends an operator
+    // resetting a dev counter to a tenant whose budget was never touched.
     warn!(
         error = %err,
         channel = %dispatch.channel,
         conversation_id = %dispatch.session.conversation,
+        tenant_id = %dispatch.user_tenant_id,
         "messaging turn refused by quota/rate limit"
     );
     let key = messaging_key_for_status(err.code).unwrap_or(KEY_QUOTA_EXCEEDED);
