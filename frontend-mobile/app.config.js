@@ -72,6 +72,15 @@ module.exports = {
       },
     ],
     [
+      // Registers the reversed iOS OAuth client id as a URL scheme so Google can
+      // hand the sign-in result back to the app. Bound to bundle id ai.dravr.app.
+      '@react-native-google-signin/google-signin',
+      {
+        iosUrlScheme:
+          'com.googleusercontent.apps.629001562818-fqu15igkvlj6jt1ftusktilq7rpg5imn',
+      },
+    ],
+    [
       'expo-speech-recognition',
       {
         microphonePermission:

@@ -1,5 +1,5 @@
 // ABOUTME: Firebase SDK configuration and authentication utilities for React Native
-// ABOUTME: Provides Google Sign-In via Firebase and expo-auth-session for the Pierre mobile app
+// ABOUTME: Google credentials come from the native Google Sign-In SDK; Firebase mints the session token
 
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
@@ -11,13 +11,11 @@ import {
   type Auth,
   type User,
 } from 'firebase/auth';
-import * as Google from 'expo-auth-session/providers/google';
-import * as WebBrowser from 'expo-web-browser';
-import type { AuthSessionResult } from 'expo-auth-session';
+import {
+  GoogleSignin,
+  isSuccessResponse,
+} from '@react-native-google-signin/google-signin';
 import { Platform } from 'react-native';
-
-// Complete any pending auth sessions on app load
-WebBrowser.maybeCompleteAuthSession();
 
 // Firebase configuration - all values from environment variables
 // Set these in your .env file with EXPO_PUBLIC_ prefix
@@ -30,9 +28,13 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Google OAuth client IDs - needed for expo-auth-session
+// Google OAuth client IDs - the native SDK picks the one matching the platform.
+// The iOS client is bound to the `ai.dravr.app` bundle id; its reversed form is
+// registered as a URL scheme by the google-signin config plugin in app.config.js.
 const googleClientIds = {
   iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  // LIMITATION(registre#92): `androidClientId` has no Android OAuth client behind it,
+  // so the gate below fails closed on Android and hides the Google button there.
   androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
   webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
 };
@@ -59,6 +61,17 @@ function isPlatformGoogleOAuthConfigured(): boolean {
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
+let googleSigninConfigured = false;
+
+/**
+ * The identity returned by a completed Google sign-in, ready for the backend.
+ * `idToken` is the Firebase-minted token, not the raw Google one.
+ */
+export type GoogleSignInResult = {
+  idToken: string;
+  email: string;
+  displayName: string | null;
+};
 
 /**
  * Check if Firebase is properly configured via environment variables
@@ -101,73 +114,44 @@ export function getFirebaseAuth(): Auth | null {
 }
 
 /**
- * Build Google OAuth config with only the defined client IDs
- * expo-auth-session throws if iosClientId is passed but undefined on iOS
+ * Hand the native SDK its client IDs once per app run.
+ * Only the client IDs configured for this platform are passed, so a missing
+ * Android client cannot be mistaken for an empty-string one.
  */
-function buildGoogleOAuthConfig(): Record<string, string> {
-  const config: Record<string, string> = {};
-  if (googleClientIds.iosClientId) {
-    config.iosClientId = googleClientIds.iosClientId;
+function configureGoogleSignin(): void {
+  if (googleSigninConfigured) {
+    return;
   }
-  if (googleClientIds.androidClientId) {
-    config.androidClientId = googleClientIds.androidClientId;
-  }
-  if (googleClientIds.webClientId) {
-    config.webClientId = googleClientIds.webClientId;
-  }
-  // Provide a generic clientId fallback when platform-specific IDs are missing.
-  // expo-auth-session's Google.useAuthRequest validates that the platform's
-  // clientId exists (e.g., iosClientId on iOS), falling back to generic clientId.
-  // Since hooks must be called unconditionally per React rules, this placeholder
-  // prevents the invariant crash in CI/test environments where Google OAuth
-  // credentials are not configured. The auth result is discarded when
-  // isFirebaseEnabled() returns false.
-  if (!isPlatformGoogleOAuthConfigured()) {
-    config.clientId = 'not-configured';
-  }
-  return config;
-}
-
-/**
- * Hook to get Google auth request for expo-auth-session
- * This should be called at the top level of a component (unconditionally)
- * Returns null values when Firebase is not enabled
- */
-export function useGoogleAuth() {
-  // Always call the hook unconditionally (React Rules of Hooks requirement)
-  // webClientId is used with the Expo auth proxy (https://auth.expo.io/@owner/slug)
-  // iosClientId/androidClientId are used for native redirects in standalone builds
-  // Only include client IDs that are actually configured (prevents expo-auth-session errors)
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    ...buildGoogleOAuthConfig(),
+  GoogleSignin.configure({
+    ...(googleClientIds.iosClientId ? { iosClientId: googleClientIds.iosClientId } : {}),
+    ...(googleClientIds.webClientId ? { webClientId: googleClientIds.webClientId } : {}),
     scopes: ['email', 'profile'],
   });
-
-  // Return null-like values if Firebase is not enabled
-  if (!isFirebaseEnabled()) {
-    return { request: null, response: null, promptAsync: null };
-  }
-
-  return { request, response, promptAsync };
+  googleSigninConfigured = true;
 }
 
 /**
- * Exchange Google auth response for Firebase credential and sign in
- * Returns the Firebase ID token for backend authentication
+ * Run the native Google sign-in flow and exchange the result for a Firebase session.
+ * Returns null when the user dismisses the native sheet.
  */
-export async function signInWithGoogleResponse(
-  response: AuthSessionResult
-): Promise<{ idToken: string; email: string; displayName: string | null } | null> {
-  if (response.type !== 'success') {
-    return null;
-  }
-
+export async function signInWithGoogle(): Promise<GoogleSignInResult | null> {
   const firebaseAuth = getFirebaseAuth();
   if (!firebaseAuth) {
     throw new Error('Google Sign-In is not available. Firebase is not configured.');
   }
 
-  const { id_token: googleIdToken } = response.params;
+  configureGoogleSignin();
+
+  if (Platform.OS === 'android') {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  }
+
+  const response = await GoogleSignin.signIn();
+  if (!isSuccessResponse(response)) {
+    return null;
+  }
+
+  const googleIdToken = response.data.idToken;
   if (!googleIdToken) {
     throw new Error('No ID token received from Google');
   }
@@ -189,15 +173,18 @@ export async function signInWithGoogleResponse(
 }
 
 /**
- * Sign out from Firebase
- * No-op if Firebase is not configured
+ * Sign out from Firebase and drop the cached Google account.
+ * Clearing the native session makes the next sign-in show the account picker
+ * again rather than silently reusing the last account.
  */
 export async function signOutFromFirebase(): Promise<void> {
   const firebaseAuth = getFirebaseAuth();
-  if (!firebaseAuth) {
-    return;
+  if (firebaseAuth) {
+    await signOut(firebaseAuth);
   }
-  await signOut(firebaseAuth);
+  if (googleSigninConfigured) {
+    await GoogleSignin.signOut();
+  }
 }
 
 /**
@@ -237,6 +224,3 @@ export async function getFirebaseIdToken(): Promise<string | null> {
   }
   return user.getIdToken();
 }
-
-// Re-export auth session types for convenience
-export type { AuthSessionResult } from 'expo-auth-session';

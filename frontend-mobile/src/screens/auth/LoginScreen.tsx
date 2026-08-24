@@ -1,7 +1,7 @@
 // ABOUTME: Login screen with email/password and Google Sign-In authentication
 // ABOUTME: Boreal Editorial hero backdrop with floating glass form card
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -20,11 +20,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
 import { PROVIDER_COLORS, spacing, glassCard, buttonGlow, BOREAL_LIGHT } from '../../constants/theme';
-import {
-  isFirebaseEnabled,
-  useGoogleAuth,
-  signInWithGoogleResponse,
-} from '../../firebase';
+import { isFirebaseEnabled, signInWithGoogle } from '../../firebase';
 import { AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
@@ -36,44 +32,6 @@ export function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-
-  // Google OAuth hook - always call unconditionally (React Rules of Hooks)
-  // Hook returns null values when Firebase is not enabled
-  const googleAuth = useGoogleAuth();
-
-  // Handle Google OAuth response
-  useEffect(() => {
-    if (!googleAuth?.response) return;
-
-    const handleGoogleResponse = async () => {
-      if (googleAuth.response?.type === 'success') {
-        setIsGoogleLoading(true);
-        try {
-          const result = await signInWithGoogleResponse(googleAuth.response);
-          if (result) {
-            await loginWithFirebase(result.idToken);
-            // Navigation handled by auth state change
-          }
-        } catch (error) {
-          let message = 'Google sign-in failed. Please try again.';
-          if (error instanceof Error) {
-            message = error.message;
-          }
-          Alert.alert('Sign In Failed', message);
-        } finally {
-          setIsGoogleLoading(false);
-        }
-      } else if (googleAuth.response?.type === 'error') {
-        Alert.alert('Sign In Error', 'Google sign-in was cancelled or failed.');
-        setIsGoogleLoading(false);
-      } else {
-        // Handle 'dismiss', 'cancel', 'locked' - reset loading state
-        setIsGoogleLoading(false);
-      }
-    };
-
-    handleGoogleResponse();
-  }, [googleAuth.response, loginWithFirebase]);
 
   const validateForm = () => {
     const newErrors: { email?: string; password?: string } = {};
@@ -119,21 +77,21 @@ export function LoginScreen() {
   };
 
   const handleGoogleSignIn = async () => {
-    if (!googleAuth?.promptAsync) {
-      Alert.alert('Not Available', 'Google Sign-In is not configured.');
-      return;
-    }
-
     setIsGoogleLoading(true);
     try {
-      await googleAuth.promptAsync();
-      // Response is handled in useEffect above
+      const result = await signInWithGoogle();
+      if (result) {
+        await loginWithFirebase(result.idToken);
+        // Navigation handled by auth state change
+      }
+      // A null result means the user dismissed the native sheet — no alert.
     } catch (error) {
-      let message = 'Failed to start Google sign-in.';
+      let message = 'Google sign-in failed. Please try again.';
       if (error instanceof Error) {
         message = error.message;
       }
-      Alert.alert('Error', message);
+      Alert.alert('Sign In Failed', message);
+    } finally {
       setIsGoogleLoading(false);
     }
   };

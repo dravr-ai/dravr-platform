@@ -5,11 +5,10 @@ export {
   isFirebaseEnabled,
   getFirebaseApp,
   getFirebaseAuth,
-  useGoogleAuth,
-  signInWithGoogleResponse,
+  signInWithGoogle,
   signOutFromFirebase,
   subscribeToAuthState,
   getCurrentFirebaseUser,
   getFirebaseIdToken,
-  type AuthSessionResult,
+  type GoogleSignInResult,
 } from './firebase';

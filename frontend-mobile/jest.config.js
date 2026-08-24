@@ -18,7 +18,7 @@ module.exports = {
     // sees `export` syntax in `node_modules/uuid/dist/esm/*` and
     // fails to parse it. `react-native-sse` is ESM-only for the
     // same reason (and its EventSource is mocked below anyway).
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@pierre/.*|uuid|react-native-sse)',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|@react-native-google-signin/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@pierre/.*|uuid|react-native-sse)',
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   testMatch: ['**/__tests__/**/*.(ts|tsx|js)', '**/?(*.)+(spec|test).(ts|tsx|js)'],
