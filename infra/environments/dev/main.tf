@@ -365,11 +365,27 @@ module "backend" {
       # length instead of two mechanisms trimming the same vector.
       COPILOT_HEADLESS_MAX_HISTORY_TURNS = "41"
 
-      # Copilot runs the MCP tool loop in Autopilot mode (call -> results ->
-      # synthesize in one turn), which makes individual ACP messages run longer
-      # than the 90s embacle default. Raise the per-message read timeout so the
-      # turn isn't cut off mid-synthesis.
-      EMBACLE_ACP_MESSAGE_TIMEOUT_SECS = "300"
+      # The IDLE detector. embacle wraps ONE `read_line` in this timeout
+      # (copilot_headless.rs `read_message`), so it measures the gap BETWEEN two
+      # ACP messages — never the length of a turn. A turn that streams chunks for
+      # ten minutes never trips it; a session that has gone quiet does.
+      #
+      # It was raised to 300 to stop turns being "cut off mid-synthesis". That
+      # reasoning did not hold: synthesis streams, so this timeout was never what
+      # cut those turns off — the whole-turn cap below was. What raising it DID
+      # do was set the two equal, which disarms the idle detector outright: the
+      # prompt timeout always fires first, so a parked session burns the full
+      # 300s of silence instead of failing at the first sign of one. That is the
+      # 2026-08-22 group turn, which sat silent for 4m15s after a tool result
+      # returned and then fell to a broken fallback.
+      #
+      # The floor is the longest LEGITIMATE silence, which is a loopback tool
+      # call: the CLI emits nothing while it awaits a tool result the platform is
+      # computing. The platform bounds that at 90s (LOOPBACK_TOOL_TIMEOUT in
+      # mcp/resources/tool_surface.rs, whose own comment requires it to stay
+      # below THIS value so a bounded call can never read as a dead session).
+      # 120 = that bound plus margin for the model's first token.
+      EMBACLE_ACP_MESSAGE_TIMEOUT_SECS = "120"
 
       # Whole-turn ACP timeout. Must encompass a full Autopilot turn, which runs
       # the entire tool loop AND synthesis inside ONE ACP prompt — so this caps
@@ -378,9 +394,10 @@ module "backend" {
       # pre-Autopilot text-sim era (many short prompts); once Autopilot collapsed
       # the turn into one long prompt, healthy multi-tool turns hit 150s+ and got
       # guillotined mid-synthesis (then fell to a broken Cohere fallback -> generic
-      # error). Set to 300 to match EMBACLE_ACP_MESSAGE_TIMEOUT_SECS above: the
-      # message (idle) timeout already fails fast on a stalled "emitting nothing"
-      # session, so this only needs to be wide enough for a legitimately long turn.
+      # error). 300 is the ceiling on a legitimately long turn. Failing a STALLED
+      # one fast is the idle timeout's job, and it can only do that job while it
+      # stays strictly below this number — raising this alone is safe, setting
+      # the two equal disarms the idle detector entirely.
       EMBACLE_ACP_PROMPT_TIMEOUT_SECS = "300"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
