@@ -491,16 +491,28 @@ const GROUP_CONTEXT_HEADER: &str = "Group Coaching Context";
 /// How much of the system prompt's group section counts as evidence.
 const GROUP_CONTEXT_SLICE_CAP: usize = 4_000;
 
-/// Appended after the fetched peer data on the peer re-ask. English on
-/// purpose, like [`REASK_INSTRUCTION`].
-const PEER_REASK_INSTRUCTION: &str =
-    "The reply you drafted made claims about this group member that are not supported by any \
-     data in this conversation. Their real activities were just fetched and appear above. \
-     Rewrite your reply in the athlete's language: keep only what the fetched data or the \
-     roster context supports, correct any numbers, and openly say so if something you claimed \
-     cannot be confirmed. Never invent activity details. If your original reply included a \
-     dravr-viz block (a chart or table), produce it again in the rewrite, rebuilt from the \
-     fetched data — the athlete asked for it and the correction must not silently drop it.";
+/// Build the repair prompt for one peer re-ask.
+///
+/// Deliberately NOT the `[Tool Result for ...]` framing the tool loop uses:
+/// on 2026-08-23 both repair completions against that shape came back
+/// `finish_reason: stop` with zero content after ~20s — the CLI's agentic
+/// wrapper reads a tool-result dump plus a meta-instruction as a completed
+/// task and ends the turn silent. A plain chat-shaped ask ("write the
+/// corrected reply now, reply with the message text only") keeps it in
+/// chat-output behavior. English on purpose, like the access-failure re-ask.
+#[must_use]
+pub fn peer_repair_prompt(peer_name: &str, unsupported: &[String], payload: &str) -> String {
+    format!(
+        "Here are {peer_name}'s verified activities for the last four weeks, fetched just \
+         now:\n{payload}\n\nYour previous answer contained these unsupported claims about \
+         {peer_name}: {claims}.\n\nWrite the corrected reply to the athlete's last question \
+         now, in their language. Use only the data above and the roster context; where a \
+         claim cannot be confirmed, say so plainly instead of restating it. If your original \
+         reply included a dravr-viz chart or table, produce the corrected block again from \
+         this data. Reply with the message text only.",
+        claims = unsupported.join("; "),
+    )
+}
 
 /// Adjudicate a reply's claims about a named peer, and repair when they fail.
 ///
@@ -552,7 +564,8 @@ async fn apply_peer_claim_recovery(
         "peer_claim_unsupported: reply carries claims about a peer that no evidence backs"
     );
 
-    let Some(tool_text) = fetch_peer_evidence(deps, input, &peer.display_name, result).await else {
+    let Some(peer_payload) = fetch_peer_evidence(deps, input, &peer.display_name, result).await
+    else {
         // No truth to repair with (consent, kill-switch, outage): the reply
         // stands — it may still be right — but it must never teach.
         result.capability_claim_unverified = true;
@@ -564,7 +577,8 @@ async fn apply_peer_claim_recovery(
         provider.as_ref(),
         &peer.display_name,
         &evidence,
-        &tool_text,
+        &unsupported,
+        &peer_payload,
         result,
     )
     .await;
@@ -592,11 +606,7 @@ async fn fetch_peer_evidence(
         fetch_peer_activities(&executor, &input.user_id, input.tool_tenant_id, peer_name).await?;
     result.tool_calls_count += 1;
     result.tools_called.push(PEER_FETCH_TOOL.to_owned());
-    let function_response = FunctionResponse {
-        name: PEER_FETCH_TOOL.to_owned(),
-        response: payload,
-    };
-    Some(format_tool_results_as_text(&[function_response]))
+    Some(payload.to_string())
 }
 
 /// One re-ask with the fetched peer data attached; `true` when the verified
@@ -606,13 +616,15 @@ async fn reask_with_peer_evidence(
     provider: &pierre_llm::ChatProvider,
     peer_name: &str,
     evidence: &str,
-    tool_text: &str,
+    unsupported: &[String],
+    peer_payload: &str,
     result: &mut ToolLoopResult,
 ) -> bool {
-    let Some(content) = request_peer_reask(deps, provider, tool_text).await else {
+    let prompt = peer_repair_prompt(peer_name, unsupported, peer_payload);
+    let Some(content) = request_peer_reask(deps, provider, &prompt).await else {
         return false;
     };
-    let evidence_with_fetch = format!("{evidence}\n{tool_text}");
+    let evidence_with_fetch = format!("{evidence}\n{peer_payload}");
     if !reask_reply_is_clean(deps, provider, peer_name, &evidence_with_fetch, &content).await {
         return false;
     }
@@ -639,12 +651,10 @@ async fn reask_with_peer_evidence(
 async fn request_peer_reask(
     deps: &CapabilityRecoveryDeps<'_>,
     provider: &pierre_llm::ChatProvider,
-    tool_text: &str,
+    prompt: &str,
 ) -> Option<String> {
     let mut messages = deps.llm_messages.to_vec();
-    messages.push(ChatMessage::user(format!(
-        "{tool_text}\n\n{PEER_REASK_INSTRUCTION}"
-    )));
+    messages.push(ChatMessage::user(prompt.to_owned()));
     let request = ChatRequest::new(messages).with_model(deps.active_model);
     for attempt in 0..2u8 {
         match provider.complete(&request).await {

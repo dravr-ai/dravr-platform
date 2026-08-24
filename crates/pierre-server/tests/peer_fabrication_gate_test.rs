@@ -21,7 +21,9 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use pierre_chat_pipeline::stages::capability_recovery::parse_unsupported_verdict;
+use pierre_chat_pipeline::stages::capability_recovery::{
+    parse_unsupported_verdict, peer_repair_prompt,
+};
 use pierre_chat_pipeline::stages::peer_grounding::mentioned_peers;
 use pierre_core::models::groups::OvertrainingRiskLevel;
 use pierre_core::models::MemberFitnessSnapshot;
@@ -123,4 +125,30 @@ fn unparseable_verdicts_fail_open() {
     assert!(parse_unsupported_verdict("I could not check that.").is_empty());
     assert!(parse_unsupported_verdict("{not json at all]").is_empty());
     assert!(parse_unsupported_verdict(r#"{"wrong_key": ["x"]}"#).is_empty());
+}
+
+/// The repair prompt is chat-shaped: no tool-result framing (which routed
+/// the CLI into silent task-completion, 2026-08-23), claims named, payload
+/// present, and an explicit reply-with-text-only ask.
+#[test]
+fn repair_prompt_is_chat_shaped() {
+    let prompt = peer_repair_prompt(
+        "Philippe Tremblay",
+        &[
+            "une course de 4h30".to_owned(),
+            "pas de distance".to_owned(),
+        ],
+        r#"{"activities":[{"id":"a1"}]}"#,
+    );
+    assert!(
+        !prompt.contains("[Tool Result for"),
+        "no tool-result framing"
+    );
+    assert!(prompt.contains("une course de 4h30; pas de distance"));
+    assert!(prompt.contains(r#"{"activities":[{"id":"a1"}]}"#));
+    assert!(prompt.contains("Reply with the message text only"));
+    assert!(
+        prompt.contains("dravr-viz"),
+        "the chart-preservation ask survives the reshape"
+    );
 }
