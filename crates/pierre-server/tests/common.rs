@@ -496,11 +496,42 @@ async fn create_test_server_resources_inner(
     create_test_server_resources_inner_full(llm_provider, extra_tools, config_override, None).await
 }
 
+/// Wire a REAL [`ChatProvider`] through untouched, variant and all.
+///
+/// [`create_test_server_resources_with_chat_provider`] takes a trait object and
+/// wraps it in [`ChatProvider::Custom`], which is right for a mock and wrong for
+/// anything that has to be recognised by variant. The headless tool loop reaches
+/// the Copilot ACP runner through `ChatProvider::as_cli_provider`, and `Custom`
+/// answers `None` to that — so a test handing in a real CLI provider as a trait
+/// object gets "Headless tool loop requires CopilotHeadlessRunner but provider
+/// is not a CLI provider" and silently exercises a different code path than
+/// production. Anything driving the real ACP path must come through here.
+pub async fn create_test_server_resources_with_real_chat_provider(
+    provider: Arc<ChatProvider>,
+) -> Result<Arc<ServerContext>> {
+    create_test_server_resources_inner_typed(None, Vec::new(), None, Some(provider)).await
+}
+
 async fn create_test_server_resources_inner_full(
     llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
     config_override: Option<ServerConfig>,
     as_chat_provider: Option<Arc<dyn LlmProvider + 'static>>,
+) -> Result<Arc<ServerContext>> {
+    create_test_server_resources_inner_typed(
+        llm_provider,
+        extra_tools,
+        config_override,
+        as_chat_provider.map(|p| Arc::new(ChatProvider::Custom(p))),
+    )
+    .await
+}
+
+async fn create_test_server_resources_inner_typed(
+    llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
+    extra_tools: Vec<Arc<dyn RuntimeTool>>,
+    config_override: Option<ServerConfig>,
+    chat_provider: Option<Arc<ChatProvider>>,
 ) -> Result<Arc<ServerContext>> {
     init_test_logging();
     init_test_http_clients();
@@ -552,7 +583,7 @@ async fn create_test_server_resources_inner_full(
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(jwks_manager),
                 llm_provider,
-                chat_provider: as_chat_provider.map(|p| Arc::new(ChatProvider::Custom(p))),
+                chat_provider,
                 extra_tools,
                 billing_provider: None,
             },

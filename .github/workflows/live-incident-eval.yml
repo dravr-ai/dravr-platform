@@ -1,0 +1,124 @@
+# ABOUTME: The live-model eval lane — the 2026-08 incident corpus against the REAL providers, nightly
+# ABOUTME: Schedule + dispatch only, deliberately: it must be able to red without blocking a merge
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# Action #1 of the 2026-08-23 post-mortem "Why E2E Kept Missing the Coach Regressions".
+# Every other tier drives a scripted mock model and so verifies the pipeline's reaction
+# to model behaviour an author imagined. This one drives the real provider chain — the
+# pinned Copilot CLI over embacle ACP, with the real Cohere fallback — through the real
+# chat pipeline, and grades the DELIVERED message.
+#
+# WHY THERE IS NO `push:` TRIGGER
+#
+# The lane is non-gating by construction rather than by `continue-on-error`, which is
+# banned on test jobs here and for good reason: it turns a red test into a green check
+# and the failure is never seen again. A scheduled workflow that fails is *visible* —
+# it reds on the Actions tab and can page — while blocking no merge, which is exactly
+# the property "non-gating" is asking for. When the corpus has been stable long enough
+# to trust, the way to promote it is to add the trigger, not to remove a mask.
+#
+# COST
+#
+# Every turn is a metered model call against a real provider, so this runs once a day
+# and on demand, never per push. The corpus is deliberately small (~13 turns) for the
+# same reason: it is an incident regression suite, not a benchmark.
+
+name: "Eval: Live Incident Corpus"
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Primary LLM provider to drive the corpus with"
+        required: true
+        default: "copilot_headless"
+        type: choice
+        options:
+          - copilot_headless
+          - cohere
+  schedule:
+    # 04:30 UTC — after the chat-eval nightly (03:30) so a structural break there
+    # is already visible before this heavier, metered lane spends anything.
+    - cron: "30 4 * * *"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  CARGO_NET_RETRY: "10"
+
+concurrency:
+  group: live-incident-eval
+  cancel-in-progress: false
+
+jobs:
+  corpus:
+    name: Incident corpus (live models)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      LIVE_INCIDENT_EVAL: "1"
+      PIERRE_LLM_PROVIDER: ${{ inputs.provider || 'copilot_headless' }}
+      # The real production chain: Copilot first, Cohere when it returns a
+      # retryable error. Driving only the primary would leave the fallback —
+      # whose v1-format tool-argument envelope caused the 2026-08-22 «by Dravr.»
+      # turn — untested by the one lane built to test real providers.
+      PIERRE_LLM_RUNTIME_FALLBACK: "true"
+      PIERRE_LLM_FALLBACK_PROVIDER: "cohere"
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      GH_TOKEN: ${{ secrets.COPILOT_CLI_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+
+      - name: Configure git for private deps
+        run: |
+          git config --global \
+            url."https://${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf \
+            "https://github.com/"
+
+      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: live-incident-eval
+
+      - name: Read the pinned Copilot CLI version
+        id: pin
+        run: |
+          set -euo pipefail
+          # The pin lives in the image the server actually runs. Reading it here
+          # rather than restating it keeps the lane on the same CLI production
+          # is on — a lane that drifts to a newer CLI stops reproducing the
+          # behaviour it exists to catch.
+          VERSION=$(grep -oE '^ARG COPILOT_CLI_VERSION=[0-9.]+' \
+                      docker/images/server/Dockerfile | cut -d= -f2)
+          if [ -z "${VERSION}" ]; then
+            echo "::error::could not read COPILOT_CLI_VERSION from the server Dockerfile" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "pinned Copilot CLI: ${VERSION}"
+
+      - name: Install the pinned Copilot CLI
+        if: env.PIERRE_LLM_PROVIDER == 'copilot_headless'
+        run: |
+          set -euo pipefail
+          npm install -g "@github/copilot-linux-x64@${{ steps.pin.outputs.version }}"
+          NPM_PREFIX="$(npm prefix -g)"
+          ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot
+          copilot --version
+
+      - name: Run the incident corpus
+        # --nocapture streams each turn's delivered length and every finding as
+        # it happens, so a run killed by the job's wall clock still shows which
+        # turn it died on rather than reporting nothing at all.
+        run: cargo test --test live_incident_eval_test -- --nocapture
