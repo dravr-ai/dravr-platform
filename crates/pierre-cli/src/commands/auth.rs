@@ -100,7 +100,7 @@ pub async fn resolve(
 
 /// Resolve the client used to approve/deny: an explicit `--token` (+`--server`
 /// or the cached server) wins; otherwise the cached super-admin login is used.
-fn admin_client(server: Option<String>, token: Option<String>) -> AppResult<RemoteClient> {
+pub fn admin_client(server: Option<String>, token: Option<String>) -> AppResult<RemoteClient> {
     if let Some(token) = token {
         let server = server
             .or_else(|| CachedCredentials::load().ok().flatten().map(|c| c.server))

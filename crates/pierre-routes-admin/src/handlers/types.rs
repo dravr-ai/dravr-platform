@@ -115,12 +115,34 @@ pub struct AutoApprovalResponse {
 /// Query parameters for listing users
 #[derive(Debug, Deserialize)]
 pub struct ListUsersQuery {
-    /// Filter by status
+    /// Filter by status. Defaults to `active`.
     pub status: Option<String>,
-    /// Maximum number of results
+    /// Filter by tier (`starter` / `professional` / `enterprise`). Unset = all.
+    pub tier: Option<String>,
+    /// Page size. Clamped to [`USER_PAGE_MIN`]..=[`USER_PAGE_MAX`].
     pub limit: Option<i32>,
-    /// Offset for pagination
-    pub offset: Option<i32>,
+    /// Opaque cursor from a previous page's `next_cursor`.
+    pub cursor: Option<String>,
+}
+
+/// Smallest page the user listing will serve.
+pub const USER_PAGE_MIN: i32 = 1;
+/// Largest page the user listing will serve.
+///
+/// Bounded because the parameter is caller-supplied: an unbounded `limit`
+/// lets one request pull the whole table into memory and serialise it.
+pub const USER_PAGE_MAX: i32 = 100;
+/// Page size when the caller does not ask for one.
+pub const USER_PAGE_DEFAULT: i32 = 50;
+
+impl ListUsersQuery {
+    /// The page size to use, clamped into the served range.
+    #[must_use]
+    pub fn page_size(&self) -> usize {
+        let raw = self.limit.unwrap_or(USER_PAGE_DEFAULT);
+        let clamped = raw.clamp(USER_PAGE_MIN, USER_PAGE_MAX);
+        usize::try_from(clamped).unwrap_or(USER_PAGE_DEFAULT as usize)
+    }
 }
 
 /// API Key provisioning response

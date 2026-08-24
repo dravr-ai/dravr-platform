@@ -16,3 +16,4 @@ pub mod tenant;
 pub mod token;
 pub mod tool;
 pub mod user;
+pub mod user_admin;

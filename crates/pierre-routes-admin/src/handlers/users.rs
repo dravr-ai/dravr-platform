@@ -20,6 +20,7 @@ use uuid::Uuid;
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{UserStatus, UserTier};
+use pierre_core::pagination::{Cursor, PaginationParams};
 use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
@@ -38,8 +39,16 @@ use crate::context::AdminApiContext;
 pub(crate) struct UserListResponse {
     /// List of users (sanitized - no passwords)
     users: Vec<UserSummary>,
-    /// Total number of users
+    /// Number of users in THIS page, not in the table.
+    ///
+    /// Named `total` since the endpoint shipped, and kept for compatibility;
+    /// `has_more` is what tells a caller whether the listing is finished.
     total: usize,
+    /// Cursor to pass back as `?cursor=` for the next page. `None` = last page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_cursor: Option<String>,
+    /// Whether another page exists after this one.
+    has_more: bool,
 }
 
 /// Sanitized user summary for listing
@@ -94,15 +103,40 @@ pub(crate) async fn handle_list_users(
 
     let status = params.status.as_deref().unwrap_or("active");
 
-    let users = ctx
+    // Paginate rather than reading the table. `limit` and `offset` were declared
+    // on this query since the endpoint shipped and neither was ever read — the
+    // handler called `get_by_status(status, None)` and returned everything, so a
+    // caller asking for ten users got all of them and a growing table would have
+    // been serialised whole on every call. The repository already had cursor
+    // pagination; only this handler was ignoring it.
+    let page_size = params.page_size();
+    let pagination =
+        PaginationParams::forward(params.cursor.clone().map(Cursor::from_string), page_size);
+
+    let page = ctx
         .repos
         .users
-        .get_by_status(status, None)
+        .get_by_status_cursor(status, &pagination)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to fetch users from database");
             AppError::internal(format!("Failed to fetch users: {e}"))
         })?;
+
+    // Tier filtering happens here rather than in SQL because the repository's
+    // cursor query keys on status. Applied after the page is read, so a filtered
+    // page can be shorter than `limit` — `has_more` and `next_cursor` still
+    // describe the underlying listing, which is what a caller pages on.
+    let tier_filter = params.tier.as_deref().map(str::to_ascii_lowercase);
+    let users: Vec<_> = page
+        .items
+        .iter()
+        .filter(|user| {
+            tier_filter
+                .as_ref()
+                .is_none_or(|want| user.tier.to_string().eq_ignore_ascii_case(want))
+        })
+        .collect();
 
     let user_summaries: Vec<UserSummary> = users
         .iter()
@@ -118,7 +152,12 @@ pub(crate) async fn handle_list_users(
 
     let total = user_summaries.len();
 
-    info!("Retrieved {} users", total);
+    info!(
+        returned = total,
+        page_size,
+        has_more = page.has_more,
+        "Retrieved users page"
+    );
 
     Ok(json_response(
         AdminResponse {
@@ -127,8 +166,77 @@ pub(crate) async fn handle_list_users(
             data: to_value(UserListResponse {
                 users: user_summaries,
                 total,
+                next_cursor: page.next_cursor.map(|c| c.as_str().to_owned()),
+                has_more: page.has_more,
             })
             .ok(),
+        },
+        StatusCode::OK,
+    ))
+}
+
+/// Read one user by id.
+///
+/// `/admin/users/{user_id}` carried only `delete` until now, so an operator
+/// could remove a user but never read one — `pierre-cli user get <email>` hit a
+/// 405 on a path that plainly looked like a fetch. Returns more than the
+/// listing's summary does (status, admin flag) because the reason to
+/// ask about ONE user is usually a field the list does not show.
+pub(crate) async fn handle_get_user(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(user_id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    if !admin_token
+        .permissions
+        .has_permission(&AdminPerm::ManageUsers)
+    {
+        return Ok(json_response(
+            AdminResponse {
+                success: false,
+                message: "Permission denied: ManageUsers required".to_owned(),
+                data: None,
+            },
+            StatusCode::FORBIDDEN,
+        ));
+    }
+
+    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
+        error!(error = %e, "Invalid user ID format");
+        AppError::invalid_input(format!("Invalid user ID format: {e}"))
+    })?;
+
+    let user = context
+        .as_ref()
+        .repos
+        .users
+        .get_global(user_uuid)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to fetch user from database");
+            AppError::internal(format!("Failed to fetch user: {e}"))
+        })?
+        .ok_or_else(|| {
+            warn!("User not found: {user_id}");
+            AppError::not_found("User not found")
+        })?;
+
+    info!(service = %admin_token.service_name, "Read user {user_id}");
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: format!("Retrieved {}", user.email),
+            data: Some(json!({
+                "id": user.id.to_string(),
+                "email": user.email,
+                "display_name": user.display_name,
+                "tier": user_tier_to_str(&user.tier),
+                "status": user_status_str(user.user_status),
+                "is_admin": user.is_admin,
+                "created_at": user.created_at.to_rfc3339(),
+                "last_active": user.last_active.to_rfc3339(),
+            })),
         },
         StatusCode::OK,
     ))

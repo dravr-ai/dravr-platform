@@ -289,7 +289,10 @@ impl AdminRoutes {
                 "/admin/users/{user_id}/activity",
                 get(users::handle_get_user_activity),
             )
-            .route("/admin/users/{user_id}", delete(users::handle_delete_user))
+            .route(
+                "/admin/users/{user_id}",
+                get(users::handle_get_user).delete(users::handle_delete_user),
+            )
             .route(
                 "/admin/users/{user_id}/tier",
                 post(users::handle_set_user_tier).delete(users::handle_clear_user_tier_override),
