@@ -23,7 +23,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::{
     ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider,
@@ -872,10 +872,9 @@ fn cli_runner_type_for(provider_type: LlmProviderType) -> Option<CliRunnerType> 
     }
 }
 
-/// Check the active model against the provider's list; log ERROR on mismatch.
+/// Warn when the active model is not in the provider's published list.
 ///
-/// Soft — a stale published list must not fail boot. ERROR not WARN: a mismatch
-/// fails EVERY dispatch, and `PIERRE_LLM_MODEL` moves with `PIERRE_LLM_PROVIDER`.
+/// A hint: embacle's list is a constant; ACP reports 28 models to its 21 (carnet#98).
 fn validate_model_for_provider(provider: &ChatProvider) {
     let model = provider.default_model();
     let available = provider.available_models();
@@ -893,12 +892,13 @@ fn validate_model_for_provider(provider: &ChatProvider) {
             "Model validated against provider's available models"
         );
     } else {
-        error!(
+        warn!(
             provider = provider.name(),
             model,
             available = ?available,
-            "Model not published by this provider; EVERY dispatch will fail. Change \
-             PIERRE_LLM_MODEL with PIERRE_LLM_PROVIDER, or unset it for the default"
+            "Model is not in this provider's published list — either that list is \
+             stale, or PIERRE_LLM_MODEL holds the previous provider's id. Dispatch \
+             errors naming this model mean the second"
         );
     }
 }
