@@ -6,8 +6,11 @@
 #
 # macOS only: it uses BSD `stat -f`, BSD `du`, and `launchctl` for the schedule.
 # Every repository keeps its own plain target/ directory and disk is reclaimed on
-# a schedule. `sweep` is the routine age-based pass, `purge` is the aggressive
-# escape hatch, and both end by enforcing the fleet cap.
+# a schedule. A repository can also hold alternate build trees, from a side build
+# pointed at another CARGO_TARGET_DIR; those are reclaimed too, and carry a
+# repo[dir] label so two trees in one repository stay separate entries.
+# `sweep` is the routine age-based pass, `purge` is the aggressive escape hatch,
+# and both end by enforcing the fleet cap.
 
 set -euo pipefail
 
@@ -49,7 +52,9 @@ usage() {
 Usage: cargo-sweep-nightly.sh <command> [options]
 
 Reclaims Cargo build output across every repository under a scan root and keeps
-the combined size of all target/ directories under a hard ceiling.
+the combined size of every build tree under a hard ceiling. A tree is any
+target/ or target-*/ directory that carries cargo's CACHEDIR.TAG and sits beside
+a Cargo.toml, so a side build's CARGO_TARGET_DIR is swept and billed like the rest.
 
 Commands:
   sweep       Age-based cargo-sweep pass across the fleet, then enforce the cap (default)
@@ -352,6 +357,20 @@ locked_skip() {
 
 # --- discovery -------------------------------------------------------------
 
+# A repository can hold more than one build tree: `target/` plus whatever a side
+# build pointed CARGO_TARGET_DIR at. The label keys the protected list, the cap
+# ledger and the staging path, so each tree needs its own or two trees in one
+# repo would protect, bill and stage as a single entry.
+target_label() {
+    local root="$1" target="$2" dir
+    dir=$(basename "$target")
+    if [[ "$dir" == "target" ]]; then
+        basename "$root"
+    else
+        printf '%s[%s]\n' "$(basename "$root")" "$dir"
+    fi
+}
+
 discover_targets() {
     local target root label
     while IFS= read -r target; do
@@ -359,22 +378,22 @@ discover_targets() {
         [[ -e "$target/CACHEDIR.TAG" || -e "$target/.rustc_info.json" ]] || continue
         root=$(dirname "$target")
         [[ -f "$root/Cargo.toml" ]] || continue
-        label=$(basename "$root")
+        label=$(target_label "$root" "$target")
         printf '%s\t%s\t%s\n' "$root" "$target" "$label"
     done < <(find "$SCAN_ROOT" -maxdepth "$MAX_DEPTH" \
                   \( -name node_modules -o -name .git -o -path "$STAGE" \) -prune -o \
-                  -type d -name target -prune -print 2>/dev/null || true)
+                  -type d -name 'target*' -prune -print 2>/dev/null || true)
 }
 
-# A target/ that is a symlink is the one shape this tool refuses to work with:
+# A build tree that is a symlink is the one shape this tool refuses to work with:
 # per-worktree isolation expects a real directory, and following the link would
 # reclaim a tree several repositories share. Report it and move on.
 report_symlinked_targets() {
     local link
     while IFS= read -r link; do
         [[ -n "$link" ]] || continue
-        echo "${YELLOW}symlink  $(basename "$(dirname "$link")"): target/ is a symlink -> $(readlink "$link"); per-worktree isolation expects a real directory${NC}"
-    done < <(find "$SCAN_ROOT" -maxdepth "$MAX_DEPTH" -name target -type l 2>/dev/null || true)
+        echo "${YELLOW}symlink  $(basename "$(dirname "$link")"): $(basename "$link")/ is a symlink -> $(readlink "$link"); per-worktree isolation expects a real directory${NC}"
+    done < <(find "$SCAN_ROOT" -maxdepth "$MAX_DEPTH" -name 'target*' -type l 2>/dev/null || true)
 }
 
 # Build output whose project root is gone, left behind when a worktree was
@@ -391,7 +410,7 @@ report_orphan_targets() {
         echo "${YELLOW}orphan   $(basename "$root"): $(human_size "$target") of build output with no Cargo.toml beside it; delete the directory by hand${NC}"
     done < <(find "$SCAN_ROOT" -maxdepth "$MAX_DEPTH" \
                   \( -name node_modules -o -name .git -o -path "$STAGE" \) -prune -o \
-                  -type d -name target -prune -print 2>/dev/null || true)
+                  -type d -name 'target*' -prune -print 2>/dev/null || true)
 }
 
 # Least-recently-built first, captured once before the run reclaims anything.
@@ -523,16 +542,21 @@ parse_clean_kib() {
 # One repo per invocation, never a batch of paths: in non-recursive mode
 # cargo-sweep does metadata(path).context(...)?, so a single unparseable
 # Cargo.toml aborts the entire invocation and every remaining repo silently goes
-# unswept. cargo-sweep resolves the target dir itself via cargo metadata --no-deps.
+# unswept.
 SWEEP_OUTPUT=""
+# cargo-sweep resolves the tree itself via cargo metadata --no-deps, which finds
+# `target/` and nothing else. Naming the discovered tree through CARGO_TARGET_DIR
+# is what lets a side build's tree be swept at all: without it cargo-sweep warns
+# that the default path does not exist, and the alternate tree would be reported
+# as swept while keeping every byte.
 run_cargo_sweep() {
-    local root="$1"
-    shift
+    local root="$1" target="$2"
+    shift 2
     local rc=0
     if [[ $DRY_RUN -eq 1 ]]; then
-        SWEEP_OUTPUT=$(cargo sweep --dry-run "$@" "$root" 2>&1) || rc=$?
+        SWEEP_OUTPUT=$(CARGO_TARGET_DIR="$target" cargo sweep --dry-run "$@" "$root" 2>&1) || rc=$?
     else
-        SWEEP_OUTPUT=$(cargo sweep "$@" "$root" 2>&1) || rc=$?
+        SWEEP_OUTPUT=$(CARGO_TARGET_DIR="$target" cargo sweep "$@" "$root" 2>&1) || rc=$?
     fi
     if [[ $rc -ne 0 ]]; then
         echo "${RED}        cargo sweep exited $rc${NC}"
@@ -692,7 +716,7 @@ enforce_cap() {
         [[ "$want" -lt 0 ]] && want=0
         want_mib=$((want / 1024))
         echo "cap: ${PREFIX}shrink $label to $(fmt_kib "$want")"
-        run_cargo_sweep "$root" --maxsize "${want_mib}MiB"
+        run_cargo_sweep "$root" "$target" --maxsize "${want_mib}MiB"
         if [[ $DRY_RUN -eq 1 ]]; then
             freed=$(printf '%s\n' "$SWEEP_OUTPUT" | parse_clean_kib)
             [[ "$freed" -gt "$cur" ]] && freed=$cur
@@ -829,7 +853,7 @@ cmd_sweep() {
             continue
         fi
         before=$(current_kib "$target")
-        run_cargo_sweep "$root" --time "$DAYS"
+        run_cargo_sweep "$root" "$target" --time "$DAYS"
         if [[ $DRY_RUN -eq 1 ]]; then
             freed=$(printf '%s\n' "$SWEEP_OUTPUT" | parse_clean_kib)
             [[ "$freed" -gt "$before" ]] && freed=$before
@@ -938,7 +962,7 @@ cmd_purge() {
         else
             echo "${GREEN}purge   artifacts from uninstalled toolchains in $label${NC}"
         fi
-        run_cargo_sweep "$root" --installed
+        run_cargo_sweep "$root" "$target" --installed
         if [[ $DRY_RUN -eq 1 ]]; then
             after=$((before - $(printf '%s\n' "$SWEEP_OUTPUT" | parse_clean_kib)))
             [[ "$after" -lt 0 ]] && after=0
