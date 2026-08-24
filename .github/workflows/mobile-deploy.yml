@@ -1,8 +1,13 @@
-# ABOUTME: GitHub Actions workflow for deploying the Pierre mobile app via EAS Build.
-# ABOUTME: Supports manual dispatch with platform, profile, and submit options.
+# ABOUTME: The single EAS entry point for the mobile app — builds iOS/Android and optionally submits to the stores.
+# ABOUTME: Manual dispatch only; an EAS build is metered, so it runs when someone asks for it and never on a push.
 
 name: "Deploy: Mobile (EAS Build)"
 
+# Manual dispatch only, and deliberately so. An EAS build is a metered
+# resource: a previous workflow built on every push to main touching mobile
+# paths and exhausted the monthly quota well before the month was out. Push
+# coverage for these paths belongs to "CI: Mobile Unit" (mobile-unit-tests.yml)
+# — typecheck, lint and unit tests — which is free and runs on every push.
 on:
   workflow_dispatch:
     inputs:
@@ -33,6 +38,9 @@ concurrency:
   group: mobile-deploy-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Pre-deploy Tests
@@ -56,6 +64,9 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      - name: Lint
+        run: bun run lint
+
       - name: Run unit tests
         run: bun run test
 
@@ -71,6 +82,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      # The store accepts App Store-distribution builds only, and the `preview`
+      # profile is distribution: internal (ad-hoc signed), so an upload of it is
+      # rejected. The submit job below is gated on profile == production for
+      # exactly that reason; say so up front rather than letting the dispatcher
+      # watch a build finish and a submit job silently skip.
+      - name: Warn when submit was asked for on a non-submittable profile
+        if: ${{ inputs.submit == true && inputs.profile != 'production' }}
+        run: |
+          echo "::warning::Submit was requested with the ${{ inputs.profile }} profile and will be skipped. The stores accept App Store-distribution builds only, and ${{ inputs.profile }} is distribution: internal. Re-run with profile=production to submit."
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -119,6 +140,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # eas.json's submit profiles interpolate these from the environment:
+      # iOS reads APPLE_ID, ASC_APP_ID and APPLE_TEAM_ID; Android reads
+      # GOOGLE_SERVICE_ACCOUNT_KEY_PATH. Without them `eas submit` fails deep in
+      # the upload with "Invalid Apple ID" / "Invalid Apple App Store Connect App
+      # ID" / "Invalid Apple Team ID", which reads like a credential that is
+      # wrong rather than one that was never passed. Check up front and name the
+      # missing secret instead.
+      - name: Verify submit credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY }}
+        run: |
+          missing=""
+          if [ "${{ inputs.platform }}" = "ios" ] || [ "${{ inputs.platform }}" = "all" ]; then
+            [ -z "$APPLE_ID" ] && missing="$missing APPLE_ID"
+            [ -z "$ASC_APP_ID" ] && missing="$missing ASC_APP_ID"
+            [ -z "$APPLE_TEAM_ID" ] && missing="$missing APPLE_TEAM_ID"
+          fi
+          if [ "${{ inputs.platform }}" = "android" ] || [ "${{ inputs.platform }}" = "all" ]; then
+            [ -z "$GOOGLE_PLAY_SERVICE_ACCOUNT_KEY" ] && missing="$missing GOOGLE_PLAY_SERVICE_ACCOUNT_KEY"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::Cannot submit — these repository secrets are unset:$missing. The build succeeded and is available in EAS; set the secrets and re-run submission." >&2
+            exit 1
+          fi
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -135,12 +184,28 @@ jobs:
 
       - name: Submit iOS to TestFlight
         if: ${{ inputs.platform == 'ios' || inputs.platform == 'all' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           eas submit \
             --platform ios \
             --profile production \
             --non-interactive \
             --latest
+
+      # eas.json names a *path*, so the service-account JSON has to reach the
+      # runner as a file; the secret holds its contents.
+      - name: Materialize Play service-account key
+        if: ${{ inputs.platform == 'android' || inputs.platform == 'all' }}
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY }}
+        run: |
+          key_path="$RUNNER_TEMP/play-service-account.json"
+          printf '%s' "$GOOGLE_PLAY_SERVICE_ACCOUNT_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          echo "GOOGLE_SERVICE_ACCOUNT_KEY_PATH=$key_path" >> "$GITHUB_ENV"
 
       - name: Submit Android to Play Console
         if: ${{ inputs.platform == 'android' || inputs.platform == 'all' }}
