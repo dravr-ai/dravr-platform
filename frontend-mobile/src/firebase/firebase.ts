@@ -11,11 +11,29 @@ import {
   type Auth,
   type User,
 } from 'firebase/auth';
-import {
-  GoogleSignin,
-  isSuccessResponse,
-} from '@react-native-google-signin/google-signin';
 import { Platform } from 'react-native';
+
+type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin');
+
+// The Google Sign-In package resolves its native `RNGoogleSignin` module while
+// the package itself is evaluated, so a binary built without that module throws
+// on import rather than on first use. Expo Go is such a binary. Every route
+// reaches this file through AuthContext, so a module-scope import turns that
+// throw into a blank app; resolving the package on first use keeps the throw
+// contained and lets `isFirebaseEnabled` hide the button on a binary that
+// cannot run the flow.
+let googleSigninModule: GoogleSigninModule | null | undefined;
+
+function getGoogleSignin(): GoogleSigninModule | null {
+  if (googleSigninModule === undefined) {
+    try {
+      googleSigninModule = require('@react-native-google-signin/google-signin') as GoogleSigninModule;
+    } catch {
+      googleSigninModule = null;
+    }
+  }
+  return googleSigninModule;
+}
 
 // Firebase configuration - all values from environment variables
 // Set these in your .env file with EXPO_PUBLIC_ prefix
@@ -78,7 +96,11 @@ export type GoogleSignInResult = {
  * Returns true only if both Firebase and platform-specific Google OAuth are configured
  */
 export function isFirebaseEnabled(): boolean {
-  return isFirebaseConfigured && isPlatformGoogleOAuthConfigured();
+  return (
+    isFirebaseConfigured &&
+    isPlatformGoogleOAuthConfigured() &&
+    getGoogleSignin() !== null
+  );
 }
 
 /**
@@ -118,11 +140,11 @@ export function getFirebaseAuth(): Auth | null {
  * Only the client IDs configured for this platform are passed, so a missing
  * Android client cannot be mistaken for an empty-string one.
  */
-function configureGoogleSignin(): void {
+function configureGoogleSignin(googleSignin: GoogleSigninModule): void {
   if (googleSigninConfigured) {
     return;
   }
-  GoogleSignin.configure({
+  googleSignin.GoogleSignin.configure({
     ...(googleClientIds.iosClientId ? { iosClientId: googleClientIds.iosClientId } : {}),
     ...(googleClientIds.webClientId ? { webClientId: googleClientIds.webClientId } : {}),
     scopes: ['email', 'profile'],
@@ -135,19 +157,26 @@ function configureGoogleSignin(): void {
  * Returns null when the user dismisses the native sheet.
  */
 export async function signInWithGoogle(): Promise<GoogleSignInResult | null> {
+  const googleSignin = getGoogleSignin();
+  if (!googleSignin) {
+    throw new Error(
+      'Google Sign-In is not available. This binary has no native Google Sign-In module.'
+    );
+  }
+
   const firebaseAuth = getFirebaseAuth();
   if (!firebaseAuth) {
     throw new Error('Google Sign-In is not available. Firebase is not configured.');
   }
 
-  configureGoogleSignin();
+  configureGoogleSignin(googleSignin);
 
   if (Platform.OS === 'android') {
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    await googleSignin.GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
   }
 
-  const response = await GoogleSignin.signIn();
-  if (!isSuccessResponse(response)) {
+  const response = await googleSignin.GoogleSignin.signIn();
+  if (!googleSignin.isSuccessResponse(response)) {
     return null;
   }
 
@@ -183,7 +212,7 @@ export async function signOutFromFirebase(): Promise<void> {
     await signOut(firebaseAuth);
   }
   if (googleSigninConfigured) {
-    await GoogleSignin.signOut();
+    await getGoogleSignin()?.GoogleSignin.signOut();
   }
 }
 
