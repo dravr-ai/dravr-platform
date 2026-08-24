@@ -54,17 +54,19 @@ export interface CoachingGroup {
   updated_at: string;
 }
 
-/** A member within a coaching group */
+/**
+ * A member within a coaching group, shaped as the members endpoint serialises it.
+ * The server lists active members only — it filters on `left_at IS NULL` — and
+ * keeps `tenant_id` and `left_at` off the wire, so neither belongs here.
+ */
 export interface GroupMember {
   id: string;
   group_id: string;
   user_id: string;
-  tenant_id: string;
   role: GroupRole;
   peer_sharing_consent: boolean;
   consent_given_at: string;
   joined_at: string;
-  left_at: string | null;
   display_name: string | null;
 }
 

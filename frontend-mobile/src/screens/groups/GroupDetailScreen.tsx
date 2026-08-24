@@ -20,6 +20,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { spacing, glassCard, buttonGlow, useThemeColors } from '../../constants/theme';
+import { useAuth } from '../../contexts/AuthContext';
 import { useGroup, useGroupMembers, useGroupStats, useGroupActions } from '../../hooks/useGroups';
 import { groupsApi } from '../../services/api';
 import type { GroupMember, GroupRole } from '../../types';
@@ -136,6 +137,7 @@ export function GroupDetailScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
+  const { user } = useAuth();
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
   const { group, isLoading: isLoadingGroup, refetch: refetchGroup } = useGroup(groupId ?? '');
@@ -146,11 +148,12 @@ export function GroupDetailScreen() {
   const isLoading = isLoadingGroup || isLoadingMembers;
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Determine current user's role from the member list
-  const myMembership = members.find((m) => m.left_at === null);
+  // Determine current user's role from the member list. The endpoint returns
+  // only members who have not left, so every row here is an active membership.
+  const myMembership = members.find((m) => m.user_id === user?.id);
   const isAdmin = myMembership?.role === 'owner' || myMembership?.role === 'admin';
   const isOwner = myMembership?.role === 'owner';
-  const activeMembers = members.filter((m) => m.left_at === null);
+  const activeMembers = members;
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
