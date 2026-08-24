@@ -385,6 +385,20 @@ module "backend" {
       # mcp/resources/tool_surface.rs, whose own comment requires it to stay
       # below THIS value so a bounded call can never read as a dead session).
       # 120 = that bound plus margin for the model's first token.
+      #
+      # Measured against dev traffic (Cloud Logging, every ACP turn inside the
+      # retention window, n=17): the longest healthy turn ran 116.7s END TO END,
+      # one exceeded 110s, none exceeded 120s. A silent gap is by construction a
+      # sub-interval of its own turn, so 120 clears the observed maximum even in
+      # the pathological case where a whole turn is one unbroken silence — and
+      # real turns are chopped into many messages by Autopilot's tool calls, so
+      # the true gaps are far shorter.
+      #
+      # The same query found exactly one ACP timeout ever recorded here, and it
+      # is the PROMPT cap, not this one: "copilot-acp: prompt timed out after
+      # 300s" (2026-08-22T13:08:29Z) — the stall that cost 5 minutes and then
+      # fell to the fallback. The idle detector has never fired, which is the
+      # measurement confirming it was unreachable rather than merely idle.
       EMBACLE_ACP_MESSAGE_TIMEOUT_SECS = "120"
 
       # Whole-turn ACP timeout. Must encompass a full Autopilot turn, which runs
