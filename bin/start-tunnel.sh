@@ -58,7 +58,7 @@ TUNNEL_PID=$!
 # Wait for tunnel URL to be available
 echo -e "\033[0;32m[INFO]\033[0m Waiting for tunnel URL..."
 for i in {1..30}; do
-    TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | head -1)
+    TUNNEL_URL=$(grep -ao 'https://[a-z0-9-]*\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | head -1)
     if [[ -n "$TUNNEL_URL" ]]; then
         break
     fi
