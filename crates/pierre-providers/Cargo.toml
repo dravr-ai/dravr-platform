@@ -61,7 +61,10 @@ dravr-tronc = { version = "0.7.1", features = ["google-iam"], optional = true }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive"], default-features = false, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+# `net` + `io-util` back the loopback HTTP stub in intervals_icu_provider_test.rs,
+# which pins the bytes we put on the wire (the HTTP Basic username in particular).
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }
+base64 = "0.22"
 
 [lints]
 workspace = true

@@ -1,5 +1,5 @@
 // ABOUTME: Intervals.icu provider unit tests (auth validation, defaults, registry registration, push)
-// ABOUTME: Pure unit tests; the e2e suite that hits the live API lives in intervals_icu_e2e_test.rs (env-gated)
+// ABOUTME: Unit tests plus loopback-stub tests that pin the on-the-wire HTTP Basic credential pair
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,6 +12,8 @@
 #![cfg(feature = "provider-intervals-icu")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use chrono::{NaiveDate, Utc};
 use pierre_providers::core::{FitnessProvider, OAuth2Credentials};
 use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
@@ -19,6 +21,9 @@ use pierre_providers::models::{
     IntensityDistribution, SportType, WorkoutTargetZones, WorkoutTemplate,
 };
 use pierre_providers::ProviderRegistry;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 
 fn sample_template() -> WorkoutTemplate {
     WorkoutTemplate {
@@ -212,4 +217,117 @@ async fn push_planned_workout_requires_credentials() {
             || msg.contains("API key"),
         "expected auth error, got: {msg}"
     );
+}
+
+/// One-shot loopback HTTP stub. Accepts a single connection, captures the
+/// request head verbatim, answers with `body`, and returns the captured head so
+/// a test can assert on the exact bytes the provider put on the wire.
+async fn stub_once(body: &'static str) -> (String, JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
+    let addr = listener.local_addr().expect("stub addr");
+    let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let mut head = Vec::new();
+        let mut buf = [0_u8; 1024];
+        loop {
+            let n = socket.read(&mut buf).await.expect("read request");
+            if n == 0 {
+                break;
+            }
+            head.extend_from_slice(&buf[..n]);
+            if head.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+        socket.flush().await.expect("flush response");
+        String::from_utf8_lossy(&head).into_owned()
+    });
+    (format!("http://{addr}"), handle)
+}
+
+/// Pull the decoded `Authorization: Basic ...` credential pair out of a captured
+/// request head.
+fn basic_credentials(head: &str) -> String {
+    let encoded = head
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("authorization") {
+                value.trim().strip_prefix("Basic ")
+            } else {
+                None
+            }
+        })
+        .expect("request carries an Authorization: Basic header");
+    let decoded = STANDARD.decode(encoded).expect("base64 credential pair");
+    String::from_utf8(decoded).expect("utf-8 credential pair")
+}
+
+#[tokio::test]
+async fn basic_auth_username_is_the_literal_api_key_not_the_athlete_id() {
+    // Intervals.icu's API-key scheme is `curl -u API_KEY:<key>` — the username
+    // is the fixed string `API_KEY`. Sending the athlete id there returns 401 on
+    // every endpoint, which is exactly how the link flow shipped broken: the
+    // athlete id addresses the URL path, never the credential pair.
+    let (base_url, stub) = stub_once(r#"{"id":"i123456","name":"Test Athlete"}"#).await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let athlete = provider.get_athlete().await.expect("get_athlete succeeds");
+    assert_eq!(athlete.id, "i123456");
+
+    let head = stub.await.expect("stub task joins");
+    assert_eq!(
+        basic_credentials(&head),
+        "API_KEY:test-api-key",
+        "Basic credentials must be the literal API_KEY username plus the key"
+    );
+    assert!(
+        !head.contains("i123456:test-api-key"),
+        "the athlete id must never appear in the credential pair"
+    );
+    assert!(
+        head.starts_with("GET /api/v1/athlete/i123456 "),
+        "the athlete id addresses the URL path; got head: {head}"
+    );
+}
+
+#[tokio::test]
+async fn every_athlete_scoped_call_uses_the_literal_api_key_username() {
+    // The username is a per-call-site decision (seven of them). Cover a second,
+    // structurally different endpoint so a partial fix cannot pass.
+    let (base_url, stub) = stub_once("[]").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let from = NaiveDate::from_ymd_opt(2026, 6, 1).expect("valid from date");
+    let to = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid to date");
+    let wellness = provider
+        .get_wellness(from, to)
+        .await
+        .expect("get_wellness succeeds");
+    assert!(wellness.is_empty(), "stub returns an empty wellness list");
+
+    let head = stub.await.expect("stub task joins");
+    assert_eq!(basic_credentials(&head), "API_KEY:test-api-key");
 }

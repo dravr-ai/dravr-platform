@@ -1,5 +1,5 @@
 // ABOUTME: Intervals.icu API-key link routes — validate athlete_id + API key live, then persist
-// ABOUTME: Non-OAuth linking: HTTP Basic (athlete_id:api_key) stored as a ConnectionType::Manual connection
+// ABOUTME: Non-OAuth linking: HTTP Basic (literal "API_KEY":api_key) stored as a ConnectionType::Manual connection
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 //! # Intervals.icu link routes
 //!
 //! Intervals.icu authenticates with an athlete-generated API key (HTTP Basic
-//! `athlete_id:api_key`), not OAuth, so it has no redirect/callback flow. The
+//! `API_KEY:<api key>`), not OAuth, so it has no redirect/callback flow. The
 //! athlete pastes their athlete id + API key and `POST`s them here. The handler
 //! validates the pair against the live API before persisting: the API key is
 //! stored encrypted in the access-token column, the athlete id plaintext in
@@ -32,7 +32,9 @@ use crate::AuthRoutesContext;
 /// Request body for linking an Intervals.icu account.
 #[derive(Debug, Deserialize)]
 pub struct IntervalsIcuLinkRequest {
-    /// Athlete id (e.g. `i123456`) — the HTTP Basic username.
+    /// Athlete id (e.g. `i123456`) — addresses the athlete-scoped API path.
+    /// It is *not* the HTTP Basic username; Intervals.icu wants the literal
+    /// string `API_KEY` there.
     pub athlete_id: String,
     /// Personal API key from the athlete's Intervals.icu settings — the password.
     pub api_key: String,
@@ -99,8 +101,14 @@ pub async fn handle_intervals_icu_link(
             scopes: vec![],
         })
         .await?;
+    // A rejection here is about the athlete id + API key in *this request body*,
+    // not about the caller's Dravr session — so it must not be `auth_invalid`.
+    // That code maps to HTTP 401, and the shared api-client response interceptor
+    // treats any 401 as a dead session: it clears stored auth and signs the user
+    // out. A mistyped API key would log the athlete out of Dravr. `invalid_input`
+    // maps to 400, which is what a bad field in a request body deserves.
     let athlete = provider.get_athlete().await.map_err(|e| {
-        AppError::auth_invalid(format!(
+        AppError::invalid_input(format!(
             "Intervals.icu rejected those credentials — check the athlete id and API key ({e})"
         ))
     })?;
@@ -112,12 +120,14 @@ pub async fn handle_intervals_icu_link(
         tenant_id: tenant_id.to_string(),
         provider: INTERVALS_ICU.to_owned(),
         // The API key is the HTTP Basic password — encrypted at rest.
+        // (The Basic username is the constant `API_KEY`, not this athlete id.)
         access_token: api_key,
         refresh_token: None,
         token_type: "api_key".to_owned(),
         expires_at: None,
         scope: None,
-        // The athlete id is the HTTP Basic username — not secret, stored plaintext.
+        // The athlete id addresses the athlete-scoped API path — not secret,
+        // stored plaintext.
         provider_user_id: Some(athlete_id),
         oauth_app_client_id: None,
         created_at: now,

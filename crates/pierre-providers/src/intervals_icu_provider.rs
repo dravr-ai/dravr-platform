@@ -1,5 +1,5 @@
 // ABOUTME: Intervals.icu provider — FitnessProvider for athlete profile + activities + streams + wellness + planned-workout push
-// ABOUTME: Uses HTTP Basic auth (athlete_id : api_key) over reqwest; push writes planned workouts to the athlete's calendar
+// ABOUTME: Uses HTTP Basic auth (literal "API_KEY" : api_key) over reqwest; push writes planned workouts to the athlete's calendar
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,17 +17,23 @@
 //! # Intervals.icu Provider Module
 //!
 //! [`FitnessProvider`] for Intervals.icu (athlete profile, activities, streams,
-//! wellness, and planned-workout push) authenticated via HTTP Basic auth
-//! (`athlete_id : api_key`).
+//! wellness, and planned-workout push) authenticated via HTTP Basic auth with
+//! the literal username [`BASIC_AUTH_USERNAME`] and the athlete's API key as
+//! the password.
 //!
 //! ## Authentication
 //!
 //! Intervals.icu does not use OAuth. An athlete generates a personal API key in
-//! their account settings; the platform stores the athlete id (the HTTP Basic
-//! username) in `user_oauth_tokens.provider_user_id` and the API key (the
-//! password) in the encrypted access-token column. At request time the registry
-//! builds the provider via [`IntervalsIcuProviderFactory`] and the serving path
-//! feeds those two values in as [`OAuth2Credentials`] `client_id` / `access_token`.
+//! their account settings; the platform stores the athlete id in
+//! `user_oauth_tokens.provider_user_id` and the API key in the encrypted
+//! access-token column. At request time the registry builds the provider via
+//! [`IntervalsIcuProviderFactory`] and the serving path feeds those two values
+//! in as [`OAuth2Credentials`] `client_id` / `access_token`.
+//!
+//! The two values play different roles on the wire: the athlete id addresses
+//! the athlete-scoped URL path (`/api/v1/athlete/{id}/...`), while the Basic
+//! credential pair is always `API_KEY:<api key>`. Intervals.icu rejects an
+//! athlete id in the username position with 401 on every endpoint.
 
 use std::sync::Arc;
 
@@ -54,6 +60,14 @@ use crate::pagination::{CursorPage, PaginationParams};
 
 /// Default base URL for Intervals.icu's REST API (overridable by tests).
 pub const DEFAULT_API_BASE_URL: &str = "https://intervals.icu";
+
+/// HTTP Basic auth username for Intervals.icu's API-key scheme.
+///
+/// Intervals.icu authenticates personal API keys with the *literal* string
+/// `API_KEY` as the Basic username and the athlete's key as the password —
+/// the athlete id belongs in the URL path, never in the credential pair.
+/// Sending the athlete id as the username makes every call 401.
+pub const BASIC_AUTH_USERNAME: &str = "API_KEY";
 
 const DEFAULT_PAGE_LIMIT: usize = 30;
 const MAX_PAGE_LIMIT: usize = 200;
@@ -162,8 +176,9 @@ struct IntervalsIcuAthlete {
 pub struct IntervalsIcuProvider {
     config: ProviderConfig,
     /// Stored credentials. `access_token` holds the API key; `client_id`
-    /// holds the athlete id (Intervals.icu uses HTTP Basic auth with the
-    /// athlete id as username and the API key as password).
+    /// holds the athlete id, which addresses the athlete-scoped URL path. The
+    /// HTTP Basic username is the constant [`BASIC_AUTH_USERNAME`], never the
+    /// athlete id.
     credentials: Arc<RwLock<Option<OAuth2Credentials>>>,
     http: SharedHttpClient,
 }
@@ -244,7 +259,7 @@ impl IntervalsIcuProvider {
         let req = self
             .http
             .get(&url)
-            .basic_auth(&athlete_id, Some(&api_key))
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
             .header("Accept", "application/json")
             .query(&query);
         let response = send_traced(req, "list_activities", &url)
@@ -272,12 +287,12 @@ impl IntervalsIcuProvider {
     /// HTTP call fails. Returns `Ok(None)` for HTTP 404 (activity has no
     /// stream data).
     pub async fn get_streams(&self, activity_id: &str) -> AppResult<Option<TimeSeriesData>> {
-        let (athlete_id, api_key) = self.require_credentials().await?;
+        let (_, api_key) = self.require_credentials().await?;
         let url = self.activity_url(activity_id, "/streams.json");
         let req = self
             .http
             .get(&url)
-            .basic_auth(&athlete_id, Some(&api_key))
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
             .header("Accept", "application/json");
         let response = send_traced(req, "get_streams", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_streams: {e}"))
@@ -314,7 +329,7 @@ impl IntervalsIcuProvider {
         let req = self
             .http
             .get(&url)
-            .basic_auth(&athlete_id, Some(&api_key))
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
             .header("Accept", "application/json")
             .query(&[
                 ("oldest", oldest.format("%Y-%m-%d").to_string()),
@@ -350,7 +365,7 @@ impl IntervalsIcuProvider {
         let req = self
             .http
             .get(&url)
-            .basic_auth(&athlete_id, Some(&api_key))
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
             .header("Accept", "application/json")
             .query(&[
                 ("oldest", oldest.format("%Y-%m-%d").to_string()),
@@ -653,7 +668,7 @@ impl FitnessProvider for IntervalsIcuProvider {
         let req = self
             .http
             .get(&url)
-            .basic_auth(&athlete_id, Some(&api_key))
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
             .header("Accept", "application/json");
         let response = send_traced(req, "get_athlete", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_athlete: {e}"))
@@ -716,12 +731,12 @@ impl FitnessProvider for IntervalsIcuProvider {
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        let (athlete_id, api_key) = self.require_credentials().await?;
+        let (_, api_key) = self.require_credentials().await?;
         let url = self.activity_url(id, "");
         let req = self
             .http
             .get(&url)
-            .basic_auth(&athlete_id, Some(&api_key))
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
             .header("Accept", "application/json");
         let response = send_traced(req, "get_activity", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_activity: {e}"))
@@ -796,7 +811,7 @@ impl FitnessProvider for IntervalsIcuProvider {
         let req = self
             .http
             .post(&url)
-            .basic_auth(&athlete_id, Some(&api_key))
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
             .header("Accept", "application/json")
             .json(&body);
         let response = send_traced(req, "push_planned_workout", &url)

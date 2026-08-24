@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Intervals.icu link modal for mobile — collects athlete id + API key (non-OAuth)
-// ABOUTME: Server validates the HTTP Basic (athlete_id:api_key) pair live before storing
+// ABOUTME: Server validates the HTTP Basic ("API_KEY":api_key) pair live before storing
 
 import React, { useState, useEffect } from 'react';
 import {
