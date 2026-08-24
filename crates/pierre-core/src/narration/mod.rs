@@ -94,6 +94,16 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
     "embedded instruction",
     "embedded instructions",
     "pasted block",
+    // Output-mechanics self-talk: the model narrating how it is formatting
+    // the message itself. «Good, real newlines. Let me fix the split.» opened
+    // a delivered group reply on 2026-08-23 — English preamble about newline
+    // handling and canot's message splitting, before the French answer.
+    // "real newlines"/"newlines" have no athletic meaning; the split entry is
+    // the FULL observed phrase because "fix the split" alone is running
+    // vocabulary (interval splits) and would eat legitimate coaching.
+    "real newlines",
+    "newlines",
+    "let me fix the split",
     // Spanish
     "bloque oculto",
     "instrucción oculta",
