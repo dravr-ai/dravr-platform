@@ -57,6 +57,10 @@ jobs:
         working-directory: frontend-mobile
         run: bun run typecheck
 
+      - name: Lint
+        working-directory: frontend-mobile
+        run: bun run lint
+
       - name: Run unit tests
         working-directory: frontend-mobile
         run: bun run test -- --coverage

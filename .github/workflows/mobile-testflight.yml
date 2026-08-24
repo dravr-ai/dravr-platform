@@ -1,18 +1,18 @@
-# ABOUTME: Builds iOS via EAS on every mobile change to main; submits to TestFlight on production dispatch.
-# ABOUTME: Also supports manual dispatch with profile selection for production releases.
+# ABOUTME: Builds iOS via EAS on manual dispatch only; submits to TestFlight on the production profile.
+# ABOUTME: Deliberately has no push trigger — every run consumes an EAS build from the monthly quota.
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 
 name: "Deploy: TestFlight"
 
+# Manual dispatch only. An EAS build is a metered resource: building on every
+# push to main exhausted the monthly quota well before the month did, and the
+# push path could not submit anyway (it built `preview`, which App Store Connect
+# rejects). Typecheck, lint and unit tests for the same paths still run on every
+# push via "CI: Mobile Unit" (mobile-unit-tests.yml), so nothing is unguarded —
+# only the metered build now waits for someone to ask for it.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'frontend-mobile/**'
-      - 'packages/api-client/**'
-      - 'packages/shared-types/**'
   workflow_dispatch:
     inputs:
       profile:
