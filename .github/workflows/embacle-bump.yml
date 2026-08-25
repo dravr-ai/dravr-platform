@@ -1,0 +1,510 @@
+# ABOUTME: Turns an embacle release into a deployed platform binary — pin bump, CI gate, squash merge, deploy
+# ABOUTME: The embacle half of the wire sciotte-bump.yml built; both ends exist so neither pin can drift silently
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# The last of the four satellites to get one. photograveur, contremaitre and sciotte
+# each had this wire; embacle's release stayed a human procedure — six version pins
+# across four manifests plus the lockfile, with embacle-tool-host to move in lockstep.
+# v0.21.3 was landed that way on 2026-08-24 and got it right, which is the argument
+# for automating it rather than against: nothing about that run was checked by
+# anything, so the next one is a coin flip.
+#
+# Two things here differ from photograveur's chain, and both are the reason this
+# could not be a copy of it.
+#
+# FIRST: embacle ships from crates.io, not from a git tag. A GitHub release is
+# therefore NOT proof the platform can consume it — release.yml creates the tag and
+# the release around a `cargo publish` that is allowed to fail per-crate. A tag whose
+# publish failed would bump the manifests onto a version that does not exist and fail
+# in `cargo update` with a resolver error that names nothing useful. So `resolve`
+# verifies the *registry*, and waits for it: crates.io indexing lags publication by
+# up to a couple of minutes, and release.yml publishes embacle-tool-host LAST, after
+# three 30s sleeps.
+#
+# SECOND: there is no embacle service to deploy. embacle is the ACP runner compiled
+# INTO dravr-mcp-server-api, so the only thing that ships it is the platform image.
+# That makes the dispatch in the final job the whole delivery, not a follow-up to it —
+# which is exactly the failure carnet#94 recorded against photograveur, where six
+# green jobs shipped nothing at all.
+
+name: "Embacle: Release Integration"
+
+on:
+  repository_dispatch:
+    types: [embacle-released]
+  schedule:
+    # Weekly safety net on the same cadence as the other satellites: a missed or
+    # failed dispatch still gets the release integrated rather than silently dropped.
+    - cron: "30 14 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "embacle version to integrate (defaults to the latest release)"
+        required: false
+        type: string
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch, and the deploy onto main
+
+concurrency:
+  # Never overlap. Two releases integrating at once would race on main, and the
+  # second would push a lockfile resolved against the first one's manifests.
+  group: embacle-bump
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. What are we integrating, does the registry actually have it, and is there
+  #    anything to do?
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve target version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      pinned: ${{ steps.v.outputs.pinned }}
+      needed: ${{ steps.v.outputs.needed }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve the target version
+        id: v
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${PAYLOAD_VERSION:-${INPUT_VERSION:-}}"
+          if [ -z "${VERSION}" ]; then
+            VERSION=$(gh release view --repo dravr-ai/dravr-embacle --json tagName -q .tagName)
+          fi
+          if [ -z "${VERSION}" ]; then
+            echo "::error::could not resolve a dravr-embacle version to integrate"
+            exit 1
+          fi
+          # Tags are v-prefixed; Cargo.toml versions are not. Normalise once here so
+          # every step below deals in the manifest's own vocabulary.
+          VERSION="${VERSION#v}"
+          if ! printf '%s' "${VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::resolved '${VERSION}', which is not a plain semver version"
+            exit 1
+          fi
+
+          # Read the pin from the manifest that has carried embacle longest. If its
+          # line shape ever changes this fails loudly here rather than sed-ing nothing
+          # and reporting a successful no-op bump.
+          MANIFEST=crates/pierre-llm/Cargo.toml
+          PINNED=$(grep -oE '^embacle = \{ version = "[0-9]+\.[0-9]+\.[0-9]+"' "${MANIFEST}" \
+                   | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "${PINNED}" ]; then
+            echo "::error::could not read the pinned embacle version from ${MANIFEST} — the line shape changed"
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "pinned=${PINNED}"   >> "$GITHUB_OUTPUT"
+          if [ "${PINNED}" = "${VERSION}" ]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "pin is already ${VERSION} — nothing to integrate"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "integrating ${PINNED} -> ${VERSION}"
+          fi
+
+      - name: Wait for crates.io to carry every crate the platform consumes
+        if: steps.v.outputs.needed == 'true'
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The registry is the source of truth, not the GitHub release. release.yml
+          # publishes four crates behind a helper that tolerates "already uploaded"
+          # and fails on everything else — but the release itself is created in the
+          # same job, so a partial publish still produces a tag. Only these two reach
+          # the platform; the other two (embacle-mcp, embacle-server) are irrelevant
+          # here and are not worth blocking on.
+          #
+          # This waits rather than checks because the dispatch arrives seconds after
+          # publication and the sparse index lags it. release.yml publishes
+          # embacle-tool-host LAST, after three 30s sleeps, so tool-host is the one
+          # that will still be missing.
+          #
+          # The User-Agent is mandatory, not politeness: crates.io answers an
+          # anonymous request with 403, which reads exactly like "not published" and
+          # would turn a slow index into a hard failure.
+          UA="dravr-embacle-bump (github.com/dravr-ai/dravr-platform)"
+          DEADLINE=$(( $(date +%s) + 15 * 60 ))
+          for CRATE in embacle embacle-tool-host; do
+            while :; do
+              CODE=$(curl -s -o /tmp/resp.json -w '%{http_code}' -A "${UA}" \
+                     "https://crates.io/api/v1/crates/${CRATE}/${VERSION}" || echo 000)
+              if [ "${CODE}" = "200" ]; then
+                YANKED=$(jq -r '.version.yanked' /tmp/resp.json 2>/dev/null || echo unknown)
+                if [ "${YANKED}" = "true" ]; then
+                  echo "::error::${CRATE} ${VERSION} is published but YANKED — refusing to pin it"
+                  exit 1
+                fi
+                echo "${CRATE} ${VERSION} is on crates.io"
+                break
+              fi
+              if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+                echo "::error::${CRATE} ${VERSION} never appeared on crates.io (last HTTP ${CODE})"
+                echo "::error::the release tag exists but the publish did not land — fix release.yml's publish job, do not re-run this"
+                exit 1
+              fi
+              echo "${CRATE} ${VERSION} not indexed yet (HTTP ${CODE}); retrying in 30s"
+              sleep 30
+            done
+          done
+
+  # ---------------------------------------------------------------------------
+  # 2. Bump every consumer onto the new version, on a branch
+  # ---------------------------------------------------------------------------
+  bump:
+    name: Bump the pins on a branch
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: needs.resolve.outputs.needed == 'true'
+    outputs:
+      branch: ${{ steps.push.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Configure auth for private git deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Rewrite the version in every consumer manifest
+        id: bump
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Auto-discover consumers rather than hardcoding the list, for the reason
+          # contremaitre-bump learned the hard way: a hardcoded list left one crate
+          # behind, which put two versions of the same dependency in Cargo.lock and
+          # hard-failed the Security Audit on main. embacle is pinned six times across
+          # four manifests today and the count has moved twice this month.
+          #
+          # Anchored at line start so the feature declaration in pierre-core
+          # (`llm = [..., "dep:embacle"]`) is not mistaken for a pin, and so
+          # `embacle-tool-host` is matched as itself rather than as a prefix of it.
+          #
+          # The root manifest is searched too. Nothing pins embacle there today, but
+          # the workspace-dependency form is where a pin would go if someone
+          # consolidated them, and a search scoped to crates/ would not see it.
+          MANIFESTS=$(grep -rlE '^embacle(-tool-host)? = ' crates/ Cargo.toml --include=Cargo.toml)
+          if [ -z "${MANIFESTS}" ]; then
+            echo "::error::no Cargo.toml pins embacle — workflow assumption broke"
+            exit 1
+          fi
+          echo "Consumers pinning embacle:"; echo "${MANIFESTS}"
+          PINS=0
+
+          # Overwrite whatever version each line holds rather than swapping a known
+          # old value: that also converges a manifest that had drifted to a third
+          # version. Both pin shapes in use are handled — the table form
+          # (`= { version = "x" }`, with or without further keys) and the bare string
+          # form (`= "x"`).
+          for m in ${MANIFESTS}; do
+            sed -i -E \
+              -e "s|^(embacle(-tool-host)? = \{ version = \")[0-9]+\.[0-9]+\.[0-9]+\"|\1${VERSION}\"|" \
+              -e "s|^(embacle(-tool-host)? = \")[0-9]+\.[0-9]+\.[0-9]+\"|\1${VERSION}\"|" \
+              "$m"
+
+            # Verify every pin in this file landed, by requiring each line to CONTAIN
+            # the target version — not by looking for a leftover version that differs
+            # from it. The difference is not stylistic. A negative check reads the
+            # versions present and complains about the wrong ones, so a line holding
+            # NO parseable version satisfies it vacuously: `{ workspace = true }`,
+            # a two-component `"0.21"`, a git or path override. Tested against all
+            # three, the negative form passed while leaving the pin untouched, which
+            # is the silent no-op this whole workflow exists to prevent.
+            while IFS= read -r line; do
+              case "${line}" in
+                *"\"${VERSION}\""*) ;;
+                *)
+                  echo "::error::${m} has an embacle pin this bump could not rewrite:"
+                  echo "::error::  ${line}"
+                  echo "::error::expected it to carry ${VERSION}. The pin shape is one sed does not"
+                  echo "::error::handle (workspace/git/path override, or a non-semver version)."
+                  echo "::error::Refusing to push a partial bump — teach the sed the new shape."
+                  exit 1
+                  ;;
+              esac
+              PINS=$(( PINS + 1 ))
+            done < <(grep -E '^embacle(-tool-host)? = ' "$m")
+          done
+
+          echo "rewrote ${PINS} pin(s) across $(echo "${MANIFESTS}" | wc -l | tr -d ' ') manifest(s)"
+          # Six today. A bump that suddenly rewrites one is a discovery failure wearing
+          # a success, so require at least the two crate names this workflow exists to
+          # keep in lockstep.
+          if [ "${PINS}" -lt 2 ]; then
+            echo "::error::only ${PINS} pin(s) found — discovery missed something, refusing to push"
+            exit 1
+          fi
+
+          cargo update -p embacle -p embacle-tool-host
+
+          # Assert the lockfile holds exactly one of each, both at the version just
+          # pinned. Borrowed from the sciotte chain, which learned it the expensive
+          # way: the platform depends on dravr-sciotte directly and again through
+          # dravr-enforme, so moving one arm produced a lockfile carrying two versions
+          # and a branch that could never merge — ci-backend hard-fails a build where
+          # a dravr-* crate resolves twice.
+          #
+          # For embacle the diamond is not hypothetical: embacle-tool-host depends on
+          # embacle, so a version that moves one but not the other compiles two copies
+          # of the ACP runner into one binary. Yesterday's manual bump had to remember
+          # this; here it is asserted.
+          for CRATE in embacle embacle-tool-host; do
+            ENTRIES=$(grep -c "^name = \"${CRATE}\"$" Cargo.lock || true)
+            if [ "${ENTRIES}" != "1" ]; then
+              echo "::error::Cargo.lock holds ${ENTRIES} ${CRATE} entries, expected 1 — this bump cannot merge"
+              grep -A2 "^name = \"${CRATE}\"$" Cargo.lock || true
+              exit 1
+            fi
+            GOT=$(grep -A1 "^name = \"${CRATE}\"$" Cargo.lock | grep '^version = ' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+            if [ "${GOT}" != "${VERSION}" ]; then
+              echo "::error::Cargo.lock resolves ${CRATE} at ${GOT}, expected ${VERSION}"
+              exit 1
+            fi
+            echo "Cargo.lock: ${CRATE} ${GOT} (single entry)"
+          done
+
+      - name: Push the branch and dispatch the gates onto it
+        id: push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          BRANCH="fix/embacle-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BRANCH}"
+          git add $(grep -rlE '^embacle(-tool-host)? = ' crates/ Cargo.toml --include=Cargo.toml) Cargo.lock
+          git commit -m "chore(embacle): bump embacle to ${VERSION}"
+          git push --force-with-lease origin "${BRANCH}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          # GitHub suppresses workflow runs on pushes made with GITHUB_TOKEN, so this
+          # branch triggers nothing on its own and the gate below would wait forever
+          # on runs that never start. Dispatch each gate explicitly. A PAT would avoid
+          # this, but DRAVR_PRIVATE_DEPS_TOKEN is read-only on this repo.
+          #
+          # No frontend gate, unlike photograveur: embacle generates no TypeScript.
+          # Nothing in packages/ is derived from it, so web and mobile cannot see this
+          # change and making them a gate would only add twelve minutes and a flake.
+          for wf in ci-backend.yml ci-postgres.yml integration-tests.yml; do
+            gh workflow run "$wf" --ref "${BRANCH}"
+            echo "dispatched ${wf} on ${BRANCH}"
+          done
+
+  # ---------------------------------------------------------------------------
+  # 3. Wait for those gates to finish, and require green
+  # ---------------------------------------------------------------------------
+  gate:
+    name: Wait for CI on the bump branch
+    runs-on: ubuntu-latest
+    needs: [resolve, bump]
+    timeout-minutes: 60
+    steps:
+      - name: Poll until every gate reaches a terminal status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          WORKFLOWS="ci-backend.yml ci-postgres.yml integration-tests.yml"
+          DEADLINE=$(( $(date +%s) + 45 * 60 ))
+
+          # The branch is created fresh for this version and nothing else pushes to
+          # it, so the newest run per workflow on it is unambiguously ours. Matching
+          # by commit was rejected: `gh run list --commit` silently returns zero rows.
+          while :; do
+            PENDING=""; FAILED=""
+            for wf in ${WORKFLOWS}; do
+              LINE=$(gh run list --workflow "$wf" --branch "${BRANCH}" --limit 1 \
+                       --json status,conclusion \
+                       -q '.[0] | "\(.status) \(.conclusion // "-")"' 2>/dev/null || true)
+              STATUS="${LINE%% *}"; CONCL="${LINE##* }"
+              if [ -z "${LINE}" ] || [ "${STATUS}" != "completed" ]; then
+                PENDING="${PENDING} ${wf}(${STATUS:-not-started})"
+              elif [ "${CONCL}" != "success" ]; then
+                # cancelled and skipped are not green. A cancelled run validated nothing.
+                FAILED="${FAILED} ${wf}(${CONCL})"
+              fi
+            done
+
+            if [ -n "${FAILED}" ]; then
+              echo "::error::CI is not green on ${BRANCH}:${FAILED} — the branch is left in place for inspection"
+              exit 1
+            fi
+            if [ -z "${PENDING}" ]; then
+              echo "all gates green on ${BRANCH}"
+              break
+            fi
+            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
+              echo "::error::timed out after 45m waiting on:${PENDING}"
+              exit 1
+            fi
+            echo "waiting on:${PENDING}"
+            sleep 60
+          done
+
+  # ---------------------------------------------------------------------------
+  # 4. Squash the branch onto main
+  # ---------------------------------------------------------------------------
+  merge:
+    name: Squash merge onto main
+    runs-on: ubuntu-latest
+    needs: [resolve, bump, gate]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Squash merge and delete the branch
+        env:
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PINNED: ${{ needs.resolve.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "${BRANCH}"
+          git merge --squash "origin/${BRANCH}"
+          git commit -m "chore(embacle): integrate embacle ${PINNED} -> ${VERSION}"
+          git push origin main
+          # Squash gives the merge a new SHA, so the branch is dead the moment it
+          # lands. Deleting it here keeps dead refs from accumulating per release.
+          git push origin --delete "${BRANCH}"
+
+  # ---------------------------------------------------------------------------
+  # 5. Ship the binary — which for embacle is the entire delivery
+  # ---------------------------------------------------------------------------
+  #
+  # There is no embacle service. embacle is a library crate: the ACP runner that
+  # drives `copilot --acp`, compiled into dravr-mcp-server-api. A merged pin changes
+  # nothing an athlete can reach until that binary is rebuilt.
+  #
+  # Nothing rebuilds it on its own. `publish-images.yml` deploys the platform on
+  # `workflow_run` of "CI: Backend (Rust)" against main, and the squash merge above
+  # is pushed with GITHUB_TOKEN, which by design does not trigger downstream
+  # workflows. A bump landing on a quiet main would report every job green and ship
+  # nothing — which is not a hypothetical: carnet#94 is that exact failure, twice, on
+  # photograveur's chain in a single day.
+  deploy:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    needs: [resolve, merge]
+    if: ${{ !cancelled() && needs.merge.result == 'success' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PINNED: ${{ needs.resolve.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up embacle ${VERSION}"
+          {
+            echo "### Platform deploy dispatched"
+            echo ""
+            echo "embacle **${PINNED} -> ${VERSION}** is merged to main, and the binary that"
+            echo "compiles it is now rebuilding. embacle has no service of its own — this"
+            echo "dispatch is the whole delivery."
+            echo ""
+            echo "Verify what is actually serving once it finishes:"
+            echo ""
+            echo '```'
+            echo "gcloud run services describe dravr-mcp-server-api \\"
+            echo "  --project=dravr-dev --region=northamerica-northeast1 \\"
+            echo "  --format='value(status.latestReadyRevisionName)'"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Anything that stops the chain becomes a tracked issue
+  # ---------------------------------------------------------------------------
+  report-failure:
+    name: File the stall on the register
+    runs-on: ubuntu-latest
+    needs: [resolve, bump, gate, merge, deploy]
+    if: failure() && needs.resolve.outputs.needed == 'true'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Open or update the register issue
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PINNED: ${{ needs.resolve.outputs.pinned }}
+          BRANCH: ${{ needs.bump.outputs.branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The private register, because this repo is public.
+          TRACKER=$(grep -oE '^tracker[[:space:]]*=[[:space:]]*"[^"]+"' registre.toml | grep -oE '[^"]+/[^"]+')
+          TITLE="[platform] embacle integration stalled (${PINNED} -> ${VERSION})"
+
+          # Indented to this block's level on purpose: YAML strips a block scalar's
+          # common indentation, so the shell receives column 0. Dedenting breaks the YAML.
+          BODY=$(cat <<EOF
+          Automated integration of \`embacle\` **${VERSION}** did not complete.
+
+          - Pinned: **${PINNED}**
+          - Target: **${VERSION}**
+          - Branch: \`${BRANCH:-not created}\`
+          - Run: ${RUN_URL}
+
+          A stall is safe: the binary is rebuilt only after main has merged the bump,
+          so if this stopped at or before the merge the deployed platform is unchanged
+          and the branch is still there to inspect. If it stopped at the deploy
+          dispatch, main is ahead of the running binary and the fix is to run
+          \`publish-images.yml\` on main.
+
+          **If the registry wait was what failed**, the release tag exists but
+          \`cargo publish\` did not land every crate. Re-running this workflow cannot
+          help — fix the publish job in dravr-embacle's \`release.yml\` and cut the
+          release again.
+
+          While stalled, the platform keeps running the previously pinned embacle.
+          Coaching continues to work; whatever the new release fixed is simply not
+          live yet.
+
+          _Filed by \`embacle-bump.yml\`._
+          EOF
+          )
+
+          EXISTING=$(gh issue list --repo "$TRACKER" --state open --search "embacle integration stalled in:title" \
+                     --json number -q '.[0].number' 2>/dev/null || true)
+          if [ -n "${EXISTING}" ]; then
+            gh issue edit "${EXISTING}" --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+            echo "updated ${TRACKER}#${EXISTING}"
+          else
+            gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY" \
+              --label "dravr-platform" --label "dependency" 2>/dev/null \
+              || gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+            echo "opened a new issue on ${TRACKER}"
+          fi
