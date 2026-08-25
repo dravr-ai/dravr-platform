@@ -1659,3 +1659,289 @@ async fn rendered_tool_catalog_exposes_the_nested_field_names() {
     assert!(catalog.contains("(array of object)"), "catalog:\n{catalog}");
     assert!(catalog.contains("  - `"), "catalog:\n{catalog}");
 }
+
+// ---------------------------------------------------------------------------
+// Save telemetry — training_plan.saved and training_plan.coverage_gap
+//
+// Dates are derived from the clock, not hardcoded: coverage is judged against
+// the athlete's today, so a fixed fixture would drift into (or out of) a gap
+// and the assertions would silently start testing a different case.
+// ---------------------------------------------------------------------------
+
+/// `YYYY-MM-DD`, `offset` days from today.
+fn day_offset(offset: i64) -> String {
+    let today = chrono::Utc::now().date_naive();
+    let d = if offset >= 0 {
+        today + chrono::Days::new(offset.unsigned_abs())
+    } else {
+        today - chrono::Days::new(offset.unsigned_abs())
+    };
+    d.format("%Y-%m-%d").to_string()
+}
+
+/// One week of two real sessions starting `offset` days from today.
+fn week_at(offset: i64, focus: &str) -> Value {
+    json!({
+        "week_start": day_offset(offset),
+        "focus": focus,
+        "days": [
+            {"date": day_offset(offset), "sport": "rest", "workout": "off — legs up"},
+            {"date": day_offset(offset + 1), "sport": "gravel", "workout": "tempo 3x8min", "duration_min": 60, "intensity": "Z3"}
+        ]
+    })
+}
+
+/// An outline whose single block starts at `block_offset` and runs `weeks`.
+fn outline_with(block_offset: i64, weeks: u32) -> Value {
+    json!({
+        "goal_race": {
+            "name": "Harricana",
+            "date": day_offset(120),
+            "discipline": "trail run",
+            "priority": "A"
+        },
+        "strategy": "rebuild volume, then sharpen into the goal race",
+        "blocks": [
+            {"phase": "build", "start": day_offset(block_offset), "weeks": weeks, "intent": "volume up", "target_hours": 9.0}
+        ]
+    })
+}
+
+/// Every committed write reports itself — including a weeks-only adjustment,
+/// which emitted nothing at all before this existed because the ramp events are
+/// gated on an outline being present. Two of one athlete's five successful
+/// saves were invisible in Cloud Logging as a result.
+#[tokio::test]
+async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    // Outline save: covers today and matches its block exactly.
+    let (events, guard) = setup_capture();
+    let first = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            json!({
+                "coach_id": "endurance-coach",
+                "outline": outline_with(-2, 1),
+                "weeks": [week_at(-2, "current week")]
+            }),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let captured = events.lock().expect("capture lock").clone();
+    drop(guard);
+    assert!(first.success, "outline save failed: {:?}", first.error);
+
+    let saved = notify_events(&captured, "training_plan.saved");
+    assert_eq!(saved.len(), 1, "one saved event per write: {captured:?}");
+    assert_eq!(
+        saved[0].field("has_outline"),
+        Some("true"),
+        "an outline save must say so: {captured:?}"
+    );
+    assert_eq!(
+        saved[0].field("weeks_saved"),
+        Some("1"),
+        "weeks_saved must count the write: {captured:?}"
+    );
+    assert!(
+        saved[0]
+            .field("week_starts")
+            .is_some_and(|w| w.contains(&day_offset(-2))),
+        "week_starts must name the week written: {captured:?}"
+    );
+
+    // Weeks-only adjustment: the case that used to be silent.
+    let (events2, guard2) = setup_capture();
+    let second = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            json!({
+                "coach_id": "endurance-coach",
+                "weeks": [week_at(5, "next week")]
+            }),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let captured2 = events2.lock().expect("capture lock").clone();
+    drop(guard2);
+    assert!(second.success, "weeks-only save failed: {:?}", second.error);
+
+    let saved2 = notify_events(&captured2, "training_plan.saved");
+    assert_eq!(
+        saved2.len(),
+        1,
+        "a weeks-only adjustment must report itself: {captured2:?}"
+    );
+    assert_eq!(
+        saved2[0].field("has_outline"),
+        Some("false"),
+        "no outline in this payload: {captured2:?}"
+    );
+    assert!(
+        saved2[0]
+            .field("week_starts")
+            .is_some_and(|w| w.contains(&day_offset(5))),
+        "week_starts must name the adjusted week: {captured2:?}"
+    );
+    Ok(())
+}
+
+/// A plan the athlete was following that no longer reaches today — the state
+/// that went unreported while a real athlete's build, peak and taper sat
+/// stranded on a superseded plan. A week has already ended and the outline says
+/// a block is running now, so the plan claims to be covering an athlete it is
+/// not.
+#[tokio::test]
+async fn a_plan_that_stopped_covering_the_athlete_reports_an_uncovered_gap() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let (events, guard) = setup_capture();
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            json!({
+                "coach_id": "endurance-coach",
+                // The block spans today; the weeks behind it do not — one ended
+                // last week and the next has not started.
+                "outline": outline_with(-14, 3),
+                "weeks": [week_at(-14, "base"), week_at(7, "build")]
+            }),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let captured = events.lock().expect("capture lock").clone();
+    drop(guard);
+    assert!(save.success, "save failed: {:?}", save.error);
+
+    let gaps = notify_events(&captured, "training_plan.coverage_gap");
+    let kinds: Vec<&str> = gaps.iter().filter_map(|e| e.field("kind")).collect();
+    assert!(
+        kinds.contains(&"uncovered_today"),
+        "a plan that was running and no longer reaches today is a hole: {captured:?}"
+    );
+    assert!(
+        !kinds.contains(&"short_of_outline"),
+        "the weeks outlast the block — the outline is not outrun: {captured:?}"
+    );
+    assert!(
+        gaps[0]
+            .field("last_week_start")
+            .is_some_and(|w| w == day_offset(7)),
+        "last_week_start must be the latest stored week: {captured:?}"
+    );
+    Ok(())
+}
+
+/// A plan written before it starts is not a gap. A coach who lays out next
+/// week's schedule on a Wednesday, or saves an outline ahead of its weeks, has
+/// produced a perfectly good plan — reporting those would fire the signal on
+/// ordinary coaching and bury the case above.
+#[tokio::test]
+async fn a_plan_that_has_not_started_yet_reports_no_gap() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let (events, guard) = setup_capture();
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            json!({
+                "coach_id": "endurance-coach",
+                // Block and weeks agree with each other; both start next week.
+                "outline": outline_with(7, 2),
+                "weeks": [week_at(7, "reintroduction"), week_at(14, "build")]
+            }),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let captured = events.lock().expect("capture lock").clone();
+    drop(guard);
+    assert!(save.success, "save failed: {:?}", save.error);
+
+    let gaps = notify_events(&captured, "training_plan.coverage_gap");
+    assert!(
+        gaps.is_empty(),
+        "a plan that starts next week has no gap to report: {captured:?}"
+    );
+    Ok(())
+}
+
+/// The outline promises phases the day-by-day weeks never reach — the shape
+/// that left a real athlete's build, peak and taper with no sessions behind
+/// them while `/plan` still advertised the phase.
+#[tokio::test]
+async fn weeks_that_stop_before_the_outline_ends_report_a_short_gap() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let (events, guard) = setup_capture();
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            json!({
+                "coach_id": "endurance-coach",
+                // Four weeks of block, two weeks of actual sessions.
+                "outline": outline_with(-2, 4),
+                "weeks": [week_at(-2, "current week"), week_at(5, "next week")]
+            }),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let captured = events.lock().expect("capture lock").clone();
+    drop(guard);
+    assert!(save.success, "save failed: {:?}", save.error);
+
+    let gaps = notify_events(&captured, "training_plan.coverage_gap");
+    let kinds: Vec<&str> = gaps.iter().filter_map(|e| e.field("kind")).collect();
+    assert!(
+        kinds.contains(&"short_of_outline"),
+        "a 4-week block behind 2 weeks of sessions is short: {captured:?}"
+    );
+    assert!(
+        !kinds.contains(&"uncovered_today"),
+        "today sits inside the first week — it is covered: {captured:?}"
+    );
+    Ok(())
+}
+
+/// The negative case that keeps the signal worth reading: a plan that covers
+/// today and whose weeks reach the end of its outline reports nothing. Without
+/// this, an off-by-one between a block's exclusive span and a week's inclusive
+/// end would fire on every save and the event would be noise.
+#[tokio::test]
+async fn a_plan_that_covers_today_and_matches_its_outline_reports_no_gap() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let (events, guard) = setup_capture();
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            json!({
+                "coach_id": "endurance-coach",
+                "outline": outline_with(-2, 1),
+                "weeks": [week_at(-2, "current week")]
+            }),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let captured = events.lock().expect("capture lock").clone();
+    drop(guard);
+    assert!(save.success, "save failed: {:?}", save.error);
+
+    let gaps = notify_events(&captured, "training_plan.coverage_gap");
+    assert!(
+        gaps.is_empty(),
+        "a plan covering today and reaching its block's last day owes no gap: {gaps:?}"
+    );
+    Ok(())
+}

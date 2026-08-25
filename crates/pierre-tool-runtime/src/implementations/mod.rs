@@ -108,6 +108,8 @@ pub mod memory;
 /// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
 #[cfg(feature = "tools-memory")]
 pub mod playbooks;
+/// Notify telemetry for training-plan writes: what was saved, and what it leaves uncovered.
+pub mod training_plan_telemetry;
 pub mod training_plans;
 
 /// Mobility / stretching / yoga tools (`tools-mobility` feature).
