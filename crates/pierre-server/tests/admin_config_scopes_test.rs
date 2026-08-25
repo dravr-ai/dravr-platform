@@ -34,8 +34,12 @@ use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
+#[cfg(feature = "postgresql")]
+use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
-use pierre_mcp_server::config::admin::{AdminConfigManager, AdminConfigRepository};
+use pierre_mcp_server::config::admin::{
+    AdminConfigManager, AdminConfigRepository, AdminConfigService,
+};
 use uuid::Uuid;
 
 const CATEGORY: &str = "usage_quotas";
@@ -48,12 +52,73 @@ fn quota_definitions() -> HashMap<String, ParameterDefinition> {
     defs
 }
 
+/// Build the repository for whichever backend [`create_test_db`] opened.
+///
+/// `create_test_db` honours a `PostgreSQL` `DATABASE_URL`, so under
+/// `ci-postgres` these assertions must run against
+/// `PostgresAdminConfigManager`'s own SQL — the per-user upsert names a
+/// partial unique index, and index inference is exactly the kind of thing a
+/// `SQLite` stand-in would not exercise.
 fn repository(db: &Database) -> Box<dyn AdminConfigRepository> {
+    #[cfg(feature = "postgresql")]
+    if let Some(pg) = db.postgres_pool() {
+        return Box::new(PostgresAdminConfigManager::new(pg.clone()));
+    }
+
     Box::new(AdminConfigManager::new(
         db.sqlite_pool()
-            .expect("scope tests run on the SQLite backend")
+            .expect("test database exposes neither a PostgreSQL nor a SQLite pool")
             .clone(),
     ))
+}
+
+/// Build the config service against the same backend.
+async fn config_service(db: &Database) -> AdminConfigService {
+    #[cfg(feature = "postgresql")]
+    if let Some(pg) = db.postgres_pool() {
+        return AdminConfigService::from_postgres(pg.clone())
+            .await
+            .expect("PostgreSQL admin config service");
+    }
+
+    AdminConfigService::new(
+        db.sqlite_pool()
+            .expect("test database exposes neither a PostgreSQL nor a SQLite pool")
+            .clone(),
+    )
+    .await
+    .expect("SQLite admin config service")
+}
+
+/// Count stored per-user rows for the parameter under test.
+async fn count_user_rows(db: &Database, user: &str) -> i64 {
+    #[cfg(feature = "postgresql")]
+    if let Some(pg) = db.postgres_pool() {
+        return sqlx::query_scalar(
+            "SELECT COUNT(*) FROM admin_config_overrides \
+             WHERE category = $1 AND config_key = $2 AND user_id = $3::uuid",
+        )
+        .bind(CATEGORY)
+        .bind(KEY)
+        .bind(user)
+        .fetch_one(pg)
+        .await
+        .unwrap();
+    }
+
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM admin_config_overrides \
+         WHERE category = ?1 AND config_key = ?2 AND user_id = ?3",
+    )
+    .bind(CATEGORY)
+    .bind(KEY)
+    .bind(user)
+    .fetch_one(
+        db.sqlite_pool()
+            .expect("test database exposes neither a PostgreSQL nor a SQLite pool"),
+    )
+    .await
+    .unwrap()
 }
 
 async fn seed_user(db: &Database, label: &str) -> String {
@@ -369,17 +434,7 @@ async fn repeated_user_writes_upsert_rather_than_accumulate() {
     write(repo.as_ref(), &admin, ConfigScope::User(&user), 200).await;
     write(repo.as_ref(), &admin, ConfigScope::User(&user), 650).await;
 
-    let pool = db.sqlite_pool().expect("SQLite backend");
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM admin_config_overrides \
-         WHERE category = ?1 AND config_key = ?2 AND user_id = ?3",
-    )
-    .bind(CATEGORY)
-    .bind(KEY)
-    .bind(&user)
-    .fetch_one(pool)
-    .await
-    .unwrap();
+    let count = count_user_rows(&db, &user).await;
 
     assert_eq!(
         count, 1,
@@ -411,18 +466,16 @@ async fn repeated_user_writes_upsert_rather_than_accumulate() {
 #[tokio::test]
 async fn a_per_user_override_changes_the_enforced_daily_message_limit() {
     use pierre_core::models::UserTier;
-    use pierre_mcp_server::config::admin::AdminConfigService;
     use pierre_services::usage_counter::UsageCounterService;
 
     let db = create_test_db().await.unwrap();
-    let pool = db.sqlite_pool().expect("SQLite backend").clone();
     let admin = seed_user(&db, "admin").await;
     let tenant = seed_tenant(&db, &admin).await;
     let lifted = seed_user(&db, "lifted").await;
     let ordinary = seed_user(&db, "ordinary").await;
 
-    let service = AdminConfigService::new(pool.clone()).await.unwrap();
-    let repo = AdminConfigManager::new(pool);
+    let service = config_service(&db).await;
+    let repo = repository(&db);
     let repos = db.repositories();
     let counters = UsageCounterService::new(repos.usage_counters.as_ref(), &service);
 
@@ -436,7 +489,7 @@ async fn a_per_user_override_changes_the_enforced_daily_message_limit() {
         "with no override the Starter tier default must be enforced"
     );
 
-    write(&repo, &admin, ConfigScope::User(&lifted), 400).await;
+    write(repo.as_ref(), &admin, ConfigScope::User(&lifted), 400).await;
 
     let after = counters
         .check_limit_for_tier(&tenant, &lifted, "daily_messages", &UserTier::Starter)

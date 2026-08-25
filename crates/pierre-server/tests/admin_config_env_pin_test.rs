@@ -28,9 +28,14 @@ use std::env;
 
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::User;
+use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
+#[cfg(feature = "postgresql")]
+use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
-use pierre_mcp_server::config::admin::{AdminConfigManager, AdminConfigService};
+use pierre_mcp_server::config::admin::{
+    AdminConfigManager, AdminConfigRepository, AdminConfigService,
+};
 use pierre_runtime_context::ConfigLookupScope;
 use uuid::Uuid;
 
@@ -45,12 +50,35 @@ const GLOBAL: i64 = 75;
 /// Value written to the per-user row, which must outrank the pin.
 const PER_USER: i64 = 900;
 
+/// Build the service and repository against whichever backend
+/// [`create_test_db`] opened.
+async fn backend(db: &Database) -> (AdminConfigService, Box<dyn AdminConfigRepository>) {
+    #[cfg(feature = "postgresql")]
+    if let Some(pg) = db.postgres_pool() {
+        let service = AdminConfigService::from_postgres(pg.clone())
+            .await
+            .expect("PostgreSQL admin config service");
+        return (
+            service,
+            Box::new(PostgresAdminConfigManager::new(pg.clone())),
+        );
+    }
+
+    let pool = db
+        .sqlite_pool()
+        .expect("test database exposes neither a PostgreSQL nor a SQLite pool")
+        .clone();
+    let service = AdminConfigService::new(pool.clone())
+        .await
+        .expect("SQLite admin config service");
+    (service, Box::new(AdminConfigManager::new(pool)))
+}
+
 #[tokio::test]
 async fn env_pin_outranks_the_global_row_but_yields_to_a_user_override() {
     env::set_var(ENV_VAR, PINNED.to_string());
 
     let db = create_test_db().await.unwrap();
-    let pool = db.sqlite_pool().expect("SQLite backend").clone();
 
     let admin = User::new(
         format!("env-pin-admin-{}@dravr.test", Uuid::new_v4()),
@@ -69,8 +97,9 @@ async fn env_pin_outranks_the_global_row_but_yields_to_a_user_override() {
     db.repositories().users.create(&member).await.unwrap();
 
     // Constructed after set_var: pins are captured once, at construction.
-    let service = AdminConfigService::new(pool.clone()).await.unwrap();
-    let repo = AdminConfigManager::new(pool);
+    // Both halves follow whichever backend `create_test_db` opened, so the
+    // precedence walk is exercised against PostgreSQL under ci-postgres too.
+    let (service, repo) = backend(&db).await;
 
     // 1. Pin alone, no stored row anywhere.
     let resolved = service
