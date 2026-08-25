@@ -452,6 +452,11 @@ pub struct UpdateConfigResponse {
     pub requires_restart: bool,
     /// When the changes became effective
     pub effective_at: DateTime<Utc>,
+    /// Keys whose stored value will not apply because an environment pin
+    /// outranks the system-wide scope. The write still succeeded — the row is
+    /// stored and takes effect once the variable is unset.
+    #[serde(default)]
+    pub shadowed_by_env: Vec<String>,
 }
 
 /// Request to validate configuration before applying

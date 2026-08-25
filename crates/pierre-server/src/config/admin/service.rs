@@ -110,12 +110,74 @@ impl AdminConfigService {
             );
         }
 
-        Ok(Self {
+        let service = Self {
             manager,
             definitions: Arc::new(RwLock::new(definitions)),
             env_pins,
             categories: Arc::new(RwLock::new(categories)),
-        })
+        };
+        service.warn_on_shadowed_overrides().await?;
+        Ok(service)
+    }
+
+    /// Warn at boot for every key an environment pin outranks a stored
+    /// system-wide override on.
+    ///
+    /// The pin wins by design, but the operator who saved that override sees
+    /// their value simply not apply. Announcing it once at startup is what
+    /// turns "the config write did nothing" into a question with an answer.
+    /// Bounded by the number of pins, so this is a handful of reads at most.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading the stored overrides fails.
+    async fn warn_on_shadowed_overrides(&self) -> AppResult<()> {
+        if self.env_pins.is_empty() {
+            return Ok(());
+        }
+        let definitions = self.definitions.read().await.clone();
+
+        for def in definitions.values() {
+            let Some(pinned) = self.env_pins.get(&def.key) else {
+                continue;
+            };
+            let Some(stored) = self
+                .manager
+                .get_override(&def.category, &def.key, ConfigScope::Global)
+                .await?
+            else {
+                continue;
+            };
+            warn!(
+                key = %def.key,
+                env_variable = def.env.as_ref().map_or("", |b| b.name.as_str()),
+                pinned_value = %pinned,
+                shadowed_value = %stored.config_value,
+                "Environment pin outranks the stored system-wide override; \
+                 the stored value will not apply until the variable is unset"
+            );
+        }
+        Ok(())
+    }
+
+    /// Keys in `parameters` that an environment pin would outrank at
+    /// `scope`. Only the system-wide scope is shadowed — a tenant or per-user
+    /// row is narrower than the fleet and wins over a pin.
+    fn shadowed_by_env(
+        &self,
+        parameters: &HashMap<String, serde_json::Value>,
+        scope: ConfigScope<'_>,
+    ) -> Vec<String> {
+        if !matches!(scope, ConfigScope::Global) {
+            return Vec::new();
+        }
+        let mut shadowed: Vec<String> = parameters
+            .keys()
+            .filter(|key| self.env_pins.get(key).is_some())
+            .cloned()
+            .collect();
+        shadowed.sort();
+        shadowed
     }
 
     /// Build the parameter catalog. Pure — the caller owns where it lands,
@@ -426,6 +488,7 @@ impl AdminConfigService {
                 validation_errors: validation.errors,
                 requires_restart: false,
                 effective_at: Utc::now(),
+                shadowed_by_env: Vec::new(),
             });
         }
 
@@ -477,9 +540,22 @@ impl AdminConfigService {
             }
         }
 
+        let shadowed_by_env = self.shadowed_by_env(&request.parameters, scope);
+        for key in &shadowed_by_env {
+            // The write succeeded and the row is stored; it simply will not be
+            // the value read back while the variable is set. Saying so here is
+            // the difference between a no-op and an explained no-op.
+            warn!(
+                key = %key,
+                "Saved a system-wide override that an environment pin outranks; \
+                 unset the variable, or scope the override to a tenant or user"
+            );
+        }
+
         info!(
             updated_count = updated_count,
             scope = scope.label(),
+            shadowed_by_env = shadowed_by_env.len(),
             "Admin updated configuration parameters"
         );
 
@@ -489,6 +565,7 @@ impl AdminConfigService {
             validation_errors: Vec::new(),
             requires_restart,
             effective_at: Utc::now(),
+            shadowed_by_env,
         })
     }
 

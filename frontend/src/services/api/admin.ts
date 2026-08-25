@@ -549,6 +549,8 @@ export const adminApi = {
       updated_count: number;
       requires_restart: boolean;
       validation_errors?: Array<{ parameter: string; error: string }>;
+      /** Keys stored but outranked by an environment pin at the system-wide scope. */
+      shadowed_by_env?: string[];
     };
   }> {
     const params = new URLSearchParams();

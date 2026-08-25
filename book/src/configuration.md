@@ -960,6 +960,25 @@ A pin is also a **flat cap across every tier in scope**. Pinning
 uncapped. To lift limits for one person, bump their tier or write a per-user
 override.
 
+The rule is a property of the config layer, not of quotas: every parameter
+whose variable the config layer owns resolves the same way, `monitoring.*` and
+`cache_ttl.*` included.
+
+### Shadowing is announced, never silent
+
+Because the pin wins, a system-wide override saved for a pinned key is stored
+but not read back. That is reported at both moments an operator is watching, so
+it reads as an explained no-op rather than a broken write:
+
+- **On write** — `PUT /api/admin/config` returns the outranked keys in
+  `shadowed_by_env`, the server logs a `warn`, and `pierre-cli config set`
+  prints a note pointing at `pierre-cli config env`.
+- **At boot** — every key where a pin outranks a stored system-wide row is
+  logged once with both values.
+
+A tenant- or user-scoped write is never shadowed: those scopes are narrower
+than the fleet and beat the pin.
+
 ### Environment pins are validated at boot
 
 Pins are parsed to the parameter's declared type and validated against the same

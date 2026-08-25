@@ -362,6 +362,22 @@ pub async fn dispatch(command: ConfigCommand) -> AppResult<()> {
             }
 
             println!("Set {key} at {} scope", scope.label());
+
+            // A stored global row that an environment pin outranks is saved
+            // but not read back. Without this the write looks like a no-op.
+            let shadowed: Vec<&str> = data
+                .get("shadowed_by_env")
+                .and_then(Value::as_array)
+                .map(|keys| keys.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            for shadowed_key in shadowed {
+                println!(
+                    "note: {shadowed_key} is pinned by an environment variable, which outranks \
+                     the system-wide scope — the stored value applies once the variable is unset"
+                );
+                println!("      `pierre-cli config env` shows what this server pins");
+            }
+
             if data
                 .get("requires_restart")
                 .and_then(Value::as_bool)
