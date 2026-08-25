@@ -593,6 +593,10 @@ fn intervals_event_type(sport: &SportType) -> &'static str {
 
 /// Render a [`WorkoutTemplate`] into a human-readable description for the
 /// Intervals.icu calendar event body — a header line plus one line per step.
+///
+/// A step's `note` is the coach's cue for that step ("montées/descentes
+/// continues"), so it belongs on the line the athlete reads on their calendar;
+/// dropping it stripped the coaching out of a coached session.
 fn workout_description(workout: &WorkoutTemplate) -> String {
     let mut lines = vec![format!(
         "{} — {} min ({:?})",
@@ -604,8 +608,13 @@ fn workout_description(workout: &WorkoutTemplate) -> String {
         } else {
             String::new()
         };
+        let note = step
+            .note
+            .as_deref()
+            .map(|note| format!(" — {note}"))
+            .unwrap_or_default();
         lines.push(format!(
-            "- {repeat}{} @ {} for {}s",
+            "- {repeat}{} @ {} for {}s{note}",
             step.label, step.target_zone, step.duration_seconds
         ));
     }

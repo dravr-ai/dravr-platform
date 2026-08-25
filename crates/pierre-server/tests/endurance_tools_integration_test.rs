@@ -745,11 +745,17 @@ async fn test_list_workout_templates_idempotent() -> Result<()> {
 }
 
 // ============================================================================
-// prescribe_workout — DB writes, no real provider push in test
+// prescribe_workout — argument gating; the push itself is `workout_push_test`
 // ============================================================================
 
 #[tokio::test]
-async fn test_prescribe_workout_happy_path() -> Result<()> {
+async fn test_prescribe_workout_requires_a_writable_calendar() -> Result<()> {
+    // The fixture user is Strava-connected, which clears the dispatch
+    // chokepoint but gives them no calendar to write to. Intervals.icu is the
+    // only provider with a planned-workout write surface, so the tool must say
+    // so rather than record a prescription that reaches no one — the exact
+    // failure carnet#100 was filed for. The real push, against a stubbed
+    // Intervals.icu, is covered in `workout_push_test.rs`.
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
@@ -763,17 +769,21 @@ async fn test_prescribe_workout_happy_path() -> Result<()> {
             user_id,
             Some(&tenant),
         ))
-        .await?;
+        .await;
+    let rendered = match resp {
+        Ok(response) => {
+            assert!(
+                !response.success,
+                "a prescription with no writable calendar must not report success"
+            );
+            format!("{:?}", response.error)
+        }
+        Err(err) => format!("{err:?}"),
+    };
     assert!(
-        resp.success,
-        "prescribe_workout must succeed: {:?}",
-        resp.error
+        rendered.to_lowercase().contains("intervals"),
+        "the refusal must name the account the athlete has to connect; got: {rendered}"
     );
-    let result = resp.result.unwrap();
-    assert_eq!(result["template_slug"].as_str().unwrap(), "long_run_z2");
-    assert_eq!(result["scheduled_for"].as_str().unwrap(), "2026-06-15");
-    assert_eq!(result["status"].as_str().unwrap(), "queued");
-    assert!(result["prescription_id"].as_str().is_some());
     Ok(())
 }
 
@@ -794,9 +804,10 @@ async fn test_prescribe_workout_invalid_slug() -> Result<()> {
         ))
         .await
         .expect_err("unknown template slug must be rejected");
-    // require_cornerstone returns AppError::not_found which the executor maps
-    // to ProtocolError::InternalError. Either error variant proves the tool
-    // rejected the bad slug instead of writing a phantom row.
+    // A slug is resolved against the cornerstones and then this athlete's own
+    // saved sessions; matching neither is AppError::not_found, which the
+    // executor maps to ProtocolError::InternalError. Either error variant
+    // proves the tool rejected the bad slug instead of writing a phantom row.
     let msg = format!("{err:?}");
     assert!(
         msg.contains("not_a_real_template") || msg.contains("not found"),

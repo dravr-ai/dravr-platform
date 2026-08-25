@@ -125,7 +125,15 @@ fn row_to_prescribed(row: &SqliteRow) -> AppResult<PrescribedWorkout> {
         id,
         tenant_id,
         user_id,
-        coach_id: row.try_get("coach_id").ok(),
+        // Decoded as `Option<String>`, never `try_get::<String>().ok()`:
+        // SQLite hands a NULL TEXT column back as an empty string rather than
+        // an error, so the `.ok()` form silently turns "no value" into
+        // `Some("")`. For provider_event_id that is the difference between a
+        // prescription the provider never created and one whose calendar event
+        // id is the empty string.
+        coach_id: row
+            .try_get("coach_id")
+            .map_err(|e| AppError::database(format!("read coach_id: {e}")))?,
         template_slug: row
             .try_get("template_slug")
             .map_err(|e| AppError::database(format!("read template_slug: {e}")))?,
@@ -134,7 +142,9 @@ fn row_to_prescribed(row: &SqliteRow) -> AppResult<PrescribedWorkout> {
         provider: row
             .try_get("provider")
             .map_err(|e| AppError::database(format!("read provider: {e}")))?,
-        provider_event_id: row.try_get("provider_event_id").ok(),
+        provider_event_id: row
+            .try_get("provider_event_id")
+            .map_err(|e| AppError::database(format!("read provider_event_id: {e}")))?,
         payload_json: row
             .try_get("payload_json")
             .map_err(|e| AppError::database(format!("read payload_json: {e}")))?,

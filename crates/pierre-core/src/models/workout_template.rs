@@ -142,7 +142,10 @@ pub struct PrescribedWorkout {
     pub provider_event_id: Option<String>,
     /// JSON payload that was pushed (kept for debugging + replay).
     pub payload_json: String,
-    /// Lifecycle status (`pushed`, `cancelled`, `completed`).
+    /// Outcome of the push: `pushed` when the provider created the calendar
+    /// event (and `provider_event_id` names it), `failed` when the provider
+    /// refused. Both are terminal — a prescription is one attempt, and a
+    /// retry is a new row.
     pub status: String,
     /// Timestamp when the prescription was recorded.
     #[serde(default = "Utc::now")]

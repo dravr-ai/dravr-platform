@@ -7,13 +7,11 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{
-    Activity, DailyTrainingState, Dossier, PrescribedWorkout, TenantId, WorkoutTemplate,
-};
+use pierre_core::models::{Activity, DailyTrainingState, Dossier, TenantId, WorkoutTemplate};
 use pierre_fitness_compute::intervals::{build_intervals, IntervalsExport};
 use pierre_fitness_compute::latest_snapshot::{
     build_latest_snapshot, LatestSnapshot, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
@@ -31,8 +29,7 @@ use crate::tools::runtime_adapter::into_runtime;
 use pierre_config::environment::default_provider;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_routes_social::SocialRoutes;
-use pierre_services::workout_library::{cornerstone_templates, require_cornerstone};
-use pierre_tool_runtime::protocol::auth::AuthService;
+use pierre_services::workout_library::cornerstone_templates;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Lower bound on the analysis window — defended in addition to the
@@ -78,32 +75,6 @@ pub fn endurance_routes() -> Router<Arc<ServerContext>> {
             "/api/v1/endurance/workout-templates",
             get(get_workout_templates),
         )
-        .route("/api/v1/endurance/prescribe", post(post_prescribe))
-}
-
-/// Request body for `POST /api/v1/endurance/prescribe`.
-#[derive(Debug, Deserialize)]
-pub struct PrescribeRequest {
-    /// Slug of the cornerstone template to prescribe (one of the six).
-    pub template_slug: String,
-    /// ISO date the prescription is scheduled for (`YYYY-MM-DD`).
-    pub date: NaiveDate,
-    /// Optional coach id stamped onto the audit row.
-    #[serde(default)]
-    pub coach_id: Option<String>,
-}
-
-/// Response body for `POST /api/v1/endurance/prescribe`.
-#[derive(Debug, Serialize)]
-pub struct PrescribeResponse {
-    /// Audit row id stored in `prescribed_workouts`.
-    pub prescription_id: Uuid,
-    /// The provider the workout was pushed to (currently `intervals_icu`).
-    pub provider: String,
-    /// Provider-side calendar event id returned by the push call.
-    pub provider_event_id: Option<String>,
-    /// The compiled-in template that was scheduled.
-    pub template: WorkoutTemplate,
 }
 
 async fn get_workout_templates(
@@ -122,65 +93,6 @@ async fn get_workout_templates(
         .await?;
     templates.extend(user_authored);
     Ok(Json(templates))
-}
-
-async fn post_prescribe(
-    State(resources): State<Arc<ServerContext>>,
-    auth: AuthenticatedUser,
-    Json(body): Json<PrescribeRequest>,
-) -> AppResult<Json<PrescribeResponse>> {
-    let user_id = auth.user_id;
-    let tenant_id = active_tenant(&auth)?;
-    let template = require_cornerstone(&body.template_slug)?;
-
-    let payload_json = serde_json::to_string(&template)
-        .map_err(|e| AppError::internal(format!("serialize template payload: {e}")))?;
-
-    let provider = "intervals_icu".to_owned();
-    let prescription_id = Uuid::new_v4();
-
-    // Push the planned workout to the athlete's Intervals.icu calendar. The
-    // provider is built through the standard auth path, which loads the
-    // athlete's stored API key and routes their athlete id into `client_id`
-    // (the HTTP Basic username) so the push authenticates correctly.
-    let auth_service = AuthService::new(into_runtime(&resources));
-    let tenant_str = tenant_id.to_string();
-    let authed = auth_service
-        .create_authenticated_provider(&provider, user_id, Some(tenant_str.as_str()))
-        .await
-        .map_err(|resp| {
-            AppError::invalid_input(resp.error.unwrap_or_else(|| {
-                "Connect your Intervals.icu account before prescribing".to_owned()
-            }))
-        })?;
-    let provider_event_id = authed.push_planned_workout(&template, body.date).await?;
-
-    let prescribed = PrescribedWorkout {
-        id: prescription_id,
-        tenant_id: tenant_id.as_uuid(),
-        user_id,
-        coach_id: body.coach_id,
-        template_slug: template.slug.clone(),
-        sport: template.sport.clone(),
-        prescribed_for_date: body.date,
-        provider: provider.clone(),
-        provider_event_id: Some(provider_event_id.clone()),
-        payload_json,
-        status: "pushed".to_owned(),
-        created_at: Utc::now(),
-    };
-    resources
-        .repos()
-        .prescribed_workouts
-        .upsert_prescribed_workout(&prescribed)
-        .await?;
-
-    Ok(Json(PrescribeResponse {
-        prescription_id,
-        provider,
-        provider_event_id: Some(provider_event_id),
-        template,
-    }))
 }
 
 async fn get_intervals(

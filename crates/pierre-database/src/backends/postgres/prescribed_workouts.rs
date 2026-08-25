@@ -116,7 +116,15 @@ fn row_to_prescribed(row: &PgRow) -> AppResult<PrescribedWorkout> {
         id,
         tenant_id,
         user_id,
-        coach_id: row.try_get("coach_id").ok(),
+        // Decoded as `Option<String>` rather than `try_get::<String>().ok()`:
+        // the `.ok()` form swallows every decode error, so a genuinely absent
+        // value and a column this mapper failed to read are indistinguishable.
+        // The SQLite tier has the sharper version of the same bug (NULL TEXT
+        // decodes to an empty string there), and both backends serve the same
+        // trait, so they agree here.
+        coach_id: row
+            .try_get("coach_id")
+            .map_err(|e| AppError::database(format!("read coach_id: {e}")))?,
         template_slug: row
             .try_get("template_slug")
             .map_err(|e| AppError::database(format!("read template_slug: {e}")))?,
@@ -125,7 +133,9 @@ fn row_to_prescribed(row: &PgRow) -> AppResult<PrescribedWorkout> {
         provider: row
             .try_get("provider")
             .map_err(|e| AppError::database(format!("read provider: {e}")))?,
-        provider_event_id: row.try_get("provider_event_id").ok(),
+        provider_event_id: row
+            .try_get("provider_event_id")
+            .map_err(|e| AppError::database(format!("read provider_event_id: {e}")))?,
         payload_json,
         status: row
             .try_get("status")

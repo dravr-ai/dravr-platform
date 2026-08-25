@@ -1154,7 +1154,7 @@ export interface PredictPerformanceParams {
 
 
 /**
- * Prescribe one of the six Endurance cornerstone workouts to a specific calendar date for the authenticated user. Records the prescription in the prescribed_workouts audit trail and queues it for push to Intervals.icu. Args: template_slug (one of long_run_z2, threshold_4x8, vo2_5x3, recovery_30min, tempo_progression, sweet_spot_2x20), date (YYYY-MM-DD), optional coach_id.
+ * Write one workout onto the athlete's Intervals.icu calendar for a given date, and record it in the prescribed_workouts audit trail. Requires a connected Intervals.icu account. Pass EITHER template_slug — one of the cornerstones (long_run_z2, threshold_4x8, vo2_5x3, recovery_30min, tempo_progression, sweet_spot_2x20) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional coach_id. Creates a new calendar entry every call: it cannot edit or replace one already there.
  */
 export interface PrescribeWorkoutParams {
 
@@ -1164,8 +1164,43 @@ export interface PrescribeWorkoutParams {
   /** Calendar date the workout is scheduled for (YYYY-MM-DD). */
   date: string;
 
-  /** Slug of the cornerstone template to prescribe. */
-  template_slug: string;
+  /** A structured session you authored, for anything the cornerstones do not express. */
+  session?: {
+
+  /** One of: polarized, threshold, vo2max, recovery, pyramid. */
+  intensity_distribution: string;
+
+  /** Session name as you state it to the athlete. */
+  name: string;
+
+  /** Sport: run, ride, swim, walk, hike, ski, yoga, … */
+  sport: string;
+
+  /** The steps in order. Total duration is summed from them. */
+  structure: {
+
+  /** Distance in metres for a distance-based step. */
+  distance_meters?: number;
+
+  /** How long ONE repetition of this step lasts, in seconds. */
+  duration_seconds: number;
+
+  /** What this step is ("Warm-up", "Montées", "Interval", "Cool-down"). */
+  label: string;
+
+  /** Coaching cue for this step, in your own voice — it reaches the athlete's calendar entry. */
+  note?: string;
+
+  /** Repetitions of this step; omit for a single block. */
+  repeat?: number;
+
+  /** Intensity RELATIVE to the athlete's thresholds ("Z2", "Threshold", "88-93% FTP"). Never absolute watts. */
+  target_zone: string;
+}[];
+};
+
+  /** Slug of a stored template: one of the six cornerstones, or a session you prescribed this athlete before. Use `session` instead for anything new. */
+  template_slug?: string;
 }
 
 
