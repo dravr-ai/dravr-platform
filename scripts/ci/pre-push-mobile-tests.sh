@@ -1,5 +1,5 @@
 #!/bin/bash
-# ABOUTME: Pre-push validation for mobile (frontend-mobile/) - TypeScript, lint, tests
+# ABOUTME: Pre-push validation for mobile (frontend-mobile/) - EAS submit config, TypeScript, lint, tests
 # ABOUTME: Runs essential checks to catch issues before pushing (~5-10 seconds)
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -21,6 +21,30 @@ if [ ! -d "$MOBILE_DIR" ]; then
     exit 1
 fi
 
+START_TIME=$(date +%s)
+PASSED=0
+FAILED=0
+
+# ============================================================================
+# TIER 0: EAS Submit Config (compile-free, needs no dependencies)
+# ============================================================================
+echo "🚀 Tier 0: EAS Submit Config"
+echo "----------------------------"
+echo -n "Checking eas.json submit profiles... "
+
+if EAS_OUT="$("$SCRIPT_DIR/check-eas-submit-config.sh" 2>&1)"; then
+    echo "✅"
+    PASSED=$((PASSED + 1))
+else
+    echo "❌"
+    FAILED=$((FAILED + 1))
+    echo ""
+    echo "$EAS_OUT"
+    exit 1
+fi
+
+echo ""
+
 # Check if node_modules exists
 if [ ! -d "$MOBILE_DIR/node_modules" ]; then
     echo "⚠️  Warning: frontend-mobile/node_modules not found."
@@ -30,14 +54,10 @@ fi
 
 cd "$MOBILE_DIR"
 
-START_TIME=$(date +%s)
-PASSED=0
-FAILED=0
-
 # ============================================================================
-# TIER 0: TypeScript Type Checking (fastest feedback)
+# TIER 1: TypeScript Type Checking (fastest feedback)
 # ============================================================================
-echo "📘 Tier 0: TypeScript Type Checking"
+echo "📘 Tier 1: TypeScript Type Checking"
 echo "------------------------------------"
 echo -n "Running typecheck... "
 
@@ -58,9 +78,9 @@ fi
 echo ""
 
 # ============================================================================
-# TIER 1: ESLint (code quality)
+# TIER 2: ESLint (code quality)
 # ============================================================================
-echo "🔍 Tier 1: ESLint"
+echo "🔍 Tier 2: ESLint"
 echo "-----------------"
 echo -n "Running lint... "
 
@@ -81,9 +101,9 @@ fi
 echo ""
 
 # ============================================================================
-# TIER 2: Unit Tests (functionality)
+# TIER 3: Unit Tests (functionality)
 # ============================================================================
-echo "🧪 Tier 2: Unit Tests"
+echo "🧪 Tier 3: Unit Tests"
 echo "---------------------"
 echo -n "Running tests... "
 
@@ -114,7 +134,7 @@ DURATION=$((END_TIME - START_TIME))
 echo "======================================="
 echo "Mobile Pre-Push Validation Complete"
 echo "======================================="
-echo "Checks passed: $PASSED/3"
+echo "Checks passed: $PASSED/4"
 echo "Duration:      ${DURATION}s"
 echo ""
 

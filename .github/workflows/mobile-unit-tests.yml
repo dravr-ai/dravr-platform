@@ -13,12 +13,16 @@ on:
     paths:
       - 'frontend-mobile/**'
       - 'packages/**'
+      - 'scripts/ci/check-eas-submit-config.sh'
+      - 'scripts/ci/check-eas-submit-config.test.sh'
       - '.github/workflows/mobile-unit-tests.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'frontend-mobile/**'
       - 'packages/**'
+      - 'scripts/ci/check-eas-submit-config.sh'
+      - 'scripts/ci/check-eas-submit-config.test.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,6 +39,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      # Compile-free and dependency-free, so it runs before the installs: a
+      # submit field EAS does not interpolate is only discovered otherwise by
+      # dispatching "Deploy: TestFlight" and watching the upload reject the
+      # placeholder as a malformed credential.
+      - name: Test the EAS submit config check
+        run: ./scripts/ci/check-eas-submit-config.test.sh
+
+      - name: Check EAS submit config
+        run: ./scripts/ci/check-eas-submit-config.sh
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

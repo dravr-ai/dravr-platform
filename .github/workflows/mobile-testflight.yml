@@ -1,18 +1,23 @@
-# ABOUTME: The single EAS entry point for the mobile app — builds iOS/Android and optionally submits to the stores.
+# ABOUTME: The single EAS entry point for the mobile app — builds iOS/Android and submits to TestFlight and Play.
 # ABOUTME: Manual dispatch only; an EAS build is metered, so it runs when someone asks for it and never on a push.
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
 
-name: "Deploy: Mobile (EAS Build)"
+name: "Deploy: TestFlight"
 
 # Manual dispatch only, and deliberately so. An EAS build is a metered
-# resource: a previous workflow built on every push to main touching mobile
-# paths and exhausted the monthly quota well before the month was out. Push
-# coverage for these paths belongs to "CI: Mobile Unit" (mobile-unit-tests.yml)
-# — typecheck, lint and unit tests — which is free and runs on every push.
+# resource: building on every push to main exhausted the monthly quota well
+# before the month did, and the push path could not submit anyway — it built
+# `preview`, which App Store Connect rejects. Push coverage for these paths
+# belongs to "CI: Mobile Unit" (mobile-unit-tests.yml) — typecheck, lint and
+# unit tests — which is free and runs on every push. Only the metered build
+# waits for someone to ask for it.
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Platform to deploy'
+        description: 'Platform to build'
         required: true
         default: 'ios'
         type: choice
@@ -21,21 +26,24 @@ on:
           - android
           - all
       profile:
-        description: 'Build profile'
+        description: 'EAS build profile'
         required: true
-        default: 'preview'
+        default: 'production'
         type: choice
         options:
-          - preview
           - production
+          - preview
       submit:
-        description: 'Submit to app store after build'
+        description: 'Submit to the store after building'
         required: true
-        default: false
+        default: true
         type: boolean
 
+# An EAS build runs on Expo's infrastructure, not on this runner: cancelling
+# the job abandons the log, not the build, and a cancelled submit can leave an
+# upload half-done. Runs queue behind each other instead.
 concurrency:
-  group: mobile-deploy-${{ github.ref }}
+  group: mobile-testflight-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -43,7 +51,7 @@ permissions:
 
 jobs:
   test:
-    name: Pre-deploy Tests
+    name: Pre-flight Tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -67,14 +75,16 @@ jobs:
       - name: Lint
         run: bun run lint
 
-      - name: Run unit tests
+      - name: Unit tests
         run: bun run test
 
   build:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # EAS free-tier builds queue before they start; 120 minutes covers the wait
+    # plus the build rather than reclaiming the runner mid-queue.
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: frontend-mobile
@@ -83,7 +93,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # The store accepts App Store-distribution builds only, and the `preview`
+      # The stores accept App Store-distribution builds only, and the `preview`
       # profile is distribution: internal (ad-hoc signed), so an upload of it is
       # rejected. The submit job below is gated on profile == production for
       # exactly that reason; say so up front rather than letting the dispatcher
@@ -140,26 +150,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # eas.json's submit profiles interpolate these from the environment:
-      # iOS reads APPLE_ID, ASC_APP_ID and APPLE_TEAM_ID; Android reads
-      # GOOGLE_SERVICE_ACCOUNT_KEY_PATH. Without them `eas submit` fails deep in
-      # the upload with "Invalid Apple ID" / "Invalid Apple App Store Connect App
-      # ID" / "Invalid Apple Team ID", which reads like a credential that is
-      # wrong rather than one that was never passed. Check up front and name the
-      # missing secret instead.
+      # eas.json carries `ascAppId` as a literal because EAS interpolates
+      # environment variables into three iOS submit fields only —
+      # ascApiKeyPath, ascApiKeyId and ascApiKeyIssuerId. An `${APPLE_ID}` in
+      # any other field reaches Apple's validator as that literal string and is
+      # rejected as a malformed credential. Apple authentication therefore comes
+      # from the App Store Connect API key held by EAS and reached via
+      # EXPO_TOKEN. Android is the opposite case: serviceAccountKeyPath *is*
+      # interpolated, so eas.json names a path and the step below writes the key
+      # there. Check both up front and name what is missing, rather than failing
+      # deep inside an upload.
       - name: Verify submit credentials
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           GOOGLE_PLAY_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY }}
         run: |
           missing=""
-          if [ "${{ inputs.platform }}" = "ios" ] || [ "${{ inputs.platform }}" = "all" ]; then
-            [ -z "$APPLE_ID" ] && missing="$missing APPLE_ID"
-            [ -z "$ASC_APP_ID" ] && missing="$missing ASC_APP_ID"
-            [ -z "$APPLE_TEAM_ID" ] && missing="$missing APPLE_TEAM_ID"
-          fi
+          [ -z "$EXPO_TOKEN" ] && missing="$missing EXPO_TOKEN"
           if [ "${{ inputs.platform }}" = "android" ] || [ "${{ inputs.platform }}" = "all" ]; then
             [ -z "$GOOGLE_PLAY_SERVICE_ACCOUNT_KEY" ] && missing="$missing GOOGLE_PLAY_SERVICE_ACCOUNT_KEY"
           fi
@@ -184,10 +191,6 @@ jobs:
 
       - name: Submit iOS to TestFlight
         if: ${{ inputs.platform == 'ios' || inputs.platform == 'all' }}
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           eas submit \
             --platform ios \
