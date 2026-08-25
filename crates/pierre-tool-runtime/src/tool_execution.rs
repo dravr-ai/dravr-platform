@@ -21,7 +21,7 @@ use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
 use pierre_core::narration::is_degenerate_reply;
-use pierre_core::tokens::estimate_chat_tokens;
+use pierre_core::tokens::{estimate_chat_tokens, join_prompt_text};
 use tracing::{info, warn};
 
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
@@ -775,17 +775,11 @@ pub async fn run_cli_tool_loop(
         // field is absent on this provider's `complete()` return type.
         let embacle_calls = tool_simulation::parse_tool_call_blocks(&response.content);
         let tools_in_response: Vec<String> = embacle_calls.iter().map(|c| c.name.clone()).collect();
-        // Last user prompt feeds the character-based token estimator when
+        // The assembled prompt feeds the character-based token estimator when
         // the provider returns `usage: None` (e.g. Copilot ACP, which
         // doesn't expose token counts). Without this fallback the per-call
         // row would land with zeros and no `_estimated` suffix.
-        let last_user_prompt = llm_messages
-            .iter()
-            .rev()
-            .find(|m| matches!(m.role, MessageRole::User))
-            .map(|m| m.content.as_str())
-            .unwrap_or_default()
-            .to_owned();
+        let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
         emit_call_record_with_text(
             CallRecordInputs {
                 recorder: params.call_recorder.as_ref(),
@@ -798,7 +792,7 @@ pub async fn run_cli_tool_loop(
                 call_sequence: call_seq,
                 tools_called: tools_in_response,
             },
-            Some(&last_user_prompt),
+            Some(&prompt_text),
             Some(&response.content),
         );
 
@@ -1761,13 +1755,7 @@ async fn run_headless_tool_loop(
             .map_err(AppError::from)
     };
     let latency_ms = millis_elapsed(call_start);
-    let last_user_prompt = llm_messages
-        .iter()
-        .rev()
-        .find(|m| matches!(m.role, pierre_llm::MessageRole::User))
-        .map(|m| m.content.as_str())
-        .unwrap_or_default()
-        .to_owned();
+    let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
     let headless_response = match converse_result {
         Ok(r) => {
             let tools_in_response: Vec<String> =
@@ -1784,7 +1772,7 @@ async fn run_headless_tool_loop(
                     call_sequence: Some(1),
                     tools_called: tools_in_response,
                 },
-                Some(&last_user_prompt),
+                Some(&prompt_text),
                 Some(&r.content),
             );
             r
@@ -1817,7 +1805,7 @@ async fn run_headless_tool_loop(
         headless_runner,
         &request,
         params,
-        &last_user_prompt,
+        &prompt_text,
     )
     .await
 }
@@ -1849,7 +1837,7 @@ async fn finalize_headless_turn(
     headless_runner: &pierre_llm::CopilotHeadlessRunner,
     request: &ChatRequest,
     params: &ToolLoopParams<'_>,
-    last_user_prompt: &str,
+    prompt_text: &str,
 ) -> Result<ToolLoopResult, AppError> {
     let mut tool_calls_count =
         u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
@@ -1871,7 +1859,7 @@ async fn finalize_headless_turn(
             content_len = content.len(),
             "Headless turn produced no synthesized answer (empty, parroted tool-result echo, or a dangling fragment); retrying converse once"
         );
-        let retry = retry_headless_turn(headless_runner, request, params, last_user_prompt).await?;
+        let retry = retry_headless_turn(headless_runner, request, params, prompt_text).await?;
         content = retry.content;
         usage = retry.usage;
         finish_reason = retry.finish_reason;
@@ -1957,7 +1945,7 @@ async fn retry_headless_turn(
     headless_runner: &pierre_llm::CopilotHeadlessRunner,
     request: &ChatRequest,
     params: &ToolLoopParams<'_>,
-    last_user_prompt: &str,
+    prompt_text: &str,
 ) -> Result<HeadlessRetry, AppError> {
     let retry_start = Instant::now();
     let retry = headless_runner
@@ -1978,7 +1966,7 @@ async fn retry_headless_turn(
             call_sequence: Some(2),
             tools_called: tool_calls.clone(),
         },
-        Some(last_user_prompt),
+        Some(prompt_text),
         Some(&retry.content),
     );
     Ok(HeadlessRetry {

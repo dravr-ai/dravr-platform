@@ -55,6 +55,23 @@ pub const fn estimate_chat_tokens(prompt_text: &str, completion_text: &str) -> (
     (prompt, completion)
 }
 
+/// Join every part of an outgoing prompt into one string for the estimator.
+///
+/// `prompt_tokens` means the whole prompt: system prompt, replayed history,
+/// injected grounding, all of it. Sizing it from the newest user message alone
+/// under-counts by orders of magnitude — an athlete's "et en 2022?" is ~70
+/// characters against a prompt in the hundreds of thousands, and the resulting
+/// `*_estimated` usage rows then read as near-zero.
+#[must_use]
+pub fn join_prompt_text<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+    let mut joined = String::new();
+    for part in parts {
+        joined.push_str(part);
+        joined.push('\n');
+    }
+    joined
+}
+
 #[cfg(test)]
 mod tests {
     use super::{estimate_chat_tokens, estimate_prompt_tokens, CHARS_PER_TOKEN};
