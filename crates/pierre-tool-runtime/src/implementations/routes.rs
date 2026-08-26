@@ -272,7 +272,7 @@ async fn resolve_center(args: &Value) -> Result<ResolvedCenter, Value> {
         .map(str::trim)
         .filter(|p| !p.is_empty())
     {
-        let mut location_service = LocationService::new();
+        let location_service = LocationService::new();
         return match location_service.forward_geocode(place).await {
             Ok(ForwardGeocodeResult {
                 latitude,

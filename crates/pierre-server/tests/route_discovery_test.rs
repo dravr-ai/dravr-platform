@@ -163,7 +163,7 @@ async fn test_forward_geocode_prevost_resolves_into_quebec() {
         return;
     }
 
-    let mut service = LocationService::new();
+    let service = LocationService::new();
     let result = service
         .forward_geocode("Prévost, QC")
         .await
@@ -191,24 +191,26 @@ async fn test_forward_geocode_prevost_resolves_into_quebec() {
 }
 
 #[tokio::test]
-async fn test_forward_geocode_cached_second_call_is_instant() {
+async fn test_forward_geocode_cache_survives_a_new_service_instance() {
     if !live_tests_enabled() {
         eprintln!("skipping live Nominatim test (set DRAVR_LIVE_OVERPASS_TESTS=1 to enable)");
         return;
     }
 
-    let mut service = LocationService::new();
-    let first = service
+    let first = LocationService::new()
         .forward_geocode("Saint-Alexis-des-Monts")
         .await
         .expect("first geocode call should succeed");
 
-    // Second call should hit the in-memory cache and return the exact same
-    // coordinates without re-querying Nominatim. We can't directly assert
-    // "didn't hit network", but assert the result is byte-identical and
-    // the call completes in <10ms (network round-trips take >50ms typically).
+    // The second call goes through a DIFFERENT service instance, because that
+    // is what production does: every tool call constructs its own
+    // LocationService. A cache owned by the instance would miss here and open
+    // a second request against an API that allows one per second.
+    //
+    // We can't directly assert "didn't hit network", so assert the result is
+    // identical and the call completes in <50ms (round-trips take longer).
     let before = Instant::now();
-    let second = service
+    let second = LocationService::new()
         .forward_geocode("saint-alexis-des-monts") // different case to prove cache key normalization
         .await
         .expect("second geocode call should succeed");
@@ -224,14 +226,14 @@ async fn test_forward_geocode_cached_second_call_is_instant() {
     );
     assert!(
         elapsed < Duration::from_millis(50),
-        "cached call took {elapsed:?} — cache key normalization may be broken"
+        "cached call took {elapsed:?} — the cache is not shared across instances"
     );
 }
 
 #[tokio::test]
 async fn test_forward_geocode_empty_query_rejected() {
     // No live test needed — empty input is rejected before the HTTP call.
-    let mut service = LocationService::new();
+    let service = LocationService::new();
     let err = service
         .forward_geocode("   ")
         .await
@@ -452,17 +454,48 @@ fn test_cycling_query_covers_gravel_and_singletrack() {
     .expect("gravel_ride is a supported sport");
 
     assert!(
-        query.contains("track"),
-        "gravel rides live on highway=track: {query}"
+        query.contains("cycleway|track|path"),
+        "gravel is highway=track and singletrack is highway=path: {query}"
     );
     assert!(
-        query.contains(r#"["mtb:scale"]"#),
-        "singletrack is tagged mtb:scale: {query}"
+        query.contains(r#"["bicycle"!~"^(no|dismount)$"]"#),
+        "ways closed to bikes must be filtered out of a ride: {query}"
     );
     assert!(
         query.contains(r#"relation["route"~"^(bicycle|mtb)$"]"#),
         "signed cycling itineraries are route relations: {query}"
     );
+}
+
+/// Overpass re-evaluates the spatial filter once per clause and that dominates
+/// the cost: measured around Prevost, five clauses took 24.9s against a 25s
+/// server timeout under a 30s client timeout, where three took 2-9s. A query
+/// that grows a fourth clause starts timing out in production, which reaches
+/// the athlete as "no trails near you".
+#[test]
+fn test_queries_stay_within_the_spatial_clause_budget() {
+    const MAX_AROUND_CLAUSES: usize = 3;
+
+    for sport in [
+        SportType::Run,
+        SportType::TrailRunning,
+        SportType::Ride,
+        SportType::GravelRide,
+        SportType::MountainBike,
+        SportType::Hike,
+        SportType::Walk,
+        SportType::CrossCountrySkiing,
+        SportType::AlpineSkiing,
+        SportType::Snowshoe,
+    ] {
+        let query = build_overpass_query(&sport, SHAWINIGAN_LAT, SHAWINIGAN_LON, 10_000)
+            .unwrap_or_else(|| panic!("{sport:?} should be a supported sport"));
+        let clauses = query.matches("(around:").count();
+        assert!(
+            clauses <= MAX_AROUND_CLAUSES,
+            "{sport:?} query has {clauses} spatial clauses (max {MAX_AROUND_CLAUSES}): {query}"
+        );
+    }
 }
 
 #[test]

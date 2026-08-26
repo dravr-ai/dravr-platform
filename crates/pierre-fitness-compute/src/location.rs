@@ -15,8 +15,32 @@ use pierre_core::http_client::SharedHttpClient;
 use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{LazyLock, RwLock};
 use std::time::{Duration, SystemTime};
 use tracing::{debug, info, instrument, trace, warn};
+
+/// How long a geocoding answer stays usable. Place names and the address of a
+/// coordinate do not move, so a day is conservative.
+const GEOCODE_CACHE_DURATION: Duration = Duration::from_hours(24);
+
+/// Upper bound on entries in either geocoding cache, past which the map is
+/// swept of expired entries and, failing that, dropped wholesale.
+const MAX_GEOCODE_CACHE_ENTRIES: usize = 2048;
+
+/// Process-wide reverse-geocode cache (coordinates → address).
+///
+/// Nominatim answers are public and identical for every tenant, so one cache
+/// serves them all. It lives outside [`LocationService`] because each tool call
+/// constructs a fresh service — a cache owned by the service could never
+/// register a hit, and Nominatim's usage policy is one request per second with
+/// real bans behind it.
+static REVERSE_CACHE: LazyLock<RwLock<HashMap<String, CacheEntry>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Process-wide forward-geocode cache (place name → coordinates). Shared for
+/// the same reason as [`REVERSE_CACHE`].
+static FORWARD_CACHE: LazyLock<RwLock<HashMap<String, ForwardCacheEntry>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Geographic location data with rich context
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,9 +145,6 @@ struct NominatimSearchResult {
 /// Service for geocoding and location data enrichment
 pub struct LocationService {
     client: &'static SharedHttpClient,
-    cache: HashMap<String, CacheEntry>,
-    forward_cache: HashMap<String, ForwardCacheEntry>,
-    cache_duration: Duration,
     base_url: String,
     enabled: bool,
 }
@@ -140,9 +161,6 @@ impl LocationService {
     pub fn with_config(base_url: String, enabled: bool) -> Self {
         Self {
             client: shared_client(),
-            cache: HashMap::new(),
-            forward_cache: HashMap::new(),
-            cache_duration: Duration::from_hours(24),
             base_url,
             enabled,
         }
@@ -165,15 +183,15 @@ impl LocationService {
     }
 
     /// Check cache for existing location data
-    fn check_cache(&mut self, cache_key: &str) -> Option<LocationData> {
-        if let Some(entry) = self.cache.get(cache_key) {
-            if entry.timestamp.elapsed().unwrap_or(Duration::from_secs(0)) < self.cache_duration {
-                debug!("Using cached location data for {}", cache_key);
-                return Some(entry.location.clone()); // Safe: LocationResult ownership from cache
-            }
-            debug!("Cache entry expired for {}", cache_key);
-            self.cache.remove(cache_key);
+    fn check_cache(cache_key: &str) -> Option<LocationData> {
+        let cache = REVERSE_CACHE.read().ok()?;
+        let entry = cache.get(cache_key)?;
+        if entry.timestamp.elapsed().unwrap_or(Duration::from_secs(0)) < GEOCODE_CACHE_DURATION {
+            debug!("Using cached location data for {}", cache_key);
+            // Safe: LocationResult ownership from cache
+            return Some(entry.location.clone());
         }
+        debug!("Cache entry expired for {}", cache_key);
         None
     }
 
@@ -237,7 +255,7 @@ impl LocationService {
         )
     )]
     pub async fn get_location_from_coordinates(
-        &mut self,
+        &self,
         latitude: f64,
         longitude: f64,
     ) -> AppResult<LocationData> {
@@ -247,7 +265,7 @@ impl LocationService {
 
         let cache_key = format!("{latitude:.6},{longitude:.6}");
 
-        if let Some(cached) = self.check_cache(&cache_key) {
+        if let Some(cached) = Self::check_cache(&cache_key) {
             return Ok(cached);
         }
 
@@ -262,13 +280,16 @@ impl LocationService {
             Self::parse_nominatim_response(&nominatim_response, latitude, longitude);
 
         // Cache the result
-        self.cache.insert(
-            cache_key.clone(),
-            CacheEntry {
-                location: location_data.clone(),
-                timestamp: SystemTime::now(),
-            },
-        );
+        if let Ok(mut cache) = REVERSE_CACHE.write() {
+            evict_if_full(&mut cache, |entry| entry.timestamp);
+            cache.insert(
+                cache_key,
+                CacheEntry {
+                    location: location_data.clone(),
+                    timestamp: SystemTime::now(),
+                },
+            );
+        }
 
         trace!(
             "Cached location data for region: {:?}",
@@ -301,7 +322,7 @@ impl LocationService {
             query = %query,
         )
     )]
-    pub async fn forward_geocode(&mut self, query: &str) -> AppResult<ForwardGeocodeResult> {
+    pub async fn forward_geocode(&self, query: &str) -> AppResult<ForwardGeocodeResult> {
         if !self.enabled {
             return Err(AppError::external_service(
                 "Nominatim",
@@ -316,7 +337,7 @@ impl LocationService {
 
         let cache_key = trimmed.to_lowercase();
 
-        if let Some(hit) = self.check_forward_cache(&cache_key) {
+        if let Some(hit) = Self::check_forward_cache(&cache_key) {
             return Ok(ForwardGeocodeResult {
                 latitude: hit.latitude,
                 longitude: hit.longitude,
@@ -410,15 +431,18 @@ impl LocationService {
             "forward_geocode resolved"
         );
 
-        self.forward_cache.insert(
-            cache_key,
-            ForwardCacheEntry {
-                latitude,
-                longitude,
-                display_name: first.display_name.clone(),
-                timestamp: SystemTime::now(),
-            },
-        );
+        if let Ok(mut cache) = FORWARD_CACHE.write() {
+            evict_if_full(&mut cache, |entry| entry.timestamp);
+            cache.insert(
+                cache_key,
+                ForwardCacheEntry {
+                    latitude,
+                    longitude,
+                    display_name: first.display_name.clone(),
+                    timestamp: SystemTime::now(),
+                },
+            );
+        }
 
         Ok(ForwardGeocodeResult {
             latitude,
@@ -428,16 +452,15 @@ impl LocationService {
     }
 
     /// Return a fresh forward-geocode cache entry, or `None` on miss/expired.
-    fn check_forward_cache(&mut self, cache_key: &str) -> Option<ForwardCacheEntry> {
-        if let Some(entry) = self.forward_cache.get(cache_key) {
-            if entry.timestamp.elapsed().unwrap_or(Duration::from_secs(0)) < self.cache_duration {
-                debug!(cache_key, "forward_geocode cache hit");
-                // Clone is required — cached entry is shared across callers
-                return Some(entry.clone());
-            }
-            debug!(cache_key, "forward_geocode cache entry expired");
-            self.forward_cache.remove(cache_key);
+    fn check_forward_cache(cache_key: &str) -> Option<ForwardCacheEntry> {
+        let cache = FORWARD_CACHE.read().ok()?;
+        let entry = cache.get(cache_key)?;
+        if entry.timestamp.elapsed().unwrap_or(Duration::from_secs(0)) < GEOCODE_CACHE_DURATION {
+            debug!(cache_key, "forward_geocode cache hit");
+            // Clone is required — cached entry is shared across callers
+            return Some(entry.clone());
         }
+        debug!(cache_key, "forward_geocode cache entry expired");
         None
     }
 
@@ -489,35 +512,29 @@ impl LocationService {
             coordinates: (latitude, longitude),
         }
     }
-
-    /// Returns cache statistics as `(total_entries, expired_entries)`
-    #[must_use]
-    pub fn get_cache_stats(&self) -> (usize, usize) {
-        let total_entries = self.cache.len();
-        let expired_entries = self
-            .cache
-            .values()
-            .filter(|entry| {
-                entry.timestamp.elapsed().unwrap_or(Duration::from_secs(0)) >= self.cache_duration
-            })
-            .count();
-
-        (total_entries, expired_entries)
-    }
-
-    /// Removes expired entries from the location cache
-    pub fn clear_expired_cache(&mut self) {
-        let now = SystemTime::now();
-        self.cache.retain(|_, entry| {
-            now.duration_since(entry.timestamp)
-                .unwrap_or(Duration::from_secs(0))
-                < self.cache_duration
-        });
-    }
 }
 
 impl Default for LocationService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Keep a geocoding cache under [`MAX_GEOCODE_CACHE_ENTRIES`].
+///
+/// Sweeps expired entries first; if every entry is still live, drops the map
+/// rather than growing past the cap. Geocoding answers are cheap to re-fetch
+/// and unbounded residency in a long-lived server process is not.
+fn evict_if_full<V>(cache: &mut HashMap<String, V>, stamp: impl Fn(&V) -> SystemTime) {
+    if cache.len() < MAX_GEOCODE_CACHE_ENTRIES {
+        return;
+    }
+    cache.retain(|_, entry| {
+        stamp(entry)
+            .elapsed()
+            .is_ok_and(|elapsed| elapsed < GEOCODE_CACHE_DURATION)
+    });
+    if cache.len() >= MAX_GEOCODE_CACHE_ENTRIES {
+        cache.clear();
     }
 }

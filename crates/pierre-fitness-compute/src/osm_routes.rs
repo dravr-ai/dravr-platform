@@ -274,6 +274,16 @@ impl RouteDiscoveryService {
 
 // ============================================================================
 // Overpass query construction
+//
+// Keep the clause count down. Overpass re-evaluates the spatial `(around:...)`
+// filter once per clause and that dominates the cost — measured around
+// Prevost, a two-clause query answered in 3s, three clauses in 2-9s, and five
+// in 24.9s against a 25s server timeout sitting under a 30s client timeout.
+// Splitting a tag regex into one exact-match clause per value is the wrong
+// instinct for the same reason: the eight-clause form of the running query
+// took 24.7s where the three-clause regex form took 3.3s. Group tags into a
+// regex, and add extra tag predicates to an existing clause rather than
+// opening a new one — those are nearly free.
 // ============================================================================
 
 /// Build the Overpass query for a sport, or `None` when the sport has no
@@ -353,19 +363,18 @@ out tags center {OVERPASS_ELEMENT_BUDGET};"#
 
 /// Build the cycling Overpass query (road, gravel, and mountain bike).
 ///
-/// `highway=track` is what gravel rides are made of, and `mtb:scale` is where
+/// `highway=track` is what gravel rides are made of and `highway=path` is where
 /// singletrack lives — neither is reachable through `cycleway`/`bicycle=designated`
 /// alone, which is why a gravel-heavy region used to come back as a list of
-/// downtown streets.
+/// downtown streets. Ways explicitly closed to bikes are filtered out on the
+/// same clause; extra tag predicates are nearly free, unlike extra clauses.
 fn build_cycling_query(latitude: f64, longitude: f64, radius: u32) -> String {
     let a = around(latitude, longitude, radius);
     format!(
         r#"[out:json][timeout:25];
 (
   relation["route"~"^(bicycle|mtb)$"]["name"]{a};
-  way["highway"~"^(cycleway|track)$"]["name"]{a};
-  way["mtb:scale"]["name"]{a};
-  way["highway"="path"]["bicycle"~"^(designated|yes)$"]["name"]{a};
+  way["highway"~"^(cycleway|track|path)$"]["name"]["bicycle"!~"^(no|dismount)$"]{a};
   way["bicycle"="designated"]["name"]{a};
 );
 out tags center {OVERPASS_ELEMENT_BUDGET};"#
