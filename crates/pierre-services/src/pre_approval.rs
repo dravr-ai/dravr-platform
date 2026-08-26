@@ -142,18 +142,21 @@ impl DisallowResult {
     #[must_use]
     pub fn message(&self) -> String {
         let email = &self.email;
-        let mut message = if self.removed {
+        let outcome = if self.removed {
             format!("{email} removed from the pre-approved list")
         } else {
             format!("{email} was not on the pre-approved list (nothing to remove)")
         };
-        if let Some(status) = self.account_status.as_deref() {
-            message.push_str(&format!(
-                " — note: an account already exists for {email} (status: {status}), \
+        let note = self
+            .account_status
+            .as_deref()
+            .map_or_else(String::new, |status| {
+                format!(
+                    " — note: an account already exists for {email} (status: {status}), \
                  which disallow does not change"
-            ));
-        }
-        message
+                )
+            });
+        format!("{outcome}{note}")
     }
 }
 
