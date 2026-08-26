@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::stages::persistence::create_conversation as create_conversation_row;
 use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{default_locale, TenantId};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
@@ -264,6 +264,10 @@ pub async fn update_conversation(
 }
 
 /// Hard-delete a conversation the caller owns.
+///
+/// Deletion is the one conversation write reserved to the owner: a
+/// participant who was added to the thread is refused with 403 rather than
+/// the 404 a stranger gets, because for them the conversation does exist.
 pub async fn delete_conversation(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -271,12 +275,27 @@ pub async fn delete_conversation(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
+    let user_id_str = auth.user_id.to_string();
+
+    let conv = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conversation_id, &user_id_str, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+    if conv.user_id != user_id_str {
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "Only the conversation's owner can delete it",
+        ));
+    }
 
     let deleted = resources
         .common
         .repos
         .chat
-        .delete_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
+        .delete_conversation(&conversation_id, &user_id_str, tenant_id)
         .await?;
 
     if !deleted {
@@ -286,7 +305,7 @@ pub async fn delete_conversation(
     Ok((StatusCode::NO_CONTENT, ()).into_response())
 }
 
-/// List all messages in a conversation after verifying ownership.
+/// List all messages in a conversation after verifying the caller is a participant.
 pub async fn get_messages(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -295,7 +314,7 @@ pub async fn get_messages(
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
 
-    // Verify user owns this conversation
+    // Verify the caller participates in this conversation
     resources
         .common
         .repos

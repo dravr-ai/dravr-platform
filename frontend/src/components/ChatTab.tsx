@@ -23,6 +23,7 @@ import {
   ProviderConnectionModal,
   CoachFormModal,
   CreateCoachFromConversationModal,
+  ConversationParticipants,
   DEFAULT_COACH_FORM_DATA,
   coachToFormData,
   formDataToCreateRequest,
@@ -176,6 +177,18 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     if (!coachId) return null;
     return coachesListData?.coaches?.find(c => c.id === coachId)?.title ?? null;
   }, [conversationsData, coachesListData, selectedConversation, pendingCoachId]);
+
+  // What the header names when no coach is attached: the conversation's own
+  // title, or a placeholder for a thread that has not been titled yet. The
+  // header always renders so the participants control has a home; this keeps
+  // its left side from being an empty rule.
+  const headerTitle = useMemo<string>(() => {
+    if (activeCoachTitle) return activeCoachTitle;
+    const conversation = conversationsData?.conversations?.find(
+      c => c.id === selectedConversation,
+    );
+    return conversation?.title?.trim() || 'New conversation';
+  }, [activeCoachTitle, conversationsData, selectedConversation]);
 
   // Drawer state for the claim verdict detail surface.
   const [selectedVerdict, setSelectedVerdict] = useState<ClaimVerdict | null>(null);
@@ -961,19 +974,22 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
           {/* Usage warning banner */}
           <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
 
-          {/* Conversation Header: active coach name (left) + Create Coach (right) */}
-          {(activeCoachTitle || (messagesData?.messages?.length ?? 0) >= 2) && (
-            <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-between gap-3">
-              <div className="min-w-0 flex items-center gap-2">
-                {activeCoachTitle && (
-                  <>
-                    <img src="/dravr-icon.svg" alt="" className="w-5 h-5 rounded-md flex-shrink-0" />
-                    <span className="text-sm font-semibold text-on-surface truncate" title={activeCoachTitle}>
-                      {activeCoachTitle}
-                    </span>
-                  </>
-                )}
-              </div>
+          {/* Conversation Header: coach or conversation title (left) + participants / Create Coach (right) */}
+          <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex items-center gap-2">
+              {activeCoachTitle && (
+                <img src="/dravr-icon.svg" alt="" className="w-5 h-5 rounded-md flex-shrink-0" />
+              )}
+              <span
+                className="text-sm font-semibold text-on-surface truncate"
+                title={headerTitle}
+                data-testid="conversation-header-title"
+              >
+                {headerTitle}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <ConversationParticipants conversationId={selectedConversation} />
               {(messagesData?.messages?.length ?? 0) >= 2 && (
                 <button
                   onClick={() => setShowCreateCoachFromConversation(true)}
@@ -986,7 +1002,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 </button>
               )}
             </div>
-          )}
+          </div>
           <div className="flex-1 overflow-y-auto min-h-0">
             <div className="max-w-3xl mx-auto py-4 md:py-6 px-4 md:px-6">
               <MessageList

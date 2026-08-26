@@ -1,5 +1,5 @@
 // ABOUTME: Chat header component with navigation, title, and action menu
-// ABOUTME: Displays coach avatar, conversation title, and new chat button
+// ABOUTME: Displays coach avatar, conversation title, and the rename / participants / delete menu
 
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, Image } from 'react-native';
@@ -33,6 +33,7 @@ interface ChatHeaderProps {
   onTitlePress: () => void;
   onMenuClose: () => void;
   onMenuRename: () => void;
+  onMenuParticipants: () => void;
   onMenuDelete: () => void;
 }
 
@@ -44,6 +45,7 @@ export function ChatHeader({
   onTitlePress,
   onMenuClose,
   onMenuRename,
+  onMenuParticipants,
   onMenuDelete,
 }: ChatHeaderProps) {
   const colors = useThemeColors();
@@ -135,6 +137,15 @@ export function ChatHeader({
             >
               <Ionicons name="pencil-outline" size={20} color={colors.text.primary} style={{ marginRight: spacing.md, width: 24 }} />
               <Text className="text-base text-text-primary">Rename</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              className="flex-row items-center px-4 py-3"
+              onPress={onMenuParticipants}
+              testID="menu-participants"
+            >
+              <Ionicons name="people-outline" size={20} color={colors.text.primary} style={{ marginRight: spacing.md, width: 24 }} />
+              <Text className="text-base text-text-primary">Participants</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

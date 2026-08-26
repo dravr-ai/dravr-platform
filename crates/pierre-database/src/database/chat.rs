@@ -10,13 +10,15 @@ use pierre_core::errors::{AppError, AppResult};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
+mod participants;
+
 use super::Database;
 use pierre_core::models::TenantId;
 
 // Re-export DTOs from pierre-core (canonical definitions)
 pub use pierre_core::models::{
-    AddMessageParams, ConversationRecord, ConversationSummary, MessageFeedbackRecord,
-    MessageRecord, UpsertMessageFeedbackParams,
+    AddMessageParams, ConversationParticipant, ConversationRecord, ConversationSummary,
+    MessageFeedbackRecord, MessageRecord, ParticipantRole, UpsertMessageFeedbackParams,
 };
 
 // ============================================================================
@@ -56,6 +58,16 @@ impl ChatManager {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
+        // The conversation row and its owner participant row land together:
+        // every read path answers through the membership predicate, so a
+        // conversation without its owner row would be invisible to the
+        // athlete who just opened it.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::database(format!("Failed to create conversation: {e}")))?;
+
         sqlx::query(
             r"
             INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, group_id, total_tokens, created_at, updated_at)
@@ -70,9 +82,28 @@ impl ChatManager {
         .bind(coach_id)
         .bind(group_id)
         .bind(&now)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| AppError::database(format!("Failed to create conversation: {e}")))?;
+
+        sqlx::query(
+            r"
+            INSERT INTO conversation_participants (conversation_id, user_id, tenant_id, role, added_by, added_at)
+            VALUES ($1, $2, $3, $4, $2, $5)
+            ",
+        )
+        .bind(&id)
+        .bind(user_id)
+        .bind(tenant_id)
+        .bind(ParticipantRole::Owner.as_str())
+        .bind(&now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to add conversation owner: {e}")))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::database(format!("Failed to create conversation: {e}")))?;
 
         Ok(ConversationRecord {
             id,
@@ -90,7 +121,8 @@ impl ChatManager {
         })
     }
 
-    /// Get a conversation by ID with tenant isolation
+    /// Get a conversation by ID when `user_id` is one of its participants
+    /// in this tenant.
     ///
     /// # Errors
     ///
@@ -103,9 +135,13 @@ impl ChatManager {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, title, model, coach_id, session_id, total_tokens, created_at, updated_at, group_id, onboarding_state
-            FROM chat_conversations
-            WHERE id = $1 AND user_id = $2 AND tenant_id = $3
+            SELECT c.id, c.user_id, c.tenant_id, c.title, c.model, c.coach_id, c.session_id, c.total_tokens, c.created_at, c.updated_at, c.group_id, c.onboarding_state
+            FROM chat_conversations c
+            WHERE c.id = $1 AND c.tenant_id = $3
+              AND EXISTS (
+                SELECT 1 FROM conversation_participants p
+                WHERE p.conversation_id = c.id AND p.user_id = $2 AND p.tenant_id = $3
+              )
             ",
         )
         .bind(conversation_id)
@@ -131,7 +167,7 @@ impl ChatManager {
         }))
     }
 
-    /// List conversations for a user with pagination
+    /// List the conversations a user participates in, with pagination
     ///
     /// # Errors
     ///
@@ -148,8 +184,9 @@ impl ChatManager {
             SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.channel_type, c.created_at, c.updated_at,
                    COUNT(m.id) as message_count
             FROM chat_conversations c
+            JOIN conversation_participants p ON p.conversation_id = c.id
             LEFT JOIN chat_messages m ON m.conversation_id = c.id
-            WHERE c.user_id = $1 AND c.tenant_id = $2
+            WHERE p.user_id = $1 AND p.tenant_id = $2 AND c.tenant_id = $2
             GROUP BY c.id
             ORDER BY c.updated_at DESC
             LIMIT $3 OFFSET $4
@@ -199,7 +236,11 @@ impl ChatManager {
             r"
             UPDATE chat_conversations
             SET title = $1, updated_at = $2
-            WHERE id = $3 AND user_id = $4 AND tenant_id = $5
+            WHERE id = $3 AND tenant_id = $5
+              AND EXISTS (
+                SELECT 1 FROM conversation_participants p
+                WHERE p.conversation_id = chat_conversations.id AND p.user_id = $4 AND p.tenant_id = $5
+              )
             ",
         )
         .bind(title)
@@ -235,7 +276,11 @@ impl ChatManager {
             r"
             UPDATE chat_conversations
             SET channel_type = $1
-            WHERE id = $2 AND user_id = $3 AND tenant_id = $4
+            WHERE id = $2 AND tenant_id = $4
+              AND EXISTS (
+                SELECT 1 FROM conversation_participants p
+                WHERE p.conversation_id = chat_conversations.id AND p.user_id = $3 AND p.tenant_id = $4
+              )
             ",
         )
         .bind(channel_type)
@@ -249,7 +294,8 @@ impl ChatManager {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Delete a conversation and all its messages (cascade)
+    /// Delete a conversation and all its messages (cascade). Owner-only:
+    /// `user_id` must match the row's `user_id`, not merely a participant.
     ///
     /// # Errors
     ///
@@ -290,13 +336,15 @@ impl ChatManager {
         let now = chrono::Utc::now().to_rfc3339();
         let role_str = params.role;
 
-        // Insert message only if the conversation belongs to the user in this tenant
+        // Insert message only if the user is a participant of the conversation in this tenant
         let result = sqlx::query(
             r"
             INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks)
             SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12
             WHERE EXISTS (
-                SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $10 AND tenant_id = $11
+                SELECT 1 FROM chat_conversations c
+                JOIN conversation_participants p ON p.conversation_id = c.id
+                WHERE c.id = $2 AND c.tenant_id = $11 AND p.user_id = $10 AND p.tenant_id = $11
             )
             ",
         )
@@ -322,19 +370,18 @@ impl ChatManager {
             ));
         }
 
-        // Update conversation's updated_at and total_tokens (ownership already verified above)
+        // Update conversation's updated_at and total_tokens (membership already verified above)
         if let Some(tokens) = params.token_count {
             sqlx::query(
                 r"
                 UPDATE chat_conversations
                 SET updated_at = $1, total_tokens = total_tokens + $2
-                WHERE id = $3 AND user_id = $4 AND tenant_id = $5
+                WHERE id = $3 AND tenant_id = $4
                 ",
             )
             .bind(&now)
             .bind(i64::from(tokens))
             .bind(params.conversation_id)
-            .bind(params.user_id)
             .bind(params.tenant_id)
             .execute(&self.pool)
             .await
@@ -346,12 +393,11 @@ impl ChatManager {
                 r"
                 UPDATE chat_conversations
                 SET updated_at = $1
-                WHERE id = $2 AND user_id = $3 AND tenant_id = $4
+                WHERE id = $2 AND tenant_id = $3
                 ",
             )
             .bind(&now)
             .bind(params.conversation_id)
-            .bind(params.user_id)
             .bind(params.tenant_id)
             .execute(&self.pool)
             .await
@@ -390,7 +436,8 @@ impl ChatManager {
             SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.content_blocks, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
+            JOIN conversation_participants p ON p.conversation_id = c.id
+            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
             ORDER BY m.created_at ASC
             ",
         )
@@ -437,7 +484,8 @@ impl ChatManager {
             SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.content_blocks, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
+            JOIN conversation_participants p ON p.conversation_id = c.id
+            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
             ORDER BY m.created_at DESC, m.id DESC
             LIMIT $4
             ",
@@ -487,7 +535,8 @@ impl ChatManager {
             SELECT COUNT(*) as count
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
+            JOIN conversation_participants p ON p.conversation_id = c.id
+            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
             ",
         )
         .bind(conversation_id)
@@ -520,7 +569,7 @@ impl ChatManager {
         // Insert keyed on (message_id, user_id); on a repeat rating, overwrite
         // the rating + comment and bump updated_at. The WHERE EXISTS gate lands
         // the row only when the message belongs to a conversation the caller
-        // owns in this tenant — a forged message_id never inserts.
+        // participates in, in this tenant — a forged message_id never inserts.
         sqlx::query(
             r"
             INSERT INTO chat_message_feedback
@@ -529,7 +578,8 @@ impl ChatManager {
             WHERE EXISTS (
                 SELECT 1 FROM chat_messages m
                 JOIN chat_conversations c ON m.conversation_id = c.id
-                WHERE m.id = $2 AND m.conversation_id = $3 AND c.user_id = $4 AND c.tenant_id = $5
+                JOIN conversation_participants p ON p.conversation_id = c.id
+                WHERE m.id = $2 AND m.conversation_id = $3 AND p.user_id = $4 AND p.tenant_id = $5 AND c.tenant_id = $5
             )
             ON CONFLICT(message_id, user_id) DO UPDATE SET
                 rating = excluded.rating,
@@ -837,6 +887,30 @@ impl ChatRepository for Database {
         tenant_id: TenantId,
     ) -> AppResult<i64> {
         Self::chat_delete_all_user_conversations_impl(self, user_id, tenant_id).await
+    }
+    async fn add_participant(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+        user_id: &str,
+        added_by: &str,
+    ) -> AppResult<ConversationParticipant> {
+        Self::chat_add_participant_impl(self, conversation_id, tenant_id, user_id, added_by).await
+    }
+    async fn remove_participant(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<bool> {
+        Self::chat_remove_participant_impl(self, conversation_id, tenant_id, user_id).await
+    }
+    async fn list_participants(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<ConversationParticipant>> {
+        Self::chat_list_participants_impl(self, conversation_id, tenant_id).await
     }
 
     async fn get_recent_conversations_admin(

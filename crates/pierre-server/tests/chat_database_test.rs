@@ -7,7 +7,7 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use pierre_core::models::TenantId;
+use pierre_core::models::{ParticipantRole, TenantId};
 use pierre_database::database::chat::{AddMessageParams, UpsertMessageFeedbackParams};
 use pierre_database::database::ChatManager;
 use sqlx::SqlitePool;
@@ -56,7 +56,9 @@ async fn create_test_db() -> SqlitePool {
     sqlx::query(
         r"
         INSERT INTO users (id, email, password_hash, created_at, last_active)
-        VALUES ('user-1', 'test@example.com', 'hash', '2025-01-01', '2025-01-01')
+        VALUES ('user-1', 'test@example.com', 'hash', '2025-01-01', '2025-01-01'),
+               ('user-2', 'member@example.com', 'hash', '2025-01-01', '2025-01-01'),
+               ('user-3', 'other-owner@example.com', 'hash', '2025-01-01', '2025-01-01')
         ",
     )
     .execute(&pool)
@@ -122,6 +124,26 @@ async fn create_test_db() -> SqlitePool {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(message_id, user_id)
+        )
+        ",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Who can read and post (mirrors migration 20260826000004). Every
+    // membership-gated query joins on it, so the hand-rolled schema needs it
+    // for any conversation read to answer at all.
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS conversation_participants (
+            conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            tenant_id TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+            added_by TEXT NOT NULL,
+            added_at TEXT NOT NULL,
+            PRIMARY KEY (conversation_id, user_id)
         )
         ",
     )
@@ -1289,4 +1311,299 @@ async fn test_upsert_message_feedback_rejects_unowned_message() {
         .await
         .unwrap()
         .is_empty());
+}
+
+// ============================================================================
+// Participant Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_create_conversation_writes_owner_participant_row() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+
+    let conv = manager
+        .create_conversation("user-1", tenant_id, "Owned", "gemini-1.5-flash", None, None)
+        .await
+        .unwrap();
+
+    let participants = manager
+        .list_participants(&conv.id, tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(participants.len(), 1);
+    assert_eq!(participants[0].user_id, "user-1");
+    assert_eq!(participants[0].role, ParticipantRole::Owner);
+    assert_eq!(participants[0].added_by, "user-1");
+    assert_eq!(participants[0].conversation_id, conv.id);
+    assert_eq!(participants[0].tenant_id, tenant_id.to_string());
+}
+
+#[tokio::test]
+async fn test_added_participant_reads_and_posts_like_the_owner() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+
+    let conv = manager
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Shared",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Before the add: a stranger sees nothing and cannot write.
+    assert!(manager
+        .get_conversation(&conv.id, "user-2", tenant_id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(manager
+        .list_conversations("user-2", tenant_id, 10, 0)
+        .await
+        .unwrap()
+        .is_empty());
+    let refused = manager
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conv.id,
+            user_id: "user-2",
+            role: "user",
+            content: "knock knock",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+        })
+        .await;
+    assert!(refused.is_err());
+
+    let added = manager
+        .add_participant(&conv.id, tenant_id, "user-2", "user-1")
+        .await
+        .unwrap();
+    assert_eq!(added.role, ParticipantRole::Member);
+    assert_eq!(added.added_by, "user-1");
+
+    // After: the thread is theirs to read, list, rename and post in.
+    let seen = manager
+        .get_conversation(&conv.id, "user-2", tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        seen.user_id, "user-1",
+        "ownership is unchanged by membership"
+    );
+
+    let listed = manager
+        .list_conversations("user-2", tenant_id, 10, 0)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, conv.id);
+
+    let posted = manager
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conv.id,
+            user_id: "user-2",
+            role: "user",
+            content: "hello from the member",
+            token_count: Some(4),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(posted.content, "hello from the member");
+
+    let messages = manager
+        .get_messages(&conv.id, "user-2", tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        manager
+            .get_message_count(&conv.id, "user-1", tenant_id)
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(manager
+        .update_conversation_title(&conv.id, "user-2", tenant_id, "Renamed by member")
+        .await
+        .unwrap());
+
+    // Idempotent re-add keeps the existing row and never promotes to owner.
+    let again = manager
+        .add_participant(&conv.id, tenant_id, "user-1", "user-2")
+        .await
+        .unwrap();
+    assert_eq!(again.role, ParticipantRole::Owner);
+    let participants = manager
+        .list_participants(&conv.id, tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(participants.len(), 2);
+    assert_eq!(
+        participants[0].role,
+        ParticipantRole::Owner,
+        "owner sorts first"
+    );
+    assert_eq!(participants[1].user_id, "user-2");
+}
+
+#[tokio::test]
+async fn test_removing_a_participant_revokes_access_but_never_the_owner() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+
+    let conv = manager
+        .create_conversation(
+            "user-1",
+            tenant_id,
+            "Shared",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    manager
+        .add_participant(&conv.id, tenant_id, "user-2", "user-1")
+        .await
+        .unwrap();
+
+    assert!(manager
+        .remove_participant(&conv.id, tenant_id, "user-2")
+        .await
+        .unwrap());
+    assert!(manager
+        .get_conversation(&conv.id, "user-2", tenant_id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(manager
+        .get_messages(&conv.id, "user-2", tenant_id)
+        .await
+        .unwrap()
+        .is_empty());
+    // A second removal has nothing to remove.
+    assert!(!manager
+        .remove_participant(&conv.id, tenant_id, "user-2")
+        .await
+        .unwrap());
+
+    // The owner's row is never removed, so the owner keeps the thread.
+    assert!(!manager
+        .remove_participant(&conv.id, tenant_id, "user-1")
+        .await
+        .unwrap());
+    assert!(manager
+        .get_conversation(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap()
+        .is_some());
+}
+
+#[tokio::test]
+async fn test_add_participant_refuses_a_conversation_outside_the_tenant() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+
+    let conv = manager
+        .create_conversation("user-1", tenant_id, "Mine", "gemini-1.5-flash", None, None)
+        .await
+        .unwrap();
+
+    let err = manager
+        .add_participant(&conv.id, test_tenant_id_2(), "user-2", "user-1")
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("Conversation not found"), "{err}");
+    assert_eq!(
+        manager
+            .list_participants(&conv.id, tenant_id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn test_count_and_delete_all_keep_owner_semantics() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+
+    let owned = manager
+        .create_conversation("user-1", tenant_id, "Owned", "gemini-1.5-flash", None, None)
+        .await
+        .unwrap();
+    let joined = manager
+        .create_conversation(
+            "user-3",
+            tenant_id,
+            "Joined",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    manager
+        .add_participant(&joined.id, tenant_id, "user-1", "user-3")
+        .await
+        .unwrap();
+
+    // The quota counts what the athlete opened, not what they were added to;
+    // the listing shows both.
+    assert_eq!(
+        manager
+            .count_conversations("user-1", tenant_id)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        manager
+            .list_conversations("user-1", tenant_id, 10, 0)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
+    // Account cleanup deletes the athlete's own thread and leaves the other
+    // owner's thread standing.
+    assert_eq!(
+        manager
+            .delete_all_user_conversations("user-1", tenant_id)
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(manager
+        .get_conversation(&owned.id, "user-1", tenant_id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(manager
+        .get_conversation(&joined.id, "user-3", tenant_id)
+        .await
+        .unwrap()
+        .is_some());
 }

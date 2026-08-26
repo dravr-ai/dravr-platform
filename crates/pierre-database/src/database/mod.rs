@@ -126,8 +126,8 @@ pub mod workout_templates;
 pub mod test_utils;
 
 pub use chat::{
-    AddMessageParams, ChatManager, ConversationRecord, ConversationSummary, MessageFeedbackRecord,
-    MessageRecord, UpsertMessageFeedbackParams,
+    AddMessageParams, ChatManager, ConversationParticipant, ConversationRecord,
+    ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
 };
 pub use coach_authors::{
     CoachAuthor, CoachAuthorsManager, CreateAuthorRequest, UpdateAuthorRequest,

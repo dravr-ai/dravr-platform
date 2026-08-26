@@ -388,3 +388,67 @@ pub struct UpsertMessageFeedbackParams<'a> {
     /// Optional free-text reason (typically only set on a thumbs-down)
     pub comment: Option<&'a str>,
 }
+
+/// What a participant may do in a conversation beyond reading and posting.
+///
+/// Every participant reads the thread, posts in it and manages the other
+/// members. The owner — the athlete who opened the conversation — is the one
+/// who can delete it and the one no other participant can remove.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParticipantRole {
+    /// Opened the conversation; deletes it; cannot be removed.
+    Owner,
+    /// Added to the conversation by a participant; reads, posts, adds and
+    /// removes members; can be removed.
+    Member,
+}
+
+impl ParticipantRole {
+    /// The value stored in `conversation_participants.role`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::Member => "member",
+        }
+    }
+
+    /// Parse the stored column value. The column carries a CHECK constraint
+    /// over exactly these two values, so an unknown value is a schema
+    /// invariant breach, not a caller error.
+    #[must_use]
+    pub fn from_column(value: &str) -> Option<Self> {
+        match value {
+            "owner" => Some(Self::Owner),
+            "member" => Some(Self::Member),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for ParticipantRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// One row of `conversation_participants`: a user who can read and post.
+///
+/// The owner has a row like anyone else, so a single membership predicate
+/// serves every conversation read and write path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConversationParticipant {
+    /// The conversation this membership belongs to
+    pub conversation_id: String,
+    /// The participating user
+    pub user_id: String,
+    /// The conversation's tenant — a participant is always a member of it
+    pub tenant_id: String,
+    /// Owner or member
+    pub role: ParticipantRole,
+    /// The participant who added this one (the owner names themself)
+    pub added_by: String,
+    /// When the row was written (ISO 8601)
+    pub added_at: String,
+}

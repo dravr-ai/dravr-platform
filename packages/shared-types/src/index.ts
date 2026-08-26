@@ -115,6 +115,9 @@ export type {
 // API types (chat, prompts, common patterns)
 export type {
   Conversation,
+  ConversationParticipant,
+  ConversationParticipantRole,
+  ConversationParticipantsResponse,
   Message,
   MessageRole,
   MessageFeedbackEntry,

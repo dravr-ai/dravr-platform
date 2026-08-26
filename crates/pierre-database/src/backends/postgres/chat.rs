@@ -7,12 +7,15 @@
 use super::super::ChatRepository;
 use super::PostgresDatabase;
 use crate::database::{
-    ConversationRecord, ConversationSummary, MessageFeedbackRecord, MessageRecord,
+    ConversationParticipant, ConversationRecord, ConversationSummary, MessageFeedbackRecord,
+    MessageRecord,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{AddMessageParams, TenantId, UpsertMessageFeedbackParams};
+use pierre_core::models::{
+    AddMessageParams, ParticipantRole, TenantId, UpsertMessageFeedbackParams,
+};
 use pierre_core::uuid_utils::parse_uuid;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
@@ -38,6 +41,29 @@ fn map_feedback_row(r: &PgRow) -> MessageFeedbackRecord {
     }
 }
 
+/// Map a `conversation_participants` row to its record. `user_id` and
+/// `added_by` are UUID columns surfaced as strings for the wire DTO; the role
+/// column is CHECK-constrained, so an unknown value is a schema breach.
+fn map_participant_row(r: &PgRow) -> AppResult<ConversationParticipant> {
+    let role: String = r.get("role");
+    let role = ParticipantRole::from_column(&role).ok_or_else(|| {
+        AppError::database(format!(
+            "conversation_participants.role holds unknown value {role}"
+        ))
+    })?;
+    let user_id: Uuid = r.get("user_id");
+    let added_by: Uuid = r.get("added_by");
+    let added_at: DateTime<Utc> = r.get("added_at");
+    Ok(ConversationParticipant {
+        conversation_id: r.get("conversation_id"),
+        user_id: user_id.to_string(),
+        tenant_id: r.get("tenant_id"),
+        role,
+        added_by: added_by.to_string(),
+        added_at: added_at.to_rfc3339(),
+    })
+}
+
 #[async_trait]
 impl ChatRepository for PostgresDatabase {
     // ================================
@@ -61,6 +87,18 @@ impl ChatRepository for PostgresDatabase {
         // binding so the type matches.
         let group_uuid: Option<Uuid> = group_id.map(parse_uuid).transpose()?;
 
+        let user_uuid = parse_uuid(user_id)?;
+
+        // The conversation row and its owner participant row land together:
+        // every read path answers through the membership predicate, so a
+        // conversation without its owner row would be invisible to the
+        // athlete who just opened it.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::database(format!("Failed to create conversation: {e}")))?;
+
         sqlx::query(
             r"
             INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, group_id, total_tokens, created_at, updated_at)
@@ -68,16 +106,35 @@ impl ChatRepository for PostgresDatabase {
             ",
         )
         .bind(&id)
-        .bind(parse_uuid(user_id)?)
+        .bind(user_uuid)
         .bind(tenant_id.to_string())
         .bind(title)
         .bind(model)
         .bind(coach_id)
         .bind(group_uuid)
         .bind(now)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| AppError::database(format!("Failed to create conversation: {e}")))?;
+
+        sqlx::query(
+            r"
+            INSERT INTO conversation_participants (conversation_id, user_id, tenant_id, role, added_by, added_at)
+            VALUES ($1, $2, $3, $4, $2, $5)
+            ",
+        )
+        .bind(&id)
+        .bind(user_uuid)
+        .bind(tenant_id.to_string())
+        .bind(ParticipantRole::Owner.as_str())
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to add conversation owner: {e}")))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::database(format!("Failed to create conversation: {e}")))?;
 
         Ok(ConversationRecord {
             id,
@@ -103,11 +160,15 @@ impl ChatRepository for PostgresDatabase {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, title, model, coach_id, session_id,
-                   total_tokens, created_at, updated_at, group_id::TEXT AS group_id,
-                   onboarding_state
-            FROM chat_conversations
-            WHERE id = $1 AND user_id = $2 AND tenant_id = $3
+            SELECT c.id, c.user_id, c.tenant_id, c.title, c.model, c.coach_id, c.session_id,
+                   c.total_tokens, c.created_at, c.updated_at, c.group_id::TEXT AS group_id,
+                   c.onboarding_state
+            FROM chat_conversations c
+            WHERE c.id = $1 AND c.tenant_id = $3
+              AND EXISTS (
+                SELECT 1 FROM conversation_participants p
+                WHERE p.conversation_id = c.id AND p.user_id = $2 AND p.tenant_id = $3
+              )
             ",
         )
         .bind(conversation_id)
@@ -151,8 +212,9 @@ impl ChatRepository for PostgresDatabase {
             SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.channel_type, c.created_at, c.updated_at,
                    COUNT(m.id) as message_count
             FROM chat_conversations c
+            JOIN conversation_participants p ON p.conversation_id = c.id
             LEFT JOIN chat_messages m ON m.conversation_id = c.id
-            WHERE c.user_id = $1 AND c.tenant_id = $2
+            WHERE p.user_id = $1 AND p.tenant_id = $2 AND c.tenant_id = $2
             GROUP BY c.id
             ORDER BY c.updated_at DESC
             LIMIT $3 OFFSET $4
@@ -202,7 +264,11 @@ impl ChatRepository for PostgresDatabase {
             r"
             UPDATE chat_conversations
             SET title = $1, updated_at = $2
-            WHERE id = $3 AND user_id = $4 AND tenant_id = $5
+            WHERE id = $3 AND tenant_id = $5
+              AND EXISTS (
+                SELECT 1 FROM conversation_participants p
+                WHERE p.conversation_id = chat_conversations.id AND p.user_id = $4 AND p.tenant_id = $5
+              )
             ",
         )
         .bind(title)
@@ -228,7 +294,11 @@ impl ChatRepository for PostgresDatabase {
             r"
             UPDATE chat_conversations
             SET channel_type = $1
-            WHERE id = $2 AND user_id = $3 AND tenant_id = $4
+            WHERE id = $2 AND tenant_id = $4
+              AND EXISTS (
+                SELECT 1 FROM conversation_participants p
+                WHERE p.conversation_id = chat_conversations.id AND p.user_id = $3 AND p.tenant_id = $4
+              )
             ",
         )
         .bind(channel_type)
@@ -270,13 +340,15 @@ impl ChatRepository for PostgresDatabase {
         let user_uuid = parse_uuid(params.user_id)?;
         let tenant_str = params.tenant_id.to_string();
 
-        // Insert message only if the conversation belongs to the user in this tenant
+        // Insert message only if the user is a participant of the conversation in this tenant
         let result = sqlx::query(
             r"
             INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks)
             SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12
             WHERE EXISTS (
-                SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $10 AND tenant_id = $11
+                SELECT 1 FROM chat_conversations c
+                JOIN conversation_participants p ON p.conversation_id = c.id
+                WHERE c.id = $2 AND c.tenant_id = $11 AND p.user_id = $10 AND p.tenant_id = $11
             )
             ",
         )
@@ -302,19 +374,18 @@ impl ChatRepository for PostgresDatabase {
             ));
         }
 
-        // Update conversation's updated_at and total_tokens (ownership already verified above)
+        // Update conversation's updated_at and total_tokens (membership already verified above)
         if let Some(tokens) = params.token_count {
             sqlx::query(
                 r"
                 UPDATE chat_conversations
                 SET updated_at = $1, total_tokens = total_tokens + $2
-                WHERE id = $3 AND user_id = $4 AND tenant_id = $5
+                WHERE id = $3 AND tenant_id = $4
                 ",
             )
             .bind(now)
             .bind(i64::from(tokens))
             .bind(params.conversation_id)
-            .bind(user_uuid)
             .bind(&tenant_str)
             .execute(&self.pool)
             .await
@@ -326,12 +397,11 @@ impl ChatRepository for PostgresDatabase {
                 r"
                 UPDATE chat_conversations
                 SET updated_at = $1
-                WHERE id = $2 AND user_id = $3 AND tenant_id = $4
+                WHERE id = $2 AND tenant_id = $3
                 ",
             )
             .bind(now)
             .bind(params.conversation_id)
-            .bind(user_uuid)
             .bind(&tenant_str)
             .execute(&self.pool)
             .await
@@ -365,7 +435,8 @@ impl ChatRepository for PostgresDatabase {
             SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.content_blocks, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
+            JOIN conversation_participants p ON p.conversation_id = c.id
+            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
             ORDER BY m.created_at ASC
             ",
         )
@@ -411,7 +482,8 @@ impl ChatRepository for PostgresDatabase {
             SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.content_blocks, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
+            JOIN conversation_participants p ON p.conversation_id = c.id
+            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
             ORDER BY m.created_at DESC, m.id DESC
             LIMIT $4
             ",
@@ -460,7 +532,8 @@ impl ChatRepository for PostgresDatabase {
             SELECT COUNT(*)
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
-            WHERE m.conversation_id = $1 AND c.user_id = $2 AND c.tenant_id = $3
+            JOIN conversation_participants p ON p.conversation_id = c.id
+            WHERE m.conversation_id = $1 AND p.user_id = $2 AND p.tenant_id = $3 AND c.tenant_id = $3
             ",
         )
         .bind(conversation_id)
@@ -485,7 +558,7 @@ impl ChatRepository for PostgresDatabase {
         // Insert keyed on (message_id, user_id); on a repeat rating, overwrite
         // the rating + comment and bump updated_at. The WHERE EXISTS gate lands
         // the row only when the message belongs to a conversation the caller
-        // owns in this tenant.
+        // participates in, in this tenant.
         sqlx::query(
             r"
             INSERT INTO chat_message_feedback
@@ -494,7 +567,8 @@ impl ChatRepository for PostgresDatabase {
             WHERE EXISTS (
                 SELECT 1 FROM chat_messages m
                 JOIN chat_conversations c ON m.conversation_id = c.id
-                WHERE m.id = $2 AND m.conversation_id = $3 AND c.user_id = $4 AND c.tenant_id = $5
+                JOIN conversation_participants p ON p.conversation_id = c.id
+                WHERE m.id = $2 AND m.conversation_id = $3 AND p.user_id = $4 AND p.tenant_id = $5 AND c.tenant_id = $5
             )
             ON CONFLICT (message_id, user_id) DO UPDATE SET
                 rating = EXCLUDED.rating,
@@ -821,5 +895,106 @@ impl ChatRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to set conversation coach_id: {e}")))?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn add_participant(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+        user_id: &str,
+        added_by: &str,
+    ) -> AppResult<ConversationParticipant> {
+        let now = Utc::now();
+        let user_uuid = parse_uuid(user_id)?;
+        let added_by_uuid = parse_uuid(added_by)?;
+        let tenant_str = tenant_id.to_string();
+
+        // ON CONFLICT DO NOTHING keeps an existing row (the owner's included)
+        // untouched; the WHERE EXISTS gate refuses a conversation outside
+        // this tenant instead of writing a dangling membership.
+        sqlx::query(
+            r"
+            INSERT INTO conversation_participants
+                (conversation_id, user_id, tenant_id, role, added_by, added_at)
+            SELECT $1, $2, $3, $4, $5, $6
+            WHERE EXISTS (
+                SELECT 1 FROM chat_conversations WHERE id = $1 AND tenant_id = $3
+            )
+            ON CONFLICT (conversation_id, user_id) DO NOTHING
+            ",
+        )
+        .bind(conversation_id)
+        .bind(user_uuid)
+        .bind(&tenant_str)
+        .bind(ParticipantRole::Member.as_str())
+        .bind(added_by_uuid)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to add participant: {e}")))?;
+
+        let row = sqlx::query(
+            r"
+            SELECT conversation_id, user_id, tenant_id, role, added_by, added_at
+            FROM conversation_participants
+            WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(conversation_id)
+        .bind(user_uuid)
+        .bind(&tenant_str)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read participant: {e}")))?;
+
+        row.as_ref()
+            .map(map_participant_row)
+            .transpose()?
+            .ok_or_else(|| AppError::not_found("Conversation not found"))
+    }
+
+    async fn remove_participant(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM conversation_participants
+            WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3 AND role = $4
+            ",
+        )
+        .bind(conversation_id)
+        .bind(parse_uuid(user_id)?)
+        .bind(tenant_id.to_string())
+        .bind(ParticipantRole::Member.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to remove participant: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_participants(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<ConversationParticipant>> {
+        let rows = sqlx::query(
+            r"
+            SELECT conversation_id, user_id, tenant_id, role, added_by, added_at
+            FROM conversation_participants
+            WHERE conversation_id = $1 AND tenant_id = $2
+            ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, added_at ASC, user_id ASC
+            ",
+        )
+        .bind(conversation_id)
+        .bind(tenant_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list participants: {e}")))?;
+
+        rows.iter().map(map_participant_row).collect()
     }
 }

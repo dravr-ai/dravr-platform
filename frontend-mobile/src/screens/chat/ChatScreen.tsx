@@ -21,6 +21,7 @@ import type { ChatMessageAction } from '@pierre/shared-types';
 import type { ShareVisibility, Coach } from '../../types';
 
 import { ChatHeader } from './ChatHeader';
+import { ConversationParticipantsModal } from './ConversationParticipantsModal';
 import { ChatInputBar } from './ChatInputBar';
 import { ChatProgressStrip } from './ChatProgressStrip';
 import { MessageList } from './MessageList';
@@ -49,6 +50,7 @@ export function ChatScreen() {
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
   const [renameDefaultTitle, setRenameDefaultTitle] = useState('');
+  const [participantsVisible, setParticipantsVisible] = useState(false);
   const [shareToFeedContent, setShareToFeedContent] = useState<string | null>(null);
   const [shareToFeedVisibility, setShareToFeedVisibility] = useState<ShareVisibility>('friends_only');
   const [isSharing, setIsSharing] = useState(false);
@@ -427,6 +429,13 @@ export function ChatScreen() {
     }
   }, [conversations.currentConversation]);
 
+  const handleMenuParticipants = useCallback(() => {
+    setActionMenuVisible(false);
+    if (conversations.currentConversation) {
+      setParticipantsVisible(true);
+    }
+  }, [conversations.currentConversation]);
+
   const handleMenuDelete = useCallback(() => {
     setActionMenuVisible(false);
     if (!conversations.currentConversation) return;
@@ -474,7 +483,14 @@ export function ChatScreen() {
           onTitlePress={showTitleActionMenu}
           onMenuClose={() => setActionMenuVisible(false)}
           onMenuRename={handleMenuRename}
+          onMenuParticipants={handleMenuParticipants}
           onMenuDelete={handleMenuDelete}
+        />
+
+        <ConversationParticipantsModal
+          visible={participantsVisible}
+          conversationId={conversations.currentConversation?.id ?? null}
+          onClose={() => setParticipantsVisible(false)}
         />
 
         <MessageList

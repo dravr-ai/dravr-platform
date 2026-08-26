@@ -11,6 +11,8 @@ import type {
   CommandCatalogueResponse,
   CommandEntry,
   Conversation,
+  ConversationParticipant,
+  ConversationParticipantsResponse,
   Message,
   MessageFeedbackEntry,
   TurnEnvelope,
@@ -26,6 +28,8 @@ export type {
   CommandCatalogueResponse,
   CommandEntry,
   Conversation,
+  ConversationParticipant,
+  ConversationParticipantsResponse,
   Message,
   MessageFeedbackEntry,
   TurnEnvelope,
@@ -232,6 +236,42 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
         ENDPOINTS.CHAT.MESSAGES(conversationId)
       );
       return response.data;
+    },
+
+    /**
+     * Who is in a conversation, owner first. 404 when the caller is not a
+     * participant — the same answer a stranger gets from every conversation
+     * route, so a thread's existence is never disclosed outside it.
+     */
+    async listParticipants(conversationId: string): Promise<ConversationParticipant[]> {
+      const response = await axios.get<ConversationParticipantsResponse>(
+        ENDPOINTS.CHAT.PARTICIPANTS(conversationId)
+      );
+      return response.data.participants;
+    },
+
+    /**
+     * Add a user to a conversation the caller participates in. The user must
+     * be a member of the conversation's tenant (403 otherwise); re-adding an
+     * existing participant is idempotent and returns their row as it stands.
+     */
+    async addParticipant(
+      conversationId: string,
+      userId: string,
+    ): Promise<ConversationParticipant> {
+      const response = await axios.post<ConversationParticipant>(
+        ENDPOINTS.CHAT.PARTICIPANTS(conversationId),
+        { user_id: userId },
+      );
+      return response.data;
+    },
+
+    /**
+     * Remove a member from a conversation the caller participates in. The
+     * owner cannot be removed (400); a user who is not in the thread is a 404.
+     */
+    async removeParticipant(conversationId: string, userId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.CHAT.PARTICIPANT(conversationId, userId));
     },
 
     /**

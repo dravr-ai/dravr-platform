@@ -9,6 +9,7 @@
 //! Per-concern split:
 //!
 //! - [`chat::conversations`] — CRUD on `chat_conversations` + message listing
+//! - [`chat::participants`] — who is in a conversation: list / add / remove
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
 //! - [`chat::send_message`] — web-chat POST → unified pipeline (optional AG-UI)
 //! - [`chat::send_insight`] — insight-generation POST → JSON-shaped one-shot
@@ -22,6 +23,7 @@ mod conversations;
 mod dto;
 mod feedback;
 mod group_transcript;
+mod participants;
 mod send_insight;
 mod send_message;
 mod turn_response;
@@ -40,10 +42,10 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::tool_execution::build_mcp_tools as services_build_mcp_tools;
 
 pub use dto::{
-    ChatMessageAction, ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
-    CreateConversationRequest, FeedbackRating, ListConversationsQuery, MessageFeedbackEntry,
-    MessageResponse, MessagesListResponse, SendMessageRequest, UpdateConversationRequest,
-    UpsertFeedbackRequest,
+    AddParticipantRequest, ChatMessageAction, ConversationListResponse, ConversationResponse,
+    ConversationSummaryResponse, CreateConversationRequest, FeedbackRating, ListConversationsQuery,
+    MessageFeedbackEntry, MessageResponse, MessagesListResponse, ParticipantListResponse,
+    ParticipantResponse, SendMessageRequest, UpdateConversationRequest, UpsertFeedbackRequest,
 };
 pub use turn_response::{
     AssistantResponse, NoticeResponse, ReplyBlockResponse, TurnResponse, TurnTelemetryResponse,
@@ -103,6 +105,15 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}",
                 delete(conversations::delete_conversation),
+            )
+            // Participants: who can read and post in the conversation
+            .route(
+                "/api/chat/conversations/{conversation_id}/participants",
+                get(participants::list_participants).post(participants::add_participant),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/participants/{user_id}",
+                delete(participants::remove_participant),
             )
             // Messages
             .route(

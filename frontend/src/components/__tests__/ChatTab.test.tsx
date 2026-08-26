@@ -21,6 +21,7 @@ const COACH_TITLE = 'Marathon Coach';
 const getConversations = vi.fn();
 const getConversationMessages = vi.fn();
 const getConversationVerdicts = vi.fn();
+const listParticipants = vi.fn();
 const sendTurn = vi.fn();
 const listCoaches = vi.fn();
 const getProvidersStatus = vi.fn();
@@ -31,6 +32,7 @@ vi.mock('../../services/api', () => ({
     getConversations: (...a: unknown[]) => getConversations(...a),
     getConversationMessages: (...a: unknown[]) => getConversationMessages(...a),
     getConversationVerdicts: (...a: unknown[]) => getConversationVerdicts(...a),
+    listParticipants: (...a: unknown[]) => listParticipants(...a),
     sendTurn: (...a: unknown[]) => sendTurn(...a),
   },
   coachesApi: { list: (...a: unknown[]) => listCoaches(...a) },
@@ -71,6 +73,7 @@ describe('ChatTab assistant author label', () => {
     vi.clearAllMocks();
     getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
     getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
     getConversations.mockResolvedValue({
       conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', coach_id: COACH_ID }],
       total: 1,
@@ -126,6 +129,32 @@ describe('ChatTab assistant author label', () => {
 
     await waitFor(() => expect(screen.getByAltText('Dravr')).toBeInTheDocument());
     expect(screen.queryByAltText(COACH_TITLE)).toBeNull();
+  });
+
+  it('names the conversation in the header when no coach is attached', async () => {
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', coach_id: null }],
+      total: 1,
+    });
+
+    renderChatTab();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('conversation-header-title')).toHaveTextContent('Sunday long run'),
+    );
+  });
+
+  it('names an untitled coach-less conversation as a new conversation', async () => {
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: null, coach_id: null }],
+      total: 1,
+    });
+
+    renderChatTab();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('conversation-header-title')).toHaveTextContent('New conversation'),
+    );
   });
 });
 
@@ -250,6 +279,7 @@ describe('ChatTab url reply actions', () => {
     vi.clearAllMocks();
     getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
     getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
     getConversations.mockResolvedValue({
       conversations: [{ id: CONVERSATION_ID, title: 'Connections', coach_id: null }],
       total: 1,

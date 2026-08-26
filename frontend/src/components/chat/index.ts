@@ -18,3 +18,4 @@ export { default as MessageInput } from './MessageInput';
 export { default as ProviderConnectionModal } from './ProviderConnectionModal';
 export { default as CoachFormModal } from './CoachFormModal';
 export { default as CreateCoachFromConversationModal } from './CreateCoachFromConversationModal';
+export { default as ConversationParticipants } from './ConversationParticipants';

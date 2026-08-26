@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use photograveur::{resolve_all, Locale};
+use pierre_core::models::{ConversationParticipant, ParticipantRole};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::warn;
@@ -134,6 +135,44 @@ pub struct ConversationSummaryResponse {
 pub struct UpdateConversationRequest {
     /// New title
     pub title: String,
+}
+
+/// Request to add a participant to a conversation
+#[derive(Debug, Deserialize)]
+pub struct AddParticipantRequest {
+    /// The user to add. Must be a member of the conversation's tenant.
+    pub user_id: String,
+}
+
+/// One participant of a conversation
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ParticipantResponse {
+    /// The participating user
+    pub user_id: String,
+    /// `owner` or `member`
+    pub role: ParticipantRole,
+    /// The participant who added this one (the owner names themself)
+    pub added_by: String,
+    /// When the membership was written
+    pub added_at: String,
+}
+
+impl From<ConversationParticipant> for ParticipantResponse {
+    fn from(p: ConversationParticipant) -> Self {
+        Self {
+            user_id: p.user_id,
+            role: p.role,
+            added_by: p.added_by,
+            added_at: p.added_at,
+        }
+    }
+}
+
+/// Response for listing a conversation's participants
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ParticipantListResponse {
+    /// Owner first, then members in the order they were added
+    pub participants: Vec<ParticipantResponse>,
 }
 
 /// Request to send a message

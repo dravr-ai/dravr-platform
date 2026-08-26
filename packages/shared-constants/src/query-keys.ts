@@ -54,6 +54,9 @@ export const QUERY_KEYS = {
     all: ['chat'] as const,
     conversations: () => ['chat-conversations'] as const,
     messages: (conversationId: string | null) => ['chat-messages', conversationId] as const,
+    /** Who can read and post in the conversation, owner first. */
+    participants: (conversationId: string | null) =>
+      ['chat-participants', conversationId] as const,
     /**
      * The caller's runnable slash commands. Keyed by conversation because the
      * server narrows group-scoped commands to the group that conversation is

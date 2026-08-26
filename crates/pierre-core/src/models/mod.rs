@@ -180,8 +180,9 @@ pub use user_mcp_token::{
 // Chat conversation and message record types
 mod conversation;
 pub use conversation::{
-    split_visuals, AddMessageParams, CoachRuntimeContext, ConversationRecord, ConversationSummary,
-    ConversationTurnId, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
+    split_visuals, AddMessageParams, CoachRuntimeContext, ConversationParticipant,
+    ConversationRecord, ConversationSummary, ConversationTurnId, MessageFeedbackRecord,
+    MessageRecord, ParticipantRole, UpsertMessageFeedbackParams,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 

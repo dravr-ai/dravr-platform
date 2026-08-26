@@ -33,6 +33,29 @@ export interface Conversation {
   last_message_at?: string | null;
 }
 
+/** What a participant may do beyond reading and posting. */
+export type ConversationParticipantRole = 'owner' | 'member';
+
+/**
+ * One user who can read and post in a conversation.
+ *
+ * The owner is a participant like anyone else; the role only decides who may
+ * delete the thread (the owner) and who may be removed from it (members).
+ */
+export interface ConversationParticipant {
+  user_id: string;
+  role: ConversationParticipantRole;
+  /** The participant who added this one; the owner names themself. */
+  added_by: string;
+  /** When the membership was written (ISO 8601). */
+  added_at: string;
+}
+
+/** The participants of one conversation, owner first. */
+export interface ConversationParticipantsResponse {
+  participants: ConversationParticipant[];
+}
+
 /**
  * A message role.
  *
