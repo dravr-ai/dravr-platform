@@ -50,6 +50,20 @@ pub struct RenderedReply {
     pub attachments: Vec<MessageContent>,
 }
 
+impl RenderedReply {
+    /// Whether this turn produced nothing the athlete can be sent.
+    ///
+    /// Both halves, not just the prose. A reply that is one chart and no words
+    /// answers "fais-moi un graphique" completely, and testing `prose` alone
+    /// discarded the chart and told the athlete the coach could not formulate a
+    /// response. Empty prose *and* no attachments is the case the channel
+    /// itself rejects — Telegram refuses an empty message body.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.prose.is_empty() && self.attachments.is_empty()
+    }
+}
+
 /// Lay out `assistant`'s blocks for a surface with `render` capabilities.
 ///
 /// `registry` and `locale` resolve the one string this layout adds — the

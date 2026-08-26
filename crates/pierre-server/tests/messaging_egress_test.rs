@@ -115,6 +115,18 @@ fn telemetry() -> TurnTelemetry {
     }
 }
 
+/// A turn whose entire answer is one chart and no words — the shape
+/// "fais-moi un graphique" produces when the coach lets the picture speak.
+fn chart_only_turn_state() -> TurnState {
+    let mut state = turn_state("");
+    state.scene_images = vec![SceneImage {
+        url: "https://charts.dravr.test/signed/load-by-sport.png".to_owned(),
+        mime_type: "image/png".to_owned(),
+        caption: Some("Charge par sport".to_owned()),
+    }];
+    state
+}
+
 fn turn_state(content: &str) -> TurnState {
     TurnState {
         turn_id: ConversationTurnId::new(),
@@ -807,4 +819,58 @@ fn every_channel_reports_its_own_ceiling() {
             "{channel_type:?} must pack against the same field the coach was told about"
         );
     }
+}
+
+// ============================================================================
+// carnet#108 — a chart with no words is an answer, not an empty turn
+// ============================================================================
+
+/// The empty-reply guard tests both halves, so a chart-only turn is delivered.
+///
+/// `dispatch.rs` used to test `prose.is_empty()` alone while its own comment
+/// said "empty content **and no list**". A reply that is one chart and no prose
+/// hit that guard, the chart was discarded, and the athlete was told « je n'ai
+/// pas réussi à formuler une réponse » about a chart the coach had drawn.
+#[test]
+fn a_chart_with_no_prose_is_not_an_empty_reply() {
+    let envelope = envelope(ChannelType::Telegram, chart_only_turn_state());
+    let rendered = render_reply(
+        &profile(ChannelType::Telegram).render,
+        &envelope.assistant,
+        &strings(),
+        "fr",
+    );
+
+    assert!(
+        rendered.prose.is_empty(),
+        "this turn carries no prose — that is the premise, not the bug"
+    );
+    assert_eq!(
+        rendered.attachments.len(),
+        1,
+        "the chart must survive layout as an attachment"
+    );
+    assert!(
+        !rendered.is_empty(),
+        "a turn carrying a chart must not read as empty, or the guard drops it"
+    );
+}
+
+/// A turn with neither prose nor attachments is still empty.
+///
+/// The guard has to keep firing for the case it was written for: Telegram
+/// rejects an empty message body with HTTP 400, so something must stand in.
+#[test]
+fn a_turn_with_neither_prose_nor_attachments_is_empty() {
+    let envelope = envelope(ChannelType::Telegram, turn_state(""));
+    let rendered = render_reply(
+        &profile(ChannelType::Telegram).render,
+        &envelope.assistant,
+        &strings(),
+        "fr",
+    );
+    assert!(
+        rendered.is_empty(),
+        "nothing to say and nothing to show is the case the fallback exists for"
+    );
 }

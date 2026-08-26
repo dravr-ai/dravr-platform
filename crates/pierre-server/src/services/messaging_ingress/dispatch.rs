@@ -820,7 +820,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // was already made against the surface's capabilities inside the pipeline
     // — what a text channel cannot draw is folded into the prose, what it can
     // arrives as its own block — so this is layout and splitting, nothing more.
-    let RenderedReply { prose, attachments } = render_reply(
+    let rendered = render_reply(
         &profile.render,
         &dispatch_result.assistant,
         &dispatch.resources.mcp.messaging_strings_registry,
@@ -830,9 +830,22 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // Guard: skip sending empty responses. The LLM occasionally returns empty
     // content (e.g., when the input is too technical or the context is exhausted)
     // and no list — Telegram rejects empty message text with HTTP 400.
-    if prose.is_empty() {
+    //
+    // "And no list" is the whole condition, and the code used to test only the
+    // first half. A reply that is one chart and no prose is a complete answer to
+    // "fais-moi un graphique", and the athlete was told the coach could not
+    // formulate a response while the chart it had drawn was discarded. Both
+    // halves empty is the case Telegram actually rejects.
+    if rendered.is_empty() {
         warn!(
             conversation_id = %dispatch.session.conversation,
+            // The corpus reports these as "the coach returned nothing", which
+            // is true of the delivered reply and says nothing about where it
+            // was lost. These fields separate a model that produced no blocks
+            // from a turn whose blocks this surface could not draw.
+            blocks = dispatch_result.assistant.blocks.len(),
+            finish_reason = dispatch_result.assistant.message.finish_reason.as_deref().unwrap_or("none"),
+            content_len = dispatch_result.assistant.message.content.len(),
             "LLM returned empty response, sending fallback"
         );
         // The turn's own language, not the athlete's stored preference: the
@@ -847,6 +860,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         return;
     }
 
+    let RenderedReply { prose, attachments } = rendered;
     deliver_reply(
         &dispatch,
         messaging_agui.as_ref(),
