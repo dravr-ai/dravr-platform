@@ -52,7 +52,7 @@ pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional =
 pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
-pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", features = ["client-notifications"] }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 pierre-weather = { version = "0.3.0", path = "../pierre-weather" }
 pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true, features = ["provider-whoop", "provider-garmin", "provider-strava"] }
 

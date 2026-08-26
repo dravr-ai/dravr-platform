@@ -175,7 +175,11 @@ pub fn render_training_plan_block(
     out.push_str(
         "This plan is stored — it is the source of truth for \"my plan\", ahead of anything \
          in conversation memory. Adjust it by re-saving the changed week(s) via \
-         `save_training_plan` (prospective only; past weeks are immutable).\n\n",
+         `save_training_plan` (prospective only; past weeks are immutable).\n\n\
+         It records what was PRESCRIBED, never what was done. A day marked \
+         `[elapsed]` is a past prescription whose completion is unknown: read the \
+         athlete's activities before saying whether that session happened, and \
+         never report a prescribed session as completed.\n\n",
     );
 
     // Goal line with countdown when the race date parses.
@@ -239,10 +243,19 @@ pub fn render_training_plan_block(
         };
         let _ = writeln!(out, "\n{label} (starting {}){focus}:", week.week_start);
         for day in &week.days {
+            // `select_active_weeks` keeps the CURRENT week whole, so days already
+            // behind `today` render beside days still ahead of it. Unmarked, they
+            // read as statements of fact about the athlete's week — which is how
+            // a Tuesday prescription became "t'as déjà fait ta séance vélo".
+            let elapsed = if parse_plan_date(&day.date).is_some_and(|d| d < today) {
+                "[elapsed] "
+            } else {
+                ""
+            };
             if day.is_rest() {
                 let _ = writeln!(
                     out,
-                    "- {}: rest — {}",
+                    "- {}: {elapsed}rest — {}",
                     day.date,
                     sanitize_prompt_field(&day.workout, MAX_FIELD_LEN)
                 );
@@ -260,7 +273,7 @@ pub fn render_training_plan_block(
                 };
                 let _ = writeln!(
                     out,
-                    "- {}: {}{duration}{intensity} — {}",
+                    "- {}: {elapsed}{}{duration}{intensity} — {}",
                     day.date,
                     sanitize_prompt_field(&day.sport, MAX_FIELD_LEN),
                     sanitize_prompt_field(&day.workout, MAX_FIELD_LEN),
@@ -278,7 +291,7 @@ pub fn render_training_plan_block(
     Some(out)
 }
 
-/// Progress marker (`[done]`, `[current]`, or empty) for a block relative
+/// Progress marker (`[elapsed]`, `[current]`, or empty) for a block relative
 /// to today.
 ///
 /// An unparseable start carries no marker, and neither does one whose block
@@ -292,7 +305,11 @@ fn block_marker(start: &str, weeks: u8, today: NaiveDate) -> &'static str {
         return "";
     };
     if end <= today {
-        "[done] "
+        // "elapsed", not "done": the window closed, which says nothing about
+        // whether the athlete trained it. The prompt read `[done]` as a claim of
+        // completion and told an athlete he had ridden intervals he had not
+        // (2026-08-26).
+        "[elapsed] "
     } else if start <= today {
         "[current] "
     } else {
@@ -573,6 +590,64 @@ mod tests {
         assert!(
             block.len() < 8_000,
             "render must not blow up on a huge field"
+        );
+    }
+
+    /// A past prescription must not read as a completed session.
+    ///
+    /// Live incident 2026-08-26 (Telegram): asked "et je vais du velo quand?",
+    /// the coach answered "t'as deja fait ta seance velo intense mardi 25 (40/20,
+    /// 390-425W)". The athlete had not — that was Tuesday's PRESCRIPTION, and he
+    /// had run a Z2 trail instead. He had to say "regarde mes vraies activites"
+    /// to get it corrected, and it repeated the same claim two turns later.
+    ///
+    /// `select_active_weeks` keeps the CURRENT week whole, so days already behind
+    /// `today` render beside days still ahead of it. Unmarked, under a header
+    /// calling the plan "the source of truth", a past prescription reads as a
+    /// statement of fact about the athlete's week.
+    #[test]
+    fn an_elapsed_day_is_marked_and_a_future_day_is_not() {
+        let mut current = week("2026-08-24", "build");
+        current.days = vec![
+            PlannedDay {
+                date: "2026-08-25".to_owned(),
+                sport: "bike".to_owned(),
+                workout: "40/20 intervals".to_owned(),
+                duration_min: Some(60),
+                intensity: "390-425W".to_owned(),
+            },
+            PlannedDay {
+                date: "2026-08-28".to_owned(),
+                sport: "mtb".to_owned(),
+                workout: "endurance".to_owned(),
+                duration_min: Some(105),
+                intensity: "Z1-Z2".to_owned(),
+            },
+        ];
+
+        let out =
+            render_training_plan_block(&plan(), &[current], d("2026-08-26")).unwrap_or_default();
+
+        assert!(
+            out.contains("- 2026-08-25: [elapsed] bike"),
+            "a past prescription must be marked elapsed, or it reads as done:\n{out}"
+        );
+        assert!(
+            out.contains("- 2026-08-28: mtb"),
+            "a day still ahead of today must render, unmarked:\n{out}"
+        );
+        assert!(
+            !out.contains("- 2026-08-28: [elapsed]"),
+            "a future day is not elapsed:\n{out}"
+        );
+        assert!(
+            out.contains("never report a prescribed session as completed"),
+            "the block must say it records prescriptions, not completions"
+        );
+        assert!(
+            !out.contains("[done]"),
+            "\"done\" is a claim about the athlete, not the calendar - an elapsed \
+             block window says nothing about whether it was trained"
         );
     }
 }
