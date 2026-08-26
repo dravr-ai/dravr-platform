@@ -259,6 +259,8 @@ pub(crate) async fn dispatch_llm_with_tools(
     // coach model routes natively over all coaching tools — no per-turn
     // narrowing that could starve a turn of a tool it needs.
     //
+    // LIMITATION(registre#103): `max_iterations` bounds only the platform-run loop and `build_mcp_tools` publishes the whole chat-callable set, so the ACP agent's native loop runs with no per-turn iteration budget and no tool narrowing.
+    //
     // The one exception is a guided flow: a profile interview withholds the
     // plan-writing tool for its duration, in lockstep with the Stage 7a.2 prose
     // list, so the model neither sees it advertised nor finds it callable.

@@ -44,6 +44,8 @@ pub static GLOBAL_PRICING_REGISTRY: LazyLock<PricingRegistry> = LazyLock::new(Pr
 /// Matches `Gemini`'s advertised 25% cache-read discount and `OpenAI`'s
 /// 50% discount on `cached_tokens` (taking the more conservative 25%
 /// for billing parity across providers).
+///
+/// LIMITATION(registre#102): `CACHED_TOKEN_RATE` is one flat read discount for every provider — Anthropic bills cache reads at 0.10× and cache writes at 1.25×, and the ACP path reports no cache reads at all, so a native turn's 40–55K-token prefix is always imputed at the full input rate.
 pub const CACHED_TOKEN_RATE: f64 = 0.25;
 
 /// Per-model pricing rates in USD per million tokens

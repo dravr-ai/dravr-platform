@@ -211,6 +211,8 @@ impl CliLlmProvider {
     /// Build a Copilot Headless (ACP) runner (NDJSON JSON-RPC via `copilot --acp`)
     ///
     /// `PIERRE_LLM_MODEL` overrides the headless-specific `COPILOT_HEADLESS_MODEL` env var.
+    ///
+    /// LIMITATION(registre#104): `build_headless` binds one `CopilotHeadlessConfig::model` for every call in the turn — tool-loop iterations and the athlete-facing draft run on the same model, with no per-stage routing to a cheaper one.
     fn build_headless() -> Self {
         let mut config = CopilotHeadlessConfig::from_env();
 
@@ -514,6 +516,8 @@ const fn runner_display_name(runner_type: CliRunnerType) -> &'static str {
 ///
 /// This allows the headless runner to be stored both as a trait object (for the
 /// unified `runner` field) and as a typed `Arc` (for `converse()` access).
+///
+/// LIMITATION(registre#102): `HeadlessRunnerAdapter` forwards ACP usage that carries no cache-read count, so `cached_tokens` is 0 on every native call and nothing on this path marks the system-prompt + tool-surface prefix cacheable.
 struct HeadlessRunnerAdapter(Arc<CopilotHeadlessRunner>);
 
 #[async_trait]

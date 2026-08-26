@@ -111,6 +111,7 @@ impl TurnToolSurface {
 
 #[async_trait]
 impl ToolSurface for TurnToolSurface {
+    /// LIMITATION(registre#103): `TurnToolSurface::list_tools` publishes every chat-callable tool on every turn and the host enforces no iteration budget on the agent's loop, so each native call carries the whole catalogue in its prefix.
     async fn list_tools(&self) -> Vec<McpToolDefinition> {
         let withhold = self.walk_is_active().await;
         self.tool_registry
