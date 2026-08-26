@@ -18,8 +18,9 @@
 
 use chrono::Utc;
 use pierre_core::models::{activity::ActivityBuilder, Activity, SportType};
+use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 use pierre_tool_runtime::implementations::fitness_support::{
-    ActivityRetrievalContext, ActivitySummary, AnalysisType,
+    ActivityRetrievalContext, AnalysisType,
 };
 
 fn build_sensor_rich_activity() -> Activity {

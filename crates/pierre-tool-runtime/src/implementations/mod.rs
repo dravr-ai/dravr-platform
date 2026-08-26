@@ -84,6 +84,10 @@ pub mod fitness_config;
 #[cfg(feature = "tools-config")]
 pub mod physiology;
 
+/// The coach-facing per-activity DTO rendered by `mode=summary`.
+#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+pub mod activity_summary;
+
 /// Shared support for the fitness-provider API tools.
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 pub mod fitness_support;

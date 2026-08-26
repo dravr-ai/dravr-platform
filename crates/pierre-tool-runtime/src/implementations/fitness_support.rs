@@ -1,5 +1,5 @@
 // ABOUTME: Shared support types and helpers for the fitness-provider API tools.
-// ABOUTME: Hosts ActivitySummary / TokenEstimate / AnalysisType / ActivityRetrievalContext + cache/format helpers.
+// ABOUTME: Hosts TokenEstimate / AnalysisType / ActivityRetrievalContext + cache/format helpers.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,22 +11,21 @@
 //! for `get_activities`, `get_athlete`, `get_stats`, and `analyze_activity`
 //! can share them without forcing a single 2k-line file.
 //!
-//! Exposed types — `ActivitySummary`, `TokenEstimate`, `AnalysisType`,
-//! `ActivityRetrievalContext`, `FragmentDedupSummary`, `PaginationInfo`, and
-//! their sub-types — are consumed by the tools in
+//! Exposed types — `TokenEstimate`, `AnalysisType`, `ActivityRetrievalContext`,
+//! `FragmentDedupSummary`, `PaginationInfo`, and their sub-types — are
+//! consumed by the tools in
 //! `crate::implementations::data` and `crate::implementations::analytics`.
 //! The cache/format/response-build helpers (`try_get_cached_activities`,
 //! `build_activities_success_response`, etc.) are `pub(crate)` so the same
 //! tool modules can call them directly.
 
+use crate::implementations::activity_summary::ActivitySummary;
 use crate::implementations::data::activity_coverage_note;
 use crate::protocol::format::build_formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::protocol::ProtocolError;
-use pierre_core::models::{
-    resolve_sport_type, Activity, Athlete, SportType, Stats, TenantId, ZoneDistribution,
-};
+use pierre_core::models::{resolve_sport_type, Activity, Athlete, SportType, Stats, TenantId};
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_intelligence::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
@@ -45,122 +44,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
-
-/// Activity summary with scalar sensor fields for efficient list queries.
-///
-/// Used when `mode=summary`. Carries the full set of scalar fields every
-/// coach persona needs for basic reasoning (HR zones, elevation load,
-/// calorie estimate, cadence, power) without the arrays (splits, laps,
-/// segments, HR zones, power zones, time-series data) that only a deep
-/// per-activity analysis coach needs. All sensor fields are `Option<T>`
-/// and `#[serde(skip_serializing_if = "Option::is_none")]` so activities
-/// recorded without an HRM or on indoor trainers render cleanly without
-/// null noise.
-#[derive(Debug, Clone, Serialize)]
-pub struct ActivitySummary {
-    /// Unique activity identifier
-    pub id: String,
-    /// Activity name/title
-    pub name: String,
-    /// Activity sport type (e.g., "run", "ride", "cross\_country\_skiing")
-    pub sport_type: SportType,
-    /// Start date/time in ISO 8601 format (UTC). Kept UTC so day-windowing,
-    /// sorting, and fragment detection stay timezone-stable.
-    pub start_date: String,
-    /// Start time rendered in the user's local IANA timezone (RFC3339 with
-    /// offset, e.g. `2026-05-29T08:36:07-04:00`), when the user has a timezone
-    /// on file. This is the field to DISPLAY to the user — `start_date` is the
-    /// raw UTC instant. `None` when the user has no timezone configured.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_date_local: Option<String>,
-    /// Distance in meters (0.0 if not available)
-    pub distance_meters: f64,
-    /// Duration in seconds
-    pub duration_seconds: u64,
-    /// Total elevation gained in meters, when the provider reports it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub elevation_gain_meters: Option<f64>,
-    /// Average heart rate in BPM over the activity, when the user wore an HRM.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub average_heart_rate: Option<u32>,
-    /// Maximum heart rate in BPM over the activity.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_heart_rate: Option<u32>,
-    /// Provider-reported calorie estimate, when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub calories: Option<u32>,
-    /// Average cadence (rpm for cycling, spm for running).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub average_cadence: Option<u32>,
-    /// Average power output in watts (cycling / rowing / running power meters).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub average_power: Option<u32>,
-    /// Strava's "Suffer Score" (Relative Effort) when available. Surrogate for
-    /// perceived exertion grounded in HR-in-zone time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub suffer_score: Option<u32>,
-    /// Average ambient temperature in Celsius when the provider reports it.
-    /// Outdoor activities from Strava and Garmin OAuth surface this when the
-    /// recording device captured ambient temp; Coros does too if its watch
-    /// reported it. Whoop / Fitbit / Terra don't expose ambient temperature
-    /// on workouts (skin temp on Whoop Recovery is recorded separately, on
-    /// the recovery record, not the activity).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    /// Endurance Intensity Factor — `normalized_power / ftp` (Coggan).
-    /// Populated by the Endurance latest-snapshot pipeline; `None` for
-    /// activities without a power stream or for users without an FTP.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub intensity_factor: Option<f64>,
-    /// Endurance Efficiency Factor — `normalized_power / average_heart_rate`.
-    /// `None` when either input is missing.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub efficiency_factor: Option<f64>,
-    /// Endurance Variability Index — `normalized_power / average_power`.
-    /// `None` when the activity has no power stream.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub variability_index: Option<f64>,
-    /// Endurance aerobic decoupling percentage. `None` when the activity
-    /// has fewer than 20 paired HR+speed samples (Coggan threshold).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub decoupling_pct: Option<f64>,
-    /// Endurance time-in-zone distribution computed against the user's
-    /// configured `HrZoneSet`. `None` when no HR stream or no user zones.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub zone_distribution: Option<ZoneDistribution>,
-}
-
-impl From<&Activity> for ActivitySummary {
-    fn from(activity: &Activity) -> Self {
-        Self {
-            id: activity.id().to_owned(),
-            name: activity.name().to_owned(),
-            sport_type: activity.sport_type().clone(),
-            start_date: activity.start_date().to_rfc3339(),
-            // Populated by prepare_activity_data when the user's timezone is
-            // known; the From conversion has no timezone context.
-            start_date_local: None,
-            distance_meters: activity.distance_meters().unwrap_or(0.0),
-            duration_seconds: activity.duration_seconds(),
-            elevation_gain_meters: activity.elevation_gain(),
-            average_heart_rate: activity.average_heart_rate(),
-            max_heart_rate: activity.max_heart_rate(),
-            calories: activity.calories(),
-            average_cadence: activity.average_cadence(),
-            average_power: activity.average_power(),
-            suffer_score: activity.suffer_score(),
-            temperature: activity.temperature(),
-            // Endurance metrics are derived in the latest_snapshot pipeline,
-            // not at the per-activity summary boundary. Keep them None here
-            // so the JSON shape is stable for non-Section-11 callers.
-            intensity_factor: None,
-            efficiency_factor: None,
-            variability_index: None,
-            decoupling_pct: None,
-            zone_distribution: None,
-        }
-    }
-}
 
 /// Localized short sport-type label for the activity list, keyed by BCP-47
 /// locale.

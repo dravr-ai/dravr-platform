@@ -18,10 +18,13 @@ use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     activity::{Lap, Split},
-    resolve_sport_type, Activity, ActivityBuilder, Athlete, PeriodTotals, PersonalRecord,
-    SportType, Stats,
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
+use crate::strava_types::{
+    DetailedActivityResponse, StravaActivityResponse, StravaAthleteResponse, StravaErrorResponse,
+    StravaLap, StravaSplit, StravaStatsResponse,
+};
 use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
@@ -30,229 +33,6 @@ use std::fmt::Write;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
-
-/// Strava API error response format
-#[derive(Debug, Deserialize)]
-struct StravaErrorResponse {
-    message: String,
-    errors: Option<Vec<StravaError>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StravaError {
-    resource: String,
-    field: String,
-    code: String,
-}
-
-/// Strava API response for athlete data
-#[derive(Debug, Deserialize)]
-struct StravaAthleteResponse {
-    id: u64,
-    username: Option<String>,
-    firstname: Option<String>,
-    lastname: Option<String>,
-    profile_medium: Option<String>,
-}
-
-/// Strava map data in API responses
-#[derive(Debug, Clone, Deserialize)]
-pub struct StravaMap {
-    /// Encoded polyline summary of the route
-    pub summary_polyline: Option<String>,
-}
-
-/// Strava API response for activity data (summary endpoint)
-#[derive(Debug, Clone, Deserialize)]
-pub struct StravaActivityResponse {
-    id: u64,
-    name: String,
-    #[serde(rename = "type")]
-    activity_type: String,
-    /// Granular Strava sport type (e.g. `MountainBikeRide`, `GravelRide`).
-    /// Introduced 2022 and preferred over the deprecated `type` field, which
-    /// flattens every bike to `Ride`. Optional for backward compatibility with
-    /// any response that omits it.
-    sport_type: Option<String>,
-    start_date: String,
-    distance: Option<f32>,
-    elapsed_time: Option<u32>,
-    total_elevation_gain: Option<f32>,
-    average_speed: Option<f32>,
-    max_speed: Option<f32>,
-    average_heartrate: Option<f32>,
-    max_heartrate: Option<f32>,
-    average_cadence: Option<f32>,
-    average_watts: Option<f32>,
-    max_watts: Option<f32>,
-    suffer_score: Option<f32>,
-
-    // Location and GPS data from summary endpoint
-    start_latlng: Option<Vec<f64>>,
-    location_city: Option<String>,
-    location_state: Option<String>,
-    location_country: Option<String>,
-
-    // Additional performance metrics from summary endpoint
-    calories: Option<f32>,
-}
-
-/// Strava split data from detailed activity endpoint
-#[derive(Debug, Clone, Deserialize)]
-pub struct StravaSplit {
-    /// Distance covered in this split (meters)
-    pub distance: Option<f32>,
-    /// Total elapsed time for the split (seconds)
-    pub elapsed_time: Option<u32>,
-    /// Elevation gain/loss in the split (meters)
-    pub elevation_difference: Option<f32>,
-    /// Time spent moving during the split (seconds)
-    pub moving_time: Option<u32>,
-    /// Split number (1-based index)
-    pub split: Option<u32>,
-    /// Average speed during the split (meters/second)
-    pub average_speed: Option<f32>,
-    /// Pace zone classification (0-5)
-    pub pace_zone: Option<u32>,
-}
-
-/// Strava lap data from detailed activity endpoint
-#[derive(Debug, Clone, Deserialize)]
-pub struct StravaLap {
-    /// Unique identifier for this lap
-    pub id: Option<u64>,
-    /// Total elapsed time for the lap (seconds)
-    pub elapsed_time: Option<u32>,
-    /// Time spent moving during the lap (seconds)
-    pub moving_time: Option<u32>,
-    /// Distance covered in the lap (meters)
-    pub distance: Option<f32>,
-    /// Total elevation gain during the lap (meters)
-    pub total_elevation_gain: Option<f32>,
-    /// Average speed during the lap (meters/second)
-    pub average_speed: Option<f32>,
-    /// Maximum speed reached during the lap (meters/second)
-    pub max_speed: Option<f32>,
-    /// Average heart rate during the lap (bpm)
-    pub average_heartrate: Option<f32>,
-    /// Maximum heart rate during the lap (bpm)
-    pub max_heartrate: Option<f32>,
-    /// Average cadence during the lap (rpm/spm)
-    pub average_cadence: Option<f32>,
-    /// Average power output during the lap (watts)
-    pub average_watts: Option<f32>,
-}
-
-/// Strava segment effort data from detailed activity endpoint
-#[derive(Debug, Clone, Deserialize)]
-pub struct StravaSegmentEffort {
-    /// Unique identifier for this segment effort
-    pub id: Option<u64>,
-    /// Name of the segment
-    pub name: Option<String>,
-    /// Total elapsed time for the segment (seconds)
-    pub elapsed_time: Option<u32>,
-    /// Time spent moving during the segment (seconds)
-    pub moving_time: Option<u32>,
-    /// Distance of the segment (meters)
-    pub distance: Option<f32>,
-    /// Average heart rate during the segment (bpm)
-    pub average_heartrate: Option<f32>,
-    /// Maximum heart rate during the segment (bpm)
-    pub max_heartrate: Option<f32>,
-    /// Average cadence during the segment (rpm/spm)
-    pub average_cadence: Option<f32>,
-    /// Average power output during the segment (watts)
-    pub average_watts: Option<f32>,
-}
-
-/// Detailed activity response from GET /activities/{id} endpoint
-/// Includes all summary fields plus additional detail-only fields like splits, laps, and segment efforts
-#[derive(Debug, Clone, Deserialize)]
-pub struct DetailedActivityResponse {
-    /// All summary-level activity fields (flattened)
-    #[serde(flatten)]
-    pub summary: StravaActivityResponse,
-
-    // Social and engagement data
-    /// Number of kudos received
-    pub kudos_count: Option<u32>,
-    /// Number of comments
-    pub comment_count: Option<u32>,
-    /// Number of athletes who participated
-    pub athlete_count: Option<u32>,
-    /// Number of photos attached
-    pub photo_count: Option<u32>,
-    /// Number of achievements earned
-    pub achievement_count: Option<u32>,
-
-    // Additional elevation data
-    /// Highest elevation point (meters)
-    pub elev_high: Option<f32>,
-    /// Lowest elevation point (meters)
-    pub elev_low: Option<f32>,
-
-    // Performance metrics
-    /// Number of personal records achieved
-    pub pr_count: Option<u32>,
-    /// Name of the recording device
-    pub device_name: Option<String>,
-
-    // Complex nested data
-    /// Metric splits (1km or 1mi intervals)
-    pub splits_metric: Option<Vec<StravaSplit>>,
-    /// Lap data from the activity
-    pub laps: Option<Vec<StravaLap>>,
-    /// Segment efforts completed during the activity
-    pub segment_efforts: Option<Vec<StravaSegmentEffort>>,
-}
-
-/// Strava API response for stats
-///
-/// The `/athletes/{id}/stats` endpoint returns parallel `all_*` (lifetime) and
-/// `ytd_*` (current calendar year) totals per sport. We deserialize both so the
-/// stats tool can report annual figures distinctly from lifetime ones.
-#[derive(Debug, Deserialize)]
-struct StravaStatsResponse {
-    #[serde(rename = "all_ride_totals")]
-    all_ride: Option<StravaTotals>,
-    #[serde(rename = "all_run_totals")]
-    all_run: Option<StravaTotals>,
-    #[serde(rename = "ytd_ride_totals")]
-    ytd_ride: Option<StravaTotals>,
-    #[serde(rename = "ytd_run_totals")]
-    ytd_run: Option<StravaTotals>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StravaTotals {
-    count: u32,
-    distance: f32,
-    moving_time: u32,
-    elevation_gain: f32,
-}
-
-impl StravaStatsResponse {
-    /// Combine a ride+run total pair into the canonical [`PeriodTotals`].
-    ///
-    /// Swim totals (`*_swim_totals`) are intentionally excluded to match the
-    /// historical behaviour of the lifetime sum; including swims is tracked as
-    /// a separate change.
-    fn sum_pair(ride: Option<&StravaTotals>, run: Option<&StravaTotals>) -> PeriodTotals {
-        PeriodTotals {
-            total_activities: u64::from(ride.map_or(0, |t| t.count) + run.map_or(0, |t| t.count)),
-            total_distance: f64::from(
-                ride.map_or(0.0, |t| t.distance) + run.map_or(0.0, |t| t.distance),
-            ),
-            total_duration: u64::from(
-                ride.map_or(0, |t| t.moving_time) + run.map_or(0, |t| t.moving_time),
-            ),
-            total_elevation_gain: f64::from(
-                ride.map_or(0.0, |t| t.elevation_gain) + run.map_or(0.0, |t| t.elevation_gain),
-            ),
-        }
-    }
-}
 
 /// Context for multi-page activity fetching
 struct PaginationContext {
@@ -526,6 +306,7 @@ impl StravaProvider {
         .average_cadence_opt(activity.average_cadence.map(f32_to_u32))
         .average_power_opt(activity.average_watts.map(f32_to_u32))
         .max_power_opt(activity.max_watts.map(f32_to_u32))
+        .normalized_power_opt(activity.weighted_average_watts.map(f32_to_u32))
         .calories_opt(activity.calories.map(f32_to_u32))
         .suffer_score_opt(activity.suffer_score.map(f32_to_u32))
         .start_latitude_opt(

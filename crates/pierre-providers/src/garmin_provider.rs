@@ -75,6 +75,9 @@ struct GarminSummary {
     average_biking_cadence: Option<f32>,
     average_power: Option<f32>,
     max_power: Option<f32>,
+    /// LIMITATION(registre#105): `normalized_power` is deserialized here but never mapped onto
+    /// the canonical `Activity`, so Garmin rides reach the coach with no NP and a `None`
+    /// intensity factor. Settling Garmin's real list/detail payload shapes gates the mapping.
     normalized_power: Option<f32>,
     calories: Option<f64>,
     bmr_calories: Option<f64>,

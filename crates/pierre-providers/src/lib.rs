@@ -57,6 +57,8 @@ pub mod sciotte_remote;
 /// Strava API provider implementation
 #[cfg(feature = "provider-strava")]
 pub mod strava_provider;
+#[cfg(feature = "provider-strava")]
+pub mod strava_types;
 /// Terra unified API provider (150+ wearables)
 #[cfg(feature = "provider-terra")]
 pub mod terra;

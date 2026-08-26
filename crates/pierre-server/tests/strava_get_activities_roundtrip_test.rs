@@ -70,16 +70,57 @@ fn activities_payload() -> Value {
     ])
 }
 
-#[tokio::test]
-async fn get_activities_round_trips_seeded_data_with_granular_sport_type() {
-    ensure_http_clients_initialized();
+/// Two seeded rides that differ only in whether Strava reported power. The
+/// road ride carries `weighted_average_watts` (Strava's own name for
+/// Normalized Power) alongside a lower `average_watts`, so a provider that
+/// drops the field is detectable: NP would come back absent, or equal to the
+/// average. The second ride has watts Strava estimated rather than measured,
+/// so it carries no `weighted_average_watts` at all — the provider must leave
+/// NP unset there rather than substituting the average.
+///
+/// The JSON types mirror a live `/athlete/activities` response: Strava sends
+/// `average_watts` as a float and `weighted_average_watts` as an integer, and
+/// omits the weighted field entirely when `device_watts` is false.
+fn power_activities_payload() -> Value {
+    json!([
+        {
+            "id": 2001,
+            "name": "BGBR",
+            "type": "Ride",
+            "sport_type": "Ride",
+            "start_date": "2026-08-08T12:00:00Z",
+            "distance": 130_500.0,
+            "elapsed_time": 18_000,
+            "total_elevation_gain": 1_706.0,
+            "average_watts": 259.3,
+            "weighted_average_watts": 271,
+            "max_watts": 842,
+            "device_watts": true
+        },
+        {
+            "id": 2002,
+            "name": "Estimated-power spin",
+            "type": "Ride",
+            "sport_type": "Ride",
+            "start_date": "2026-08-09T12:00:00Z",
+            "distance": 30_000.0,
+            "elapsed_time": 3_600,
+            "total_elevation_gain": 120.0,
+            "average_watts": 180.4,
+            "device_watts": false
+        }
+    ])
+}
 
-    // get_activities for a within-page limit hits a single `/athlete/activities`
-    // fetch; the mock ignores the per_page/before query string and returns the
-    // fixed seed. No `/athlete` lookup is needed on the activities path.
+/// Stand up a mock Strava `/athlete/activities` returning `payload` and hand
+/// back a real `StravaProvider` pointed at it with usable credentials.
+async fn provider_serving(payload: Value) -> StravaProvider {
     let app = Router::new().route(
         "/athlete/activities",
-        get(|| async { Json(activities_payload()) }),
+        get(move || {
+            let payload = payload.clone();
+            async move { Json(payload) }
+        }),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -111,6 +152,18 @@ async fn get_activities_round_trips_seeded_data_with_granular_sport_type() {
         })
         .await
         .expect("set_credentials");
+
+    provider
+}
+
+#[tokio::test]
+async fn get_activities_round_trips_seeded_data_with_granular_sport_type() {
+    ensure_http_clients_initialized();
+
+    // get_activities for a within-page limit hits a single `/athlete/activities`
+    // fetch; the mock ignores the per_page/before query string and returns the
+    // fixed seed. No `/athlete` lookup is needed on the activities path.
+    let provider = provider_serving(activities_payload()).await;
 
     let activities = provider
         .get_activities(Some(10), None)
@@ -162,4 +215,75 @@ async fn get_activities_round_trips_seeded_data_with_granular_sport_type() {
         "run distance survives the round-trip"
     );
     assert_eq!(run.name(), "Morning Run");
+}
+
+/// Strava reports Normalized Power under the name "weighted average power".
+/// The provider must map it onto the canonical `Activity::normalized_power`,
+/// and the coach-facing `ActivitySummary` must carry it — an athlete asking
+/// "what was my NP?" reads that JSON, and a summary without the field forces
+/// the coach to answer with the average or to claim NP is unavailable.
+#[cfg(feature = "tools-data")]
+#[tokio::test]
+async fn strava_weighted_average_power_reaches_the_coach_as_normalized_power() {
+    use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
+
+    ensure_http_clients_initialized();
+
+    let provider = provider_serving(power_activities_payload()).await;
+
+    let activities = provider
+        .get_activities(Some(10), None)
+        .await
+        .expect("get_activities succeeds");
+
+    assert_eq!(activities.len(), 2, "both seeded rides round-trip");
+
+    let metered = activities
+        .iter()
+        .find(|a| a.id() == "2001")
+        .expect("power-meter ride present");
+    let estimated = activities
+        .iter()
+        .find(|a| a.id() == "2002")
+        .expect("estimated-power ride present");
+
+    // The canonical model carries NP distinctly from the average, so the two
+    // are not interchangeable downstream (IF, EF and VI all divide by NP).
+    assert_eq!(
+        metered.normalized_power(),
+        Some(271),
+        "weighted_average_watts maps onto normalized_power"
+    );
+    assert_eq!(
+        metered.average_power(),
+        Some(259),
+        "average power stays distinct from NP"
+    );
+    assert_eq!(
+        estimated.normalized_power(),
+        None,
+        "a ride Strava reported no weighted average for gets no fabricated NP"
+    );
+
+    // The coach reads ActivitySummary, not Activity: assert the field survives
+    // that boundary too, and that it is omitted rather than nulled when absent.
+    let metered_summary =
+        serde_json::to_value(ActivitySummary::from(metered)).expect("serialize metered summary");
+    assert_eq!(
+        metered_summary["normalized_power"].as_u64(),
+        Some(271),
+        "NP is visible to the coach in the activity summary"
+    );
+    assert_eq!(
+        metered_summary["average_power"].as_u64(),
+        Some(259),
+        "average power remains visible alongside NP"
+    );
+
+    let estimated_summary = serde_json::to_value(ActivitySummary::from(estimated))
+        .expect("serialize estimated summary");
+    assert!(
+        estimated_summary.get("normalized_power").is_none(),
+        "summaries for rides without NP omit the key instead of emitting null"
+    );
 }

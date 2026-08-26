@@ -838,6 +838,13 @@ Accounts for variability in cycling efforts using coggan's algorithm:
 
 **important note**: NP calculation is available via the `calculate_normalized_power()` method, but **TSS uses average power** (not NP) in the current implementation. See [TSS section](#power-based-tss-preferred) for details.
 
+**where NP comes from**: two sources, in priority order.
+
+1. **Provider-reported.** The provider's own weighted-average power, taken as-is: Strava `weighted_average_watts`, intervals.icu `weighted_average_watts`, Terra `normalized_power`. Strava reports it only for rides recorded with a power meter, and omits it when it estimated the watts from speed and grade.
+2. **Computed from the stream.** The Coggan algorithm below, run over the activity's time-series power data.
+
+Which source is reachable depends on the provider. Strava fetches no `/activities/{id}/streams`, so source 2 never fires for a Strava activity and the reported field is the only NP available — and every NP-derived metric (intensity factor, efficiency factor, variability index) is absent for a Strava ride without a power meter. Garmin parses `normalizedPower` and discards it, which is recorded in the limitation register.
+
 **algorithm**:
 
 1. Raise each instantaneous power to 4th power:
