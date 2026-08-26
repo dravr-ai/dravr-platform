@@ -611,6 +611,11 @@ async fn athlete_color_scheme(dispatch: &PendingDispatch) -> ColorScheme {
 /// The `#[instrument]` span pins `turn_id`, `channel`, and `conversation_id`
 /// onto every downstream log line (chat pipeline stages, embacle HTTP call)
 /// so an operator can grep a single `turn_id=...` across the whole flow.
+///
+/// LIMITATION(registre#109): `dispatch_and_respond` runs unbounded — `start` measures the turn
+/// but no deadline closes it. The AG-UI status placeholder is only ever edited into a finished
+/// reply, so a turn killed mid-generation leaves that placeholder open in the room forever,
+/// indistinguishable to the athlete from a slow answer.
 #[tracing::instrument(
     skip(dispatch),
     fields(

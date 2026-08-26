@@ -233,6 +233,11 @@ pub async fn handle_webhook(
     // tool loop, embacle HTTP call) inherits the same `turn_id`, `channel`,
     // and `tenant_id` fields. Without this, the spawned future starts with
     // an empty span and the message-flow trace fragments.
+    //
+    // LIMITATION(registre#109): `dispatch_and_respond` is spawned detached and its
+    // `JoinHandle` dropped, so nothing tracks or drains an in-flight turn. Because the
+    // 200 above lands first, Cloud Run reads the instance as idle and may terminate it
+    // mid-turn on a rollout or scaledown; the athlete keeps an open status placeholder.
     for dispatch in pending_dispatches {
         tokio::spawn(
             async move {
