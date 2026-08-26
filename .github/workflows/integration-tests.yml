@@ -111,15 +111,14 @@ jobs:
         run: git clone --depth 1 https://github.com/dravr-ai/dravr-contremaitre.git ../dravr-contremaitre
 
       - name: Seed e2e-real database (admin + coaches + demo + webtest)
-        # Order matters: `seed social` (which creates webtest@pierre.dev)
-        # requires the demo users from `seed demo-data` to exist first, and
-        # webtest needs a provider connection (synthetic-activities) or the
-        # onboarding hard-gate hides the app UI the persona spec drives.
+        # Order matters: `seed demo-data` creates webtest@pierre.dev (see
+        # crates/pierre-seeders/src/demo_data.rs), and webtest needs a
+        # provider connection (synthetic-activities) or the onboarding
+        # hard-gate hides the app UI the persona spec drives.
         run: |
           ./target/release/pierre-cli user create --email admin@example.com --password AdminPassword123 --super-admin --force
           ./target/release/pierre-cli seed coaches --coaches-dir ../dravr-contremaitre/prompts/coaches
           ./target/release/pierre-cli seed demo-data --days 30
-          ./target/release/pierre-cli seed social
           ./target/release/pierre-cli seed synthetic-activities --email webtest@pierre.dev --provider strava --count 30 --days 30
         env:
           DATABASE_URL: "sqlite:${{ github.workspace }}/data/e2e-real.db"

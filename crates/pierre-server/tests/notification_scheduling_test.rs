@@ -27,7 +27,7 @@ mod notification_scheduling_tests {
     use pierre_notifications::models::{
         collapse_notifications, CreateNotificationParams, NotificationCategory, NotificationItem,
     };
-    use pierre_routes_social::NotificationRoutes;
+    use pierre_routes_groups::NotificationRoutes;
     use serde_json::{json, Value};
     use std::sync::Arc;
 
@@ -409,8 +409,8 @@ mod notification_scheduling_tests {
     async fn test_mark_notification_dismissed() {
         let (router, token, notif_id) = create_notification_for_test(
             "dismissed_test@example.com",
-            NotificationCategory::Social,
-            "kudos_received",
+            NotificationCategory::Recovery,
+            "low_recovery_score",
         )
         .await;
 
@@ -528,29 +528,30 @@ mod notification_scheduling_tests {
     }
 
     #[test]
-    fn test_collapse_consecutive_kudos() {
+    fn test_collapse_consecutive_sync_failures() {
         let items = vec![
-            make_notification_item("kudos_received", NotificationCategory::Social),
-            make_notification_item("kudos_received", NotificationCategory::Social),
-            make_notification_item("kudos_received", NotificationCategory::Social),
+            make_notification_item("sync_failure", NotificationCategory::System),
+            make_notification_item("sync_failure", NotificationCategory::System),
+            make_notification_item("sync_failure", NotificationCategory::System),
         ];
         let result = collapse_notifications(items);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].collapsed_count, 3);
         assert_eq!(result[0].collapsed_ids.len(), 2);
-        assert!(result[0].title.contains('3'));
+        assert_eq!(result[0].title, "3 sync failures");
+        assert_eq!(result[0].body, "3 activity syncs failed recently");
     }
 
     #[test]
     fn test_collapse_interrupted_by_different_type() {
         let items = vec![
-            make_notification_item("kudos_received", NotificationCategory::Social),
-            make_notification_item("kudos_received", NotificationCategory::Social),
+            make_notification_item("sync_failure", NotificationCategory::System),
+            make_notification_item("sync_failure", NotificationCategory::System),
             make_notification_item("activity_synced", NotificationCategory::Training),
-            make_notification_item("kudos_received", NotificationCategory::Social),
+            make_notification_item("sync_failure", NotificationCategory::System),
         ];
         let result = collapse_notifications(items);
-        // First group of 2 kudos, then activity, then standalone kudos
+        // First group of 2 sync failures, then the activity, then a standalone sync failure
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].collapsed_count, 2);
         assert_eq!(result[1].collapsed_count, 1);
@@ -570,16 +571,17 @@ mod notification_scheduling_tests {
     }
 
     #[test]
-    fn test_collapse_friend_requests() {
+    fn test_collapse_keeps_categories_apart() {
+        // The same collapsible type under two categories is two groups: a
+        // merge is keyed on type *and* category, so a failure raised under one
+        // category can never swallow one raised under another.
         let items = vec![
-            make_notification_item("friend_request", NotificationCategory::Social),
-            make_notification_item("friend_request", NotificationCategory::Social),
-            make_notification_item("friend_request", NotificationCategory::Social),
-            make_notification_item("friend_request", NotificationCategory::Social),
+            make_notification_item("sync_failure", NotificationCategory::System),
+            make_notification_item("sync_failure", NotificationCategory::Training),
         ];
         let result = collapse_notifications(items);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].collapsed_count, 4);
-        assert!(result[0].title.contains("4 friend requests"));
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].collapsed_count, 1);
+        assert_eq!(result[1].collapsed_count, 1);
     }
 }

@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Chat input bar with text input, slash-command palette, voice and send buttons
+// ABOUTME: Chat input bar with text input, slash-command and @handle palettes, voice and send buttons
 // ABOUTME: Keyboard-aware positioning — animates above keyboard or tab bar
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, Keyboard, Platform, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, useThemeColors, useTheme } from '../../constants/theme';
 import { VoiceButton, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
 import { CommandPalette } from '../../components/CommandPalette';
+import { MentionPalette } from '../../components/MentionPalette';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
+import { useMentionPalette } from '../../hooks/useMentionPalette';
+import type { MentionCandidate } from '@pierre/shared-constants';
 
 interface ChatInputBarProps {
   inputText: string;
@@ -44,6 +47,25 @@ export function ChatInputBar({
   // Dictation is prose, never a command, so the palette reads the typed text
   // rather than what is on screen mid-transcription.
   const palette = useCommandPalette(isListening ? '' : inputText);
+  // Where the athlete is typing. The mention grammar reads the token that
+  // ends at the caret, so a `@` in the middle of a message opens the palette
+  // where it was typed rather than at the end of the text. Until the input
+  // reports a selection the caret is the end of the text, which is where
+  // typing lands.
+  const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
+  const caret = selectionEnd === null || selectionEnd > inputText.length ? inputText.length : selectionEnd;
+  const handleSelectionChange = (event: { nativeEvent: { selection: { end: number } } }) => {
+    setSelectionEnd(event.nativeEvent.selection.end);
+  };
+  // An "@" offers the athlete's installed coaches by handle; the pick is
+  // inserted lowercase and verbatim, whatever case the keyboard typed.
+  const mentions = useMentionPalette({ value: isListening ? '' : inputText, caret });
+  const handleMentionSelect = (candidate: MentionCandidate) => {
+    const next = mentions.insert(candidate);
+    if (next === null) return;
+    onChangeText(next.value);
+    setSelectionEnd(next.caret);
+  };
   const canSend = inputText.trim() && !isSending && !isListening && !disabled;
   const isDark = scheme === 'dark';
 
@@ -96,6 +118,7 @@ export function ChatInputBar({
         matches={palette.matches}
         onSelect={(entry) => onChangeText(palette.draftFor(entry))}
       />
+      <MentionPalette matches={mentions.matches} onSelect={handleMentionSelect} />
       <View
         className="flex-row items-center rounded-full px-3 min-h-[44px] max-h-[100px]"
         style={{
@@ -117,6 +140,7 @@ export function ChatInputBar({
           placeholderTextColor={isListening ? colors.error : colors.text.tertiary}
           value={displayText}
           onChangeText={onChangeText}
+          onSelectionChange={handleSelectionChange}
           multiline
           maxLength={4000}
           returnKeyType="default"

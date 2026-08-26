@@ -7,7 +7,7 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb, ShieldAlert } from 'lucide-react';
+import { Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, ShieldAlert } from 'lucide-react';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import {
   mergeVerdictSeverities,
@@ -28,7 +28,6 @@ interface MessageItemProps {
   metadata?: MessageMetadata;
   feedback?: MessageFeedback;
   isError?: boolean;
-  hasInsight?: boolean;
   /**
    * What the server decided this surface draws for this turn, in its order.
    *
@@ -45,8 +44,6 @@ interface MessageItemProps {
   assistantLabel?: string;
   onCopy?: () => void;
   onShare?: () => void;
-  onShareToFeed?: () => void;
-  onCreateInsight?: () => void;
   onThumbsUp?: () => void;
   onThumbsDown?: () => void;
   /** Saved thumbs-down reason for this message, hydrated on reload. */
@@ -137,14 +134,11 @@ const MessageItem = memo(function MessageItem({
   metadata,
   feedback,
   isError = false,
-  hasInsight = false,
   blocks,
   verdicts,
   assistantLabel,
   onCopy,
   onShare,
-  onShareToFeed,
-  onCreateInsight,
   onThumbsUp,
   onThumbsDown,
   feedbackComment,
@@ -365,26 +359,6 @@ const MessageItem = memo(function MessageItem({
                     title="Share"
                   >
                     <Share2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {/* Create Insight - only for non-insight messages */}
-                {onCreateInsight && !hasInsight && (
-                  <button
-                    onClick={onCreateInsight}
-                    className="p-0.5 text-outline hover:text-primary-container transition-colors"
-                    title="Create shareable insight"
-                  >
-                    <Lightbulb className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {/* Share to Feed - only for insight messages */}
-                {onShareToFeed && hasInsight && (
-                  <button
-                    onClick={onShareToFeed}
-                    className="p-0.5 text-outline hover:text-on-surface transition-colors"
-                    title="Share insight"
-                  >
-                    <Users className="w-3.5 h-3.5" />
                   </button>
                 )}
                 {/* Thumbs Up */}

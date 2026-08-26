@@ -24,6 +24,7 @@ import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeCol
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import { CoachVersionHistory } from '../../components/coaches/CoachVersionHistory';
+import { COACH_LIBRARY_ROUTE } from '../../navigation/routes';
 import type { CreateCoachRequest, UpdateCoachRequest } from '../../types';
 
 // Category options with colors matching Stitch UX spec
@@ -221,7 +222,7 @@ export function CoachEditorScreen() {
       if (isEditMode) {
         router.back();
       } else {
-        router.replace('/(app)/(tabs)/(coaches)');
+        router.replace(COACH_LIBRARY_ROUTE);
       }
     } catch (error) {
       console.error('Failed to save coach:', error);

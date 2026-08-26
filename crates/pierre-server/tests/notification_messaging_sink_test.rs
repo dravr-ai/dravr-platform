@@ -8,8 +8,8 @@
 //!
 //! `dravr-commere` persists the notification row and pushes to Expo devices.
 //! Those are its only two outlets, so an athlete who talks to Dravr on
-//! Telegram or Slack and never installed the mobile app received nothing — for
-//! every category, not only Social.
+//! Telegram or Slack and never installed the mobile app received nothing,
+//! whatever the category.
 //!
 //! Two halves are asserted here:
 //!

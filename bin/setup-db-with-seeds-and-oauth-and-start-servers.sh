@@ -210,16 +210,13 @@ fi
 echo "    Seeding demo users..."
 "$PIERRE_CLI" seed demo-data --days 30 2>&1 | tail -3
 
-# Seed social data (includes webtest/mobiletest users)
-echo "    Seeding social test data..."
-"$PIERRE_CLI" seed social 2>&1 | tail -3
-
 # Seed mobility data
 echo "    Seeding mobility data (stretches, yoga)..."
 "$PIERRE_CLI" seed mobility 2>&1 | tail -3
 
 # Create the phil_test + jf_test users before synthetic seeding. The web/mobile
-# test users are created by `seed social` above, but these two are not created by
+# test users (webtest / mobiletest) come from `seed demo-data` above — see
+# crates/pierre-seeders/src/demo_data.rs — but these two are not created by
 # any seeder, so create them here (idempotent via --force) to keep the script
 # self-contained on a fresh database. Without this, the synthetic step below
 # aborts with "User not found" on a clean checkout.

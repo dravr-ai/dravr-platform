@@ -69,11 +69,8 @@ pub mod route_summaries;
 pub mod security;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
-mod seeder_social;
 /// URL shortener: `code` → `target_url` with an integer-epoch TTL (`PostgreSQL`)
 pub mod short_links;
-/// Social features repository (friend connections, shared insights, reactions)
-pub mod social_features;
 /// Store listings repository implementation (marketplace publishing workflow)
 pub mod store_listings;
 /// Stripe-backed subscription persistence (Phase 5 billing)
@@ -106,15 +103,12 @@ pub mod weather_cache;
 pub mod workout_templates;
 
 use super::{shared, DatabaseProvider};
-use crate::database::system_settings::{
-    SystemSetting, SETTING_AUTO_APPROVAL_ENABLED, SETTING_SOCIAL_INSIGHTS_CONFIG,
-};
+use crate::database::system_settings::{SystemSetting, SETTING_AUTO_APPROVAL_ENABLED};
 use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as Base64Engine;
 use chrono::{DateTime, Utc};
 use pierre_core::config::database::PostgresPoolConfig;
-use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::models::TenantId;
@@ -688,58 +682,5 @@ impl PostgresDatabase {
             if enabled { "true" } else { "false" },
         )
         .await
-    }
-
-    /// Get social insights configuration from database
-    ///
-    /// Returns `Some(config)` if explicitly set in database,
-    /// or `None` if no database setting exists (caller should use defaults).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails or JSON deserialization fails
-    pub async fn get_social_insights_config(&self) -> AppResult<Option<SocialInsightsConfig>> {
-        match self
-            .get_system_setting(SETTING_SOCIAL_INSIGHTS_CONFIG)
-            .await?
-        {
-            Some(setting) => {
-                let config: SocialInsightsConfig =
-                    serde_json::from_str(&setting.value).map_err(|e| {
-                        AppError::internal(format!("Failed to parse social insights config: {e}"))
-                    })?;
-                Ok(Some(config))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Set social insights configuration in database
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails or JSON serialization fails
-    pub async fn set_social_insights_config(&self, config: &SocialInsightsConfig) -> AppResult<()> {
-        let json = serde_json::to_string(config).map_err(|e| {
-            AppError::internal(format!("Failed to serialize social insights config: {e}"))
-        })?;
-        self.set_system_setting(SETTING_SOCIAL_INSIGHTS_CONFIG, &json)
-            .await
-    }
-
-    /// Delete social insights configuration from database (revert to defaults)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails
-    pub async fn delete_social_insights_config(&self) -> AppResult<()> {
-        sqlx::query("DELETE FROM system_settings WHERE key = $1")
-            .bind(SETTING_SOCIAL_INSIGHTS_CONFIG)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to delete social insights config: {e}"))
-            })?;
-        Ok(())
     }
 }

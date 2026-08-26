@@ -133,8 +133,10 @@ bun run maestro:settings
 The app connects to the Pierre backend. Configure the endpoint:
 
 ```typescript
-// src/services/api.ts
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8081';
+// src/services/apiUrl.ts — every request resolves through getApiUrl()
+if (process.env.EXPO_PUBLIC_API_URL) {
+  return process.env.EXPO_PUBLIC_API_URL;
+}
 ```
 
 For physical devices, replace `localhost` with your machine's IP address.

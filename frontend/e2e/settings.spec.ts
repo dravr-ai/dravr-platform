@@ -217,21 +217,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
-  await page.route('**/api/admin/settings/social-insights', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
-          min_activities_for_comparison: 5,
-          comparison_window_days: 90,
-          min_similar_users: 3,
-          max_comparison_users: 50,
-        },
-      }),
-    });
-  });
-
   // Mock providers status (needed by ChatTab and ProviderConnectionCards)
   await page.route('**/api/providers', async (route) => {
     await route.fulfill({
@@ -268,50 +253,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     }
   });
 
-  // Mock social endpoints (needed by Insights tab)
-  await page.route('**/api/social/**', async (route) => {
-    const url = route.request().url();
-    if (url.includes('/friends')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ friends: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
-      });
-    } else if (url.includes('/feed')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ insights: [], next_cursor: null, has_more: false, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
-      });
-    } else if (url.includes('/suggestions')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ suggestions: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
-      });
-    } else if (url.includes('/settings')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          user_id: 'user-1',
-          discoverable: true,
-          default_visibility: 'friends',
-          share_activity_types: [],
-          notifications: { friend_requests: true, insight_reactions: true, adapted_insights: true },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }),
-      });
-    } else {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({}),
-      });
-    }
-  });
-
   // Mock store endpoints (needed by Discover tab)
   await page.route('**/api/store/**', async (route) => {
     const url = route.request().url();
@@ -342,19 +283,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
-    });
-  });
-
-  // Mock prompt suggestions (needed by Chat welcome view)
-  await page.route('**/api/social/insights/suggestions**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        categories: [],
-        welcome_prompt: '',
-        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
-      }),
     });
   });
 
@@ -795,10 +723,14 @@ test.describe('Settings Page - Admin Mode', () => {
     await expect(page.getByRole('heading', { name: 'User Registration' })).toBeVisible({ timeout: 5000 });
   });
 
-  test('admin settings shows social insights configuration', async ({ page }) => {
+  test('admin settings carries no social insights configuration', async ({ page }) => {
     await loginAndNavigateToAdminSettings(page);
 
-    // Should show social insights config section
-    await expect(page.getByRole('heading', { name: 'Social Insights Configuration' })).toBeVisible({ timeout: 5000 });
+    // The social feed was retired by the Chat-First Cutover, and its tuning
+    // card went with it: the page renders its remaining sections and nothing
+    // named after insights.
+    await expect(page.getByRole('heading', { name: 'User Registration' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Social Insights Configuration' })).toHaveCount(0);
+    await expect(page.getByText(/social insights/i)).toHaveCount(0);
   });
 });

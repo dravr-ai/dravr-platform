@@ -44,12 +44,9 @@ function renderList(messages: Message[]) {
       isCoachConversation
       messageFeedback={{}}
       messageFeedbackComment={{}}
-      insightMessages={new Set()}
       flatListRef={React.createRef()}
       onScrollToBottom={jest.fn()}
       onCoachSelect={jest.fn()}
-      onCreateInsight={jest.fn()}
-      onShareToFeed={jest.fn()}
       onThumbsUp={jest.fn()}
       onThumbsDown={jest.fn()}
       onSubmitFeedbackReason={jest.fn()}

@@ -1,12 +1,11 @@
-// ABOUTME: Full conversations list screen with search and coach-session grouping
-// ABOUTME: Groups conversations by coach_id with collapsible sections (mobile parity with web ConversationsPanel)
+// ABOUTME: The chat tab's landing screen — every conversation, Telegram-shaped, grouped by coach session
+// ABOUTME: Tapping a row opens its thread; the "+" offers new chat and new group chat
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
   Alert,
   Modal,
@@ -20,18 +19,17 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resolveChannelOrigin } from '@pierre/chat-utils';
-import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
+import { PRIMARY_PALETTE, glassCard, gradients, useThemeColors } from '../../constants/theme';
 import { chatApi, coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { PromptDialog, SwipeableRow, type SwipeAction } from '../../components/ui';
+import { FloatingSearchBar, PromptDialog, SwipeableRow, TAB_BAR_BOTTOM_OFFSET, type SwipeAction } from '../../components/ui';
+import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
+import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
+import { threadHref } from '../../navigation/routes';
+import { ChatPlusSheet } from '../chat/ChatPlusSheet';
+import { ChatPlusFlows } from '../chat/ChatPlusFlows';
+import { useChatPlusActions } from '../chat/useChatPlusActions';
 import type { Conversation, Coach } from '../../types';
-
-// Glassmorphic search bar style
-const searchBarStyle: ViewStyle = {
-  ...glassCard,
-  borderRadius: 22,
-  borderColor: 'rgba(139, 92, 246, 0.2)',
-};
 
 // Glassmorphic menu style
 const menuStyle: ViewStyle = {
@@ -61,11 +59,6 @@ type ListRow =
 
 export function ConversationsScreen() {
   const colors = useThemeColors();
-  // FAB with violet glow
-  const fabStyle: ViewStyle = useMemo(() => ({
-    backgroundColor: colors.pierre.violet,
-    ...buttonGlow,
-  }), [colors]);
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -75,8 +68,13 @@ export function ConversationsScreen() {
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
+  const [plusVisible, setPlusVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // No conversation is open on the list, so the "+" offers new chat and new
+  // group chat; "add someone" belongs to the thread that is being read.
+  const chatPlus = useChatPlusActions(null);
 
   // Hydrate collapsed state from AsyncStorage once on mount.
   useEffect(() => {
@@ -261,16 +259,12 @@ export function ConversationsScreen() {
   };
 
   const handleConversationPress = (conversationId: string) => {
-    router.push({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId } });
+    router.push(threadHref(conversationId));
   };
 
   const handleConversationLongPress = (conversation: Conversation) => {
     setSelectedConversation(conversation);
     setActionMenuVisible(true);
-  };
-
-  const handleNewChat = () => {
-    router.push('/(app)/(tabs)/(chat)');
   };
 
   const handleRename = () => {
@@ -434,6 +428,9 @@ export function ConversationsScreen() {
           onPress={() => handleConversationPress(conversation.id)}
           onLongPress={() => handleConversationLongPress(conversation)}
           delayLongPress={300}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${conversation.title || 'Untitled'}`}
+          testID={`conversation-row-${conversation.id}`}
         >
           <View className="flex-1">
             <View className="flex-row items-center gap-1.5">
@@ -483,20 +480,23 @@ export function ConversationsScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary">
-      {/* Header */}
-      <View className="flex-row items-center px-3 py-2 border-b border-border-subtle">
+    <SafeAreaView className="flex-1 bg-background-primary" testID="conversations-screen">
+      {/* Header — the landing screen's chrome: title, appearance, bell, and the chat "+" */}
+      <View className="flex-row items-center px-4 py-2 border-b border-border-subtle">
+        <Text className="flex-1 text-xl font-bold text-text-primary" testID="conversations-title">
+          Chats
+        </Text>
+        <AppearanceToggleButton size={20} color={colors.text.secondary} />
+        <NotificationBellButton size={20} color={colors.text.secondary} />
         <TouchableOpacity
           className="w-10 h-10 items-center justify-center"
-          onPress={() => router.back()}
-          testID="back-button"
+          onPress={() => setPlusVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="New chat or new group chat"
+          testID="chat-plus-button"
         >
-          <Feather name="arrow-left" size={24} color={colors.text.primary} />
+          <Feather name="plus" size={24} color={colors.pierre.violet} />
         </TouchableOpacity>
-        <Text className="flex-1 text-lg font-semibold text-text-primary text-center">
-          Coaching sessions
-        </Text>
-        <View className="w-10" />
       </View>
 
       {/* Error Display */}
@@ -525,8 +525,9 @@ export function ConversationsScreen() {
           data={listRows}
           renderItem={renderRow}
           keyExtractor={keyExtractor}
-          contentContainerStyle={{ paddingBottom: 80 }}
+          contentContainerStyle={{ paddingBottom: TAB_BAR_BOTTOM_OFFSET + 64 }}
           showsVerticalScrollIndicator={false}
+          testID="conversations-list"
           ListEmptyComponent={
             <View className="flex-1 items-center justify-center pt-16">
               {/* Icon with subtle glow */}
@@ -557,32 +558,20 @@ export function ConversationsScreen() {
         />
       )}
 
-      {/* Floating Bottom Bar with Search and New Chat */}
-      <View
-        className="absolute left-3 right-3 flex-row items-center gap-3"
-        style={{ bottom: spacing.lg }}
-      >
-        <View
-          className="flex-1 flex-row items-center px-4 py-2"
-          style={[{ height: 48 }, searchBarStyle]}
-        >
-          <Feather name="search" size={18} color={colors.text.tertiary} />
-          <TextInput
-            className="flex-1 text-base text-text-primary ml-3"
-            placeholder="Search conversations"
-            placeholderTextColor={colors.text.tertiary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-        <TouchableOpacity
-          className="w-12 h-12 rounded-full items-center justify-center"
-          style={fabStyle}
-          onPress={handleNewChat}
-        >
-          <Feather name="plus" size={24} color={colors.tokens.onPrimary} />
-        </TouchableOpacity>
-      </View>
+      {/* Floating search bar — sits above the tab bar, rides the keyboard */}
+      <FloatingSearchBar
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        placeholder="Search conversations"
+        testID="conversation-search-input"
+      />
+
+      <ChatPlusSheet
+        visible={plusVisible}
+        onClose={() => setPlusVisible(false)}
+        actions={chatPlus.actions}
+      />
+      <ChatPlusFlows flows={chatPlus.flows} />
 
       {/* Action Menu Modal */}
       <Modal

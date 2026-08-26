@@ -66,7 +66,7 @@ use axum::response::Response;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
 use pierre_database::backends::UsageRepository;
-use pierre_database::{AuthRepos, RepositoryRegistry, SocialRepos};
+use pierre_database::{AuthRepos, GroupsRepos, RepositoryRegistry};
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
@@ -394,7 +394,7 @@ impl ProviderToolRouter {
 
     /// Handle tenant-aware connection status.
     ///
-    /// Cross-cuts `AuthRepos` (`oauth_tokens`) and `SocialRepos`
+    /// Cross-cuts `AuthRepos` (`oauth_tokens`) and `GroupsRepos`
     /// (`notifications`); takes the full registry at the entry-point to
     /// keep the args list under the clippy ceiling. Helpers below
     /// receive narrow views.
@@ -431,16 +431,16 @@ impl ProviderToolRouter {
         .await;
 
         let auth = repos.auth_repos();
-        let social = repos.social_repos();
+        let groups = repos.groups_repos();
         let base_url = Self::build_oauth_base_url(http_port);
         let connection_status = Self::check_provider_connections(tenant_context, &auth).await;
         let notifications_text =
-            Self::build_notifications_text(&social, tenant_context.user_id).await;
+            Self::build_notifications_text(&groups, tenant_context.user_id).await;
         let structured_data = Self::build_structured_connection_data(
             tenant_context,
             &connection_status,
             &base_url,
-            &social,
+            &groups,
         )
         .await;
         let text_content = Self::build_text_content(
@@ -519,8 +519,8 @@ impl ProviderToolRouter {
     }
 
     /// Build notifications text from unread notifications
-    async fn build_notifications_text(social: &SocialRepos, user_id: Uuid) -> String {
-        let unread_notifications = social
+    async fn build_notifications_text(groups: &GroupsRepos, user_id: Uuid) -> String {
+        let unread_notifications = groups
             .notifications
             .get_unread(user_id)
             .await
@@ -556,9 +556,9 @@ impl ProviderToolRouter {
         tenant_context: &TenantContext,
         connection_status: &ProviderConnectionStatus,
         base_url: &str,
-        social: &SocialRepos,
+        groups: &GroupsRepos,
     ) -> Value {
-        let unread_notifications = social
+        let unread_notifications = groups
             .notifications
             .get_unread(tenant_context.user_id)
             .await
@@ -1415,16 +1415,10 @@ impl ProviderToolRouter {
         let app = app
             .merge(UserOAuthAppRoutes::routes::<ServerContext>().with_state(Arc::clone(resources)));
 
-        #[cfg(feature = "client-social")]
-        let app = {
-            use pierre_routes_social::SocialRoutes;
-            app.merge(SocialRoutes::routes(Arc::clone(resources)))
-        };
-
         #[cfg(feature = "client-groups")]
         let app = {
-            use pierre_routes_social::group_analytics::GroupAnalyticsRoutes;
-            use pierre_routes_social::GroupRoutes;
+            use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
+            use pierre_routes_groups::GroupRoutes;
             app.merge(GroupRoutes::routes(Arc::clone(resources)))
                 .merge(GroupAnalyticsRoutes::routes(Arc::clone(resources)))
         };
@@ -1474,7 +1468,7 @@ impl ProviderToolRouter {
 
         #[cfg(feature = "client-notifications")]
         let app = {
-            use pierre_routes_social::NotificationRoutes;
+            use pierre_routes_groups::NotificationRoutes;
             app.merge(NotificationRoutes::routes(Arc::clone(resources)))
         };
 

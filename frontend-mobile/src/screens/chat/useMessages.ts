@@ -1,5 +1,5 @@
 // ABOUTME: Hook for managing chat messages state and operations
-// ABOUTME: Handles loading, sending, insights, feedback, and message rendering logic
+// ABOUTME: Handles loading, sending, feedback, and message rendering logic
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { type FlashListRef } from '@shopify/flash-list';
@@ -7,13 +7,7 @@ import { chatApi } from '../../services/api';
 import { holdIdleWhileBusy, idleSignal } from '../../services/idleSignal';
 import { replySceneBlocks } from '@pierre/api-client';
 import type { ClaimVerdict, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
-import {
-  isInsightPrompt,
-  detectInsightMessages,
-  createInsightPrompt,
-  filterDisplayMessages,
-  statusTextForProgress,
-} from '@pierre/chat-utils';
+import { filterDisplayMessages, statusTextForProgress } from '@pierre/chat-utils';
 import type { Message } from '../../types';
 
 export interface MessagesState {
@@ -23,7 +17,6 @@ export interface MessagesState {
   messageFeedback: Record<string, 'up' | 'down' | null>;
   /** Saved thumbs-down reasons, keyed by message id. */
   messageFeedbackComment: Record<string, string>;
-  insightMessages: Set<string>;
   /**
    * What the server decided this turn draws, keyed by assistant message id.
    *
@@ -66,11 +59,6 @@ export interface MessagesActions {
     messageText: string,
     onConversationNeeded?: () => Promise<string | null>
   ) => Promise<void>;
-  createInsight: (
-    content: string,
-    conversationId: string | undefined,
-    onConversationNeeded?: () => Promise<string | null>
-  ) => Promise<void>;
   retryMessage: (messageId: string, conversationId: string) => Promise<void>;
   handleThumbsUp: (messageId: string, conversationId: string) => Promise<void>;
   handleThumbsDown: (messageId: string, conversationId: string) => Promise<void>;
@@ -93,7 +81,6 @@ export function useMessages(): MessagesState & MessagesActions {
   const [error, setError] = useState<string | null>(null);
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   const [messageFeedbackComment, setMessageFeedbackComment] = useState<Record<string, string>>({});
-  const [insightMessages, setInsightMessages] = useState<Set<string>>(new Set());
   const [messageBlocks, setMessageBlocks] = useState<Record<string, ReplyBlock[]>>({});
   const [verdicts, setVerdicts] = useState<ClaimVerdict[]>([]);
   const [quotaNotice, setQuotaNotice] = useState<ReplyNotice | null>(null);
@@ -133,23 +120,11 @@ export function useMessages(): MessagesState & MessagesActions {
       const response = await chatApi.getConversationMessages(conversationId);
       const allMessages = response.messages || [];
 
-      const detectedInsights = detectInsightMessages(allMessages);
-      if (detectedInsights.size > 0) {
-        setInsightMessages(prev => {
-          const merged = new Set(prev);
-          detectedInsights.forEach(id => merged.add(id));
-          return merged;
-        });
-      }
-
       // Drop internal LLM plumbing rows (tool_call / tool_result) so their raw
       // <tool_call>/<tool_result> XML never renders — critical for
       // messaging-origin conversations (Telegram etc.) that carry the same
-      // scaffolding rows as native chat. Then drop insight prompt user turns.
-      const filteredMessages = filterDisplayMessages(allMessages).filter(
-        (msg: Message) => !(msg.role === 'user' && isInsightPrompt(msg.content))
-      );
-      setMessages(filteredMessages);
+      // scaffolding rows as native chat.
+      setMessages(filterDisplayMessages(allMessages));
 
       // Hydrate thumbs up/down state (and any saved reason) from the server so
       // feedback survives reloads and conversation switches.
@@ -279,62 +254,6 @@ export function useMessages(): MessagesState & MessagesActions {
     deferredScrollToBottom(200);
     setIsSending(false);
     setProgressText(null);
-  }, [isSending, deferredScrollToBottom]);
-
-  const createInsight = useCallback(async (
-    content: string,
-    conversationId: string | undefined,
-    onConversationNeeded?: () => Promise<string | null>
-  ) => {
-    if (isSending) return;
-
-    let resolvedConversationId = conversationId;
-    if (!resolvedConversationId && onConversationNeeded) {
-      resolvedConversationId = (await onConversationNeeded()) ?? undefined;
-      if (!resolvedConversationId) return;
-    }
-    if (!resolvedConversationId) return;
-
-    setIsSending(true);
-    setError(null);
-    const insightPrompt = createInsightPrompt(content);
-    deferredScrollToBottom(200);
-
-    // An insight answers as one JSON document rather than a frame stream, so
-    // no progress arrives and the strip stays hidden for the whole turn.
-    // A streaming turn holds the client active: the athlete asked and is
-    // waiting, even with the screen untouched. Released in the finally so
-    // the idle threshold measures the quiet after the turn, not during it.
-    const releaseIdleHold = holdIdleWhileBusy();
-    try {
-      await chatApi.sendTurn(resolvedConversationId, insightPrompt, {
-        signal: idleSignal(),
-        onDone: turn => {
-          const insightId = turn.assistant.message.id;
-          if (!insightId) return;
-          setInsightMessages(prev => {
-            const updated = new Set(prev);
-            updated.add(insightId);
-            return updated;
-          });
-          setMessages(prev => [...prev, {
-            ...turn.assistant.message,
-            model: turn.telemetry.model,
-            execution_time_ms: turn.telemetry.execution_time_ms,
-            scene_blocks: replySceneBlocks(turn),
-          }]);
-        },
-        onError: err => {
-          setError(err.message);
-          console.error('Failed to create insight:', err);
-        },
-      });
-    } finally {
-      releaseIdleHold();
-    }
-
-    deferredScrollToBottom(200);
-    setIsSending(false);
   }, [isSending, deferredScrollToBottom]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
@@ -481,14 +400,12 @@ export function useMessages(): MessagesState & MessagesActions {
     error,
     messageFeedback,
     messageFeedbackComment,
-    insightMessages,
     messageBlocks,
     verdicts,
     quotaNotice,
     progressText,
     loadMessages,
     sendTurn,
-    createInsight,
     retryMessage,
     handleThumbsUp,
     handleThumbsDown,

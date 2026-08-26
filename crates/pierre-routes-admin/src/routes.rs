@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use axum::{
     middleware,
-    routing::{delete, get, patch, post, put},
+    routing::{get, patch, post, put},
     Router,
 };
 use pierre_runtime_context::MiddlewareCtx;
@@ -301,7 +301,7 @@ impl AdminRoutes {
     }
 
     /// System settings routes — admin-token surface for auto-approval,
-    /// social-insights, harness, and guardian config. Harness and guardian
+    /// harness, and guardian config. Harness and guardian
     /// share their handlers with the cookie mounts in
     /// [`Self::harness_config_routes`] / [`Self::guardian_config_routes`];
     /// these bearer twins are what `pierre-cli settings` reaches with its
@@ -315,18 +315,6 @@ impl AdminRoutes {
             .route(
                 "/admin/settings/auto-approval",
                 put(settings::handle_set_auto_approval),
-            )
-            .route(
-                "/admin/settings/social-insights",
-                get(settings::handle_get_social_insights_config),
-            )
-            .route(
-                "/admin/settings/social-insights",
-                put(settings::handle_set_social_insights_config),
-            )
-            .route(
-                "/admin/settings/social-insights",
-                delete(settings::handle_reset_social_insights_config),
             )
             .route(
                 "/admin/settings/harness",

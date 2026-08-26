@@ -842,3 +842,99 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
         );
     }
 }
+
+/// `/coach invite @handle` typed in the web chat attaches the caller's
+/// installed coach to the conversation it was typed in — the same binding
+/// `/coach select` makes — so the coach answers from the next message on. A
+/// handle nobody installed is refused by name and binds nothing.
+#[tokio::test]
+async fn coach_invite_handle_in_chat_binds_the_conversation() {
+    use helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
+
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, author_tenant, _author_auth) =
+        seed_user_tenant(&resources, "coach-invite-author@test.com").await;
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "coach-invite-web@test.com").await;
+    let origin = publish_catalogue_coach(
+        &resources.common.repos,
+        author_id,
+        author_tenant,
+        "Recovery Coach",
+        "You are the recovery coach.",
+    )
+    .await;
+    let installed =
+        install_catalogue_coach(&resources.common.repos, origin, user_id, tenant_id).await;
+    let installed_id = installed.id.to_string();
+
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &auth).await;
+
+    let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", &auth)
+        .json(&json!({"content": "/coach invite @nobody-here"}))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    let body: TurnResponse = resp.json();
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
+    assert!(
+        body.assistant.message.content.contains("@nobody-here"),
+        "the refusal names the handle: {}",
+        body.assistant.message.content
+    );
+    let conv = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conv_id, &user_id.to_string(), tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(conv.coach_id, None, "an unknown handle binds nothing");
+
+    let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", &auth)
+        .json(&json!({"content": "/coach invite @recovery-coach"}))
+        .send(router)
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    let body: TurnResponse = resp.json();
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
+    assert!(
+        body.assistant.message.content.contains("Recovery Coach"),
+        "the confirmation names the coach: {}",
+        body.assistant.message.content
+    );
+    let conv = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conv_id, &user_id.to_string(), tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        conv.coach_id.as_deref(),
+        Some(installed_id.as_str()),
+        "the conversation is bound to the installed copy"
+    );
+    assert_eq!(
+        resources
+            .common
+            .repos
+            .tenants
+            .get_selected_coach(tenant_id, user_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(installed_id.as_str())
+    );
+}

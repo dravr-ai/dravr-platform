@@ -9,7 +9,7 @@
 //! `dravr-commere`'s dispatcher persists the notification row and pushes to
 //! Expo devices. Those are its only two sinks, so an athlete who talks to Dravr
 //! on Telegram, Slack or `WhatsApp` and never installed the mobile app got
-//! nothing — for any category, not only Social.
+//! nothing, whatever the category.
 //!
 //! [`MessagingChannelSink`] is the third sink, plugged in through the
 //! [`NotificationChannelSink`] SPI so the dispatch pipeline keeps deciding

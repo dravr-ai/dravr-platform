@@ -48,9 +48,9 @@ appId: ai.dravr.app
       visible: "Save Password?"
     file: ../helpers/dismiss-save-password.yaml
 
-# Verify we're on the chat screen.
-# 60s timeout for Expo Router transition and ChatScreen mount.
+# Verify we landed on the chat tab: the conversation list.
+# 60s timeout for Expo Router transition and the list's mount.
 - extendedWaitUntil:
     visible:
-      id: "chat-screen"
+      id: "conversations-screen"
     timeout: 60000

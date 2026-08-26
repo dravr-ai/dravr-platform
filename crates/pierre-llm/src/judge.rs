@@ -1,5 +1,5 @@
 // ABOUTME: Generic LLM-as-judge helpers for structured JSON verdicts
-// ABOUTME: Shared prompt/response plumbing consumed by insight validation, coaching evals, etc.
+// ABOUTME: Shared prompt/response plumbing consumed by the outcome evaluator and coaching evals
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,9 +8,9 @@
 //!
 //! Generic utilities for the "LLM-as-judge" pattern: prompt an LLM with a
 //! rubric, receive a structured JSON verdict, parse it into a typed
-//! response. Consumed by social feed insight validation today; built to
-//! be reused by the coaching evaluation harness and any other caller
-//! that needs an LLM to return a structured verdict.
+//! response. Consumed by the outcome evaluator and the coaching evaluation
+//! harness, and open to any other caller that needs an LLM to return a
+//! structured verdict.
 //!
 //! The helpers deliberately do not own a `JudgeVerdict` type — callers
 //! keep their own domain-shaped verdicts and deserialize directly into

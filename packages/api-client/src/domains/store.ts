@@ -27,7 +27,7 @@ export interface BrowseOptions {
  * Creates the store API methods bound to an axios instance.
  */
 export function createStoreApi(axios: AxiosInstance) {
-  const api = {
+  return {
     /**
      * Browse store coaches with optional filters.
      */
@@ -98,20 +98,6 @@ export function createStoreApi(axios: AxiosInstance) {
       const response = await axios.get<InstallationsResponse>(ENDPOINTS.STORE.INSTALLATIONS);
       return response.data;
     },
-  };
-
-  // Add aliases for backward compatibility
-  return {
-    ...api,
-    // Aliases
-    browseStoreCoaches: api.browse,
-    searchStoreCoaches: api.search,
-    getStoreCoach: api.get,
-    getStoreCategories: api.getCategories,
-    installStoreCoach: api.install,
-    uninstallStoreCoach: api.uninstall,
-    getStoreInstallations: api.getInstallations,
-    getInstalledCoaches: api.getInstallations,
   };
 }
 

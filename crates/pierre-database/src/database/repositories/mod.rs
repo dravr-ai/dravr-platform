@@ -15,7 +15,5 @@ mod coaches_versions;
 mod mobility_impl;
 /// Direct `RecipeRepository` impl on `Database` (SQLite recipe persistence)
 mod recipes_impl;
-/// Direct `SocialRepository` impl on `Database` (SQLite social graph + insights)
-mod social_impl;
 /// Direct `StoreListingsRepository` impl on `Database` (SQLite marketplace listings)
 mod store_listings_impl;

@@ -189,12 +189,12 @@ mod dispatch_tests {
         let pool = resources.coach.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
 
-        // Disable SOCIAL category
+        // Disable RECOVERY category
         service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
-                category: "social".to_owned(),
+                category: "recovery".to_owned(),
                 enabled: false,
                 sub_preferences: None,
                 quiet_hours_start: None,
@@ -799,186 +799,6 @@ mod dispatch_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // Social trigger tests (Phase 3)
-    // ════════════════════════════════════════════════════════════════
-
-    #[tokio::test]
-    async fn test_trigger_friend_request_received() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (user, _token) = create_test_tenant(&resources, "friend_req@example.com")
-            .await
-            .unwrap();
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await
-            .unwrap();
-        let tenant_id = TenantId(tenants[0].id.as_uuid());
-
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
-
-        notification_triggers::trigger_friend_request_received(
-            &service,
-            user.id,
-            tenant_id,
-            "req-123",
-            "Alice Runner",
-        );
-
-        sleep(Duration::from_millis(200)).await;
-
-        let (notifications, _total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("social"), false)
-            .await
-            .unwrap();
-
-        assert!(
-            !notifications.is_empty(),
-            "Friend request trigger should create notification"
-        );
-        assert_eq!(
-            notifications[0].notification_type,
-            "friend_request_received"
-        );
-        assert_eq!(notifications[0].title, "Friend request");
-        assert!(notifications[0].body.contains("Alice Runner"));
-        assert!(notifications[0].body.contains("wants to connect"));
-    }
-
-    #[tokio::test]
-    async fn test_trigger_friend_request_accepted() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (user, _token) = create_test_tenant(&resources, "friend_accept@example.com")
-            .await
-            .unwrap();
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await
-            .unwrap();
-        let tenant_id = TenantId(tenants[0].id.as_uuid());
-
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
-
-        notification_triggers::trigger_friend_request_accepted(
-            &service,
-            user.id,
-            tenant_id,
-            "Bob Cyclist",
-        );
-
-        sleep(Duration::from_millis(200)).await;
-
-        let (notifications, _total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("social"), false)
-            .await
-            .unwrap();
-
-        assert!(
-            !notifications.is_empty(),
-            "Accept trigger should create notification"
-        );
-        assert_eq!(
-            notifications[0].notification_type,
-            "friend_request_accepted"
-        );
-        assert_eq!(notifications[0].title, "Connection accepted");
-        assert!(notifications[0].body.contains("Bob Cyclist"));
-    }
-
-    #[tokio::test]
-    async fn test_trigger_activity_kudos() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (user, _token) = create_test_tenant(&resources, "kudos@example.com")
-            .await
-            .unwrap();
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await
-            .unwrap();
-        let tenant_id = TenantId(tenants[0].id.as_uuid());
-
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
-
-        notification_triggers::trigger_activity_kudos(
-            &service,
-            user.id,
-            tenant_id,
-            "insight-456",
-            "Carol Triathlete",
-            "training tip",
-        );
-
-        sleep(Duration::from_millis(200)).await;
-
-        let (notifications, _total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("social"), false)
-            .await
-            .unwrap();
-
-        assert!(
-            !notifications.is_empty(),
-            "Kudos trigger should create notification"
-        );
-        assert_eq!(notifications[0].notification_type, "activity_kudos");
-        assert_eq!(notifications[0].title, "New kudos");
-        assert!(notifications[0].body.contains("Carol Triathlete"));
-        assert!(notifications[0].body.contains("training tip"));
-    }
-
-    #[tokio::test]
-    async fn test_trigger_insight_shared() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (user, _token) = create_test_tenant(&resources, "insight_share@example.com")
-            .await
-            .unwrap();
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await
-            .unwrap();
-        let tenant_id = TenantId(tenants[0].id.as_uuid());
-
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
-
-        notification_triggers::trigger_insight_shared(
-            &service,
-            user.id,
-            tenant_id,
-            "insight-789",
-            "Dave Coach",
-        );
-
-        sleep(Duration::from_millis(200)).await;
-
-        let (notifications, _total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("social"), false)
-            .await
-            .unwrap();
-
-        assert!(
-            !notifications.is_empty(),
-            "Insight shared trigger should create notification"
-        );
-        assert_eq!(notifications[0].notification_type, "insight_shared");
-        assert_eq!(notifications[0].title, "Insight shared with you");
-        assert!(notifications[0].body.contains("Dave Coach"));
-    }
-
-    // ════════════════════════════════════════════════════════════════
     // Coach trigger tests (Phase 3)
     // ════════════════════════════════════════════════════════════════
 
@@ -1401,5 +1221,131 @@ mod dispatch_tests {
             coach_msg.is_some(),
             "Coach message notification should exist despite cap"
         );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // The retired Social category
+    // ════════════════════════════════════════════════════════════════
+
+    /// The exact migration SQL, so the test exercises the shipped statements
+    /// rather than a paraphrase that could drift from them.
+    const DELETE_SOCIAL_ROWS_MIGRATION_SQL: &str =
+        include_str!("../../../migrations/20260826000006_delete_social_notification_rows.sql");
+
+    async fn count_rows(pool: &sqlx::SqlitePool, sql: &'static str) -> i64 {
+        sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
+    }
+
+    // Both spellings of the category set — dravr-commere's, which the routes
+    // and the dispatcher read, and pierre-core's mirror — reject the string the
+    // migration deletes, so no stored row can resurrect the retired category.
+    #[test]
+    fn test_retired_social_category_no_longer_parses() {
+        use pierre_core::models::NotificationCategory as CoreNotificationCategory;
+
+        assert_eq!(NotificationCategory::from_str_opt("social"), None);
+        assert_eq!(CoreNotificationCategory::from_str_opt("social"), None);
+        assert!(NotificationCategory::all()
+            .iter()
+            .all(|category| category.as_str() != "social"));
+        assert!(CoreNotificationCategory::all()
+            .iter()
+            .all(|category| category.as_str() != "social"));
+    }
+
+    // A stored `social` row fails `from_str_opt` on read and errors the whole
+    // preference list or feed of the user carrying it. The migration removes
+    // exactly those rows and nothing else.
+    #[tokio::test]
+    async fn test_migration_deletes_the_stored_social_rows_and_nothing_else() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user, _token) = create_test_tenant(&resources, "social_rows@example.com")
+            .await
+            .unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
+        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
+
+        for category in ["social", "training"] {
+            sqlx::query(
+                "INSERT INTO notification_preferences (id, user_id, tenant_id, category, enabled)
+                 VALUES (?, ?, ?, ?, 0)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(user.id.to_string())
+            .bind(tenant_id.as_uuid().to_string())
+            .bind(category)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO notifications
+                    (id, user_id, tenant_id, category, notification_type, title, body)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(user.id.to_string())
+            .bind(tenant_id.as_uuid().to_string())
+            .bind(category)
+            .bind(format!("{category}_event"))
+            .bind("title")
+            .bind("body")
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        sqlx::raw_sql(DELETE_SOCIAL_ROWS_MIGRATION_SQL)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            count_rows(
+                &pool,
+                "SELECT COUNT(*) FROM notification_preferences WHERE category = 'social'"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            count_rows(
+                &pool,
+                "SELECT COUNT(*) FROM notifications WHERE category = 'social'"
+            )
+            .await,
+            0
+        );
+        // The rows of a live category survive.
+        assert_eq!(
+            count_rows(
+                &pool,
+                "SELECT COUNT(*) FROM notification_preferences WHERE category = 'training'"
+            )
+            .await,
+            1
+        );
+        assert_eq!(
+            count_rows(
+                &pool,
+                "SELECT COUNT(*) FROM notifications WHERE category = 'training'"
+            )
+            .await,
+            1
+        );
+        // And the service reads them back without tripping over a retired string.
+        let service = NotificationService::from_sqlite(pool);
+        let prefs = service
+            .get_notification_preferences(user.id, tenant_id)
+            .await
+            .unwrap();
+        assert_eq!(prefs.len(), 1);
+        assert_eq!(prefs[0].category, NotificationCategory::Training);
     }
 }

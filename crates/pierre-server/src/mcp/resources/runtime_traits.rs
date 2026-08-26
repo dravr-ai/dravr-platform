@@ -194,16 +194,16 @@ impl pierre_runtime_context::CoachesCtx for ServerContext {
 }
 
 #[cfg(all(feature = "client-groups", feature = "client-notifications"))]
-mod social_ctx_impl {
+mod groups_ctx_impl {
     use super::ServerContext;
     use async_trait::async_trait;
     use pierre_groups::GroupService;
     use pierre_notifications::NotificationService;
-    use pierre_runtime_context::SocialCtx;
+    use pierre_runtime_context::GroupsCtx;
     use std::sync::Arc;
 
     #[async_trait]
-    impl SocialCtx for ServerContext {
+    impl GroupsCtx for ServerContext {
         fn notification_service(&self) -> Option<&Arc<NotificationService>> {
             self.common.notification_service.as_ref()
         }

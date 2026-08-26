@@ -8,14 +8,30 @@ import { describe, it, expect } from 'vitest';
 import { webNotificationRoute } from '@pierre/shared-constants';
 
 describe('webNotificationRoute', () => {
-  it('routes recovery + activity + activities + stats to the Insights tab', () => {
-    for (const screen of ['recovery', 'activity', 'activities', 'stats']) {
-      expect(webNotificationRoute({ screen })).toBe('insights');
-    }
+  // The Insights surface was retired by the Chat-First Cutover. Every training
+  // deep-link now opens the chat, where the coach reads those numbers to the
+  // athlete; asserted screen by screen so a regression names the screen.
+  it('routes an activity sync to the chat', () => {
+    expect(webNotificationRoute({ screen: 'activity', id: 'act-1' })).toBe('chat');
   });
 
-  it('routes social to the Insights tab (friends sub-view is set by the caller)', () => {
-    expect(webNotificationRoute({ screen: 'social' })).toBe('insights');
+  it('routes the activity list to the chat', () => {
+    expect(webNotificationRoute({ screen: 'activities' })).toBe('chat');
+  });
+
+  it('routes a recovery alert to the chat', () => {
+    expect(webNotificationRoute({ screen: 'recovery' })).toBe('chat');
+  });
+
+  it('routes a training-load alert to the chat', () => {
+    expect(webNotificationRoute({ screen: 'stats' })).toBe('chat');
+  });
+
+  it('no longer routes the retired social screen anywhere', () => {
+    // Nothing emits `social` since friends and the feed were deleted; a row
+    // persisted before the cutover marks itself read and stays put.
+    expect(webNotificationRoute({ screen: 'social' })).toBeNull();
+    expect(webNotificationRoute({ screen: 'social', action: 'friend_request', id: 'req-1' })).toBeNull();
   });
 
   it('routes settings deep links to the settings tab', () => {
@@ -51,8 +67,10 @@ describe('webNotificationRoute', () => {
     expect(webNotificationRoute({ screen: 'coach', id: 42 })).toBe('chat');
   });
 
-  it('ignores a conversation id on a screen that is not the chat surface', () => {
-    expect(webNotificationRoute({ screen: 'recovery', id: 'ignored' })).toBe('insights');
+  it('ignores a conversation id on a screen that is not the coach thread', () => {
+    // A recovery alert lands on the chat surface but names no conversation:
+    // its `id` is the alert's own subject, not a thread to reopen.
+    expect(webNotificationRoute({ screen: 'recovery', id: 'ignored' })).toBe('chat');
   });
 
   it('resolves via the action id when the payload has no usable screen', () => {

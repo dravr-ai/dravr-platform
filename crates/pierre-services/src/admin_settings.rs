@@ -1,4 +1,4 @@
-// ABOUTME: System-wide settings an operator can change — auto-approval and social insights
+// ABOUTME: System-wide settings an operator can change — auto-approval and its env shadow
 // ABOUTME: Split from admin_ops.rs, which is about acting on users rather than configuring the system
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -16,7 +16,6 @@
 //! the value as fixed instead of accepting a write the next read would discard.
 
 use pierre_config::mcp::AppBehaviorConfig;
-use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::AppError;
 use pierre_runtime_context::DataContext;
 use tracing::error;
@@ -88,65 +87,6 @@ pub async fn set_auto_approval(data: &DataContext, enabled: bool) -> Result<(), 
             error!(error = %e, "Failed to set auto-approval setting");
             AppError::internal(format!("Failed to set auto-approval setting: {e}"))
         })
-}
-
-// =========================================================================
-// Social insights settings
-// =========================================================================
-
-/// Retrieve the current social insights configuration.
-///
-/// # Errors
-///
-/// Returns `Internal` if the configuration read fails.
-pub async fn get_social_insights_config(
-    data: &DataContext,
-) -> Result<SocialInsightsConfig, AppError> {
-    data.database()
-        .get_social_insights_config()
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to get social insights config");
-            AppError::internal(format!("Failed to get social insights config: {e}"))
-        })
-        .map(Option::unwrap_or_default)
-}
-
-/// Persist updated social insights configuration.
-///
-/// # Errors
-///
-/// Returns `Internal` if the configuration write fails.
-pub async fn set_social_insights_config(
-    data: &DataContext,
-    config: &SocialInsightsConfig,
-) -> Result<(), AppError> {
-    data.database()
-        .set_social_insights_config(config)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to set social insights config");
-            AppError::internal(format!("Failed to set social insights config: {e}"))
-        })
-}
-
-/// Reset social insights configuration to defaults.
-///
-/// # Errors
-///
-/// Returns `Internal` if the configuration deletion fails.
-pub async fn reset_social_insights_config(
-    data: &DataContext,
-) -> Result<SocialInsightsConfig, AppError> {
-    data.database()
-        .delete_social_insights_config()
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to reset social insights config");
-            AppError::internal(format!("Failed to reset social insights config: {e}"))
-        })?;
-
-    Ok(SocialInsightsConfig::default())
 }
 
 // =========================================================================

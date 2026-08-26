@@ -7,7 +7,7 @@
 import { useRef, useEffect } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { isInsightPrompt, detectInsightMessages, filterDisplayMessages } from '@pierre/chat-utils';
+import { filterDisplayMessages } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
@@ -28,7 +28,6 @@ interface MessageListProps {
    * persisted — a message with no entry is drawn from its transcript row.
    */
   messageBlocks?: Map<string, ReplyBlock[]>;
-  insightMessageIds: Set<string>;
   /** Claim verdicts for the active conversation, keyed by message_id. */
   verdicts?: ClaimVerdict[];
   /** Label shown above assistant turns — the active coach's name, or
@@ -47,8 +46,6 @@ interface MessageListProps {
   onDismissOAuthNotification: () => void;
   onCopyMessage: (content: string) => void;
   onShareMessage: (content: string) => void;
-  onShareToFeed: (content: string) => void;
-  onCreateInsight: (content: string) => void;
   onThumbsUp: (messageId: string) => void;
   onThumbsDown: (messageId: string) => void;
   /** Persist an optional thumbs-down reason for a message. */
@@ -68,7 +65,6 @@ export default function MessageList({
   messageFeedback,
   messageFeedbackComment,
   messageBlocks,
-  insightMessageIds,
   verdicts,
   assistantLabel,
   isLoading,
@@ -81,8 +77,6 @@ export default function MessageList({
   onDismissOAuthNotification,
   onCopyMessage,
   onShareMessage,
-  onShareToFeed,
-  onCreateInsight,
   onThumbsUp,
   onThumbsDown,
   onSubmitFeedbackReason,
@@ -104,24 +98,15 @@ export default function MessageList({
     );
   }
 
-  // Detect insight messages from the message pattern (assistant response following insight prompt)
-  const detectedInsightIds = detectInsightMessages(messages);
-
   // Filter out internal LLM plumbing rows (tool_call / tool_result) so their
   // raw <tool_call>/<tool_result> XML never renders — this matters most for
   // messaging-origin conversations (Telegram etc.) that surface in web chat
-  // with the same scaffolding rows as native web chat. Then drop insight
-  // prompt messages (user messages that triggered insight generation).
-  const visibleMessages = filterDisplayMessages(messages).filter(msg =>
-    !(msg.role === 'user' && isInsightPrompt(msg.content))
-  );
+  // with the same scaffolding rows as native web chat.
+  const visibleMessages = filterDisplayMessages(messages);
 
   return (
     <div className="space-y-6">
       {visibleMessages.map((msg) => {
-        // Combine passed-in insight IDs with detected ones
-        const isInsight = insightMessageIds.has(msg.id) || detectedInsightIds.has(msg.id);
-
         return (
           <MessageItem
             key={msg.id}
@@ -130,14 +115,11 @@ export default function MessageList({
             feedback={messageFeedback.get(msg.id)}
             feedbackComment={messageFeedbackComment.get(msg.id)}
             isError={msg.isError}
-            hasInsight={isInsight}
             blocks={messageBlocks?.get(msg.id)}
             verdicts={verdicts}
             assistantLabel={assistantLabel}
             onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
             onShare={msg.role === 'assistant' ? () => onShareMessage(msg.content) : undefined}
-            onCreateInsight={msg.role === 'assistant' ? () => onCreateInsight(msg.content) : undefined}
-            onShareToFeed={msg.role === 'assistant' ? () => onShareToFeed(msg.content) : undefined}
             onThumbsUp={msg.role === 'assistant' ? () => onThumbsUp(msg.id) : undefined}
             onThumbsDown={msg.role === 'assistant' ? () => onThumbsDown(msg.id) : undefined}
             onSubmitReason={

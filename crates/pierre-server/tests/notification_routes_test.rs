@@ -27,7 +27,7 @@ mod notification_routes_tests {
     use pierre_notifications::models::{CreateNotificationParams, NotificationCategory};
     use pierre_notifications::NotificationService;
     use pierre_notifications::TenantId as CommereTenantId;
-    use pierre_routes_social::NotificationRoutes;
+    use pierre_routes_groups::NotificationRoutes;
     use serde_json::json;
     use std::sync::Arc;
 
@@ -231,6 +231,33 @@ mod notification_routes_tests {
 
         let list_body: serde_json::Value = list_response.json();
         assert_eq!(list_body["preferences"].as_array().unwrap().len(), 1);
+    }
+
+    // `social` left the category set with dravr-commere 0.2.0. The request
+    // type carries the enum, so the string is refused at the door and no row
+    // reaches the table, whose CHECK constraint would still admit it.
+    #[tokio::test]
+    async fn test_update_preferences_refuses_the_retired_social_category() {
+        let (router, token, _user_id) = setup_notification_router().await;
+
+        let response = AxumTestRequest::put("/api/notifications/preferences")
+            .header("authorization", &token)
+            .json(&json!({ "category": "social", "enabled": false }))
+            .send(router.clone())
+            .await;
+        assert!(
+            response.status_code().is_client_error(),
+            "expected a 4xx for the retired category, got {}",
+            response.status_code()
+        );
+
+        let list_response = AxumTestRequest::get("/api/notifications/preferences")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+        assert_eq!(list_response.status_code(), StatusCode::OK);
+        let list_body: serde_json::Value = list_response.json();
+        assert!(list_body["preferences"].as_array().unwrap().is_empty());
     }
 
     // ════════════════════════════════════════════════════════════════

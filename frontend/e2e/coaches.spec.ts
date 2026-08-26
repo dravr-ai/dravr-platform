@@ -5,7 +5,7 @@
 // ABOUTME: Tests admin coaches management, CRUD operations, and user assignments.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, navigateToTab, APP_SHELL_TIMEOUT_MS } from './test-helpers';
 
 // Mock coach data
 const mockCoaches = [
@@ -219,7 +219,7 @@ test.describe('System Coaches Tab Visibility', () => {
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Admin Coaches tab should be visible (exact match to avoid "My Coaches" button)
+    // Admin Coaches tab should be visible (exact match so nothing else named Coaches matches)
     await expect(page.locator('nav button').filter({ hasText: /^Coaches$/ })).toBeVisible();
   });
 
@@ -906,6 +906,7 @@ const mockUserCoaches = [
     is_system: true,
     visibility: 'tenant',
     is_assigned: true,
+    handle: 'system-training-coach',
   },
 ];
 
@@ -931,15 +932,18 @@ async function setupUserCoachesMocks(page: Page) {
   // Set up base dashboard mocks for non-admin user
   await setupDashboardMocks(page, { role: 'user' });
 
-  // Mock user coaches endpoint (use regex to match URLs with query params like ?include_hidden=true)
+  // Mock user coaches endpoint (use regex to match URLs with query params like ?include_hidden=true).
+  // Like the server, the include_hidden variant also returns the hidden coaches.
   await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
     if (route.request().method() === 'GET') {
+      const includeHidden = route.request().url().includes('include_hidden=true');
+      const coaches = includeHidden ? [...mockUserCoaches, ...mockHiddenCoaches] : mockUserCoaches;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coaches: mockUserCoaches,
-          total: mockUserCoaches.length,
+          coaches,
+          total: coaches.length,
         }),
       });
     } else if (route.request().method() === 'POST') {
@@ -974,12 +978,19 @@ async function setupUserCoachesMocks(page: Page) {
     });
   });
 
-  // Mock individual coach operations (edit, delete, hide, show)
+  // Mock individual coach operations (edit, delete, hide, show). The hidden
+  // list lives under the same prefix and must not read as a /hide call.
   await page.route('**/api/coaches/*', async (route) => {
     const url = route.request().url();
     const method = route.request().method();
 
-    if (url.includes('/hide')) {
+    if (/\/api\/coaches\/hidden(\?.*)?$/.test(url)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ coaches: mockHiddenCoaches }),
+      });
+    } else if (/\/hide$/.test(url)) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1015,64 +1026,77 @@ async function setupUserCoachesMocks(page: Page) {
   });
 }
 
-test.describe('User Coaches - Chat Interface', () => {
-  test('displays coaches in chat interface for regular users', async ({ page }) => {
+/**
+ * Open Discover and wait for the pinned "Your coaches" section.
+ *
+ * The user Coach tab was folded into Discover by the Chat-First Cutover
+ * (2026-08-26): the athlete's own coaches sit above the store's category
+ * filters, each carrying the `@handle` that brings it into a conversation.
+ */
+async function openYourCoaches(page: Page) {
+  await page.waitForSelector('aside', { timeout: 10000 });
+  await page.getByRole('list').getByRole('button', { name: 'Discover', exact: true }).click();
+  // Discover is a lazy chunk: the first worker to open it waits on Vite's
+  // cold transform, the same wait the app shell gets.
+  await expect(page.getByRole('region', { name: /Your coaches/ })).toBeVisible({
+    timeout: APP_SHELL_TIMEOUT_MS,
+  });
+  return page.getByRole('region', { name: /Your coaches/ });
+}
+
+test.describe('User coaches - pinned on Discover', () => {
+  test('lists the athlete coaches above the store, with the handle of each addressable coach', async ({ page }) => {
     await setupUserCoachesMocks(page);
     await loginToDashboard(page);
 
-    // Wait for sidebar to load (users have sidebar with tabs)
-    await page.waitForSelector('aside', { timeout: 10000 });
-
-    // Click the My Coaches tab in sidebar
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
-
-    // Should see My Coaches heading in the main content area (h2)
-    // Note: h1 is in the dashboard header, h2 is in CoachLibraryTab content
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
-    // User-created coaches are shown in the coach library
-    // Note: CoachLibraryTab only shows user-created coaches, system coaches are in PromptSuggestions
-    await expect(page.getByText('My Custom Coach')).toBeVisible();
+    const section = await openYourCoaches(page);
+    await expect(section.getByText('My Custom Coach')).toBeVisible();
+    await expect(section.getByText('System Training Coach')).toBeVisible();
+    // A catalogue coach carries the handle the athlete types in chat; a
+    // personal coach that was never published has none.
+    await expect(section.getByTestId('coach-handle')).toHaveText(['@system-training-coach']);
+    // The store still renders below the pinned section (empty in this mock).
+    await expect(page.getByText('Store is empty')).toBeVisible();
+    // The section is above the store's category chips, not among them.
+    const sectionBox = await section.boundingBox();
+    const chipBox = await page.getByRole('main').getByRole('button', { name: 'Training', exact: true }).boundingBox();
+    expect(sectionBox!.y).toBeLessThan(chipBox!.y);
   });
 
-  test('shows edit button only for user-created coaches', async ({ page }) => {
+  test('offers Edit on a user coach and not on a system coach', async ({ page }) => {
     await setupUserCoachesMocks(page);
     await loginToDashboard(page);
+    await openYourCoaches(page);
 
-    await page.waitForSelector('aside', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Open My Custom Coach' }).click();
+    const own = page.getByRole('dialog');
+    await expect(own.getByRole('button', { name: 'Edit' })).toBeVisible();
+    await expect(own.getByRole('button', { name: 'Delete' })).toBeVisible();
+    await own.getByRole('button', { name: 'Close modal' }).click();
 
-    // Click the My Coaches tab in sidebar
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
-
-    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 10000 });
-
-    // Click on coach card to open detail view where Edit button is visible
-    await page.getByText('My Custom Coach').click();
-    await page.waitForTimeout(300);
-
-    // Edit button should be visible in the detail view for user coaches
-    await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+    await page.getByRole('button', { name: 'Open System Training Coach' }).click();
+    const system = page.getByRole('dialog');
+    await expect(system.getByText('@system-training-coach')).toBeVisible();
+    await expect(system.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+    await expect(system.getByRole('button', { name: 'Delete' })).toHaveCount(0);
+    await expect(system.getByRole('button', { name: 'Chat' })).toBeVisible();
   });
 
-  // Note: System coach hide/show tests removed as CoachLibraryTab only shows user-created coaches
-  // System coaches with hide/show functionality are available in PromptSuggestions (Chat tab)
-
-  test('can toggle show hidden coaches filter', async ({ page }) => {
+  test('the show-hidden toggle reveals a hidden coach', async ({ page }) => {
     await setupUserCoachesMocks(page);
     await loginToDashboard(page);
+    const section = await openYourCoaches(page);
 
-    await page.waitForSelector('main', { timeout: 10000 });
+    await expect(section.getByText('My Custom Coach')).toBeVisible();
+    await expect(section.getByText('Hidden System Coach')).toHaveCount(0);
 
-    // Click the My Coaches tab in sidebar
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Show hidden coaches' }).click();
 
-    // Should see My Coaches heading (h2 in content area)
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
+    await expect(section.getByText('Hidden System Coach')).toBeVisible();
+    await expect(section.getByText('Hidden', { exact: true })).toBeVisible();
 
-    // Verify the coach library loaded
-    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Hide hidden coaches' }).click();
+    await expect(section.getByText('Hidden System Coach')).toHaveCount(0);
   });
 
   test('can delete a user coach with confirmation', async ({ page }) => {
@@ -1088,34 +1112,21 @@ test.describe('User Coaches - Chat Interface', () => {
       }
     });
 
-    // Handle browser confirm dialog
-    page.on('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('Delete coach');
-      await dialog.accept();
-    });
-
     await loginToDashboard(page);
-    await page.waitForSelector('main', { timeout: 10000 });
+    await openYourCoaches(page);
 
-    // Click the My Coaches tab in sidebar
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Open My Custom Coach' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
 
-    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 10000 });
+    // The confirmation is the design-system dialog, not a native confirm().
+    const confirm = page.getByRole('dialog').last();
+    await expect(confirm.getByText('Delete coach "My Custom Coach"? This cannot be undone.')).toBeVisible();
+    await confirm.getByRole('button', { name: 'Delete' }).click();
 
-    // Click on coach card to open detail view
-    await page.getByText('My Custom Coach').click();
-    await page.waitForTimeout(300);
-
-    // Click delete button in detail view
-    await page.getByRole('button', { name: /Delete/i }).click();
-
-    // Wait for delete API to be called
-    await page.waitForTimeout(500);
-    expect(deleteCalled).toBe(true);
+    await expect.poll(() => deleteCalled).toBe(true);
   });
 
-  test('can create a new user coach via My Coaches panel', async ({ page }) => {
+  test('can create a new user coach from the section header', async ({ page }) => {
     await setupUserCoachesMocks(page);
 
     let createCalled = false;
@@ -1144,44 +1155,30 @@ test.describe('User Coaches - Chat Interface', () => {
     });
 
     await loginToDashboard(page);
-    await page.waitForSelector('main', { timeout: 10000 });
+    await openYourCoaches(page);
 
-    // Click My Coaches button in sidebar to open the My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-
-    // Wait for the My Coaches panel to open
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 5000 });
-
-    // Click Create Coach button in the panel header
     await page.getByRole('button', { name: 'Create Coach' }).click();
 
-    // The Coaches tab opens the shared CoachFormModal — the same editor the
-    // Chat tab uses, tool-budget field included. The deleted inline editor's
-    // distinguishing chrome (its Tags input) must not render anywhere.
+    // The one coach editor — the same CoachFormModal the Chat tab uses, tool
+    // budget field included. No inline editor chrome (its Tags input) exists.
     await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeVisible();
-    await expect(
-      page.getByPlaceholder('marathon, endurance, beginner (comma-separated)')
-    ).toHaveCount(0);
+    await expect(page.getByPlaceholder('marathon, endurance, beginner (comma-separated)')).toHaveCount(0);
 
-    // Fill in the form — the modal's Description is an input, System Prompt a textarea
     await page.getByPlaceholder('e.g., Marathon Training Coach').fill('New Test Coach');
     await page
       .getByPlaceholder("Define your coach's personality, expertise, and communication style...")
       .fill('Test system prompt for the coach');
-    // The tool budget is settable from this surface — the whole point of one editor
     await page.getByLabel('Max tool iterations per turn').fill('25');
 
-    // Submit the form (the modal's submit button, not the header one)
     await page.locator('button[type="submit"]', { hasText: 'Create Coach' }).click();
 
-    await page.waitForTimeout(500);
-    expect(createCalled).toBe(true);
+    await expect.poll(() => createCalled).toBe(true);
     expect(createdBody.title).toBe('New Test Coach');
     expect(createdBody.system_prompt).toBe('Test system prompt for the coach');
     expect(createdBody.max_tool_iterations).toBe(25);
   });
 
-  test('can create coach with Training category and verify icon', async ({ page }) => {
+  test('can create coach with the Training category', async ({ page }) => {
     await setupUserCoachesMocks(page);
 
     let capturedBody: Record<string, unknown> | null = null;
@@ -1196,7 +1193,7 @@ test.describe('User Coaches - Chat Interface', () => {
             title: capturedBody?.title,
             description: capturedBody?.description,
             system_prompt: capturedBody?.system_prompt,
-            category: 'training', // Backend normalizes to lowercase
+            category: 'training',
             is_system: false,
             tags: [],
           }),
@@ -1207,97 +1204,63 @@ test.describe('User Coaches - Chat Interface', () => {
     });
 
     await loginToDashboard(page);
-    await page.waitForSelector('main', { timeout: 10000 });
+    await openYourCoaches(page);
 
-    // Open My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 5000 });
-
-    // Click Create Coach
     await page.getByRole('button', { name: 'Create Coach' }).click();
     await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeVisible();
 
-    // Fill the shared modal's fields
     await page.getByPlaceholder('e.g., Marathon Training Coach').fill('My Training Coach');
     await page
       .getByPlaceholder("Define your coach's personality, expertise, and communication style...")
       .fill('Training system prompt for the coach');
+    await page.getByLabel('Category').selectOption('Training');
 
-    // Select Training category from dropdown
-    const categorySelect = page.locator('select').first();
-    if (await categorySelect.isVisible()) {
-      await categorySelect.selectOption('Training');
-    }
-
-    // Submit (the modal's submit button, not the header one)
     await page.locator('button[type="submit"]', { hasText: 'Create Coach' }).click();
-    await page.waitForTimeout(500);
 
-    // Verify the category was sent correctly
-    expect(capturedBody).not.toBeNull();
-    expect(capturedBody?.category).toBe('Training');
+    await expect.poll(() => capturedBody).not.toBeNull();
+    expect(capturedBody!.category).toBe('Training');
   });
 
-  // Note: 'personalized section appears above system coaches' test removed
-  // CoachLibraryTab only shows user-created coaches; system coaches are in PromptSuggestions
-
-  test('category filter buttons are functional', async ({ page }) => {
+  test('the Discover category chips narrow the store and leave the pinned coaches alone', async ({ page }) => {
     await setupUserCoachesMocks(page);
+
+    const browseCategories: Array<string | null> = [];
+    await page.route('**/api/store/coaches**', async (route) => {
+      browseCategories.push(new URL(route.request().url()).searchParams.get('category'));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          coaches: [],
+          next_cursor: null,
+          has_more: false,
+          metadata: { timestamp: new Date().toISOString(), api_version: 'v1' },
+        }),
+      });
+    });
+
     await loginToDashboard(page);
+    const section = await openYourCoaches(page);
+    const main = page.getByRole('main');
 
-    await page.waitForSelector('main', { timeout: 10000 });
+    await expect(main.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+    await main.getByRole('button', { name: 'Training', exact: true }).click();
+    await expect.poll(() => browseCategories.includes('training')).toBe(true);
+    await expect(section.getByText('My Custom Coach')).toBeVisible();
 
-    // Open My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 5000 });
+    await main.getByRole('button', { name: 'Nutrition', exact: true }).click();
+    await expect.poll(() => browseCategories.includes('nutrition')).toBe(true);
+    await expect(section.getByText('My Custom Coach')).toBeVisible();
 
-    // Wait for coaches to load first
-    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 10000 });
-
-    // Verify filter buttons exist and can be clicked without errors
-    // Use { exact: true } for 'All' to avoid matching 'All Sources'
-    const allFilter = page.getByRole('button', { name: 'All', exact: true });
-    const trainingFilter = page.getByRole('button', { name: /Training/i });
-    const nutritionFilter = page.getByRole('button', { name: /Nutrition/i });
-
-    // Verify All filter is visible (default state)
-    await expect(allFilter).toBeVisible();
-
-    // Click Training filter - should not error
-    if (await trainingFilter.isVisible()) {
-      await trainingFilter.click();
-      await page.waitForTimeout(300);
-      // Filter should now be active (has different styling)
-      await expect(trainingFilter).toBeVisible();
-    }
-
-    // Click Nutrition filter - should not error
-    if (await nutritionFilter.isVisible()) {
-      await nutritionFilter.click();
-      await page.waitForTimeout(300);
-      await expect(nutritionFilter).toBeVisible();
-    }
-
-    // Click All filter to reset - should not error
-    await allFilter.click();
-    await page.waitForTimeout(300);
-
-    // After clicking All, coaches should be visible again
-    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 5000 });
+    await main.getByRole('button', { name: 'All', exact: true }).click();
+    await expect(section.getByText('My Custom Coach')).toBeVisible();
   });
 
   test('displays all category filter buttons with correct names', async ({ page }) => {
     await setupUserCoachesMocks(page);
     await loginToDashboard(page);
+    await openYourCoaches(page);
 
-    await page.waitForSelector('main', { timeout: 10000 });
-
-    // Open My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
-
-    // Verify all 7 category filter buttons plus Favorites are present
-    // Scope to main to avoid matching sidebar/chat tab buttons
     const main = page.getByRole('main');
     await expect(main.getByRole('button', { name: 'All', exact: true })).toBeVisible();
     await expect(main.getByRole('button', { name: 'Training', exact: true })).toBeVisible();
@@ -1306,87 +1269,41 @@ test.describe('User Coaches - Chat Interface', () => {
     await expect(main.getByRole('button', { name: 'Recipes', exact: true })).toBeVisible();
     await expect(main.getByRole('button', { name: 'Mobility', exact: true })).toBeVisible();
     await expect(main.getByRole('button', { name: 'Custom', exact: true })).toBeVisible();
-    await expect(main.getByRole('button', { name: /Favorites/i }).first()).toBeVisible();
   });
 
-  test('displays source filter buttons (All Sources, My Coaches, System)', async ({ page }) => {
+  test('displays the section header controls', async ({ page }) => {
     await setupUserCoachesMocks(page);
     await loginToDashboard(page);
+    await openYourCoaches(page);
 
-    await page.waitForSelector('main', { timeout: 10000 });
-
-    // Open My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
-
-    // Verify source filter buttons
-    await expect(page.getByRole('button', { name: 'All Sources' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'My Coaches' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'System', exact: true })).toBeVisible();
-  });
-
-  test('displays show hidden coaches toggle button', async ({ page }) => {
-    await setupUserCoachesMocks(page);
-    await loginToDashboard(page);
-
-    await page.waitForSelector('main', { timeout: 10000 });
-
-    // Open My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
-
-    // Verify the show hidden coaches toggle button exists
-    await expect(page.getByRole('button', { name: /hidden coaches/i })).toBeVisible();
-  });
-
-  test('displays Create Coach button in user view', async ({ page }) => {
-    await setupUserCoachesMocks(page);
-    await loginToDashboard(page);
-
-    await page.waitForSelector('main', { timeout: 10000 });
-
-    // Open My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
-
-    // Verify Create Coach button is rendered
+    await expect(page.getByRole('button', { name: 'Show hidden coaches' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Import Coach' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create Coach' })).toBeVisible();
   });
 
-  test('displays add to favorites button on each coach card', async ({ page }) => {
+  test('displays a favorite toggle on each coach card', async ({ page }) => {
     await setupUserCoachesMocks(page);
     await loginToDashboard(page);
+    const section = await openYourCoaches(page);
 
-    await page.waitForSelector('main', { timeout: 10000 });
-
-    // Open My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
-
-    // Each coach card has a favorite toggle button with title "Add to favorites" or "Remove from favorites"
-    const favoriteButtons = page.locator('button[title="Add to favorites"], button[title="Remove from favorites"]');
-    await expect(favoriteButtons.first()).toBeVisible();
-    const count = await favoriteButtons.count();
-    expect(count).toBeGreaterThanOrEqual(1);
+    const favoriteButtons = section.locator('button[title="Add to favorites"], button[title="Remove from favorites"]');
+    await expect(favoriteButtons).toHaveCount(mockUserCoaches.length);
   });
 
-  test('can edit user coach and update category', async ({ page }) => {
+  test('can edit a user coach and update its category', async ({ page }) => {
     await setupUserCoachesMocks(page);
 
-    let updateCalled = false;
     let capturedUpdate: Record<string, unknown> | null = null;
     await page.route('**/api/coaches/user-coach-1', async (route) => {
-      if (route.request().method() === 'PUT' || route.request().method() === 'PATCH') {
-        updateCalled = true;
+      if (route.request().method() === 'PUT') {
         capturedUpdate = route.request().postDataJSON();
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            id: 'user-coach-1',
+            ...mockUserCoaches[0],
             title: capturedUpdate?.title ?? 'My Custom Coach',
             category: 'nutrition',
-            is_system: false,
           }),
         });
       } else {
@@ -1395,38 +1312,21 @@ test.describe('User Coaches - Chat Interface', () => {
     });
 
     await loginToDashboard(page);
-    await page.waitForSelector('main', { timeout: 10000 });
+    await openYourCoaches(page);
 
-    // Open My Coaches panel
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Open My Custom Coach' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Edit' }).click();
 
-    // Click on coach card to open detail view, then click edit button
-    await page.getByText('My Custom Coach').click();
-    await page.waitForTimeout(300);
-    await page.getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeVisible();
+    await page.getByLabel('Category').selectOption('Nutrition');
+    await page.getByRole('button', { name: 'Save Changes' }).click();
 
-    // Wait for edit form
-    await page.waitForTimeout(500);
-
-    // Update category if dropdown is visible
-    const categorySelect = page.locator('select').first();
-    if (await categorySelect.isVisible()) {
-      await categorySelect.selectOption('Nutrition');
-    }
-
-    // Save changes
-    const saveButton = page.getByRole('button', { name: /Save|Update/i });
-    if (await saveButton.isVisible()) {
-      await saveButton.click();
-      await page.waitForTimeout(500);
-      expect(updateCalled).toBe(true);
-    }
+    await expect.poll(() => capturedUpdate).not.toBeNull();
+    expect(capturedUpdate!.category).toBe('Nutrition');
   });
 });
 
 // ============================================================================
-// Create Coach from Conversation Tests
 // ============================================================================
 
 const mockConversation = {
@@ -1763,66 +1663,49 @@ test.describe('Create Coach from Conversation', () => {
 });
 
 test.describe('Structured Coach Sections', () => {
-  test('displays structured sections in coach detail view', async ({ page }) => {
+  test('displays structured sections in the coach detail sheet', async ({ page }) => {
     await setupUserCoachesMocks(page);
     await loginToDashboard(page);
+    await openYourCoaches(page);
 
-    await page.waitForSelector('aside', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Open Structured Marathon Coach' }).click();
+    const detail = page.getByRole('dialog');
 
-    // Navigate to Coach Library
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
+    // Structured sections take precedence over the flat "System Prompt".
+    await expect(detail.getByRole('heading', { name: 'Purpose' })).toBeVisible({ timeout: 5000 });
+    await expect(detail.getByText('Expert in marathon preparation and race day strategy.')).toBeVisible();
 
-    // Click on the structured coach
-    await expect(page.getByText('Structured Marathon Coach')).toBeVisible({ timeout: 10000 });
-    await page.getByText('Structured Marathon Coach').click();
-    await page.waitForTimeout(300);
+    await expect(detail.getByRole('heading', { name: 'When to Use' })).toBeVisible();
+    await expect(detail.getByText('Training for your first marathon')).toBeVisible();
 
-    // Should display structured sections instead of flat "System Prompt"
-    await expect(page.getByRole('heading', { name: 'Purpose' })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Expert in marathon preparation and race day strategy.')).toBeVisible();
+    await expect(detail.getByRole('heading', { name: 'Instructions' })).toBeVisible();
+    await expect(detail.getByText('Expert marathon coach instructions here.')).toBeVisible();
 
-    await expect(page.getByRole('heading', { name: 'When to Use' })).toBeVisible();
-    await expect(page.getByText('Training for your first marathon')).toBeVisible();
+    await expect(detail.getByRole('heading', { name: 'Example Inputs' })).toBeVisible();
+    await expect(detail.getByText('How do I build up to a 20-mile long run safely?')).toBeVisible();
 
-    await expect(page.getByRole('heading', { name: 'Instructions' })).toBeVisible();
-    await expect(page.getByText('Expert marathon coach instructions here.')).toBeVisible();
+    await expect(detail.getByRole('heading', { name: 'Example Outputs' })).toBeVisible();
+    await expect(detail.getByText('Provide detailed training progressions')).toBeVisible();
 
-    await expect(page.getByRole('heading', { name: 'Example Inputs' })).toBeVisible();
-    await expect(page.getByText('How do I build up to a 20-mile long run safely?')).toBeVisible();
+    await expect(detail.getByRole('heading', { name: 'Success Criteria' })).toBeVisible();
+    await expect(detail.getByText('Runner has a clear weekly training structure')).toBeVisible();
 
-    await expect(page.getByRole('heading', { name: 'Example Outputs' })).toBeVisible();
-    await expect(page.getByText('Provide detailed training progressions')).toBeVisible();
-
-    await expect(page.getByRole('heading', { name: 'Success Criteria' })).toBeVisible();
-    await expect(page.getByText('Runner has a clear weekly training structure')).toBeVisible();
-
-    // Should NOT show "System Prompt" heading (structured sections take precedence)
-    await expect(page.getByRole('heading', { name: 'System Prompt' })).not.toBeVisible();
+    await expect(detail.getByRole('heading', { name: 'System Prompt' })).toHaveCount(0);
   });
 
-  test('displays flat system prompt when no structured sections available', async ({ page }) => {
+  test('displays the flat system prompt when no structured sections are available', async ({ page }) => {
     await setupUserCoachesMocks(page);
     await loginToDashboard(page);
+    await openYourCoaches(page);
 
-    await page.waitForSelector('aside', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Open My Custom Coach' }).click();
+    const detail = page.getByRole('dialog');
 
-    // Navigate to Coach Library
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
+    await expect(detail.getByRole('heading', { name: 'System Prompt' })).toBeVisible({ timeout: 5000 });
+    await expect(detail.getByText('You are my personal coach.')).toBeVisible();
 
-    // Click on the non-structured coach (My Custom Coach - no structured fields)
-    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 10000 });
-    await page.getByText('My Custom Coach').click();
-    await page.waitForTimeout(300);
-
-    // Should display flat "System Prompt" heading (no structured sections)
-    await expect(page.getByRole('heading', { name: 'System Prompt' })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('You are my personal coach.')).toBeVisible();
-
-    // Should NOT show structured section headings
-    await expect(page.getByRole('heading', { name: 'Purpose' })).not.toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Instructions' })).not.toBeVisible();
+    await expect(detail.getByRole('heading', { name: 'Purpose' })).toHaveCount(0);
+    await expect(detail.getByRole('heading', { name: 'Instructions' })).toHaveCount(0);
   });
 });
 
@@ -1956,75 +1839,106 @@ test.describe('Coach Import and Export', () => {
     });
   }
 
-  test('import button shows dropdown with file and URL options', async ({ page }) => {
+  test('import button shows a menu with file and URL options', async ({ page }) => {
     await setupImportExportMocks(page);
     await loginToDashboard(page);
+    await openYourCoaches(page);
 
-    await page.waitForSelector('aside', { timeout: 10000 });
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Import Coach' }).click();
 
-    // Find and click the Import button
-    await expect(page.getByRole('button', { name: /import/i })).toBeVisible({ timeout: 10000 });
-    await page.getByRole('button', { name: /import/i }).click();
-    await page.waitForTimeout(200);
-
-    // Should show dropdown with both options
-    await expect(page.getByText(/from file/i)).toBeVisible({ timeout: 3000 });
-    await expect(page.getByText(/from url/i)).toBeVisible();
+    const menu = page.getByRole('menu', { name: 'Import a coach' });
+    await expect(menu.getByRole('menuitem', { name: 'Import from File' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Import from URL' })).toBeVisible();
   });
 
   test('export button triggers markdown download', async ({ page }) => {
     await setupImportExportMocks(page);
     await loginToDashboard(page);
+    const section = await openYourCoaches(page);
 
-    await page.waitForSelector('aside', { timeout: 10000 });
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
+    await expect(section.getByText('My Custom Coach')).toBeVisible();
+    const exportButton = section.getByRole('button', { name: 'Export' }).first();
+    await expect(exportButton).toBeVisible();
 
-    // Should see export button on coach cards
-    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 10000 });
-
-    // Look for Export button (may be in action area of coach card)
-    const exportButton = page.getByRole('button', { name: /export/i }).first();
-    await expect(exportButton).toBeVisible({ timeout: 5000 });
-
-    // Set up download handler before clicking
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 5000 }),
       exportButton.click(),
     ]);
 
-    // Verify the download was triggered
     expect(download.suggestedFilename()).toContain('.md');
   });
 
-  test('import from URL shows preview then creates coach', async ({ page }) => {
+  test('import from URL shows a preview then creates the coach', async ({ page }) => {
     await setupImportExportMocks(page);
+
+    let savedUrl: string | null = null;
+    await page.route('**/api/coaches/import/url', async (route) => {
+      const body = route.request().postDataJSON();
+      if (body?.save === false) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            valid: true,
+            parsed: {
+              name: 'url-imported-coach',
+              title: 'URL Imported Coach',
+              category: 'training',
+              tags: ['url'],
+              purpose: 'Imported from URL.',
+              has_instructions: true,
+              has_example_inputs: false,
+              has_example_outputs: false,
+              has_success_criteria: false,
+            },
+            warnings: [],
+            content_hash: 'def456',
+            duplicate_exists: false,
+            token_count: 80,
+          }),
+        });
+      } else {
+        savedUrl = body?.url ?? null;
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            coach: {
+              id: 'url-imported-1',
+              title: 'URL Imported Coach',
+              description: 'Imported from URL.',
+              system_prompt: 'You are a URL imported coach.',
+              category: 'training',
+              tags: ['url'],
+              token_count: 80,
+              is_favorite: false,
+              use_count: 0,
+              is_system: false,
+              visibility: 'private',
+            },
+            parsed_name: 'url-imported-coach',
+            token_count: 80,
+            warnings: [],
+          }),
+        });
+      }
+    });
+
     await loginToDashboard(page);
+    await openYourCoaches(page);
 
-    await page.waitForSelector('aside', { timeout: 10000 });
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Import Coach' }).click();
+    await page.getByRole('menuitem', { name: 'Import from URL' }).click();
 
-    // Open import dropdown and click "From URL"
-    await page.getByRole('button', { name: /import/i }).click();
-    await page.waitForTimeout(200);
-    await page.getByText(/from url/i).click();
-    await page.waitForTimeout(200);
-
-    // URL input dialog should appear
-    const urlInput = page.getByPlaceholder(/url/i).or(page.locator('input[type="url"]')).or(page.locator('input[type="text"]').last());
-    await expect(urlInput).toBeVisible({ timeout: 5000 });
-
-    // Enter a URL and submit
+    const urlInput = page.getByLabel('Coach file URL');
+    await expect(urlInput).toBeVisible();
     await urlInput.fill('https://raw.githubusercontent.com/example/coaches/main/training.md');
+    await page.getByRole('button', { name: 'Preview' }).click();
 
-    // Find and click the submit/import button in the URL dialog
-    const submitButton = page.getByRole('button', { name: /preview|fetch|import/i }).last();
-    await submitButton.click();
-
-    // Preview should show the parsed coach name
+    // The preview names the parsed coach; confirming saves it.
     await expect(page.getByText('URL Imported Coach')).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await expect.poll(() => savedUrl).toBe('https://raw.githubusercontent.com/example/coaches/main/training.md');
   });
 });

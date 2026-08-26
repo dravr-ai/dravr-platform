@@ -33,6 +33,11 @@ use pierre_runtime_context::DataContext;
 /// repository operations fail. The conversation row is mutated in memory
 /// and in the database so the rest of the dispatch path can rely on
 /// `conv.session_id` being set.
+///
+/// The session is the conversation's own coach's, read from `conv.coach_id`:
+/// a `@handle` turn answers as another coach but never attaches that coach's
+/// session to the row, which is what keeps a per-turn mention from leaving a
+/// durable mark on the conversation.
 pub async fn ensure_coach_session_attached(
     data: &DataContext,
     mut conv: ConversationRecord,

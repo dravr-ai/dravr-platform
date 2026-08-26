@@ -36,7 +36,6 @@ vi.mock('@pierre/api-client', () => ({
       linkIntervalsIcu: vi.fn(),
       disconnectIntervalsIcu: vi.fn(),
     },
-    social: { listFriends: vi.fn(), getInsightSuggestions: vi.fn(), shareFromActivity: vi.fn() },
     store: { browse: vi.fn() },
     user: { getStats: vi.fn(), getLlmSettings: vi.fn(), saveLlmCredentials: vi.fn(), validateLlmCredentials: vi.fn(), deleteLlmCredentials: vi.fn() },
     notifications: { getNotifications: vi.fn() },

@@ -28,7 +28,6 @@ export interface NotificationCategoryMeta {
 export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, NotificationCategoryMeta> = {
   training: { label: 'Training', color: '#3c6658', iconName: 'dumbbell' },     // activity pillar
   recovery: { label: 'Recovery', color: '#5e7a82', iconName: 'heart' },        // recovery pillar
-  social: { label: 'Social', color: '#234e40', iconName: 'users' },            // on_primary_fixed_variant
   coach: { label: 'Coach', color: '#00241a', iconName: 'message-circle' },     // primary
   achievement: { label: 'Achievements', color: '#8f6a2e', iconName: 'trophy' }, // nutrition pillar / warm bronze
   system: { label: 'System', color: '#717974', iconName: 'settings' },          // outline
@@ -40,7 +39,6 @@ export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, Notificati
 export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
   'training',
   'recovery',
-  'social',
   'coach',
   'achievement',
   'system',

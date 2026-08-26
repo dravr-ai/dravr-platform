@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Floating expandable tab bar with glassmorphism inspired by Linear
-// ABOUTME: Collapsed pill with icons + "+" button that expands to show labeled menu items
+// ABOUTME: Collapsed pill with icons + "+" button that expands into the tabs and the chat quick actions
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, useWindowDimensions, View } from 'react-native';
@@ -14,29 +14,42 @@ import Animated, {
   withSequence,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useSegments } from 'expo-router';
+import { useGlobalSearchParams, useRouter, useSegments } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import {
-  MessageCircle,
-  Award,
-  Compass,
-  Users,
-  Zap,
-  Settings,
-  Plus,
-  MessageSquarePlus,
-  UserPlus,
-} from 'lucide-react-native';
+import { MessageCircle, Compass, Users, Settings, Plus } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { useThemeColors } from '../../constants/theme';
+import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID } from '../../navigation/routes';
+import { useChatPlusActions, type ChatPlusAction } from '../../screens/chat/useChatPlusActions';
+import { ChatPlusFlows } from '../../screens/chat/ChatPlusFlows';
 import { GlassContainer } from './GlassContainer';
 import { TabMenuItem } from './TabMenuItem';
 
-const TAB_ICONS: LucideIcon[] = [MessageCircle, Award, Compass, Users, Zap, Settings];
-const TAB_LABELS = ['Chat', 'Coaches', 'Discover', 'Groups', 'Insights', 'Settings'];
-const TAB_ROUTES = ['(chat)', '(coaches)', '(discover)', '(groups)', '(social)', '(settings)'] as const;
-const TAB_TEST_IDS = ['tab-chat', 'tab-coaches', 'tab-discover', 'tab-groups', 'tab-insights', 'tab-settings'];
-const TAB_COUNT = TAB_ROUTES.length;
+/** The route group a tab opens. */
+export type TabBarRoute = '(chat)' | '(discover)' | '(groups)' | '(settings)';
+
+/** One tab of the bar: the route group it opens, its label, icon and test id. */
+export interface TabBarTab {
+  route: TabBarRoute;
+  label: string;
+  icon: LucideIcon;
+  testID: string;
+}
+
+/**
+ * The tab set, in order. Chat is first because it is where the app lands.
+ *
+ * This is the only copy. The tabs layout renders one `Tabs.Screen` per entry
+ * here, so the bar and the router cannot list different tabs — the structure
+ * that let a tab be filtered from one list and not the other is gone.
+ */
+export const TAB_BAR_TABS: readonly TabBarTab[] = [
+  { route: '(chat)', label: 'Chat', icon: MessageCircle, testID: 'tab-chat' },
+  { route: '(discover)', label: 'Discover', icon: Compass, testID: 'tab-discover' },
+  { route: '(groups)', label: 'Groups', icon: Users, testID: 'tab-groups' },
+  { route: '(settings)', label: 'Settings', icon: Settings, testID: 'tab-settings' },
+];
+const TAB_COUNT = TAB_BAR_TABS.length;
 
 const ICON_SIZE = 22;
 const COLLAPSED_HEIGHT = 56;
@@ -48,15 +61,10 @@ export const TAB_BAR_BOTTOM_OFFSET = COLLAPSED_HEIGHT + 40;
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-interface QuickAction {
-  icon: LucideIcon;
-  label: string;
-  onPress: () => void;
-}
-
 export function ExpandableTabBar() {
   const insets = useSafeAreaInsets();
   const segments = useSegments();
+  const globalParams = useGlobalSearchParams<{ conversationId?: string }>();
   const router = useRouter();
   const colors = useThemeColors();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -68,11 +76,22 @@ export function ExpandableTabBar() {
   const tabBarScale = useSharedValue(1);
   const activeIndicatorX = useSharedValue(0);
 
-  // useSegments() returns route segments including group names like '(coaches)'
+  // useSegments() returns route segments including group names like '(chat)'
   const activeIndex = useMemo(() => {
-    const idx = TAB_ROUTES.findIndex((route) => segments.includes(route));
+    const idx = TAB_BAR_TABS.findIndex((tab) => segments.includes(tab.route));
     return Math.max(0, idx);
   }, [segments]);
+
+  // The thread the athlete is reading, when the focused route is one. The
+  // "add someone to this discussion" action exists only then — a fresh
+  // composer has no conversation for the participants routes to act on.
+  const openConversationId = useMemo(() => {
+    const inThread = segments.includes('(chat)') && segments.includes('[conversationId]');
+    const id = globalParams.conversationId;
+    return inThread && typeof id === 'string' && id !== NEW_CONVERSATION_ID ? id : null;
+  }, [segments, globalParams.conversationId]);
+
+  const chatPlus = useChatPlusActions(openConversationId);
 
   // Pill width = screen - outer padding (32) - gap (10) - plus button (48)
   const pillWidth = screenWidth - 32 - 10 - PLUS_BUTTON_SIZE;
@@ -128,11 +147,12 @@ export function ExpandableTabBar() {
 
   const handleTabPress = useCallback(
     (index: number) => {
+      const tab = TAB_BAR_TABS[index];
       if (activeIndex !== index) {
-        router.navigate(`/(app)/(tabs)/${TAB_ROUTES[index]}`);
-      } else if (TAB_ROUTES[index] === '(chat)') {
-        // Re-tap ChatTab resets to coach selection — replace forces re-render
-        router.replace({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId: 'new' } });
+        router.navigate(`/(app)/(tabs)/${tab.route}`);
+      } else if (tab.route === '(chat)') {
+        // Re-tapping Chat from inside a thread pops back to the conversation list.
+        router.navigate(CHAT_LIST_ROUTE);
       }
 
       updateIndicatorPosition(index);
@@ -141,32 +161,10 @@ export function ExpandableTabBar() {
     [activeIndex, router, updateIndicatorPosition, collapseIfExpanded],
   );
 
-  const quickActions: QuickAction[] = useMemo(
-    () => [
-      {
-        icon: MessageSquarePlus,
-        label: 'New Chat',
-        onPress: () => {
-          router.replace({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId: 'new' } });
-          updateIndicatorPosition(0);
-        },
-      },
-      {
-        icon: UserPlus,
-        label: 'New Coach',
-        onPress: () => {
-          router.navigate('/(app)/(tabs)/(coaches)/editor');
-          updateIndicatorPosition(1);
-        },
-      },
-    ],
-    [router, updateIndicatorPosition],
-  );
-
   const handleQuickAction = useCallback(
-    (action: QuickAction) => {
-      action.onPress();
+    (action: ChatPlusAction) => {
       collapseIfExpanded();
+      action.onPress();
     },
     [collapseIfExpanded],
   );
@@ -221,15 +219,15 @@ export function ExpandableTabBar() {
           <View style={{ flex: 1, justifyContent: 'space-between' }}>
             {/* Expanded menu items */}
             <Animated.View style={[{ paddingTop: 12, paddingHorizontal: 8 }, expandedContentStyle]}>
-              {TAB_ROUTES.map((route, index) => (
+              {TAB_BAR_TABS.map((tab, index) => (
                 <TabMenuItem
-                  key={route}
-                  icon={TAB_ICONS[index]}
-                  label={TAB_LABELS[index]}
+                  key={tab.route}
+                  icon={tab.icon}
+                  label={tab.label}
                   isActive={activeIndex === index}
                   delay={index * 80}
                   onPress={() => handleTabPress(index)}
-                  testID={`tab-menu-item-${route}`}
+                  testID={`tab-menu-item-${tab.route}`}
                 />
               ))}
 
@@ -243,17 +241,17 @@ export function ExpandableTabBar() {
                 }}
               />
 
-              {/* Quick actions */}
-              {quickActions.map((action, index) => (
+              {/* Chat quick actions — the same set the chat screens' "+" offers */}
+              {chatPlus.actions.map((action, index) => (
                 <TabMenuItem
-                  key={action.label}
+                  key={action.id}
                   icon={action.icon}
                   label={action.label}
                   isActive={false}
                   isQuickAction
                   delay={(TAB_COUNT + index) * 80}
                   onPress={() => handleQuickAction(action)}
-                  testID={`quick-action-${action.label.toLowerCase().replace(' ', '-')}`}
+                  testID={`quick-action-${action.id}`}
                 />
               ))}
             </Animated.View>
@@ -271,17 +269,17 @@ export function ExpandableTabBar() {
                 collapsedIconsStyle,
               ]}
             >
-              {TAB_ROUTES.map((route, index) => {
+              {TAB_BAR_TABS.map((tab, index) => {
                 const isFocused = activeIndex === index;
-                const IconComponent = TAB_ICONS[index];
+                const IconComponent = tab.icon;
                 const iconColor = isFocused ? colors.pierre.violet : colors.text.secondary;
 
                 return (
                   <Pressable
-                    key={route}
+                    key={tab.route}
                     accessibilityRole="button"
                     accessibilityState={isFocused ? { selected: true } : {}}
-                    accessibilityLabel={TAB_LABELS[index]}
+                    accessibilityLabel={tab.label}
                     onPress={() => handleTabPress(index)}
                     style={{
                       flex: 1,
@@ -289,7 +287,7 @@ export function ExpandableTabBar() {
                       justifyContent: 'center',
                       height: COLLAPSED_HEIGHT,
                     }}
-                    testID={TAB_TEST_IDS[index]}
+                    testID={tab.testID}
                   >
                     <IconComponent size={ICON_SIZE} color={iconColor} />
                   </Pressable>
@@ -341,6 +339,8 @@ export function ExpandableTabBar() {
           </Animated.View>
         </AnimatedPressable>
       </GlassContainer>
+
+      <ChatPlusFlows flows={chatPlus.flows} />
     </View>
   );
 }

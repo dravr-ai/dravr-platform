@@ -129,25 +129,6 @@ export type ActivityPillar =
   | 'community_and_connection'
   | 'recovery_optimisation';
 
-/** A category of prompt suggestions */
-export interface PromptCategory {
-  category_key: string;
-  category_title: string;
-  category_icon: string;
-  pillar: ActivityPillar;
-  prompts: string[];
-}
-
-/** Response for prompt suggestions */
-export interface PromptSuggestionsResponse {
-  categories: PromptCategory[];
-  welcome_prompt: string;
-  metadata: {
-    timestamp: string;
-    api_version: string;
-  };
-}
-
 // ========== COMMON RESPONSE TYPES ==========
 
 /** Standard API metadata */

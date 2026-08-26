@@ -58,8 +58,6 @@ export type {
   CoachesApi,
   Coach,
   ListCoachesOptions,
-  PromptSuggestion,
-  PromptSuggestionsResponse,
   ForkCoachResponse,
 } from './domains/coaches';
 
@@ -70,17 +68,6 @@ export type {
   OAuthStatusResponse,
   MobileOAuthInitResponse,
 } from './domains/oauth';
-
-export { createSocialApi } from './domains/social';
-export type {
-  SocialApi,
-  FriendsResponse,
-  FriendRequestsResponse,
-  FeedResponse,
-  InsightsResponse,
-  ShareInsightRequest,
-  UserSearchResponse,
-} from './domains/social';
 
 export { createStoreApi } from './domains/store';
 export type { StoreApi, BrowseOptions } from './domains/store';
@@ -170,7 +157,6 @@ import { createAuthApi } from './domains/auth';
 import { createChatApi } from './domains/chat';
 import { createCoachesApi } from './domains/coaches';
 import { createOAuthApi } from './domains/oauth';
-import { createSocialApi } from './domains/social';
 import { createStoreApi } from './domains/store';
 import { createUserApi } from './domains/user';
 import { createMessagingApi } from './domains/messaging';
@@ -191,8 +177,6 @@ export interface PierreApiService {
   coaches: ReturnType<typeof createCoachesApi>;
   /** OAuth API */
   oauth: ReturnType<typeof createOAuthApi>;
-  /** Social API */
-  social: ReturnType<typeof createSocialApi>;
   /** Store API */
   store: ReturnType<typeof createStoreApi>;
   /** User API */
@@ -231,7 +215,6 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     chat: createChatApi(axios, adapter),
     coaches: createCoachesApi(axios),
     oauth: createOAuthApi(axios),
-    social: createSocialApi(axios),
     store: createStoreApi(axios),
     user: createUserApi(axios),
     messaging: createMessagingApi(axios),

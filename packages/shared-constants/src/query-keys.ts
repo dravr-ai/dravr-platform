@@ -135,7 +135,6 @@ export const QUERY_KEYS = {
   adminSettings: {
     all: ['admin-settings'] as const,
     autoApproval: () => ['auto-approval-setting'] as const,
-    socialInsightsConfig: () => ['social-insights-config'] as const,
   },
 
   // ==================== ADMIN - TOOLS ====================
@@ -181,16 +180,6 @@ export const QUERY_KEYS = {
   llmSettings: {
     all: ['llm-settings'] as const,
     list: () => ['llm-settings'] as const,
-  },
-
-  // ==================== SOCIAL ====================
-  social: {
-    all: ['social'] as const,
-    feed: () => ['social-feed'] as const,
-    friends: () => ['social-friends'] as const,
-    friendRequests: () => ['social-friend-requests'] as const,
-    settings: () => ['social-settings'] as const,
-    adapted: () => ['social-adapted'] as const,
   },
 
   // ==================== NOTIFICATIONS ====================

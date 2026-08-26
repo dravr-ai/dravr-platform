@@ -8,20 +8,20 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
-import Toast from 'react-native-toast-message';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog } from '../../components/ui';
-import { SharePreviewModal } from '../../components/social';
-import { socialApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { trustedActionUrl } from '@pierre/chat-utils';
 import type { ChatMessageAction } from '@pierre/shared-types';
-import type { ShareVisibility, Coach } from '../../types';
+import type { Coach } from '../../types';
 
 import { ChatHeader } from './ChatHeader';
-import { ConversationParticipantsModal } from './ConversationParticipantsModal';
+import { ChatPlusSheet } from './ChatPlusSheet';
+import { ChatPlusFlows } from './ChatPlusFlows';
+import { useChatPlusActions } from './useChatPlusActions';
+import { CHAT_LIST_ROUTE } from '../../navigation/routes';
 import { ChatInputBar } from './ChatInputBar';
 import { ChatProgressStrip } from './ChatProgressStrip';
 import { MessageList } from './MessageList';
@@ -50,10 +50,7 @@ export function ChatScreen() {
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
   const [renameDefaultTitle, setRenameDefaultTitle] = useState('');
-  const [participantsVisible, setParticipantsVisible] = useState(false);
-  const [shareToFeedContent, setShareToFeedContent] = useState<string | null>(null);
-  const [shareToFeedVisibility, setShareToFeedVisibility] = useState<ShareVisibility>('friends_only');
-  const [isSharing, setIsSharing] = useState(false);
+  const [plusVisible, setPlusVisible] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
   const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
@@ -64,6 +61,19 @@ export function ChatScreen() {
   const providerStatus = useProviderStatus();
   const coachSelection = useCoachSelection();
   const usageStatus = useUsageStatus();
+  // The "+" and the title menu's "Participants" share one flow state, so
+  // "add someone to this discussion" and "Participants" open the same sheet.
+  const chatPlus = useChatPlusActions(conversations.currentConversation?.id ?? null);
+
+  // The thread is pushed over the conversation list; a deep link or a cold
+  // start can land here with nothing beneath, so fall back to the list.
+  const goBackToList = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace(CHAT_LIST_ROUTE);
+    }
+  }, [router]);
 
   // Voice input with chat-specific error handling
   const voiceInput = useChatVoiceInput(
@@ -238,20 +248,6 @@ export function ChatScreen() {
     [handleOpenUrl, handleSendMessage],
   );
 
-  // Insight creation
-  const handleCreateInsight = useCallback(async (content: string) => {
-    await messagesHook.createInsight(
-      content,
-      conversations.currentConversation?.id,
-      async () => {
-        const newConversation = await conversations.createConversation({
-          title: 'Insight Generation',
-        });
-        return newConversation?.id || null;
-      }
-    );
-  }, [messagesHook, conversations]);
-
   // Retry message
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!conversations.currentConversation?.id) return;
@@ -357,62 +353,6 @@ export function ChatScreen() {
     coachSelection.clearPendingCoachAction();
   }, [providerStatus, coachSelection]);
 
-  // Share to feed
-  const handleShareToFeed = useCallback((content: string) => {
-    setShareToFeedContent(content);
-  }, []);
-
-  const handleShareToFeedSubmit = useCallback(async () => {
-    if (!shareToFeedContent) return;
-
-    setIsSharing(true);
-    try {
-      await socialApi.shareFromActivity({
-        content: shareToFeedContent,
-        insight_type: 'coaching_insight',
-        visibility: shareToFeedVisibility,
-      });
-      Toast.show({
-        type: 'success',
-        text1: 'Shared to Social Feed',
-        text2: 'Your insight has been posted',
-      });
-      setShareToFeedContent(null);
-      setShareToFeedVisibility('friends_only');
-      router.push('/(app)/(tabs)/(social)');
-    } catch (error) {
-      console.error('Failed to share to feed:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Share Failed',
-        text2: 'Could not share to social feed',
-      });
-    } finally {
-      setIsSharing(false);
-    }
-  }, [shareToFeedContent, shareToFeedVisibility, router]);
-
-  const handleEditShare = useCallback(() => {
-    if (!shareToFeedContent) return;
-    const contentToEdit = shareToFeedContent;
-    const visibilityToEdit = shareToFeedVisibility;
-    setShareToFeedContent(null);
-    setShareToFeedVisibility('friends_only');
-    router.push({
-      pathname: '/(app)/(tabs)/(social)/share-insight',
-      params: {
-        content: contentToEdit,
-        insightType: 'coaching_insight',
-        visibility: visibilityToEdit,
-      },
-    });
-  }, [shareToFeedContent, shareToFeedVisibility, router]);
-
-  const handleCloseShareModal = useCallback(() => {
-    setShareToFeedContent(null);
-    setShareToFeedVisibility('friends_only');
-  }, []);
-
   // Header menu handlers
   const showTitleActionMenu = useCallback(() => {
     if (!conversations.currentConversation) return;
@@ -432,9 +372,9 @@ export function ChatScreen() {
   const handleMenuParticipants = useCallback(() => {
     setActionMenuVisible(false);
     if (conversations.currentConversation) {
-      setParticipantsVisible(true);
+      chatPlus.flows.openParticipants();
     }
-  }, [conversations.currentConversation]);
+  }, [conversations.currentConversation, chatPlus.flows]);
 
   const handleMenuDelete = useCallback(() => {
     setActionMenuVisible(false);
@@ -448,11 +388,15 @@ export function ChatScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => conversations.deleteConversation(conversations.currentConversation!.id),
+          onPress: async () => {
+            await conversations.deleteConversation(conversations.currentConversation!.id);
+            // The thread is gone; the list is where the athlete goes next.
+            goBackToList();
+          },
         },
       ]
     );
-  }, [conversations]);
+  }, [conversations, goBackToList]);
 
   const handleRenameSubmit = useCallback(async (newTitle: string) => {
     setRenamePromptVisible(false);
@@ -479,7 +423,8 @@ export function ChatScreen() {
           currentConversation={conversations.currentConversation}
           actionMenuVisible={actionMenuVisible}
           insetTop={insets.top}
-          onHistoryPress={() => router.push('/(app)/(tabs)/(chat)/conversations')}
+          onBackPress={goBackToList}
+          onPlusPress={() => setPlusVisible(true)}
           onTitlePress={showTitleActionMenu}
           onMenuClose={() => setActionMenuVisible(false)}
           onMenuRename={handleMenuRename}
@@ -487,11 +432,12 @@ export function ChatScreen() {
           onMenuDelete={handleMenuDelete}
         />
 
-        <ConversationParticipantsModal
-          visible={participantsVisible}
-          conversationId={conversations.currentConversation?.id ?? null}
-          onClose={() => setParticipantsVisible(false)}
+        <ChatPlusSheet
+          visible={plusVisible}
+          onClose={() => setPlusVisible(false)}
+          actions={chatPlus.actions}
         />
+        <ChatPlusFlows flows={chatPlus.flows} />
 
         <MessageList
           messages={messagesHook.messages}
@@ -501,14 +447,11 @@ export function ChatScreen() {
           isCoachConversation={isCoachConversation}
           messageFeedback={messagesHook.messageFeedback}
           messageFeedbackComment={messagesHook.messageFeedbackComment}
-          insightMessages={messagesHook.insightMessages}
           messageBlocks={messagesHook.messageBlocks}
           verdicts={messagesHook.verdicts}
           flatListRef={messagesHook.flatListRef}
           onScrollToBottom={messagesHook.scrollToBottom}
           onCoachSelect={handleCoachSelect}
-          onCreateInsight={handleCreateInsight}
-          onShareToFeed={handleShareToFeed}
           onThumbsUp={handleThumbsUp}
           onThumbsDown={handleThumbsDown}
           onSubmitFeedbackReason={handleSubmitFeedbackReason}
@@ -604,16 +547,6 @@ export function ChatScreen() {
           testID="rename-conversation-dialog"
         />
 
-        <SharePreviewModal
-          visible={shareToFeedContent !== null}
-          content={shareToFeedContent || ''}
-          visibility={shareToFeedVisibility}
-          isSharing={isSharing}
-          onVisibilityChange={setShareToFeedVisibility}
-          onShare={handleShareToFeedSubmit}
-          onEdit={handleEditShare}
-          onClose={handleCloseShareModal}
-        />
       </View>
     </View>
   );

@@ -14,10 +14,9 @@ use uuid::Uuid;
 
 use crate::seed_models::SeedCoachTranslation;
 use crate::seed_models::{
-    SeedA2AClient, SeedA2AUsage, SeedAdaptedInsight, SeedApiKey, SeedApiKeyUsage, SeedCoach,
-    SeedCoachAuthor, SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction,
-    SeedLlmUsageRecord, SeedProviderConnection, SeedSharedInsight, SeedSocialSettings,
-    SeedStoreListing, SeedSyntheticActivity, SeedTenant,
+    SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedCoach, SeedCoachAuthor,
+    SeedCoachRelation, SeedDemoUser, SeedLlmUsageRecord, SeedProviderConnection, SeedStoreListing,
+    SeedSyntheticActivity, SeedTenant,
 };
 
 /// Tables that seeders are allowed to reset (prevent arbitrary table access)
@@ -37,16 +36,6 @@ pub enum SeedTable {
     A2AUsage,
     /// `synthetic_activities` table
     SyntheticActivities,
-    /// `friend_connections` table
-    FriendConnections,
-    /// `user_social_settings` table
-    UserSocialSettings,
-    /// `shared_insights` table
-    SharedInsights,
-    /// `insight_reactions` table
-    InsightReactions,
-    /// `adapted_insights` table
-    AdaptedInsights,
     /// `stretching_exercises` table
     StretchingExercises,
     /// `yoga_poses` table
@@ -67,11 +56,6 @@ impl SeedTable {
             Self::ApiKeyUsage => "api_key_usage",
             Self::A2AUsage => "a2a_usage",
             Self::SyntheticActivities => "synthetic_activities",
-            Self::FriendConnections => "friend_connections",
-            Self::UserSocialSettings => "user_social_settings",
-            Self::SharedInsights => "shared_insights",
-            Self::InsightReactions => "insight_reactions",
-            Self::AdaptedInsights => "adapted_insights",
             Self::StretchingExercises => "stretching_exercises",
             Self::YogaPoses => "yoga_poses",
             Self::ActivityMuscleMapping => "activity_muscle_mapping",
@@ -145,48 +129,6 @@ pub trait SeederRepository: Send + Sync {
     /// Upsert a provider connection (insert or update on conflict)
     async fn seed_upsert_provider_connection(&self, conn: &SeedProviderConnection)
         -> AppResult<()>;
-
-    // ---- Social data seeder ----
-
-    /// Reset all social data tables (deletes in foreign key order)
-    async fn seed_reset_social_data(&self) -> AppResult<()>;
-
-    /// Insert social settings for a user if not already present, returns true if inserted
-    async fn seed_upsert_social_settings(&self, settings: &SeedSocialSettings) -> AppResult<bool>;
-
-    /// Insert a friend connection if one doesn't already exist between the users
-    async fn seed_insert_friend_connection_if_absent(
-        &self,
-        conn: &SeedFriendConnection,
-    ) -> AppResult<bool>;
-
-    /// Insert a shared insight record
-    async fn seed_insert_shared_insight(&self, insight: &SeedSharedInsight) -> AppResult<()>;
-
-    /// Get all shared insight IDs
-    async fn seed_get_shared_insight_ids(&self) -> AppResult<Vec<Uuid>>;
-
-    /// Insert a reaction if one doesn't already exist for this user+insight
-    async fn seed_insert_reaction_if_absent(
-        &self,
-        reaction: &SeedInsightReaction,
-    ) -> AppResult<bool>;
-
-    /// Get shared insights with their author IDs: `Vec<(insight_id, author_user_id)>`
-    async fn seed_get_shared_insights_with_authors(&self) -> AppResult<Vec<(Uuid, Uuid)>>;
-
-    /// Insert an adapted insight if one doesn't already exist for this user+source
-    async fn seed_insert_adapted_insight_if_absent(
-        &self,
-        adapted: &SeedAdaptedInsight,
-    ) -> AppResult<bool>;
-
-    /// Get shared insight IDs not authored by the given user (limited)
-    async fn seed_get_shared_insights_not_by_user(
-        &self,
-        user_id: Uuid,
-        limit: i64,
-    ) -> AppResult<Vec<Uuid>>;
 
     // ---- Demo data seeder ----
 

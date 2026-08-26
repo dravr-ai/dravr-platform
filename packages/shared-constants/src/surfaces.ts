@@ -81,14 +81,6 @@ export const USER_SURFACES: readonly UserSurface[] = [
     blocks: CHAT_BLOCKS,
   },
   {
-    id: 'coaches',
-    label: 'Coaches',
-    web: 'my-coaches',
-    mobile: '/(app)/(tabs)/(coaches)',
-    webNav: 'Coaches',
-    blocks: NO_BLOCKS,
-  },
-  {
     id: 'discover',
     label: 'Discover',
     web: 'discover',
@@ -102,14 +94,6 @@ export const USER_SURFACES: readonly UserSurface[] = [
     web: 'groups',
     mobile: '/(app)/(tabs)/(groups)',
     webNav: 'Groups',
-    blocks: NO_BLOCKS,
-  },
-  {
-    id: 'insights',
-    label: 'Insights',
-    web: 'insights',
-    mobile: '/(app)/(tabs)/(social)',
-    webNav: 'Insights',
     blocks: NO_BLOCKS,
   },
   {

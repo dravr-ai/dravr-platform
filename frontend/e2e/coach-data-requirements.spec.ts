@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Playwright E2E tests for coach data requirements (startup_query + data_requirements)
-// ABOUTME: Tests create flow with structured pre-fetch configuration on the Coaches library tab
+// ABOUTME: Tests create flow with structured pre-fetch configuration from Discover's pinned coaches
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
@@ -125,7 +125,7 @@ test.describe('Coach Data Requirements', () => {
   test('create form shows Data Context section with startup query and pre-fetch toggle', async ({ page }) => {
     await setupCoachMocks(page);
     await loginToDashboard(page);
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Discover');
     await page.waitForTimeout(500);
 
     // Click Create Coach button
@@ -147,7 +147,7 @@ test.describe('Coach Data Requirements', () => {
   test('pre-fetch toggle reveals activity count, time frame, sport types, and mode fields', async ({ page }) => {
     await setupCoachMocks(page);
     await loginToDashboard(page);
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Discover');
     await page.waitForTimeout(500);
 
     const createBtn = page.getByRole('button', { name: /Create Coach/i });
@@ -173,7 +173,7 @@ test.describe('Coach Data Requirements', () => {
   test('creating coach with data_requirements sends correct API payload', async ({ page }) => {
     const capturedRequests = await setupCoachMocks(page);
     await loginToDashboard(page);
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Discover');
     await page.waitForTimeout(500);
 
     const createBtn = page.getByRole('button', { name: /Create Coach/i });
@@ -227,7 +227,7 @@ test.describe('Coach Data Requirements', () => {
   test('creating coach without pre-fetch sends no data_requirements', async ({ page }) => {
     const capturedRequests = await setupCoachMocks(page);
     await loginToDashboard(page);
-    await navigateToTab(page, 'Coaches');
+    await navigateToTab(page, 'Discover');
     await page.waitForTimeout(500);
 
     const createBtn = page.getByRole('button', { name: /Create Coach/i });

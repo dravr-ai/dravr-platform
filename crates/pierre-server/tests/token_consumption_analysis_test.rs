@@ -11,8 +11,7 @@
 use pierre_formatters::{format_output, OutputFormat, TokenEfficiencyMetrics};
 use pierre_llm::pricing::calculate_cost;
 use pierre_llm::prompts::{
-    COACH_GENERATION_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
-    PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
+    COACH_GENERATION_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
 };
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
@@ -270,8 +269,6 @@ mod axis2_prompt_sizes {
         let prompts: &[(&str, &str)] = &[
             ("PIERRE_SYSTEM_PROMPT", assembled.as_str()),
             ("COACH_GENERATION_PROMPT", COACH_GENERATION_PROMPT),
-            ("INSIGHT_VALIDATION_PROMPT", INSIGHT_VALIDATION_PROMPT),
-            ("INSIGHT_GENERATION_PROMPT", INSIGHT_GENERATION_PROMPT),
         ];
 
         println!("\n=== AXIS 2: Static Prompt Token Sizes (DRAVR-420) ===");
@@ -461,17 +458,9 @@ mod axis2_cost_projections {
         }
 
         // Single operation costs
-        let insight_tokens = TokenEfficiencyMetrics::estimate_tokens(INSIGHT_GENERATION_PROMPT);
         let coach_tokens = TokenEfficiencyMetrics::estimate_tokens(COACH_GENERATION_PROMPT);
-        let insight_output: usize = 500;
         let coach_output: usize = 800;
 
-        let insight_cost = calculate_cost(
-            "gemini",
-            "gemini-flash-lite-latest",
-            insight_tokens as i64,
-            insight_output as i64,
-        );
         let coach_cost = calculate_cost(
             "gemini",
             "gemini-flash-lite-latest",
@@ -481,7 +470,6 @@ mod axis2_cost_projections {
 
         println!();
         println!("Single operation costs (gemini-flash-lite-latest):");
-        println!("  Insight generation: {insight_tokens} input tokens + {insight_output} output → ${insight_cost:.6}");
         println!("  Coach generation:   {coach_tokens} input tokens + {coach_output} output → ${coach_cost:.6}");
     }
 

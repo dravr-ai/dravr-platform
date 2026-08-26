@@ -1,14 +1,6 @@
 // ABOUTME: Main entry point for @pierre/chat-utils package
 // ABOUTME: Re-exports all chat utility functions for convenient importing
 
-// Insight detection and generation utilities
-export {
-  INSIGHT_PROMPT_PREFIX,
-  isInsightPrompt,
-  detectInsightMessages,
-  createInsightPrompt,
-} from './insight';
-
 // The trusted-domain gate a `url` reply action passes before a client opens it
 export { trustedActionUrl } from './action-url';
 

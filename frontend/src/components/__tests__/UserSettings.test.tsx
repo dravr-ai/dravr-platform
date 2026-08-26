@@ -102,8 +102,8 @@ const disconnectProvider = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../services/api', () => ({
   userApi: {
     updateTheme: vi.fn().mockResolvedValue(undefined),
-    getUserStats: vi.fn().mockResolvedValue({ connected_providers: 2, days_active: 45 }),
-    getUserOAuthApps: vi.fn().mockResolvedValue({ apps: [] }),
+    getStats: vi.fn().mockResolvedValue({ connected_providers: 2, days_active: 45 }),
+    getOAuthApps: vi.fn().mockResolvedValue({ apps: [] }),
     getMcpTokens: vi.fn().mockResolvedValue({ tokens: [] }),
     changePassword: vi.fn().mockResolvedValue({ message: 'Password changed successfully' }),
     updateProfile: vi.fn().mockResolvedValue({

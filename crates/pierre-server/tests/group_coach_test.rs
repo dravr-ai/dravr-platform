@@ -26,7 +26,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
-use pierre_routes_social::GroupRoutes;
+use pierre_routes_groups::GroupRoutes;
 
 use axum::http::StatusCode;
 use serde_json::{json, Value};

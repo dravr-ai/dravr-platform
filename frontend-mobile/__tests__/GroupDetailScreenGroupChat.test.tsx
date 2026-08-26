@@ -163,7 +163,7 @@ describe('GroupDetailScreen group chat and insights', () => {
     });
     await waitFor(() => {
       expect(mockRouter.push).toHaveBeenCalledWith({
-        pathname: '/(app)/(tabs)/(chat)',
+        pathname: '/(app)/(tabs)/(chat)/[conversationId]',
         params: { conversationId: 'conv-9' },
       });
     });

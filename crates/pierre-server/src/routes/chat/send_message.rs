@@ -43,11 +43,9 @@ use pierre_notifications::triggers as notification_triggers;
 
 use super::common::get_tenant_id;
 use super::dto::{MessageResponse, SendMessageRequest};
-use super::send_insight::{send_insight_message, SendInsightInputs};
 use super::turn_response::{
     platform_blocks, AssistantResponse, TurnResponse, TurnTelemetryResponse,
 };
-use super::INSIGHT_PROMPT_PREFIX;
 use pierre_middleware::AuthenticatedUser;
 
 /// HTTP header carrying the client surface identifier.
@@ -118,7 +116,6 @@ const fn channel_type_for(surface: pipeline::SurfaceId) -> &'static str {
         turn_id = field::Empty,
         content_len = request.content.len(),
         is_command = request.content.trim_start().starts_with('/'),
-        is_insight = request.content.starts_with(INSIGHT_PROMPT_PREFIX),
     )
 )]
 pub async fn send_message(
@@ -273,7 +270,6 @@ impl TurnEgress {
             // No channel link on this surface, so nothing for `/logout` to
             // unlink.
             sender_id: None,
-            self_served_prefix: Some(INSIGHT_PROMPT_PREFIX),
             hooks,
         }
     }
@@ -303,18 +299,6 @@ impl TurnEgress {
             }
             ServedTurn::Command { command, quota } => {
                 self.command_response(*command, &quota, request).await
-            }
-            ServedTurn::CallerServed { quota } => {
-                send_insight_message(SendInsightInputs {
-                    resources: self.resources,
-                    conversation_id: self.conversation_id,
-                    user_id_str: self.user_id_str,
-                    tenant_id: self.tenant_id,
-                    user_id: self.user_id,
-                    request: request.clone(),
-                    usage_warning: quota,
-                })
-                .await
             }
         }
     }

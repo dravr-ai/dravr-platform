@@ -223,11 +223,13 @@ pub(crate) async fn post_process_assistant_reply(
     // legitimate refusal reproduces prompt shingles by construction and
     // blocking on them would eat every refusal.
     let locale = profile.locale.as_str();
+    // Keyed on the coach that answered this turn, the same salt the canary was
+    // minted with in prompt assembly.
     let leak_report = prompt_leak::scan_assistant_reply(
         prompt_guard,
         &raw_content,
         input.conversation_tenant_id,
-        conv.coach_id.as_deref(),
+        input.turn_coach_id(conv),
     );
     if leak_report.canary_hit {
         return PostProcessedReply {

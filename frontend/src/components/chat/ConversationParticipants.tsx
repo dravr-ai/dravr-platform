@@ -14,6 +14,12 @@ import type { ConversationParticipant } from '@pierre/shared-types';
 
 interface ConversationParticipantsProps {
   conversationId: string;
+  /**
+   * Controlled open state. The chat "+" menu opens this control from outside
+   * ("Add someone to this discussion"); left undefined, the toggle owns it.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function participantLabel(p: ConversationParticipant): string {
@@ -27,11 +33,20 @@ function participantLabel(p: ConversationParticipant): string {
  * (a non-member of the tenant is 403, the owner cannot be removed) and are
  * surfaced as toasts rather than guessed at client-side.
  */
-export default function ConversationParticipants({ conversationId }: ConversationParticipantsProps) {
+export default function ConversationParticipants({
+  conversationId,
+  open: controlledOpen,
+  onOpenChange,
+}: ConversationParticipantsProps) {
   const queryClient = useQueryClient();
   const errorToast = useErrorToast();
   const successToast = useSuccessToast();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    onOpenChange?.(next);
+    if (controlledOpen === undefined) setUncontrolledOpen(next);
+  };
   const [newUserId, setNewUserId] = useState('');
 
   const { data: participants = [], isLoading } = useQuery({
@@ -76,7 +91,7 @@ export default function ConversationParticipants({ conversationId }: Conversatio
     <div className="relative flex-shrink-0">
       <button
         type="button"
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low rounded-lg transition-colors"
         title="Participants"

@@ -30,7 +30,7 @@ use pierre_commands as commands;
 use pierre_commands::{
     account::LogoutHandler,
     calibration::CalibrateHandler,
-    coach::{CoachAssignHandler, CoachListHandler, CoachSelectHandler},
+    coach::{CoachAssignHandler, CoachInviteHandler, CoachListHandler, CoachSelectHandler},
     group::{
         GroupCoachHandler, GroupConsentHandler, GroupInviteHandler, GroupLeaveHandler,
         GroupListHandler, GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
@@ -583,6 +583,7 @@ impl ServerContext {
             ("coach", Arc::new(CoachListHandler)),
             ("coach-select", Arc::new(CoachSelectHandler)),
             ("coach-assign", Arc::new(CoachAssignHandler)),
+            ("coach-invite", Arc::new(CoachInviteHandler)),
             ("privacy", Arc::new(PrivacyStatusHandler)),
             ("privacy-on", Arc::new(PrivacyOnHandler)),
             ("privacy-off", Arc::new(PrivacyOffHandler)),

@@ -24,6 +24,6 @@ const webAdapter = createWebAdapter({
 });
 export const pierreApi: PierreApiService = createPierreApi(webAdapter);
 
-// Export pierreApi's axios instance for web-only domain modules (admin, keys, dashboard, a2a, oauth, social).
+// Export pierreApi's axios instance for web-only domain modules (admin, keys, dashboard, a2a, oauth).
 // This instance has CSRF token and 401 interceptors configured by @pierre/api-client.
 export const axios = pierreApi.axios;

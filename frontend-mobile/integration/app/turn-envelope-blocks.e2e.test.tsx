@@ -35,13 +35,10 @@ function renderList(messages: Message[], messageBlocks: Record<string, ReplyBloc
       isCoachConversation
       messageFeedback={{}}
       messageFeedbackComment={{}}
-      insightMessages={new Set()}
       messageBlocks={messageBlocks}
       flatListRef={React.createRef()}
       onScrollToBottom={jest.fn()}
       onCoachSelect={jest.fn()}
-      onCreateInsight={jest.fn()}
-      onShareToFeed={jest.fn()}
       onThumbsUp={jest.fn()}
       onThumbsDown={jest.fn()}
       onSubmitFeedbackReason={jest.fn()}
@@ -254,13 +251,10 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
         isCoachConversation
         messageFeedback={{}}
         messageFeedbackComment={{}}
-        insightMessages={new Set()}
         messageBlocks={result.current.messageBlocks}
         flatListRef={React.createRef()}
         onScrollToBottom={jest.fn()}
         onCoachSelect={jest.fn()}
-        onCreateInsight={jest.fn()}
-        onShareToFeed={jest.fn()}
         onThumbsUp={jest.fn()}
         onThumbsDown={jest.fn()}
         onSubmitFeedbackReason={jest.fn()}
@@ -322,14 +316,11 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
         isCoachConversation
         messageFeedback={{}}
         messageFeedbackComment={{}}
-        insightMessages={new Set()}
         messageBlocks={result.current.messageBlocks}
         verdicts={result.current.verdicts}
         flatListRef={React.createRef()}
         onScrollToBottom={jest.fn()}
         onCoachSelect={jest.fn()}
-        onCreateInsight={jest.fn()}
-        onShareToFeed={jest.fn()}
         onThumbsUp={jest.fn()}
         onThumbsDown={jest.fn()}
         onSubmitFeedbackReason={jest.fn()}

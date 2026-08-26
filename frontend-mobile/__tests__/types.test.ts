@@ -7,7 +7,6 @@ import type {
   Message,
   ProviderStatus,
   McpToken,
-  PromptCategory,
 } from '../src/types';
 
 describe('Type Definitions', () => {
@@ -85,19 +84,6 @@ describe('Type Definitions', () => {
         last_sync: '2024-01-01T00:00:00Z',
       };
       expect(status.connected).toBe(true);
-    });
-  });
-
-  describe('PromptCategory type', () => {
-    it('should have category and prompts', () => {
-      const category: PromptCategory = {
-        category_key: 'training',
-        category_title: 'Training',
-        category_icon: '🏃',
-        pillar: 'training_and_movement',
-        prompts: ['What is my fitness level?'],
-      };
-      expect(category.prompts).toHaveLength(1);
     });
   });
 });

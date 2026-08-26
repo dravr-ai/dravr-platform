@@ -295,7 +295,7 @@ test.describe('Dashboard User Profile', () => {
     await setupFullDashboardMocks(page, { isAdmin: false });
     await loginAndGoToDashboard(page);
 
-    // Non-admin users see sidebar with tabs (Chat, Friends, etc.) and gear icon for Settings
+    // Non-admin users see the sidebar with athlete tabs (Chat, Discover, Groups) and the gear icon for Settings
     await page.waitForSelector('aside', { timeout: 10000 });
     // Non-admin users see the gear icon (Settings) in bottom profile bar
     await expect(page.getByRole('button', { name: 'Settings', exact: true }).first()).toBeVisible();

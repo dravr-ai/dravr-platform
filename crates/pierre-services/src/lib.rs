@@ -21,7 +21,7 @@
 
 /// Admin operations: user lifecycle, token management, settings, and analytics
 pub mod admin_ops;
-/// System-wide operator settings — auto-approval and social insights
+/// System-wide operator settings — auto-approval and its env shadow
 pub mod admin_settings;
 /// Advice capture: turn a coach recommendation into a PendingAdvice (playbook memory)
 pub mod advice_capture;
@@ -232,9 +232,6 @@ pub mod recipes;
 
 /// Short-link table hygiene: periodic sweep of expired reconnect/connect links
 pub mod short_link_sweeper;
-
-/// Social insights: friend-request validation, user search enrichment, insight adaptation
-pub mod social_insights;
 
 /// Tenant administration: slug validation, tenant creation, user provisioning
 pub mod tenant_admin;

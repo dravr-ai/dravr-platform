@@ -15,7 +15,7 @@
 //! `dravr-commere`'s dispatcher has exactly two sinks: it persists the
 //! notification row, and it pushes to the user's Expo devices. An athlete who
 //! talks to Dravr on Telegram, Slack or `WhatsApp` and has never installed the
-//! mobile app therefore received *nothing* — not for social, not for training,
+//! mobile app therefore received *nothing* — not for training, not for recovery,
 //! not for coach follow-ups. [`NotificationChannelSink`] is the seam that fixes
 //! that for every category at once: [`NotificationService::dispatch`] runs the
 //! upstream pipeline first, so preferences, quiet hours and frequency caps

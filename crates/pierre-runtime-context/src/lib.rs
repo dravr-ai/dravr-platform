@@ -412,8 +412,7 @@ pub trait CoachesCtx: MiddlewareCtx {
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;
 }
 
-/// Slice of runtime state the social, groups, and notifications route
-/// layers need.
+/// Slice of runtime state the groups and notifications route layers need.
 ///
 /// Covers `/api/groups/*` (group CRUD, membership, invites, analytics) and
 /// `/api/notifications/*` (device tokens, preferences, feed, scheduling).
@@ -426,14 +425,14 @@ pub trait CoachesCtx: MiddlewareCtx {
 /// activity fetches that live in the composition root); exposing it via
 /// the trait keeps this crate decoupled from those internals.
 #[async_trait]
-pub trait SocialCtx: Send + Sync + 'static {
+pub trait GroupsCtx: Send + Sync + 'static {
     /// Optional push-notification service (Expo Push + dravr-commere).
     /// `None` when notifications are disabled by feature flag or
     /// initialization failed at startup.
     ///
-    /// Repository access for the social routes is provided by the
-    /// [`MiddlewareCtx::repos`] accessor; the route handlers require
-    /// both `SocialCtx` and `MiddlewareCtx` bounds.
+    /// Repository access for the group and notification routes is provided
+    /// by the [`MiddlewareCtx::repos`] accessor; the route handlers require
+    /// both `GroupsCtx` and `MiddlewareCtx` bounds.
     #[cfg(feature = "client-notifications")]
     fn notification_service(&self) -> Option<&Arc<pierre_notifications::NotificationService>>;
 

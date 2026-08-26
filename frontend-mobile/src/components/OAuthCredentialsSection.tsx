@@ -39,7 +39,7 @@ export function OAuthCredentialsSection() {
   const loadOAuthApps = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await userApi.getUserOAuthApps();
+      const response = await userApi.getOAuthApps();
       setOauthApps(response.apps || []);
     } catch (error) {
       console.error('Failed to load OAuth apps:', error);
@@ -91,7 +91,7 @@ export function OAuthCredentialsSection() {
 
     try {
       setIsSaving(true);
-      await userApi.registerUserOAuthApp({
+      await userApi.registerOAuthApp({
         provider: selectedProvider.id,
         client_id: clientId.trim(),
         client_secret: clientSecret.trim(),
@@ -119,7 +119,7 @@ export function OAuthCredentialsSection() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await userApi.deleteUserOAuthApp(provider);
+              await userApi.deleteOAuthApp(provider);
               await loadOAuthApps();
             } catch {
               Alert.alert('Error', 'Failed to remove credentials');

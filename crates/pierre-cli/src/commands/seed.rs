@@ -14,10 +14,8 @@ use pierre_database::backends::factory::Database;
 use pierre_seeders::bootstrap::{run as run_bootstrap, SeedArgs as BootstrapArgs};
 use pierre_seeders::coaches::{run as run_coaches, SeedArgs as CoachesArgs};
 use pierre_seeders::demo_data::{run as run_demo_data, SeedArgs as DemoDataArgs};
-use pierre_seeders::insight_samples::{run as run_insight_samples, SeedArgs as InsightSamplesArgs};
 use pierre_seeders::llm_usage::{run as run_llm_usage, SeedArgs as LlmUsageArgs};
 use pierre_seeders::mobility::{run as run_mobility, SeedArgs as MobilityArgs};
-use pierre_seeders::social::{run as run_social, SeedArgs as SocialArgs};
 use pierre_seeders::synthetic_activities::{
     run as run_synthetic_activities, SeedArgs as SyntheticActivitiesArgs,
 };
@@ -35,17 +33,11 @@ pub enum SeedCommand {
     /// Populate database with realistic demo data for dashboard testing
     DemoData(DemoDataArgs),
 
-    /// Load insight sample definitions from markdown files (no database writes)
-    InsightSamples(InsightSamplesArgs),
-
     /// Populate the `llm_usage` table with realistic call data for analytics dashboards
     LlmUsage(LlmUsageArgs),
 
     /// Seed stretching exercises, yoga poses, and activity-muscle mappings
     Mobility(MobilityArgs),
-
-    /// Seed friend connections, shared insights, reactions, and adapted insights
-    Social(SocialArgs),
 
     /// Seed diverse synthetic activities for testing without OAuth providers
     SyntheticActivities(SyntheticActivitiesArgs),
@@ -53,13 +45,12 @@ pub enum SeedCommand {
 
 /// Dispatch a `Seed` subcommand to its seeder module.
 ///
-/// The `InsightSamples` variant is a pure markdown validator and needs no database.
-/// Every other variant shares a single lightweight `Database::init_for_seeding`
-/// connection (zero encryption key — seeders only touch reference data), avoiding
-/// the full `KeyManager` bootstrap that user/token commands require.
+/// Every variant but `SyntheticActivities` shares a single lightweight
+/// `Database::init_for_seeding` connection (zero encryption key — seeders only
+/// touch reference data), avoiding the full `KeyManager` bootstrap that
+/// user/token commands require.
 pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> {
     match action {
-        SeedCommand::InsightSamples(args) => run_insight_samples(&args),
         // synthetic-activities seeds an encrypted dev-fixture oauth_token, so it
         // needs the real DEK from KeyManager — the zero seeding key would write
         // a token the server can't decrypt, leaving the user "disconnected".
@@ -108,12 +99,8 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
         SeedCommand::DemoData(args) => run_demo_data(args, &repos).await,
         SeedCommand::LlmUsage(args) => run_llm_usage(args, &repos).await,
         SeedCommand::Mobility(args) => run_mobility(args, &repos).await,
-        SeedCommand::Social(args) => run_social(args, &repos).await,
         SeedCommand::SyntheticActivities(_) => {
             unreachable!("SyntheticActivities is handled by dispatch() with full key init")
-        }
-        SeedCommand::InsightSamples(_) => {
-            unreachable!("InsightSamples is handled by dispatch() before reaching this path")
         }
     }
 }

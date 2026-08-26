@@ -47,7 +47,8 @@ import {
   type OnboardingContext,
   type OnboardingStepId,
 } from '@pierre/shared-constants';
-import { trackMobile } from '../src/services/analytics';
+import { bootMobileAnalytics, shutdownMobileAnalytics, trackMobile } from '../src/services/analytics';
+import { CHAT_LIST_ROUTE } from '../src/navigation/routes';
 import { initI18n } from '@pierre/i18n';
 import { persistLocale } from '../src/i18n/localePersister';
 
@@ -129,12 +130,11 @@ function RootLayoutNav() {
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const mod = await import('../src/services/analytics');
       if (cancelled) return;
       if (user && user.analytics_consent === true) {
-        await mod.bootMobileAnalytics(user.id, true);
+        await bootMobileAnalytics(user.id, true);
       } else {
-        mod.shutdownMobileAnalytics();
+        shutdownMobileAnalytics();
       }
     })();
     return () => {
@@ -252,9 +252,9 @@ function RootLayoutNav() {
       return;
     }
 
-    // Onboarding complete → chat.
+    // Onboarding complete → the chat tab, which lands on the conversation list.
     if (inAuthGroup || inOnboardingGroup) {
-      router.replace('/(app)/(tabs)/(chat)');
+      router.replace(CHAT_LIST_ROUTE);
     }
   }, [
     isAuthenticated,

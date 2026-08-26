@@ -65,7 +65,6 @@ export interface TranslationKeys {
   chat: Record<string, string>;
   coaches: Record<string, string>;
   settings: Record<string, string>;
-  social: Record<string, string>;
   insights: Record<string, string>;
   providers: Record<string, string>;
   errors: Record<string, string>;

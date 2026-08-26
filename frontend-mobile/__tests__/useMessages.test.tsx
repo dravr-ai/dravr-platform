@@ -19,9 +19,6 @@ jest.mock('../src/services/api', () => ({
 }));
 
 jest.mock('@pierre/chat-utils', () => ({
-  isInsightPrompt: () => false,
-  detectInsightMessages: () => new Set(),
-  createInsightPrompt: (content: string) => `[INSIGHT] ${content}`,
   // loadMessages now drops tool_call/tool_result plumbing rows via this helper;
   // mirror the real implementation so the hook under test behaves identically.
   filterDisplayMessages: (messages: { role: string }[]) =>

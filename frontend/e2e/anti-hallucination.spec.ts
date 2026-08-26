@@ -115,12 +115,12 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
   });
 
   // ========================================
-  // Coach Library - No Hallucinated Elements
+  // Discover - No Hallucinated Elements (the coach library lives here now)
   // ========================================
-  test.describe('Coach Library - No Hallucinated Elements', () => {
+  test.describe('Discover - No Hallucinated Elements', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'webtest');
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await waitForNetworkIdle(page);
     });
 
@@ -131,11 +131,13 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
     });
 
     test('should show real category filters from backend', async ({ page }) => {
-      // These categories should exist and match backend
-      // Use exact: true to differentiate "All" from "All Sources"
+      // These categories should exist and match backend.
+      // exact: true keeps "All" apart from "All Sources", and keeps the
+      // Training and Nutrition chips apart from the coach cards that carry
+      // the same word in their title — a bare name is a strict-mode violation.
       await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Training' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Nutrition' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Training', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Nutrition', exact: true })).toBeVisible();
     });
   });
 

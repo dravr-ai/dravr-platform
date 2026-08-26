@@ -9,10 +9,10 @@ use pierre_core::errors::AppError;
 use pierre_messaging::commands::CommandResponse;
 use tracing::info;
 
-#[cfg(feature = "tools-groups")]
-use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_BODY;
 #[cfg(not(feature = "tools-groups"))]
 use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
+#[cfg(feature = "tools-groups")]
+use pierre_contremaitre::messaging_strings::{KEY_COACH_INVITE_BODY, KEY_GROUP_INVITE_BODY};
 use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_COACH_DETACHED, KEY_GROUP_CONSENT_UPDATED, KEY_GROUP_CONSENT_USAGE,
     KEY_GROUP_INVITE_FORBIDDEN, KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY,
@@ -23,9 +23,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
 };
 use pierre_core::models::coaches::ListCoachesFilter;
-#[cfg(feature = "tools-groups")]
-use pierre_core::models::groups::GroupInviteKind;
-use pierre_core::models::groups::{GroupRespondMode, GroupRole, UpdateGroupRequest};
+use pierre_core::models::groups::{
+    GroupInviteKind, GroupRespondMode, GroupRole, UpdateGroupRequest,
+};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -400,6 +400,102 @@ impl CommandHandler for GroupMembersHandler {
     }
 }
 
+/// Issue an invite of `kind` for the conversation's group on the caller's
+/// behalf, refusing anyone who may not manage its members.
+///
+/// The one implementation behind two triggers: `/group invite [coach]` and
+/// `/coach invite` both resolve the same chat-bound group, enforce the same
+/// role and file the invite through the same `GroupService` path, so the
+/// two spellings cannot drift.
+///
+/// # Errors
+///
+/// Returns an error when the caller has no group to invite into, is not a
+/// member of it, or the invite cannot be persisted.
+pub async fn issue_group_invite(
+    ctx: &PlatformCommandContext,
+    kind: GroupInviteKind,
+) -> Result<CommandResponse, AppError> {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = ctx.locale.as_str();
+
+    let group = resolve_target_group(ctx).await?;
+
+    // Check admin role
+    let member = ctx
+        .ctx
+        .repos()
+        .groups
+        .get_member(&group.id.to_string(), ctx.user_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("Membership not found"))?;
+
+    if !GroupInviteHandler::permits(member.role) {
+        return Ok(CommandResponse::text(reg.render(
+            KEY_GROUP_INVITE_FORBIDDEN,
+            locale,
+            &[],
+        )));
+    }
+
+    #[cfg(feature = "tools-groups")]
+    {
+        file_invite(ctx, &group, kind).await
+    }
+    #[cfg(not(feature = "tools-groups"))]
+    {
+        Ok(file_invite(ctx, &group, kind))
+    }
+}
+
+/// File the invite through `GroupService` and render the body for its kind.
+#[cfg(feature = "tools-groups")]
+async fn file_invite(
+    ctx: &PlatformCommandContext,
+    group: &TargetGroup,
+    kind: GroupInviteKind,
+) -> Result<CommandResponse, AppError> {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = ctx.locale.as_str();
+
+    // The invite is filed under the tenant that owns the group, not the
+    // issuer's — in a shared room those differ.
+    let invite = ctx
+        .ctx
+        .group_service()
+        .create_invite(group.id, ctx.user_id, group.tenant_id, Some(7), None, kind)
+        .await?;
+
+    // A coach invite attaches its redeemer as the group's human coach rather
+    // than adding an athlete, and the body says so.
+    let key = match kind {
+        GroupInviteKind::Coach => KEY_COACH_INVITE_BODY,
+        GroupInviteKind::Member => KEY_GROUP_INVITE_BODY,
+    };
+    Ok(CommandResponse::text(reg.render(
+        key,
+        locale,
+        &[&group.name, &invite.code, &invite.code],
+    )))
+}
+
+/// A build without the groups feature has no `GroupService` to file an
+/// invite through, so the caller is told invites are unavailable.
+#[cfg(not(feature = "tools-groups"))]
+fn file_invite(
+    ctx: &PlatformCommandContext,
+    group: &TargetGroup,
+    kind: GroupInviteKind,
+) -> CommandResponse {
+    let reg = ctx.ctx.messaging_strings_registry();
+    info!(
+        group_id = %group.id,
+        kind = kind.as_str(),
+        "Group invite requested on a build without the groups feature"
+    );
+    CommandResponse::text(reg.render(KEY_GROUP_INVITE_UNAVAILABLE, ctx.locale.as_str(), &[]))
+}
+
 /// Handler for `/group invite` — generate invite link
 pub struct GroupInviteHandler;
 
@@ -415,68 +511,20 @@ impl GroupInviteHandler {
 #[async_trait]
 impl CommandHandler for GroupInviteHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        let reg = ctx.ctx.messaging_strings_registry();
-        let locale = ctx.locale.as_str();
-
-        let group = resolve_target_group(ctx).await?;
-
-        // Check admin role
-        let member = ctx
-            .ctx
-            .repos()
-            .groups
-            .get_member(&group.id.to_string(), ctx.user_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Membership not found"))?;
-
-        if !Self::permits(member.role) {
-            return Ok(CommandResponse::text(reg.render(
-                KEY_GROUP_INVITE_FORBIDDEN,
-                locale,
-                &[],
-            )));
-        }
-
-        #[cfg(feature = "tools-groups")]
+        // `/group invite coach` issues a coach invite (attaches the redeemer
+        // as the group's human coach); any other arg defaults to a standard
+        // athlete-membership invite.
+        let kind = if ctx
+            .args
+            .first()
+            .is_some_and(|a| a.trim().eq_ignore_ascii_case("coach"))
         {
-            // `/group invite coach` issues a coach invite (attaches the
-            // redeemer as the group's human coach); any other arg defaults to
-            // a standard athlete-membership invite.
-            let kind = if ctx
-                .args
-                .first()
-                .is_some_and(|a| a.trim().eq_ignore_ascii_case("coach"))
-            {
-                GroupInviteKind::Coach
-            } else {
-                GroupInviteKind::Member
-            };
+            GroupInviteKind::Coach
+        } else {
+            GroupInviteKind::Member
+        };
 
-            // The invite is filed under the tenant that owns the group, not the
-            // issuer's — in a shared room those differ.
-            let invite = ctx
-                .ctx
-                .group_service()
-                .create_invite(group.id, ctx.user_id, group.tenant_id, Some(7), None, kind)
-                .await?;
-
-            let text = reg.render(
-                KEY_GROUP_INVITE_BODY,
-                locale,
-                &[&group.name, &invite.code, &invite.code],
-            );
-
-            return Ok(CommandResponse::text(text));
-        }
-
-        #[cfg(not(feature = "tools-groups"))]
-        {
-            Ok(CommandResponse::text(reg.render(
-                KEY_GROUP_INVITE_UNAVAILABLE,
-                locale,
-                &[],
-            )))
-        }
+        issue_group_invite(ctx, kind).await
     }
 
     /// Acts on the conversation's group, so the caller's role *there* decides.

@@ -14,8 +14,8 @@ use common::{create_test_server_resources, create_test_user_with_plan, generate_
 use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
-use pierre_routes_social::group_analytics::GroupAnalyticsRoutes;
-use pierre_routes_social::GroupRoutes;
+use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
+use pierre_routes_groups::GroupRoutes;
 
 use axum::http::StatusCode;
 use serde_json::{json, Value};
@@ -59,7 +59,7 @@ async fn setup_single_user_with(email: &str, plan: &str) -> (axum::Router, Strin
     // GroupAnalyticsRoutes ({stats,report,health}) mounts separately from GroupRoutes
     // in production (multitenant.rs); tests must mirror the composition root or
     // those three endpoints 404. See group_analytics.rs:54 — needs ToolRuntime +
-    // SocialCtx + MiddlewareCtx (ServerContext satisfies all three).
+    // GroupsCtx + MiddlewareCtx (ServerContext satisfies all three).
     let router = build_coaches_router::<ServerContext>()
         .with_state(Arc::clone(&res))
         .merge(GroupRoutes::routes(Arc::clone(&res)))
@@ -1080,7 +1080,7 @@ async fn test_full_group_lifecycle() {
 }
 
 /// Cross-tenant isolation for the group entity, encoding the documented v1
-/// tenant model (see `crates/pierre-routes-social/src/groups.rs:1095`):
+/// tenant model (see `crates/pierre-routes-groups/src/groups.rs:1095`):
 /// **athlete membership is cross-tenant by design**, but the group entity
 /// itself (update/delete) is tenant-scoped (`WHERE tenant_id`).
 ///

@@ -21,6 +21,7 @@ const mockStoreCoaches = [
     icon_url: null,
     published_at: '2024-01-15T00:00:00Z',
     author_id: 'author-123',
+    handle: 'marathon-training-coach',
   },
   {
     id: 'store-coach-2',
@@ -81,6 +82,8 @@ function personalCopyOf(storeCoach: (typeof mockStoreCoaches)[number]) {
     visibility: 'private',
     is_assigned: true,
     forked_from: storeCoach.id,
+    // The copy answers to its origin's catalogue handle.
+    handle: storeCoach.handle,
   };
 }
 
@@ -485,10 +488,10 @@ test.describe('Coach Store Pagination', () => {
     await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Nutrition Expert')).toBeVisible();
 
-    // Scroll to bottom to trigger infinite scroll
-    await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight);
-    });
+    // Bring the sentinel into view to trigger infinite scroll. Discover scrolls
+    // inside its own pane — the pinned coaches, filters and grid share one
+    // scroll container — so the window itself never moves.
+    await page.getByText('Scroll for more').scrollIntoViewIfNeeded();
 
     // Wait for second page to load
     await page.waitForTimeout(1000);
@@ -695,10 +698,10 @@ test.describe('Coach Store Detail View', () => {
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
-
-    // Navigate to detail view
-    await page.getByText('Marathon Training Coach').click();
+    // An installed coach is pinned above the store too; open the listing.
+    const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
+    await expect(listing).toBeVisible({ timeout: 10000 });
+    await listing.click();
     await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
 
     // Click back button
@@ -716,10 +719,10 @@ test.describe('Coach Store Add/Remove', () => {
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
-
-    // Navigate to detail view
-    await page.getByText('Marathon Training Coach').click();
+    // An installed coach is pinned above the store too; open the listing.
+    const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
+    await expect(listing).toBeVisible({ timeout: 10000 });
+    await listing.click();
 
     // Should show Add Coach button
     await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
@@ -762,10 +765,10 @@ test.describe('Coach Store Add/Remove', () => {
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
-
-    // Navigate to detail view
-    await page.getByText('Marathon Training Coach').click();
+    // An installed coach is pinned above the store too; open the listing.
+    const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
+    await expect(listing).toBeVisible({ timeout: 10000 });
+    await listing.click();
 
     // Wait for detail view to fully load (indicated by System Prompt section)
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
@@ -779,10 +782,10 @@ test.describe('Coach Store Add/Remove', () => {
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
-
-    // Navigate to detail view
-    await page.getByText('Marathon Training Coach').click();
+    // An installed coach is pinned above the store too; open the listing.
+    const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
+    await expect(listing).toBeVisible({ timeout: 10000 });
+    await listing.click();
 
     // Wait for detail view to fully load
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
@@ -808,10 +811,10 @@ test.describe('Coach Store Add/Remove', () => {
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
-
-    // Navigate to detail view
-    await page.getByText('Marathon Training Coach').click();
+    // An installed coach is pinned above the store too; open the listing.
+    const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
+    await expect(listing).toBeVisible({ timeout: 10000 });
+    await listing.click();
 
     // Wait for detail view to fully load
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
@@ -834,9 +837,10 @@ test.describe('Coach Store Add/Remove', () => {
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
+    const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
+    await expect(listing).toBeVisible({ timeout: 10000 });
 
-    await page.getByText('Marathon Training Coach').click();
+    await listing.click();
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
 
@@ -928,30 +932,31 @@ test.describe('Coach Store Navigation', () => {
     await expect(page.getByText(/has been added to your coaches/)).toBeVisible({ timeout: 5000 });
   });
 
-  test('View My Coaches link visible when coach is installed', async ({ page }) => {
+  test('an installed coach is pinned above the store with its handle, and Remove works from the listing', async ({ page }) => {
     // Start with coach already installed
     await setupStoreMocks(page, { installed: ['store-coach-1'] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
 
-    // Navigate to detail view
-    await page.getByText('Marathon Training Coach').click();
+    // The copy the install minted sits in "Your coaches" above the store,
+    // carrying the handle the athlete types to bring it into a chat. There
+    // is no "View My Coaches" link any more: this is where the coach lives.
+    const pinned = page.getByRole('region', { name: /Your coaches/ });
+    await expect(pinned.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
+    await expect(pinned.getByTestId('coach-handle')).toHaveText('@marathon-training-coach');
+    await expect(page.getByText('View My Coaches')).toHaveCount(0);
 
-    // Wait for detail view to fully load and show Remove button (indicates coach is recognized as installed)
+    // Open the store listing (not the pinned card) and remove from there.
+    await page.getByTestId('store-coach-grid').getByText('Marathon Training Coach').click();
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
 
-    // Accept dialog when shown
     page.on('dialog', async (dialog) => {
       await dialog.accept();
     });
-
-    // Click Remove to trigger success message which shows View My Coaches link
     await page.getByRole('button', { name: 'Remove' }).click();
 
-    // Success message should appear
     await expect(page.getByText(/has been removed from your library/)).toBeVisible({ timeout: 5000 });
   });
 });

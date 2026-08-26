@@ -51,8 +51,6 @@ pub mod runtime;
 pub mod security;
 /// Sleep tool operational parameters (activity limits, trend thresholds)
 pub mod sleep_tool_params;
-/// Social insights configuration for coach-mediated sharing
-pub mod social;
 /// Tool selection configuration for global tool disabling via environment variables
 pub mod tool_selection;
 /// Core configuration type definitions (`LogLevel`, `Environment`, `LlmProviderType`)

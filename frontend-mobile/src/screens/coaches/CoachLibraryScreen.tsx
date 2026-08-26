@@ -1,5 +1,5 @@
-// ABOUTME: Coach library screen for managing user's AI coaches
-// ABOUTME: Lists coaches with category filters, favorites toggle, and CRUD actions
+// ABOUTME: Coach library screen for managing the athlete's installed coaches, reached from Discover
+// ABOUTME: Lists coaches with their @handle, category filters, favorites toggle, import/export and CRUD actions
 
 import React, { useState, useCallback, useMemo } from 'react';
 import {
@@ -25,6 +25,7 @@ import * as Sharing from 'expo-sharing';
 import { File, Paths } from 'expo-file-system';
 import { PRIMARY_PALETTE, spacing, glassCard, gradients, useThemeColors } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
+import { COACH_DETAIL_ROUTE, COACH_EDITOR_ROUTE } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
 import { FloatingSearchBar, PromptDialog, ScrollFadeContainer, SwipeableRow, type SwipeAction } from '../../components/ui';
 import type {
@@ -207,7 +208,7 @@ export function CoachLibraryScreen() {
   };
 
   const handleCoachPress = (coach: Coach) => {
-    router.push({ pathname: '/(app)/(tabs)/(coaches)/[coachId]', params: { coachId: coach.id } });
+    router.push({ pathname: COACH_DETAIL_ROUTE, params: { coachId: coach.id } });
   };
 
   const handleCoachLongPress = (coach: Coach) => {
@@ -216,7 +217,7 @@ export function CoachLibraryScreen() {
   };
 
   const handleCreateCoach = () => {
-    router.push({ pathname: '/(app)/(tabs)/(coaches)/editor' });
+    router.push({ pathname: COACH_EDITOR_ROUTE });
   };
 
   const handleToggleFavorite = async (coach?: Coach) => {
@@ -354,7 +355,7 @@ export function CoachLibraryScreen() {
               // Add the new forked coach to the list
               setCoaches((prev) => [result.coach, ...prev]);
               // Navigate to wizard to customize
-              router.push({ pathname: '/(app)/(tabs)/(coaches)/editor', params: { coachId: result.coach.id } });
+              router.push({ pathname: COACH_EDITOR_ROUTE, params: { coachId: result.coach.id } });
             } catch (error) {
               console.error('Failed to fork coach:', error);
               Alert.alert('Error', 'Failed to fork coach. Please try again.');
@@ -572,6 +573,18 @@ export function CoachLibraryScreen() {
               </View>
             </View>
 
+            {/* The @handle a mention or /coach invite addresses this coach by */}
+            {item.handle && (
+              <Text
+                className="text-xs mb-1"
+                style={{ color: colors.pierre.violet }}
+                numberOfLines={1}
+                testID={`coach-handle-${item.id}`}
+              >
+                @{item.handle}
+              </Text>
+            )}
+
             {/* Star rating (use count as proxy) and favorite button */}
             <View className="flex-row items-center gap-1 mb-1">
               {[1, 2, 3, 4, 5].map((star) => (
@@ -764,9 +777,18 @@ export function CoachLibraryScreen() {
       className="flex-1"
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Header with bold title and action buttons - + button in top right like Chat tab */}
+      {/* Header with back to Discover, bold title and action buttons */}
       <View className="flex-row items-center px-4 py-3 border-b border-border-subtle">
-        <Text className="flex-1 text-xl font-bold text-on-surface">Coaches</Text>
+        <TouchableOpacity
+          className="w-10 h-10 items-center justify-center -ml-2 mr-1"
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Back to Discover"
+          testID="back-button"
+        >
+          <Feather name="arrow-left" size={24} color={colors.text.primary} />
+        </TouchableOpacity>
+        <Text className="flex-1 text-xl font-bold text-on-surface">My coaches</Text>
         <View className="flex-row items-center gap-2">
           <TouchableOpacity
             className={`w-10 h-10 items-center justify-center rounded-full ${showFavoritesOnly ? 'bg-pierre-violet/20' : ''}`}

@@ -272,7 +272,6 @@ impl ChatReentry for PipelineChatReentry {
             channel_type: &channel_slug,
             is_direct_message: true,
             sender_id: None,
-            self_served_prefix: None,
             // No AG-UI wiring: this is a detached background turn, not a live
             // request with a status placeholder to edit.
             hooks: PipelineHooks::none(),

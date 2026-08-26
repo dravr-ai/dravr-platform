@@ -36,7 +36,8 @@ import {
   useUpdatePeerConsent,
 } from '../../hooks/useGroups';
 import { useAuth } from '../../contexts/AuthContext';
-import { chatApi, groupsApi } from '../../services/api';
+import { groupsApi } from '../../services/api';
+import { useStartGroupConversation } from '../../hooks/useStartGroupConversation';
 import { GroupInsightsSection } from './GroupInsightsSection';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import type { GroupMember, GroupRole } from '../../types';
@@ -199,7 +200,7 @@ export function GroupDetailScreen() {
   const { updateRole } = useUpdateMemberRole(groupId ?? '');
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId ?? '');
   const { weeklyDigest } = useGroupPermissions();
-  const [isStartingChat, setIsStartingChat] = useState(false);
+  const { start: startGroupConversation, isStarting: isStartingChat } = useStartGroupConversation();
 
   const isLoading = isLoadingGroup || isLoadingMembers;
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -429,31 +430,15 @@ export function GroupDetailScreen() {
    *
    * The button used to push the chat tab a `coachId` param that nothing on
    * that screen reads, so the athlete landed on the generic coach picker with
-   * no sign of which room they came from. The conversation is created here
-   * instead, carrying `group_id` — the field that turns on group context and
-   * the peer-grounding stage server-side — and titled with the group's name so
-   * the chat header names the room.
+   * no sign of which room they came from. The conversation is created through
+   * the same hook the chat "+" uses, carrying `group_id` — the field that turns
+   * on group context and the peer-grounding stage server-side — and titled
+   * with the group's name so the thread header names the room.
    */
   const handleOpenGroupChat = useCallback(async () => {
     if (!groupId || !group) return;
-    try {
-      setIsStartingChat(true);
-      const conversation = await chatApi.createConversation({
-        title: group.name,
-        coach_id: group.coach_id,
-        group_id: groupId,
-      });
-      router.push({
-        pathname: '/(app)/(tabs)/(chat)',
-        params: { conversationId: conversation.id },
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to open the group chat';
-      Alert.alert('Error', msg);
-    } finally {
-      setIsStartingChat(false);
-    }
-  }, [groupId, group, router]);
+    await startGroupConversation({ id: groupId, name: group.name, coach_id: group.coach_id });
+  }, [groupId, group, startGroupConversation]);
 
   const handleRemoveCoach = useCallback(() => {
     if (!groupId) return;

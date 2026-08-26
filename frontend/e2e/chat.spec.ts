@@ -267,36 +267,6 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
     });
   });
 
-  // Social endpoints (prevent 401s on other tabs)
-  await page.route('**/api/social/**', async (route) => {
-    const url = route.request().url();
-    if (url.includes('/friends')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ friends: [], total: 0, metadata: { timestamp: '2024-06-01T10:00:00Z', api_version: 'v1' } }),
-      });
-    } else if (url.includes('/feed')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ items: [], next_cursor: null, has_more: false, metadata: { timestamp: '2024-06-01T10:00:00Z', api_version: 'v1' } }),
-      });
-    } else if (url.includes('/suggestions')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ suggestions: [], total: 0, metadata: { timestamp: '2024-06-01T10:00:00Z', api_version: 'v1' } }),
-      });
-    } else {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({}),
-      });
-    }
-  });
-
 }
 
 test.describe('Chat - Welcome and Prompt Suggestions', () => {

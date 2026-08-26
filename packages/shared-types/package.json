@@ -10,10 +10,6 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
-    "./social": {
-      "types": "./src/social.ts",
-      "import": "./src/social.ts"
-    },
     "./api": {
       "types": "./src/api.ts",
       "import": "./src/api.ts"

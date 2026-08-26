@@ -66,10 +66,10 @@ appId: ai.dravr.app
 - tapOn:
     id: "save-button"
 
-# router.replace('/(app)/(tabs)/(coaches)') is unreliable on iOS Expo Go.
+# router.replace to the coach library is unreliable on iOS Expo Go.
 # If it fired, we're on the library. If not, we're still on the editor.
-# Tapping tab-coaches is a no-op when already inside the (coaches) group,
-# so we use back-button to pop the editor from the stack instead.
+# The library and the editor share the Discover stack, so tapping the tab
+# would not pop anything; we use back-button to pop the editor instead.
 - swipe:
     start: "50%,50%"
     end: "50%,48%"

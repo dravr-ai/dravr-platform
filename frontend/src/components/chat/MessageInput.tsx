@@ -2,13 +2,15 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Chat message input component with textarea and send button
-// ABOUTME: Handles keyboard shortcuts, the slash-command palette, and the ideas popover
+// ABOUTME: Handles keyboard shortcuts, the slash-command and @handle palettes, and the ideas popover
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { clsx } from 'clsx';
 import PromptSuggestions from '../PromptSuggestions';
 import CommandPalette from '../CommandPalette';
+import MentionPalette from './MentionPalette';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
+import { useMentionPalette } from '../../hooks/useMentionPalette';
 
 interface MessageInputProps {
   value: string;
@@ -41,15 +43,43 @@ export default function MessageInput({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const palette = useCommandPalette({ value, conversationId, onChange });
 
+  // Where the caret sits, so a `@` typed mid-sentence still opens the mention
+  // palette. Read off the textarea on every edit, click and keystroke; the
+  // slash palette needs no caret because a command only ever opens the text.
+  const [caret, setCaret] = useState(0);
+  const syncCaret = useCallback(() => {
+    setCaret(inputRef.current?.selectionStart ?? 0);
+  }, []);
+  // Inserting a mention rewrites the text; the caret has to land after the
+  // inserted handle once React has committed the new value, not before.
+  const pendingCaret = useRef<number | null>(null);
+  const applyMention = useCallback(
+    (next: string, nextCaret: number) => {
+      pendingCaret.current = nextCaret;
+      onChange(next);
+    },
+    [onChange],
+  );
+  useEffect(() => {
+    const target = pendingCaret.current;
+    if (target === null) return;
+    pendingCaret.current = null;
+    inputRef.current?.setSelectionRange(target, target);
+    setCaret(target);
+  }, [value]);
+  const mentions = useMentionPalette({ value, caret, onChange: applyMention });
+
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // The palette owns Enter, Tab, the arrows and Escape while it is open:
-    // Enter on a half-typed command completes it rather than sending it.
+    // A palette owns Enter, Tab, the arrows and Escape while it is open:
+    // Enter on a half-typed command or handle completes it rather than
+    // sending it.
     if (palette.handleKeyDown(e)) return;
+    if (mentions.handleKeyDown(e)) return;
     // On touch (coarse-pointer) soft keyboards the Return key must insert a
     // newline — there is a dedicated 44x44 Send button. Enter-to-send is kept
     // on pointer-fine (desktop/laptop) devices only.
@@ -83,6 +113,11 @@ export default function MessageInput({
           highlightedIndex={palette.highlightedIndex}
           onSelect={palette.select}
         />
+        <MentionPalette
+          matches={mentions.matches}
+          highlightedIndex={mentions.highlightedIndex}
+          onSelect={mentions.select}
+        />
         <div className="relative">
           {/* The composer is a chat surface, not a form field — DESIGN.md §5
               lists the two separately. It keeps its enclosing rounded field so
@@ -92,8 +127,14 @@ export default function MessageInput({
           <textarea
             ref={inputRef}
             value={value}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => {
+              onChange(e.target.value);
+              setCaret(e.target.selectionStart ?? e.target.value.length);
+            }}
             onKeyDown={handleKeyDown}
+            onKeyUp={syncCaret}
+            onClick={syncCaret}
+            onSelect={syncCaret}
             placeholder="Message Dravr..."
             className="w-full resize-none rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-16 py-3 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-colors overflow-hidden"
             rows={1}

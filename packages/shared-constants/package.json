@@ -10,10 +10,6 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
-    "./social": {
-      "types": "./src/social.ts",
-      "import": "./src/social.ts"
-    },
     "./notifications": {
       "types": "./src/notifications.ts",
       "import": "./src/notifications.ts"
@@ -33,6 +29,10 @@
     "./commands": {
       "types": "./src/commands.ts",
       "import": "./src/commands.ts"
+    },
+    "./mentions": {
+      "types": "./src/mentions.ts",
+      "import": "./src/mentions.ts"
     },
     "./surfaces": {
       "types": "./src/surfaces.ts",

@@ -96,14 +96,6 @@ impl ToolRuntime for ServerContext {
         Self::activity_analysis_system_prompt(self)
     }
 
-    fn insight_generation_prompt(&self) -> String {
-        Self::insight_generation_prompt(self)
-    }
-
-    fn insight_validation_prompt(&self) -> String {
-        Self::insight_validation_prompt(self)
-    }
-
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>> {
         self.common.llm_provider.as_ref()
     }

@@ -26,8 +26,6 @@ export type {
   Conversation,
   Message,
   ActivityPillar,
-  PromptCategory,
-  PromptSuggestionsResponse,
 } from '@pierre/shared-types';
 
 // Coach types
@@ -79,48 +77,3 @@ export type {
   GroupWeeklyReportResponse,
   GroupHealthFlagsResponse,
 } from '@pierre/shared-types';
-
-// Re-export social types (named exports to avoid pulling in runtime constants)
-export type {
-  FriendStatus,
-  ShareVisibility,
-  InsightType,
-  ReactionType,
-  TrainingPhase,
-  FriendConnection,
-  FriendWithInfo,
-  DiscoverableUser,
-  NotificationPreferences,
-  UserSocialSettings,
-  SharedInsight,
-  InsightReaction,
-  AdaptedInsight,
-  FeedAuthor,
-  ReactionCounts,
-  FeedItem,
-  SocialMetadata,
-  ListFriendsResponse,
-  PendingRequestsResponse,
-  FriendConnectionResponse,
-  SearchUsersResponse,
-  FeedResponse,
-  ShareInsightResponse,
-  ListInsightsResponse,
-  ListAdaptedInsightsResponse,
-  ReactionResponse,
-  AdaptInsightResponse,
-  SocialSettingsResponse,
-  ShareInsightRequest,
-  UpdateSocialSettingsRequest,
-  ListInsightsParams,
-  InsightSuggestion,
-  ListSuggestionsResponse,
-  ShareFromActivityRequest,
-  GetSuggestionsParams,
-} from './social';
-
-export {
-  REACTION_EMOJIS,
-  INSIGHT_TYPE_COLORS,
-  INSIGHT_TYPE_LABELS,
-} from './social';

@@ -16,7 +16,7 @@
 //! Many route surfaces have been extracted to dedicated sub-crates:
 //! - `pierre-routes-a2a`, `pierre-routes-auth`, `pierre-routes-admin`,
 //!   `pierre-routes-coaches`, `pierre-routes-dashboard`,
-//!   `pierre-routes-identity`, `pierre-routes-social`,
+//!   `pierre-routes-identity`, `pierre-routes-groups`,
 //!   `pierre-routes-web-admin`
 //!
 //! The composition root in `mcp::multitenant` mounts those routers via

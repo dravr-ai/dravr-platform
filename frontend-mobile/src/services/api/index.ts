@@ -26,10 +26,14 @@ const adapter = createMobileAdapter({
 // Create the full API service with all domain APIs
 const api: PierreApiService = createPierreApi(adapter);
 
-// Export the axios client for direct access (backward compatibility)
+// The raw axios client, for the one request that is not a domain API: the
+// health probe in useServerStatus, which polls /health with its own short
+// timeout. The integration harness also swaps its adapter here to stub HTTP.
 export const apiClient = api.axios;
 
-// Export auth failure subscription function (backward compatibility)
+// Subscribe to the adapter's auth-failure signal. AuthContext listens here to
+// drop the signed-in user when a request comes back 401, so the app returns
+// to the login screen instead of retrying with a dead token.
 export const onAuthFailure = (listener: () => void): (() => void) => {
   return adapter.authFailure.subscribe(listener);
 };
@@ -39,7 +43,6 @@ export const authApi = api.auth;
 export const chatApi = api.chat;
 export const coachesApi = api.coaches;
 export const oauthApi = api.oauth;
-export const socialApi = api.social;
 export const storeApi = api.store;
 export const userApi = api.user;
 // End-user messaging channel linking (onboarding): getAvailableChannels/initLink/listLinks/deleteLink.

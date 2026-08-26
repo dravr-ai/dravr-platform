@@ -1,5 +1,5 @@
 // ABOUTME: Intelligence module re-exports from dravr-cageux
-// ABOUTME: Fitness profiles, algorithms, and insight policies from the standalone engine
+// ABOUTME: Fitness profiles and max-heart-rate algorithms from the standalone engine
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,6 +16,3 @@ pub mod algorithms {
 pub use dravr_cageux::models::fitness_profile::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
-
-// Insight sharing policy from dravr-cageux social module
-pub use dravr_cageux::models::social::InsightSharingPolicy;

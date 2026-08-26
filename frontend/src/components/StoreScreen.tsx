@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 //
-// ABOUTME: Coach Store browse screen for discovering and installing coaches
+// ABOUTME: Discover — the athlete's own coaches pinned above the Coach Store browse grid
 // ABOUTME: Lists published coaches with category filters, search, and detail view with install/uninstall
 
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
@@ -12,6 +12,7 @@ import { storeApi, coachesApi } from '../services/api';
 import { track } from '../services/analytics';
 import { TabHeader } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import InstalledCoaches from './discover/InstalledCoaches';
 
 // Category filter options
 const CATEGORY_FILTERS = [
@@ -66,10 +67,14 @@ interface StoreCoachDetail extends StoreCoach {
 }
 
 interface StoreScreenProps {
-  onNavigateToCoaches?: () => void;
+  /**
+   * Dashboard route navigator, `tab[/subview]`. Chatting with one of the
+   * pinned coaches opens a conversation and routes to `chat/<conversationId>`.
+   */
+  onNavigate?: (route: string) => void;
 }
 
-export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
+export default function StoreScreen({ onNavigate }: StoreScreenProps) {
   const queryClient = useQueryClient();
   const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
@@ -145,7 +150,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
   // Installing a store coach mints a personal copy with a fresh id and
   // `forked_from` set to the store listing's id, so the user's own coach list
   // is what maps a listing back to the copy. Query options mirror
-  // CoachLibraryTab so both components share the `listWithHidden` cache slot.
+  // InstalledCoaches so both components share the `listWithHidden` cache slot.
   const { data: myCoaches } = useQuery({
     queryKey: QUERY_KEYS.coaches.listWithHidden(),
     queryFn: () => coachesApi.list({
@@ -284,7 +289,6 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
         onBack={handleBackToStore}
         onInstall={handleInstall}
         onRemove={handleRemove}
-        onNavigateToCoaches={onNavigateToCoaches}
       />
     );
   }
@@ -296,6 +300,8 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
         gradient="from-activity to-activity"
         description="Find AI coaching assistants"
       />
+
+      <div className="flex-1 overflow-y-auto min-h-0">
 
       {/* Search Bar */}
       <div className="px-6 py-4 border-b ghost-border">
@@ -336,6 +342,10 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
         </div>
       </div>
 
+      {/* The athlete's own coaches, pinned above the store. Its own query —
+          never a re-rank of the browse page, which is ranked per cursor page. */}
+      <InstalledCoaches searchQuery={debouncedSearch} onNavigate={onNavigate} />
+
       {/* Category Filters */}
       <div className="px-6 py-3 border-b ghost-border overflow-x-auto">
         <div className="flex items-center gap-2">
@@ -347,7 +357,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
                 'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                 selectedCategory === filter.key
                   ? 'bg-primary text-on-primary shadow-ambient'
-                  : 'bg-surface-container-low text-outline hover:bg-surface-container hover:text-outline'
+                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
               )}
             >
               {filter.label}
@@ -367,7 +377,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
               'px-3 py-1 text-sm rounded transition-colors min-h-[44px] flex items-center whitespace-nowrap flex-shrink-0',
               selectedSort === option.key
                 ? 'bg-primary/20 text-primary font-medium'
-                : 'text-outline hover:text-primary'
+                : 'text-on-surface-variant hover:text-primary'
             )}
           >
             {option.label}
@@ -375,8 +385,8 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
         ))}
       </div>
 
-      {/* Coach Grid */}
-      <div className="flex-1 overflow-y-auto p-6 sidebar-scroll">
+      {/* Store grid */}
+      <div className="p-6 sidebar-scroll">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -432,7 +442,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="store-coach-grid">
               {coaches.map((coach) => (
                 <CoachCard key={coach.id} coach={coach} onClick={() => handleSelectCoach(coach.id)} />
               ))}
@@ -456,6 +466,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
           </>
         )}
       </div>
+      </div>
     </div>
   );
 }
@@ -467,7 +478,7 @@ interface CoachCardProps {
 }
 
 const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
-  const categoryColors = COACH_CATEGORY_COLORS[coach.category] ?? 'bg-surface-container-high/20 text-outline';
+  const categoryColors = COACH_CATEGORY_COLORS[coach.category] ?? 'bg-surface-container-high/20 text-on-surface-variant';
 
   return (
     <button
@@ -491,7 +502,7 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
 
       {/* Description */}
       {coach.description && (
-        <p className="text-sm text-outline line-clamp-2 mb-3">{coach.description}</p>
+        <p className="text-sm text-on-surface-variant line-clamp-2 mb-3">{coach.description}</p>
       )}
 
       {/* Tags */}
@@ -500,7 +511,7 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
           {coach.tags.slice(0, 3).map((tag, index) => (
             <span
               key={index}
-              className="px-2 py-0.5 text-xs bg-surface-container-high text-outline rounded"
+              className="px-2 py-0.5 text-xs bg-surface-container-high text-on-surface-variant rounded"
             >
               {tag}
             </span>
@@ -525,7 +536,6 @@ interface CoachDetailViewProps {
   onBack: () => void;
   onInstall: () => void;
   onRemove: () => void;
-  onNavigateToCoaches?: () => void;
 }
 
 function CoachDetailView({
@@ -538,7 +548,6 @@ function CoachDetailView({
   onBack,
   onInstall,
   onRemove,
-  onNavigateToCoaches,
 }: CoachDetailViewProps) {
   if (isLoading) {
     return (
@@ -558,7 +567,7 @@ function CoachDetailView({
       <div className="h-full flex flex-col bg-surface">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <p className="text-lg text-outline mb-4">Coach not found</p>
+            <p className="text-lg text-on-surface-variant mb-4">Coach not found</p>
             <button
               onClick={onBack}
               className="px-4 py-2 bg-primary text-on-primary rounded-lg hover:bg-primary/80 transition-colors"
@@ -571,7 +580,7 @@ function CoachDetailView({
     );
   }
 
-  const categoryColors = COACH_CATEGORY_COLORS[coach.category] ?? 'bg-surface-container-high/20 text-outline';
+  const categoryColors = COACH_CATEGORY_COLORS[coach.category] ?? 'bg-surface-container-high/20 text-on-surface-variant';
 
   return (
     <div className="h-full flex flex-col bg-surface">
@@ -603,7 +612,7 @@ function CoachDetailView({
 
           {/* Description */}
           {coach.description && (
-            <p className="text-base text-outline leading-relaxed">{coach.description}</p>
+            <p className="text-base text-on-surface-variant leading-relaxed">{coach.description}</p>
           )}
 
           {/* Tags */}
@@ -614,7 +623,7 @@ function CoachDetailView({
                 {coach.tags.map((tag, index) => (
                   <span
                     key={index}
-                    className="px-3 py-1 text-sm bg-surface-container-high text-outline rounded-full border ghost-border"
+                    className="px-3 py-1 text-sm bg-surface-container-high text-on-surface-variant rounded-full border ghost-border"
                   >
                     {tag}
                   </span>
@@ -631,7 +640,7 @@ function CoachDetailView({
                 {coach.sample_prompts.map((prompt, index) => (
                   <div
                     key={index}
-                    className="p-3 bg-surface-container-low border ghost-border rounded-lg text-sm text-outline"
+                    className="p-3 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface-variant"
                   >
                     {prompt}
                   </div>
@@ -644,7 +653,7 @@ function CoachDetailView({
           <div>
             <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">System Prompt</h3>
             <div className="p-3 bg-surface-container-low border ghost-border rounded-lg">
-              <p className="text-sm text-outline font-mono whitespace-pre-wrap line-clamp-6">
+              <p className="text-sm text-on-surface-variant font-mono whitespace-pre-wrap line-clamp-6">
                 {coach.system_prompt}
               </p>
               {coach.system_prompt.length > 500 && (
@@ -681,18 +690,11 @@ function CoachDetailView({
             </div>
           )}
 
-          {/* Success message */}
+          {/* Success message. The coach now sits in "Your coaches" at the top
+              of this same surface, so there is nowhere else to send the athlete. */}
           {successMessage && (
             <div className="p-4 bg-success/20 border border-success/30 rounded-lg">
               <p className="text-sm text-success">{successMessage}</p>
-              {isInstalled && onNavigateToCoaches && (
-                <button
-                  onClick={onNavigateToCoaches}
-                  className="mt-2 text-sm text-success hover:text-success underline"
-                >
-                  View My Coaches →
-                </button>
-              )}
             </div>
           )}
 

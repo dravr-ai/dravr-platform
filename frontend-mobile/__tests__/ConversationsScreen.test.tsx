@@ -4,7 +4,8 @@
 // Copyright (c) 2026 dravr.ai
 
 import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render as rtlRender, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockGetConversations = jest.fn();
 const mockListCoaches = jest.fn();
@@ -20,6 +21,8 @@ jest.mock('../src/services/api', () => ({
   coachesApi: {
     list: (...args: unknown[]) => mockListCoaches(...args),
   },
+  groupsApi: { listMyGroups: jest.fn().mockResolvedValue({ groups: [] }) },
+  notificationsApi: { getUnreadCount: jest.fn().mockResolvedValue({ unread_count: 0 }) },
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -35,7 +38,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), back: jest.fn(), navigate: jest.fn(), replace: jest.fn() }),
   useFocusEffect: (cb: () => void) => {
     // Run the effect body once synchronously so loadConversations fires.
     const React = require('react');
@@ -47,6 +50,12 @@ jest.mock('expo-router', () => ({
 }));
 
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
+
+/** The list is the chat tab's landing screen; its header bell reads a react-query cache. */
+function render(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 type Conv = {
   id: string;

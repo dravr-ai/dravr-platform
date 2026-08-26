@@ -29,7 +29,7 @@ use super::TenantId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationScreen {
-    /// One activity — a sync, a personal record, a shared insight.
+    /// One activity — a sync or a personal record.
     Activity,
     /// The athlete's activity list.
     Activities,
@@ -37,8 +37,6 @@ pub enum NotificationScreen {
     Recovery,
     /// Training statistics and load trends.
     Stats,
-    /// The social hub: friends, kudos, the feed.
-    Social,
     /// A coach message or plan update.
     Coach,
     /// Account settings.
@@ -56,7 +54,6 @@ impl NotificationScreen {
             Self::Activities,
             Self::Recovery,
             Self::Stats,
-            Self::Social,
             Self::Coach,
             Self::Settings,
             Self::Connections,
@@ -71,7 +68,6 @@ impl NotificationScreen {
             Self::Activities => "activities",
             Self::Recovery => "recovery",
             Self::Stats => "stats",
-            Self::Social => "social",
             Self::Coach => "coach",
             Self::Settings => "settings",
             Self::Connections => "connections",
@@ -86,12 +82,13 @@ impl NotificationScreen {
     #[must_use]
     pub const fn surface(self) -> &'static str {
         match self {
-            // Activity, load and recovery dashboards, and the social hub,
-            // all live on the Insights surface.
-            Self::Activity | Self::Activities | Self::Recovery | Self::Stats | Self::Social => {
-                "insights"
+            // There is no activity, load or recovery dashboard: the coach reads
+            // those numbers to the athlete in the conversation, so a sync, a
+            // load alert or a recovery score opens the chat where the question
+            // can be asked.
+            Self::Activity | Self::Activities | Self::Recovery | Self::Stats | Self::Coach => {
+                "chat"
             }
-            Self::Coach => "chat",
             Self::Settings => "profile",
             Self::Connections => "data-providers",
         }
@@ -106,8 +103,6 @@ pub enum NotificationCategory {
     Training,
     /// Recovery score and overtraining alerts
     Recovery,
-    /// Social interactions (friend requests, kudos)
-    Social,
     /// Coach messages and plan updates
     Coach,
     /// Personal records and milestones
@@ -129,7 +124,6 @@ impl NotificationCategory {
         &[
             Self::Training,
             Self::Recovery,
-            Self::Social,
             Self::Coach,
             Self::Achievement,
             Self::System,
@@ -145,7 +139,6 @@ impl NotificationCategory {
         match self {
             Self::Training => "training",
             Self::Recovery => "recovery",
-            Self::Social => "social",
             Self::Coach => "coach",
             Self::Achievement => "achievement",
             Self::System => "system",
@@ -161,7 +154,6 @@ impl NotificationCategory {
         match s {
             "training" => Some(Self::Training),
             "recovery" => Some(Self::Recovery),
-            "social" => Some(Self::Social),
             "coach" => Some(Self::Coach),
             "achievement" => Some(Self::Achievement),
             "system" => Some(Self::System),
@@ -373,7 +365,7 @@ impl From<NotificationPreference> for NotificationPreferenceItem {
 pub enum NotificationActionType {
     /// Navigate to a specific screen
     OpenScreen,
-    /// Show accept/decline buttons (e.g., friend requests)
+    /// Show accept/decline buttons
     AcceptDecline,
     /// Show a quick reply input (e.g., coach messages)
     QuickReply,
@@ -399,7 +391,7 @@ pub struct Notification {
     pub user_id: Uuid,
     /// Tenant scope for multi-tenant isolation
     pub tenant_id: TenantId,
-    /// Notification category (training, recovery, social, etc.)
+    /// Notification category (training, recovery, coach, etc.)
     pub category: NotificationCategory,
     /// Specific notification type within the category (e.g. `activity_synced`)
     pub notification_type: String,
@@ -538,7 +530,7 @@ impl From<Notification> for NotificationItem {
 }
 
 /// Notification types eligible for collapsing in the feed
-const COLLAPSIBLE_TYPES: &[&str] = &["kudos_received", "sync_failure", "friend_request"];
+const COLLAPSIBLE_TYPES: &[&str] = &["sync_failure"];
 
 /// Collapse consecutive notifications of the same type into grouped items
 ///
@@ -581,20 +573,9 @@ pub fn collapse_notifications(items: Vec<NotificationItem>) -> Vec<NotificationI
 /// Update the title of a collapsed notification group to reflect the count
 fn update_collapsed_title(item: &mut NotificationItem) {
     let count = item.collapsed_count;
-    match item.notification_type.as_str() {
-        "kudos_received" => {
-            item.title = format!("{count} kudos received");
-            item.body = format!("You received {count} kudos recently");
-        }
-        "sync_failure" => {
-            item.title = format!("{count} sync failures");
-            item.body = format!("{count} activity syncs failed recently");
-        }
-        "friend_request" => {
-            item.title = format!("{count} friend requests");
-            item.body = format!("You have {count} pending friend requests");
-        }
-        _ => {}
+    if item.notification_type == "sync_failure" {
+        item.title = format!("{count} sync failures");
+        item.body = format!("{count} activity syncs failed recently");
     }
 }
 

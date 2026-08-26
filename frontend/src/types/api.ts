@@ -37,15 +37,6 @@ export type {
   A2ADashboardOverview,
   SetupStatusResponse,
   ProvisionedKey,
-  MilestoneConfig,
-  DistanceMilestoneConfig,
-  StreakConfig,
-  MilestoneRelevanceScores,
-  DistanceRelevanceScores,
-  StreakRelevanceScores,
-  RelevanceConfig,
-  ActivityFetchLimitsConfig,
-  SocialInsightsConfig,
 } from '@pierre/shared-types';
 
 // ========== AUTH TYPES ==========
@@ -111,8 +102,6 @@ export type {
   Conversation,
   Message,
   ActivityPillar,
-  PromptCategory,
-  PromptSuggestionsResponse,
   ApiMetadata,
   PaginatedResponse,
   ListResponse,

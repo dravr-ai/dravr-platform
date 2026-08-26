@@ -1,0 +1,35 @@
+# ABOUTME: Visual tests that the Settings screen reaches its Privacy and About sections
+# ABOUTME: Privacy is where the analytics-consent control lives since the social tab was retired
+
+appId: ai.dravr.app
+
+---
+# Launch and login
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# Navigate to Settings tab
+- tapOn:
+    id: "tab-settings"
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000
+
+# Test: settings displays Privacy section
+- scrollUntilVisible:
+    element:
+      text: "Privacy"
+    direction: DOWN
+    timeout: 10000
+- assertVisible: "Privacy"
+
+# Test: settings displays About section
+- scrollUntilVisible:
+    element:
+      text: "About"
+    direction: DOWN
+    timeout: 10000
+- assertVisible: "About"

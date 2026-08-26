@@ -10,10 +10,6 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
-    "./insight": {
-      "types": "./src/insight.ts",
-      "import": "./src/insight.ts"
-    },
     "./activity": {
       "types": "./src/activity.ts",
       "import": "./src/activity.ts"

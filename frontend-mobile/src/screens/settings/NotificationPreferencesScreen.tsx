@@ -34,7 +34,6 @@ import { useNotificationPreferences } from '../../hooks/useNotifications';
 const CATEGORY_BLURB: Record<NotificationCategory, string> = {
   training: 'Planned sessions, workout reminders and training-load changes.',
   recovery: 'Sleep, HRV and readiness alerts from your connected devices.',
-  social: 'Group activity, invitations and comments from other athletes.',
   coach: 'Messages your coach sends you, including commitment check-ins.',
   achievement: 'Personal bests, streaks and milestones.',
   system: 'Account, connection and service notices.',

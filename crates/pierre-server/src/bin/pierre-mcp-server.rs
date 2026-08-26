@@ -926,7 +926,7 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // forget: the scheduler is best-effort and a restart re-arms the timer.
     #[cfg(feature = "client-groups")]
     {
-        use pierre_routes_social::group_digest_scheduler::start_digest_scheduler;
+        use pierre_routes_groups::group_digest_scheduler::start_digest_scheduler;
         start_digest_scheduler(
             Arc::clone(&resources),
             #[cfg(feature = "client-notifications")]

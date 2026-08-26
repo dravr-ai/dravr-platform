@@ -102,31 +102,6 @@ async function setupProviderMocks(page: Page) {
     });
   });
 
-  // Social endpoints
-  await page.route('**/api/social/friends**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ friends: [], total: 0, metadata: { timestamp: '2024-06-01T10:00:00Z', api_version: 'v1' } }),
-    });
-  });
-
-  await page.route('**/api/social/feed**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ items: [], next_cursor: null, has_more: false, metadata: { timestamp: '2024-06-01T10:00:00Z', api_version: 'v1' } }),
-    });
-  });
-
-  await page.route('**/api/social/insights/suggestions**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ suggestions: [], total: 0, metadata: { timestamp: '2024-06-01T10:00:00Z', api_version: 'v1' } }),
-    });
-  });
-
   // Chat conversations (empty, user defaults to Chat tab)
   await page.route('**/api/chat/conversations**', async (route) => {
     await route.fulfill({
@@ -136,7 +111,6 @@ async function setupProviderMocks(page: Page) {
     });
   });
 }
-
 
 test.describe('Provider Connections - Chat Provider Cards', () => {
   test.beforeEach(async ({ page }) => {

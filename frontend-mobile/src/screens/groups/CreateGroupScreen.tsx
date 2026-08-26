@@ -61,7 +61,7 @@ export function CreateGroupScreen() {
     if (!isAuthenticated) return;
     try {
       setIsLoadingCoaches(true);
-      const response = await coachesApi.listCoaches();
+      const response = await coachesApi.list();
       setCoaches(response.coaches);
       // Auto-select first coach if only one available
       if (response.coaches.length === 1) {

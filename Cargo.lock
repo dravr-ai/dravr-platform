@@ -1361,8 +1361,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.5.7"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.5.7#1b4a04ca3a719d251939ee110ed409d6e25a5c58"
+version = "0.6.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.6.0#6ce41b3c1e8eee36ce9ade68a2b243549769c597"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1378,8 +1378,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.23"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.23#a4d26a7535813c58a95a2cf441bbdb0b21a5a4f4"
+version = "0.4.24"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.24#70137ece007fe5851daf08fa7cff5b9791d39c2f"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1403,8 +1403,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.1.7"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.1.7#1d71b75980e96aecb775ad427e570c86390feabf"
+version = "0.2.0"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.2.0#481b15eefd62642e1df5ff26ad5506a35ab3ec8d"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2409,7 +2409,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3828,7 +3828,6 @@ dependencies = [
  "hex",
  "pierre-core",
  "pierre-database",
- "pierre-llm",
  "pierre-weather",
  "rayon",
  "regex",
@@ -3839,7 +3838,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "urlencoding",
- "uuid",
 ]
 
 [[package]]
@@ -4196,6 +4194,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-routes-groups"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "chrono-tz",
+ "pierre-auth",
+ "pierre-core",
+ "pierre-database",
+ "pierre-groups",
+ "pierre-middleware",
+ "pierre-notifications",
+ "pierre-runtime-context",
+ "pierre-services",
+ "pierre-tool-runtime",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-routes-identity"
 version = "0.3.0"
 dependencies = [
@@ -4214,34 +4235,6 @@ dependencies = [
  "tokio",
  "tracing",
  "urlencoding",
- "uuid",
-]
-
-[[package]]
-name = "pierre-routes-social"
-version = "0.3.0"
-dependencies = [
- "axum",
- "chrono",
- "chrono-tz",
- "pierre-auth",
- "pierre-config",
- "pierre-core",
- "pierre-database",
- "pierre-fitness-compute",
- "pierre-groups",
- "pierre-intelligence",
- "pierre-llm",
- "pierre-middleware",
- "pierre-notifications",
- "pierre-providers",
- "pierre-runtime-context",
- "pierre-services",
- "pierre-tool-runtime",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
  "uuid",
 ]
 
@@ -4297,13 +4290,8 @@ dependencies = [
  "pierre-coach-parser",
  "pierre-core",
  "pierre-database",
- "pierre-fitness-compute",
- "pierre-intelligence",
  "rand 0.9.4",
- "rand_chacha 0.9.0",
- "serde",
  "serde_json",
- "serde_yaml",
  "tracing",
  "uuid",
 ]
@@ -4519,8 +4507,8 @@ dependencies = [
  "pierre-routes-billing",
  "pierre-routes-coaches",
  "pierre-routes-dashboard",
+ "pierre-routes-groups",
  "pierre-routes-identity",
- "pierre-routes-social",
  "pierre-routes-web-admin",
  "pierre-runtime-context",
  "pierre-seeders",
@@ -4777,7 +4765,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4816,7 +4804,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]

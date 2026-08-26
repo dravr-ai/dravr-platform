@@ -25,9 +25,7 @@ pub use dravr_cageux::algorithms;
 pub use dravr_cageux::analysis_config;
 pub use dravr_cageux::analyzer;
 pub use dravr_cageux::config;
-pub use dravr_cageux::friend_activity_cache;
 pub use dravr_cageux::goal_engine;
-pub use dravr_cageux::insight_adapter;
 pub use dravr_cageux::insights;
 pub use dravr_cageux::metrics;
 pub use dravr_cageux::metrics_extractor;
@@ -71,17 +69,9 @@ pub use dravr_cageux::config::intelligence::{
     AggressiveStrategy, AlgorithmConfig, AlgorithmParamsConfig, ConfigError, ConservativeStrategy,
     DefaultStrategy, IntelligenceConfig, IntelligenceStrategy,
 };
-pub use dravr_cageux::friend_activity_cache::{
-    create_shared_cache, CacheConfig, CacheStats, DurationCategory, EffortLevel,
-    FriendActivitySummary,
-};
 pub use dravr_cageux::goal_engine::{
     AdjustmentType, AdvancedGoalEngine, GoalAdjustment, GoalDifficulty, GoalEngineTrait,
     GoalSuggestion,
-};
-pub use dravr_cageux::insight_adapter::{
-    truncate_string, AdaptationResult, FitnessLevel as AdaptationFitnessLevel, InsightAdapter,
-    UserTrainingContext,
 };
 pub use dravr_cageux::insights::Insight;
 pub use dravr_cageux::metrics::{AdvancedMetrics, MetricsCalculator, ZoneAnalysis};

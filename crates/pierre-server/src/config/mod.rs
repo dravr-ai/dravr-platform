@@ -11,7 +11,6 @@
 //! they need server-internal types (`ServerContext`, route handlers,
 //! `AdminConfigService`).
 
-use pierre_config::social;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_intelligence::config::intelligence::IntelligenceConfig;
 use tracing::{debug, info};
@@ -40,13 +39,6 @@ pub fn init_configs() -> AppResult<()> {
             .activity_analyzer
             .analysis
             .min_duration_seconds
-    );
-
-    // Initialize global social insights config
-    let social_config = social::global();
-    debug!(
-        "Social insights config initialized successfully (activity limit: {})",
-        social_config.activity_fetch_limits.insight_context_limit
     );
 
     info!("All configurations initialized successfully");

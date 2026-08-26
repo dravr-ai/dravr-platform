@@ -1,10 +1,10 @@
-// ABOUTME: Web-admin HTTP handlers for system-wide settings — auto-approval and social insights
+// ABOUTME: Web-admin HTTP handlers for system-wide settings — the auto-approval switch
 // ABOUTME: Split from lib.rs; pairs with pierre_services::admin_settings, which holds the logic
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The cookie-authenticated admin surface for the two global switches.
+//! The cookie-authenticated admin surface for the global auto-approval switch.
 //!
 //! Every handler authenticates through `WebAdminRoutes::authenticate_admin`
 //! first — these change behaviour for every user of the deployment, so a valid
@@ -21,12 +21,8 @@ use axum::response::IntoResponse;
 use axum::Json;
 use tracing::info;
 
-use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::AppError;
-use pierre_services::admin_settings::{
-    get_auto_approval_settings, get_social_insights_config, reset_social_insights_config,
-    set_auto_approval, set_social_insights_config,
-};
+use pierre_services::admin_settings::{get_auto_approval_settings, set_auto_approval};
 
 use super::WebAdminContext;
 
@@ -123,91 +119,6 @@ pub async fn handle_set_auto_approval(
                 "overridden_by_env": effective.overridden_by_env,
                 "description": "When enabled, new user registrations are automatically approved without admin intervention"
             }
-        })),
-    )
-        .into_response())
-}
-
-// =========================================================================
-// Social Insights Configuration Routes (web admin versions with cookie auth)
-// =========================================================================
-
-/// GET `/api/admin/settings/social-insights` - Get social insights configuration
-pub async fn handle_get_social_insights_config(
-    headers: HeaderMap,
-    State(resources): State<WebAdminContext>,
-) -> Result<impl IntoResponse, AppError> {
-    super::WebAdminRoutes::authenticate_admin(&headers, &resources).await?;
-
-    let config = get_social_insights_config(&resources.data).await?;
-
-    Ok((
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "success": true,
-            "message": "Social insights configuration retrieved",
-            "data": config
-        })),
-    )
-        .into_response())
-}
-
-/// PUT `/api/admin/settings/social-insights` - Update social insights configuration
-pub async fn handle_set_social_insights_config(
-    headers: HeaderMap,
-    State(resources): State<WebAdminContext>,
-    Json(config): Json<SocialInsightsConfig>,
-) -> Result<impl IntoResponse, AppError> {
-    let auth = super::WebAdminRoutes::authenticate_admin(&headers, &resources).await?;
-
-    info!(
-        user_id = %auth.user_id,
-        "Updating social insights configuration"
-    );
-
-    set_social_insights_config(&resources.data, &config).await?;
-
-    info!(
-        user_id = %auth.user_id,
-        "Social insights configuration updated"
-    );
-
-    Ok((
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "success": true,
-            "message": "Social insights configuration updated",
-            "data": config
-        })),
-    )
-        .into_response())
-}
-
-/// DELETE `/api/admin/settings/social-insights` - Reset social insights to defaults
-pub async fn handle_reset_social_insights_config(
-    headers: HeaderMap,
-    State(resources): State<WebAdminContext>,
-) -> Result<impl IntoResponse, AppError> {
-    let auth = super::WebAdminRoutes::authenticate_admin(&headers, &resources).await?;
-
-    info!(
-        user_id = %auth.user_id,
-        "Resetting social insights configuration to defaults"
-    );
-
-    let default_config = reset_social_insights_config(&resources.data).await?;
-
-    info!(
-        user_id = %auth.user_id,
-        "Social insights configuration reset to defaults"
-    );
-
-    Ok((
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "success": true,
-            "message": "Social insights configuration reset to defaults",
-            "data": default_config
         })),
     )
         .into_response())

@@ -132,79 +132,43 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
   });
 
   // ========================================
-  // Coach Library Tab
+  // Your coaches — pinned at the top of Discover
   // ========================================
-  test.describe('Coach Library Tab', () => {
+  test.describe('Your coaches (pinned on Discover)', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'webtest');
     });
 
-    test('library - displays installed coaches', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+    test('discover - pins the athlete coaches above the store', async ({ page }) => {
+      await navigateToTab(page, 'Discover');
       await waitForNetworkIdle(page);
 
-      const mainContent = page.locator('main');
-      await expect(mainContent).toBeVisible();
+      await expect(page.getByRole('region', { name: /Your coaches/ })).toBeVisible();
 
       await takeVisualScreenshot(page, 'user-library', 'coach-list');
     });
 
-    test('library - favorites filter toggles', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+    test('discover - one search narrows both the pinned coaches and the store', async ({ page }) => {
+      await navigateToTab(page, 'Discover');
       await waitForNetworkIdle(page);
 
-      const favoritesToggle = page.locator('button:has-text("Favorites"), [role="switch"], input[type="checkbox"]');
-      if (await favoritesToggle.first().isVisible().catch(() => false)) {
-        await favoritesToggle.first().click();
-        await page.waitForTimeout(300);
+      await page.getByPlaceholder('Search coaches...').fill('training');
+      await page.waitForTimeout(500);
 
-        await takeVisualScreenshot(page, 'user-library', 'favorites-filter');
-      }
+      await takeVisualScreenshot(page, 'user-library', 'search-results');
     });
 
-    test('library - category filter works', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+    test('discover - create coach button opens the coach editor modal', async ({ page }) => {
+      await navigateToTab(page, 'Discover');
       await waitForNetworkIdle(page);
 
-      const categoryFilter = page.locator('select, [role="combobox"], [role="tab"]');
-      if (await categoryFilter.first().isVisible().catch(() => false)) {
-        await categoryFilter.first().click();
-        await page.waitForTimeout(300);
+      await page.getByRole('button', { name: 'Create Coach' }).click();
+      await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeVisible();
 
-        await takeVisualScreenshot(page, 'user-library', 'category-filter');
-      }
-    });
+      await takeVisualScreenshot(page, 'user-library', 'editor-modal-open');
 
-    test('library - search coaches works', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
-      await waitForNetworkIdle(page);
-
-      const searchInput = page.locator('input[type="search"], input[placeholder*="Search"]');
-      if (await searchInput.first().isVisible().catch(() => false)) {
-        await searchInput.first().fill('training');
-        await page.waitForTimeout(500);
-
-        await takeVisualScreenshot(page, 'user-library', 'search-results');
-      }
-    });
-
-    test('library - create coach button opens the coach editor modal', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
-      await waitForNetworkIdle(page);
-
-      const createButton = page.getByRole('button', { name: /create|new|add/i });
-      if (await createButton.first().isVisible().catch(() => false)) {
-        await createButton.first().click();
-        await page.waitForTimeout(500);
-
-        await takeVisualScreenshot(page, 'user-library', 'editor-modal-open');
-
-        // Close the editor modal
-        const closeButton = page.getByRole('button', { name: /close|cancel|×/i });
-        if (await closeButton.first().isVisible().catch(() => false)) {
-          await closeButton.first().click();
-        }
-      }
+      await page.getByRole('button', { name: 'Close' }).click();
+      await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeHidden();
     });
   });
 
@@ -289,166 +253,38 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
   });
 
   // ========================================
-  // Friends (sub-view of Insights Tab)
+  // Insights + Friends (retired 2026-08-26)
   // ========================================
-  test.describe('Friends (Insights sub-view)', () => {
+  test.describe('Insights and Friends are gone', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'webtest');
     });
 
-    test('friends - displays friends list', async ({ page }) => {
-      await navigateToTab(page, 'Insights');
+    test('sidebar - no Insights or Friends destination', async ({ page }) => {
       await waitForNetworkIdle(page);
 
-      // Friends is a sub-view within Insights, accessed via the Friends button
-      const friendsButton = page.getByRole('button', { name: 'Friends' });
-      if (await friendsButton.isVisible().catch(() => false)) {
-        await friendsButton.click();
-        await waitForNetworkIdle(page);
-      }
+      // Unconditional: the old suites reached this surface behind
+      // `if (await button.isVisible())` guards, which is how a deleted tab
+      // could keep passing. The nav must hold the athlete tabs and nothing
+      // pointing at a feed.
+      const aside = page.locator('aside');
+      await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
+      await expect(aside.getByRole('button', { name: 'Groups' })).toBeVisible();
+      await expect(aside.getByRole('button', { name: 'Insights' })).toHaveCount(0);
+      await expect(aside.getByRole('button', { name: 'Friends' })).toHaveCount(0);
 
-      const mainContent = page.locator('main');
-      await expect(mainContent).toBeVisible();
-
-      await takeVisualScreenshot(page, 'user-friends', 'list');
+      await takeVisualScreenshot(page, 'user-nav', 'no-insights');
     });
 
-    test('friends - search users works', async ({ page }) => {
-      await navigateToTab(page, 'Insights');
+    test('stale #insights hash - lands on chat', async ({ page }) => {
+      await page.goto('/#insights');
       await waitForNetworkIdle(page);
 
-      const friendsButton = page.getByRole('button', { name: 'Friends' });
-      if (await friendsButton.isVisible().catch(() => false)) {
-        await friendsButton.click();
-        await waitForNetworkIdle(page);
-      }
+      await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText('No Insights Yet')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Find Friends' })).toHaveCount(0);
 
-      const searchInput = page.locator('input[type="search"], input[placeholder*="Search"]');
-      if (await searchInput.first().isVisible().catch(() => false)) {
-        await searchInput.first().fill('alice');
-        await page.waitForTimeout(500);
-
-        await takeVisualScreenshot(page, 'user-friends', 'search-results');
-      }
-    });
-
-    test('friends - pending tab shows requests', async ({ page }) => {
-      await navigateToTab(page, 'Insights');
-      await waitForNetworkIdle(page);
-
-      const friendsButton = page.getByRole('button', { name: 'Friends' });
-      if (await friendsButton.isVisible().catch(() => false)) {
-        await friendsButton.click();
-        await waitForNetworkIdle(page);
-      }
-
-      const pendingTab = page.locator('[role="tab"]:has-text("Pending"), button:has-text("Pending")');
-      if (await pendingTab.first().isVisible().catch(() => false)) {
-        await pendingTab.first().click();
-        await page.waitForTimeout(300);
-
-        await takeVisualScreenshot(page, 'user-friends', 'pending-tab');
-      }
-    });
-  });
-
-  // ========================================
-  // Insights Tab
-  // ========================================
-  test.describe('Insights Tab', () => {
-    test.beforeEach(async ({ page }) => {
-      await loginAsUser(page, 'webtest');
-    });
-
-    test('feed - displays insight cards', async ({ page }) => {
-      await navigateToTab(page, 'Insights');
-      await waitForNetworkIdle(page);
-
-      const mainContent = page.locator('main');
-      await expect(mainContent).toBeVisible();
-
-      await takeVisualScreenshot(page, 'user-feed', 'insights');
-    });
-
-    test('feed - reaction buttons visible', async ({ page }) => {
-      await navigateToTab(page, 'Insights');
-      await waitForNetworkIdle(page);
-
-      // Look for reaction buttons (emoji buttons)
-      await page.locator('button:has-text("👍"), button:has-text("🎉"), button:has-text("💪"), button:has-text("🤗")').first().isVisible().catch(() => false);
-
-      await takeVisualScreenshot(page, 'user-feed', 'reaction-buttons');
-    });
-
-    test('feed - clicking reaction records it', async ({ page }) => {
-      await navigateToTab(page, 'Insights');
-      await waitForNetworkIdle(page);
-
-      const reactionButton = page.locator('button:has-text("👍"), button:has-text("💪")').first();
-      if (await reactionButton.isVisible().catch(() => false)) {
-        await reactionButton.click();
-        await page.waitForTimeout(500);
-
-        await takeVisualScreenshot(page, 'user-feed', 'reaction-clicked');
-      }
-    });
-
-    test('feed - adapt button opens modal', async ({ page }) => {
-      await navigateToTab(page, 'Insights');
-      await waitForNetworkIdle(page);
-
-      const adaptButton = page.getByRole('button', { name: /adapt/i });
-      if (await adaptButton.first().isVisible().catch(() => false)) {
-        await adaptButton.first().click();
-        await page.waitForTimeout(500);
-
-        await takeVisualScreenshot(page, 'user-feed', 'adapt-modal');
-
-        // Close modal
-        const closeButton = page.getByRole('button', { name: /close|cancel|×/i });
-        if (await closeButton.first().isVisible().catch(() => false)) {
-          await closeButton.first().click();
-        }
-      }
-    });
-  });
-
-  // ========================================
-  // Social Settings Tab
-  // ========================================
-  test.describe('Social Settings Tab', () => {
-    test.beforeEach(async ({ page }) => {
-      await loginAsUser(page, 'webtest');
-    });
-
-    test('social settings - displays visibility options', async ({ page }) => {
-      // Navigate to settings via gear icon in bottom-left profile bar
-      const settingsGear = page.getByRole('button', { name: 'Settings', exact: true });
-      if (await settingsGear.first().isVisible().catch(() => false)) {
-        await settingsGear.first().click();
-        await waitForNetworkIdle(page);
-      }
-
-      // Look for social/privacy settings
-      await page.locator('text=Visibility, text=Privacy, text=Discoverable').first().isVisible().catch(() => false);
-
-      await takeVisualScreenshot(page, 'user-social-settings', 'options');
-    });
-
-    test('social settings - toggle discoverable', async ({ page }) => {
-      const settingsGear = page.getByRole('button', { name: 'Settings', exact: true });
-      if (await settingsGear.first().isVisible().catch(() => false)) {
-        await settingsGear.first().click();
-        await waitForNetworkIdle(page);
-      }
-
-      const toggle = page.locator('[role="switch"], input[type="checkbox"]').first();
-      if (await toggle.isVisible().catch(() => false)) {
-        await toggle.click();
-        await page.waitForTimeout(300);
-
-        await takeVisualScreenshot(page, 'user-social-settings', 'toggle-changed');
-      }
+      await takeVisualScreenshot(page, 'user-nav', 'stale-insights-hash');
     });
   });
 

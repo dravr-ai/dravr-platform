@@ -362,6 +362,6 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
   });
 
-  // Admin users do not have Friends or Insights tabs in sidebar navigation.
-  // Social features are only available to regular users via the Insights tab.
+  // Admin users navigate the operator console; the athlete tabs (Chat,
+  // Coaches, Discover, Groups) are covered by user-mode.visual.spec.ts.
 });

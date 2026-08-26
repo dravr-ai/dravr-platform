@@ -16,11 +16,11 @@ jest.mock('../src/services/api', () => ({
     sendTurn: jest.fn(),
   },
   coachesApi: {
-    listCoaches: jest.fn(),
-    getCoach: jest.fn(),
-    createCoach: jest.fn(),
-    updateCoach: jest.fn(),
-    deleteCoach: jest.fn(),
+    list: jest.fn(),
+    get: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
     toggleFavorite: jest.fn(),
     hide: jest.fn(),
     show: jest.fn(),
@@ -30,27 +30,22 @@ jest.mock('../src/services/api', () => ({
     getStatus: jest.fn(),
     initMobileOAuth: jest.fn(),
   },
-  socialApi: {
-    listFriends: jest.fn(),
-    getPendingRequests: jest.fn(),
-    getSocialFeed: jest.fn(),
-  },
   storeApi: {
     browse: jest.fn(),
     search: jest.fn(),
-    getStoreCoach: jest.fn(),
+    get: jest.fn(),
   },
   userApi: {
     getMcpTokens: jest.fn(),
     changePassword: jest.fn(),
-    getUserOAuthApps: jest.fn(),
+    getOAuthApps: jest.fn(),
   },
   apiClient: {},
   onAuthFailure: jest.fn(),
 }));
 
 // Import after mocks
-import { authApi, chatApi, coachesApi, oauthApi, socialApi, storeApi, userApi } from '../src/services/api';
+import { authApi, chatApi, coachesApi, oauthApi, storeApi, userApi } from '../src/services/api';
 
 describe('API Service', () => {
   beforeEach(() => {
@@ -88,24 +83,24 @@ describe('API Service', () => {
   });
 
   describe('coachesApi methods', () => {
-    it('should have listCoaches method', () => {
-      expect(typeof coachesApi.listCoaches).toBe('function');
+    it('should have list method', () => {
+      expect(typeof coachesApi.list).toBe('function');
     });
 
-    it('should have getCoach method', () => {
-      expect(typeof coachesApi.getCoach).toBe('function');
+    it('should have get method', () => {
+      expect(typeof coachesApi.get).toBe('function');
     });
 
-    it('should have createCoach method', () => {
-      expect(typeof coachesApi.createCoach).toBe('function');
+    it('should have create method', () => {
+      expect(typeof coachesApi.create).toBe('function');
     });
 
-    it('should have updateCoach method', () => {
-      expect(typeof coachesApi.updateCoach).toBe('function');
+    it('should have update method', () => {
+      expect(typeof coachesApi.update).toBe('function');
     });
 
-    it('should have deleteCoach method', () => {
-      expect(typeof coachesApi.deleteCoach).toBe('function');
+    it('should have delete method', () => {
+      expect(typeof coachesApi.delete).toBe('function');
     });
 
     it('should have toggleFavorite method', () => {
@@ -122,12 +117,6 @@ describe('API Service', () => {
 
     it('should have getHidden method', () => {
       expect(typeof coachesApi.getHidden).toBe('function');
-    });
-  });
-
-  describe('socialApi methods', () => {
-    it('should have listFriends method', () => {
-      expect(typeof socialApi.listFriends).toBe('function');
     });
   });
 

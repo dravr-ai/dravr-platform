@@ -733,9 +733,6 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         channel_type: &dispatch.channel,
         is_direct_message: !dispatch.is_group_chat,
         sender_id: Some(&dispatch.sender_id),
-        // Every inbound message here is a coaching turn; this surface has no
-        // structured-generation content it serves itself.
-        self_served_prefix: None,
         hooks,
     };
 
@@ -770,19 +767,6 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         ServedTurn::Pipeline(envelope) => *envelope,
         ServedTurn::Command { command, .. } => {
             send_plain_reply(&dispatch, &channel_config, &command.text).await;
-            return;
-        }
-        // Unreachable by construction and typed that way: `self_served_prefix`
-        // is `None` above, so the turn service has nothing to hand back for
-        // the caller to serve.
-        ServedTurn::CallerServed { .. } => {
-            error!("turn service returned a caller-served turn on a surface that asked for none");
-            report_dispatch_failure(
-                &dispatch,
-                &channel_config,
-                &AppError::internal("messaging turn produced no reply"),
-            )
-            .await;
             return;
         }
     };

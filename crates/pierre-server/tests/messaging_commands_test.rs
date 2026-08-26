@@ -26,6 +26,7 @@ mod command_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use chrono::Utc;
+    use pierre_core::models::coaches::Coach;
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
@@ -1688,6 +1689,7 @@ mod command_tests {
     };
     use pierre_commands::{CommandHandler, PlatformCommandContext};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+    use pierre_messaging::commands::CommandRegistry;
 
     /// Create a bare active user (no tenant/provider) for use as an additional
     /// group member. `coaching_group_members.user_id` is a FK to `users(id)`,
@@ -2332,5 +2334,624 @@ mod command_tests {
                 def.name
             );
         }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // /coach invite — one invite path behind two triggers, and the
+    // alias-aware matcher that lets `/coaches <subcommand>` reach it
+    // ════════════════════════════════════════════════════════════════
+
+    /// The real `commands/` catalogue loaded into a registry, the way the
+    /// server builds it at startup.
+    fn real_command_registry() -> CommandRegistry {
+        use pierre_commands::parser::load_command_catalog;
+        use std::path::Path;
+
+        let commands_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .map(|root| root.join("commands"))
+            .expect("repo root resolves from CARGO_MANIFEST_DIR"); // Safe: fixed repo layout
+        let defs = load_command_catalog(&commands_dir).definitions;
+        assert!(
+            !defs.is_empty(),
+            "commands/ catalog must load — otherwise this test asserts nothing"
+        );
+        let mut registry = CommandRegistry::new();
+        for def in defs {
+            assert!(
+                registry.register(def),
+                "duplicate command name in catalogue"
+            );
+        }
+        registry
+    }
+
+    /// `commands/coach/coach.md` aliases `/coach` as `/coaches`. The matcher
+    /// used to greedy-match over commands and aliases alike, so `/coaches
+    /// invite` matched the shorter `/coaches`, ran the list handler and
+    /// silently dropped `invite`. Every `/coach` subcommand must be reachable
+    /// through the alias, with its arguments intact.
+    #[test]
+    fn coaches_alias_reaches_every_coach_subcommand() {
+        use pierre_messaging::commands::CommandMatcher;
+
+        let registry = real_command_registry();
+        let matcher = CommandMatcher::from_registry(&registry);
+
+        for (text, expected_name, expected_args) in [
+            ("/coaches invite", "coach-invite", vec![]),
+            ("/coaches select 11111111-2222-3333-4444-555555555555", "coach-select", vec![
+                "11111111-2222-3333-4444-555555555555",
+            ]),
+            (
+                "/coaches assign 11111111-2222-3333-4444-555555555555 66666666-7777-8888-9999-000000000000",
+                "coach-assign",
+                vec![
+                    "11111111-2222-3333-4444-555555555555",
+                    "66666666-7777-8888-9999-000000000000",
+                ],
+            ),
+            ("/coach invite", "coach-invite", vec![]),
+            ("/coaches", "coach", vec![]),
+        ] {
+            let parsed = matcher
+                .try_match(text, &registry)
+                .unwrap_or_else(|| panic!("{text} must match a catalogue command"));
+            assert_eq!(parsed.name, expected_name, "{text} dispatched to the wrong handler");
+            assert_eq!(parsed.args, expected_args, "{text} lost or gained arguments");
+        }
+    }
+
+    /// Seed an owner with a group and return `(user_id, tenant_id, group_id)`.
+    async fn seed_owner_with_group(
+        resources: &ServerContext,
+        email: &str,
+        group_name: &str,
+    ) -> (Uuid, TenantId, Uuid) {
+        let (user_id, tenant_id) = create_test_user(resources, email).await;
+        let coach_id = seed_coach(resources, user_id, tenant_id, "Coach", "desc").await;
+        let gid =
+            create_group_row(resources, tenant_id, &coach_id, user_id, group_name, true).await;
+        add_group_member(
+            resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+        (user_id, tenant_id, gid)
+    }
+
+    /// Pull the invite code out of a rendered invite body (the `Code:` line).
+    fn invite_code_from(body: &str) -> String {
+        body.lines()
+            .find_map(|line| line.strip_prefix("Code: "))
+            .unwrap_or_else(|| panic!("no `Code:` line in invite body: {body}"))
+            .trim()
+            .to_owned()
+    }
+
+    /// `/coach invite` issued by an owner files a *coach*-kind invite for the
+    /// conversation's group through `GroupService` — the invite row carries
+    /// `kind = coach`, so whoever redeems it is attached as the human coach.
+    #[cfg(feature = "tools-groups")]
+    #[tokio::test]
+    async fn coach_invite_handler_files_a_coach_invite_for_admin() {
+        use pierre_commands::coach::CoachInviteHandler;
+        use pierre_core::models::groups::GroupInviteKind;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id, gid) =
+            seed_owner_with_group(&resources, "coachinviteok@test.com", "Morning Milers").await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/coach invite",
+            None,
+        );
+        let response = CoachInviteHandler.execute(&ctx).await.unwrap();
+
+        assert!(
+            response.text.starts_with("Coach invite for Morning Milers"),
+            "expected the coach-invite body naming the group, got: {}",
+            response.text
+        );
+        assert!(
+            response.text.contains("https://app.dravr.ai/groups/join/"),
+            "expected join link, got: {}",
+            response.text
+        );
+
+        let code = invite_code_from(&response.text);
+        let invite = resources
+            .common
+            .repos
+            .groups
+            .get_invite_by_code(&code)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("invite {code} must be persisted"));
+        assert_eq!(invite.kind, GroupInviteKind::Coach);
+        assert_eq!(invite.group_id, gid);
+        assert_eq!(invite.created_by, user_id);
+    }
+
+    /// `/group invite coach` and `/coach invite` are one implementation: both
+    /// produce a coach-kind invite for the same group with the same body.
+    #[cfg(feature = "tools-groups")]
+    #[tokio::test]
+    async fn group_invite_coach_and_coach_invite_share_one_path() {
+        use pierre_commands::coach::CoachInviteHandler;
+        use pierre_core::models::groups::GroupInviteKind;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id, gid) =
+            seed_owner_with_group(&resources, "coachinviteboth@test.com", "Trail Crew").await;
+
+        let via_group = GroupInviteHandler
+            .execute(&group_ctx(
+                &resources,
+                user_id,
+                tenant_id,
+                vec!["coach".to_owned()],
+                "/group invite coach",
+                None,
+            ))
+            .await
+            .unwrap();
+        let via_coach = CoachInviteHandler
+            .execute(&group_ctx(
+                &resources,
+                user_id,
+                tenant_id,
+                vec![],
+                "/coach invite",
+                None,
+            ))
+            .await
+            .unwrap();
+
+        for body in [&via_group.text, &via_coach.text] {
+            assert!(
+                body.starts_with("Coach invite for Trail Crew"),
+                "both triggers render the coach-invite body, got: {body}"
+            );
+            let invite = resources
+                .common
+                .repos
+                .groups
+                .get_invite_by_code(&invite_code_from(body))
+                .await
+                .unwrap()
+                .expect("invite persisted");
+            assert_eq!(invite.kind, GroupInviteKind::Coach);
+            assert_eq!(invite.group_id, gid);
+        }
+
+        // A plain `/group invite` still issues an athlete invite — the coach
+        // wording is reserved for the coach kind.
+        let member_invite = GroupInviteHandler
+            .execute(&group_ctx(
+                &resources,
+                user_id,
+                tenant_id,
+                vec![],
+                "/group invite",
+                None,
+            ))
+            .await
+            .unwrap();
+        assert!(
+            member_invite.text.starts_with("Invite link for Trail Crew"),
+            "got: {}",
+            member_invite.text
+        );
+        let invite = resources
+            .common
+            .repos
+            .groups
+            .get_invite_by_code(&invite_code_from(&member_invite.text))
+            .await
+            .unwrap()
+            .expect("invite persisted");
+        assert_eq!(invite.kind, GroupInviteKind::Member);
+    }
+
+    /// `/coach invite` is admin-only, exactly like `/group invite`: a plain
+    /// member is refused before any invite is generated.
+    #[tokio::test]
+    async fn coach_invite_handler_forbids_non_admin_member() {
+        use pierre_commands::coach::CoachInviteHandler;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "coachinviteno@test.com").await;
+        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let gid = create_group_row(
+            &resources,
+            tenant_id,
+            &coach_id,
+            user_id,
+            "Morning Milers",
+            true,
+        )
+        .await;
+        add_group_member(
+            &resources,
+            gid,
+            user_id,
+            tenant_id,
+            GroupRole::Member,
+            None,
+            false,
+        )
+        .await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/coach invite",
+            None,
+        );
+        let response = CoachInviteHandler.execute(&ctx).await.unwrap();
+
+        assert_eq!(
+            response.text, "Only admins and owners can generate invite links.",
+            "non-admin coach invite must be refused"
+        );
+        assert!(
+            !response.text.contains("Code:"),
+            "no invite may be generated for a refused caller"
+        );
+    }
+
+    /// End to end through the dispatcher every chat surface uses: `/coaches
+    /// invite` typed with the alias reaches the `coach-invite` handler and
+    /// files a coach invite — not the list handler with `invite` as an
+    /// argument.
+    #[cfg(feature = "tools-groups")]
+    #[tokio::test]
+    async fn dispatching_coaches_invite_runs_the_invite_handler() {
+        use pierre_commands::coach::{CoachInviteHandler, CoachListHandler};
+        use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+        use pierre_commands::CommandHandlerRegistry;
+        use pierre_core::models::groups::GroupInviteKind;
+        use pierre_runtime_context::CommandCtx;
+        use pierre_tool_runtime::runtime::ToolRuntime;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id, gid) =
+            seed_owner_with_group(&resources, "coachinvitedispatch@test.com", "Dispatch Club")
+                .await;
+
+        let command_registry = Arc::new(real_command_registry());
+        let mut handlers = CommandHandlerRegistry::new();
+        handlers.register("coach", Arc::new(CoachListHandler));
+        handlers.register("coach-invite", Arc::new(CoachInviteHandler));
+        let handlers = Arc::new(handlers);
+        let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
+        let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
+
+        let outcome = try_dispatch(DispatchRequest {
+            ctx: &ctx,
+            command_registry: &command_registry,
+            command_handler_registry: &handlers,
+            user_id,
+            tenant_id,
+            channel_type: "telegram",
+            locale: "en",
+            is_direct_message: false,
+            conversation_id: None,
+            conversation_tenant_id: tenant_id,
+            sender_id: None,
+            text: "/coaches invite",
+            tool_runtime: &tool_runtime,
+        })
+        .await
+        .unwrap();
+
+        let DispatchOutcome::Executed {
+            command_name,
+            response,
+        } = outcome
+        else {
+            panic!("/coaches invite must execute a registered command");
+        };
+        assert_eq!(command_name, "coach-invite");
+        assert!(
+            response.text.starts_with("Coach invite for Dispatch Club"),
+            "got: {}",
+            response.text
+        );
+        let invite = resources
+            .common
+            .repos
+            .groups
+            .get_invite_by_code(&invite_code_from(&response.text))
+            .await
+            .unwrap()
+            .expect("invite persisted");
+        assert_eq!(invite.kind, GroupInviteKind::Coach);
+        assert_eq!(invite.group_id, gid);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // /coach invite @handle — the targeted invite
+    // ════════════════════════════════════════════════════════════════
+
+    /// Publish a catalogue coach under a fresh author and install it for
+    /// `user_id`; returns the athlete's installed copy.
+    async fn install_recovery_coach(
+        resources: &ServerContext,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> Coach {
+        use crate::helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
+
+        let (author_id, author_tenant) =
+            create_test_user(resources, &format!("author-{user_id}@test.com")).await;
+        let origin = publish_catalogue_coach(
+            &resources.common.repos,
+            author_id,
+            author_tenant,
+            "Recovery Coach",
+            "You are the recovery coach.",
+        )
+        .await;
+        install_catalogue_coach(&resources.common.repos, origin, user_id, tenant_id).await
+    }
+
+    /// A DM conversation for the caller, so the handler has a row to bind.
+    async fn dm_conversation(
+        resources: &ServerContext,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> String {
+        resources
+            .common
+            .repos
+            .chat
+            .create_conversation(
+                &user_id.to_string(),
+                tenant_id,
+                "Coach invite DM",
+                "test-model",
+                None,
+                None,
+            )
+            .await
+            .unwrap()
+            .id
+    }
+
+    /// The coach the conversation row is bound to, read back from the store.
+    async fn conversation_coach(
+        resources: &ServerContext,
+        conversation_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> Option<String> {
+        resources
+            .common
+            .repos
+            .chat
+            .get_conversation(conversation_id, &user_id.to_string(), tenant_id)
+            .await
+            .unwrap()
+            .expect("the conversation exists")
+            .coach_id
+    }
+
+    /// `/coach invite @handle` resolves the caller's installed coach and
+    /// attaches it exactly as `/coach select <id>` does: the selection pointer
+    /// moves and the conversation the command was typed in is rebound. No
+    /// invite code is minted.
+    #[tokio::test]
+    async fn coach_invite_handle_selects_the_installed_coach_and_binds_the_conversation() {
+        use pierre_commands::coach::CoachInviteHandler;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "coachinvitehandle@test.com").await;
+        let installed = install_recovery_coach(&resources, user_id, tenant_id).await;
+        let installed_id = installed.id.to_string();
+        assert_eq!(installed.handle.as_deref(), Some("recovery-coach"));
+        let conversation_id = dm_conversation(&resources, user_id, tenant_id).await;
+        assert_eq!(
+            conversation_coach(&resources, &conversation_id, user_id, tenant_id).await,
+            None,
+            "fixture precondition: no coach bound before the command"
+        );
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["@recovery-coach".to_owned()],
+            "/coach invite @recovery-coach",
+            Some(conversation_id.clone()),
+        );
+        let response = CoachInviteHandler.execute(&ctx).await.unwrap();
+
+        assert_eq!(response.text, "Coach selected: Recovery Coach.");
+        assert!(
+            !response.text.contains("Code:"),
+            "the targeted form never mints an invite code: {}",
+            response.text
+        );
+        assert_eq!(
+            conversation_coach(&resources, &conversation_id, user_id, tenant_id)
+                .await
+                .as_deref(),
+            Some(installed_id.as_str()),
+            "the conversation is bound to the caller's installed copy"
+        );
+        assert_eq!(
+            resources
+                .common
+                .repos
+                .tenants
+                .get_selected_coach(tenant_id, user_id)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(installed_id.as_str()),
+            "the selection pointer moves, as /coach select moves it"
+        );
+    }
+
+    /// A handle that names no installed coach — unknown, or a catalogue coach
+    /// the caller never installed, with or without its `@` — is refused by
+    /// name in the caller's locale, and nothing else happens: no code, no
+    /// pointer, no rebind.
+    #[tokio::test]
+    async fn coach_invite_unknown_handle_is_refused_by_name_and_mints_nothing() {
+        use crate::helpers::coach_fixtures::publish_catalogue_coach;
+        use pierre_commands::coach::CoachInviteHandler;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) =
+            create_test_user(&resources, "coachinviteunknown@test.com").await;
+        let (author_id, author_tenant) =
+            create_test_user(&resources, "coachinviteunknown-author@test.com").await;
+        // Published, so `strength-coach` exists in the catalogue — but the
+        // caller never installed it.
+        publish_catalogue_coach(
+            &resources.common.repos,
+            author_id,
+            author_tenant,
+            "Strength Coach",
+            "You are the strength coach.",
+        )
+        .await;
+        let conversation_id = dm_conversation(&resources, user_id, tenant_id).await;
+
+        for (typed, expected) in [
+            (
+                "@nobody-here",
+                "No installed coach answers to @nobody-here. Type /coach to see your coach list.",
+            ),
+            (
+                "@strength-coach",
+                "No installed coach answers to @strength-coach. Type /coach to see your coach list.",
+            ),
+            (
+                "strength-coach",
+                "No installed coach answers to @strength-coach. Type /coach to see your coach list.",
+            ),
+        ] {
+            let ctx = group_ctx(
+                &resources,
+                user_id,
+                tenant_id,
+                vec![typed.to_owned()],
+                &format!("/coach invite {typed}"),
+                Some(conversation_id.clone()),
+            );
+            let response = CoachInviteHandler.execute(&ctx).await.unwrap();
+            assert_eq!(response.text, expected, "typed {typed}");
+            assert!(!response.text.contains("Code:"), "no code for {typed}");
+        }
+
+        // French, the platform default locale.
+        let mut ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["@nobody-here".to_owned()],
+            "/coach invite @nobody-here",
+            Some(conversation_id.clone()),
+        );
+        ctx.locale = "fr".to_owned();
+        let response = CoachInviteHandler.execute(&ctx).await.unwrap();
+        assert_eq!(
+            response.text,
+            "Aucun coach installé ne répond à @nobody-here. Tape /coach pour voir ta liste de coachs."
+        );
+
+        assert_eq!(
+            conversation_coach(&resources, &conversation_id, user_id, tenant_id).await,
+            None,
+            "nothing was bound"
+        );
+        assert_eq!(
+            resources
+                .common
+                .repos
+                .tenants
+                .get_selected_coach(tenant_id, user_id)
+                .await
+                .unwrap(),
+            None,
+            "nothing was selected"
+        );
+    }
+
+    /// `/coaches invite @handle` — the alias, with the argument — reaches the
+    /// invite handler with the handle intact, through the dispatcher every
+    /// chat surface uses.
+    #[tokio::test]
+    async fn dispatching_coaches_invite_with_a_handle_selects_the_coach() {
+        use pierre_commands::coach::{CoachInviteHandler, CoachListHandler};
+        use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+        use pierre_commands::CommandHandlerRegistry;
+        use pierre_runtime_context::CommandCtx;
+        use pierre_tool_runtime::runtime::ToolRuntime;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "coachinvitealias@test.com").await;
+        let installed = install_recovery_coach(&resources, user_id, tenant_id).await;
+        let installed_id = installed.id.to_string();
+        let conversation_id = dm_conversation(&resources, user_id, tenant_id).await;
+
+        let command_registry = Arc::new(real_command_registry());
+        let mut handlers = CommandHandlerRegistry::new();
+        handlers.register("coach", Arc::new(CoachListHandler));
+        handlers.register("coach-invite", Arc::new(CoachInviteHandler));
+        let handlers = Arc::new(handlers);
+        let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
+        let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
+
+        let outcome = try_dispatch(DispatchRequest {
+            ctx: &ctx,
+            command_registry: &command_registry,
+            command_handler_registry: &handlers,
+            user_id,
+            tenant_id,
+            channel_type: "telegram",
+            locale: "en",
+            is_direct_message: true,
+            conversation_id: Some(&conversation_id),
+            conversation_tenant_id: tenant_id,
+            sender_id: None,
+            text: "/coaches invite @recovery-coach",
+            tool_runtime: &tool_runtime,
+        })
+        .await
+        .unwrap();
+
+        let DispatchOutcome::Executed {
+            command_name,
+            response,
+        } = outcome
+        else {
+            panic!("/coaches invite @recovery-coach must execute a registered command");
+        };
+        assert_eq!(command_name, "coach-invite");
+        assert_eq!(response.text, "Coach selected: Recovery Coach.");
+        assert_eq!(
+            conversation_coach(&resources, &conversation_id, user_id, tenant_id)
+                .await
+                .as_deref(),
+            Some(installed_id.as_str()),
+            "the alias binds the same conversation the canonical spelling binds"
+        );
     }
 }

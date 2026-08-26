@@ -1,5 +1,5 @@
-# ABOUTME: Test navigation from Discover screen
-# ABOUTME: Converted from store.test.js "navigation" tests
+# ABOUTME: Test navigation from Discover to the coach library and back
+# ABOUTME: Converted from store.test.js "navigation" tests; the library sits under Discover, not a tab
 
 appId: ai.dravr.app
 
@@ -14,9 +14,13 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Test: should navigate to Coaches tab from store
+# Test: should open the coach library from the installed-coaches strip
+- extendedWaitUntil:
+    visible:
+      id: "manage-coaches-button"
+    timeout: 15000
 - tapOn:
-    id: "tab-coaches"
+    id: "manage-coaches-button"
 
 # Should see coach library
 - extendedWaitUntil:
@@ -24,9 +28,9 @@ appId: ai.dravr.app
       id: "coach-library-screen"
     timeout: 5000
 
-# Navigate back to store via Discover tab
+# Navigate back to the store with the library's back button
 - tapOn:
-    id: "tab-discover"
+    id: "back-button"
 
 - extendedWaitUntil:
     visible:

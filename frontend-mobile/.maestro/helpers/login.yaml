@@ -1,5 +1,5 @@
 # ABOUTME: Helper flow to perform login with test credentials
-# ABOUTME: Logs in using mobiletest@pierre.dev / MobileTest1234 and waits for chat screen
+# ABOUTME: Logs in using mobiletest@pierre.dev / MobileTest1234 and waits for the conversation list the app lands on
 
 appId: host.exp.Exponent
 
@@ -59,10 +59,11 @@ appId: host.exp.Exponent
       visible: "Save Password?"
     file: dismiss-save-password.yaml
 
-# Wait for chat screen to appear after navigation transition.
-# 60s timeout provides ample margin for slow CI environments where
-# Expo Router tree swap and ChatScreen mount may take time.
+# Wait for the conversation list — the chat tab's index and where the app
+# lands after login. A flow that needs the composer opens a thread from here
+# with new-chat.yaml. 60s timeout provides ample margin for slow CI
+# environments where the Expo Router tree swap may take time.
 - extendedWaitUntil:
     visible:
-      id: "chat-screen"
+      id: "conversations-screen"
     timeout: 60000

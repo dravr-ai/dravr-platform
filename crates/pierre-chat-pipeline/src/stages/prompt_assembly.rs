@@ -18,7 +18,7 @@ use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::{
-    CoachRuntimeContext, CoachingPersona, MemberFitnessSnapshot, OnboardingState, TenantId,
+    CoachRuntimeContext, CoachingPersona, MemberFitnessSnapshot, OnboardingState,
 };
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
@@ -552,7 +552,7 @@ pub(crate) type AssembledPrompt = (
     fields(
         turn_id = %input.turn_id,
         channel = profile.surface.as_str(),
-        coach_id = conv.coach_id.as_deref().unwrap_or("none"),
+        coach_id = input.turn_coach_id(conv).unwrap_or("none"),
         history_len = history.len(),
         prompt_len = field::Empty,
         msg_count = field::Empty,
@@ -695,6 +695,12 @@ pub(crate) async fn assemble_prompt_and_messages(
     )
     .await;
 
+    // Every per-coach block below follows the coach answering this turn — the
+    // mentioned coach on a `@handle` turn — so a routed turn carries that
+    // coach's playbooks, followups and plan, not another coach's under its
+    // persona.
+    let turn_coach_id = input.turn_coach_id(conv);
+
     // Stage 7e.2: Inject the athlete's proven coaching playbooks (learned from
     // their own outcomes) so the coach prefers what has worked for them. Scoped
     // to the TOOL tenant — where the activity data and playbooks live.
@@ -704,7 +710,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         ctx.repos.activity_cache.as_ref(),
         &playbook_tenant,
         &input.user_id,
-        conv.coach_id.as_deref(),
+        turn_coach_id,
         base_prompt,
     )
     .await;
@@ -715,7 +721,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         &ctx.data,
         input.conversation_tenant_id,
         &input.user_id,
-        conv.coach_id.as_deref(),
+        turn_coach_id,
         base_prompt,
     )
     .await;
@@ -753,7 +759,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         ctx.repos.training_plans.as_ref(),
         &input.tool_tenant_id.to_string(),
         &input.user_id,
-        conv.coach_id.as_deref(),
+        turn_coach_id,
         athlete_today,
         onboarding.is_some(),
         base_prompt,
@@ -952,10 +958,11 @@ pub(crate) async fn assemble_prompt_and_messages(
     let raw_system_prompt =
         close_with_anchors(&raw_system_prompt, coach_ctx.map(|c| c.slug.as_str()));
 
-    // Stage 7h: Harden the prompt with a per-turn canary.
+    // Stage 7h: Harden the prompt with a per-turn canary. Salted with the coach
+    // answering this turn, which is also what the reply scan reads.
     let prompt_guard = prompt_leak::harden_system_prompt(
         input.conversation_tenant_id,
-        conv.coach_id.as_deref(),
+        turn_coach_id,
         &raw_system_prompt,
     );
 
@@ -1020,17 +1027,26 @@ pub(crate) async fn assemble_prompt_and_messages(
     ))
 }
 
-/// Resolve the coach runtime context for a conversation, if it has a coach.
-pub(crate) async fn resolve_coach_ctx(
+/// Resolve the coach runtime context this turn answers as.
+///
+/// A mentioned coach arrives with its context already resolved — in the
+/// athlete's own tenant, where the install lives, so a `@handle` turn on a
+/// shared messaging room reads the athlete's copy rather than looking for it
+/// under the bot's tenant. Otherwise the conversation's bound coach resolves
+/// under the conversation's tenant, as every turn did before mentions existed.
+pub(crate) async fn resolve_turn_coach_ctx(
     ctx: &ChatPipelineContext,
+    input: &TurnInput,
     conv: &ConversationRecord,
-    tenant_id: TenantId,
 ) -> AppResult<Option<CoachRuntimeContext>> {
+    if let Some(mention) = &input.mentioned_coach {
+        return Ok(Some(mention.runtime.clone()));
+    }
     match conv.coach_id.as_deref() {
         Some(coach_id) => {
             ctx.repos
                 .coaches
-                .get_coach_runtime_context(coach_id, tenant_id)
+                .get_coach_runtime_context(coach_id, input.conversation_tenant_id)
                 .await
         }
         None => Ok(None),

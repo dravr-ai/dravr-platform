@@ -11,12 +11,8 @@ import { chatApi, providersApi, coachesApi, oauthApi } from '../services/api';
 import { holdIdleWhileBusy, idleSignal } from '../services/api/idleSignal';
 import { track } from '../services/analytics';
 import PromptSuggestions from './PromptSuggestions';
-import { MessageCircle, Plus, Sparkles } from 'lucide-react';
-import {
-  createInsightPrompt,
-  statusTextForProgress,
-  trustedActionUrl,
-} from '@pierre/chat-utils';
+import { MessageCircle, Sparkles } from 'lucide-react';
+import { statusTextForProgress, trustedActionUrl } from '@pierre/chat-utils';
 import {
   MessageList,
   MessageInput,
@@ -24,6 +20,8 @@ import {
   CoachFormModal,
   CreateCoachFromConversationModal,
   ConversationParticipants,
+  ChatComposeMenu,
+  GroupChatPicker,
   DEFAULT_COACH_FORM_DATA,
   coachToFormData,
   formDataToCreateRequest,
@@ -33,7 +31,6 @@ import VerdictDrawer from './chat/VerdictDrawer';
 import UsageWarningBanner from './chat/UsageWarningBanner';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { useUsageStatus } from '../hooks/useUsageStatus';
-import ShareChatMessageModal from './social/ShareChatMessageModal';
 import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { replySceneBlocks } from '@pierre/api-client';
@@ -54,10 +51,14 @@ import type { MessageFeedbackEntry } from '@pierre/shared-types';
 interface ChatTabProps {
   selectedConversation: string | null;
   onSelectConversation: (id: string | null) => void;
-  onNavigateToInsights?: () => void;
+  /**
+   * Dashboard route navigator, `tab[/subview]`. The group picker sends an
+   * athlete who belongs to no group to the Groups surface through it.
+   */
+  onNavigate?: (route: string) => void;
 }
 
-export default function ChatTab({ selectedConversation, onSelectConversation, onNavigateToInsights }: ChatTabProps) {
+export default function ChatTab({ selectedConversation, onSelectConversation, onNavigate }: ChatTabProps) {
   const queryClient = useQueryClient();
   const showSuccessToast = useSuccessToast();
   const showInfoToast = useInfoToast();
@@ -91,9 +92,10 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [coachFormData, setCoachFormData] = useState<CoachFormData>(DEFAULT_COACH_FORM_DATA);
   const [coachDeleteConfirmation, setCoachDeleteConfirmation] = useState<CoachDeleteConfirmation | null>(null);
   const [showCreateCoachFromConversation, setShowCreateCoachFromConversation] = useState(false);
-  const [showShareToFeedModal, setShowShareToFeedModal] = useState(false);
-  const [shareToFeedContent, setShareToFeedContent] = useState('');
-  const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+  // The "+" menu's two sheets: the group picker, and the open thread's
+  // participants control ("Add someone to this discussion").
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
+  const [participantsOpen, setParticipantsOpen] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -288,8 +290,10 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     });
   }, [selectedConversation, messagesData, queryClient]);
 
-  // Focus input when conversation is selected
+  // Focus input when conversation is selected; a participants panel left
+  // open belongs to the previous thread, so it closes with it.
   useEffect(() => {
+    setParticipantsOpen(false);
     if (selectedConversation) {
       inputRef.current?.focus();
     }
@@ -699,41 +703,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }
   }, [showInfoToast]);
 
-  const handleShareToFeed = useCallback((content: string) => {
-    setShareToFeedContent(content);
-    setShowShareToFeedModal(true);
-  }, []);
-
-  const handleCreateInsight = useCallback(async (content: string) => {
-    if (isGeneratingInsight || !selectedConversation || isStreaming) return;
-
-    setIsGeneratingInsight(true);
-    setIsStreaming(true); // Show "Thinking..." indicator
-    setStreamingContent('');
-    setErrorMessage(null);
-
-    // Create the insight prompt (will be hidden from display by the filter)
-    const insightPrompt = createInsightPrompt(content);
-
-    // The same transport as every other turn. This send used to build its own
-    // request with its own header set — no client-platform, no AG-UI run —
-    // which is how a header the server added reached the chat composer and
-    // not this button.
-    await chatApi.sendTurn(selectedConversation, insightPrompt, {
-      // Refresh messages to show the generated insight. Insights are one-shot
-      // JSON on a self-served path, so the reply is read back from history
-      // rather than folded in from the envelope.
-      onDone: () => {
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
-      },
-      onError: error => setErrorMessage(error.message),
-    });
-
-    setIsGeneratingInsight(false);
-    setIsStreaming(false);
-    setStreamingContent('');
-  }, [isGeneratingInsight, selectedConversation, isStreaming, queryClient]);
-
   // Apply a rating change optimistically and persist it. Clicking the active
   // rating again toggles it off (DELETE); otherwise the rating is upserted.
   // On failure the optimistic change is reverted and an error surfaced.
@@ -899,15 +868,11 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                   : 'No provider connected'
               }
               actions={
-                <button
-                  onClick={() => createConversation.mutate()}
+                <ChatComposeMenu
+                  onNewChat={() => createConversation.mutate()}
+                  onNewGroupChat={() => setShowGroupPicker(true)}
                   disabled={createConversation.isPending}
-                  className="rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient hover:shadow-ambient disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                  title="New Chat"
-                  aria-label="New Chat"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+                />
               }
             />
 
@@ -974,7 +939,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
           {/* Usage warning banner */}
           <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
 
-          {/* Conversation Header: coach or conversation title (left) + participants / Create Coach (right) */}
+          {/* Conversation Header: coach or conversation title (left) + "+" / participants / Create Coach (right) */}
           <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-between gap-3">
             <div className="min-w-0 flex items-center gap-2">
               {activeCoachTitle && (
@@ -989,7 +954,17 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
               </span>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              <ConversationParticipants conversationId={selectedConversation} />
+              <ChatComposeMenu
+                onNewChat={() => createConversation.mutate()}
+                onNewGroupChat={() => setShowGroupPicker(true)}
+                onAddParticipant={() => setParticipantsOpen(true)}
+                disabled={createConversation.isPending}
+              />
+              <ConversationParticipants
+                conversationId={selectedConversation}
+                open={participantsOpen}
+                onOpenChange={setParticipantsOpen}
+              />
               {(messagesData?.messages?.length ?? 0) >= 2 && (
                 <button
                   onClick={() => setShowCreateCoachFromConversation(true)}
@@ -1011,7 +986,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 messageFeedback={messageFeedback}
                 messageFeedbackComment={messageFeedbackComment}
                 messageBlocks={messageBlocks}
-                insightMessageIds={new Set<string>()}
                 verdicts={verdicts}
                 assistantLabel={activeCoachTitle ?? undefined}
                 isLoading={messagesLoading}
@@ -1024,8 +998,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 onDismissOAuthNotification={() => setOauthNotification(null)}
                 onCopyMessage={handleCopyMessage}
                 onShareMessage={handleShareMessage}
-                onShareToFeed={handleShareToFeed}
-                onCreateInsight={handleCreateInsight}
                 onThumbsUp={handleThumbsUp}
                 onThumbsDown={handleThumbsDown}
                 onSubmitFeedbackReason={handleSubmitFeedbackReason}
@@ -1053,6 +1025,13 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       </div>
 
       {/* Modals and Dialogs */}
+      <GroupChatPicker
+        isOpen={showGroupPicker}
+        onClose={() => setShowGroupPicker(false)}
+        onStarted={onSelectConversation}
+        onGoToGroups={onNavigate ? () => onNavigate('groups') : undefined}
+      />
+
       <ProviderConnectionModal
         isOpen={showProviderModal}
         onClose={handleProviderModalClose}
@@ -1097,16 +1076,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
           }}
         />
       )}
-
-      <ShareChatMessageModal
-        isOpen={showShareToFeedModal}
-        onClose={() => setShowShareToFeedModal(false)}
-        content={shareToFeedContent}
-        onSuccess={() => {
-          setShowShareToFeedModal(false);
-          onNavigateToInsights?.();
-        }}
-      />
 
       {selectedVerdict ? (
         <VerdictDrawer

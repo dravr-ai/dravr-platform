@@ -70,7 +70,11 @@ export function resolveNotificationDestination(
   const surface = surfaceById(NOTIFICATION_SCREEN_SURFACES[screen]);
   if (!surface) return null;
 
-  if (surface.id === 'chat' && typeof data?.id === 'string') {
+  // Only the coach screen names a conversation in `id`. Every training screen
+  // (activity, recovery, stats …) also opens the chat surface now that the
+  // Insights tab is gone, but their `id` is the activity or alert itself —
+  // reading it as a thread would open a conversation that does not exist.
+  if (screen === 'coach' && typeof data?.id === 'string') {
     return { surface, conversationId: data.id };
   }
   return { surface };
@@ -95,7 +99,11 @@ export function webNotificationRoute(
 
 /** An expo-router navigation target: a grouped pathname plus optional params. */
 export interface NotificationNavTarget {
-  /** The grouped pathname, e.g. `/(app)/(tabs)/(chat)`. */
+  /**
+   * The grouped pathname, e.g. `/(app)/(tabs)/(chat)` — or, for a coach
+   * message that names its conversation, the thread route beneath it,
+   * `/(app)/(tabs)/(chat)/[conversationId]`.
+   */
   pathname: string;
   /** Route params, e.g. the conversation a coach message reopens. */
   params?: Record<string, string>;
@@ -117,5 +125,9 @@ export function mobileNotificationTarget(
 
   const { surface, conversationId } = destination;
   const pathname = surface.mobile as string;
-  return conversationId ? { pathname, params: { conversationId } } : { pathname };
+  // The chat tab lands on the conversation list since the Chat-First Cutover;
+  // a named conversation opens the thread route beneath it, not the list.
+  return conversationId
+    ? { pathname: `${pathname}/[conversationId]`, params: { conversationId } }
+    : { pathname };
 }

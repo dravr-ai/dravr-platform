@@ -258,162 +258,9 @@ async function setupAdditionalMocks(page: Page): Promise<void> {
 }
 
 /**
- * Setup social feature mocks for visual tests.
+ * Setup coach + store catalogue mocks for visual tests.
  */
-async function setupSocialMocks(page: Page): Promise<void> {
-  // Mock friends list - check URL to handle both /friends and /friends/pending
-  // NOTE: Playwright matches routes in REVERSE order (last registered first)
-  await page.route('**/api/social/friends**', async (route) => {
-    const url = route.request().url();
-
-    // Handle /pending requests
-    if (url.includes('/pending')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          received: [],
-          sent: [],
-          metadata: {
-            timestamp: new Date().toISOString(),
-            api_version: '1.0',
-          },
-        }),
-      });
-      return;
-    }
-
-    // Handle regular friends list
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        friends: [
-          {
-            id: 'connection-1',
-            initiator_id: 'user-123',
-            receiver_id: 'friend-1',
-            status: 'accepted',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            accepted_at: new Date().toISOString(),
-            friend_display_name: 'Mobile Test User',
-            friend_email: 'mobiletest@pierre.dev',
-            friend_user_id: 'friend-1',
-          },
-        ],
-        total: 1,
-        metadata: {
-          timestamp: new Date().toISOString(),
-          api_version: '1.0',
-        },
-      }),
-    });
-  });
-
-  // Mock social feed with correct format (items array, not insights)
-  await page.route('**/api/social/feed**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        items: [
-          {
-            insight: {
-              id: 'insight-1',
-              user_id: 'friend-1',
-              visibility: 'friends',
-              insight_type: 'achievement',
-              sport_type: 'running',
-              content: 'Just completed a great tempo run! Feeling strong.',
-              title: 'Tempo Run PR',
-              training_phase: 'build',
-              reaction_count: 3,
-              adapt_count: 1,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              expires_at: null,
-              source_activity_id: null,
-              coach_generated: false,
-            },
-            author: {
-              user_id: 'friend-1',
-              display_name: 'Mobile Test User',
-              email: 'mobiletest@pierre.dev',
-            },
-            reactions: {
-              like: 2,
-              celebrate: 1,
-              inspire: 0,
-              support: 0,
-              total: 3,
-            },
-            user_reaction: null,
-            user_has_adapted: false,
-          },
-        ],
-        next_cursor: null,
-        has_more: false,
-      }),
-    });
-  });
-
-  // Mock insight suggestions for Social Feed
-  await page.route('**/api/social/insights/suggestions**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        suggestions: [],
-      }),
-    });
-  });
-
-  // Mock social settings
-  await page.route('**/api/social/settings**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        default_visibility: 'friends',
-        discoverable: true,
-        notify_reactions: true,
-        notify_friend_requests: true,
-      }),
-    });
-  });
-
-  // Mock user search
-  await page.route('**/api/social/users/search**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        users: [
-          { user_id: 'alice-1', display_name: 'Alice Johnson', is_friend: false, has_pending_request: false },
-        ],
-      }),
-    });
-  });
-
-  // Mock adapted insights
-  await page.route('**/api/social/adapted-insights**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ insights: [] }),
-    });
-  });
-
-  // Mock reactions endpoint
-  await page.route('**/api/social/insights/*/reactions', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true }),
-    });
-  });
-
+async function setupCatalogueMocks(page: Page): Promise<void> {
   // Mock coaches list - matches ListCoachesResponse interface
   await page.route('**/api/coaches**', async (route) => {
     await route.fulfill({
@@ -494,8 +341,8 @@ export async function loginAsUser(
   // Setup additional API mocks (monitor, admin coaches, etc.)
   await setupAdditionalMocks(page);
 
-  // Setup social mocks
-  await setupSocialMocks(page);
+  // Setup coach + store catalogue mocks
+  await setupCatalogueMocks(page);
 
   // Login through the form
   await loginToDashboard(page, { email: user.email, password: 'TestPassword123!' });

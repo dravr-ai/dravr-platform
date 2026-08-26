@@ -1,4 +1,4 @@
-// ABOUTME: Notification triggers for intelligence events, social interactions, and coach communications
+// ABOUTME: Notification triggers for intelligence events, coach communications, and sync failures
 // ABOUTME: All fire-and-forget via tokio::spawn — failures logged at WARN, never block the caller
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -200,113 +200,6 @@ pub fn trigger_fitness_improvement(
         title: "Fitness improvement detected".to_owned(),
         body: format!("Your {metric_name} increased to {value_display}"),
         data: Some(json!({ "screen": "stats" })),
-        image_url: None,
-        actions: None,
-        bypass_frequency_cap: false,
-    };
-    spawn_dispatch(Arc::clone(service), request);
-}
-
-// ============================================================================
-// Social Triggers
-// ============================================================================
-
-/// Trigger notification when a user receives a friend request.
-pub fn trigger_friend_request_received(
-    service: &Arc<NotificationService>,
-    receiver_id: Uuid,
-    tenant_id: TenantId,
-    request_id: &str,
-    sender_name: &str,
-) {
-    let request = DispatchRequest {
-        user_id: receiver_id,
-        tenant_id,
-        category: NotificationCategory::Social,
-        notification_type: "friend_request_received".to_owned(),
-        title: "Friend request".to_owned(),
-        body: format!("{sender_name} wants to connect"),
-        data: Some(json!({ "screen": "social", "action": "friend_request", "id": request_id })),
-        image_url: None,
-        actions: Some(vec![
-            NotificationAction {
-                id: "accept".to_owned(),
-                title: "Accept".to_owned(),
-                action_type: NotificationActionType::AcceptDecline,
-            },
-            NotificationAction {
-                id: "decline".to_owned(),
-                title: "Decline".to_owned(),
-                action_type: NotificationActionType::AcceptDecline,
-            },
-        ]),
-        bypass_frequency_cap: false,
-    };
-    spawn_dispatch(Arc::clone(service), request);
-}
-
-/// Trigger notification when a friend request is accepted.
-pub fn trigger_friend_request_accepted(
-    service: &Arc<NotificationService>,
-    initiator_id: Uuid,
-    tenant_id: TenantId,
-    accepter_name: &str,
-) {
-    let request = DispatchRequest {
-        user_id: initiator_id,
-        tenant_id,
-        category: NotificationCategory::Social,
-        notification_type: "friend_request_accepted".to_owned(),
-        title: "Connection accepted".to_owned(),
-        body: format!("{accepter_name} accepted your connection"),
-        data: Some(json!({ "screen": "social" })),
-        image_url: None,
-        actions: None,
-        bypass_frequency_cap: false,
-    };
-    spawn_dispatch(Arc::clone(service), request);
-}
-
-/// Trigger notification when someone reacts to or gives kudos on an insight.
-pub fn trigger_activity_kudos(
-    service: &Arc<NotificationService>,
-    insight_owner_id: Uuid,
-    tenant_id: TenantId,
-    insight_id: &str,
-    reactor_name: &str,
-    insight_type: &str,
-) {
-    let request = DispatchRequest {
-        user_id: insight_owner_id,
-        tenant_id,
-        category: NotificationCategory::Social,
-        notification_type: "activity_kudos".to_owned(),
-        title: "New kudos".to_owned(),
-        body: format!("{reactor_name} gave kudos on your {insight_type}"),
-        data: Some(json!({ "screen": "activity", "id": insight_id })),
-        image_url: None,
-        actions: None,
-        bypass_frequency_cap: false,
-    };
-    spawn_dispatch(Arc::clone(service), request);
-}
-
-/// Trigger notification when someone shares an insight visible to a user.
-pub fn trigger_insight_shared(
-    service: &Arc<NotificationService>,
-    recipient_id: Uuid,
-    tenant_id: TenantId,
-    insight_id: &str,
-    sharer_name: &str,
-) {
-    let request = DispatchRequest {
-        user_id: recipient_id,
-        tenant_id,
-        category: NotificationCategory::Social,
-        notification_type: "insight_shared".to_owned(),
-        title: "Insight shared with you".to_owned(),
-        body: format!("{sharer_name} shared a coaching insight"),
-        data: Some(json!({ "screen": "social", "id": insight_id })),
         image_url: None,
         actions: None,
         bypass_frequency_cap: false,

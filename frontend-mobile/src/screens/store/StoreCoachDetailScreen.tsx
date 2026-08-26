@@ -19,6 +19,7 @@ import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
+import { COACH_LIBRARY_ROUTE } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoachDetail } from '../../types';
 // Coach category colors
@@ -46,11 +47,11 @@ export function StoreCoachDetailScreen() {
 
     try {
       setIsLoading(true);
-      const response = await storeApi.getStoreCoach(coachId);
+      const response = await storeApi.get(coachId);
       setCoach(response);
 
       // Check if already installed
-      const installations = await storeApi.getInstalledCoaches();
+      const installations = await storeApi.getInstallations();
       const installed = installations.coaches.some(
         (c: { id: string }) => c.id === coachId
       );
@@ -72,7 +73,7 @@ export function StoreCoachDetailScreen() {
 
     try {
       setIsInstalling(true);
-      await storeApi.installStoreCoach(coach.id);
+      await storeApi.install(coach.id);
       setIsInstalled(true);
       trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
       Alert.alert(
@@ -82,8 +83,8 @@ export function StoreCoachDetailScreen() {
           {
             text: 'View My Coaches',
             onPress: () => {
-              // Navigate to Coaches tab
-              router.push('/(app)/(tabs)/(coaches)');
+              // The coach library lives under Discover since the Coaches tab folded into it.
+              router.push(COACH_LIBRARY_ROUTE);
             },
           },
           { text: 'Stay Here', style: 'cancel' },
@@ -111,7 +112,7 @@ export function StoreCoachDetailScreen() {
           onPress: async () => {
             try {
               setIsInstalling(true);
-              await storeApi.uninstallStoreCoach(coach.id);
+              await storeApi.uninstall(coach.id);
               setIsInstalled(false);
               Alert.alert('Uninstalled', 'Coach has been removed from your library.');
             } catch (error) {

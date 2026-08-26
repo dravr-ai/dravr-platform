@@ -373,7 +373,6 @@ mod turn_service_quota_tests {
                 channel_type: "web",
                 is_direct_message: true,
                 sender_id: None,
-                self_served_prefix: None,
                 hooks: PipelineHooks::none(),
             },
             &profile,

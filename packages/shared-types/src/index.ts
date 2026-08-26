@@ -1,46 +1,6 @@
 // ABOUTME: Main entry point for @pierre/shared-types package
 // ABOUTME: Re-exports all shared types for convenient importing
 
-// Social types (friend connections, insights, reactions)
-export type {
-  FriendStatus,
-  ShareVisibility,
-  InsightType,
-  ReactionType,
-  TrainingPhase,
-  FriendConnection,
-  FriendWithInfo,
-  DiscoverableUser,
-  NotificationPreferences,
-  UserSocialSettings,
-  SharedInsight,
-  InsightReaction,
-  AdaptedInsight,
-  FeedAuthor,
-  ReactionCounts,
-  FeedItem,
-  SocialMetadata,
-  ListFriendsResponse,
-  PendingRequestWithInfo,
-  PendingRequestsResponse,
-  FriendConnectionResponse,
-  SearchUsersResponse,
-  FeedResponse,
-  ShareInsightResponse,
-  ListInsightsResponse,
-  ListAdaptedInsightsResponse,
-  ReactionResponse,
-  AdaptInsightResponse,
-  SocialSettingsResponse,
-  ShareInsightRequest,
-  UpdateSocialSettingsRequest,
-  ListInsightsParams,
-  InsightSuggestion,
-  ListSuggestionsResponse,
-  ShareFromActivityRequest,
-  GetSuggestionsParams,
-} from './social.js';
-
 // Coach types (AI coaching personas, store, versions)
 export type {
   ActivityDataRequirements,
@@ -122,8 +82,6 @@ export type {
   MessageRole,
   MessageFeedbackEntry,
   ActivityPillar,
-  PromptCategory,
-  PromptSuggestionsResponse,
   ApiMetadata,
   PaginatedResponse,
   ListResponse,
@@ -227,15 +185,6 @@ export type {
   A2ADashboardOverview,
   SetupStatusResponse,
   ProvisionedKey,
-  MilestoneConfig,
-  DistanceMilestoneConfig,
-  StreakConfig,
-  MilestoneRelevanceScores,
-  DistanceRelevanceScores,
-  StreakRelevanceScores,
-  RelevanceConfig,
-  ActivityFetchLimitsConfig,
-  SocialInsightsConfig,
 } from './admin.js';
 
 // Group coaching types (groups, members, invites, analytics)

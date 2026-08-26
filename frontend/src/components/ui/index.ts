@@ -32,7 +32,6 @@ export { ConfirmDialog } from './ConfirmDialog';
 export type { ConfirmDialogProps, ConfirmDialogVariant } from './ConfirmDialog';
 
 // Content display components
-export { InsightPreview } from './InsightPreview';
 
 // Navigation components
 export { TabHeader } from './TabHeader';

@@ -187,12 +187,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Activity analysis system prompt.
     fn activity_analysis_system_prompt(&self) -> String;
 
-    /// Insight-generation prompt template.
-    fn insight_generation_prompt(&self) -> String;
-
-    /// Insight-validation prompt template.
-    fn insight_validation_prompt(&self) -> String;
-
     /// Optional LLM provider (when configured).
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;
 

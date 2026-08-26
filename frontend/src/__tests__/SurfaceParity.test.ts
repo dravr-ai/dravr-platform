@@ -42,8 +42,10 @@ describe('surface parity — web', () => {
   const webSurfaces = surfacesFor('web');
 
   it('declares at least the primary destinations', () => {
-    // Guards against the registry itself being gutted to make this pass.
-    expect(webSurfaces.length).toBeGreaterThanOrEqual(14);
+    // Guards against the registry itself being gutted to make this pass. The
+    // floor dropped from 14 when the Chat-First Cutover retired Insights and
+    // folded the Coach tab into Discover — two surfaces fewer by decision.
+    expect(webSurfaces.length).toBeGreaterThanOrEqual(13);
   });
 
   it.each(webSurfaces.map((s) => [s.id, s.web as string]))(

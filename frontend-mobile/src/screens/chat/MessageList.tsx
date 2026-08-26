@@ -277,7 +277,6 @@ interface MessageListProps {
   messageFeedback: Record<string, 'up' | 'down' | null>;
   /** Saved thumbs-down reasons, keyed by message id. */
   messageFeedbackComment: Record<string, string>;
-  insightMessages: Set<string>;
   /**
    * What the server decided this surface draws, keyed by assistant message id.
    *
@@ -291,8 +290,6 @@ interface MessageListProps {
   flatListRef: React.RefObject<FlashListRef<Message> | null>;
   onScrollToBottom: () => void;
   onCoachSelect: (coach: Coach) => void;
-  onCreateInsight: (content: string) => void;
-  onShareToFeed: (content: string) => void;
   onThumbsUp: (messageId: string) => void;
   onThumbsDown: (messageId: string) => void;
   /** Persist an optional thumbs-down reason for a message. */
@@ -311,14 +308,11 @@ export function MessageList({
   isCoachConversation,
   messageFeedback,
   messageFeedbackComment,
-  insightMessages,
   messageBlocks,
   verdicts,
   flatListRef,
   onScrollToBottom,
   onCoachSelect,
-  onCreateInsight,
-  onShareToFeed,
   onThumbsUp,
   onThumbsDown,
   onSubmitFeedbackReason,
@@ -534,16 +528,6 @@ export function MessageList({
                 <TouchableOpacity className="p-0.5" onPress={() => handleShareMessage(item.content)}>
                   <Ionicons name="arrow-redo-outline" size={14} color={colors.text.tertiary} />
                 </TouchableOpacity>
-                {!insightMessages.has(item.id) && (
-                  <TouchableOpacity className="p-0.5" onPress={() => onCreateInsight(item.content)}>
-                    <Ionicons name="bulb-outline" size={14} color={colors.text.tertiary} />
-                  </TouchableOpacity>
-                )}
-                {insightMessages.has(item.id) && (
-                  <TouchableOpacity className="p-0.5" onPress={() => onShareToFeed(item.content)}>
-                    <Ionicons name="people-outline" size={14} color={colors.text.tertiary} />
-                  </TouchableOpacity>
-                )}
                 <TouchableOpacity className="p-0.5" onPress={() => onThumbsUp(item.id)}>
                   <Ionicons
                     name={messageFeedback[item.id] === 'up' ? 'thumbs-up' : 'thumbs-up-outline'}

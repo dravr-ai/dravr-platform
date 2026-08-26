@@ -11,15 +11,6 @@ export {
   DEFAULT_MAX_TOOL_ITERATIONS,
 } from './coaches';
 
-// Social constants (colors, labels, emojis for insights and reactions)
-export {
-  REACTION_EMOJIS,
-  INSIGHT_TYPE_COLORS,
-  INSIGHT_TYPE_LABELS,
-  INSIGHT_TYPE_ICONS,
-  REACTION_TYPE_LABELS,
-} from './social';
-
 // Design system (Boreal Editorial colors, typography, spacing, effects)
 export {
   BOREAL_LIGHT,
@@ -69,6 +60,15 @@ export {
   matchCommands,
   commandDraftFor,
 } from './commands';
+
+// @handle mention grammar (one rule for both composers, mirroring the server scanner)
+export {
+  MENTION_PREFIX,
+  mentionDraftAt,
+  matchMentionCoaches,
+  insertMention,
+} from './mentions';
+export type { MentionDraft, MentionCandidate } from './mentions';
 
 // User-facing surface registry (what the product offers, and where per platform)
 export { USER_SURFACES, surfacesFor, webNavLabels } from './surfaces';

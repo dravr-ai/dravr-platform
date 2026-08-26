@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-// ABOUTME: Shared header row for user-facing tabs (Chat, Coaches, Discover, Insights)
+// ABOUTME: Shared header row for user-facing tabs (Chat, Discover, Groups)
 // ABOUTME: Renders icon in gradient circle + description + optional action buttons
 
 import React from 'react';

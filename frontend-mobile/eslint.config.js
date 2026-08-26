@@ -142,6 +142,7 @@ export default [
       'jest.config.js',
       'jest.setup.js',
       'jest.env.js',
+      'jest.css.js',
       'react-native.config.js',
       'tailwind.config.js',
       '.detoxrc.js',

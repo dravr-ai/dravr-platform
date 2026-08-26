@@ -1,0 +1,44 @@
+# ABOUTME: Groups/notifications route group — /api/groups/* + /api/notifications/*
+# ABOUTME: Decoupled from pierre-server via GroupsCtx; mounted by the composition root
+
+[package]
+name = "pierre-routes-groups"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Groups and notifications route group for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = ["client-notifications"]
+client-notifications = [
+    "pierre-tool-runtime/client-notifications",
+]
+
+[dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors"] }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-notifications = { version = "0.3.0", path = "../pierre-notifications" }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", features = ["client-notifications"] }
+pierre-services = { version = "0.3.0", path = "../pierre-services" }
+# tools-groups gates group_fitness::fetch_member_snapshots — the canonical
+# member-snapshot builder the group analytics routes (/stats, /report, /health)
+# delegate to so REST and chat see identical all-providers + deduplicated data.
+pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime", features = ["tools-groups"] }
+
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# rt + time + macros power the weekly-digest background scheduler (tokio::spawn + interval).
+tokio = { version = "1.50", features = ["rt", "time", "macros"] }
+tracing = "0.1"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

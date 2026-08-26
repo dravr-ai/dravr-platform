@@ -12,14 +12,12 @@ use pierre_core::models::User;
 use sqlx::Row;
 use uuid::Uuid;
 
-use super::seeder_social as social;
 use super::PostgresDatabase;
 use crate::repositories::{SeedTable, SeederRepository};
 use crate::seed_models::{
-    SeedA2AClient, SeedA2AUsage, SeedAdaptedInsight, SeedApiKey, SeedApiKeyUsage, SeedCoach,
-    SeedCoachAuthor, SeedCoachRelation, SeedCoachTranslation, SeedDemoUser, SeedFriendConnection,
-    SeedInsightReaction, SeedLlmUsageRecord, SeedProviderConnection, SeedSharedInsight,
-    SeedSocialSettings, SeedStoreListing, SeedSyntheticActivity, SeedTenant,
+    SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedCoach, SeedCoachAuthor,
+    SeedCoachRelation, SeedCoachTranslation, SeedDemoUser, SeedLlmUsageRecord,
+    SeedProviderConnection, SeedStoreListing, SeedSyntheticActivity, SeedTenant,
 };
 
 #[async_trait]
@@ -431,55 +429,6 @@ impl SeederRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to upsert provider connection: {e}")))?;
 
         Ok(())
-    }
-
-    async fn seed_reset_social_data(&self) -> AppResult<()> {
-        social::seed_reset_social_data(&self.pool).await
-    }
-
-    async fn seed_upsert_social_settings(&self, settings: &SeedSocialSettings) -> AppResult<bool> {
-        social::seed_upsert_social_settings(&self.pool, settings).await
-    }
-
-    async fn seed_insert_friend_connection_if_absent(
-        &self,
-        conn: &SeedFriendConnection,
-    ) -> AppResult<bool> {
-        social::seed_insert_friend_connection_if_absent(&self.pool, conn).await
-    }
-
-    async fn seed_insert_shared_insight(&self, insight: &SeedSharedInsight) -> AppResult<()> {
-        social::seed_insert_shared_insight(&self.pool, insight).await
-    }
-
-    async fn seed_get_shared_insight_ids(&self) -> AppResult<Vec<Uuid>> {
-        social::seed_get_shared_insight_ids(&self.pool).await
-    }
-
-    async fn seed_insert_reaction_if_absent(
-        &self,
-        reaction: &SeedInsightReaction,
-    ) -> AppResult<bool> {
-        social::seed_insert_reaction_if_absent(&self.pool, reaction).await
-    }
-
-    async fn seed_get_shared_insights_with_authors(&self) -> AppResult<Vec<(Uuid, Uuid)>> {
-        social::seed_get_shared_insights_with_authors(&self.pool).await
-    }
-
-    async fn seed_insert_adapted_insight_if_absent(
-        &self,
-        adapted: &SeedAdaptedInsight,
-    ) -> AppResult<bool> {
-        social::seed_insert_adapted_insight_if_absent(&self.pool, adapted).await
-    }
-
-    async fn seed_get_shared_insights_not_by_user(
-        &self,
-        user_id: Uuid,
-        limit: i64,
-    ) -> AppResult<Vec<Uuid>> {
-        social::seed_get_shared_insights_not_by_user(&self.pool, user_id, limit).await
     }
 
     async fn seed_check_user_exists(&self, email: &str) -> AppResult<Option<Uuid>> {

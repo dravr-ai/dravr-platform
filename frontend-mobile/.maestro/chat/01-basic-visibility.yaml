@@ -1,4 +1,4 @@
-# ABOUTME: Test basic chat screen visibility after login
+# ABOUTME: Test the chat landing after login: the conversation list, then a thread opened from its "+"
 # ABOUTME: Converted from chat.test.js basic visibility tests
 
 appId: ai.dravr.app
@@ -10,15 +10,27 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
-# Test: should show chat screen after login
+# Test: the app lands on the conversation list, with its "+" in the header
+- assertVisible:
+    id: "conversations-screen"
+- assertVisible:
+    id: "conversations-title"
+- assertVisible:
+    id: "chat-plus-button"
+
+# Test: a new chat opens a thread over the list
+- runFlow:
+    file: ../helpers/new-chat.yaml
 - assertVisible:
     id: "chat-screen"
 
 # Test: should show header elements with proper visibility (safe area handling)
 - assertVisible:
-    id: "history-button"
+    id: "back-button"
 - assertVisible:
     id: "chat-title"
+- assertVisible:
+    id: "chat-plus-button"
 
 # Test: should show message input area
 - assertVisible:

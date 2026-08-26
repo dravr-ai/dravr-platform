@@ -28,7 +28,6 @@
     "maestro:chat": "maestro test .maestro/chat/",
     "maestro:coaches": "maestro test .maestro/coaches/",
     "maestro:store": "maestro test .maestro/store/",
-    "maestro:social": "maestro test .maestro/social/",
     "maestro:coach-wizard": "maestro test .maestro/coach-wizard/",
     "maestro:voice": "maestro test .maestro/voice-input/",
     "maestro:synthetic": "maestro test .maestro/synthetic-provider/",

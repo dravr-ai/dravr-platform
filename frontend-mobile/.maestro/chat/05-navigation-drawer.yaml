@@ -1,5 +1,5 @@
-# ABOUTME: Test opening conversation history from chat
-# ABOUTME: Converted from chat.test.js "should open navigation drawer" - tests history-button
+# ABOUTME: Test going back from a thread to the conversation list it was opened from
+# ABOUTME: Converted from chat.test.js "should open navigation drawer" — the list is the landing screen now
 
 appId: ai.dravr.app
 
@@ -10,12 +10,20 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
-# Test: should open conversation history via history button
-- tapOn:
-    id: "history-button"
+# The list is where the app lands
+- assertVisible:
+    id: "conversations-screen"
 
-# Should see conversations screen
+# Open a thread over it
+- runFlow:
+    file: ../helpers/new-chat.yaml
+
+# Test: the thread's back button returns to the conversation list
+- tapOn:
+    id: "back-button"
+
 - extendedWaitUntil:
     visible:
-      text: "Conversations"
-    timeout: 3000
+      id: "conversations-screen"
+    timeout: 5000
+- assertVisible: "Chats"

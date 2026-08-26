@@ -65,7 +65,7 @@ export function OAuthAppSetupModal({
   const hydrate = useCallback(async () => {
     try {
       setIsLoadingExisting(true);
-      const response = await userApi.getUserOAuthApps();
+      const response = await userApi.getOAuthApps();
       const existing =
         response.apps?.find((app) => app.provider.toLowerCase() === provider.toLowerCase()) ??
         null;
@@ -118,7 +118,7 @@ export function OAuthAppSetupModal({
     try {
       setIsSaving(true);
       setError(null);
-      await userApi.registerUserOAuthApp({
+      await userApi.registerOAuthApp({
         provider,
         client_id: trimmedId,
         client_secret: trimmedSecret,

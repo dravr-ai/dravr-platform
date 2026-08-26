@@ -1,5 +1,5 @@
 // ABOUTME: Request and response DTOs shared across chat route handlers
-// ABOUTME: Kept in one file so conversations, send_message, send_insight can import consistent shapes
+// ABOUTME: Kept in one file so conversations and send_message import consistent shapes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -239,7 +239,7 @@ pub struct MessagesListResponse {
     ///
     /// Kept parallel to `messages` (rather than nested on each
     /// `MessageResponse`) so clients hydrate their feedback map directly and
-    /// the send/insight paths that build `MessageResponse` need no change.
+    /// the send path that builds `MessageResponse` needs no change.
     pub feedback: Vec<MessageFeedbackEntry>,
 }
 

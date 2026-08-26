@@ -1,5 +1,5 @@
 // ABOUTME: Platform-side fitness computations over dravr-cageux primitives + provider/context data
-// ABOUTME: Endurance (snapshot/history/intervals/routes/thresholds), social insights, geo, weather
+// ABOUTME: Endurance (snapshot/history/intervals/routes/thresholds), geo, weather
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,8 +12,7 @@
 //! engine plus provider and context data.
 //!
 //! It owns the Endurance API computations (latest snapshot, training history,
-//! intervals, route terrain, LT1/LT2 thresholds), privacy-preserving social
-//! insight generation and LLM insight validation, geocoding and OSM route
+//! intervals, route terrain, LT1/LT2 thresholds), geocoding and OSM route
 //! discovery, and weather context.
 
 /// Endurance Phase 1 latest-snapshot computation (`GET /api/v1/endurance/latest`).
@@ -45,18 +44,6 @@ pub use routes::{
 /// Endurance Phase 3 LT1 / LT2 threshold estimators.
 pub mod threshold_estimation;
 pub use threshold_estimation::{ThresholdEstimate, ThresholdInputs};
-
-/// LLM-powered insight quality validation for social sharing.
-pub mod insight_validation;
-
-/// Privacy-preserving social insight generation (shareable suggestions from activity data).
-///
-/// Note: this module defines its own `PersonalRecord` type which intentionally
-/// shadows `dravr_cageux::types::PersonalRecord`. The two are not interchangeable
-/// — the social-insights variant carries shareable copy + improvement_pct fields
-/// while the cageux variant carries algorithmic PR detection data. Access the
-/// social-insights variant via `pierre_fitness_compute::social_insights::PersonalRecord`.
-pub mod social_insights;
 
 /// Location and geographic context (geocoding, elevation, address parsing via OSM Nominatim).
 pub mod location;

@@ -10,6 +10,10 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
+# The app lands on the conversation list; open a thread to get a composer
+- runFlow:
+    file: ../helpers/new-chat.yaml
+
 # Test: should not interfere with manual text input
 - tapOn:
     id: "message-input"

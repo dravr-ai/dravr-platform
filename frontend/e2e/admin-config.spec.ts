@@ -29,20 +29,6 @@ async function setupAdminMocks(page: Page) {
       body: JSON.stringify({ data: { enabled: false, description: 'Auto-approval disabled' } }),
     }),
   );
-  await page.route('**/api/admin/settings/social-insights', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
-          min_relevance_score: 70,
-          activity_fetch_limits: { insight_context_limit: 50, training_context_limit: 10, max_client_limit: 200 },
-          streak_config: { lookback_days: 30, min_for_sharing: 3 },
-          milestone_thresholds: { min_activities_for_milestone: 10 },
-        },
-      }),
-    }),
-  );
 }
 
 test.describe('Admin Tool Management - Access Control', () => {

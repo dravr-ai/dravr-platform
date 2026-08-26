@@ -7,7 +7,8 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_core::markdown::strip_emphasis;
-use pierre_core::models::coaches::ListCoachesFilter;
+use pierre_core::models::coaches::{Coach, CoachHandle, ListCoachesFilter};
+use pierre_core::models::groups::GroupInviteKind;
 use pierre_core::models::GroupRole;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_messaging::commands::{CommandAction, CommandResponse};
@@ -17,15 +18,16 @@ use pierre_contremaitre::messaging_strings::KEY_COACH_GROUP_CREATED;
 use pierre_contremaitre::messaging_strings::KEY_COACH_GROUP_CREATION_UNAVAILABLE;
 use pierre_contremaitre::messaging_strings::{
     KEY_COACH_ASSIGN_FORBIDDEN, KEY_COACH_ASSIGN_NOT_A_MEMBER, KEY_COACH_GROUP_UPDATED,
-    KEY_COACH_LIST_CARD_TITLE, KEY_COACH_LIST_EMPTY, KEY_COACH_LIST_ITEM,
-    KEY_COACH_MULTI_GROUP_CARD_TITLE, KEY_COACH_MULTI_GROUP_ITEM, KEY_COACH_MULTI_GROUP_PROMPT,
-    KEY_COACH_NO_DESCRIPTION, KEY_COACH_USER_UPDATED,
+    KEY_COACH_INVITE_UNKNOWN_HANDLE, KEY_COACH_LIST_CARD_TITLE, KEY_COACH_LIST_EMPTY,
+    KEY_COACH_LIST_ITEM, KEY_COACH_MULTI_GROUP_CARD_TITLE, KEY_COACH_MULTI_GROUP_ITEM,
+    KEY_COACH_MULTI_GROUP_PROMPT, KEY_COACH_NO_DESCRIPTION, KEY_COACH_USER_UPDATED,
 };
 #[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 use tracing::warn;
 
+use crate::group::issue_group_invite;
 use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
 
 /// Maximum number of coaches to display in a single card
@@ -106,7 +108,7 @@ impl CommandHandler for CoachListHandler {
     }
 }
 
-/// Handler for `/coach select <coach_id>` — bind a coach to this conversation's group
+/// Handler for `/coach select <coach_id>` — make a coach the caller's coach
 pub struct CoachSelectHandler;
 
 #[async_trait]
@@ -128,156 +130,278 @@ impl CommandHandler for CoachSelectHandler {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
 
-        let reg = ctx.ctx.messaging_strings_registry();
-        let locale = ctx.locale.as_str();
+        select_coach(ctx, &coach).await
+    }
+}
 
-        // DM path: coach selection is per-membership. Never auto-creates a
-        // group — groups are a group-chat concept. Writes the one selection
-        // pointer and renders a DM-flavored confirmation that omits any
-        // "for group X" wording.
-        if ctx.is_direct_message {
-            ctx.ctx
-                .repos()
-                .tenants
-                .set_selected_coach(ctx.tenant_id, ctx.user_id, Some(coach_id))
-                .await?;
+/// Make `coach` the caller's coach.
+///
+/// The one implementation behind `/coach select <id>` and `/coach invite
+/// @handle`: the two commands differ only in how they name the coach, and
+/// everything after the lookup is this function.
+///
+/// In a DM the selection is per-membership: the selection pointer moves and
+/// the conversation the command was typed in rebinds (see
+/// [`bind_conversation_coach`]), so the coach answers from the next message
+/// on. Never auto-creates a group — groups are a group-chat concept — and the
+/// confirmation omits any "for group X" wording. In a group room the coach
+/// becomes the group's, with the caller asked to pick when they manage
+/// several.
+async fn select_coach(
+    ctx: &PlatformCommandContext,
+    coach: &Coach,
+) -> Result<CommandResponse, AppError> {
+    let coach_id = coach.id.to_string();
+    let coach_id = coach_id.as_str();
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = ctx.locale.as_str();
 
-            record_slash_selection(ctx, coach_id).await;
-
-            return Ok(CommandResponse::text(reg.render(
-                KEY_COACH_USER_UPDATED,
-                locale,
-                &[&coach.title],
-            )));
-        }
-
-        // Group path: fetch user's groups and filter to only those in the
-        // current tenant where the user can modify settings.
-        let all_groups = ctx
-            .ctx
+    if ctx.is_direct_message {
+        ctx.ctx
             .repos()
-            .groups
-            .list_groups_for_user(ctx.user_id)
+            .tenants
+            .set_selected_coach(ctx.tenant_id, ctx.user_id, Some(coach_id))
             .await?;
+        bind_conversation_coach(ctx, coach_id).await?;
 
-        let tenant_groups: Vec<_> = all_groups
-            .into_iter()
-            .filter(|g| {
-                // GroupSummary doesn't carry tenant_id, so we filter by
-                // role — only owners/admins should change the group coach.
-                g.my_role.can_modify_settings()
-            })
-            .collect();
+        record_slash_selection(ctx, coach_id).await;
 
-        match tenant_groups.len() {
-            0 => {
-                // No groups with admin/owner role — create a new one
-                let group_name = format!("{} Group", coach.title);
+        return Ok(CommandResponse::text(reg.render(
+            KEY_COACH_USER_UPDATED,
+            locale,
+            &[&coach.title],
+        )));
+    }
 
-                #[cfg(feature = "tools-groups")]
-                {
-                    use pierre_core::models::groups::CreateGroupRequest;
+    // Group path: fetch user's groups and filter to only those in the
+    // current tenant where the user can modify settings.
+    let all_groups = ctx
+        .ctx
+        .repos()
+        .groups
+        .list_groups_for_user(ctx.user_id)
+        .await?;
 
-                    // Resolve the tenant's plan tier (mirrors the REST create
-                    // path): Starter has group coaching disabled; Professional/
-                    // Enterprise cap members per group. The cap is passed into
-                    // GroupService::create_group, which owns the clamp and the
-                    // Starter rejection. We pre-check the disabled case here to
-                    // render the localized "group creation unavailable" reply
-                    // rather than surfacing the service's PermissionDenied error.
-                    let plan = ctx.ctx.repos().tenants.get_by_id(ctx.tenant_id).await?.plan;
-                    let tier_cap = tier_strategy_for(&plan).max_members_per_group();
-                    if tier_cap == 0 {
-                        return Ok(CommandResponse::text(reg.render(
-                            KEY_COACH_GROUP_CREATION_UNAVAILABLE,
-                            locale,
-                            &[&coach.title],
-                        )));
-                    }
-                    let tier_cap = i32::try_from(tier_cap).unwrap_or(i32::MAX);
+    let tenant_groups: Vec<_> = all_groups
+        .into_iter()
+        .filter(|g| {
+            // GroupSummary doesn't carry tenant_id, so we filter by
+            // role — only owners/admins should change the group coach.
+            g.my_role.can_modify_settings()
+        })
+        .collect();
 
-                    let request = CreateGroupRequest {
-                        name: group_name.clone(),
-                        description: Some(format!("Group coached by {}", coach.title)),
-                        coach_id: coach.id.to_string(),
-                        max_members: Some(tier_cap),
-                    };
+    match tenant_groups.len() {
+        0 => {
+            // No groups with admin/owner role — create a new one
+            let group_name = format!("{} Group", coach.title);
 
-                    ctx.ctx
-                        .group_service()
-                        .create_group(&request, ctx.user_id, ctx.tenant_id, tier_cap)
-                        .await?;
+            #[cfg(feature = "tools-groups")]
+            {
+                use pierre_core::models::groups::CreateGroupRequest;
 
-                    // Creating a group around a coach is also picking that
-                    // coach — `group.created` covers the group, this covers
-                    // the selection.
-                    record_slash_selection(ctx, coach_id).await;
-
+                // Resolve the tenant's plan tier (mirrors the REST create
+                // path): Starter has group coaching disabled; Professional/
+                // Enterprise cap members per group. The cap is passed into
+                // GroupService::create_group, which owns the clamp and the
+                // Starter rejection. We pre-check the disabled case here to
+                // render the localized "group creation unavailable" reply
+                // rather than surfacing the service's PermissionDenied error.
+                let plan = ctx.ctx.repos().tenants.get_by_id(ctx.tenant_id).await?.plan;
+                let tier_cap = tier_strategy_for(&plan).max_members_per_group();
+                if tier_cap == 0 {
                     return Ok(CommandResponse::text(reg.render(
-                        KEY_COACH_GROUP_CREATED,
-                        locale,
-                        &[&group_name, &coach.title],
-                    )));
-                }
-
-                #[cfg(not(feature = "tools-groups"))]
-                {
-                    let _ = group_name;
-                    Ok(CommandResponse::text(reg.render(
                         KEY_COACH_GROUP_CREATION_UNAVAILABLE,
                         locale,
                         &[&coach.title],
-                    )))
+                    )));
                 }
-            }
-            1 => {
-                // Exactly one group — update its coach
-                let group = &tenant_groups[0];
-                update_group_coach(ctx, &group.id.to_string(), coach_id).await?;
+                let tier_cap = i32::try_from(tier_cap).unwrap_or(i32::MAX);
+
+                let request = CreateGroupRequest {
+                    name: group_name.clone(),
+                    description: Some(format!("Group coached by {}", coach.title)),
+                    coach_id: coach.id.to_string(),
+                    max_members: Some(tier_cap),
+                };
+
+                ctx.ctx
+                    .group_service()
+                    .create_group(&request, ctx.user_id, ctx.tenant_id, tier_cap)
+                    .await?;
+
+                // Creating a group around a coach is also picking that
+                // coach — `group.created` covers the group, this covers
+                // the selection.
+                record_slash_selection(ctx, coach_id).await;
 
                 Ok(CommandResponse::text(reg.render(
-                    KEY_COACH_GROUP_UPDATED,
+                    KEY_COACH_GROUP_CREATED,
                     locale,
-                    &[&coach.title, &group.name],
+                    &[&group_name, &coach.title],
                 )))
             }
-            _ => {
-                // Multiple groups — ask the user to pick one
-                let count = tenant_groups.len().to_string();
-                let mut body = String::with_capacity(256);
-                body.push_str(&reg.render(
-                    KEY_COACH_MULTI_GROUP_PROMPT,
+
+            #[cfg(not(feature = "tools-groups"))]
+            {
+                let _ = group_name;
+                Ok(CommandResponse::text(reg.render(
+                    KEY_COACH_GROUP_CREATION_UNAVAILABLE,
                     locale,
-                    &[&count, &coach.title],
-                ));
-
-                let actions: Vec<CommandAction> = tenant_groups
-                    .iter()
-                    .take(MAX_COACH_BUTTONS)
-                    .map(|g| {
-                        let members = g.member_count.to_string();
-                        body.push_str(&reg.render(
-                            KEY_COACH_MULTI_GROUP_ITEM,
-                            locale,
-                            &[&g.name, &members],
-                        ));
-                        body.push('\n');
-                        CommandAction {
-                            label: g.name.clone(),
-                            action_type: "postback".to_owned(),
-                            value: format!("/coach assign {} {}", coach_id, g.id),
-                        }
-                    })
-                    .collect();
-
-                Ok(CommandResponse::card(
-                    reg.render(KEY_COACH_MULTI_GROUP_CARD_TITLE, locale, &[]),
-                    body,
-                    actions,
-                ))
+                    &[&coach.title],
+                )))
             }
         }
+        1 => {
+            // Exactly one group — update its coach
+            let group = &tenant_groups[0];
+            update_group_coach(ctx, &group.id.to_string(), coach_id).await?;
+
+            Ok(CommandResponse::text(reg.render(
+                KEY_COACH_GROUP_UPDATED,
+                locale,
+                &[&coach.title, &group.name],
+            )))
+        }
+        _ => {
+            // Multiple groups — ask the user to pick one
+            let count = tenant_groups.len().to_string();
+            let mut body = String::with_capacity(256);
+            body.push_str(&reg.render(
+                KEY_COACH_MULTI_GROUP_PROMPT,
+                locale,
+                &[&count, &coach.title],
+            ));
+
+            let actions: Vec<CommandAction> = tenant_groups
+                .iter()
+                .take(MAX_COACH_BUTTONS)
+                .map(|g| {
+                    let members = g.member_count.to_string();
+                    body.push_str(&reg.render(
+                        KEY_COACH_MULTI_GROUP_ITEM,
+                        locale,
+                        &[&g.name, &members],
+                    ));
+                    body.push('\n');
+                    CommandAction {
+                        label: g.name.clone(),
+                        action_type: "postback".to_owned(),
+                        value: format!("/coach assign {} {}", coach_id, g.id),
+                    }
+                })
+                .collect();
+
+            Ok(CommandResponse::card(
+                reg.render(KEY_COACH_MULTI_GROUP_CARD_TITLE, locale, &[]),
+                body,
+                actions,
+            ))
+        }
     }
+}
+
+/// Point the conversation the command was typed in at `coach_id`.
+///
+/// The selection pointer alone reaches only conversations opened *after* it:
+/// a web thread bound at creation kept its old coach for as long as it lived,
+/// and a messaging thread waited for the next inbound turn to notice. Writing
+/// the row here is what makes selecting a coach mean it answers the next
+/// message in this very thread, on every surface. The row is written only
+/// when it is the caller's own; a dispatch site with no conversation (a Slack
+/// button, the catalogue read) has nothing to bind.
+async fn bind_conversation_coach(
+    ctx: &PlatformCommandContext,
+    coach_id: &str,
+) -> Result<(), AppError> {
+    let Some(conversation_id) = ctx.conversation_id.as_deref() else {
+        return Ok(());
+    };
+    let chat = &ctx.ctx.repos().chat;
+    let Some(conversation) = chat
+        .get_conversation(
+            conversation_id,
+            &ctx.user_id.to_string(),
+            ctx.conversation_tenant_id,
+        )
+        .await?
+    else {
+        return Ok(());
+    };
+    if conversation.coach_id.as_deref() == Some(coach_id) {
+        return Ok(());
+    }
+    chat.set_conversation_coach_id(conversation_id, Some(coach_id), ctx.conversation_tenant_id)
+        .await?;
+    Ok(())
+}
+
+/// Handler for `/coach invite [@handle]`.
+///
+/// Two forms, told apart by the argument:
+///
+/// - `/coach invite @handle` brings one of the caller's **installed** coaches
+///   into this conversation. The handle resolves through
+///   `CoachesRepository::find_installed_by_handle` — a catalogue coach the
+///   caller never installed does not resolve — and the coach is attached
+///   exactly the way `/coach select <id>` attaches one, through
+///   [`select_coach`]. A handle that resolves to nothing gets a localized
+///   reply naming it, and no invite code is minted.
+/// - Bare `/coach invite` is the `/coach`-domain spelling of `/group invite
+///   coach`: both run [`issue_group_invite`], so whoever redeems the code is
+///   attached as the group's human coach either way.
+///
+/// Listed for every caller: the targeted form needs nothing but an installed
+/// coach, which no group standing can see, so the group-role gate belongs to
+/// the bare form's execution alone.
+pub struct CoachInviteHandler;
+
+#[async_trait]
+impl CommandHandler for CoachInviteHandler {
+    async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        match ctx.args.first() {
+            Some(handle) => invite_installed_coach(ctx, handle).await,
+            None => issue_group_invite(ctx, GroupInviteKind::Coach).await,
+        }
+    }
+}
+
+/// Resolve `typed` against the caller's installed coaches and select the
+/// match; answer by name when nothing answers to it.
+///
+/// A token the handle grammar refuses (`@Coach Tempo`) is the same case as a
+/// well-formed handle nobody owns: neither names an installed coach, and the
+/// reply says which token it was.
+async fn invite_installed_coach(
+    ctx: &PlatformCommandContext,
+    typed: &str,
+) -> Result<CommandResponse, AppError> {
+    let typed = typed.trim();
+    let resolved = match CoachHandle::parse(typed) {
+        Ok(handle) => {
+            ctx.ctx
+                .repos()
+                .coaches
+                .find_installed_by_handle(&handle, ctx.user_id, ctx.tenant_id)
+                .await?
+        }
+        Err(_) => None,
+    };
+    if let Some(coach) = resolved {
+        return select_coach(ctx, &coach).await;
+    }
+    let shown = if typed.starts_with('@') {
+        typed.to_owned()
+    } else {
+        format!("@{typed}")
+    };
+    Ok(CommandResponse::text(
+        ctx.ctx.messaging_strings_registry().render(
+            KEY_COACH_INVITE_UNKNOWN_HANDLE,
+            ctx.locale.as_str(),
+            &[&shown],
+        ),
+    ))
 }
 
 /// Handler for `/coach assign <coach_id> <group_id>` — bind coach to a specific group

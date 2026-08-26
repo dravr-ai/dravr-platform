@@ -259,11 +259,6 @@ export function createOAuthApi(axios: AxiosInstance) {
       const response = await axios.get<SciotteConfigResponse>('/api/providers/sciotte/config');
       return response.data;
     },
-
-    // Aliases for backward compatibility
-    getOAuthStatus() {
-      return this.getStatus();
-    },
   };
 }
 

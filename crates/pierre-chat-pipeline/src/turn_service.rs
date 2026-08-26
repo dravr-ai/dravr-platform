@@ -48,6 +48,7 @@ use uuid::Uuid;
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
 use crate::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
+use crate::stages::coach_mention::resolve_coach_mention;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::usage_counters::{
@@ -89,15 +90,6 @@ pub struct TurnRequest<'a> {
     /// Channel-native sender id, for commands that unlink a channel; `None`
     /// on the in-app surface, which has no channel link.
     pub sender_id: Option<&'a str>,
-    /// Prefix marking content the caller serves itself rather than as a
-    /// coaching turn.
-    ///
-    /// Web chat passes its insight-generation prefix here: an insight is a
-    /// one-shot structured generation on a different prompt with no coach and
-    /// no tools, so it leaves the ladder after the quota check rather than
-    /// running the pipeline. Opt-in per caller, so a surface that has no such
-    /// content never sees the outcome.
-    pub self_served_prefix: Option<&'a str>,
     /// Progress, streaming and chart-publishing wiring for this turn.
     pub hooks: PipelineHooks<'a>,
 }
@@ -135,14 +127,6 @@ pub enum ServedTurn {
         /// Where the athlete stood against their caps when the command ran.
         /// A command spends no budget, but it is as good a moment as any to
         /// tell them the budget is nearly spent.
-        quota: QuotaState,
-    },
-    /// The content matched [`TurnRequest::self_served_prefix`]; the caller
-    /// serves it. Carries the quota standing the ladder already measured so
-    /// the caller does not measure it a second time.
-    CallerServed {
-        /// Where the athlete stood against their caps when the turn was
-        /// admitted.
         quota: QuotaState,
     },
 }
@@ -220,13 +204,6 @@ pub async fn execute(
     )
     .await?;
 
-    if request
-        .self_served_prefix
-        .is_some_and(|prefix| request.content.starts_with(prefix))
-    {
-        return Ok(ServedTurn::CallerServed { quota });
-    }
-
     if let Some(command) = dispatch_slash(
         ctx,
         &SlashRequest {
@@ -257,6 +234,20 @@ pub async fn execute(
         ..profile.clone()
     };
 
+    // `@handle` hands this one turn to an installed coach. Resolved here, on
+    // the ladder every surface climbs, so a Telegram mention and a web mention
+    // route identically and no client has to know the grammar. A slash command
+    // never reaches this point, which is what keeps `/coach invite @handle` a
+    // command argument rather than a mention. Installs live in the athlete's
+    // own tenant, so that is where the handle resolves.
+    let mentioned_coach = resolve_coach_mention(
+        ctx.repos.coaches.as_ref(),
+        &request.content,
+        request.user_id,
+        request.tool_tenant_id,
+    )
+    .await;
+
     let turn_input = TurnInput {
         conversation_id: request.conversation_id.clone(),
         user_id: user_id_str,
@@ -266,6 +257,7 @@ pub async fn execute(
         turn_id: request.turn_id,
         ambient_context: request.ambient_context,
         quota,
+        mentioned_coach: mentioned_coach.map(Box::new),
     };
 
     let mut ctx_for_turn = ctx.clone();

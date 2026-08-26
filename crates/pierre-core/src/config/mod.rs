@@ -1,5 +1,5 @@
 // ABOUTME: Configuration types shared across the workspace
-// ABOUTME: Contains FitnessConfig, FitnessLevel, PostgresPoolConfig, and SocialInsightsConfig
+// ABOUTME: Contains FitnessConfig, FitnessLevel, PostgresPoolConfig, and CompactionConfig
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,9 +15,6 @@ pub mod fitness;
 
 /// User profile configuration including FitnessLevel
 pub mod profiles;
-
-/// Social insights configuration for milestones, streaks, and relevance scoring
-pub mod social;
 
 pub use compaction::CompactionConfig;
 pub use fitness::FitnessConfig;

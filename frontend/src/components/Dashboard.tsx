@@ -37,6 +37,18 @@ const ADMIN_ONLY_TABS = new Set([
   'analytics', 'admin-tokens', 'billing',
 ]);
 
+/**
+ * Tab ids the product no longer serves.
+ *
+ * `insights` (the social feed and its friends sub-view) and `my-coaches` (the
+ * user Coach tab, folded into Discover) were retired by the Chat-First Cutover
+ * on 2026-08-26, but a bookmark, a browser history entry or a notification
+ * persisted before that day can still carry the hash. Left to the render
+ * switch it would select a tab nothing draws — a blank main pane with a
+ * working sidebar — so it resolves to the role's default instead.
+ */
+const RETIRED_TABS = new Set(['insights', 'my-coaches']);
+
 const UsageAnalytics = lazy(() => import('./UsageAnalytics'));
 const ActivityTab = lazy(() => import('./ActivityTab'));
 const EngagementTab = lazy(() => import('./EngagementTab'));
@@ -61,10 +73,7 @@ const MythBustingTab = lazy(() => import('./MythBustingTab'));
 const CoachGradingTab = lazy(() => import('./CoachGradingTab'));
 const EvalHarnessTab = lazy(() => import('./EvalHarnessTab'));
 const CoachStoreManagement = lazy(() => import('./CoachStoreManagement'));
-const CoachLibraryTab = lazy(() => import('./CoachLibraryTab'));
 const StoreScreen = lazy(() => import('./StoreScreen'));
-const FriendsTab = lazy(() => import('./social/FriendsTab'));
-const SocialFeedTab = lazy(() => import('./social/SocialFeedTab'));
 const LlmConsumptionPanel = lazy(() => import('./LlmConsumptionPanel'));
 const ToolUsagePanel = lazy(() => import('./ToolUsagePanel'));
 const BillingTab = lazy(() => import('./BillingTab'));
@@ -101,8 +110,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Initialize from URL hash so deep links (#users, #coaches, …) survive
   // page reloads and bookmarks. Falls back to role default.
   // Route = `tab[/subview]` encoded in the URL hash (e.g. #groups/<id>,
-  // #insights/friends, #chat/<conversationId>) so sub-views are deep-linkable
-  // and the browser / Android hardware Back button pops them.
+  // #chat/<conversationId>) so sub-views are deep-linkable and the browser /
+  // Android hardware Back button pops them.
   const initialRoute = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
   const initialSlash = initialRoute.indexOf('/');
   const initialTabSeg = initialSlash === -1 ? initialRoute : initialRoute.slice(0, initialSlash);
@@ -113,18 +122,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // wide open.
   const initialFallback = isAdminUser ? 'users' : 'chat';
   const initialTab =
-    !isAdminUser && ADMIN_ONLY_TABS.has(initialTabSeg)
+    (!isAdminUser && ADMIN_ONLY_TABS.has(initialTabSeg)) || RETIRED_TABS.has(initialTabSeg)
       ? initialFallback
       : initialTabSeg || initialFallback;
   const [activeTab, setActiveTab] = useState<string>(initialTab);
 
   // Hash-route mirroring + back/forward handling live below, after the
-  // sub-view state declarations (they reference selectedGroupId / insightsView
-  // / selectedConversation, which are declared later in the component).
-  // Sub-view state for insights tab (feed vs friends), matching mobile's social stack
-  const [insightsView, setInsightsView] = useState<'feed' | 'friends'>(
-    initialTabSeg === 'insights' && initialSubSeg === 'friends' ? 'friends' : 'feed',
-  );
+  // sub-view state declarations (they reference selectedGroupId /
+  // selectedConversation, which are declared later in the component).
   // User's manual collapse preference (persisted). The EFFECTIVE collapse
   // (`sidebarCollapsed`, derived below) also forces the rail in the tablet band.
   const [userSidebarCollapsed, setUserSidebarCollapsed] = useState(() => {
@@ -218,7 +223,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // and the Back button operate on sub-views, not just top-level tabs.
   const route = (() => {
     if (activeTab === 'groups' && selectedGroupId) return `groups/${encodeURIComponent(selectedGroupId)}`;
-    if (activeTab === 'insights' && insightsView === 'friends') return 'insights/friends';
     if (activeTab === 'chat' && selectedConversation) return `chat/${encodeURIComponent(selectedConversation)}`;
     return activeTab;
   })();
@@ -260,11 +264,20 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     // 403s), so nothing leaked — but the pane still rendered its filter chrome
     // and then retried the 403 on a loop. Resolve an out-of-role tab back to
     // the role's own default instead of mounting a surface it cannot use.
-    const tab = !isAdminUser && ADMIN_ONLY_TABS.has(requested) ? fallback : requested;
+    const tab =
+      (!isAdminUser && ADMIN_ONLY_TABS.has(requested)) || RETIRED_TABS.has(requested)
+        ? fallback
+        : requested;
+    // A rewritten hash typed while the fallback tab is already active changes
+    // no state, so the route effect below never runs and the stale hash would
+    // stay in the address bar. Replace it here — never push, so Back does not
+    // walk into the retired route again.
+    if (tab !== requested && typeof window !== 'undefined') {
+      window.history.replaceState(null, '', `#${tab}`);
+    }
     const sub = slash === -1 ? '' : raw.slice(slash + 1);
     setActiveTab(tab);
     setSelectedGroupId(tab === 'groups' && sub ? decodeURIComponent(sub) : null);
-    setInsightsView(tab === 'insights' && sub === 'friends' ? 'friends' : 'feed');
     setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
   }, [isAdminUser]);
 
@@ -428,11 +441,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
     ) },
-    { id: 'my-coaches', name: 'Coaches', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ) },
+    // The coach library is a pinned section of Discover, not a tab of its own.
     { id: 'discover', name: 'Discover', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -446,11 +455,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     { id: 'groups', name: 'Groups', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ) },
-    { id: 'insights', name: 'Insights', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
       </svg>
     ) },
     { id: 'notifications', name: 'Notifications', icon: (
@@ -475,14 +479,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // and the rest fall into the off-canvas drawer. Active <768px only.
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // For regular users, pin Chat / Coaches / Insights / Groups to the bottom bar
-  // and route the rest through the drawer. For admin users we use the first 4
+  // For regular users, pin Chat / Discover / Groups to the bottom bar and
+  // route the rest through the drawer. For admin users we use the first 4
   // tabs (Users / Coaches / Coach Store / Groups) as the primary slots.
   const primaryTabIds = useMemo<string[]>(() => {
     if (isAdminUser) {
       return ['users', 'coaches', 'coach-store', 'groups'];
     }
-    return ['chat', 'my-coaches', 'insights', 'groups'];
+    return ['chat', 'discover', 'groups'];
   }, [isAdminUser]);
   const primaryMobileTabs: MobileNavTab[] = useMemo(() => {
     return primaryTabIds
@@ -564,10 +568,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                       // Reset conversation selection when clicking Chat tab to show coach selection
                       if (tab.id === 'chat') {
                         setSelectedConversation(null);
-                      }
-                      // Reset insights sub-view when navigating back to insights
-                      if (tab.id === 'insights') {
-                        setInsightsView('feed');
                       }
                     }}
                     className={clsx(
@@ -777,7 +777,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         >
 
           {/* Content */}
-          {(activeTab === 'my-coaches' || activeTab === 'discover') && <ConnectProviderBanner />}
+          {activeTab === 'discover' && <ConnectProviderBanner />}
         {/* Overview tab removed — admin lands directly on Users */}
 
         {activeTab === 'connections' && (
@@ -898,32 +898,18 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <CoachStoreManagement />
           </Suspense>
         )}
-        {activeTab === 'insights' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            {insightsView === 'friends' ? (
-              <FriendsTab onBack={() => setInsightsView('feed')} />
-            ) : (
-              <SocialFeedTab onNavigateToFriends={() => setInsightsView('friends')} />
-            )}
-          </Suspense>
-        )}
         {activeTab === 'chat' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <ChatTab
               selectedConversation={selectedConversation}
               onSelectConversation={setSelectedConversation}
-              onNavigateToInsights={() => setActiveTab('insights')}
+              onNavigate={applyRoute}
             />
-          </Suspense>
-        )}
-        {activeTab === 'my-coaches' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <CoachLibraryTab />
           </Suspense>
         )}
         {activeTab === 'discover' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <StoreScreen />
+            <StoreScreen onNavigate={applyRoute} />
           </Suspense>
         )}
         {activeTab === 'groups' && (
@@ -995,7 +981,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             onSelect={(id) => {
               setActiveTab(id);
               if (id === 'chat') setSelectedConversation(null);
-              if (id === 'insights') setInsightsView('feed');
             }}
             userLabel={user?.display_name || user?.email || ''}
             userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
@@ -1009,7 +994,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             onSelect={(id) => {
               setActiveTab(id);
               if (id === 'chat') setSelectedConversation(null);
-              if (id === 'insights') setInsightsView('feed');
             }}
             onOpenDrawer={() => setDrawerOpen(true)}
             drawerHasBadge={drawerHasBadge}

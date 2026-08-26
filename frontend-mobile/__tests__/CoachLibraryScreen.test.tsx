@@ -429,7 +429,7 @@ describe('CoachLibraryScreen', () => {
 
       fireEvent.press(getByText('Test Coach'));
 
-      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(coaches)/[coachId]', params: { coachId: 'coach-1' } });
+      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(discover)/library/[coachId]', params: { coachId: 'coach-1' } });
     });
 
     it('should navigate to CoachEditor for new coach when FAB pressed', async () => {
@@ -443,7 +443,7 @@ describe('CoachLibraryScreen', () => {
 
       fireEvent.press(getByText('+'));
 
-      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(coaches)/editor' });
+      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(discover)/library/editor' });
     });
   });
 

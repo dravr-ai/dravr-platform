@@ -21,6 +21,7 @@ import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, glassCard, gradients,
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
+import { COACH_EDITOR_ROUTE, threadHref } from '../../navigation/routes';
 import type { Coach } from '../../types';
 
 // Coach category colors matching Stitch UX spec
@@ -65,8 +66,8 @@ export function CoachDetailScreen() {
       setIsLoading(true);
       // Load coaches and hidden coaches list in parallel
       const [coachesResponse, hiddenResponse] = await Promise.all([
-        coachesApi.listCoaches({ include_hidden: true }),
-        coachesApi.getHiddenCoaches(),
+        coachesApi.list({ include_hidden: true }),
+        coachesApi.getHidden(),
       ]);
       const foundCoach = coachesResponse.coaches.find((c: { id: string }) => c.id === coachId);
       setCoach(foundCoach || null);
@@ -88,7 +89,7 @@ export function CoachDetailScreen() {
 
   const handleEdit = () => {
     if (!coach) return;
-    router.push({ pathname: '/(app)/(tabs)/(coaches)/editor', params: { coachId: coach.id } });
+    router.push({ pathname: COACH_EDITOR_ROUTE, params: { coachId: coach.id } });
   };
 
   const handleDelete = () => {
@@ -105,7 +106,7 @@ export function CoachDetailScreen() {
           onPress: async () => {
             try {
               setIsDeleting(true);
-              await coachesApi.deleteCoach(coach.id);
+              await coachesApi.delete(coach.id);
               Alert.alert('Deleted', 'Coach has been deleted.');
               router.back();
             } catch (error) {
@@ -122,7 +123,8 @@ export function CoachDetailScreen() {
 
   const handleUseInChat = () => {
     if (!coach) return;
-    router.push('/(app)/(tabs)/(chat)');
+    // A fresh thread: its empty composer lists the athlete's coaches to pick from.
+    router.push(threadHref());
   };
 
   const handleToggleHidden = async () => {

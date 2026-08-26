@@ -36,7 +36,7 @@ pub mod permissions;
 /// Fitness-specific configuration (sport types, zones, thresholds)
 pub mod config;
 
-/// Intelligence types (`MaxHrAlgorithm`, `InsightSharingPolicy`)
+/// Intelligence types (`MaxHrAlgorithm`, fitness profiles)
 pub mod intelligence;
 
 /// URL redaction utility for safe logging of connection strings

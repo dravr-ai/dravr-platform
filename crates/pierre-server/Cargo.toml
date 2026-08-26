@@ -128,10 +128,9 @@ client-coaches = ["protocol-rest", "tools-coaches"]  # coaches.rs
 client-oauth-apps = ["protocol-rest", "oauth"]       # user_oauth_apps.rs
 
 client-store = ["protocol-rest"]  # Coach Store REST API routes (pierre-routes-coaches build_store_router)
-client-social = ["protocol-rest", "dep:pierre-routes-social"]   # social.rs - coach-mediated social features (friends/feed/settings via pierre-routes-social)
-client-groups = ["protocol-rest", "tools-groups", "dep:pierre-routes-social"]  # group coaching routes (extracted to pierre-routes-social)
+client-groups = ["protocol-rest", "tools-groups", "dep:pierre-routes-groups"]  # group coaching routes (extracted to pierre-routes-groups)
 
-client-web = ["client-dashboard", "client-settings", "client-chat", "client-coaches", "client-oauth-apps", "client-store", "client-social", "client-groups"]
+client-web = ["client-dashboard", "client-settings", "client-chat", "client-coaches", "client-oauth-apps", "client-store", "client-groups"]
 
 # ═══════════════════════════════════════════════════════════════
 # GRANULAR CLIENT-ADMIN FEATURES
@@ -155,7 +154,7 @@ client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 # Depends on tools-groups: a non-DM chat auto-binds to a coaching group through
 # GroupService, which owns the tier gate and the group.created/joined events.
 client-messaging = ["protocol-rest", "dep:pierre-messaging", "dep:pierre-commands", "pierre-messaging/all-channels", "pierre-services/client-messaging", "tools-groups"]
-client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-social", "pierre-routes-social?/client-notifications", "pierre-services/client-notifications", "pierre-routes-coaches/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-social)
+client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-groups", "pierre-routes-groups?/client-notifications", "pierre-services/client-notifications", "pierre-routes-coaches/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-groups)
 
 client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]
 
@@ -202,8 +201,8 @@ pierre-routes-auth = { version = "0.3.0", path = "../pierre-routes-auth", option
 pierre-routes-billing = { version = "0.3.0", path = "../pierre-routes-billing" }
 pierre-routes-coaches = { version = "0.3.0", path = "../pierre-routes-coaches" }
 pierre-routes-dashboard = { version = "0.3.0", path = "../pierre-routes-dashboard", optional = true }
+pierre-routes-groups = { version = "0.3.0", path = "../pierre-routes-groups", optional = true }
 pierre-routes-identity = { version = "0.3.0", path = "../pierre-routes-identity" }
-pierre-routes-social = { version = "0.3.0", path = "../pierre-routes-social", optional = true }
 pierre-routes-web-admin = { version = "0.3.0", path = "../pierre-routes-web-admin", optional = true }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-sse = { version = "0.3.0", path = "../pierre-sse", optional = true }

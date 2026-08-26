@@ -39,10 +39,10 @@ use pierre_chat_pipeline::stages::structured_output::{self, SchemaTexts};
 use pierre_chat_pipeline::McpBridgeProvider;
 
 use super::tool_surface::HostedToolBridge;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::AppResult;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
-    CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
+    CoachesRepository, MobilityRepository, RecipeRepository,
 };
 use pierre_mcp_schema::{OAuthCompletedNotification, ProgressNotification};
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
@@ -179,19 +179,6 @@ impl ServerContext {
         self.common.repos.mobility.as_ref()
     }
 
-    /// Get the social repository.
-    ///
-    /// # Errors
-    ///
-    /// Returns `AppError` if the backend is `PostgreSQL` (SQLite-only feature).
-    pub fn social_repository(&self) -> AppResult<&dyn SocialRepository> {
-        self.common
-            .repos
-            .social
-            .as_deref()
-            .ok_or_else(|| AppError::internal("SocialRepository is not available on PostgreSQL"))
-    }
-
     /// Get the messaging channel registry
     #[cfg(feature = "client-messaging")]
     #[must_use]
@@ -214,18 +201,6 @@ impl ServerContext {
     #[must_use]
     pub fn coach_generation_prompt(&self) -> String {
         self.mcp.prompt_registry.coach_generation_prompt()
-    }
-
-    /// Get the insight validation prompt.
-    #[must_use]
-    pub fn insight_validation_prompt(&self) -> String {
-        self.mcp.prompt_registry.insight_validation_prompt()
-    }
-
-    /// Get the insight generation prompt.
-    #[must_use]
-    pub fn insight_generation_prompt(&self) -> String {
-        self.mcp.prompt_registry.insight_generation_prompt()
     }
 
     /// Get the messaging context prompt.

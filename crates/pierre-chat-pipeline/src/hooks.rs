@@ -13,8 +13,9 @@
 //! Two extension points:
 //!
 //! - [`ResponsePostProcess`] — transforms the final reply content before
-//!   persistence. Web's insight-generation flow uses this to parse JSON from
-//!   the LLM; conversational flows use a no-op.
+//!   persistence. Every conversational surface installs the identity
+//!   transform; the seam exists so a surface with a structured reply shape
+//!   can parse it here rather than as a branch inside the pipeline body.
 //! - [`ScenePublisher`] — turns a reply's chart specs into fetchable images.
 //!   Wired by surfaces whose [`crate::BlockSupport::scene_raster`] is set;
 //!   absent everywhere else, because a surface that draws a spec inline has
@@ -31,9 +32,8 @@ pub use pierre_services::chat_stream::{
 /// Synchronous, pure post-processing of the assistant reply content.
 ///
 /// The pipeline calls [`ResponsePostProcess::transform`] after guardrails
-/// and claim verification but before persistence. Web chat's insight
-/// generation flow uses this to parse structured JSON out of the LLM's
-/// free-form reply; conversational flows return the content unchanged.
+/// and claim verification but before persistence. Conversational flows
+/// return the content unchanged.
 pub trait ResponsePostProcess: Send + Sync {
     /// Transform the raw reply content into its persisted form.
     fn transform(&self, raw: &str) -> String;
@@ -138,7 +138,7 @@ impl Default for PipelineHooks<'_> {
 
 /// Identity post-processor — returns the reply content unchanged.
 ///
-/// The default for conversational flows (messaging and non-insight web chat).
+/// The default for conversational flows (messaging and in-app chat).
 pub struct IdentityPostProcess;
 
 impl ResponsePostProcess for IdentityPostProcess {

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Discover tab stack layout for Expo Router
-// ABOUTME: Contains StoreScreen (index) and StoreCoachDetailScreen
+// ABOUTME: Contains StoreScreen (index), StoreCoachDetailScreen, and the coach library screens under library/
 
 import { Stack } from 'expo-router';
 

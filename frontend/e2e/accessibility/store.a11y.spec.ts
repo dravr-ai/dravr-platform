@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Accessibility tests for user-facing store pages focusing on color contrast and focus management.
-// ABOUTME: Tests coach marketplace, coach details, search, filtering, and pagination accessibility.
+// ABOUTME: Tests Discover (pinned coaches + marketplace), coach details, search, filtering, and pagination accessibility.
 
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -12,31 +12,50 @@ test.describe('Store Pages Accessibility', () => {
   test.beforeEach(async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user' });
 
-    // Mock store/coaches data
+    // The athlete's coach list, as GET /api/coaches serialises it. Discover
+    // pins these above the store, so the cards under test are real ones.
     await page.route('**/api/coaches**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            id: 'coach-1',
-            title: 'Marathon Training Coach',
-            description: 'Expert guidance for marathon preparation',
-            category: 'training',
-            install_count: 150,
-            is_installed: false,
-            system_prompt: 'I am a marathon training coach...',
-          },
-          {
-            id: 'coach-2',
-            title: 'Nutrition Advisor',
-            description: 'Personalized nutrition guidance for athletes',
-            category: 'nutrition',
-            install_count: 200,
-            is_installed: true,
-            system_prompt: 'I am a nutrition advisor...',
-          },
-        ]),
+        body: JSON.stringify({
+          coaches: [
+            {
+              id: 'coach-1',
+              title: 'Marathon Training Coach',
+              description: 'Expert guidance for marathon preparation',
+              system_prompt: 'I am a marathon training coach...',
+              category: 'training',
+              tags: ['marathon'],
+              token_count: 120,
+              is_favorite: false,
+              use_count: 3,
+              last_used_at: null,
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z',
+              is_system: false,
+              forked_from: 'store-listing-1',
+              handle: 'marathon-training-coach',
+            },
+            {
+              id: 'coach-2',
+              title: 'Nutrition Advisor',
+              description: 'Personalized nutrition guidance for athletes',
+              system_prompt: 'I am a nutrition advisor...',
+              category: 'nutrition',
+              tags: [],
+              token_count: 90,
+              is_favorite: true,
+              use_count: 8,
+              last_used_at: null,
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z',
+              is_system: true,
+              handle: 'nutrition-advisor',
+            },
+          ],
+          total: 2,
+        }),
       });
     });
 
@@ -58,7 +77,7 @@ test.describe('Store Pages Accessibility', () => {
   test.describe('Coach Marketplace', () => {
     test('should have no WCAG 2.1 AA violations', async ({ page }) => {
       // Navigate to store/coaches tab
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const accessibilityScanResults = await new AxeBuilder({ page })
@@ -74,7 +93,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should have sufficient color contrast for all text', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const accessibilityScanResults = await new AxeBuilder({ page })
@@ -100,7 +119,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should have visible focus indicators on coach cards', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       // Find interactive cards
@@ -129,7 +148,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should have accessible card structure', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       // Cards should have proper heading structure
@@ -147,7 +166,7 @@ test.describe('Store Pages Accessibility', () => {
 
   test.describe('Search Functionality', () => {
     test('should have accessible search input', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const searchInput = page.locator('input[type="search"], input[placeholder*="search" i]');
@@ -167,7 +186,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should announce search results to screen readers', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const searchInput = page.locator('input[type="search"], input[placeholder*="search" i]');
@@ -190,7 +209,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should support keyboard-only search', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       // Tab to search input
@@ -209,7 +228,7 @@ test.describe('Store Pages Accessibility', () => {
 
   test.describe('Filter Controls', () => {
     test('should have accessible filter buttons', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const filters = page.locator('button[aria-pressed], [role="tab"], .filter-chip');
@@ -229,7 +248,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should indicate selected filter state', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const filterButtons = page.locator('button[aria-pressed], [role="tab"]');
@@ -250,7 +269,7 @@ test.describe('Store Pages Accessibility', () => {
 
   test.describe('Coach Detail Page', () => {
     test('should have accessible coach detail view', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       // Click on a coach card to view details
@@ -269,7 +288,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should have proper heading hierarchy on detail page', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const viewButton = page.locator('button:has-text("View"), a:has-text("View")').first();
@@ -298,7 +317,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should have accessible install/uninstall button', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const actionButton = page.locator(
@@ -324,7 +343,7 @@ test.describe('Store Pages Accessibility', () => {
 
   test.describe('Pagination', () => {
     test('should have accessible pagination controls', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const pagination = page.locator('nav[aria-label*="pagination" i], [role="navigation"]');
@@ -339,7 +358,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should indicate current page to screen readers', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const currentPageButton = page.locator(
@@ -355,7 +374,7 @@ test.describe('Store Pages Accessibility', () => {
 
   test.describe('Images and Icons', () => {
     test('should have alt text for coach images', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const images = page.locator('img');
@@ -372,7 +391,7 @@ test.describe('Store Pages Accessibility', () => {
     });
 
     test('should have accessible icons', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const icons = page.locator('svg, [class*="icon"]');
@@ -406,7 +425,7 @@ test.describe('Store Pages Accessibility', () => {
 
   test.describe('Link Purpose', () => {
     test('should have descriptive link text', async ({ page }) => {
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const links = page.locator('a:visible');
@@ -432,7 +451,7 @@ test.describe('Store Pages Accessibility', () => {
     test('should maintain accessibility at mobile viewport', async ({ page }) => {
       await page.setViewportSize({ width: 375, height: 667 });
 
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const accessibilityScanResults = await new AxeBuilder({ page })
@@ -454,7 +473,7 @@ test.describe('Store Pages Accessibility', () => {
     test('should have touch-friendly target sizes on mobile', async ({ page }) => {
       await page.setViewportSize({ width: 375, height: 667 });
 
-      await navigateToTab(page, 'Coaches');
+      await navigateToTab(page, 'Discover');
       await page.waitForTimeout(500);
 
       const buttons = page.locator('button:visible');

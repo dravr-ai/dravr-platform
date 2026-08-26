@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tab layout with 6 tabs (Chat, Coaches, Discover, Groups, Insights, Settings)
+// ABOUTME: Tab layout rendering one screen per entry of the tab bar's own list (Chat, Discover, Groups, Settings)
 // ABOUTME: Uses floating expandable glass tab bar with glassmorphism effect
 
 import React from 'react';
@@ -9,7 +9,7 @@ import { View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { ServerStatusBanner } from '../../../src/components/ServerStatusBanner';
 import { useServerStatus } from '../../../src/hooks/useServerStatus';
-import { ExpandableTabBar } from '../../../src/components/ui/ExpandableTabBar';
+import { ExpandableTabBar, TAB_BAR_TABS } from '../../../src/components/ui/ExpandableTabBar';
 
 export default function TabsLayout() {
   const { isServerReachable, isChecking, checkNow } = useServerStatus();
@@ -23,12 +23,9 @@ export default function TabsLayout() {
         tabBar={() => <ExpandableTabBar />}
         screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}
       >
-        <Tabs.Screen name="(chat)" options={{ title: 'Chat' }} />
-        <Tabs.Screen name="(coaches)" options={{ title: 'Coaches' }} />
-        <Tabs.Screen name="(discover)" options={{ title: 'Discover' }} />
-        <Tabs.Screen name="(groups)" options={{ title: 'Groups' }} />
-        <Tabs.Screen name="(social)" options={{ title: 'Insights' }} />
-        <Tabs.Screen name="(settings)" options={{ title: 'Settings' }} />
+        {TAB_BAR_TABS.map((tab) => (
+          <Tabs.Screen key={tab.route} name={tab.route} options={{ title: tab.label }} />
+        ))}
       </Tabs>
     </View>
   );

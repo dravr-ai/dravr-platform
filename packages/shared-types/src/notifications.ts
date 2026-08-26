@@ -7,7 +7,6 @@
 export type NotificationCategory =
   | 'training'
   | 'recovery'
-  | 'social'
   | 'coach'
   | 'achievement'
   | 'system'

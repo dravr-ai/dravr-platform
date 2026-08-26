@@ -31,7 +31,6 @@ vi.mock('@pierre/api-client', () => {
         linkIntervalsIcu: vi.fn(),
         disconnectIntervalsIcu: vi.fn(),
       },
-      social: { listFriends: vi.fn(), getInsightSuggestions: vi.fn(), shareFromActivity: vi.fn() },
       store: { browse: vi.fn() },
       user: { getLlmSettings: vi.fn(), saveLlmCredentials: vi.fn() },
       notifications: { getNotifications: vi.fn() },
@@ -92,7 +91,6 @@ import {
   chatApi,
   coachesApi,
   oauthApi,
-  socialApi,
   storeApi,
   userApi,
   providersApi,
@@ -108,7 +106,6 @@ describe('API Barrel Exports', () => {
     expect(chatApi).toBeDefined()
     expect(coachesApi).toBeDefined()
     expect(oauthApi).toBeDefined()
-    expect(socialApi).toBeDefined()
     expect(storeApi).toBeDefined()
     expect(userApi).toBeDefined()
   })

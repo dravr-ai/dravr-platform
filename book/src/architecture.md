@@ -109,7 +109,7 @@ Focused repository modules live under `crates/pierre-database/src/repositories/`
 
 - **identity & access**: `users`, `oauth`, `api_keys`, `tenants`, `security`, `admin`
 - **fitness data**: `health`, `workouts`, `mobility`, `data_source`, `weather`, `insights`
-- **coaching & social**: `coaches`, `roster`, `social`, `messaging`, `recipes`, `harness_memory`
+- **coaching**: `coaches`, `roster`, `messaging`, `recipes`, `harness_memory`
 - **platform**: `usage`, `a2a`, `notifications`, `feature_flags`, `tool_selection`, `fitness_config`, `claim_verdicts`, `chat`, `seeder`
 
 **repository construction pattern**:
@@ -378,7 +378,7 @@ Pierre is a Rust workspace under `crates/*`. The main binary lives in `pierre-se
 | `pierre-providers` | `crates/pierre-providers/` | Fitness provider integrations (Strava, Garmin, Fitbit, WHOOP, COROS, Terra) |
 | `pierre-tool-runtime` | `crates/pierre-tool-runtime/` | MCP tool engine: the `McpTool` trait, `ToolRegistry`, and the bulk of built-in tool implementations |
 | `pierre-services` | `crates/pierre-services/` | Business-logic services (auth, OAuth client flow, health sync, …) |
-| `pierre-routes-*` | `crates/pierre-routes-*/` | Per-domain HTTP handlers (admin, auth, coaches, social, dashboard, identity, billing, a2a, web-admin) |
+| `pierre-routes-*` | `crates/pierre-routes-*/` | Per-domain HTTP handlers (admin, auth, coaches, groups + notifications, dashboard, identity, billing, a2a, web-admin) |
 | `pierre-llm` | `crates/pierre-llm/` | LLM provider abstraction (Gemini, Groq, OpenAI-compatible, Ollama) |
 | `pierre-cache` | `crates/pierre-cache/` | Cache abstraction with tenant isolation (in-memory LRU + Redis) |
 | `pierre-memory` | `crates/pierre-memory/` | Coaching harness memory (facts, compaction, sessions, notes, followups) |
@@ -761,7 +761,7 @@ LOC counts are `src/**.rs` line totals and are approximate.
 | `pierre-routes-coaches` | 3,269 | Coach-marketplace endpoints | `pierre-coach-parser`, `pierre-notifications`, `pierre-services` |
 | `pierre-routes-dashboard` | 1,052 | Dashboard endpoints | `pierre-auth`, `pierre-database`, `pierre-middleware` |
 | `pierre-routes-identity` | 1,581 | Identity / profile endpoints | `pierre-auth`, `pierre-database`, `pierre-middleware` |
-| `pierre-routes-social` | 5,275 | Social-feature endpoints | `pierre-groups`, `pierre-intelligence`, `pierre-providers`, `pierre-tool-runtime` |
+| `pierre-routes-groups` | 2,618 | Group-coaching + push-notification endpoints (renamed from `pierre-routes-social` on 2026-08-26, once the Chat-First Cutover had deleted the social routes) | `pierre-groups`, `pierre-notifications`, `pierre-services`, `pierre-tool-runtime` |
 | `pierre-routes-web-admin` | 1,803 | Web admin-console endpoints | `pierre-config`, `pierre-llm`, `pierre-services`, `pierre-tool-runtime` |
 | `pierre-cli` | 1,808 | **Binary** — `pierre-cli` (admin users, tokens, seeding) | `pierre-auth`, `pierre-evals`, `pierre-seeders`, `pierre-services` |
 | `pierre_mcp_server` | 29,510 | **Binary (apex)** — assembles MCP/REST/A2A/SSE and starts the server | every library crate |

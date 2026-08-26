@@ -33,16 +33,6 @@ export interface ListCoachesOptions {
   personalize?: boolean;
 }
 
-export interface PromptSuggestion {
-  id: string;
-  text: string;
-  category: string;
-}
-
-export interface PromptSuggestionsResponse {
-  suggestions: PromptSuggestion[];
-}
-
 export interface GenerateCoachRequest {
   conversation_id: string;
   max_messages?: number;
@@ -62,7 +52,7 @@ export interface GenerateCoachResponse {
  * Creates the coaches API methods bound to an axios instance.
  */
 export function createCoachesApi(axios: AxiosInstance) {
-  const api = {
+  return {
     /**
      * List coaches with optional filters.
      */
@@ -237,14 +227,6 @@ export function createCoachesApi(axios: AxiosInstance) {
     },
 
     /**
-     * Get prompt suggestions for coaches.
-     */
-    async getPromptSuggestions(): Promise<PromptSuggestionsResponse> {
-      const response = await axios.get<PromptSuggestionsResponse>(ENDPOINTS.PROMPTS.SUGGESTIONS);
-      return response.data;
-    },
-
-    /**
      * Generate a coach from a conversation using LLM analysis.
      */
     async generateFromConversation(
@@ -291,26 +273,6 @@ export function createCoachesApi(axios: AxiosInstance) {
       });
       return response.data;
     },
-  };
-
-  // Add aliases for backward compatibility
-  return {
-    ...api,
-    // Aliases
-    listCoaches: api.list,
-    getCoaches: api.list,
-    getCoach: api.get,
-    createCoach: api.create,
-    updateCoach: api.update,
-    deleteCoach: api.delete,
-    listHiddenCoaches: api.getHidden,
-    getHiddenCoaches: api.getHidden,
-    forkCoach: api.fork,
-    getCoachVersions: api.getVersions,
-    revertCoachToVersion: api.revertToVersion,
-    getCoachVersionDiff: api.getVersionDiff,
-    generateCoachFromConversation: api.generateFromConversation,
-    getCoachProposal: api.getProposal,
   };
 }
 

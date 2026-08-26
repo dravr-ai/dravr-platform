@@ -659,6 +659,10 @@ pub const KEY_GROUP_INVITE_FORBIDDEN: &str = "commands.group.invite_forbidden";
 pub const KEY_GROUP_INVITE_BODY: &str = "commands.group.invite_body";
 /// Key: `/group invite` unavailable when the groups feature is disabled.
 pub const KEY_GROUP_INVITE_UNAVAILABLE: &str = "commands.group.invite_unavailable";
+/// Key: coach-invite success body, shared by `/coach invite` and
+/// `/group invite coach`. `{0}` = group name, `{1}` = invite code (URL),
+/// `{2}` = invite code (display).
+pub const KEY_COACH_INVITE_BODY: &str = "commands.coach.invite_body";
 /// Key: `/group leave` confirmation prompt. `{0}` = group name.
 pub const KEY_GROUP_LEAVE_PROMPT: &str = "commands.group.leave_prompt";
 /// Key: `/group consent` usage hint when the argument is missing or invalid.
@@ -715,6 +719,9 @@ pub const KEY_COACH_MULTI_GROUP_ITEM: &str = "commands.coach.multi_group_item";
 pub const KEY_COACH_ASSIGN_NOT_A_MEMBER: &str = "commands.coach.assign_not_a_member";
 /// Key: `/coach assign` rejection when the user lacks admin rights.
 pub const KEY_COACH_ASSIGN_FORBIDDEN: &str = "commands.coach.assign_forbidden";
+/// Key: `/coach invite @handle` when no installed coach answers to the
+/// handle. `{0}` = the handle as typed, with its `@`.
+pub const KEY_COACH_INVITE_UNKNOWN_HANDLE: &str = "commands.coach.invite_unknown_handle";
 
 // ── Compiled-in defaults: French (DEFAULT_LOCALE) ────────────────────────
 
@@ -961,6 +968,8 @@ pub(crate) const FR_GROUP_INVITE_BODY: &str =
     "Lien d'invitation pour {0} :\nhttps://app.dravr.ai/groups/join/{1}\n\nCode : {2}\nValide 7 jours.";
 pub(crate) const FR_GROUP_INVITE_UNAVAILABLE: &str =
     "Les invitations de groupe ne sont pas disponibles.";
+pub(crate) const FR_COACH_INVITE_BODY: &str =
+    "Invitation coach pour {0} — la personne qui l'utilise devient le coach humain du groupe :\nhttps://app.dravr.ai/groups/join/{1}\n\nCode : {2}\nValide 7 jours.";
 pub(crate) const FR_GROUP_LEAVE_PROMPT: &str =
     "Veux-tu vraiment quitter {0} ?\nTape « YES » pour confirmer.";
 pub(crate) const FR_GROUP_CONSENT_USAGE: &str = "Usage : /group consent yes  ou  /group consent no";
@@ -993,6 +1002,8 @@ pub(crate) const FR_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} membres)";
 pub(crate) const FR_COACH_ASSIGN_NOT_A_MEMBER: &str = "Tu n'es pas membre de ce groupe";
 pub(crate) const FR_COACH_ASSIGN_FORBIDDEN: &str =
     "Seuls les admins et propriétaires du groupe peuvent changer le coach.";
+pub(crate) const FR_COACH_INVITE_UNKNOWN_HANDLE: &str =
+    "Aucun coach installé ne répond à {0}. Tape /coach pour voir ta liste de coachs.";
 
 // ── Compiled-in defaults: English ─────────────────────────────────────────
 
@@ -1235,6 +1246,8 @@ pub(crate) const EN_GROUP_INVITE_FORBIDDEN: &str =
 pub(crate) const EN_GROUP_INVITE_BODY: &str =
     "Invite link for {0}:\nhttps://app.dravr.ai/groups/join/{1}\n\nCode: {2}\nValid for 7 days.";
 pub(crate) const EN_GROUP_INVITE_UNAVAILABLE: &str = "Group invites are not available.";
+pub(crate) const EN_COACH_INVITE_BODY: &str =
+    "Coach invite for {0} — whoever redeems it becomes the group's human coach:\nhttps://app.dravr.ai/groups/join/{1}\n\nCode: {2}\nValid for 7 days.";
 pub(crate) const EN_GROUP_LEAVE_PROMPT: &str =
     "Are you sure you want to leave {0}?\nType \"YES\" to confirm.";
 pub(crate) const EN_GROUP_CONSENT_USAGE: &str = "Usage: /group consent yes  or  /group consent no";
@@ -1268,6 +1281,8 @@ pub(crate) const EN_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} members)";
 pub(crate) const EN_COACH_ASSIGN_NOT_A_MEMBER: &str = "You are not a member of this group";
 pub(crate) const EN_COACH_ASSIGN_FORBIDDEN: &str =
     "Only group admins and owners can change the coach.";
+pub(crate) const EN_COACH_INVITE_UNKNOWN_HANDLE: &str =
+    "No installed coach answers to {0}. Type /coach to see your coach list.";
 
 // ── Compiled-in defaults: Spanish ─────────────────────────────────────────
 
@@ -1485,6 +1500,8 @@ pub(crate) const ES_GROUP_INVITE_BODY: &str =
     "Enlace de invitación para {0}:\nhttps://app.dravr.ai/groups/join/{1}\n\nCódigo: {2}\nVálido 7 días.";
 pub(crate) const ES_GROUP_INVITE_UNAVAILABLE: &str =
     "Las invitaciones de grupo no están disponibles.";
+pub(crate) const ES_COACH_INVITE_BODY: &str =
+    "Invitación de coach para {0} — quien la use se convierte en el coach humano del grupo:\nhttps://app.dravr.ai/groups/join/{1}\n\nCódigo: {2}\nVálido 7 días.";
 pub(crate) const ES_GROUP_LEAVE_PROMPT: &str =
     "¿Seguro que quieres salir de {0}?\nEscribe «YES» para confirmar.";
 pub(crate) const ES_GROUP_CONSENT_USAGE: &str = "Uso: /group consent yes  o  /group consent no";
@@ -1517,6 +1534,8 @@ pub(crate) const ES_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} miembros)";
 pub(crate) const ES_COACH_ASSIGN_NOT_A_MEMBER: &str = "No eres miembro de este grupo";
 pub(crate) const ES_COACH_ASSIGN_FORBIDDEN: &str =
     "Solo los administradores y propietarios del grupo pueden cambiar el coach.";
+pub(crate) const ES_COACH_INVITE_UNKNOWN_HANDLE: &str =
+    "Ningún coach instalado responde a {0}. Escribe /coach para ver tu lista de coaches.";
 
 // ── Compiled-in defaults: German ──────────────────────────────────────────
 
@@ -1728,6 +1747,8 @@ pub(crate) const DE_GROUP_INVITE_FORBIDDEN: &str =
 pub(crate) const DE_GROUP_INVITE_BODY: &str =
     "Einladungslink für {0}:\nhttps://app.dravr.ai/groups/join/{1}\n\nCode: {2}\n7 Tage gültig.";
 pub(crate) const DE_GROUP_INVITE_UNAVAILABLE: &str = "Gruppeneinladungen sind nicht verfügbar.";
+pub(crate) const DE_COACH_INVITE_BODY: &str =
+    "Coach-Einladung für {0} — wer sie einlöst, wird der menschliche Coach der Gruppe:\nhttps://app.dravr.ai/groups/join/{1}\n\nCode: {2}\n7 Tage gültig.";
 pub(crate) const DE_GROUP_LEAVE_PROMPT: &str =
     "Willst du {0} wirklich verlassen?\nTippe „YES\", um zu bestätigen.";
 pub(crate) const DE_GROUP_CONSENT_USAGE: &str =
@@ -1761,6 +1782,8 @@ pub(crate) const DE_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} Mitglieder)";
 pub(crate) const DE_COACH_ASSIGN_NOT_A_MEMBER: &str = "Du bist kein Mitglied dieser Gruppe";
 pub(crate) const DE_COACH_ASSIGN_FORBIDDEN: &str =
     "Nur Gruppen-Admins und Eigentümer können den Coach wechseln.";
+pub(crate) const DE_COACH_INVITE_UNKNOWN_HANDLE: &str =
+    "Kein installierter Coach hört auf {0}. Tippe /coach, um deine Coach-Liste zu sehen.";
 
 // ── Compiled-in defaults: Portuguese ──────────────────────────────────────
 
@@ -1978,6 +2001,8 @@ pub(crate) const PT_GROUP_INVITE_FORBIDDEN: &str =
 pub(crate) const PT_GROUP_INVITE_BODY: &str =
     "Link de convite para {0}:\nhttps://app.dravr.ai/groups/join/{1}\n\nCódigo: {2}\nVálido 7 dias.";
 pub(crate) const PT_GROUP_INVITE_UNAVAILABLE: &str = "Convites de grupo não estão disponíveis.";
+pub(crate) const PT_COACH_INVITE_BODY: &str =
+    "Convite de coach para {0} — quem o usar torna-se o coach humano do grupo:\nhttps://app.dravr.ai/groups/join/{1}\n\nCódigo: {2}\nVálido 7 dias.";
 pub(crate) const PT_GROUP_LEAVE_PROMPT: &str =
     "Tens a certeza que queres sair de {0}?\nEscreve «YES» para confirmar.";
 pub(crate) const PT_GROUP_CONSENT_USAGE: &str = "Uso: /group consent yes  ou  /group consent no";
@@ -2009,6 +2034,8 @@ pub(crate) const PT_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} membros)";
 pub(crate) const PT_COACH_ASSIGN_NOT_A_MEMBER: &str = "Não és membro deste grupo";
 pub(crate) const PT_COACH_ASSIGN_FORBIDDEN: &str =
     "Apenas administradores e proprietários do grupo podem mudar o coach.";
+pub(crate) const PT_COACH_INVITE_UNKNOWN_HANDLE: &str =
+    "Nenhum treinador instalado responde a {0}. Escreve /coach para veres a tua lista de treinadores.";
 
 /// Compiled-in `(key, locale, content)` triples loaded into the registry
 /// at construction. Any new locale added here automatically becomes
@@ -2188,6 +2215,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_FORBIDDEN, "fr", FR_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "fr", FR_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "fr", FR_GROUP_INVITE_UNAVAILABLE),
+    (KEY_COACH_INVITE_BODY, "fr", FR_COACH_INVITE_BODY),
     (KEY_GROUP_LEAVE_PROMPT, "fr", FR_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "fr", FR_GROUP_CONSENT_USAGE),
     (KEY_GROUP_RESPOND_USAGE, "fr", FR_GROUP_RESPOND_USAGE),
@@ -2210,6 +2238,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_MULTI_GROUP_ITEM, "fr", FR_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "fr", FR_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "fr", FR_COACH_ASSIGN_FORBIDDEN),
+    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "fr", FR_COACH_INVITE_UNKNOWN_HANDLE),
 
     // ── English ─────────────────────────────────────────────────────────
     (KEY_COMMITMENT_MET, "en", EN_COMMITMENT_MET),
@@ -2384,6 +2413,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_FORBIDDEN, "en", EN_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "en", EN_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "en", EN_GROUP_INVITE_UNAVAILABLE),
+    (KEY_COACH_INVITE_BODY, "en", EN_COACH_INVITE_BODY),
     (KEY_GROUP_LEAVE_PROMPT, "en", EN_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "en", EN_GROUP_CONSENT_USAGE),
     (KEY_GROUP_RESPOND_USAGE, "en", EN_GROUP_RESPOND_USAGE),
@@ -2406,6 +2436,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_MULTI_GROUP_ITEM, "en", EN_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "en", EN_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "en", EN_COACH_ASSIGN_FORBIDDEN),
+    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "en", EN_COACH_INVITE_UNKNOWN_HANDLE),
 
     // ── Spanish ─────────────────────────────────────────────────────────
     (KEY_COMMITMENT_MET, "es", ES_COMMITMENT_MET),
@@ -2579,6 +2610,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_FORBIDDEN, "es", ES_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "es", ES_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "es", ES_GROUP_INVITE_UNAVAILABLE),
+    (KEY_COACH_INVITE_BODY, "es", ES_COACH_INVITE_BODY),
     (KEY_GROUP_LEAVE_PROMPT, "es", ES_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "es", ES_GROUP_CONSENT_USAGE),
     (KEY_GROUP_RESPOND_USAGE, "es", ES_GROUP_RESPOND_USAGE),
@@ -2601,6 +2633,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_MULTI_GROUP_ITEM, "es", ES_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "es", ES_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "es", ES_COACH_ASSIGN_FORBIDDEN),
+    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "es", ES_COACH_INVITE_UNKNOWN_HANDLE),
     (KEY_RESET_CONFIRM, "es", ES_RESET_CONFIRM),
 
     // ── German ──────────────────────────────────────────────────────────
@@ -2775,6 +2808,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_FORBIDDEN, "de", DE_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "de", DE_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "de", DE_GROUP_INVITE_UNAVAILABLE),
+    (KEY_COACH_INVITE_BODY, "de", DE_COACH_INVITE_BODY),
     (KEY_GROUP_LEAVE_PROMPT, "de", DE_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "de", DE_GROUP_CONSENT_USAGE),
     (KEY_GROUP_RESPOND_USAGE, "de", DE_GROUP_RESPOND_USAGE),
@@ -2797,6 +2831,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_MULTI_GROUP_ITEM, "de", DE_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "de", DE_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "de", DE_COACH_ASSIGN_FORBIDDEN),
+    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "de", DE_COACH_INVITE_UNKNOWN_HANDLE),
     (KEY_RESET_CONFIRM, "de", DE_RESET_CONFIRM),
 
     // ── Portuguese ──────────────────────────────────────────────────────
@@ -2971,6 +3006,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_INVITE_FORBIDDEN, "pt", PT_GROUP_INVITE_FORBIDDEN),
     (KEY_GROUP_INVITE_BODY, "pt", PT_GROUP_INVITE_BODY),
     (KEY_GROUP_INVITE_UNAVAILABLE, "pt", PT_GROUP_INVITE_UNAVAILABLE),
+    (KEY_COACH_INVITE_BODY, "pt", PT_COACH_INVITE_BODY),
     (KEY_GROUP_LEAVE_PROMPT, "pt", PT_GROUP_LEAVE_PROMPT),
     (KEY_GROUP_CONSENT_USAGE, "pt", PT_GROUP_CONSENT_USAGE),
     (KEY_GROUP_RESPOND_USAGE, "pt", PT_GROUP_RESPOND_USAGE),
@@ -2993,6 +3029,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_MULTI_GROUP_ITEM, "pt", PT_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "pt", PT_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "pt", PT_COACH_ASSIGN_FORBIDDEN),
+    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "pt", PT_COACH_INVITE_UNKNOWN_HANDLE),
     (KEY_RESET_CONFIRM, "pt", PT_RESET_CONFIRM),
 ];
 

@@ -44,10 +44,8 @@
 //! pierre-cli seed demo-data
 //! pierre-cli seed coaches
 //! pierre-cli seed mobility
-//! pierre-cli seed social
 //! pierre-cli seed synthetic-activities --email alice@example.com --count 200
 //! pierre-cli seed llm-usage --days 60
-//! pierre-cli seed insight-samples --validate
 //! ```
 
 mod commands;

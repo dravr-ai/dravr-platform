@@ -29,6 +29,9 @@ pub mod auth_recovery;
 /// Capability-failure recovery: verify a "my data access is broken" claim
 /// with a real fetch, then re-ask with the data or route to re-auth.
 pub mod capability_recovery;
+/// Per-turn `@handle` routing: an installed coach named in the message
+/// answers that turn only.
+pub mod coach_mention;
 /// Open athlete commitments rendered into the coach's system prompt.
 pub mod commitments;
 pub mod compaction;

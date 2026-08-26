@@ -40,9 +40,8 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 ├── login/                   # Login flow tests
 ├── settings/                # Settings screen tests
 ├── chat/                    # Chat functionality tests
-├── coaches/                 # Coach library tests
+├── coaches/                 # Coach library tests (the library lives under Discover)
 ├── store/                   # Discover/Store tests
-├── social/                  # Social feature tests
 ├── coach-wizard/            # Coach creation wizard tests
 ├── voice-input/             # Voice input tests
 ├── synthetic-provider/      # Synthetic data provider tests

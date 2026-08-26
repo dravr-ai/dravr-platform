@@ -18,8 +18,8 @@ appId: ai.dravr.app
 - assertVisible:
     id: "coach-library-screen"
 
-# Test: should show Coaches title
-- assertVisible: "Coaches"
+# Test: should show the library title
+- assertVisible: "My coaches"
 
 # Test: should show category filters
 - assertVisible: "All"

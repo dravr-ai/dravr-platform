@@ -1,5 +1,5 @@
 # ABOUTME: Platform-side fitness computations over dravr-cageux primitives + provider/context data
-# ABOUTME: Endurance (snapshot/history/intervals/routes/thresholds), social insights, geo, weather
+# ABOUTME: Endurance (snapshot/history/intervals/routes/thresholds), geo, weather
 
 [package]
 name = "pierre-fitness-compute"
@@ -18,14 +18,12 @@ postgresql = ["pierre-database/postgresql"]
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database", default-features = false }
-pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-weather = { version = "0.3.0", path = "../pierre-weather" }
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.5.7" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.6.0" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.22", features = ["v4", "serde"] }
 tracing = "0.1"
 thiserror = "2.0"
 async-trait = "0.1"

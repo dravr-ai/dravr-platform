@@ -20,7 +20,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationResponse};
 use pierre_routes_coaches::build_coaches_router;
-use pierre_routes_social::GroupRoutes;
+use pierre_routes_groups::GroupRoutes;
 
 /// One router carrying the three surfaces this flow crosses: coaches (a group
 /// needs a coach persona), groups (create + membership), and chat (the

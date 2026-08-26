@@ -7,7 +7,7 @@
 //! The in-app surface's turn response.
 //!
 //! One handler shape for every in-app turn — the LLM path, its SSE `done`
-//! frame, the slash-command path and the insight path all answer with this.
+//! frame and the slash-command path all answer with this.
 //! A flat body grows one optional string per feature and leaves the client
 //! deciding what to draw by sniffing which of them are present; an ordered
 //! block list does not.
@@ -306,10 +306,10 @@ fn telemetry_response(telemetry: TurnTelemetry, execution_time_ms: u64) -> TurnT
 
 /// Build the block list for a turn the platform answered without the pipeline.
 ///
-/// The slash-command and insight paths produce a reply the same way any turn
-/// does — text, optional controls, and whatever the pre-turn quota check
-/// measured — so they reach the client through the same block list rather than
-/// through fields of their own.
+/// The slash-command path produces a reply the same way any turn does —
+/// text, optional controls, and whatever the pre-turn quota check measured —
+/// so it reaches the client through the same block list rather than through
+/// fields of its own.
 #[must_use]
 pub fn platform_blocks(
     text: String,

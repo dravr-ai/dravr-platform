@@ -1,4 +1,4 @@
-# ABOUTME: Visual tests for chat tab
+# ABOUTME: Visual tests for the chat tab: the conversation list it lands on and the thread opened from it
 # ABOUTME: Converted from mobile-visual.test.js "Chat Tab" tests
 
 appId: ai.dravr.app
@@ -16,19 +16,24 @@ appId: ai.dravr.app
 - tapOn:
     id: "tab-chat"
 
-# Test: chat - displays chat screen
+# Test: chat - the tab shows the conversation list with its "+"
+- extendedWaitUntil:
+    visible:
+      id: "conversations-screen"
+    timeout: 5000
+- assertVisible:
+    id: "chat-plus-button"
+
+# Test: chat - a new thread carries the composer
+- runFlow:
+    file: ../helpers/new-chat.yaml
 - extendedWaitUntil:
     visible:
       id: "chat-screen"
     timeout: 5000
 
 # Test: chat - message input accepts text
-- runFlow:
-    when:
-      visible:
-        id: "message-input"
-    commands:
-      - tapOn:
-          id: "message-input"
-      - inputText: "Test message"
-      - eraseText
+- tapOn:
+    id: "message-input"
+- inputText: "Test message"
+- eraseText

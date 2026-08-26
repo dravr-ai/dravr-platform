@@ -155,16 +155,6 @@ pub use tool_selection::{
     ToolAvailabilitySummary, ToolCatalogEntry, ToolCategory, ToolEnablementSource,
 };
 
-// Social domain — types from dravr-cageux (canonical source)
-pub use dravr_cageux::models::social;
-pub use dravr_cageux::models::social::{
-    AdaptInsightRequest, AdaptedInsight, FeedItem, FriendConnection, FriendInfo, FriendStatus,
-    InsightReaction, InsightSharingPolicy, InsightType, NotificationPreferences,
-    ReactToInsightRequest, ReactionSummary, ReactionType, RespondFriendRequestRequest,
-    SendFriendRequestRequest, ShareInsightRequest, ShareVisibility, SharedInsight, TrainingPhase,
-    UpdateSocialSettingsRequest, UserSocialSettings,
-};
-
 // OAuth 2.0 server persistence models
 mod oauth2_server;
 pub use oauth2_server::{

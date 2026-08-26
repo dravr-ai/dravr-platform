@@ -10,9 +10,9 @@ import { userApi } from '../src/services/api';
 // Mock the api service
 jest.mock('../src/services/api', () => ({
   userApi: {
-    getUserOAuthApps: jest.fn(),
-    registerUserOAuthApp: jest.fn(),
-    deleteUserOAuthApp: jest.fn(),
+    getOAuthApps: jest.fn(),
+    registerOAuthApp: jest.fn(),
+    deleteOAuthApp: jest.fn(),
   },
 }));
 
@@ -26,7 +26,7 @@ describe('OAuthCredentialsSection', () => {
 
   describe('initial render', () => {
     it('should show loading state initially', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockImplementation(
+      (userApi.getOAuthApps as jest.Mock).mockImplementation(
         () => new Promise(() => {}) // Never resolves - simulates loading
       );
 
@@ -34,11 +34,11 @@ describe('OAuthCredentialsSection', () => {
 
       // Component shows ActivityIndicator during loading
       // We can verify the API was called
-      expect(userApi.getUserOAuthApps).toHaveBeenCalled();
+      expect(userApi.getOAuthApps).toHaveBeenCalled();
     });
 
     it('should show empty state when no OAuth apps configured', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -56,7 +56,7 @@ describe('OAuthCredentialsSection', () => {
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -76,7 +76,7 @@ describe('OAuthCredentialsSection', () => {
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -88,7 +88,7 @@ describe('OAuthCredentialsSection', () => {
 
   describe('add button visibility', () => {
     it('should show add button when providers are available', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -102,7 +102,7 @@ describe('OAuthCredentialsSection', () => {
       const allProviders = [
         { provider: 'whoop', client_id: '1', redirect_uri: '', created_at: '' },
       ];
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: allProviders });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: allProviders });
 
       const { queryByText } = render(<OAuthCredentialsSection />);
 
@@ -114,7 +114,7 @@ describe('OAuthCredentialsSection', () => {
 
   describe('add modal', () => {
     it('should open add modal when add button is pressed', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -131,7 +131,7 @@ describe('OAuthCredentialsSection', () => {
     });
 
     it('should close modal when cancel is pressed', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText, queryByText } = render(<OAuthCredentialsSection />);
 
@@ -153,7 +153,7 @@ describe('OAuthCredentialsSection', () => {
 
   describe('form validation', () => {
     it('should show error when saving without selecting provider', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -171,7 +171,7 @@ describe('OAuthCredentialsSection', () => {
     });
 
     it('should show error when saving without client ID', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText, getByPlaceholderText } = render(<OAuthCredentialsSection />);
 
@@ -196,7 +196,7 @@ describe('OAuthCredentialsSection', () => {
     });
 
     it('should show error when saving without client secret', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText, getByPlaceholderText } = render(<OAuthCredentialsSection />);
 
@@ -225,8 +225,8 @@ describe('OAuthCredentialsSection', () => {
 
   describe('save credentials', () => {
     it('should save credentials successfully', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
-      (userApi.registerUserOAuthApp as jest.Mock).mockResolvedValue({
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.registerOAuthApp as jest.Mock).mockResolvedValue({
         success: true,
         provider: 'whoop',
         message: 'Credentials saved',
@@ -256,7 +256,7 @@ describe('OAuthCredentialsSection', () => {
         fireEvent.press(getByText('Save'));
       });
 
-      expect(userApi.registerUserOAuthApp).toHaveBeenCalledWith({
+      expect(userApi.registerOAuthApp).toHaveBeenCalledWith({
         provider: 'whoop',
         client_id: 'my-client-id',
         client_secret: 'my-client-secret',
@@ -269,8 +269,8 @@ describe('OAuthCredentialsSection', () => {
     });
 
     it('should handle save error', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
-      (userApi.registerUserOAuthApp as jest.Mock).mockRejectedValue(
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.registerOAuthApp as jest.Mock).mockRejectedValue(
         new Error('Invalid credentials')
       );
 
@@ -314,7 +314,7 @@ describe('OAuthCredentialsSection', () => {
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -340,8 +340,8 @@ describe('OAuthCredentialsSection', () => {
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
-      (userApi.deleteUserOAuthApp as jest.Mock).mockResolvedValue(undefined);
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
+      (userApi.deleteOAuthApp as jest.Mock).mockResolvedValue(undefined);
 
       // Capture the Alert.alert mock to simulate pressing "Remove"
       let deleteCallback: (() => void) | undefined;
@@ -367,7 +367,7 @@ describe('OAuthCredentialsSection', () => {
         });
       }
 
-      expect(userApi.deleteUserOAuthApp).toHaveBeenCalledWith('whoop');
+      expect(userApi.deleteOAuthApp).toHaveBeenCalledWith('whoop');
     });
 
     it('should not delete when cancel is pressed', async () => {
@@ -379,7 +379,7 @@ describe('OAuthCredentialsSection', () => {
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: mockApps });
 
       // Capture the Alert.alert mock to verify Cancel doesn't call delete
       (Alert.alert as jest.Mock).mockImplementation((title, message, buttons) => {
@@ -394,14 +394,14 @@ describe('OAuthCredentialsSection', () => {
 
       fireEvent.press(getByText('Remove'));
 
-      expect(userApi.deleteUserOAuthApp).not.toHaveBeenCalled();
+      expect(userApi.deleteOAuthApp).not.toHaveBeenCalled();
     });
   });
 
   describe('provider picker', () => {
     it('should show WHOOP in picker when no providers are configured', async () => {
       // After the 2026-Q2 provider cleanup, BYO-OAuth-app is WHOOP-only.
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -420,7 +420,7 @@ describe('OAuthCredentialsSection', () => {
     });
 
     it('should update redirect URI when provider is selected', async () => {
-      (userApi.getUserOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
       const { getByText } = render(<OAuthCredentialsSection />);
 
@@ -448,7 +448,7 @@ describe('OAuthCredentialsSection', () => {
   describe('error handling', () => {
     it('should handle API error when loading OAuth apps', async () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      (userApi.getUserOAuthApps as jest.Mock).mockRejectedValue(new Error('Network error'));
+      (userApi.getOAuthApps as jest.Mock).mockRejectedValue(new Error('Network error'));
 
       const { getByText } = render(<OAuthCredentialsSection />);
 

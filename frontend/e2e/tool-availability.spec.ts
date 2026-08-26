@@ -144,21 +144,6 @@ async function setupToolAvailabilityMocks(page: Page) {
     });
   });
 
-  await page.route("**/api/admin/settings/social-insights", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        data: {
-          min_activities_for_comparison: 5,
-          comparison_window_days: 90,
-          min_similar_users: 3,
-          max_comparison_users: 50,
-        },
-      }),
-    });
-  });
-
   // Mock global disabled tools endpoint
   await page.route("**/api/admin/tools/global-disabled", async (route) => {
     await route.fulfill({
@@ -728,20 +713,6 @@ test.describe("Tool Availability - Error Handling", () => {
         }),
       });
     });
-    await page.route("**/api/admin/settings/social-insights", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          data: {
-            min_activities_for_comparison: 5,
-            comparison_window_days: 90,
-            min_similar_users: 3,
-            max_comparison_users: 50,
-          },
-        }),
-      });
-    });
 
     // Mock failing tenant tools endpoint
     await page.route("**/api/admin/tools/tenant/*", async (route) => {
@@ -830,7 +801,7 @@ test.describe("Tool Availability - Access Control", () => {
     });
 
     await loginToDashboard(page);
-    // Non-admin users see sidebar with tabs (Chat, Friends, Social Feed, Settings, etc.)
+    // Non-admin users see the sidebar with athlete tabs (Chat, Coaches, Groups, etc.)
     await page.waitForSelector("aside", { timeout: 10000 });
 
     // Non-admin users see the gear icon (Settings) in bottom profile bar, but NOT admin-specific tabs like Configuration

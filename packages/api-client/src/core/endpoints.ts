@@ -101,12 +101,6 @@ export const ENDPOINTS = {
     EXPORT: (id: string) => `/api/coaches/${id}/export`,
   },
 
-  // ==================== PROMPTS ====================
-  PROMPTS: {
-    /** Get prompt suggestions */
-    SUGGESTIONS: '/api/social/insights/suggestions',
-  },
-
   // ==================== OAUTH ====================
   OAUTH: {
     /** Get OAuth connection status */
@@ -129,54 +123,6 @@ export const ENDPOINTS = {
     INTERVALS_ICU_LINK: '/api/providers/intervals_icu/link-credentials',
     /** Disconnect the linked Intervals.icu account */
     INTERVALS_ICU_DISCONNECT: '/api/providers/intervals_icu/disconnect',
-  },
-
-  // ==================== SOCIAL ====================
-  SOCIAL: {
-    /** List friends */
-    FRIENDS: '/api/social/friends',
-    /** Pending friend requests (received) */
-    FRIENDS_PENDING: '/api/social/friends/pending',
-    /** Friend requests (sent/received) */
-    FRIENDS_REQUESTS: '/api/social/friends',
-    /** Specific friend request */
-    FRIEND_REQUEST: (id: string) => `/api/social/friends/${id}`,
-    /** Accept friend request */
-    FRIEND_REQUEST_ACCEPT: (id: string) => `/api/social/friends/${id}/accept`,
-    /** Reject/decline friend request */
-    FRIEND_REQUEST_REJECT: (id: string) => `/api/social/friends/${id}/decline`,
-    /** Specific friend (for removal) */
-    FRIEND: (id: string) => `/api/social/friends/${id}`,
-    /** Block a user */
-    FRIEND_BLOCK: (id: string) => `/api/social/friends/${id}/block`,
-    /** Search users */
-    USER_SEARCH: '/api/social/users/search',
-    /** Social feed */
-    FEED: '/api/social/feed',
-    /** Share an insight */
-    SHARE: '/api/social/insights',
-    /** Specific shared insight */
-    SHARED_INSIGHT: (id: string) => `/api/social/insights/${id}`,
-    /** List my insights */
-    INSIGHTS: '/api/social/insights',
-    /** Specific insight */
-    INSIGHT: (id: string) => `/api/social/insights/${id}`,
-    /** Reactions on an insight */
-    INSIGHT_REACTIONS: (id: string) => `/api/social/insights/${id}/reactions`,
-    /** Adapt an insight */
-    INSIGHT_ADAPT: (id: string) => `/api/social/insights/${id}/adapt`,
-    /** Get adapted insight */
-    ADAPT: (id: string) => `/api/social/insights/${id}/adapt`,
-    /** List adapted insights */
-    ADAPTED: '/api/social/adapted',
-    /** Social settings */
-    SETTINGS: '/api/social/settings',
-    /** Insight suggestions (coach-generated) */
-    SUGGESTIONS: '/api/social/insights/suggestions',
-    /** Share insight from activity */
-    FROM_ACTIVITY: '/api/social/insights/from-activity',
-    /** Generate shareable insight from analysis content */
-    GENERATE: '/api/social/insights/generate',
   },
 
   // ==================== STORE ====================

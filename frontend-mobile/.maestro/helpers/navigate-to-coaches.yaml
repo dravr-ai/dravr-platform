@@ -1,12 +1,26 @@
-# ABOUTME: Helper flow to navigate from any screen to Coaches
-# ABOUTME: Uses bottom tab navigation to reach the Coach Library screen
+# ABOUTME: Helper flow to navigate from any screen to the coach library
+# ABOUTME: The library lives under Discover since the Coaches tab folded into it: Discover tab, then Manage
 
 appId: ai.dravr.app
 
 ---
-# Tap the Coaches tab in bottom navigation
+# Tap the Discover tab in bottom navigation
 - tapOn:
-    id: "tab-coaches"
+    id: "tab-discover"
+
+# Wait for the Discover screen and its pinned installed-coaches strip
+- extendedWaitUntil:
+    visible:
+      id: "store-screen"
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "manage-coaches-button"
+    timeout: 15000
+
+# "Manage" opens the full library: filters, favourites, hidden coaches, import and export
+- tapOn:
+    id: "manage-coaches-button"
 
 # Wait for coach library screen to load
 - extendedWaitUntil:

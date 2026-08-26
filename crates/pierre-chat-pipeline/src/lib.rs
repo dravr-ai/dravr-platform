@@ -72,8 +72,8 @@ pub use usage_counters::{
     increment_usage_counters_scoped, tokens_from_envelope, UsageIncrementScope,
 };
 // Re-exported so that flows which build `ToolLoopParams` directly (the
-// insight route, the messaging ingress) can attach the same per-call
-// recorder the chat pipeline uses.
+// messaging ingress) can attach the same per-call recorder the chat
+// pipeline uses.
 pub use recorders::UsageRepoCallRecorder as TurnCallRecorder;
 pub use turn::{CreateConversationResult, TurnInput, UserMessageResult};
 
@@ -348,7 +348,7 @@ fn spawn_turn_extraction(
         SpawnedExtractionRequest {
             tenant_id: input.conversation_tenant_id,
             user_id: input.user_id.clone(),
-            coach_id: conv.coach_id.clone(),
+            coach_id: input.turn_coach_id(conv).map(ToOwned::to_owned),
             user_message: input.content.clone(),
             assistant_reply: assistant_reply.to_owned(),
             source_msg_id: Some(assistant_message_id.to_owned()),
@@ -384,7 +384,7 @@ fn spawn_turn_advice_capture(
             // conversation tenant for group channels.
             tenant_id: input.tool_tenant_id.to_string(),
             user_id: input.user_id.clone(),
-            coach_slug: conv.coach_id.clone(),
+            coach_slug: input.turn_coach_id(conv).map(ToOwned::to_owned),
             user_message: input.content.clone(),
             assistant_reply: assistant_reply.to_owned(),
             source_msg_id: Some(assistant_message_id.to_owned()),
@@ -483,7 +483,7 @@ async fn persist_verdicts_for_turn(
         input.conversation_tenant_id,
         &input.user_id,
         &input.conversation_id,
-        conv.coach_id.as_deref(),
+        input.turn_coach_id(conv),
         assistant_message_id,
         pending_verdicts,
     )
@@ -899,14 +899,14 @@ pub(crate) fn call_type_for_profile(profile: &SurfaceProfile) -> &'static str {
 
 /// Record the turn span's deferred `coach_id`/`group_id` fields (declared
 /// `Empty` on the `run` span) once the conversation record resolves them, so
-/// every log line emitted for the rest of the turn carries the coach and
-/// group-chat context. A no-op for fields the conversation leaves unset.
-fn record_turn_span_context(conv: &ConversationRecord) {
+/// every log line for the rest of the turn names the coach answering it — the
+/// mentioned one on a `@handle` turn — and the group. A no-op when unset.
+fn record_turn_span_context(coach_id: Option<&str>, group_id: Option<&str>) {
     let span = tracing::Span::current();
-    if let Some(coach_id) = conv.coach_id.as_deref() {
+    if let Some(coach_id) = coach_id {
         span.record("coach_id", coach_id);
     }
-    if let Some(group_id) = conv.group_id.as_deref() {
+    if let Some(group_id) = group_id {
         span.record("group_id", group_id);
     }
 }
@@ -1068,7 +1068,7 @@ async fn run_turn(
     // Fill the turn span's deferred context now that the conversation record is
     // resolved, so every downstream log line carries the coach and group-chat
     // identifiers alongside user/tenant/conversation/turn.
-    record_turn_span_context(&conv);
+    record_turn_span_context(input.turn_coach_id(&conv), conv.group_id.as_deref());
 
     // Stage 4.5: Guided mode. If this conversation is mid pillars walk or mid
     // calibration interview, resolve the topic being probed (and clear the flag
@@ -1105,7 +1105,7 @@ async fn run_turn(
             .clamp(80, 500),
     )
     .unwrap_or(160);
-    let history = get_conversation_history(
+    let mut history = get_conversation_history(
         database,
         &input.conversation_id,
         &input.user_id,
@@ -1114,10 +1114,10 @@ async fn run_turn(
     )
     .await?;
 
-    // Stage 6: Resolve coach runtime context.
-    let coach_ctx =
-        stages::prompt_assembly::resolve_coach_ctx(ctx, &conv, input.conversation_tenant_id)
-            .await?;
+    stages::coach_mention::apply_prompt_text(&mut history, &user_message.id, &input);
+
+    // Stage 6: Resolve the coach runtime context this turn answers as.
+    let coach_ctx = stages::prompt_assembly::resolve_turn_coach_ctx(ctx, &input, &conv).await?;
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.

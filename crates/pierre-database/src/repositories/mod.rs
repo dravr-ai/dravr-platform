@@ -52,8 +52,6 @@ pub mod security;
 pub mod seeder;
 /// Repository trait + helper for the channel-agnostic URL shortener.
 pub mod short_links;
-/// Repository traits for social graph persistence.
-pub mod social;
 /// Repository traits for tenants and subscriptions.
 pub mod tenants;
 /// Repository traits for tool selection telemetry persistence.
@@ -95,7 +93,6 @@ pub use roster::*;
 pub use security::*;
 pub use seeder::*;
 pub use short_links::*;
-pub use social::*;
 pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;

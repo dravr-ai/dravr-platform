@@ -14,7 +14,6 @@ export const authApi = pierreApi.auth;
 export const chatApi = pierreApi.chat;
 export const coachesApi = pierreApi.coaches;
 export const oauthApi = pierreApi.oauth;
-export const socialApi = pierreApi.social;
 export const storeApi = pierreApi.store;
 export const userApi = pierreApi.user;
 // End-user messaging channel linking (onboarding). Distinct from the web-only

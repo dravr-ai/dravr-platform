@@ -1,4 +1,4 @@
-// ABOUTME: Chat header component with navigation, title, and action menu
+// ABOUTME: Chat header component with back navigation, title, the "+" and the action menu
 // ABOUTME: Displays coach avatar, conversation title, and the rename / participants / delete menu
 
 import React from 'react';
@@ -29,7 +29,10 @@ interface ChatHeaderProps {
   currentConversation: Conversation | null;
   actionMenuVisible: boolean;
   insetTop: number;
-  onHistoryPress: () => void;
+  /** Back to the conversation list the thread was opened from. */
+  onBackPress: () => void;
+  /** The chat "+": new chat, new group chat, add someone to this discussion. */
+  onPlusPress: () => void;
   onTitlePress: () => void;
   onMenuClose: () => void;
   onMenuRename: () => void;
@@ -41,7 +44,8 @@ export function ChatHeader({
   currentConversation,
   actionMenuVisible,
   insetTop,
-  onHistoryPress,
+  onBackPress,
+  onPlusPress,
   onTitlePress,
   onMenuClose,
   onMenuRename,
@@ -61,15 +65,17 @@ export function ChatHeader({
         className="flex-row items-center px-4 py-2 border-b border-border-subtle"
         style={{ paddingTop: insetTop + spacing.sm }}
       >
-        {/* History button */}
+        {/* Back to the conversation list */}
         <TouchableOpacity
           className="w-10 h-10 items-center justify-center"
-          onPress={onHistoryPress}
-          testID="history-button"
+          onPress={onBackPress}
+          accessibilityRole="button"
+          accessibilityLabel="Back to chats"
+          testID="back-button"
         >
           <Ionicons
-            name="time-outline"
-            size={24}
+            name="chevron-back"
+            size={26}
             color={colors.text.primary}
           />
         </TouchableOpacity>
@@ -108,6 +114,17 @@ export function ChatHeader({
 
         {/* Notification bell */}
         <NotificationBellButton size={20} color={colors.text.secondary} />
+
+        {/* The chat "+" */}
+        <TouchableOpacity
+          className="w-10 h-10 items-center justify-center"
+          onPress={onPlusPress}
+          accessibilityRole="button"
+          accessibilityLabel="New chat, new group chat, or add someone"
+          testID="chat-plus-button"
+        >
+          <Ionicons name="add" size={26} color={colors.pierre.violet} />
+        </TouchableOpacity>
       </View>
 
       {/* Conversation Action Menu Modal - Claude-style popover */}

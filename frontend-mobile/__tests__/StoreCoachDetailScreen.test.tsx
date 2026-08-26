@@ -22,17 +22,17 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 // Mock API service
-const mockGetStoreCoach = jest.fn();
-const mockInstallStoreCoach = jest.fn();
-const mockUninstallStoreCoach = jest.fn();
-const mockGetInstalledCoaches = jest.fn();
+const mockGet = jest.fn();
+const mockInstall = jest.fn();
+const mockUninstall = jest.fn();
+const mockGetInstallations = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   storeApi: {
-    getStoreCoach: (...args: unknown[]) => mockGetStoreCoach(...args),
-    installStoreCoach: (...args: unknown[]) => mockInstallStoreCoach(...args),
-    uninstallStoreCoach: (...args: unknown[]) => mockUninstallStoreCoach(...args),
-    getInstalledCoaches: (...args: unknown[]) => mockGetInstalledCoaches(...args),
+    get: (...args: unknown[]) => mockGet(...args),
+    install: (...args: unknown[]) => mockInstall(...args),
+    uninstall: (...args: unknown[]) => mockUninstall(...args),
+    getInstallations: (...args: unknown[]) => mockGetInstallations(...args),
   },
 }));
 
@@ -71,15 +71,15 @@ describe('StoreCoachDetailScreen', () => {
     mockRouter.replace.mockClear();
     mockRouter.back.mockClear();
     mockRouter.navigate.mockClear();
-    mockGetStoreCoach.mockResolvedValue(createMockStoreCoachDetail());
-    mockGetInstalledCoaches.mockResolvedValue({ coaches: [] });
+    mockGet.mockResolvedValue(createMockStoreCoachDetail());
+    mockGetInstallations.mockResolvedValue({ coaches: [] });
   });
 
   describe('rendering', () => {
     it('should show loading state initially', async () => {
       // Delay the API response
       let resolvePromise: (value: unknown) => void;
-      mockGetStoreCoach.mockReturnValue(
+      mockGet.mockReturnValue(
         new Promise((resolve) => {
           resolvePromise = resolve;
         })
@@ -182,7 +182,7 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should show error state when coach not found', async () => {
-      mockGetStoreCoach.mockResolvedValue(null);
+      mockGet.mockResolvedValue(null);
 
       const { getByText } = render(
         <StoreCoachDetailScreen />
@@ -196,7 +196,7 @@ describe('StoreCoachDetailScreen', () => {
 
   describe('install functionality', () => {
     it('should show Install button when coach is not installed', async () => {
-      mockGetInstalledCoaches.mockResolvedValue({ coaches: [] });
+      mockGetInstallations.mockResolvedValue({ coaches: [] });
 
       const { getByText } = render(
         <StoreCoachDetailScreen />
@@ -207,9 +207,9 @@ describe('StoreCoachDetailScreen', () => {
       });
     });
 
-    it('should call installStoreCoach when Install button is pressed', async () => {
-      mockGetInstalledCoaches.mockResolvedValue({ coaches: [] });
-      mockInstallStoreCoach.mockResolvedValue({
+    it('should call install when Install button is pressed', async () => {
+      mockGetInstallations.mockResolvedValue({ coaches: [] });
+      mockInstall.mockResolvedValue({
         coach_id: 'new-coach-id',
         message: 'Successfully installed',
       });
@@ -225,13 +225,13 @@ describe('StoreCoachDetailScreen', () => {
       fireEvent.press(getByText('Install Coach'));
 
       await waitFor(() => {
-        expect(mockInstallStoreCoach).toHaveBeenCalledWith('test-coach-id');
+        expect(mockInstall).toHaveBeenCalledWith('test-coach-id');
       });
     });
 
     it('should show success alert after installation', async () => {
-      mockGetInstalledCoaches.mockResolvedValue({ coaches: [] });
-      mockInstallStoreCoach.mockResolvedValue({
+      mockGetInstallations.mockResolvedValue({ coaches: [] });
+      mockInstall.mockResolvedValue({
         coach_id: 'new-coach-id',
         message: 'Successfully installed',
       });
@@ -256,8 +256,8 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should show error alert on installation failure', async () => {
-      mockGetInstalledCoaches.mockResolvedValue({ coaches: [] });
-      mockInstallStoreCoach.mockRejectedValue(new Error('Installation failed'));
+      mockGetInstallations.mockResolvedValue({ coaches: [] });
+      mockInstall.mockRejectedValue(new Error('Installation failed'));
 
       const { getByText } = render(
         <StoreCoachDetailScreen />
@@ -280,7 +280,7 @@ describe('StoreCoachDetailScreen', () => {
 
   describe('uninstall functionality', () => {
     it('should show Installed button when coach is installed', async () => {
-      mockGetInstalledCoaches.mockResolvedValue({
+      mockGetInstallations.mockResolvedValue({
         coaches: [{ id: 'test-coach-id' }],
       });
 
@@ -294,7 +294,7 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should show confirmation dialog when Installed button is pressed', async () => {
-      mockGetInstalledCoaches.mockResolvedValue({
+      mockGetInstallations.mockResolvedValue({
         coaches: [{ id: 'test-coach-id' }],
       });
 
@@ -318,11 +318,11 @@ describe('StoreCoachDetailScreen', () => {
       });
     });
 
-    it('should call uninstallStoreCoach when confirmed', async () => {
-      mockGetInstalledCoaches.mockResolvedValue({
+    it('should call uninstall when confirmed', async () => {
+      mockGetInstallations.mockResolvedValue({
         coaches: [{ id: 'test-coach-id' }],
       });
-      mockUninstallStoreCoach.mockResolvedValue({ message: 'Uninstalled' });
+      mockUninstall.mockResolvedValue({ message: 'Uninstalled' });
 
       // Mock Alert to automatically call the destructive action
       (Alert.alert as jest.Mock).mockImplementation(
@@ -348,7 +348,7 @@ describe('StoreCoachDetailScreen', () => {
       fireEvent.press(getByText('Installed'));
 
       await waitFor(() => {
-        expect(mockUninstallStoreCoach).toHaveBeenCalledWith('test-coach-id');
+        expect(mockUninstall).toHaveBeenCalledWith('test-coach-id');
       });
     });
   });
@@ -371,8 +371,8 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should navigate to CoachLibrary after successful install', async () => {
-      mockGetInstalledCoaches.mockResolvedValue({ coaches: [] });
-      mockInstallStoreCoach.mockResolvedValue({
+      mockGetInstallations.mockResolvedValue({ coaches: [] });
+      mockInstall.mockResolvedValue({
         coach_id: 'new-coach-id',
         message: 'Successfully installed',
       });
@@ -400,15 +400,15 @@ describe('StoreCoachDetailScreen', () => {
       fireEvent.press(getByText('Install Coach'));
 
       await waitFor(() => {
-        // After install, navigation goes to Coaches tab
-        expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(coaches)');
+        // After install, navigation goes to the coach library under Discover
+        expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(discover)/library');
       });
     });
   });
 
   describe('edge cases', () => {
     it('should handle coach with no tags', async () => {
-      mockGetStoreCoach.mockResolvedValue(
+      mockGet.mockResolvedValue(
         createMockStoreCoachDetail({ tags: [] })
       );
 
@@ -425,7 +425,7 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should handle coach with no sample prompts', async () => {
-      mockGetStoreCoach.mockResolvedValue(
+      mockGet.mockResolvedValue(
         createMockStoreCoachDetail({ sample_prompts: [] })
       );
 
@@ -441,7 +441,7 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should handle singular install count', async () => {
-      mockGetStoreCoach.mockResolvedValue(
+      mockGet.mockResolvedValue(
         createMockStoreCoachDetail({ install_count: 1 })
       );
 
@@ -455,7 +455,7 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should handle API error gracefully', async () => {
-      mockGetStoreCoach.mockRejectedValue(new Error('Network error'));
+      mockGet.mockRejectedValue(new Error('Network error'));
 
       const { getByText } = render(
         <StoreCoachDetailScreen />

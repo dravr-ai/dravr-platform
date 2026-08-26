@@ -1,0 +1,35 @@
+# ABOUTME: Visual test that the tab bar carries neither an Insights nor a Coaches tab (Chat-First Cutover)
+# ABOUTME: Replaces the social-feed, friends-screen and share-insight flows that drove the old Insights tab
+
+appId: ai.dravr.app
+
+---
+# Launch and login
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# The athlete lands on chat; the bar offers exactly the surviving tabs.
+- extendedWaitUntil:
+    visible:
+      id: "tab-chat"
+    timeout: 15000
+- assertVisible:
+    id: "tab-discover"
+- assertVisible:
+    id: "tab-groups"
+- assertVisible:
+    id: "tab-settings"
+
+# Test: no Insights tab, no feed, no Coaches tab. Unconditional — the retired
+# flows reached the feed behind `when: visible` guards, which is how a deleted
+# tab could keep passing.
+- assertNotVisible:
+    id: "tab-insights"
+- assertNotVisible:
+    id: "tab-coaches"
+- assertNotVisible:
+    id: "social-feed-screen"
+- assertNotVisible: "Insights"
+- assertNotVisible: "Find Friends"

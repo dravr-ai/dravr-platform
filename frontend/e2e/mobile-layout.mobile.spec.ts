@@ -19,15 +19,19 @@ test.describe('Mobile authenticated layout', () => {
     await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
   });
 
-  test('bottom tab bar renders with 5 entries including Menu', async ({ page }) => {
+  test('bottom tab bar renders with 4 entries including Menu', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await expect(nav).toBeVisible();
-    // 4 primary + Menu
+    // 3 primary + Menu. Insights was retired by the Chat-First Cutover and
+    // the Coach tab folded into Discover, so the bar holds exactly these and
+    // nothing points at a feed or a coach library.
     await expect(nav.getByRole('button', { name: 'Chat' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Coaches' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Insights' })).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Discover' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Groups' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Open menu' })).toBeVisible();
+    await expect(nav.getByRole('button')).toHaveCount(4);
+    await expect(nav.getByRole('button', { name: 'Insights' })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Coaches' })).toHaveCount(0);
   });
 
   test('desktop sidebar is hidden at mobile viewport', async ({ page }) => {

@@ -19,3 +19,6 @@ export { default as ProviderConnectionModal } from './ProviderConnectionModal';
 export { default as CoachFormModal } from './CoachFormModal';
 export { default as CreateCoachFromConversationModal } from './CreateCoachFromConversationModal';
 export { default as ConversationParticipants } from './ConversationParticipants';
+export { default as ChatComposeMenu } from './ChatComposeMenu';
+export { default as GroupChatPicker } from './GroupChatPicker';
+export { default as MentionPalette } from './MentionPalette';

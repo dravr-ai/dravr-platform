@@ -356,23 +356,6 @@ export function createUserApi(axios: AxiosInstance) {
       return response.data;
     },
 
-    // Aliases for backward compatibility
-    getUserStats() {
-      return this.getStats();
-    },
-
-    getUserOAuthApps() {
-      return this.getOAuthApps();
-    },
-
-    registerUserOAuthApp(credentials: OAuthAppCredentials) {
-      return this.registerOAuthApp(credentials);
-    },
-
-    deleteUserOAuthApp(provider: string) {
-      return this.deleteOAuthApp(provider);
-    },
-
     /**
      * List the harness memory facts the platform has stored about the
      * authenticated user. Powers the Sprint C5 "what the coach

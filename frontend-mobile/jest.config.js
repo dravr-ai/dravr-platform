@@ -71,6 +71,10 @@ module.exports = {
     // its whole suite down. Serve the real process.env for `env`; other virtual
     // modules keep the setup-file stand-in.
     '^expo/virtual/env$': '<rootDir>/jest.env.js',
+    // NativeWind compiles `global.css` at build time; under jest the root
+    // layout's stylesheet import is a plain module with nothing to export.
+    // Without this stand-in the root layout cannot be rendered in a test.
+    '\\.css$': '<rootDir>/jest.css.js',
     // Mock expo virtual modules for packages outside node_modules
     '^expo/virtual/(.*)$': '<rootDir>/jest.setup.js',
     // Ensure a single React instance across components and test renderer

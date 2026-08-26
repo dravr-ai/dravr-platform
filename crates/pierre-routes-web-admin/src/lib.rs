@@ -17,7 +17,7 @@
 //! - Admin token CRUD (`tokens`, `tokens/{id}`, `tokens/{id}/revoke`,
 //!   `tokens/{id}/rotate`)
 //! - Per-user diagnostics (`users/{id}/rate-limit`, `activity`, `admin-profile`)
-//! - Settings (`settings/auto-approval`, `settings/social-insights`)
+//! - Settings (`settings/auto-approval`)
 //! - Tool selection (`tools/catalog`, `tools/tenant/{id}/*`, `tools/global-disabled`)
 //! - Analytics (`analytics/recent-activity`)
 //! - Billing / usage (`users/{id}/usage`, `cost-timeseries`,
@@ -504,12 +504,6 @@ impl WebAdminRoutes {
             .route(
                 "/api/admin/settings/auto-approval",
                 get(settings::handle_get_auto_approval).put(settings::handle_set_auto_approval),
-            )
-            .route(
-                "/api/admin/settings/social-insights",
-                get(settings::handle_get_social_insights_config)
-                    .put(settings::handle_set_social_insights_config)
-                    .delete(settings::handle_reset_social_insights_config),
             )
             // Tool selection routes (web admin versions with cookie auth)
             .route(

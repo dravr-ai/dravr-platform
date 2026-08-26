@@ -367,7 +367,7 @@ describe('carnet #55/#52 — mobile group admin + peer consent', () => {
 
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith({
-        pathname: '/(app)/(tabs)/(chat)',
+        pathname: '/(app)/(tabs)/(chat)/[conversationId]',
         params: { conversationId: 'conv-group-1' },
       });
     });

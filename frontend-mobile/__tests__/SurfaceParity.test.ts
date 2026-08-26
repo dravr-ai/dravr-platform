@@ -33,8 +33,18 @@ describe('surface parity — mobile', () => {
   const mobileSurfaces = surfacesFor('mobile');
 
   it('declares at least the primary destinations', () => {
-    // Guards against the registry itself being gutted to make this pass.
-    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(14);
+    // Guards against the registry itself being gutted to make this pass. The
+    // floor moved from 14 to 13 when the Chat-First Cutover folded the Coaches
+    // tab into Discover: the coach library is a section of that surface now,
+    // not a destination of its own.
+    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(13);
+  });
+
+  it('no longer declares the retired Coaches surface', () => {
+    // The (coaches) tab folded into Discover; a row pointing at it would send
+    // a deep link into a route group that no longer exists.
+    expect(USER_SURFACES.find((s) => s.id === 'coaches')).toBeUndefined();
+    expect(USER_SURFACES.find((s) => s.id === 'insights')).toBeUndefined();
   });
 
   it.each(mobileSurfaces.map((s) => [s.id, s.mobile as string]))(

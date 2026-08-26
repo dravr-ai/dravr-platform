@@ -211,7 +211,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
   });
 
   // Mock OAuth status endpoint (used by Connections tab)
-  // Note: Backend returns array directly, getOAuthStatus() wraps it in { providers: ... }
+  // Note: Backend returns array directly, getStatus() wraps it in { providers: ... }
   await page.route('**/api/oauth/status', async (route) => {
     await route.fulfill({
       status: 200,
@@ -401,51 +401,6 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     }
   });
 
-  // Mock social endpoints (needed by Insights tab)
-  // Uses route.fallback() so test-specific social mocks can override
-  await page.route('**/api/social/**', async (route) => {
-    const url = route.request().url();
-    if (url.includes('/friends')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ friends: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
-      });
-    } else if (url.includes('/feed')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ insights: [], next_cursor: null, has_more: false, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
-      });
-    } else if (url.includes('/suggestions')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ suggestions: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
-      });
-    } else if (url.includes('/settings')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          user_id: 'user-123',
-          discoverable: true,
-          default_visibility: 'friends',
-          share_activity_types: [],
-          notifications: { friend_requests: true, insight_reactions: true, adapted_insights: true },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }),
-      });
-    } else {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({}),
-      });
-    }
-  });
-
   // Mock store endpoints (needed by Discover tab)
   await page.route('**/api/store/**', async (route) => {
     const url = route.request().url();
@@ -488,50 +443,6 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     }
   });
 
-  // Mock prompt suggestions endpoint (public API for chat prompts)
-  await page.route('**/api/social/insights/suggestions**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        categories: [
-          {
-            category_key: 'training',
-            category_title: 'Training',
-            category_icon: '🏃',
-            pillar: 'training_and_movement',
-            prompts: ['Am I ready for a hard workout today?', 'What should my training focus be this week?'],
-          },
-          {
-            category_key: 'nutrition',
-            category_title: 'Nutrition',
-            category_icon: '🥗',
-            pillar: 'fuelling',
-            prompts: ['What should I eat before my long run?', 'How can I improve my recovery nutrition?'],
-          },
-          {
-            category_key: 'recovery',
-            category_title: 'Recovery',
-            category_icon: '😴',
-            pillar: 'sleep_and_recovery',
-            prompts: ['Am I getting enough rest?', 'How is my sleep affecting my training?'],
-          },
-          {
-            category_key: 'recipes',
-            category_title: 'Recipes',
-            category_icon: '🍳',
-            pillar: 'fuelling',
-            prompts: ['Give me a high-protein post-workout meal idea', 'What are some easy pre-race breakfast options?'],
-          },
-        ],
-        welcome_prompt: 'List my last 20 activities with key insights about my training patterns.',
-        metadata: {
-          timestamp: new Date().toISOString(),
-          api_version: '1.0',
-        },
-      }),
-    });
-  });
 }
 
 /**

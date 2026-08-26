@@ -37,9 +37,9 @@ use crate::repositories::{
     OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
     RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, SleepRepository, SocialRepository, StoreListingsRepository,
-    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
-    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
+    SeederRepository, SleepRepository, StoreListingsRepository, SubscriptionsRepository,
+    SyncCursorRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
     UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
     UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
@@ -223,28 +223,24 @@ impl FitnessRepos {
     }
 }
 
-/// Repositories backing social graph, multi-channel messaging, and OAuth
-/// completion notifications.
+/// Repositories backing multi-channel messaging and OAuth completion
+/// notifications.
 ///
-/// Consumers: messaging ingress / linking / OTP / dispatch / session
-/// services, social feature endpoints, notification dispatch.
+/// Consumer: the MCP connection-status handler in `mcp::multitenant`, which
+/// reads the unread OAuth completion notifications through this view.
 #[derive(Clone)]
-pub struct SocialRepos {
-    /// Social features (friend connections, shared insights, reactions).
-    /// `None` when social features are not enabled at startup.
-    pub social: Option<Arc<dyn SocialRepository>>,
+pub struct GroupsRepos {
     /// Multi-channel messaging gateway
     pub messaging: Arc<dyn MessagingRepository>,
     /// OAuth completion notifications
     pub notifications: Arc<dyn NotificationRepository>,
 }
 
-impl SocialRepos {
-    /// Build a `SocialRepos` view from the master registry.
+impl GroupsRepos {
+    /// Build a `GroupsRepos` view from the master registry.
     #[must_use]
     pub fn from_registry(registry: &RepositoryRegistry) -> Self {
         Self {
-            social: registry.social.as_ref().map(Arc::clone),
             messaging: Arc::clone(&registry.messaging),
             notifications: Arc::clone(&registry.notifications),
         }
@@ -344,10 +340,10 @@ impl RepositoryRegistry {
         FitnessRepos::from_registry(self)
     }
 
-    /// Build a [`SocialRepos`] view from this registry.
+    /// Build a [`GroupsRepos`] view from this registry.
     #[must_use]
-    pub fn social_repos(&self) -> SocialRepos {
-        SocialRepos::from_registry(self)
+    pub fn groups_repos(&self) -> GroupsRepos {
+        GroupsRepos::from_registry(self)
     }
 
     /// Build a [`UsageRepos`] view from this registry.

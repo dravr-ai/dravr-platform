@@ -20,11 +20,11 @@ use crate::repositories::{
     PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
     ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
     RouteSummaryRepository, SecurityRepository, SeederRepository, ShortLinkRepository,
-    SleepRepository, SocialRepository, StoreListingsRepository, SubscriptionsRepository,
-    SyncCursorRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
-    TrainingPlanRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
-    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
-    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    SleepRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
+    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
     WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
@@ -92,8 +92,6 @@ pub struct RepositoryRegistry {
     pub short_links: Arc<dyn ShortLinkRepository>,
     /// Durable per-user onboarding step completion state (server-driven onboarding flow)
     pub user_onboarding: Arc<dyn UserOnboardingRepository>,
-    /// Social features (friend connections, shared insights, reactions)
-    pub social: Option<Arc<dyn SocialRepository>>,
     /// Store listings for coach marketplace
     pub store_listings: Arc<dyn StoreListingsRepository>,
     /// Tenant CRUD and user-tenant roles
@@ -208,7 +206,6 @@ impl RepositoryRegistry {
             training_plans: db.clone(),
             short_links: db.clone(),
             user_onboarding: db.clone(),
-            social: Some(db.clone()),
             store_listings: db.clone(),
             tenants: db.clone(),
             tool_selection: db.clone(),
@@ -276,7 +273,6 @@ impl RepositoryRegistry {
             training_plans: db.clone(),
             short_links: db.clone(),
             user_onboarding: db.clone(),
-            social: Some(db.clone()),
             store_listings: db.clone(),
             tenants: db.clone(),
             tool_selection: db.clone(),

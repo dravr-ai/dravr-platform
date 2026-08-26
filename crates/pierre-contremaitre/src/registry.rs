@@ -13,11 +13,10 @@ use pierre_core::models::CoachingPersona;
 use pierre_llm::prompts::{
     get_coaching_persona_prompt, ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
     CASUAL_PERSONA_PROMPT, COACH_GENERATION_PROMPT, COACH_PERSONA_PROMPT,
-    ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
-    MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, PIERRE_SYSTEM_PROMPT,
-    PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT,
-    RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT,
-    TOOL_DISCIPLINE_PROMPT,
+    ENTHUSIAST_PERSONA_PROMPT, MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT,
+    PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT,
+    PROGRESSION_GUARDRAILS_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT,
+    TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -104,8 +103,6 @@ impl PromptRegistry {
             ("pierre_system", PIERRE_SYSTEM_PROMPT),
             ("platform_contract", PLATFORM_CONTRACT_PROMPT),
             ("coach_generation", COACH_GENERATION_PROMPT),
-            ("insight_validation", INSIGHT_VALIDATION_PROMPT),
-            ("insight_generation", INSIGHT_GENERATION_PROMPT),
             ("messaging_context", MESSAGING_CONTEXT_PROMPT),
             ("recommendation_analysis", RECOMMENDATION_ANALYSIS_PROMPT),
             ("recommendation_system", RECOMMENDATION_SYSTEM_PROMPT),
@@ -176,16 +173,6 @@ impl PromptRegistry {
     /// Get the coach generation prompt.
     pub fn coach_generation_prompt(&self) -> String {
         self.get_system_prompt("coach_generation")
-    }
-
-    /// Get the insight validation prompt.
-    pub fn insight_validation_prompt(&self) -> String {
-        self.get_system_prompt("insight_validation")
-    }
-
-    /// Get the insight generation prompt.
-    pub fn insight_generation_prompt(&self) -> String {
-        self.get_system_prompt("insight_generation")
     }
 
     /// Get the messaging context prompt.
@@ -469,8 +456,6 @@ impl PromptRegistry {
         match key {
             "pierre_system" => PIERRE_SYSTEM_PROMPT,
             "coach_generation" => COACH_GENERATION_PROMPT,
-            "insight_validation" => INSIGHT_VALIDATION_PROMPT,
-            "insight_generation" => INSIGHT_GENERATION_PROMPT,
             "messaging_context" => MESSAGING_CONTEXT_PROMPT,
             "recommendation_analysis" => RECOMMENDATION_ANALYSIS_PROMPT,
             "recommendation_system" => RECOMMENDATION_SYSTEM_PROMPT,

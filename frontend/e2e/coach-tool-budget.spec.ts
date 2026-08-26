@@ -314,10 +314,10 @@ test.describe('Coach authoring surface - the wizard is gone', () => {
       await expect(page.getByText(chrome, { exact: true })).toHaveCount(0);
     }
 
-    // The Coaches tab's own create form is likewise a single screen, and the
-    // coach detail offers no version-history drawer.
-    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
-    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
+    // Discover's "Your coaches" create form is likewise a single screen, and
+    // the coach detail offers no version-history drawer.
+    await page.getByRole('list').getByRole('button', { name: 'Discover', exact: true }).click();
+    await expect(page.getByRole('region', { name: /Your coaches/ })).toBeVisible({ timeout: 10000 });
     await page.getByRole('button', { name: 'Create Coach' }).click();
     await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeVisible({ timeout: 5000 });
     for (const chrome of WIZARD_ONLY_CHROME) {

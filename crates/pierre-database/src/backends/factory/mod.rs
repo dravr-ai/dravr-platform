@@ -10,7 +10,6 @@
 
 use super::DatabaseProvider;
 use async_trait::async_trait;
-use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use std::collections::HashMap;
@@ -130,7 +129,7 @@ impl Database {
     ///
     /// Returns `None` for `PostgreSQL` databases. The returned reference implements
     /// domain-specific repository traits (`RecipeRepository`, `CoachesRepository`,
-    /// `MobilityRepository`, `SocialRepository`).
+    /// `MobilityRepository`).
     #[must_use]
     pub const fn sqlite_database(&self) -> Option<&SqliteDatabase> {
         match self {
@@ -356,48 +355,6 @@ impl Database {
             Self::SQLite(db) => db.set_auto_approval_enabled(enabled).await,
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => db.set_auto_approval_enabled(enabled).await,
-        }
-    }
-
-    /// Get social insights configuration from database
-    ///
-    /// Returns `Some(config)` if explicitly set in database,
-    /// or `None` if no database setting exists (caller should use defaults).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails or JSON deserialization fails
-    pub async fn get_social_insights_config(&self) -> AppResult<Option<SocialInsightsConfig>> {
-        match self {
-            Self::SQLite(db) => db.get_social_insights_config().await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_social_insights_config().await,
-        }
-    }
-
-    /// Set social insights configuration in database
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails or JSON serialization fails
-    pub async fn set_social_insights_config(&self, config: &SocialInsightsConfig) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.set_social_insights_config(config).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.set_social_insights_config(config).await,
-        }
-    }
-
-    /// Delete social insights configuration from database (revert to defaults)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails
-    pub async fn delete_social_insights_config(&self) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.delete_social_insights_config().await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.delete_social_insights_config().await,
         }
     }
 
