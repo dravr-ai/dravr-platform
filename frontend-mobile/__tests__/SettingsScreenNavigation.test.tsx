@@ -70,7 +70,7 @@ describe('SettingsScreen navigation', () => {
     ['settings-edit-profile-button', '/(app)/(tabs)/(settings)/profile'],
     ['settings-personal-info-button', '/(app)/(tabs)/(settings)/profile'],
     ['settings-memory-button', '/(app)/memory'],
-    ['settings-privacy-button', '/(app)/(tabs)/(social)/social-settings'],
+    ['settings-privacy-button', '/(app)/(tabs)/(settings)/privacy'],
   ])('%s navigates to %s', (testID, destination) => {
     const { getByTestId } = render(<SettingsScreen />);
     fireEvent.press(getByTestId(testID));

@@ -174,7 +174,7 @@ export const USER_SURFACES: readonly UserSurface[] = [
     id: 'privacy',
     label: 'Privacy',
     web: 'settings',
-    mobile: '/(app)/(tabs)/(social)/social-settings',
+    mobile: '/(app)/(tabs)/(settings)/privacy',
     webNav: null,
     blocks: NO_BLOCKS,
   },

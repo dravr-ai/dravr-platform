@@ -724,12 +724,11 @@ export function SettingsScreen() {
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
           <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Privacy</Text>
           <View style={glassCardStyle}>
-            {/* Social settings is the app's privacy surface — discoverability,
-                default sharing, and analytics consent all live there, matching
-                what the web Privacy & Data tab covers. */}
+            {/* The privacy screen carries the analytics-consent control,
+                matching what the web Privacy & Data tab covers. */}
             <TouchableOpacity
               style={settingsRowStyle}
-              onPress={() => router.push('/(app)/(tabs)/(social)/social-settings')}
+              onPress={() => router.push('/(app)/(tabs)/(settings)/privacy')}
               testID="settings-privacy-button"
             >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
