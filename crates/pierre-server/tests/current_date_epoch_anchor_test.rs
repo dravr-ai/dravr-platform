@@ -19,6 +19,10 @@
 use chrono::Utc;
 use pierre_chat_pipeline::stages::prompt_assembly::format_current_date;
 
+/// Mirrors `NOW_QUANTUM_SECS` in prompt_assembly. Duplicated deliberately:
+/// a test that reads the constant it is checking cannot catch it changing.
+const QUANTUM: i64 = 300;
+
 /// Parse the epoch to the right of a `= ` on the line containing `label`.
 fn epoch_for(rendered: &str, label: &str) -> i64 {
     let line = rendered
@@ -43,10 +47,16 @@ fn anchor_carries_a_current_unix_epoch() {
         "anchor must show the current year; got: {rendered}"
     );
 
+    // `now` is floored to the current five-minute quantum rather than carrying
+    // the exact call instant — see `the_clock_is_quantized_so_the_prefix_holds`.
+    // The 2026-07-24 fix this file pins is unaffected: what mattered was that
+    // the model COPIES a literal epoch instead of converting a human date, and
+    // the failure was a year early, not five minutes.
     let now = epoch_for(&rendered, "now =");
     assert!(
-        (before..=after + 1).contains(&now),
-        "`now` epoch must be current: {now} not in [{before}, {after}]; got: {rendered}"
+        now <= after && now > before - QUANTUM,
+        "`now` must be the current quantum: {now} not within {QUANTUM}s below \
+         [{before}, {after}]; got: {rendered}"
     );
 }
 
@@ -98,4 +108,61 @@ fn anchor_instructs_to_copy_not_compute_epochs() {
     );
     // No-timezone fallback still labels UTC.
     assert!(rendered.contains("UTC"), "got: {rendered}");
+}
+
+/// The prompt clock must not move the cache prefix on every request.
+///
+/// This block is interpolated as `{{CURRENT_DATE}}` into the platform contract,
+/// which LEADS the system prompt. Prompt caching is a prefix match: one changed
+/// byte invalidates everything after it, and the render order is tools, then
+/// system, then messages. Carrying the raw `Utc::now().timestamp()` here moved
+/// the front of the prefix on every single request, so no provider could reuse
+/// any of the prompt behind it — including providers that cache implicitly on a
+/// stable prefix, with no `cache_control` needed.
+///
+/// That is a cause of the zero cache reads measured across August 2026 that is
+/// entirely ours. registre#102 covers the other half, the transport not
+/// reporting cache hits at all; this half is fixable here and was.
+///
+/// Flooring, not rounding up: rounding up crosses midnight and would move
+/// "today" a day early at 23:58. The cost is an upper bound up to one quantum
+/// stale, which is immaterial because the block itself tells the model to pass
+/// no bounds for a freshness fetch — `now` is only ever a `before` for a window
+/// question.
+#[test]
+fn the_clock_is_quantized_so_the_prefix_holds() {
+    let rendered = format_current_date(Some("America/Toronto"));
+
+    let now = epoch_for(&rendered, "now =");
+    assert_eq!(
+        now % QUANTUM,
+        0,
+        "`now` must be floored to a {QUANTUM}s boundary or the cache prefix \
+         changes every request: {now}; got: {rendered}"
+    );
+
+    // The human-readable clock on the first line moves too, so it is quantized
+    // with the same instant — a minute-resolution timestamp would still change
+    // the prefix five times per quantum.
+    let first = rendered.lines().next().unwrap_or_default();
+    let minutes: i64 = first
+        .split_whitespace()
+        .nth(1)
+        .and_then(|hm| hm.split(':').nth(1))
+        .and_then(|m| m.parse().ok())
+        .unwrap_or_else(|| panic!("no HH:MM on the first line: {first:?}"));
+    assert_eq!(
+        minutes % (QUANTUM / 60),
+        0,
+        "the displayed clock must share the quantized instant: {first:?}"
+    );
+
+    // The date boundaries are NOT quantized — they come from the true local
+    // time, so "today" never shifts under the athlete.
+    let today0 = epoch_for(&rendered, "start of today");
+    assert_eq!(today0 % 60, 0, "midnight is a whole minute: {today0}");
+    assert!(
+        today0 <= now,
+        "today's start must not be after now: {today0} > {now}"
+    );
 }

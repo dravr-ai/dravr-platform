@@ -382,6 +382,19 @@ fn interpolate_prompt_placeholders(
 /// server clock has already rolled over to. The wall-clock time lets the coach
 /// reason about time of day (morning/evening) without asking.
 #[must_use]
+/// Granularity the prompt's "now" values are floored to, in seconds.
+///
+/// Five minutes: long enough that consecutive turns in a conversation share a
+/// byte-identical prompt prefix (so a provider that caches implicitly on a
+/// stable prefix can actually hit), short enough that the clock the coach reads
+/// is never meaningfully wrong. The date boundaries below are NOT quantized —
+/// they are derived from the true local time, so "today" never shifts.
+const NOW_QUANTUM_SECS: i64 = 300;
+
+// Divides `now`; a zero quantum would panic. Const-asserted rather than guarded
+// at runtime, because the value is compile-time.
+const _: () = assert!(NOW_QUANTUM_SECS > 0);
+
 pub fn format_current_date(user_timezone: Option<&str>) -> String {
     use chrono::{Datelike, Duration, TimeZone, Utc};
     let now_utc = Utc::now();
@@ -389,9 +402,29 @@ pub fn format_current_date(user_timezone: Option<&str>) -> String {
         .and_then(|s| s.parse().ok())
         .unwrap_or(chrono_tz::UTC);
     let local = now_utc.with_timezone(&tz);
-    let datetime_str = local.format("%Y-%m-%d %H:%M").to_string();
     let label = tz.name();
-    let now_epoch = now_utc.timestamp();
+
+    // Quantized, and that is the whole point: this block is interpolated as
+    // `{{CURRENT_DATE}}` into the platform contract, which LEADS the system
+    // prompt. Prompt caching is a prefix match — one changed byte invalidates
+    // everything after it, and the render order is tools, then system, then
+    // messages. Carrying `now = <unix seconds>` here changed the front of the
+    // prefix on every single request, so no provider could reuse any of the
+    // prompt behind it. That is a cause of the zero cache reads observed across
+    // August 2026 that is entirely ours, independent of whether the transport
+    // reports cache hits at all (registre#102 covers the reporting half).
+    //
+    // Floored, never rounded up: rounding up crosses midnight and would move
+    // "today" a day early at 23:58. Floor costs an upper bound up to one
+    // quantum stale, which is immaterial here because the guidance below tells
+    // the model to pass NO bounds for a freshness fetch — `now` is only ever a
+    // `before` for a window question (today / this week / this month).
+    let quantized_epoch = (now_utc.timestamp() / NOW_QUANTUM_SECS) * NOW_QUANTUM_SECS;
+    let datetime_str = Utc.timestamp_opt(quantized_epoch, 0).single().map_or_else(
+        || local.format("%Y-%m-%d %H:%M").to_string(),
+        |q| q.with_timezone(&tz).format("%Y-%m-%d %H:%M").to_string(),
+    );
+    let now_epoch = quantized_epoch;
 
     // Local-midnight epoch `days_back` days before today, DST-safe (a spring
     // gap/fold at midnight is vanishingly rare; take the earliest valid
