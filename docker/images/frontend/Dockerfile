@@ -55,7 +55,12 @@ FROM alpine:3.23
 # base packages (e.g. openssl libssl3/libcrypto3) stale. Bump this date whenever
 # Trivy flags a fixed Alpine CVE to force a fresh `apk upgrade` that pulls the
 # patched version (e.g. CVE-2026-45447 in libssl3/libcrypto3).
-ARG APK_SECURITY_EPOCH=2026-07-22
+# openssl 3.5.8-r0 closes CVE-2026-14456, unbounded memory growth in the QUIC
+# server reachable as a denial of service. Trivy reports it against both
+# libcrypto3 and libssl3 from the one source package. Gated the dev deploy on
+# 2026-08-26, on the surface-convergence merge, which touched no Docker file:
+# alpine 3.23.5 shipped the fix and the buildx cache was still serving 3.5.7-r0.
+ARG APK_SECURITY_EPOCH=2026-08-26
 
 # nginx (patched, fixes CVE-2026-9256) + gettext for envsubst (the official nginx
 # image bundled envsubst; plain alpine does not). apk upgrade patches the rest of

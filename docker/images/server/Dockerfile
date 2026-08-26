@@ -89,7 +89,12 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # code execution in Dawn and V8, and information disclosure. Gated the dev
 # deploy on 2026-08-21, on a commit that touched no Docker and no dependency:
 # the buildx registry cache was still serving the 137 layer.
-ARG APT_SECURITY_EPOCH=2026-08-21
+# openssl 3.5.7-1~deb13u2 closes CVE-2026-14456, unbounded memory growth in the
+# QUIC server reachable as a denial of service. One defect, four binary packages
+# -- libssl-dev, libssl3t64, openssl, openssl-provider-legacy -- so it reads as
+# four HIGH findings. Gated the dev deploy on 2026-08-26, the same day and the
+# same CVE that gated the frontend image against alpine.
+ARG APT_SECURITY_EPOCH=2026-08-26
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
