@@ -48,6 +48,8 @@ pub mod types;
 /// LIMITATION(registre#43): no create or invite handler lives here, so the admin *web
 /// app* cannot pre-add a user from an email address. The operator path is `pierre-cli
 /// user allow --email X` — a standing pre-approval consumed at registration (the account
-/// lands active, `approved_by` attributed). Still missing from this surface: the HTTP
-/// endpoints + api-client methods, and the single-use invite email flow from the issue.
+/// lands active, `approved_by` attributed) — which, absent these endpoints, writes to a
+/// local database and so reaches no deployed environment (registre#110). Still missing
+/// from this surface: the HTTP endpoints + api-client methods, and the single-use invite
+/// email flow from the issue.
 pub mod users;

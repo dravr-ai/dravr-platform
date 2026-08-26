@@ -756,6 +756,11 @@ enum TokenCommand {
 
 /// Dispatch the two remote user commands, which never touch the local database.
 ///
+/// LIMITATION(registre#110): `UserCommand::Allow`, `UserCommand::Disallow` and
+/// `UserCommand::ListAllowed` are not routed here, because the `pre_approved_emails`
+/// list has no admin HTTP endpoint to route them to. Those three verbs therefore reach
+/// only the local database, and cannot pre-approve an address on a deployed environment.
+///
 /// # Errors
 ///
 /// Returns the command's own error; an unreachable arm would mean the caller
