@@ -42,7 +42,7 @@ use crate::envelope::ReconnectPrompt;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED,
+    MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
@@ -105,10 +105,33 @@ pub async fn apply_auth_recovery(
         }
     };
 
-    let url = mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await?;
-
     let locale = profile.locale.as_str();
     let display_name = provider_display_name(&provider_slug).to_owned();
+
+    // Minting can fail — a tenant with no OAuth credentials configured, or the
+    // mint endpoint refusing. Returning early on that left the turn with no
+    // content at all, and the athlete was told « je n'ai pas réussi à formuler
+    // une réponse » when what was actually wrong was a disconnected provider.
+    // Which provider dropped is most of the answer; the link is the
+    // convenience, so its absence costs the link and not the message.
+    let Some(url) = mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await else {
+        let message = deps.messaging_strings_registry.render(
+            KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+            locale,
+            &[display_name.as_str()],
+        );
+        warn!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            locale = %locale,
+            "auth_recovery: no reconnect URL to offer; telling the athlete which provider dropped"
+        );
+        result.content.clone_from(&message);
+        // No ReconnectPrompt: there is no URL for a surface to draw a control
+        // around, and a control that goes nowhere is worse than the sentence.
+        return None;
+    };
+
     let message = deps.messaging_strings_registry.render(
         KEY_PROVIDER_REAUTH_REQUIRED,
         locale,

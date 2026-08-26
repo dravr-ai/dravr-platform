@@ -408,6 +408,17 @@ pub const KEY_CONNECT_TITLE: &str = "messaging.connect.title";
 /// `AppError::ProviderAuthRequired`. `{0}` = provider display name
 /// (e.g. `Garmin Connect`, `Strava`); `{1}` = one-time hosted-login URL.
 pub const KEY_PROVIDER_REAUTH_REQUIRED: &str = "messaging.provider.reauth_required";
+/// The same standing as [`KEY_PROVIDER_REAUTH_REQUIRED`], said without a link.
+///
+/// Minting the hosted-login URL can fail — no OAuth credentials configured for
+/// the tenant, or the mint endpoint refusing. `auth_recovery` used to bail out
+/// on that, leaving the turn with no content at all, and the athlete was told
+/// the coach could not formulate a response when what was actually wrong was a
+/// disconnected provider. Knowing which provider dropped is most of the answer;
+/// the link is the convenience.
+///
+/// Takes the provider display name as `{0}` and carries no URL placeholder.
+pub const KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK: &str = "messaging.provider.reauth_required_no_link";
 
 /// Key: button label on the reconnect Card a card-rendering channel gets
 /// alongside the reauth sentence.
@@ -845,6 +856,7 @@ pub(crate) const FR_CONNECT_BUTTON: &str = "Connecter mon compte";
 pub(crate) const FR_CONNECT_TITLE: &str = "Connecter un service de fitness";
 
 pub(crate) const FR_PROVIDER_REAUTH_REQUIRED: &str = "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici (lien valide 24 heures) :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.";
+pub(crate) const FR_PROVIDER_REAUTH_REQUIRED_NO_LINK: &str = "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte {0} depuis les réglages, puis repose-moi ta question.";
 pub(crate) const FR_PROVIDER_RECONNECT_BUTTON: &str = "Reconnecter {0}";
 
 pub(crate) const FR_STATUS_HEADER: &str = "Ton statut Dravr :\n";
@@ -1113,6 +1125,7 @@ pub(crate) const EN_CONNECT_BUTTON: &str = "Connect your account";
 pub(crate) const EN_CONNECT_TITLE: &str = "Connect a fitness service";
 
 pub(crate) const EN_PROVIDER_REAUTH_REQUIRED: &str = "Your {0} connection has expired — I can't fetch your data right now. Reconnect here (link valid for 24 hours):\n\n{1}\n\nOnce reconnected, ask me again.";
+pub(crate) const EN_PROVIDER_REAUTH_REQUIRED_NO_LINK: &str = "Your {0} connection has expired — I can't fetch your data right now. Reconnect {0} from your settings, then ask me again.";
 pub(crate) const EN_PROVIDER_RECONNECT_BUTTON: &str = "Reconnect {0}";
 
 pub(crate) const EN_STATUS_HEADER: &str = "Your Dravr status:\n";
@@ -1363,6 +1376,7 @@ pub(crate) const ES_CONNECT_BUTTON: &str = "Conectar mi cuenta";
 pub(crate) const ES_CONNECT_TITLE: &str = "Conectar un servicio de fitness";
 
 pub(crate) const ES_PROVIDER_REAUTH_REQUIRED: &str = "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí (enlace válido durante 24 horas):\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.";
+pub(crate) const ES_PROVIDER_REAUTH_REQUIRED_NO_LINK: &str = "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar {0} desde los ajustes y pregúntame de nuevo.";
 pub(crate) const ES_PROVIDER_RECONNECT_BUTTON: &str = "Volver a conectar {0}";
 
 pub(crate) const ES_STATUS_HEADER: &str = "Tu estado en Dravr:\n";
@@ -1607,6 +1621,7 @@ pub(crate) const DE_CONNECT_BUTTON: &str = "Konto verbinden";
 pub(crate) const DE_CONNECT_TITLE: &str = "Fitness-Dienst verbinden";
 
 pub(crate) const DE_PROVIDER_REAUTH_REQUIRED: &str = "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu (Link 24 Stunden gültig):\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.";
+pub(crate) const DE_PROVIDER_REAUTH_REQUIRED_NO_LINK: &str = "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde {0} in den Einstellungen neu und frag mich dann noch einmal.";
 pub(crate) const DE_PROVIDER_RECONNECT_BUTTON: &str = "{0} neu verbinden";
 
 pub(crate) const DE_STATUS_HEADER: &str = "Dein Dravr-Status:\n";
@@ -1856,6 +1871,7 @@ pub(crate) const PT_CONNECT_BUTTON: &str = "Ligar a minha conta";
 pub(crate) const PT_CONNECT_TITLE: &str = "Ligar um serviço de fitness";
 
 pub(crate) const PT_PROVIDER_REAUTH_REQUIRED: &str = "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente a tua conta aqui (link válido por 24 horas):\n\n{1}\n\nDepois de te reconectares, volta a perguntar-me.";
+pub(crate) const PT_PROVIDER_REAUTH_REQUIRED_NO_LINK: &str = "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente o {0} nas definições e volta a perguntar-me.";
 pub(crate) const PT_PROVIDER_RECONNECT_BUTTON: &str = "Ligar novamente {0}";
 
 pub(crate) const PT_STATUS_HEADER: &str = "O teu estado no Dravr:\n";
@@ -2085,6 +2101,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_TITLE, "fr", FR_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "fr", FR_PROVIDER_REAUTH_REQUIRED),
     (
+        KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+        "fr",
+        FR_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+    ),
+    (
         KEY_PROVIDER_RECONNECT_BUTTON,
         "fr",
         FR_PROVIDER_RECONNECT_BUTTON,
@@ -2275,6 +2296,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_BUTTON, "en", EN_CONNECT_BUTTON),
     (KEY_CONNECT_TITLE, "en", EN_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "en", EN_PROVIDER_REAUTH_REQUIRED),
+    (
+        KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+        "en",
+        EN_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+    ),
     (
         KEY_PROVIDER_RECONNECT_BUTTON,
         "en",
@@ -2467,6 +2493,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_TITLE, "es", ES_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "es", ES_PROVIDER_REAUTH_REQUIRED),
     (
+        KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+        "es",
+        ES_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+    ),
+    (
         KEY_PROVIDER_RECONNECT_BUTTON,
         "es",
         ES_PROVIDER_RECONNECT_BUTTON,
@@ -2658,6 +2689,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_TITLE, "de", DE_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "de", DE_PROVIDER_REAUTH_REQUIRED),
     (
+        KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+        "de",
+        DE_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+    ),
+    (
         KEY_PROVIDER_RECONNECT_BUTTON,
         "de",
         DE_PROVIDER_RECONNECT_BUTTON,
@@ -2848,6 +2884,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_BUTTON, "pt", PT_CONNECT_BUTTON),
     (KEY_CONNECT_TITLE, "pt", PT_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "pt", PT_PROVIDER_REAUTH_REQUIRED),
+    (
+        KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+        "pt",
+        PT_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+    ),
     (
         KEY_PROVIDER_RECONNECT_BUTTON,
         "pt",
