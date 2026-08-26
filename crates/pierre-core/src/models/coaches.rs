@@ -6,8 +6,10 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
+use crate::errors::{AppError, AppResult};
 use crate::field_update::FieldUpdate;
 
 /// Activity data requirements for coach startup context assembly
@@ -343,6 +345,117 @@ pub struct Coach {
     /// Origin of this coach: "contremaitre" (git-managed), "seed" (seeded from files), "custom" (user/admin created)
     #[serde(default = "default_source")]
     pub source: String,
+    /// Addressable catalogue handle — the `@handle` a user types to invite
+    /// this coach into a conversation. Stored in the `coaches.slug` column.
+    ///
+    /// A handle is owned by exactly one origin coach (a seeded coach or a
+    /// coach approved into the Store); the partial unique index
+    /// `idx_coaches_handle` enforces that. A user's installed copy (a row
+    /// with `forked_from` set) carries its origin's handle as a reference so
+    /// the copy resolves by the same name. A personal coach that was never
+    /// published has no handle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+}
+
+/// Validated form of a coach handle as it arrives from a caller (a path
+/// segment, an `@mention`).
+///
+/// The alphabet is the one the seeded catalogue already uses for its
+/// markdown file names: lowercase ASCII letters, digits, `-` and `_`, at
+/// most [`CoachHandle::MAX_LEN`] characters, starting with a letter or digit.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CoachHandle(String);
+
+impl CoachHandle {
+    /// Longest handle accepted or derived.
+    pub const MAX_LEN: usize = 40;
+
+    /// Validate a caller-supplied handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::invalid_input`] when the input is empty, too long,
+    /// starts with a separator, or contains a character outside the alphabet.
+    pub fn parse(raw: &str) -> AppResult<Self> {
+        let candidate = raw.strip_prefix('@').unwrap_or(raw);
+        let starts_alnum = candidate
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+        let alphabet_ok = candidate
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+        if candidate.is_empty() || candidate.len() > Self::MAX_LEN || !starts_alnum || !alphabet_ok
+        {
+            return Err(AppError::invalid_input(format!(
+                "Invalid coach handle '{raw}': lowercase letters, digits, '-' or '_', \
+                 starting with a letter or digit, at most {} characters",
+                Self::MAX_LEN
+            )));
+        }
+        Ok(Self(candidate.to_owned()))
+    }
+
+    /// Derive the base handle for a coach from its display title.
+    ///
+    /// Lowercases, folds every run of characters outside the alphabet into a
+    /// single `-`, trims separators at both ends and truncates to
+    /// [`Self::MAX_LEN`]. A title with no usable character derives to `coach`.
+    /// The result is the first candidate; see [`Self::candidate`] for the
+    /// numbered ones a collision falls through to.
+    #[must_use]
+    pub fn derive(title: &str) -> Self {
+        let mut base = String::with_capacity(title.len());
+        let mut pending_separator = false;
+        for c in title.chars() {
+            let lower = c.to_ascii_lowercase();
+            if lower.is_ascii_lowercase() || lower.is_ascii_digit() {
+                if pending_separator && !base.is_empty() {
+                    base.push('-');
+                }
+                pending_separator = false;
+                base.push(lower);
+            } else {
+                pending_separator = true;
+            }
+        }
+        base.truncate(Self::MAX_LEN);
+        let trimmed = base.trim_end_matches('-');
+        if trimmed.is_empty() {
+            Self("coach".to_owned())
+        } else {
+            Self(trimmed.to_owned())
+        }
+    }
+
+    /// The `attempt`-th candidate for this base handle: the base itself for
+    /// attempt `0`, then `base-2`, `base-3`, … — shortened so the suffix
+    /// still fits inside [`Self::MAX_LEN`].
+    #[must_use]
+    pub fn candidate(&self, attempt: u32) -> Self {
+        if attempt == 0 {
+            return self.clone();
+        }
+        let suffix = format!("-{}", attempt + 1);
+        let keep = Self::MAX_LEN.saturating_sub(suffix.len());
+        let mut base = self.0.clone();
+        base.truncate(keep);
+        let trimmed = base.trim_end_matches('-');
+        Self(format!("{trimmed}{suffix}"))
+    }
+
+    /// The handle as stored and rendered (without the `@`).
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for CoachHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 fn default_source() -> String {

@@ -483,6 +483,7 @@ async fn handle_list_installations<C: CoachesCtx + MiddlewareCtx>(
             icon_url: None,
             published_at: None,
             author_id: None,
+            handle: c.handle,
         })
         .collect();
 

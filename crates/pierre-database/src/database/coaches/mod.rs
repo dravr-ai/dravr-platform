@@ -126,6 +126,7 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
     let source: String = row
         .try_get("source")
         .unwrap_or_else(|_| "custom".to_owned());
+    let handle: Option<String> = row.try_get("slug").ok().flatten();
 
     Ok(Coach {
         id: Uuid::parse_str(&id_str)
@@ -163,6 +164,7 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
         example_outputs,
         success_criteria,
         source,
+        handle,
     })
 }
 

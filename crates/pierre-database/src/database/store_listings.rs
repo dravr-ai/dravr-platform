@@ -18,6 +18,8 @@ use uuid::Uuid;
 
 use super::coaches::row_to_coach;
 
+mod review;
+
 /// A store listing tracks the publishing state of a coach in the Store
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreListing {
@@ -221,95 +223,6 @@ impl StoreListingsManager {
         .map_err(|e| AppError::database(format!("Failed to get store listing: {e}")))?;
 
         row.map(|r| row_to_store_listing(&r)).transpose()
-    }
-
-    /// Approve a coach and publish to the Store
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if listing not found or not pending review
-    pub async fn approve_coach(
-        &self,
-        coach_id: &str,
-        tenant_id: TenantId,
-        admin_user_id: impl Into<Option<Uuid>>,
-    ) -> AppResult<CoachWithListing> {
-        let admin_user_id = admin_user_id.into();
-        let now = Utc::now();
-
-        let result = sqlx::query(
-            r"
-            UPDATE store_listings SET
-                publish_status = $1,
-                published_at = $2,
-                review_decision_at = $2,
-                review_decision_by = $3,
-                rejection_reason = NULL,
-                updated_at = $2
-            WHERE coach_id = $4 AND tenant_id = $5 AND publish_status = 'pending_review'
-            ",
-        )
-        .bind(PublishStatus::Published.as_str())
-        .bind(now.to_rfc3339())
-        .bind(admin_user_id.map(|id| id.to_string()))
-        .bind(coach_id)
-        .bind(tenant_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to approve coach: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::invalid_input(
-                "Coach not found or not pending review",
-            ));
-        }
-
-        self.get_coach_with_listing(coach_id, &tenant_id).await
-    }
-
-    /// Reject a coach with a reason
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if listing not found or not pending review
-    pub async fn reject_coach(
-        &self,
-        coach_id: &str,
-        tenant_id: TenantId,
-        admin_user_id: impl Into<Option<Uuid>>,
-        reason: &str,
-    ) -> AppResult<CoachWithListing> {
-        let admin_user_id = admin_user_id.into();
-        let now = Utc::now();
-
-        let result = sqlx::query(
-            r"
-            UPDATE store_listings SET
-                publish_status = $1,
-                review_decision_at = $2,
-                review_decision_by = $3,
-                rejection_reason = $4,
-                updated_at = $2
-            WHERE coach_id = $5 AND tenant_id = $6 AND publish_status = 'pending_review'
-            ",
-        )
-        .bind(PublishStatus::Rejected.as_str())
-        .bind(now.to_rfc3339())
-        .bind(admin_user_id.map(|id| id.to_string()))
-        .bind(reason)
-        .bind(coach_id)
-        .bind(tenant_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to reject coach: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::invalid_input(
-                "Coach not found or not pending review",
-            ));
-        }
-
-        self.get_coach_with_listing(coach_id, &tenant_id).await
     }
 
     /// Unpublish a coach (revert from published to draft)
@@ -945,8 +858,8 @@ impl StoreListingsManager {
             INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt, category, tags,
                 sample_prompts, token_count,
-                created_at, updated_at, is_system, visibility, prerequisites, forked_from
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, 0, $12, $13, $14)
+                created_at, updated_at, is_system, visibility, prerequisites, forked_from, slug
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, 0, $12, $13, $14, $15)
             ",
         )
         .bind(id.to_string())
@@ -963,6 +876,7 @@ impl StoreListingsManager {
         .bind(CoachVisibility::Private.as_str())
         .bind(&prerequisites_json)
         .bind(source_coach_id)
+        .bind(&source.coach.handle)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to install coach: {e}")))?;
@@ -1135,13 +1049,13 @@ impl StoreListingsManager {
 pub(crate) const COACH_COLUMNS: &str = r"id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, temperature";
+                   forked_from, slug, max_tool_iterations, temperature";
 
 /// Column list for coach queries with table alias
 pub(crate) const COACH_COLUMNS_ALIASED: &str = r"c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.temperature";
+                   c.forked_from, c.slug, c.max_tool_iterations, c.temperature";
 
 /// Column list for store listing queries with table alias
 pub(crate) const LISTING_COLUMNS_ALIASED: &str = r"sl.id as sl_id, sl.publish_status, sl.published_at,

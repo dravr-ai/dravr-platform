@@ -10,6 +10,7 @@
 //! JWT authentication to identify the user and tenant.
 
 mod admin;
+mod handle;
 /// Athlete-profile view + the pillar-context prompt block, shared by the
 /// coach-proposal REST route and the messaging auto-send.
 pub mod proposal_profile;
@@ -63,6 +64,10 @@ where
             post(user::handle_import_from_url::<C>),
         )
         .route("/api/coaches/generate", post(user::handle_generate::<C>))
+        .route(
+            "/api/coaches/by-handle/{handle}",
+            get(handle::handle_get_by_handle::<C>),
+        )
         .route("/api/coaches/{id}", get(user::handle_get::<C>))
         .route("/api/coaches/{id}", put(user::handle_update::<C>))
         .route("/api/coaches/{id}", delete(user::handle_delete::<C>))

@@ -14,9 +14,10 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::{
     Coach, CoachCategory, CoachVisibility, PublishStatus, StoreAdminStats,
 };
-use pierre_core::models::TenantId;
+use pierre_core::models::{CoachHandle, TenantId};
 use pierre_core::pagination::{Cursor, CursorPage, StoreCursor, StoreSortOrder};
 use sqlx::postgres::PgRow;
+use sqlx::PgConnection;
 use sqlx::Row;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -25,13 +26,13 @@ use uuid::Uuid;
 const COACH_COLUMNS: &str = r"id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, temperature";
+                   forked_from, slug, max_tool_iterations, temperature";
 
 /// Coach columns for `JOIN`ed queries with table alias `c`
 const COACH_COLUMNS_ALIASED: &str = r"c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.temperature";
+                   c.forked_from, c.slug, c.max_tool_iterations, c.temperature";
 
 /// Store listing columns for `JOIN`ed queries with table alias `sl`
 const LISTING_COLUMNS_ALIASED: &str = r"sl.id as sl_id, sl.publish_status, sl.published_at,
@@ -84,6 +85,72 @@ fn row_to_store_listing_pg(row: &PgRow) -> AppResult<StoreListing> {
         created_at,
         updated_at,
     })
+}
+
+/// Upper bound on numbered candidates tried before giving up on a title.
+const MAX_HANDLE_ATTEMPTS: u32 = 100;
+
+/// `PostgreSQL` twin of `database::store_listings::ensure_catalogue_handle`:
+/// give the coach being approved its catalogue handle if it does not own one.
+///
+/// An origin coach already carrying a handle keeps it; any other coach gets
+/// the first free candidate derived from its title, judged at catalogue
+/// scope (no origin coach, no published coach). Origin rows are additionally
+/// guarded by the `idx_coaches_handle` unique index. Runs inside the
+/// approval transaction.
+///
+/// # Errors
+///
+/// Returns an error when the coach does not exist in the tenant, when every
+/// candidate is taken, or when the database fails.
+async fn ensure_catalogue_handle_pg(
+    conn: &mut PgConnection,
+    coach_id: &str,
+    tenant_id: TenantId,
+) -> AppResult<String> {
+    let row = sqlx::query(
+        "SELECT title, slug, forked_from FROM coaches WHERE id = $1 AND tenant_id = $2",
+    )
+    .bind(coach_id)
+    .bind(tenant_id.to_string())
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(|e| AppError::database(format!("Failed to read coach for handle: {e}")))?
+    .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
+    let title: String = row.get("title");
+    let owned: Option<String> = row.try_get("slug").ok().flatten();
+    let forked_from: Option<String> = row.try_get("forked_from").ok().flatten();
+    if let (Some(handle), None) = (owned, forked_from) {
+        return Ok(handle);
+    }
+
+    let base = CoachHandle::derive(&title);
+    for attempt in 0..MAX_HANDLE_ATTEMPTS {
+        let candidate = base.candidate(attempt);
+        let taken = sqlx::query(
+            "SELECT 1 FROM coaches WHERE slug = $1 AND id <> $2 AND (forked_from IS NULL \
+             OR id IN (SELECT coach_id FROM store_listings WHERE publish_status = 'published')) \
+             LIMIT 1",
+        )
+        .bind(candidate.as_str())
+        .bind(coach_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to probe coach handle: {e}")))?;
+        if taken.is_some() {
+            continue;
+        }
+        sqlx::query("UPDATE coaches SET slug = $1 WHERE id = $2")
+            .bind(candidate.as_str())
+            .bind(coach_id)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to assign coach handle: {e}")))?;
+        return Ok(candidate.as_str().to_owned());
+    }
+    Err(AppError::invalid_input(format!(
+        "No free catalogue handle derived from '{title}' after {MAX_HANDLE_ATTEMPTS} candidates"
+    )))
 }
 
 /// Convert a `JOIN`ed `PostgreSQL` row to a `CoachWithListing`
@@ -451,6 +518,11 @@ impl StoreListingsRepository for PostgresDatabase {
     ) -> AppResult<CoachWithListing> {
         let now = Utc::now();
 
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::database(format!("Failed to begin approval: {e}")))?;
         let result = sqlx::query(
             r"
             UPDATE store_listings SET
@@ -468,7 +540,7 @@ impl StoreListingsRepository for PostgresDatabase {
         .bind(admin_user_id.map(|id| id.to_string()))
         .bind(coach_id)
         .bind(tenant_id.to_string())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| AppError::database(format!("Failed to approve coach: {e}")))?;
 
@@ -477,6 +549,11 @@ impl StoreListingsRepository for PostgresDatabase {
                 "Coach not found or not pending review",
             ));
         }
+
+        ensure_catalogue_handle_pg(&mut tx, coach_id, tenant_id).await?;
+        tx.commit()
+            .await
+            .map_err(|e| AppError::database(format!("Failed to commit approval: {e}")))?;
 
         self.get_coach_with_listing_pg(coach_id, &tenant_id).await
     }
@@ -918,8 +995,8 @@ impl StoreListingsRepository for PostgresDatabase {
             INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt, category, tags,
                 sample_prompts, token_count,
-                created_at, updated_at, is_system, visibility, prerequisites, forked_from
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, FALSE, $12, $13, $14)
+                created_at, updated_at, is_system, visibility, prerequisites, forked_from, slug
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, FALSE, $12, $13, $14, $15)
             ",
         )
         .bind(id.to_string())
@@ -936,6 +1013,7 @@ impl StoreListingsRepository for PostgresDatabase {
         .bind(CoachVisibility::Private.as_str())
         .bind(&prerequisites_json)
         .bind(source_coach_id)
+        .bind(&source.coach.handle)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to install coach: {e}")))?;

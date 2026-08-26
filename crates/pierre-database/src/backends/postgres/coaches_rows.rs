@@ -90,6 +90,7 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
     let source: String = row
         .try_get("source")
         .unwrap_or_else(|_| "custom".to_owned());
+    let handle: Option<String> = row.try_get("slug").ok().flatten();
 
     let tags: Vec<String> = tags_json
         .as_deref()
@@ -138,6 +139,7 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
         example_outputs,
         success_criteria,
         source,
+        handle,
     })
 }
 

@@ -30,6 +30,7 @@ fn sample_coach() -> Coach {
         visibility: CoachVisibility::Tenant,
         prerequisites: CoachPrerequisites::default(),
         forked_from: None,
+        handle: None,
         max_tool_iterations: None,
         temperature: None,
         startup_query: None,

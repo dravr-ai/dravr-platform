@@ -62,6 +62,12 @@ export interface Coach {
   is_hidden?: boolean;
   /** ID of source coach if forked */
   forked_from?: string;
+  /**
+   * Addressable catalogue handle — the `@handle` that invites this coach
+   * into a conversation. Present on catalogue coaches and on installed
+   * copies; absent on a personal coach that was never published.
+   */
+  handle?: string;
   /** Query auto-sent on first message to provide analysis context */
   startup_query?: string;
   /** Structured data requirements for deterministic activity pre-fetching */
@@ -281,6 +287,8 @@ export interface StoreCoach {
   icon_url: string | null;
   published_at: string | null;
   author_id: string | null;
+  /** Addressable catalogue handle (`@handle`), assigned at approval */
+  handle?: string;
 }
 
 /** Detailed view of a store coach */

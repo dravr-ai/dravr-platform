@@ -196,7 +196,7 @@ pub(super) async fn list_hidden_coaches(
         SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                c.category, c.tags, c.sample_prompts, c.token_count,
                c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-               c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
+               c.forked_from, c.slug, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
         FROM coaches c
         INNER JOIN user_coach_preferences ucp ON c.id = ucp.coach_id

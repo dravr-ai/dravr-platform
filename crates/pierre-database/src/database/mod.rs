@@ -20,6 +20,8 @@ pub mod chat;
 pub mod claim_verdicts;
 /// Coach authors (creator profiles for Store)
 pub mod coach_authors;
+/// Catalogue handle assignment at Store approval time.
+pub(crate) mod coach_handle;
 /// Coaches (custom AI personas) storage and management
 pub mod coaches;
 /// Coaching group storage, membership, and invite management

@@ -23,6 +23,7 @@ pub mod claim_verdicts;
 /// Coaches repository implementation
 pub mod coaches;
 mod coaches_assignments;
+mod coaches_copies;
 /// `PostgreSQL` row → coach mappers and the coach content/request hashes.
 mod coaches_rows;
 /// Coaching group repository implementation (group CRUD, membership, invites)

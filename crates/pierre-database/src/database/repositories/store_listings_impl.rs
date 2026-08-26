@@ -7,6 +7,7 @@
 //! #[async_trait] impl StoreListingsRepository for Database + private query helpers on Database.
 
 use super::StoreListingsRepository;
+use crate::database::coach_handle::ensure_catalogue_handle;
 use crate::database::coaches::row_to_coach;
 use crate::database::store_listings::{
     row_to_coach_with_listing, row_to_store_listing, CoachWithListing, StoreListing, COACH_COLUMNS,
@@ -374,6 +375,11 @@ impl StoreListingsRepository for Database {
     ) -> AppResult<CoachWithListing> {
         let now = Utc::now();
 
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AppError::database(format!("Failed to begin approval: {e}")))?;
         let result = sqlx::query(
             r"
             UPDATE store_listings SET
@@ -391,7 +397,7 @@ impl StoreListingsRepository for Database {
         .bind(admin_user_id.map(|id| id.to_string()))
         .bind(coach_id)
         .bind(tenant_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(|e| AppError::database(format!("Failed to approve coach: {e}")))?;
 
@@ -400,6 +406,11 @@ impl StoreListingsRepository for Database {
                 "Coach not found or not pending review",
             ));
         }
+
+        ensure_catalogue_handle(&mut tx, coach_id, tenant_id).await?;
+        tx.commit()
+            .await
+            .map_err(|e| AppError::database(format!("Failed to commit approval: {e}")))?;
 
         self.store_get_coach_with_listing(coach_id, &tenant_id)
             .await
@@ -848,8 +859,8 @@ impl StoreListingsRepository for Database {
             INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt, category, tags,
                 sample_prompts, token_count,
-                created_at, updated_at, is_system, visibility, prerequisites, forked_from
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, 0, $12, $13, $14)
+                created_at, updated_at, is_system, visibility, prerequisites, forked_from, slug
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, 0, $12, $13, $14, $15)
             ",
         )
         .bind(id.to_string())
@@ -866,6 +877,7 @@ impl StoreListingsRepository for Database {
         .bind(CoachVisibility::Private.as_str())
         .bind(&prerequisites_json)
         .bind(source_coach_id)
+        .bind(&source.coach.handle)
         .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to install coach: {e}")))?;

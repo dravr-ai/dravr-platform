@@ -222,8 +222,8 @@ pub mod coaches;
 /// Mobility domain types for stretching and yoga
 pub mod mobility;
 pub use coaches::{
-    Coach, CoachAssignment, CoachCategory, CoachListItem, CoachPrerequisites, CoachVersion,
-    CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
+    Coach, CoachAssignment, CoachCategory, CoachHandle, CoachListItem, CoachPrerequisites,
+    CoachVersion, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
     PublishStatus, StoreAdminStats, UpdateCoachRequest,
 };
 /// Recipe data models for nutrition planning with training-aware meal timing (from dravr-cageux)

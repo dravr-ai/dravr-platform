@@ -8,8 +8,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::{
-    Coach, CoachAssignment, CoachCategory, CoachListItem, CoachVersion, CreateCoachRequest,
-    CreateSystemCoachRequest, ListCoachesFilter, StoreAdminStats, UpdateCoachRequest,
+    Coach, CoachAssignment, CoachCategory, CoachHandle, CoachListItem, CoachVersion,
+    CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter, StoreAdminStats,
+    UpdateCoachRequest,
 };
 use pierre_core::models::groups::{
     CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTranscriptEntry,
@@ -38,6 +39,20 @@ pub trait CoachesRepository: Send + Sync {
     async fn get_by_id(
         &self,
         coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>>;
+    /// Resolve an installed coach by its catalogue handle for one user.
+    ///
+    /// "Installed" means the coach sits on the user's coach list through a
+    /// `coach_assignments` row — a Store install, a fork, or an admin
+    /// assignment — and belongs to the user's tenant or is a system coach.
+    /// A coach the user merely *could* browse in the catalogue does not
+    /// resolve. When both the user's own copy and the origin answer to the
+    /// handle, the user's copy wins; among several copies the oldest wins.
+    async fn find_installed_by_handle(
+        &self,
+        handle: &CoachHandle,
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<Coach>>;

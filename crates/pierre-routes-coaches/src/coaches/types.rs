@@ -58,6 +58,10 @@ pub struct CoachResponse {
     /// ID of the coach this was forked from (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<String>,
+    /// Addressable catalogue handle (`@handle`); absent on a personal coach
+    /// that was never published.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
     /// Whether prerequisites are met (only present if `check_prerequisites=true`)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prerequisites_met: Option<bool>,
@@ -133,6 +137,7 @@ impl From<Coach> for CoachResponse {
             visibility: coach.visibility.as_str().to_owned(),
             is_assigned: false, // Default for single coach responses
             forked_from: coach.forked_from.map(|id| id.to_string()),
+            handle: coach.handle,
             prerequisites_met: None,
             missing_prerequisites: None,
             startup_query: coach.startup_query,
@@ -169,6 +174,7 @@ impl From<CoachListItem> for CoachResponse {
             visibility: item.coach.visibility.as_str().to_owned(),
             is_assigned: item.is_assigned,
             forked_from: item.coach.forked_from.map(|id| id.to_string()),
+            handle: item.coach.handle,
             prerequisites_met: None,
             missing_prerequisites: None,
             startup_query: item.coach.startup_query,
@@ -812,6 +818,9 @@ pub struct StoreCoachResponse {
     pub created_at: String,
     /// Publish status
     pub publish_status: String,
+    /// Addressable catalogue handle (`@handle`), assigned at approval.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
 }
 
 impl StoreCoachResponse {
@@ -859,6 +868,7 @@ impl StoreCoachResponse {
             rejection_notes,
             created_at: coach.created_at.to_rfc3339(),
             publish_status: listing.publish_status.as_str().to_owned(),
+            handle: coach.handle,
         }
     }
 }

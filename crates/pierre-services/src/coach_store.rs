@@ -66,6 +66,9 @@ pub struct StoreCoach {
     pub published_at: Option<String>,
     /// Author ID (optional - for author profile linking)
     pub author_id: Option<String>,
+    /// Addressable catalogue handle (`@handle`); see [`Coach::handle`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
 }
 
 impl From<CoachWithListing> for StoreCoach {
@@ -82,6 +85,7 @@ impl From<CoachWithListing> for StoreCoach {
             icon_url: cwl.listing.icon_url,
             published_at: cwl.listing.published_at.map(|dt| dt.to_rfc3339()),
             author_id: cwl.listing.author_id,
+            handle: cwl.coach.handle,
         }
     }
 }
@@ -204,6 +208,7 @@ pub async fn install_store_coach(
         install_count: 0,
         icon_url: None,
         published_at: None,
+        handle: installed.handle,
         author_id: None,
     })
 }
