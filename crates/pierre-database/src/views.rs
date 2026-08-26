@@ -33,15 +33,14 @@ use crate::repositories::{
     CoachesRepository, CoachingGroupRepository, DataSourceRepository, DossierRepository,
     FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
     HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
-    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
-    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    RecoveryRepository, RosterRepository, RouteSummaryRepository, SecurityRepository,
-    SeederRepository, SleepRepository, StoreListingsRepository, SubscriptionsRepository,
-    SyncCursorRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
-    UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
+    MobilityRepository, OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    PasswordResetRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
+    RouteSummaryRepository, SecurityRepository, SeederRepository, SleepRepository,
+    StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
+    ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
+    UserRepository, UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use crate::RepositoryRegistry;
 use dravr_riviere::TimeSeriesStore;
@@ -223,30 +222,6 @@ impl FitnessRepos {
     }
 }
 
-/// Repositories backing multi-channel messaging and OAuth completion
-/// notifications.
-///
-/// Consumer: the MCP connection-status handler in `mcp::multitenant`, which
-/// reads the unread OAuth completion notifications through this view.
-#[derive(Clone)]
-pub struct GroupsRepos {
-    /// Multi-channel messaging gateway
-    pub messaging: Arc<dyn MessagingRepository>,
-    /// OAuth completion notifications
-    pub notifications: Arc<dyn NotificationRepository>,
-}
-
-impl GroupsRepos {
-    /// Build a `GroupsRepos` view from the master registry.
-    #[must_use]
-    pub fn from_registry(registry: &RepositoryRegistry) -> Self {
-        Self {
-            messaging: Arc::clone(&registry.messaging),
-            notifications: Arc::clone(&registry.notifications),
-        }
-    }
-}
-
 /// Repositories backing usage accounting, rate-limiting overrides, LLM cost
 /// tracking, feature flags, tool selection, and Stripe subscriptions.
 ///
@@ -338,12 +313,6 @@ impl RepositoryRegistry {
     #[must_use]
     pub fn fitness_repos(&self) -> FitnessRepos {
         FitnessRepos::from_registry(self)
-    }
-
-    /// Build a [`GroupsRepos`] view from this registry.
-    #[must_use]
-    pub fn groups_repos(&self) -> GroupsRepos {
-        GroupsRepos::from_registry(self)
     }
 
     /// Build a [`UsageRepos`] view from this registry.

@@ -99,7 +99,7 @@ export interface UpdateNotificationPreferenceRequest {
 // ========== ACTION TYPES ==========
 
 /** Type of action a notification button can trigger */
-export type NotificationActionType = 'open_screen' | 'accept_decline' | 'quick_reply';
+export type NotificationActionType = 'open_screen' | 'quick_reply';
 
 /** An action button attached to a notification */
 export interface NotificationAction {

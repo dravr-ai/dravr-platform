@@ -32,7 +32,7 @@ use pierre_auth::tenant::oauth_manager::TenantOAuthManager;
 use pierre_auth::tenant::{TenantContext, TenantOAuthClient};
 use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantOAuthCredentials;
+use pierre_core::models::{OAuthNotification, TenantOAuthCredentials};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpResponse, ProgressNotification};
@@ -66,7 +66,7 @@ use axum::response::Response;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
 use pierre_database::backends::UsageRepository;
-use pierre_database::{AuthRepos, GroupsRepos, RepositoryRegistry};
+use pierre_database::{AuthRepos, RepositoryRegistry};
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
@@ -394,10 +394,10 @@ impl ProviderToolRouter {
 
     /// Handle tenant-aware connection status.
     ///
-    /// Cross-cuts `AuthRepos` (`oauth_tokens`) and `GroupsRepos`
-    /// (`notifications`); takes the full registry at the entry-point to
-    /// keep the args list under the clippy ceiling. Helpers below
-    /// receive narrow views.
+    /// Cross-cuts `AuthRepos` (`oauth_tokens`) and the registry's OAuth
+    /// completion `notifications` repository; takes the full registry at
+    /// the entry-point to keep the args list under the clippy ceiling.
+    /// Helpers below receive narrow views or the rows already read.
     #[tracing::instrument(
         skip(tenant_oauth_client, repos, request_id, credentials, config),
         fields(
@@ -431,18 +431,17 @@ impl ProviderToolRouter {
         .await;
 
         let auth = repos.auth_repos();
-        let groups = repos.groups_repos();
         let base_url = Self::build_oauth_base_url(http_port);
         let connection_status = Self::check_provider_connections(tenant_context, &auth).await;
-        let notifications_text =
-            Self::build_notifications_text(&groups, tenant_context.user_id).await;
+        let unread_notifications =
+            Self::fetch_unread_oauth_notifications(repos, tenant_context.user_id).await;
+        let notifications_text = Self::build_notifications_text(&unread_notifications);
         let structured_data = Self::build_structured_connection_data(
             tenant_context,
             &connection_status,
             &base_url,
-            &groups,
-        )
-        .await;
+            &unread_notifications,
+        );
         let text_content = Self::build_text_content(
             &connection_status,
             &base_url,
@@ -518,22 +517,34 @@ impl ProviderToolRouter {
         }
     }
 
-    /// Build notifications text from unread notifications
-    async fn build_notifications_text(groups: &GroupsRepos, user_id: Uuid) -> String {
-        let unread_notifications = groups
+    /// Read the unread OAuth completion notifications off the registry. A
+    /// read failure is logged and reads as none, so the status reply still
+    /// goes out.
+    async fn fetch_unread_oauth_notifications(
+        repos: &RepositoryRegistry,
+        user_id: Uuid,
+    ) -> Vec<OAuthNotification> {
+        repos
             .notifications
             .get_unread(user_id)
             .await
             .unwrap_or_else(|e| {
-                warn!("Failed to fetch unread notifications: {e}");
+                warn!(
+                    user_id = %user_id,
+                    error = %e,
+                    "Failed to fetch OAuth notifications for connection status"
+                );
                 Vec::new()
-            });
+            })
+    }
 
+    /// Build notifications text from unread notifications
+    fn build_notifications_text(unread_notifications: &[OAuthNotification]) -> String {
         if unread_notifications.is_empty() {
             String::new()
         } else {
             let mut notifications_msg = String::from("\n\nRecent OAuth Updates:\n");
-            for notification in &unread_notifications {
+            for notification in unread_notifications {
                 let status_indicator = if notification.success {
                     "[SUCCESS]"
                 } else {
@@ -552,25 +563,12 @@ impl ProviderToolRouter {
     }
 
     /// Build structured connection data JSON
-    async fn build_structured_connection_data(
+    fn build_structured_connection_data(
         tenant_context: &TenantContext,
         connection_status: &ProviderConnectionStatus,
         base_url: &str,
-        groups: &GroupsRepos,
+        unread_notifications: &[OAuthNotification],
     ) -> Value {
-        let unread_notifications = groups
-            .notifications
-            .get_unread(tenant_context.user_id)
-            .await
-            .unwrap_or_else(|e| {
-                warn!(
-                    user_id = %tenant_context.user_id,
-                    error = %e,
-                    "Failed to fetch OAuth notifications for connection status"
-                );
-                Vec::new()
-            });
-
         serde_json::json!({
             "providers": [
                 {

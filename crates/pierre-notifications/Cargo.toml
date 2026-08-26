@@ -16,7 +16,7 @@ sqlite = ["dravr-commere/sqlite", "sqlx/sqlite"]
 postgresql = ["dravr-commere/postgresql", "sqlx/postgres"]
 
 [dependencies]
-dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.2.0" }
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.3.3" }
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors"] }
 
 async-trait = "0.1"

@@ -45,7 +45,7 @@ pub mod views;
 
 pub use repositories::DatabaseProvider;
 pub use repository_registry::RepositoryRegistry;
-pub use views::{AuthRepos, CoachRepos, ContentRepos, FitnessRepos, GroupsRepos, UsageRepos};
+pub use views::{AuthRepos, CoachRepos, ContentRepos, FitnessRepos, UsageRepos};
 
 // The continuous time-series store is riviere's `TimeSeriesStore`. Re-export the
 // trait and its data types so consumers of the `time_series_points` registry

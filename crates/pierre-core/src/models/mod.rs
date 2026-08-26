@@ -233,7 +233,7 @@ pub mod messaging;
 
 /// Coaching group models for multi-person AI coaching
 pub mod groups;
-/// Push notification models for device tokens, preferences, and notification records
+/// Notification screen vocabulary — the app-side destinations a push notification names
 pub mod notifications;
 pub use groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
@@ -242,10 +242,4 @@ pub use groups::{
     MemberFlag, MemberSummaryCard, NewGroupTranscriptEntry, OvertrainingRiskLevel,
     SummaryDetailLevel, TranscriptSpeaker, UpdateGroupRequest,
 };
-pub use notifications::{
-    CreateNotificationParams, DevicePlatform, DeviceToken, ListNotificationsQuery, Notification,
-    NotificationCategory, NotificationFeedResponse, NotificationItem, NotificationPreference,
-    NotificationPreferenceItem, NotificationPreferencesResponse, NotificationScreen,
-    RegisterDeviceTokenRequest, ScheduledNotification, UpdateNotificationPreferenceRequest,
-    UpsertNotificationPreferenceParams,
-};
+pub use notifications::NotificationScreen;
