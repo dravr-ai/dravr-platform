@@ -141,15 +141,26 @@ fn the_voice_anchor_governs_voice_and_never_capability() {
     // take capability with it. This block sits after that contract, so it must
     // not re-open the door the contract closed: no refusing, no scope.
     let out = coach_voice_anchor("nutrition").to_lowercase();
-    for forbidden in ["refuse", "decline", "you may not answer", "out of scope"] {
+    // Stems, not whole words. The first version of this test listed "refuse"
+    // and passed while the anchor said "refusals" — which is the token that
+    // primes, and it sat in the highest-recency position in the prompt.
+    for forbidden in [
+        "refus",
+        "declin",
+        "scope",
+        "capabilit",
+        "cannot",
+        "not allowed",
+        "tool",
+    ] {
         assert!(
             !out.contains(forbidden),
-            "voice anchor must not carry capability language, found {forbidden:?}"
+            "voice anchor must not name what it does not govern — naming it primes it; found {forbidden:?}"
         );
     }
     assert!(
-        out.contains("never what you are allowed to say"),
-        "the anchor must state its own voice-only limit explicitly"
+        out.contains("never what you can do"),
+        "the anchor must still state its own voice-only limit"
     );
 }
 

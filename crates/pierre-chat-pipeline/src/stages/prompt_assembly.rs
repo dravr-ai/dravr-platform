@@ -164,9 +164,20 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
 /// in a row, which at p=0.5 is p ≈ 0.00003.
 ///
 /// Voice only, deliberately. It restates *how* to answer, never *what* may be
-/// answered, so the contract above keeps sole authority over scope, refusals
-/// and capability — a coach that regains its vocabulary must not regain the
-/// ability to decline a question `get_activities` can answer.
+/// answered, so the contract above keeps sole authority — a coach that regains
+/// its vocabulary must not regain the ability to decline a question
+/// `get_activities` can answer.
+///
+/// Which is why the wording names none of it. [`IDENTITY_ANCHOR`] omits product
+/// names because naming them primes the tokens and invites the very reply it is
+/// trying to prevent; the first draft of this block ignored that lesson and put
+/// "scope, refusals and capability" in the highest-recency position in the whole
+/// prompt. The incident corpus then turned `capability_claim`'s empty turn into
+/// « Je ne peux pas faire ça avec les outils dont je dispose. » — a refusal to a
+/// question `get_activities` answers. Attribution is not clean, since that turn
+/// was already failing in another shape, but the hazard is documented in this
+/// file and there is no reason to spend the tail on those words. It says what
+/// it governs and stays quiet about the rest.
 ///
 /// Ahead of the identity anchor, not after it: that block's tail placement is
 /// the measured result and nothing may displace it.
@@ -177,8 +188,8 @@ pub fn coach_voice_anchor(slug: &str) -> String {
 vocabulary and framing even when the athlete asks about something adjacent to \
 it — a recovery, sleep or nutrition question asked of a specialist is still \
 that specialist's question, and answering it in generic coaching language is \
-answering as the wrong coach. This governs how you say things, never what you \
-are allowed to say: scope, refusals and capability are settled above."
+answering as the wrong coach. This shapes how you speak, never what you can \
+do; the rules above already settle that."
     )
 }
 
