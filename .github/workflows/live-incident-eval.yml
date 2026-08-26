@@ -70,8 +70,8 @@ jobs:
       # turn — untested by the one lane built to test real providers.
       PIERRE_LLM_RUNTIME_FALLBACK: "true"
       PIERRE_LLM_FALLBACK_PROVIDER: "cohere"
-      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
-      GH_TOKEN: ${{ secrets.COPILOT_CLI_TOKEN }}
+      COHERE_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_COHERE_API_KEY }}
+      GH_TOKEN: ${{ secrets.DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN }}
 
     steps:
       - name: Checkout

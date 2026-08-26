@@ -76,7 +76,11 @@ echo -e "\n${BLUE}[3/5] Checking for shadow tool registries...${NC}"
 # parallel state), host_seams.rs (PierreToolDispatcher's `ToolDispatcher::list_tools`
 # seam impl that plugs the dravr-tronc MCP engine into the canonical tool_registry —
 # delegates to resources.mcp.tool_registry.{all,user_visible,tenant_filtered}_schemas;
-# no parallel state).
+# no parallel state), tool_surface.rs (TurnToolSurface's `ToolSurface::list_tools`,
+# which publishes this turn's tools to an ACP agent over embacle's loopback MCP host
+# — holds an Arc<ToolRegistry> and delegates to chat_callable_schemas(), then drops
+# the write tools while a guided interview owns the turn; a filter over the
+# canonical registry, no parallel state).
 SHADOW_TOOLS=$(grep -rn 'fn get_tools\|fn list_tools\|fn tool_schemas' \
     crates/pierre-server/src/ \
     --include='*.rs' 2>/dev/null \
@@ -86,6 +90,7 @@ SHADOW_TOOLS=$(grep -rn 'fn get_tools\|fn list_tools\|fn tool_schemas' \
     | grep -v 'mcp_request_processor.rs' \
     | grep -v 'executor.rs' \
     | grep -v 'host_seams.rs' \
+    | grep -v 'tool_surface.rs' \
     | grep -v 'schema/mod.rs' \
     | grep -v '#\[cfg(test)\]' \
     | grep -v '// ' \
