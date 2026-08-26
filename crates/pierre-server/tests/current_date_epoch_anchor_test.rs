@@ -19,7 +19,7 @@
 use chrono::Utc;
 use pierre_chat_pipeline::stages::prompt_assembly::format_current_date;
 
-/// Mirrors `NOW_QUANTUM_SECS` in prompt_assembly. Duplicated deliberately:
+/// Mirrors `NOW_QUANTUM_SECS` in `prompt_assembly`. Duplicated deliberately:
 /// a test that reads the constant it is checking cannot catch it changing.
 const QUANTUM: i64 = 300;
 
