@@ -370,18 +370,6 @@ fn interpolate_prompt_placeholders(
     assembled
 }
 
-/// Resolve `{{CURRENT_DATE}}` to a single line for the LLM prompt.
-///
-/// Output shape: `YYYY-MM-DD HH:MM (Continent/City)` when the user has a valid
-/// IANA timezone, e.g. `2026-05-21 14:30 (America/Toronto)`. Falls back to
-/// `YYYY-MM-DD HH:MM (UTC)` when the timezone is `None` (no client has reported
-/// yet) or fails to parse (e.g. a malformed string somehow landed in the
-/// column). Both date and time are *local* to the user's tz, not the server's
-/// UTC clock — that's the whole point of the anchor: when the user says "today"
-/// at 23:30 EDT, the prompt must say 2026-05-21 23:30, not the 2026-05-22 the
-/// server clock has already rolled over to. The wall-clock time lets the coach
-/// reason about time of day (morning/evening) without asking.
-#[must_use]
 /// Granularity the prompt's "now" values are floored to, in seconds.
 ///
 /// Five minutes: long enough that consecutive turns in a conversation share a
@@ -395,6 +383,18 @@ const NOW_QUANTUM_SECS: i64 = 300;
 // at runtime, because the value is compile-time.
 const _: () = assert!(NOW_QUANTUM_SECS > 0);
 
+/// Resolve `{{CURRENT_DATE}}` to a single line for the LLM prompt.
+///
+/// Output shape: `YYYY-MM-DD HH:MM (Continent/City)` when the user has a valid
+/// IANA timezone, e.g. `2026-05-21 14:30 (America/Toronto)`. Falls back to
+/// `YYYY-MM-DD HH:MM (UTC)` when the timezone is `None` (no client has reported
+/// yet) or fails to parse (e.g. a malformed string somehow landed in the
+/// column). Both date and time are *local* to the user's tz, not the server's
+/// UTC clock — that's the whole point of the anchor: when the user says "today"
+/// at 23:30 EDT, the prompt must say 2026-05-21 23:30, not the 2026-05-22 the
+/// server clock has already rolled over to. The wall-clock time lets the coach
+/// reason about time of day (morning/evening) without asking.
+#[must_use]
 pub fn format_current_date(user_timezone: Option<&str>) -> String {
     use chrono::{Datelike, Duration, TimeZone, Utc};
     let now_utc = Utc::now();
