@@ -34,7 +34,9 @@
 //!    an appended compaction summary), since both real incidents were
 //!    long-context turns rather than the short provocations the live A/B used.
 
-use pierre_chat_pipeline::stages::prompt_assembly::close_with_identity_anchor;
+use pierre_chat_pipeline::stages::prompt_assembly::{
+    close_with_anchors, close_with_identity_anchor,
+};
 use pierre_core::models::TenantId;
 use pierre_services::prompt_leak::harden_system_prompt;
 use std::fs;
@@ -62,7 +64,7 @@ fn the_anchor_is_applied_unconditionally_after_the_coach_branch() {
     // The `map_or_else` that chooses coach prompt vs pierre_system.md. The bug
     // was that this branch decided whether any identity text existed at all.
     let branch = sole_offset(&source, "coach_ctx.map_or_else(");
-    let anchor_call = sole_offset(&source, "close_with_identity_anchor(&raw_system_prompt)");
+    let anchor_call = sole_offset(&source, "close_with_anchors(&raw_system_prompt,");
 
     assert!(
         branch < anchor_call,
@@ -73,15 +75,55 @@ fn the_anchor_is_applied_unconditionally_after_the_coach_branch() {
 
     // And it must not be conditional. Anything that scopes the call to a branch
     // recreates the original defect for the excluded path.
-    let call_line = source[..anchor_call]
-        .rfind('\n')
-        .map_or(&source[..anchor_call], |nl| &source[nl + 1..anchor_call]);
+    //
+    // Checked over the whole statement rather than the marker's own line:
+    // rustfmt is free to wrap `let x = f(a, b);` across two lines, and it does,
+    // which made the earlier line-prefix version fail on a formatting choice
+    // instead of on the defect it exists to catch.
+    let stmt_start = source[..anchor_call]
+        .rfind("let raw_system_prompt =")
+        .expect("the anchor call must be a rebinding of raw_system_prompt");
+    let between = &source[stmt_start..anchor_call];
     assert!(
-        call_line
-            .trim_start()
-            .starts_with("let raw_system_prompt ="),
-        "the anchor call must be a plain unconditional rebinding, got: {call_line:?}"
+        !between.contains(" if ")
+            && !between.contains("match ")
+            && !between.contains("=>")
+            && !between.contains('{'),
+        "the anchor call must be unconditional — nothing may scope it to a branch, found: {between:?}"
     );
+}
+
+#[test]
+fn both_arms_of_the_close_carry_the_identity_anchor() {
+    // The single call site above used to be the whole guarantee: one call, so
+    // no branch could skip it. `close_with_anchors` now has two arms — a
+    // coach-bound turn also gets a voice anchor — so the hazard the structural
+    // test guards against moved inside that function, and this follows it there.
+    //
+    // Behavioural, not a grep: it asserts the string the model would receive.
+    for coach in [Some("strength"), None] {
+        let out = close_with_anchors("## Your coaching style\nShort sessions.", coach);
+        assert!(
+            out.contains("You are Dravr"),
+            "the identity anchor must reach the prompt with coach_slug = {coach:?}"
+        );
+        assert!(
+            out.contains("not a competing identity"),
+            "the anchor must arrive in full with coach_slug = {coach:?}"
+        );
+        let tail: String = out
+            .chars()
+            .rev()
+            .take(60)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
+        assert!(
+            tail.contains("not a competing identity"),
+            "the identity anchor must still be LAST with coach_slug = {coach:?}, got tail {tail:?}"
+        );
+    }
 }
 
 #[test]
