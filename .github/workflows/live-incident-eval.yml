@@ -24,6 +24,16 @@
 # Every turn is a metered model call against a real provider, so this runs once a day
 # and on demand, never per push. The corpus is deliberately small (~13 turns) for the
 # same reason: it is an incident regression suite, not a benchmark.
+#
+# WHY THE CORPUS IS DRIVEN MORE THAN ONCE
+#
+# A live model samples, so one pass cannot tell a defect from a draw. Across four runs
+# on 2026-08-26 the finding count moved 6 -> 2 -> 8 -> 6, and which episode produced the
+# empty reply moved with it, while the missing chart block failed all four. The lane
+# therefore drives the whole corpus LIVE_INCIDENT_EVAL_ATTEMPTS times (default 3) and
+# reds only on a finding that reproduces in a majority of passes. Everything observed is
+# still printed — a finding nobody sees is a finding nobody fixes — but a single draw no
+# longer reds a lane that then gets ignored for being permanently red.
 
 name: "Eval: Live Incident Corpus"
 

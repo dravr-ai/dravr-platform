@@ -95,6 +95,7 @@ mod live_incident_eval {
     use serde_json::json;
     use serial_test::serial;
     use sha2::Sha256;
+    use std::collections::HashMap;
     use std::env;
     use std::fmt::Write as _;
     use std::sync::Arc;
@@ -141,6 +142,23 @@ mod live_incident_eval {
     /// what the athlete actually got; short enough that eleven of them stay
     /// readable in a CI log.
     const DELIVERED_EXCERPT_CHARS: usize = 400;
+
+    /// How many times the whole corpus is driven, from
+    /// `LIVE_INCIDENT_EVAL_ATTEMPTS` (default 3, floor 1).
+    ///
+    /// A live model samples, so a single pass cannot tell a defect from a draw.
+    /// Across four runs on 2026-08-26 the finding count moved 6 → 2 → 8 → 6 and
+    /// which turn produced the empty reply moved with it, while the missing
+    /// chart block failed all four. Driving the corpus more than once is what
+    /// lets the lane tell those two apart without anyone hand-picking which
+    /// failures to believe.
+    fn attempts() -> usize {
+        env::var("LIVE_INCIDENT_EVAL_ATTEMPTS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(3)
+            .max(1)
+    }
 
     /// Seconds to wait between turns, from `LIVE_INCIDENT_EVAL_TURN_DELAY_SECS`.
     ///
@@ -195,6 +213,37 @@ mod live_incident_eval {
         NoRawVizFence,
         /// An LLM judge is asked one yes/no question about the reply.
         Honest { question: &'static str },
+    }
+
+    impl Expect {
+        /// Stable identity for this assertion across passes.
+        ///
+        /// The rendered detail carries per-run numbers ("79 chars") and judge
+        /// prose that is reworded every call, so it cannot key a finding: the
+        /// same defect would look like a different one each pass and never
+        /// reach the reproduce threshold.
+        const fn kind(self) -> &'static str {
+            match self {
+                Self::NonEmpty { .. } => "too_short",
+                Self::NoneOf(_) => "banned_phrase",
+                Self::AnyOf(_) => "missing_substring",
+                Self::ChartDelivered => "chart_missing",
+                Self::NoRawVizFence => "raw_fence",
+                Self::Honest { .. } => "judge",
+            }
+        }
+
+        /// Whether a reproduced failure of this assertion may fail the lane.
+        ///
+        /// Two are reported but never gate. [`Self::Honest`] asks an LLM judge
+        /// to grade an LLM answer, so it samples twice and its verdict wording
+        /// changed on every run of 2026-08-26. [`Self::NonEmpty`] measures
+        /// length, which is a style choice — a correct 100-character answer is
+        /// not the 9-character «by Dravr.» degenerate turn, and the banned
+        /// phrases catch that turn on their own.
+        const fn gates(self) -> bool {
+            !matches!(self, Self::Honest { .. } | Self::NonEmpty { .. })
+        }
     }
 
     /// One user turn plus what the reply must satisfy.
@@ -423,8 +472,76 @@ mod live_incident_eval {
         incident: &'static str,
         turn_index: usize,
         user: &'static str,
+        kind: &'static str,
+        gates: bool,
         detail: String,
         delivered: String,
+    }
+
+    /// Identity of a finding across passes — everything about it that a rerun
+    /// against the same code must reproduce exactly.
+    #[derive(PartialEq, Eq, Hash, Clone, Copy)]
+    struct FindingKey {
+        episode: &'static str,
+        turn_index: usize,
+        kind: &'static str,
+    }
+
+    /// Findings split by what the lane may conclude from them.
+    struct Classified<'a> {
+        /// Reproduced in at least a majority of passes, and gating: these red.
+        reproduced: Vec<(usize, &'a Finding)>,
+        /// Seen, but in too few passes to separate from model sampling.
+        flaky: Vec<(usize, &'a Finding)>,
+        /// Assertions that report but never gate, whatever their count.
+        ungated: Vec<(usize, &'a Finding)>,
+    }
+
+    /// Group findings by identity and decide which may fail the lane.
+    ///
+    /// Pure on purpose. The corpus around it cannot be run without spending
+    /// real model calls, so the rule deciding red-vs-green would otherwise be
+    /// the one part of the lane that nothing verifies — and it is the part that
+    /// decides whether anybody trusts the lane at all.
+    fn classify_findings(findings: &[Finding], attempts: usize) -> Classified<'_> {
+        // Majority of passes, so a defect must beat a coin flip to red the
+        // lane: 2 of 3, and 1 of 1 when a local run drives a single pass.
+        let threshold = attempts.div_ceil(2);
+
+        let mut tally: HashMap<FindingKey, Vec<&Finding>> = HashMap::new();
+        for f in findings {
+            tally
+                .entry(FindingKey {
+                    episode: f.episode,
+                    turn_index: f.turn_index,
+                    kind: f.kind,
+                })
+                .or_default()
+                .push(f);
+        }
+
+        let mut out = Classified {
+            reproduced: Vec::new(),
+            flaky: Vec::new(),
+            ungated: Vec::new(),
+        };
+        for group in tally.values() {
+            let seen = group.len();
+            // Every entry shares the key, so the first is representative; its
+            // detail is one pass's rendering of the same defect.
+            let first = group[0];
+            if !first.gates {
+                out.ungated.push((seen, first));
+            } else if seen >= threshold {
+                out.reproduced.push((seen, first));
+            } else {
+                out.flaky.push((seen, first));
+            }
+        }
+        for bucket in [&mut out.reproduced, &mut out.flaky, &mut out.ungated] {
+            bucket.sort_by_key(|(_, f)| (f.episode, f.turn_index, f.kind));
+        }
+        out
     }
 
     /// The absence of any observation. Never a quality signal.
@@ -1235,6 +1352,143 @@ mod live_incident_eval {
         );
     }
 
+    /// Build a finding for the classifier tests.
+    fn finding(
+        episode: &'static str,
+        turn_index: usize,
+        kind: &'static str,
+        gates: bool,
+    ) -> Finding {
+        Finding {
+            episode,
+            incident: "test",
+            turn_index,
+            user: "test",
+            kind,
+            gates,
+            detail: format!("{kind} fired"),
+            delivered: "delivered".to_owned(),
+        }
+    }
+
+    /// The 2026-08-26 evidence, replayed through the rule: the missing chart
+    /// block failed all four runs and must red; the empty reply moved between
+    /// episodes run to run and must not.
+    #[test]
+    fn a_finding_reds_the_lane_only_when_it_reproduces() {
+        let findings = vec![
+            finding("group_chart_ask", 1, "chart_missing", true),
+            finding("group_chart_ask", 1, "chart_missing", true),
+            finding("weekly_summary", 1, "banned_phrase", true),
+        ];
+        let out = classify_findings(&findings, 3);
+
+        assert_eq!(
+            out.reproduced.len(),
+            1,
+            "expected exactly the reproduced finding to gate, got {:?}",
+            out.reproduced
+                .iter()
+                .map(|(_, f)| f.kind)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            out.reproduced[0].0, 2,
+            "should report how many passes saw it"
+        );
+        assert_eq!(out.reproduced[0].1.episode, "group_chart_ask");
+        assert_eq!(
+            out.flaky.len(),
+            1,
+            "the one-off must be reported, not gating"
+        );
+        assert_eq!(out.flaky[0].1.episode, "weekly_summary");
+    }
+
+    /// A defect that fails EVERY pass is the strongest possible signal and must
+    /// never be filtered out by the very rule meant to remove noise.
+    #[test]
+    fn a_finding_in_every_pass_always_reds() {
+        let findings: Vec<Finding> = (0..3)
+            .map(|_| finding("chart_with_invented_accent", 0, "chart_missing", true))
+            .collect();
+        let out = classify_findings(&findings, 3);
+        assert_eq!(out.reproduced.len(), 1);
+        assert_eq!(out.reproduced[0].0, 3);
+        assert!(out.flaky.is_empty());
+    }
+
+    /// The judge and the length check report but never gate — an LLM grading an
+    /// LLM samples twice, and reply length is style, not correctness.
+    #[test]
+    fn ungated_assertions_never_red_even_when_unanimous() {
+        let findings: Vec<Finding> = (0..3)
+            .flat_map(|_| {
+                [
+                    finding("capability_claim", 0, "judge", false),
+                    finding("weekly_summary", 1, "too_short", false),
+                ]
+            })
+            .collect();
+        let out = classify_findings(&findings, 3);
+        assert!(
+            out.reproduced.is_empty(),
+            "a non-gating assertion reached the gate: {:?}",
+            out.reproduced
+                .iter()
+                .map(|(_, f)| f.kind)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(out.ungated.len(), 2, "both must still be reported");
+        assert!(out.ungated.iter().all(|(seen, _)| *seen == 3));
+    }
+
+    /// Findings are keyed by identity, never by rendered text: the detail
+    /// carries per-run numbers ("79 chars") and judge prose that is reworded on
+    /// every call, so text-keyed grouping would never reach the threshold.
+    #[test]
+    fn differing_detail_text_still_groups_as_one_finding() {
+        let mut a = finding("weekly_summary", 1, "too_short", true);
+        let mut b = finding("weekly_summary", 1, "too_short", true);
+        a.detail = "delivered body is 79 chars, expected at least 120".to_owned();
+        b.detail = "delivered body is 83 chars, expected at least 120".to_owned();
+        let findings = [a, b];
+        let out = classify_findings(&findings, 3);
+        assert_eq!(
+            out.reproduced.len(),
+            1,
+            "same defect must group despite differing text"
+        );
+        assert_eq!(out.reproduced[0].0, 2);
+    }
+
+    /// Same assertion failing on two different turns is two defects, not one
+    /// reproduced defect — collapsing them would red the lane on a pair of
+    /// unrelated single-pass draws.
+    #[test]
+    fn the_same_assertion_on_different_turns_does_not_reproduce() {
+        let findings = vec![
+            finding("group_chart_ask", 0, "banned_phrase", true),
+            finding("two_provider_day", 0, "banned_phrase", true),
+        ];
+        let out = classify_findings(&findings, 3);
+        assert!(
+            out.reproduced.is_empty(),
+            "two different turns were collapsed into one reproduced finding"
+        );
+        assert_eq!(out.flaky.len(), 2);
+    }
+
+    /// A single-pass local run keeps the old zero-tolerance behaviour, so
+    /// `LIVE_INCIDENT_EVAL_ATTEMPTS=1` stays useful for reproducing one defect.
+    #[test]
+    fn a_single_pass_run_gates_on_one_occurrence() {
+        let findings = vec![finding("group_chart_ask", 1, "chart_missing", true)];
+        let out = classify_findings(&findings, 1);
+        assert_eq!(out.reproduced.len(), 1);
+        assert!(out.flaky.is_empty());
+    }
+
     #[tokio::test]
     #[serial]
     async fn live_incident_corpus_holds() {
@@ -1283,84 +1537,96 @@ mod live_incident_eval {
             "the lane resolved a Custom provider — it is about to grade a mock, not a model"
         );
 
-        let resources = create_test_server_resources_with_real_chat_provider(Arc::clone(&provider))
-            .await
-            .unwrap();
-        let fixture = seed_fixture(&resources).await;
-
+        let attempts = attempts();
         let mut findings: Vec<Finding> = Vec::new();
         let mut infra: Vec<InfraError> = Vec::new();
         let mut turns_run = 0_usize;
 
-        for episode in CORPUS {
-            println!("\n=== {} ({})", episode.name, episode.incident);
-            let channel = if episode.group {
-                &fixture.group_channel
-            } else {
-                &fixture.dm_channel
-            };
+        // Each pass gets its own server and fixture. Reusing one would let a
+        // pass inherit the previous pass's conversation history, and the
+        // episodes are multi-turn — the coach would be answering turn 0 with
+        // three earlier corpus runs already in its context, which is not the
+        // turn the incident recorded.
+        for pass in 1..=attempts {
+            println!("\n########## corpus pass {pass}/{attempts}");
+            let resources =
+                create_test_server_resources_with_real_chat_provider(Arc::clone(&provider))
+                    .await
+                    .unwrap();
+            let fixture = seed_fixture(&resources).await;
 
-            for (turn_index, turn) in episode.turns.iter().enumerate() {
-                println!("  turn {turn_index}: {}", turn.user);
-                let baseline = outbound_count(&resources, fixture.athlete_tenant).await;
-                let assistant_baseline =
-                    assistant_row_count(&resources, fixture.athlete_tenant).await;
-                let delivered = match drive_turn(
-                    &resources,
-                    &fixture,
-                    channel,
-                    turn.user,
-                    baseline,
-                    assistant_baseline,
-                )
-                .await
-                {
-                    Ok(d) => d,
-                    Err(detail) => {
-                        println!("    INFRA: {detail}");
-                        infra.push(InfraError {
-                            episode: episode.name,
-                            turn_index,
-                            detail,
-                        });
-                        continue;
-                    }
+            for episode in CORPUS {
+                println!("\n=== {} ({})", episode.name, episode.incident);
+                let channel = if episode.group {
+                    &fixture.group_channel
+                } else {
+                    &fixture.dm_channel
                 };
-                turns_run += 1;
-                println!(
-                    "    delivered {} chars{}",
-                    delivered.body.chars().count(),
-                    if delivered.blocks.is_some() {
-                        " (+ content blocks)"
-                    } else {
-                        ""
-                    }
-                );
 
-                sleep(turn_delay()).await;
-
-                for expect in UNIVERSAL.iter().chain(turn.expect) {
-                    if let Some(detail) =
-                        check(*expect, &delivered, turn.user, provider.as_ref()).await
+                for (turn_index, turn) in episode.turns.iter().enumerate() {
+                    println!("  turn {turn_index}: {}", turn.user);
+                    let baseline = outbound_count(&resources, fixture.athlete_tenant).await;
+                    let assistant_baseline =
+                        assistant_row_count(&resources, fixture.athlete_tenant).await;
+                    let delivered = match drive_turn(
+                        &resources,
+                        &fixture,
+                        channel,
+                        turn.user,
+                        baseline,
+                        assistant_baseline,
+                    )
+                    .await
                     {
-                        println!("    FINDING: {detail}");
-                        findings.push(Finding {
-                            episode: episode.name,
-                            incident: episode.incident,
-                            turn_index,
-                            user: turn.user,
-                            detail,
-                            delivered: delivered.body.clone(),
-                        });
+                        Ok(d) => d,
+                        Err(detail) => {
+                            println!("    INFRA: {detail}");
+                            infra.push(InfraError {
+                                episode: episode.name,
+                                turn_index,
+                                detail,
+                            });
+                            continue;
+                        }
+                    };
+                    turns_run += 1;
+                    println!(
+                        "    delivered {} chars{}",
+                        delivered.body.chars().count(),
+                        if delivered.blocks.is_some() {
+                            " (+ content blocks)"
+                        } else {
+                            ""
+                        }
+                    );
+
+                    sleep(turn_delay()).await;
+
+                    for expect in UNIVERSAL.iter().chain(turn.expect) {
+                        if let Some(detail) =
+                            check(*expect, &delivered, turn.user, provider.as_ref()).await
+                        {
+                            println!("    FINDING: {detail}");
+                            findings.push(Finding {
+                                episode: episode.name,
+                                incident: episode.incident,
+                                turn_index,
+                                user: turn.user,
+                                kind: expect.kind(),
+                                gates: expect.gates(),
+                                detail,
+                                delivered: delivered.body.clone(),
+                            });
+                        }
                     }
                 }
             }
         }
 
-        let total_turns: usize = CORPUS.iter().map(|e| e.turns.len()).sum();
+        let total_turns: usize = CORPUS.iter().map(|e| e.turns.len()).sum::<usize>() * attempts;
         println!(
-            "\n=== live incident corpus: {turns_run}/{total_turns} turns observed, \
-             {} findings, {} infra errors",
+            "\n=== live incident corpus: {turns_run}/{total_turns} turns observed over \
+             {attempts} pass(es), {} findings, {} infra errors",
             findings.len(),
             infra.len()
         );
@@ -1372,22 +1638,45 @@ mod live_incident_eval {
             println!("  INFRA {}[turn {}]: {}", e.episode, e.turn_index, e.detail);
         }
 
+        let Classified {
+            reproduced,
+            flaky,
+            ungated,
+        } = classify_findings(&findings, attempts);
+        let threshold = attempts.div_ceil(2);
+
+        // Printed whatever the verdict: the lane's job is to show what the real
+        // models did, and a finding hidden because it did not reproduce is a
+        // finding nobody investigates.
+        for (seen, f) in &flaky {
+            println!(
+                "  flaky (not gating, {seen}/{attempts} passes) {} [turn {}] — {}",
+                f.episode, f.turn_index, f.detail
+            );
+        }
+        for (seen, f) in &ungated {
+            println!(
+                "  reported only ({seen}/{attempts} passes) {} [turn {}] — {}",
+                f.episode, f.turn_index, f.detail
+            );
+        }
+
         // Rendered by writing into one buffer rather than formatting per finding
         // and collecting: every finding carries a 400-char excerpt, so a bad
         // night allocates a string per turn for no reason.
         let mut report = String::new();
-        for f in &findings {
+        for (seen, f) in &reproduced {
             let delivered: String = f.delivered.chars().take(DELIVERED_EXCERPT_CHARS).collect();
             let _ = write!(
                 report,
-                "\n  {} [turn {}] — {}\n    incident: {}\n    asked: {}\n    delivered: {delivered}",
+                "\n  {} [turn {}] — {} ({seen}/{attempts} passes)\n    incident: {}\n    asked: {}\n    delivered: {delivered}",
                 f.episode, f.turn_index, f.detail, f.incident, f.user,
             );
         }
         assert!(
-            findings.is_empty(),
-            "the live corpus reproduced {} regression(s):{report}",
-            findings.len(),
+            reproduced.is_empty(),
+            "the live corpus reproduced {} regression(s) in at least {threshold} of {attempts} passes:{report}",
+            reproduced.len(),
         );
 
         // A lane that observed almost nothing must not report success. "0
