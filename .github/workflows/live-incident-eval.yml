@@ -45,6 +45,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -71,13 +72,11 @@ jobs:
       PIERRE_LLM_RUNTIME_FALLBACK: "true"
       PIERRE_LLM_FALLBACK_PROVIDER: "cohere"
       COHERE_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_COHERE_API_KEY }}
-      # The Copilot CLI runner reads COPILOT_GITHUB_TOKEN — see
-      # validate_copilot_token in pierre-mcp-server.rs, which logs "Copilot CLI
-      # will use on-disk credentials" when it is unset. A fresh runner has no
-      # on-disk credentials, so GH_TOKEN alone left copilot-acp answering every
-      # call with RPC -32000 "Authentication required" and the whole corpus ran
-      # on the Cohere fallback while reading as if it had tested the chain.
-      COPILOT_GITHUB_TOKEN: ${{ secrets.DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN }}
+      # COPILOT_GITHUB_TOKEN is NOT set here. The runner reads that name — see
+      # validate_copilot_token in pierre-mcp-server.rs — but the value has to be
+      # the live one from Secret Manager, which is what the Copilot Auth Probe
+      # reads and why that lane passes while this one did not. The repo secret
+      # is a copy last written 2026-03-15 and the token has rotated since.
       GH_TOKEN: ${{ secrets.DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN }}
 
     steps:
@@ -124,8 +123,36 @@ jobs:
           ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot
           copilot --version
 
+      - name: Authenticate to GCP
+        if: env.PIERRE_LLM_PROVIDER == 'copilot_headless'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud CLI
+        if: env.PIERRE_LLM_PROVIDER == 'copilot_headless'
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Fetch the live Copilot token from Secret Manager
+        id: copilot_token
+        if: env.PIERRE_LLM_PROVIDER == 'copilot_headless'
+        run: |
+          set -euo pipefail
+          TOKEN=$(gcloud secrets versions access latest \
+            --secret=dravr-mcp-server-copilot-github-token \
+            --project="${GOOGLE_CLOUD_PROJECT:-$CLOUDSDK_CORE_PROJECT}")
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Secret Manager returned an empty Copilot token" >&2
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
       - name: Run the incident corpus
         # --nocapture streams each turn's delivered length and every finding as
         # it happens, so a run killed by the job's wall clock still shows which
         # turn it died on rather than reporting nothing at all.
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ steps.copilot_token.outputs.token }}
         run: cargo test --test live_incident_eval_test -- --nocapture
