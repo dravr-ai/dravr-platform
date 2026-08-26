@@ -10,11 +10,6 @@
 //! comes from `estimate_chat_tokens`. What that estimator is handed decides
 //! whether the billing tables describe the turn or a rounding error of it.
 
-// Same allow every other integration test carries: CI lints tests with
-// `--all-targets`, where `unwrap_used` is denied, and the arithmetic these
-// assertions do on fixture sizes has no runtime failure mode to handle.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use std::iter::empty;
 
 use pierre_core::config::CompactionConfig;

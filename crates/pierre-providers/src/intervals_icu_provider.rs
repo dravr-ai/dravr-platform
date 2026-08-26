@@ -35,6 +35,7 @@
 //! credential pair is always `API_KEY:<api key>`. Intervals.icu rejects an
 //! athlete id in the username position with 401 on every endpoint.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -112,6 +113,15 @@ const DEFAULT_LOOKAHEAD_DAYS: i64 = 1;
 /// (`fetch_recent_activities_all_providers`, the fresh-head data path) pass a
 /// real lower bound and are exactly the callers that would lose it.
 const QUERY_LOCAL_OFFSET_SLACK_DAYS: i64 = 1;
+
+/// Hard ceiling on how many requests one activity fetch may issue.
+///
+/// The historical backfill asks for two thousand activities in a single call
+/// (`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`), which is ten full pages. The cap
+/// bounds a walk that would otherwise be driven by caller input, and keeps a
+/// pathological feed — every activity sharing one timestamp, so the window
+/// cannot advance — from issuing requests until the API rate-limits us.
+const MAX_ACTIVITY_PAGES: usize = 16;
 
 /// Resolve the `(oldest, newest)` bounds an activity list query runs with.
 ///
@@ -351,6 +361,76 @@ impl IntervalsIcuProvider {
             AppError::external_service("intervals_icu", format!("list_activities decode: {e}"))
         })?;
         Ok(raw.into_iter().filter_map(map_activity).collect())
+    }
+
+    /// Walk the activity feed backwards through the window until `limit`
+    /// activities are collected or the window is exhausted.
+    ///
+    /// Intervals.icu answers at most [`MAX_PAGE_LIMIT`] activities per request,
+    /// and [`Self::list_activities`] clamped the caller's limit to it silently.
+    /// That truncation is not local: the historical backfill asks every provider
+    /// for two thousand activities and then reads `fetched_count < requested_limit` as
+    /// proof the window was exhausted, so a provider that quietly returns 200
+    /// makes the backfill record a depth it never reached — and the gate then
+    /// serves that shallow slice as a complete season, permanently. Strava and
+    /// Garmin already page internally for this reason; this puts Intervals.icu
+    /// on the same contract.
+    ///
+    /// The walk steps `newest` down to the oldest activity of each page
+    /// *inclusively* and de-duplicates by activity id. An exclusive step would
+    /// be tidier but drops rows: several activities can share one start time,
+    /// and a page boundary can fall between them. Repeating a boundary row costs
+    /// one duplicate that the id filter removes; skipping past it loses an
+    /// activity outright.
+    ///
+    /// Terminates on any of: the limit reached, a short page (nothing older in
+    /// the window), a page contributing no new id (the window stopped advancing),
+    /// an exhausted window, or [`MAX_ACTIVITY_PAGES`].
+    async fn list_activities_paged(
+        &self,
+        oldest: DateTime<Utc>,
+        newest: DateTime<Utc>,
+        limit: usize,
+    ) -> AppResult<Vec<Activity>> {
+        let mut collected: Vec<Activity> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut cursor = newest;
+        let pages = limit
+            .div_ceil(MAX_PAGE_LIMIT)
+            .saturating_add(1)
+            .min(MAX_ACTIVITY_PAGES);
+
+        for _ in 0..pages {
+            if collected.len() >= limit || cursor <= oldest {
+                break;
+            }
+            let page = self.list_activities(oldest, cursor, MAX_PAGE_LIMIT).await?;
+            let page_len = page.len();
+            let mut oldest_in_page: Option<DateTime<Utc>> = None;
+            let mut added = 0_usize;
+            for activity in page {
+                let start = activity.start_date();
+                oldest_in_page = Some(oldest_in_page.map_or(start, |cur| cur.min(start)));
+                if seen.insert(activity.id().to_owned()) {
+                    collected.push(activity);
+                    added += 1;
+                }
+            }
+            // A short page means the window holds nothing older. `added == 0`
+            // means a full page repeated what we already had, so `cursor` is no
+            // longer advancing — the guard that makes the pathological
+            // same-timestamp feed terminate instead of spinning to the cap.
+            if page_len < MAX_PAGE_LIMIT || added == 0 {
+                break;
+            }
+            let Some(oldest_in_page) = oldest_in_page else {
+                break;
+            };
+            cursor = oldest_in_page;
+        }
+
+        collected.truncate(limit);
+        Ok(collected)
     }
 
     /// Fetch the per-second time-series streams for a given activity.
@@ -780,10 +860,9 @@ impl FitnessProvider for IntervalsIcuProvider {
         &self,
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
-        let limit = params
-            .limit
-            .unwrap_or(DEFAULT_PAGE_LIMIT)
-            .min(MAX_PAGE_LIMIT);
+        // Not clamped to MAX_PAGE_LIMIT: a caller asking for a season gets a
+        // season. The walk bounds itself by MAX_ACTIVITY_PAGES instead.
+        let limit = params.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
         let (oldest, newest) = activity_window(
             params
                 .after
@@ -792,7 +871,7 @@ impl FitnessProvider for IntervalsIcuProvider {
                 .before
                 .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0)),
         );
-        self.list_activities(oldest, newest, limit).await
+        self.list_activities_paged(oldest, newest, limit).await
     }
 
     async fn get_activities_cursor(

@@ -14,7 +14,9 @@
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
+use std::time::Duration as StdDuration;
+
+use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials};
 use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
 use pierre_providers::models::{
@@ -25,6 +27,7 @@ use pierre_providers::ProviderRegistry;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 
 fn sample_template() -> WorkoutTemplate {
     WorkoutTemplate {
@@ -494,5 +497,124 @@ async fn activity_list_pads_the_lower_bound_against_a_local_reading() {
          UTC offset, or a local reading of it silently drops activities: asked \
          {asked}, sent {sent}, slack {}h",
         slack.num_hours()
+    );
+}
+
+/// Serve `bodies.len()` sequential requests, returning every captured request
+/// head. The single-shot [`stub_once`] cannot express a paging walk, which is
+/// the whole point of the test below: the defect was that only one request was
+/// ever made.
+async fn stub_pages(bodies: Vec<String>) -> (String, JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
+    let addr = listener.local_addr().expect("stub addr");
+    let handle = tokio::spawn(async move {
+        let mut heads = Vec::new();
+        for body in bodies {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut head = Vec::new();
+            let mut buf = [0_u8; 1024];
+            loop {
+                let n = socket.read(&mut buf).await.expect("read request");
+                if n == 0 {
+                    break;
+                }
+                head.extend_from_slice(&buf[..n]);
+                if head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+            socket.flush().await.expect("flush response");
+            heads.push(String::from_utf8_lossy(&head).into_owned());
+        }
+        heads
+    });
+    (format!("http://{addr}"), handle)
+}
+
+/// A request deeper than one response can carry must page, not truncate.
+///
+/// Intervals.icu answers at most 200 activities per request, and the provider
+/// used to clamp the caller's limit to that and return a single page. The
+/// truncation was invisible to the caller, and that is what made it costly: the
+/// historical backfill asks every provider for two thousand activities and then
+/// reads `fetched_count < requested_limit` as proof the window was exhausted.
+/// A silent 200 therefore made the backfill record a depth it never reached, and
+/// the gate served that shallow slice as a complete season from then on.
+///
+/// Two pages here: a full 200 (so the walk continues) then a short 3 (so it
+/// stops). A clamping provider returns 200 from one request and fails this.
+#[tokio::test]
+async fn a_deep_request_pages_past_the_single_response_cap() {
+    // Anchored near now, not on a fixed calendar date: with no explicit `after`
+    // the provider defaults the window to the last 90 days, and a fixture older
+    // than that is outside it - the walk correctly stops at the window floor and
+    // the test would be measuring the window, not the paging.
+    let base = (Utc::now() - Duration::days(2))
+        .naive_utc()
+        .with_nanosecond(0)
+        .expect("nanosecond truncation is in range")
+        .with_second(0)
+        .expect("second truncation is in range");
+    let row = |id: &str, hours_back: i64| {
+        let ts = base - Duration::hours(hours_back);
+        format!(
+            r#"{{"id":"{id}","start_date_local":"{}"}}"#,
+            ts.format("%Y-%m-%dT%H:%M:%S")
+        )
+    };
+
+    let page_one: Vec<String> = (0..200).map(|i| row(&format!("p1-{i}"), i)).collect();
+    let page_two: Vec<String> = (200..203).map(|i| row(&format!("p2-{i}"), i)).collect();
+    let bodies = vec![
+        format!("[{}]", page_one.join(",")),
+        format!("[{}]", page_two.join(",")),
+    ];
+
+    let (base_url, stub) = stub_pages(bodies).await;
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let activities = provider
+        .get_activities_with_params(&ActivityQueryParams::with_pagination(Some(500), None))
+        .await
+        .expect("deep fetch succeeds");
+
+    assert_eq!(
+        activities.len(),
+        203,
+        "a 500-activity ask must walk both pages, not stop at the 200-row cap"
+    );
+
+    let heads = timeout(StdDuration::from_secs(5), stub)
+        .await
+        .expect("stub finishes: a clamping provider issues only one request")
+        .expect("stub task joins");
+    assert_eq!(heads.len(), 2, "the walk must issue a second request");
+
+    // The second page resumes at the oldest row of the first, inclusively -
+    // several activities can share a start time and a page boundary can fall
+    // between them, so stepping past it would drop rows the id filter cannot
+    // recover. The duplicate this costs is what the id filter is for.
+    let resume = (base - Duration::hours(199))
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    let second = request_target(&heads[1]).replace("%3A", ":");
+    assert!(
+        second.contains(&format!("newest={resume}")),
+        "second page must resume at the first page's oldest row: expected \
+         newest={resume}, got {second}"
     );
 }
