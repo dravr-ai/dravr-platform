@@ -76,7 +76,7 @@ fn test_estimate_handles_an_empty_message_list() {
 fn prose_still_estimates_at_four_chars_per_token() {
     let prose = "the athlete ran ten kilometres on sunday morning at an easy pace ".repeat(200);
     let estimate = estimate_context_tokens(&prose);
-    let flat = u32::try_from(prose.len() / 4).unwrap();
+    let flat = u32::try_from(prose.len() / 4).unwrap_or(u32::MAX);
     let delta = estimate.abs_diff(flat);
     assert!(
         delta * 20 <= flat,
@@ -90,12 +90,12 @@ fn dense_json_estimates_about_twice_the_flat_heuristic() {
     let json =
         r#"{"id":"a1","sport_type":"run","distance_meters":12345,"moving_time":3600},"#.repeat(500);
     let estimate = estimate_context_tokens(&json);
-    let flat = u32::try_from(json.len() / 4).unwrap();
+    let flat = u32::try_from(json.len() / 4).unwrap_or(u32::MAX);
     assert!(
         estimate > flat + flat / 2,
         "dense JSON should cost far more than the flat heuristic: {estimate} vs {flat}"
     );
-    let dense = u32::try_from(json.len() / 2).unwrap();
+    let dense = u32::try_from(json.len() / 2).unwrap_or(u32::MAX);
     assert!(
         estimate.abs_diff(dense) * 10 <= dense,
         "dense JSON should land near 2 chars/token: {estimate} vs {dense}"
@@ -120,7 +120,7 @@ fn a_prod_sized_json_prompt_now_trips_the_emergency_threshold() {
         r#"{"id":"act-0001","name":"Sortie longue","sport_type":"ride","distance_meters":200000,"#
             .repeat(3_800);
 
-    let flat = u32::try_from(payload.len() / 4).unwrap();
+    let flat = u32::try_from(payload.len() / 4).unwrap_or(u32::MAX);
     assert!(
         flat < cfg.warn_tokens(),
         "the flat heuristic is supposed to under-read this prompt — that is the bug \
