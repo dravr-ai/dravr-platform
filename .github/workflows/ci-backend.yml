@@ -143,6 +143,16 @@ jobs:
       - name: Turn Envelope Convergence
         run: ./scripts/ci/check-turn-envelope.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
+      # Both fixture tests build throwaway repos and assert their gate FAILS on
+      # a violation. They existed and ran nowhere, which is the failure mode
+      # their own headers warn about: "An unverified gate is worse than no gate:
+      # it reports ✅ forever and everyone believes the budget is enforced."
+      # Compile-free like the rest of this job, ~2s together.
+      - name: Gate self-tests (file sizes, advisory reviews)
+        run: |
+          ./scripts/ci/check-file-sizes.test.sh
+          ./scripts/ci/check-advisory-reviews.test.sh
+
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
     runs-on: ubuntu-latest
@@ -232,14 +242,31 @@ jobs:
           components: clippy
           free-disk-space: 'true'
 
-      # --keep-going so one crate's violation does not hide every other crate's.
-      # Without it cargo stops at the first failing unit and never lints anything
-      # that depends on it, so a change touching several crates surfaces its
-      # violations one CI run at a time — a lint in pierre-core hides a lint in
-      # the test targets of pierre-server until the first is fixed and pushed.
-      # The preflight job already loops per crate for the same reason.
+      # The wrapper runs `cargo clippy --keep-going --all-targets --all-features
+      # -- -D warnings` unchanged — same diagnostics, same exit status — and adds
+      # one thing: the crates the run could not reach.
+      #
+      # --keep-going carries cargo past a failing crate into everything that does
+      # not depend on it. Without it a change touching several crates surfaces
+      # its violations one ~15-minute run at a time. What it cannot do is lint a
+      # crate whose dependency failed, because there is no rmeta to lint against,
+      # and those crates emit no diagnostics at all — which reads exactly like
+      # having none. On 2026-08-26 that reading cost three sessions an evening:
+      # one error in pierre-services was all this job could see, four more sat
+      # unevaluated in its dependents, and each round of fixing the visible one
+      # reddened main again on errors that had been there the whole time.
+      #
+      # So the report distinguishes clean from unevaluated. scripts/ci/
+      # clippy-workspace.test.sh builds a three-crate workspace and breaks one of
+      # them to prove the report fires.
+      # The instrument is verified on the same run that depends on it: three
+      # throwaway crates, one deliberately broken, asserting that its dependent
+      # is named and the crate beside it is not. ~5s.
+      - name: Self-test the unevaluated-crate reporter
+        run: ./scripts/ci/clippy-workspace.test.sh
+
       - name: Lint with Clippy (Zero Tolerance + Cognitive Complexity)
-        run: cargo clippy --keep-going --all-targets --all-features -- -D warnings
+        run: python3 scripts/ci/clippy-workspace.py
 
   deadlock-analysis:
     name: Static Deadlock Analysis (lockbud)
