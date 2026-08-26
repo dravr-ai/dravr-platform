@@ -8,10 +8,9 @@
 //!
 //! Holds the canonical [`pierre_intelligence::IntelligenceConfig`] snapshot
 //! that the rest of the server reads through `ServerContext`. Lives
-//! outside `contremaitre/` so it is always compiled — `server-mcp-stdio`
-//! and `server-mcp-bridge` feature sets disable the contremaitre hot-reload
-//! module but still need the cageux config snapshot for every analyzer,
-//! engine, and handler.
+//! outside `contremaitre/` so it is always compiled — a feature set that
+//! leaves the contremaitre hot-reload module out still needs the cageux
+//! config snapshot for every analyzer, engine, and handler.
 //!
 //! The registry starts seeded from `IntelligenceConfig::load()` (compiled-in
 //! defaults overlaid with `INTELLIGENCE_*` env vars) so the server boots

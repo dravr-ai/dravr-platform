@@ -136,8 +136,8 @@ client-store = ["protocol-rest"]  # Coach Store REST API routes (pierre-routes-c
 # `client-notifications` because `pierre-routes-groups` calls
 # `GroupsCtx::notification_service()` on every path — the trait method is not
 # optional there, so a build that mounts these routes without notifications has
-# no service to hand them. The implication is real; declaring it is what keeps
-# `server-saas-full` compiling.
+# no service to hand them. Undeclared, that gap only appears in a build that
+# separates the two features, which is why it went unnoticed (carnet#116).
 client-groups = ["protocol-rest", "tools-groups", "dep:pierre-routes-groups", "client-notifications"]  # group coaching routes (extracted to pierre-routes-groups)
 
 client-web = ["client-dashboard", "client-settings", "client-chat", "client-coaches", "client-oauth-apps", "client-store", "client-groups"]
@@ -178,10 +178,6 @@ oauth = []
 # ═══════════════════════════════════════════════════════════════
 server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
-server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all", "gcp-kms"]
-server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all", "gcp-kms"]
-server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all", "gcp-kms"]
-server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "client-messaging", "oauth", "all-providers", "tools-all", "analytics-posthog", "gcp-kms"]
 
 [dependencies]
 embacle = { version = "0.21.3" }

@@ -310,21 +310,17 @@ Each profile is a deployment shape, not just a feature subset.
 |---|---|
 | `server-full` | Local dev / single-machine — every protocol, transport, provider, channel. SQLite. |
 | `server-production` | Cloud Run target — REST + MCP + A2A, all production providers, PostgreSQL, no synthetic. |
-| `server-saas-full` | Multi-tenant SaaS — REST + MCP, web + admin clients, no stdio transport. |
-| `server-mcp-stdio` | Desktop MCP-only binary — smallest binary, stdio transport, no REST. |
-| `server-mcp-bridge` | Edge bridge — MCP + A2A over web transports, no REST clients. |
-| `server-mobile-backend` | Mobile-only backend — REST + MCP, mobile-specific routes only. |
 
 ```bash
-# Production-shaped binary, PostgreSQL backend
+# Exactly what docker/images/server/Dockerfile ships, and what CI checks
 cargo build --release \
   --no-default-features \
-  --features "postgresql,server-production"
+  --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms"
 
-# Strava-only stdio binary for a desktop AI assistant
+# A narrower shape: REST only, Strava, core tools
 cargo build --release \
   --no-default-features \
-  --features "sqlite,server-mcp-stdio,provider-strava"
+  --features "sqlite,protocol-rest,transport-http,client-web,provider-strava,tools-fitness-core"
 ```
 
 The full feature matrix (protocols × transports × clients × tools × providers × channels) is documented in [`book/src/build.md`](book/src/build.md).

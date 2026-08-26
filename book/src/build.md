@@ -291,23 +291,20 @@ tools-wellness = ["tools-sleep", "tools-nutrition", "tools-recipes", "tools-mobi
 
 ### Server Profiles
 
-Pre-configured bundles for common deployments:
+Two bundles, because two things build this binary: a developer on a laptop and
+the production Dockerfile. A profile is a deployment shape someone actually
+deploys — the four that named shapes nobody built (,
+, , ) were deleted
+on 2026-08-26, having sat un-compilable for long enough that nobody could date
+it (carnet#116). Compose the features directly for a one-off shape instead; the
+example below shows how.
 
 ```toml
-# Full platform (default)
+# Full platform (default) — local dev, SQLite
 server-full = ["protocol-all", "transport-all", "client-all", "oauth", "all-providers", "tools-all"]
 
-# Desktop MCP clients via stdio
-server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
-
-# AI agent bridge (MCP + A2A)
-server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
-
-# Mobile app backend
-server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "oauth", "all-providers", "tools-all"]
-
-# SaaS deployment
-server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "oauth", "all-providers", "tools-all"]
+# Cloud Run target — the shape docker/images/server/Dockerfile builds
+server-production = ["protocol-all", "transport-all", "client-all", "oauth", "all-providers", "tools-all"]
 ```
 
 ### Build Examples
@@ -316,14 +313,10 @@ server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-we
 # Full platform (default)
 cargo build --release
 
-# Desktop MCP clients only (~35MB)
-cargo build --release --no-default-features --features "sqlite,server-mcp-stdio"
-
-# SaaS with PostgreSQL (~45MB)
-cargo build --release --no-default-features --features "postgresql,server-saas-full"
-
-# Minimal MCP bridge (~40MB)
-cargo build --release --no-default-features --features "sqlite,server-mcp-bridge"
+# What ships: the exact line in docker/images/server/Dockerfile, and the one
+# the CI feature-profiles job checks on every push
+cargo build --release --no-default-features \
+  --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms"
 
 # Custom: REST API + specific providers
 cargo build --release --no-default-features --features "sqlite,protocol-rest,transport-http,client-web,provider-strava,provider-garmin,tools-fitness-core"
@@ -333,11 +326,10 @@ cargo build --release --no-default-features --features "sqlite,protocol-rest,tra
 
 | Configuration | Size |
 |---------------|------|
-| `server-mcp-stdio` | ~35MB |
-| `server-mcp-bridge` | ~40MB |
-| `server-mobile-backend` | ~42MB |
-| `server-saas-full` | ~45MB |
 | `server-full` (default) | ~50MB |
+| `server-production` | ~50MB |
+
+CI's `release-binary` job fails the build above 80MB.
 
 ### Other Features
 

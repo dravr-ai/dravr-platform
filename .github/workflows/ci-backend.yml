@@ -445,32 +445,38 @@ jobs:
     name: Feature Profile Check (${{ matrix.name }})
     runs-on: ubuntu-latest
     needs: fast-gate
-    # Every job above this one builds pierre_mcp_server with the default feature
-    # set or with --all-features, so a gate that only the non-default profiles
-    # cross went unbuilt: on 2026-08-26 all five below failed `cargo check` with
-    # 7-25 errors each (carnet#116), and had for long enough that nobody could
-    # date it. A feature gate naming the wrong feature, or a leaf crate turning
-    # a trait method on unconditionally, is invisible until something builds the
-    # profile that separates them — this is that something.
+    # Every other job here builds pierre_mcp_server with the default feature set
+    # or with --all-features. Neither is what ships: the Dockerfile builds
+    # --no-default-features with postgresql and WITHOUT sqlite, a combination
+    # --all-features cannot produce because it turns both backends on. So the
+    # one build that reaches Cloud Run was, until 2026-08-26, compiled first by
+    # the deploy.
     #
-    # `cargo check`, not clippy: the contract is that the profile compiles, and
-    # full-workspace clippy already runs under --all-features. RUSTFLAGS denies
-    # warnings for the workspace only — Cargo compiles registry and git
-    # dependencies with --cap-lints allow, so third-party code cannot fail this.
+    # A feature gate naming the wrong feature, or a leaf crate turning a trait
+    # method on unconditionally while the host's impl stays gated, is invisible
+    # until something builds a configuration that separates them (carnet#116).
+    # Two do that here, and both earn their slot:
+    #   production — the exact Dockerfile line. Red here is a red deploy.
+    #   no-default-features — every gate off at once. The cheapest possible
+    #     probe for a gate that names the wrong feature, and the one that found
+    #     all of carnet#116's errors.
+    # Keep this matrix to configurations something actually builds. Four
+    # server-* profiles used to sit here; nothing had ever built them, which is
+    # how they stayed broken, and they were deleted rather than gated.
+    #
+    # `cargo check`, not clippy: the contract is that the configuration
+    # compiles, and full-workspace clippy already runs --all-targets
+    # --all-features. RUSTFLAGS denies warnings for the workspace only — Cargo
+    # compiles registry and git dependencies with --cap-lints allow, so
+    # third-party code cannot fail this.
     strategy:
       fail-fast: false
       matrix:
         include:
+          - name: production
+            features: 'server-production,postgresql,sqlx/migrate,telemetry,gcp-kms'
           - name: no-default-features
             features: ''
-          - name: server-mcp-stdio
-            features: 'sqlite,server-mcp-stdio'
-          - name: server-mcp-bridge
-            features: 'sqlite,server-mcp-bridge'
-          - name: server-mobile-backend
-            features: 'sqlite,server-mobile-backend'
-          - name: server-saas-full
-            features: 'sqlite,server-saas-full'
 
     steps:
       - name: Checkout code
