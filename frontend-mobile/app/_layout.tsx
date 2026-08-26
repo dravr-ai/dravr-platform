@@ -48,6 +48,8 @@ import {
   type OnboardingStepId,
 } from '@pierre/shared-constants';
 import { trackMobile } from '../src/services/analytics';
+import { initI18n } from '@pierre/i18n';
+import { persistLocale } from '../src/i18n/localePersister';
 
 LogBox.ignoreLogs([
   'Failed to send message:',
@@ -58,6 +60,12 @@ LogBox.ignoreLogs([
 ]);
 
 SplashScreen.preventAutoHideAsync();
+
+// One preference, two owners: i18next renders the chrome, `users.locale`
+// decides the language the coach answers in. Registering the writer here — the
+// root of the app, before any screen mounts — means every language change
+// reaches the server instead of stopping at AsyncStorage.
+initI18n({ persistLocale });
 
 /** Map an onboarding step id to its `(onboarding)` route (literals for typed routes). */
 function routeForStep(id: OnboardingStepId) {

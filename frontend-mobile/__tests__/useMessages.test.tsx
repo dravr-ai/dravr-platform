@@ -5,14 +5,14 @@ import { renderHook, act } from '@testing-library/react-native';
 
 // Mock API service
 const mockGetConversationMessages = jest.fn();
-const mockSendMessage = jest.fn();
+const mockSendTurn = jest.fn();
 const mockSubmitMessageFeedback = jest.fn();
 const mockDeleteMessageFeedback = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   chatApi: {
     getConversationMessages: (...args: unknown[]) => mockGetConversationMessages(...args),
-    sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+    sendTurn: (...args: unknown[]) => mockSendTurn(...args),
     submitMessageFeedback: (...args: unknown[]) => mockSubmitMessageFeedback(...args),
     deleteMessageFeedback: (...args: unknown[]) => mockDeleteMessageFeedback(...args),
   },
@@ -26,6 +26,9 @@ jest.mock('@pierre/chat-utils', () => ({
   // mirror the real implementation so the hook under test behaves identically.
   filterDisplayMessages: (messages: { role: string }[]) =>
     messages.filter((m) => m.role !== 'tool_call' && m.role !== 'tool_result'),
+  // The real mapping, not a stub: the progress line the athlete reads is the
+  // point of the strip, and a stubbed mapper would let a broken one pass.
+  statusTextForProgress: jest.requireActual('@pierre/chat-utils').statusTextForProgress,
 }));
 
 import { useMessages } from '../src/screens/chat/useMessages';
@@ -198,45 +201,153 @@ describe('useMessages', () => {
     it('should add temp message, call API, and update with response', async () => {
       const apiResponse = {
         user_message: { id: 'user-1', role: 'user', content: 'Hello', created_at: '2024-01-01T00:00:00Z' },
-        assistant_message: { id: 'asst-1', role: 'assistant', content: 'Hi there!', created_at: '2024-01-01T00:00:01Z' },
-        model: 'gemini-2.0-flash',
-        execution_time_ms: 2000,
+        assistant: {
+          message: { id: 'asst-1', role: 'assistant', content: 'Hi there!', created_at: '2024-01-01T00:00:01Z' },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: {
+          model: 'gemini-2.0-flash',
+          provider_name: 'gemini',
+          tool_calls_count: 0,
+          tools_called: [],
+          execution_time_ms: 2000,
+        },
       };
-      mockSendMessage.mockResolvedValue(apiResponse);
+      // `sendTurn` reports the finished turn through `onDone` rather than
+      // returning it, because the same method streams for the web client.
+      mockSendTurn.mockImplementation(
+        (
+          _conversationId: string,
+          _content: string,
+          options: {
+            onProgress?: (progress: unknown) => void;
+            onBlock?: (block: unknown) => void;
+            onDone?: (turn: unknown) => void;
+          },
+        ) => {
+          // Faithful to the real transport: progress as the turn advances,
+          // then every block in order, then the turn.
+          options.onProgress?.({
+            kind: 'stage',
+            id: 'dispatch',
+            title: 'dispatch',
+            status: 'started',
+          });
+          for (const block of apiResponse.assistant.blocks) options.onBlock?.(block);
+          options.onDone?.(apiResponse);
+          return Promise.resolve();
+        },
+      );
 
       const { result } = renderHook(() => useMessages());
 
       await act(async () => {
-        await result.current.sendMessage('conv-1', 'Hello');
+        await result.current.sendTurn('conv-1', 'Hello');
       });
 
-      // `sendMessage` generates a fresh AG-UI run id per turn and
-      // threads it into the REST call so the SSE progress consumer
-      // can subscribe against the matching run. Assert the shape
-      // including the `aguiRunId` key — and match any UUID because
-      // the generator picks a new one on every invocation.
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      // Progress rides the turn's own body now — no run id, no second
+      // subscription. What the hook threads in instead is the idle watch's
+      // abort signal, so an abandoned stream can be dropped.
+      expect(mockSendTurn).toHaveBeenCalledWith(
         'conv-1',
         'Hello',
         expect.objectContaining({
-          aguiRunId: expect.stringMatching(
-            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-          ),
+          signal: expect.any(AbortSignal),
+          onProgress: expect.any(Function),
         }),
       );
+      const sentOptions = mockSendTurn.mock.calls[0][2] as Record<string, unknown>;
+      expect(sentOptions).not.toHaveProperty('aguiRunId');
       expect(result.current.messages).toHaveLength(2);
       expect(result.current.messages[0].role).toBe('user');
       expect(result.current.messages[1].role).toBe('assistant');
       expect(result.current.isSending).toBe(false);
+      // The strip collapses once the reply is the source of truth.
+      expect(result.current.progressText).toBeNull();
+    });
+
+    it('shows what the turn is doing while it is still in flight, then clears it', async () => {
+      // The progress strip is the whole reason the AG-UI subscription existed.
+      // It is now fed by the turn's own body, so the text must appear while
+      // the send is still running — asserting it after the turn lands would
+      // pass against a hook that never rendered anything.
+      let release: (() => void) | null = null;
+      const inFlight = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      mockSendTurn.mockImplementation(
+        async (
+          _conversationId: string,
+          _content: string,
+          options: {
+            onProgress?: (progress: unknown) => void;
+            onDone?: (turn: unknown) => void;
+          },
+        ) => {
+          options.onProgress?.({
+            kind: 'stage',
+            id: 'prompt_assembly',
+            title: 'prompt_assembly',
+            status: 'started',
+          });
+          options.onProgress?.({
+            kind: 'tool',
+            id: 'call-1',
+            title: 'get_activities',
+            status: 'InProgress',
+          });
+          await inFlight;
+          options.onDone?.({
+            user_message: { id: 'u', role: 'user', content: 'Hello', created_at: 'now' },
+            assistant: {
+              message: { id: 'a', role: 'assistant', content: 'Voila.', created_at: 'now' },
+              blocks: [],
+              finish_reason: 'stop',
+            },
+            telemetry: {
+              model: 'mock',
+              provider_name: 'mock',
+              tool_calls_count: 1,
+              tools_called: ['get_activities'],
+              execution_time_ms: 10,
+            },
+          });
+        },
+      );
+
+      const { result } = renderHook(() => useMessages());
+
+      let sending: Promise<void>;
+      await act(async () => {
+        sending = result.current.sendTurn('conv-1', 'Hello');
+        await Promise.resolve();
+      });
+
+      // The latest progress event wins, in the vocabulary every surface shares.
+      expect(result.current.progressText).toBe('calling get_activities…');
+
+      await act(async () => {
+        release?.();
+        await sending;
+      });
+
+      expect(result.current.progressText).toBeNull();
+      expect(result.current.messages.some((m) => m.role === 'assistant')).toBe(true);
     });
 
     it('should handle API error and show error message', async () => {
-      mockSendMessage.mockRejectedValue(new Error('Network timeout'));
+      mockSendTurn.mockImplementation(
+        (_conversationId: string, _content: string, options: { onError?: (error: Error) => void }) => {
+          options.onError?.(new Error('Network timeout'));
+          return Promise.resolve();
+        },
+      );
 
       const { result } = renderHook(() => useMessages());
 
       await act(async () => {
-        await result.current.sendMessage('conv-1', 'Hello');
+        await result.current.sendTurn('conv-1', 'Hello');
       });
 
       // Should have user message and error message
@@ -249,22 +360,22 @@ describe('useMessages', () => {
     });
 
     it('should not send when already sending', async () => {
-      mockSendMessage.mockImplementation(() => new Promise(() => {})); // Never resolves
+      mockSendTurn.mockImplementation(() => new Promise(() => {})); // Never resolves
 
       const { result } = renderHook(() => useMessages());
 
       // Start first send (won't resolve)
       act(() => {
-        result.current.sendMessage('conv-1', 'First');
+        result.current.sendTurn('conv-1', 'First');
       });
 
       // Try to send again while first is pending
       await act(async () => {
-        await result.current.sendMessage('conv-1', 'Second');
+        await result.current.sendTurn('conv-1', 'Second');
       });
 
       // Should only have been called once
-      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(mockSendTurn).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -8,8 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_contremaitre::MessagingStringsRegistry;
-use pierre_core::models::TenantId;
-use pierre_mcp_server::agui::{AgUiEvent, RunOwner, RunRegistry};
+use pierre_mcp_server::agui::{AgUiEvent, RunRegistry};
 use pierre_messaging::agui_status::StatusAdapter;
 use pierre_messaging::channels::slack::agui_status::SlackStatusAdapter;
 use pierre_services::messaging_status_bridge::spawn_status_consumer;
@@ -115,8 +114,7 @@ async fn bridge_drives_slack_edits_through_registry() {
 
     let run_id = Uuid::new_v4().to_string();
     let registry = Arc::new(RunRegistry::default());
-    let owner = RunOwner::new(Uuid::new_v4(), TenantId::generate());
-    let scope = registry.register_scoped(&run_id, owner);
+    let scope = registry.register_scoped(&run_id);
 
     // Publish two events BEFORE the consumer subscribes — they must
     // land via the replay backlog so the first status update the user

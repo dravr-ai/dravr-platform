@@ -3,14 +3,44 @@
 
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
-import { useVoiceInput } from '../src/hooks/useVoiceInput';
+import { getLocales } from 'expo-localization';
+import { useVoiceInput, resolveRecognitionLocale } from '../src/hooks/useVoiceInput';
 
-// expo-speech-recognition is mocked in jest.setup.js
+// expo-speech-recognition and expo-localization are mocked in jest.setup.js
+
+// The athlete the hook reads its language from. Reassigned per test so the
+// same hook can be exercised for a French athlete and an unset one.
+let mockUserLocale: string | undefined = 'en';
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 'user-1', locale: mockUserLocale } }),
+}));
+
+describe('resolveRecognitionLocale', () => {
+  it('returns the regional device tag for the stored language', () => {
+    expect(resolveRecognitionLocale('pt', ['pt-BR', 'en-US'])).toBe('pt-BR');
+  });
+
+  it('returns the stored short code when no device tag matches it', () => {
+    expect(resolveRecognitionLocale('de', ['en-US'])).toBe('de');
+  });
+
+  it('returns the first device tag when nothing is stored', () => {
+    expect(resolveRecognitionLocale(undefined, ['es-ES', 'en-US'])).toBe('es-ES');
+  });
+
+  it('returns en-US only when neither athlete nor device names a language', () => {
+    expect(resolveRecognitionLocale(undefined, [])).toBe('en-US');
+  });
+});
 
 describe('useVoiceInput Hook', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    mockUserLocale = 'en';
+    (getLocales as jest.Mock).mockReturnValue([
+      { languageTag: 'en-US', languageCode: 'en', regionCode: 'US' },
+    ]);
     // Reset mock implementations
     (ExpoSpeechRecognitionModule.isRecognitionAvailable as jest.Mock).mockReturnValue(true);
     (ExpoSpeechRecognitionModule.requestPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
@@ -98,6 +128,62 @@ describe('useVoiceInput Hook', () => {
         maxAlternatives: 1,
         continuous: false,
       });
+    });
+
+    // carnet #65 — the recognizer was pinned to en-US behind a dead ternary,
+    // so a French athlete dictated into an English recognizer.
+    it('starts the recognizer in the athlete\'s stored locale', async () => {
+      mockUserLocale = 'fr';
+      (getLocales as jest.Mock).mockReturnValue([
+        { languageTag: 'en-US', languageCode: 'en', regionCode: 'US' },
+      ]);
+      const { result } = renderHook(() => useVoiceInput());
+
+      await waitFor(() => {
+        expect(result.current.isAvailable).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.startListening();
+      });
+
+      expect((ExpoSpeechRecognitionModule.start as jest.Mock).mock.calls[0][0].lang).toBe('fr');
+    });
+
+    it('prefers the device tag when it is the same language as the stored locale', async () => {
+      mockUserLocale = 'fr';
+      (getLocales as jest.Mock).mockReturnValue([
+        { languageTag: 'fr-CA', languageCode: 'fr', regionCode: 'CA' },
+      ]);
+      const { result } = renderHook(() => useVoiceInput());
+
+      await waitFor(() => {
+        expect(result.current.isAvailable).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.startListening();
+      });
+
+      expect((ExpoSpeechRecognitionModule.start as jest.Mock).mock.calls[0][0].lang).toBe('fr-CA');
+    });
+
+    it('falls back to the device locale when the athlete has none stored', async () => {
+      mockUserLocale = undefined;
+      (getLocales as jest.Mock).mockReturnValue([
+        { languageTag: 'es-MX', languageCode: 'es', regionCode: 'MX' },
+      ]);
+      const { result } = renderHook(() => useVoiceInput());
+
+      await waitFor(() => {
+        expect(result.current.isAvailable).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.startListening();
+      });
+
+      expect((ExpoSpeechRecognitionModule.start as jest.Mock).mock.calls[0][0].lang).toBe('es-MX');
     });
 
     it('should request permissions before starting', async () => {

@@ -13,7 +13,7 @@ jest.mock('../src/services/api', () => ({
   },
   chatApi: {
     getConversations: jest.fn(),
-    sendMessage: jest.fn(),
+    sendTurn: jest.fn(),
   },
   coachesApi: {
     listCoaches: jest.fn(),
@@ -76,8 +76,8 @@ describe('API Service', () => {
       expect(typeof chatApi.getConversations).toBe('function');
     });
 
-    it('should have sendMessage method', () => {
-      expect(typeof chatApi.sendMessage).toBe('function');
+    it('should have sendTurn method', () => {
+      expect(typeof chatApi.sendTurn).toBe('function');
     });
   });
 

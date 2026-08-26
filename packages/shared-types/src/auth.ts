@@ -68,10 +68,31 @@ export interface User {
   coaching_persona?: CoachingPersona;
   /** True when the user has access to the Coach-tier roster UI. */
   manages_roster?: boolean;
+  /**
+   * BCP-47 short locale the athlete is answered in (`fr`, `en`, `es`, `de`,
+   * `pt`). Sent by `/oauth/token`, `/api/auth/session` and the Firebase login
+   * as `UserInfo.locale`; absent on the surfaces that build a `User` without
+   * reading the column (admin listings).
+   */
+  locale?: string;
 }
 
 /** Extended user for admin views (deprecated: use User directly) */
 export type AdminUser = User;
+
+// ========== THEME PREFERENCE ==========
+
+/**
+ * The theme the user pinned across their devices (`users.theme`).
+ * `null` means "follow the system" — the clients resolve the OS scheme
+ * locally and the server stores that no pin exists.
+ */
+export type ThemePreference = 'light' | 'dark' | null;
+
+/** Body of `PUT /api/user/theme`; the server answers `204 No Content`. */
+export interface UpdateThemeRequest {
+  theme: ThemePreference;
+}
 
 // ========== AUTH RESPONSE TYPES ==========
 

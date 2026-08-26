@@ -4,9 +4,10 @@
 // ABOUTME: Unit tests for OnboardingMessagingConfigure — the QR/deep-link + poll-to-complete configure step
 // ABOUTME: Verifies the QR renders for deep-link channels and the poll auto-advances via onLinked
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import OnboardingMessagingConfigure from '../OnboardingMessagingConfigure';
 
 const { initLinkMock, listLinksMock } = vi.hoisted(() => ({
@@ -64,5 +65,51 @@ describe('OnboardingMessagingConfigure', () => {
     ]);
     const { onLinked } = renderConfigure();
     await waitFor(() => expect(onLinked).toHaveBeenCalled());
+  });
+
+  describe('the poll is transient', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('keeps asking while the link has not landed', async () => {
+      renderConfigure();
+      await waitFor(() => expect(listLinksMock).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CHANNEL_LINK_POLL_INTERVAL_MS * 3);
+      });
+      // The athlete is watching this screen waiting for their phone; the poll
+      // is what makes it advance.
+      await waitFor(() => expect(listLinksMock.mock.calls.length).toBeGreaterThan(1));
+    });
+
+    it('stops the moment the link lands, instead of running for the life of the screen', async () => {
+      renderConfigure();
+      await waitFor(() => expect(listLinksMock).toHaveBeenCalledTimes(1));
+
+      // The phone finishes: the next poll returns the link.
+      listLinksMock.mockResolvedValue([
+        { channel: 'telegram', channel_user_id: 'u1', display_name: null, linked_at: 'now' },
+      ]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CHANNEL_LINK_POLL_INTERVAL_MS);
+      });
+      await waitFor(() =>
+        expect(listLinksMock.mock.results.length).toBeGreaterThanOrEqual(2),
+      );
+
+      // From here the answer cannot change, so nothing more is asked — even
+      // if the athlete leaves the tab sitting there.
+      const callsWhenLanded = listLinksMock.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CHANNEL_LINK_POLL_INTERVAL_MS * 20);
+      });
+      expect(listLinksMock).toHaveBeenCalledTimes(callsWhenLanded);
+    });
   });
 });

@@ -3,7 +3,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
+import { SURFACE_CAPABILITIES, USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
 
 /**
  * Mobile silently lacked Profile, Privacy, Messaging and AI Provider while
@@ -17,6 +17,7 @@ import { USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
  * says whether mobile has caught up.
  */
 const APP_DIR = path.join(__dirname, '..', 'app');
+const CHAT_RENDERER = path.join(__dirname, '..', 'src', 'screens', 'chat', 'MessageList.tsx');
 
 /** Turn an expo-router path into the file that should serve it. */
 function routeFileCandidates(route: string): string[] {
@@ -49,6 +50,31 @@ describe('surface parity — mobile', () => {
       expect(outcome).toBe('implemented');
     },
   );
+
+  it('renders every reply block the chat surface declares', () => {
+    // The registry's `blocks` column comes from the server's own capability
+    // table. A kind the server will send this surface and the renderer has no
+    // arm for is a block the athlete never sees — silently, because an
+    // unmatched switch arm renders nothing and throws nothing.
+    const chat = USER_SURFACES.find((s) => s.id === 'chat');
+    const renderer = fs.readFileSync(CHAT_RENDERER, 'utf8');
+    expect(chat?.blocks.length).toBeGreaterThanOrEqual(8);
+    const unhandled = (chat?.blocks ?? []).filter(
+      (kind) => !renderer.includes(`case '${kind}':`),
+    );
+    expect(unhandled).toEqual([]);
+  });
+
+  it('reads the same capability row as web', () => {
+    // The registry publishes one `blocks` column for the chat surface. That is
+    // only honest while both in-app rows resolve the same capabilities, so it
+    // is asserted rather than assumed.
+    expect(SURFACE_CAPABILITIES.mobile_chat.blocks).toEqual(SURFACE_CAPABILITIES.web_chat.blocks);
+    expect(SURFACE_CAPABILITIES.mobile_chat.max_reply_chars).toBe(
+      SURFACE_CAPABILITIES.web_chat.max_reply_chars,
+    );
+    expect(SURFACE_CAPABILITIES.mobile_chat.progressive).toBe('delta_channel');
+  });
 
   it('records a reason whenever a platform deliberately lacks a surface', () => {
     // A null without a reason is indistinguishable from an oversight, which is

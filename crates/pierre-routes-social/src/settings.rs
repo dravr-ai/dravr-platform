@@ -23,8 +23,6 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 
 use pierre_core::errors::AppError;
 use pierre_core::models::{ShareVisibility, UserSocialSettings};
@@ -39,7 +37,6 @@ use crate::SocialRestRoutes;
 
 /// Response for user social settings
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SocialSettingsResponse {
     /// Whether user can be found in search
     pub discoverable: bool,
@@ -57,7 +54,6 @@ pub struct SocialSettingsResponse {
 
 /// Notification preferences in response
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct NotificationPreferencesResponse {
     /// Receive notifications for friend requests
     pub friend_requests: bool,
@@ -90,7 +86,6 @@ impl From<UserSocialSettings> for SocialSettingsResponse {
 
 /// Request to update social settings
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct UpdateSocialSettingsBody {
     /// Whether user can be found in search
     pub discoverable: Option<bool>,
@@ -104,7 +99,6 @@ pub struct UpdateSocialSettingsBody {
 
 /// Request to update notification preferences
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct UpdateNotificationPreferencesBody {
     /// Receive notifications for friend requests
     pub friend_requests: Option<bool>,

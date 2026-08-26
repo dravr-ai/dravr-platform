@@ -64,6 +64,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
             timezone: None,
+            theme: None,
         };
 
         repos.users.create(&user).await?;
@@ -194,6 +195,7 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
             timezone: None,
+            theme: None,
         };
         repos.users.create(&user).await?;
         sleep(Duration::from_millis(10)).await;
@@ -231,6 +233,7 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     repos.users.create(&new_user).await?;
 

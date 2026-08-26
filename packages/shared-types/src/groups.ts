@@ -155,15 +155,6 @@ export interface GroupAggregateStats {
   weekly_trend: GroupTrend;
 }
 
-/** Comparison of one member against group norms */
-export interface MemberGroupComparison {
-  user_id: string;
-  display_name: string;
-  volume_percentile: number;
-  ctl_percentile: number | null;
-  comparison_text: string;
-}
-
 /** Health flag for a group member needing attention */
 export interface GroupHealthFlag {
   user_id: string;
@@ -210,8 +201,55 @@ export interface GroupStatsResponse {
   stats: GroupAggregateStats;
 }
 
+/** Response for a group's weekly report */
+export interface GroupWeeklyReportResponse {
+  report: GroupWeeklyReport;
+}
+
+/** Response for a group's member health flags */
+export interface GroupHealthFlagsResponse {
+  flags: GroupHealthFlag[];
+  total: number;
+}
+
 /** Group creation permission check result */
 export interface GroupPermissionsResponse {
   can_create: boolean;
   policy: string;
+  /**
+   * Whether the tenant's plan tier enables the weekly digest. Same flag the
+   * digest scheduler sweeps on; the group detail surfaces render the weekly
+   * report and health-flag panels off it rather than deriving a tier locally.
+   */
+  weekly_digest: boolean;
+}
+
+/**
+ * One roster row of the group transcript. Membership is never hidden --
+ * an unconsented member appears here with `peer_sharing_consent: false`
+ * while their entries are withheld from the transcript itself.
+ */
+export interface TranscriptMember {
+  user_id: string;
+  display_name: string | null;
+  role: string;
+  peer_sharing_consent: boolean;
+}
+
+/** One utterance of the shared room, oldest first in the listing. */
+export interface GroupTranscriptEntry {
+  id: string;
+  author_user_id: string;
+  author_display_name: string | null;
+  /** `member` or `coach` */
+  speaker: string;
+  content: string;
+  created_at: string;
+}
+
+/** The shared room view every surface reads: roster plus visible entries. */
+export interface GroupTranscriptResponse {
+  group_id: string;
+  members: TranscriptMember[];
+  entries: GroupTranscriptEntry[];
 }

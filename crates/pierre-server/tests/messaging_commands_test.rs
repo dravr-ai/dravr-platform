@@ -297,6 +297,7 @@ mod command_tests {
             content_body: Some("hello"),
             correlation_id: "test-logout-history",
             raw_payload: None,
+            chat_message_id: None,
         })
         .await
         .unwrap();
@@ -622,6 +623,7 @@ mod command_tests {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         };
         let coach = resources
             .common
@@ -1421,6 +1423,134 @@ mod command_tests {
             after.coach_id,
             target.id.to_string(),
             "coach_id must be unchanged after an unmatched name"
+        );
+    }
+
+    /// carnet#70: `/group invite coach` could attach a human coach and nothing
+    /// could detach one. `GroupService::set_group_coach` existed with `None`
+    /// documented as "detach" and zero production callers — the capability was
+    /// built and never reachable.
+    #[tokio::test]
+    async fn group_coach_detach_clears_the_human_coach() {
+        use pierre_commands::group::GroupCoachHandler;
+        use pierre_commands::{CommandHandler, PlatformCommandContext};
+        use pierre_core::models::coaches::{
+            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        };
+        use pierre_core::models::groups::{
+            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+        };
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
+        let now = chrono::Utc::now();
+
+        let persona = resources
+            .common
+            .repos
+            .coaches
+            .create_system_coach(
+                user_id,
+                tenant_id,
+                &CreateSystemCoachRequest {
+                    title: "Starter Coach".to_owned(),
+                    description: None,
+                    system_prompt: "Test prompt".to_owned(),
+                    category: CoachCategory::Training,
+                    tags: vec![],
+                    sample_prompts: vec![],
+                    visibility: CoachVisibility::Global,
+                },
+            )
+            .await
+            .unwrap();
+
+        // A group that already has a human coach attached — the state
+        // `/group invite coach` leaves behind.
+        let human_coach = Uuid::new_v4();
+        let group_id = Uuid::new_v4();
+        resources
+            .common
+            .repos
+            .groups
+            .create_group(
+                tenant_id,
+                &CoachingGroup {
+                    id: group_id,
+                    tenant_id: tenant_id.to_string(),
+                    name: "Run Club".to_owned(),
+                    description: None,
+                    coach_id: persona.id.to_string(),
+                    owner_id: user_id,
+                    coach_user_id: Some(human_coach),
+                    peer_data_sharing: true,
+                    respond_mode: GroupRespondMode::default(),
+                    max_members: 10,
+                    is_active: true,
+                    channel_type: None,
+                    channel_chat_id: None,
+                    created_at: now,
+                    updated_at: now,
+                },
+            )
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .groups
+            .add_member(&GroupMember {
+                id: Uuid::new_v4(),
+                group_id,
+                user_id,
+                tenant_id: tenant_id.to_string(),
+                role: GroupRole::Owner,
+                peer_sharing_consent: false,
+                consent_given_at: now,
+                joined_at: now,
+                left_at: None,
+                display_name: None,
+            })
+            .await
+            .unwrap();
+
+        let ctx = PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: "telegram".to_owned(),
+            args: vec!["detach".to_owned()],
+            raw_text: "/group coach detach".to_owned(),
+            ctx: Arc::<ServerContext>::clone(&resources),
+            locale: "en".to_owned(),
+            is_direct_message: false,
+            conversation_id: None,
+            conversation_tenant_id: tenant_id,
+            sender_id: None,
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
+        };
+        let response = GroupCoachHandler.execute(&ctx).await.unwrap();
+        assert_eq!(
+            response.text, "Run Club no longer has an attached human coach.",
+            "the en confirmation names the group"
+        );
+
+        let updated = resources
+            .common
+            .repos
+            .groups
+            .get_group(&group_id.to_string(), tenant_id)
+            .await
+            .unwrap()
+            .expect("group exists");
+        assert_eq!(
+            updated.coach_user_id, None,
+            "detach must clear coach_user_id"
+        );
+        assert_eq!(
+            updated.coach_id,
+            persona.id.to_string(),
+            "detach touches only the human coach; the AI persona is unchanged"
         );
     }
 

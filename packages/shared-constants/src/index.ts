@@ -4,6 +4,13 @@
 // Onboarding step registry (pure decision logic shared by web + mobile)
 export * from './onboarding';
 
+// Coach tuning bounds (mirrors the server-side range checks)
+export {
+  MIN_MAX_TOOL_ITERATIONS,
+  MAX_MAX_TOOL_ITERATIONS,
+  DEFAULT_MAX_TOOL_ITERATIONS,
+} from './coaches';
+
 // Social constants (colors, labels, emojis for insights and reactions)
 export {
   REACTION_EMOJIS,
@@ -47,16 +54,61 @@ export type { DesignSystem, BorealTokens, ColorScheme } from './design-system';
 export {
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
+  NOTIFICATION_MAX_PER_DAY_CHOICES,
+  notificationPreferenceUpdate,
   formatNotificationTime,
   formatCollapsedCount,
 } from './notifications';
 
 export type { NotificationCategoryMeta } from './notifications';
 
+// Slash-command palette matching (one rule for both composers)
+export {
+  COMMAND_PREFIX,
+  isCommandDraft,
+  matchCommands,
+  commandDraftFor,
+} from './commands';
+
 // User-facing surface registry (what the product offers, and where per platform)
-export { USER_SURFACES, surfacesFor } from './surfaces';
+export { USER_SURFACES, surfacesFor, webNavLabels } from './surfaces';
 export type { UserSurface } from './surfaces';
+
+// Generated from the server's own capability table: what each chat surface
+// renders, and the notification screen vocabulary. Never hand-edited —
+// regenerate with `bun run generate` from this package.
+export {
+  REPLY_BLOCK_KINDS,
+  SURFACE_CAPABILITY_IDS,
+  SURFACE_CAPABILITIES,
+  NOTIFICATION_SCREEN_SURFACES,
+} from './surface-capabilities.generated';
+export type {
+  ReplyBlockKind,
+  SurfaceCapabilities,
+  SurfaceCapabilityId,
+  NotificationScreen,
+} from './surface-capabilities.generated';
+
+// Notification → destination, resolved once for both platforms.
+export {
+  resolveNotificationDestination,
+  webNotificationRoute,
+  mobileNotificationTarget,
+} from './notification-routing';
+export type { NotificationDestination, NotificationNavTarget } from './notification-routing';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';
 export type { QueryKeys } from './query-keys';
+
+// The focus/idle contract both clients obey — when a client may talk to the
+// server, and when it must stop because nobody is driving it.
+export {
+  IDLE_STOP_AFTER_MS,
+  PROVIDER_LINK_POLL_INTERVAL_MS,
+  CHANNEL_LINK_POLL_INTERVAL_MS,
+  QUERY_FOCUS_POLICY,
+  IdleWatch,
+} from './query-policy';
+export type { IdleWatchOptions } from './query-policy';

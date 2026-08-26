@@ -66,6 +66,9 @@ pub mod tokens;
 /// Plain-text markdown stripper for messaging output
 pub mod markdown;
 
+/// Sentence-boundary chunking of an over-limit reply into ordered messages
+pub mod chunking;
+
 /// HTML escaping utilities for XSS prevention in server-rendered templates
 pub mod html;
 
@@ -74,6 +77,9 @@ pub mod auth_header;
 
 /// Small constructor helpers for common `AppError` patterns
 pub mod error_helpers;
+
+/// Three-way update intent (`keep` / `clear` / `set`) for PATCH-style request bodies
+pub mod field_update;
 
 /// LLM provider trait and shared types for pluggable AI model integration
 #[cfg(feature = "llm")]

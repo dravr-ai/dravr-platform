@@ -5,7 +5,9 @@
 // ABOUTME: Used by chat components to display usage warnings and block at limits
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReplyNotice } from '@pierre/shared-types';
+import { quotaNoticeBanner } from '@pierre/chat-utils';
 import { usageApi, type UsageStatusResponse, type LimitCheckResult } from '../services/api/usage';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -115,9 +117,37 @@ export function computeWarningState(data: UsageStatusResponse | undefined): Usag
   };
 }
 
-/** Hook to fetch and compute usage warning state for chat components */
+/**
+ * Compute the warning state from a turn's own `notice` reply block.
+ *
+ * The wording and the counter reading come from `quotaNoticeBanner`, shared
+ * with mobile — a warning the athlete sees on one client must not be a
+ * different sentence on the other. A notice never blocks sending: the turn it
+ * rode already succeeded.
+ */
+export function warningStateFromNotice(notice: ReplyNotice): UsageWarningState {
+  const banner = quotaNoticeBanner(notice);
+  return {
+    level: banner.level,
+    sendDisabled: false,
+    message: banner.message,
+    resetsAt: banner.resetsAt,
+    triggerCounter: null,
+  };
+}
+
+/**
+ * Hook to fetch and compute usage warning state for chat components.
+ *
+ * Two things measure the same counters: the status endpoint this polls, and
+ * the turn itself, whose pre-turn quota check emits a `notice` reply block.
+ * They feed ONE banner state — {@link applyNotice} seeds it from the turn's own
+ * measurement, and the next poll to land clears it, because by then the
+ * endpoint has counted the same turn.
+ */
 export function useUsageStatus() {
   const queryClient = useQueryClient();
+  const [turnNotice, setTurnNotice] = useState<ReplyNotice | null>(null);
 
   const { data, isLoading, error } = useQuery<UsageStatusResponse>({
     queryKey: QUERY_KEYS.usage.status(),
@@ -126,12 +156,25 @@ export function useUsageStatus() {
     staleTime: 30_000,
   });
 
-  const warningState = useMemo(() => computeWarningState(data), [data]);
+  // A fresh poll has counted whatever the notice reported, so it supersedes it.
+  useEffect(() => {
+    if (data) setTurnNotice(null);
+  }, [data]);
+
+  const warningState = useMemo(
+    () => (turnNotice ? warningStateFromNotice(turnNotice) : computeWarningState(data)),
+    [turnNotice, data],
+  );
 
   /** Invalidate the usage query (call after sending a message) */
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.usage.status() });
   }, [queryClient]);
+
+  /** Show the counters a turn's own `notice` block reported. */
+  const applyNotice = useCallback((notice: ReplyNotice) => {
+    setTurnNotice(notice);
+  }, []);
 
   return {
     data,
@@ -139,5 +182,6 @@ export function useUsageStatus() {
     error,
     ...warningState,
     invalidate,
+    applyNotice,
   };
 }

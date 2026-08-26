@@ -47,6 +47,7 @@ use pierre_commands::{
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
@@ -81,7 +82,11 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_services::embedding_sink::RepositoryEmbeddingSink;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
+#[cfg(all(feature = "client-notifications", feature = "client-messaging"))]
+use pierre_services::notification_channel_sink::MessagingChannelSink;
 use pierre_services::pricing_loader;
+#[cfg(feature = "client-messaging")]
+use pierre_services::telegram_bot_commands::publish_telegram_commands;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
@@ -102,6 +107,17 @@ use tokio::sync::RwLock;
 #[cfg(feature = "health-sync")]
 use tokio::task::AbortHandle;
 use tracing::{error, info, warn};
+
+/// Everything one parse of the `commands/*.md` catalogue produces: the command
+/// definitions, the handlers keyed by command name, and the argument
+/// signatures `/help` renders beside each. `None` in a host built without the
+/// catalogue.
+#[cfg(feature = "client-messaging")]
+type CommandRegistries = (
+    Option<Arc<CommandRegistry>>,
+    Option<Arc<CommandHandlerRegistry>>,
+    Option<Arc<HashMap<String, String>>>,
+);
 
 impl ServerContext {
     /// Create new server resources with proper Arc sharing
@@ -254,14 +270,6 @@ impl ServerContext {
         // Resend creds + not in CI mode). See `build_email_service`.
         let email_service = Self::build_email_service(&config);
 
-        // Create notification service and start scheduler if notifications feature is enabled
-        #[cfg(feature = "client-notifications")]
-        let notification_service = Some(Self::create_notification_service(&database_arc));
-
-        // Start the background notification scheduler if service is available
-        #[cfg(feature = "client-notifications")]
-        let scheduler_abort_handle = notification_service.as_ref().map(|s| s.start_scheduler());
-
         // Create group coaching service (before struct construction to avoid borrow-after-move)
         #[cfg(feature = "tools-groups")]
         let group_service = Arc::new(pierre_groups::GroupService::new(
@@ -271,7 +279,19 @@ impl ServerContext {
 
         // Load messaging slash commands + handlers (see `build_command_registries`).
         #[cfg(feature = "client-messaging")]
-        let (command_registry, command_handler_registry) = Self::build_command_registries();
+        let (command_registry, command_handler_registry, command_arg_specs) =
+            Self::build_command_registries();
+
+        // Push that same catalogue to Telegram's `/` menu. Detached because a
+        // slow or unreachable Telegram API must not stall the bind path; the
+        // publisher no-ops when TELEGRAM_BOT_TOKEN is unset.
+        #[cfg(feature = "client-messaging")]
+        if let Some(registry) = command_registry.as_ref() {
+            let bot_commands = registry.bot_command_list();
+            tokio::spawn(async move {
+                publish_telegram_commands(&bot_commands).await;
+            });
+        }
 
         // Create and populate tool registry with all built-in tools. Any
         // `extra_tools` supplied via `ServerContextOptions` (used by
@@ -302,6 +322,21 @@ impl ServerContext {
             contremaitre_evidence_registry,
             contremaitre_messaging_strings_registry,
         ) = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
+
+        // Create notification service and start scheduler if notifications
+        // feature is enabled. Built after the contremaitre registries because
+        // the messaging sink renders notification bodies through the localized
+        // string registry.
+        #[cfg(feature = "client-notifications")]
+        let notification_service = Some(Self::create_notification_service(
+            &database_arc,
+            &repos,
+            &contremaitre_messaging_strings_registry,
+        ));
+
+        // Start the background notification scheduler if service is available
+        #[cfg(feature = "client-notifications")]
+        let scheduler_abort_handle = notification_service.as_ref().map(|s| s.start_scheduler());
 
         // Cache-backed nonce store + rate limiter for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
@@ -369,6 +404,8 @@ impl ServerContext {
             command_registry,
             #[cfg(feature = "client-messaging")]
             command_handler_registry,
+            #[cfg(feature = "client-messaging")]
+            command_arg_specs,
         };
 
         let auth = super::slices::AuthSlice {
@@ -513,10 +550,7 @@ impl ServerContext {
     /// `PIERRE_COMMANDS_DIR` overrides the default CWD-relative `commands/`
     /// lookup so tests and non-default deployments can point at an absolute path.
     #[cfg(feature = "client-messaging")]
-    fn build_command_registries() -> (
-        Option<Arc<CommandRegistry>>,
-        Option<Arc<CommandHandlerRegistry>>,
-    ) {
+    fn build_command_registries() -> CommandRegistries {
         let commands_dir_override = env::var("PIERRE_COMMANDS_DIR").ok();
         let commands_dir = commands_dir_override
             .as_deref()
@@ -569,24 +603,40 @@ impl ServerContext {
             "help",
             Arc::new(HelpHandler::new(
                 Arc::clone(&registry),
-                arg_specs,
+                Arc::clone(&arg_specs),
                 Arc::clone(&handlers),
             )),
         );
         for (name, handler) in handlers.iter() {
             handler_reg.register(name, Arc::clone(handler));
         }
-        (Some(registry), Some(Arc::new(handler_reg)))
+        (Some(registry), Some(Arc::new(handler_reg)), Some(arg_specs))
     }
 
     /// Create the notification service, dispatching to the appropriate backend
+    /// and attaching the messaging delivery sink.
+    ///
+    /// Without the sink the dispatcher has exactly two outlets — the persisted
+    /// notification row and Expo push — so an athlete who only ever talks to
+    /// Dravr on Telegram, Slack or `WhatsApp` receives nothing, for any category.
+    /// The sink hangs off `dispatch` rather than off any one caller, so every
+    /// category that raises a notification reaches messaging.
     #[cfg(feature = "client-notifications")]
-    fn create_notification_service(database: &Arc<Database>) -> Arc<NotificationService> {
+    fn create_notification_service(
+        database: &Arc<Database>,
+        repos: &Arc<RepositoryRegistry>,
+        messaging_strings: &Arc<MessagingStringsRegistry>,
+    ) -> Arc<NotificationService> {
         let service = match database.as_ref() {
             Database::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
             #[cfg(feature = "postgresql")]
             Database::PostgreSQL(db) => NotificationService::from_postgres(db.pool().clone()),
         };
+        #[cfg(feature = "client-messaging")]
+        let service = service.with_channel_sink(Arc::new(MessagingChannelSink::new(
+            Arc::clone(repos),
+            Arc::clone(messaging_strings),
+        )));
         info!("Notification service initialized");
         Arc::new(service)
     }

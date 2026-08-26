@@ -78,6 +78,32 @@ pub struct InsertMessageParams<'a> {
     pub correlation_id: &'a str,
     /// Original webhook JSON for audit
     pub raw_payload: Option<&'a str>,
+    /// Assistant `chat_messages.id` this outbound row delivered, when the
+    /// message is a ratable coaching reply. `None` for inbound rows and for
+    /// outbound rows that carry no assistant reply (cards, intake questions,
+    /// error apologies). An emoji reaction on the channel message resolves
+    /// through this id to the shared per-message feedback write.
+    pub chat_message_id: Option<&'a str>,
+}
+
+/// The resolved target of an inbound emoji reaction: the assistant chat
+/// message a sent channel message delivered, plus the session identity
+/// needed to authorise and address the feedback write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReactionFeedbackTarget {
+    /// Assistant `chat_messages.id` the reacted-to channel message delivered.
+    pub chat_message_id: String,
+    /// Tenant the conversation (and so the feedback row) lives under — the
+    /// session tenant, which for a DM is the athlete's own, not the bot's.
+    pub tenant_id: TenantId,
+    /// Pierre user the conversation belongs to.
+    pub user_id: String,
+    /// Channel-native id of that user. A reactor with a different channel
+    /// id (another member in a group room) must not write feedback as this
+    /// user.
+    pub channel_user_id: String,
+    /// Conversation the assistant message belongs to.
+    pub conversation_id: String,
 }
 
 /// Parameters for creating a pending link state
@@ -228,6 +254,25 @@ pub trait MessagingRepository: Send + Sync {
     /// Store an inbound or outbound message (idempotent via `channel_message_id`)
     async fn insert_message(&self, params: &InsertMessageParams<'_>) -> AppResult<bool>;
 
+    /// Resolve an inbound emoji reaction to the assistant chat message the
+    /// reacted-to channel message delivered.
+    ///
+    /// Looks the sent message up by channel identity — channel type plus the
+    /// channel's own message id — not by tenant: the reaction webhook
+    /// authenticates as the bot's tenant while DM message rows live under the
+    /// athlete's own. `channel_conversation_id`, when the reaction carries
+    /// one, narrows the match to the session bound to that chat (Telegram
+    /// message ids and Slack timestamps are unique only per chat). Only
+    /// outbound rows stamped with a `chat_message_id` resolve; everything
+    /// else returns `Ok(None)` so an unmapped reaction is a no-op, not an
+    /// error.
+    async fn find_reaction_feedback_target(
+        &self,
+        channel_type: &str,
+        channel_message_id: &str,
+        channel_conversation_id: Option<&str>,
+    ) -> AppResult<Option<ReactionFeedbackTarget>>;
+
     /// Get messages for a session, ordered by creation time
     async fn get_session_messages(
         &self,
@@ -235,22 +280,6 @@ pub trait MessagingRepository: Send + Sync {
         tenant_id: TenantId,
         limit: i64,
         offset: i64,
-    ) -> AppResult<Vec<Value>>;
-
-    /// Recent messages for one shared channel chat across every member's
-    /// session, newest first (text-bearing rows only).
-    ///
-    /// A group chat is one `channel_conversation_id` but N per-member
-    /// sessions; this join reassembles the room's transcript so the
-    /// messaging dispatch can inject it as ambient context into group
-    /// turns. Each row carries `sender_id`, `user_id` (the session owner),
-    /// `direction`, `content_body`, `channel_message_id`, `created_at`.
-    async fn list_recent_chat_messages(
-        &self,
-        tenant_id: TenantId,
-        channel_type: &str,
-        channel_conversation_id: &str,
-        limit: i64,
     ) -> AppResult<Vec<Value>>;
 
     // ── Delivery Receipts ──

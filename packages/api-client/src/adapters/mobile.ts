@@ -4,7 +4,12 @@
 // ABOUTME: Mobile platform adapter using SecureStore for tokens and AsyncStorage for non-sensitive data
 // ABOUTME: Provides platform-specific implementation for React Native environment with secure token storage
 
-import type { PlatformAdapter, AuthStorage, AuthFailureHandler } from '../types/platform';
+import type {
+  PlatformAdapter,
+  AuthStorage,
+  AuthFailureHandler,
+  ResponseBodyReader,
+} from '../types/platform';
 
 const STORAGE_KEYS = {
   TOKEN: 'pierre.jwt_token',
@@ -184,6 +189,20 @@ export interface MobileAdapterOptions {
 }
 
 /**
+ * Reads a response body once it is complete.
+ *
+ * React Native's `fetch` is implemented over XHR, which exposes no
+ * `ReadableStream`: `Response.body` is undefined and `text()` is the only way
+ * in. The body still carries every frame the server sent, so the turn parser
+ * above sees the same document a browser sees — it just sees it all at the
+ * end. The app therefore declares no partial-text rendering and shows its
+ * "thinking" state until the terminal frame lands.
+ */
+const readBodyWhenComplete: ResponseBodyReader = async function* (response) {
+  yield await response.text();
+};
+
+/**
  * Creates a platform adapter for mobile (React Native) environment.
  */
 export function createMobileAdapter(options: MobileAdapterOptions): PlatformAdapter {
@@ -206,6 +225,9 @@ export function createMobileAdapter(options: MobileAdapterOptions): PlatformAdap
       secureStorage: options.secureStorage,
     }),
     authFailure: createMobileAuthFailureHandler(),
+    readBody: readBodyWhenComplete,
+    // React Native has no cookie jar; the bearer header carries auth.
+    turnCredentials: 'omit',
     platform: 'mobile',
   };
 }

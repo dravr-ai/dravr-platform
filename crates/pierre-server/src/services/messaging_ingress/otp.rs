@@ -21,7 +21,6 @@ use uuid::Uuid;
 use super::addressing::reply_recipient;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
-use crate::services::outgoing::proactive_text;
 use pierre_auth::dto::auth::RegisterRequest;
 use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_LINK_CANCELLED, KEY_LINK_EMAIL_NOT_CONFIGURED,
@@ -33,6 +32,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_services::auth::AuthService;
+use pierre_services::messaging_broadcast::proactive_text;
 
 /// Parameters for the OTP code verification step of the channel linking flow
 struct OtpVerificationParams<'a> {

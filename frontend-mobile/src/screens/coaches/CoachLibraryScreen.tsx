@@ -5,7 +5,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-
+  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -20,11 +20,33 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
 import { PRIMARY_PALETTE, spacing, glassCard, gradients, useThemeColors } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { FloatingSearchBar, PromptDialog, ScrollFadeContainer, SwipeableRow, type SwipeAction } from '../../components/ui';
-import type { Coach, CoachCategory } from '../../types';
+import type {
+  Coach,
+  CoachCategory,
+  ImportCoachResponse,
+  ImportPreviewResponse,
+} from '../../types';
+
+/** What the confirm sheet will send once the athlete accepts the preview. */
+type PendingImport =
+  | { kind: 'markdown'; markdown: string; source: string }
+  | { kind: 'url'; url: string; source: string };
+
+/** File name an exported coach is shared under. */
+function exportFileName(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${slug || 'coach'}.md`;
+}
 
 // Category filter options
 const CATEGORY_FILTERS: Array<{ key: CoachCategory | 'all'; label: string }> = [
@@ -86,6 +108,10 @@ export function CoachLibraryScreen() {
   const [selectedCoach, setSelectedCoach] = useState<Coach | null>(null);
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [importUrlPromptVisible, setImportUrlPromptVisible] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreviewResponse | null>(null);
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   const loadCoaches = useCallback(async (isRefresh = false) => {
     if (!isAuthenticated) return;
@@ -338,6 +364,119 @@ export function CoachLibraryScreen() {
       ]
     );
   };
+
+  /**
+   * Preview a markdown coach before it is written.
+   *
+   * The server parses the document and reports what it found, whether it is
+   * valid, and whether an identical coach already exists — all before anything
+   * is saved. Showing that first is why an import can be confirmed rather than
+   * discovered afterwards.
+   */
+  const previewImport = useCallback(async (pending: PendingImport) => {
+    try {
+      setIsImporting(true);
+      const preview =
+        pending.kind === 'markdown'
+          ? await coachesApi.importPreview(pending.markdown)
+          : ((await coachesApi.importFromUrl(pending.url, false)) as ImportPreviewResponse);
+      setPendingImport(pending);
+      setImportPreview(preview);
+    } catch (error) {
+      console.error('Failed to preview coach import:', error);
+      Alert.alert('Import Failed', 'Could not read that coach document.');
+    } finally {
+      setIsImporting(false);
+    }
+  }, []);
+
+  const handleImportFromFile = useCallback(async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['text/markdown', 'text/plain', 'application/octet-stream'],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset) return;
+
+    try {
+      const markdown = await new File(asset.uri).text();
+      await previewImport({ kind: 'markdown', markdown, source: asset.name });
+    } catch (error) {
+      console.error('Failed to read coach file:', error);
+      Alert.alert('Import Failed', 'Could not read that file.');
+    }
+  }, [previewImport]);
+
+  const handleImportFromUrlSubmit = useCallback(
+    async (url: string) => {
+      setImportUrlPromptVisible(false);
+      const trimmed = url.trim();
+      if (!trimmed) return;
+      await previewImport({ kind: 'url', url: trimmed, source: trimmed });
+    },
+    [previewImport],
+  );
+
+  const handleImportPress = useCallback(() => {
+    Alert.alert('Import Coach', 'Where is the coach document?', [
+      { text: 'From a file', onPress: () => void handleImportFromFile() },
+      { text: 'From a URL', onPress: () => setImportUrlPromptVisible(true) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [handleImportFromFile]);
+
+  const handleConfirmImport = useCallback(async () => {
+    if (!pendingImport) return;
+    try {
+      setIsImporting(true);
+      const result =
+        pendingImport.kind === 'markdown'
+          ? await coachesApi.importFromMarkdown(pendingImport.markdown)
+          : ((await coachesApi.importFromUrl(pendingImport.url, true)) as ImportCoachResponse);
+      setCoaches((prev) => [result.coach, ...prev]);
+      setImportPreview(null);
+      setPendingImport(null);
+      Alert.alert('Coach Imported', `"${result.coach.title}" is now in your library.`);
+    } catch (error) {
+      console.error('Failed to import coach:', error);
+      Alert.alert('Import Failed', 'The coach could not be imported.');
+    } finally {
+      setIsImporting(false);
+    }
+  }, [pendingImport]);
+
+  const cancelImport = useCallback(() => {
+    setImportPreview(null);
+    setPendingImport(null);
+  }, []);
+
+  /**
+   * Export one coach as the markdown document the importer accepts.
+   *
+   * Written into the cache directory and handed to the system share sheet,
+   * which is the only way a file leaves the app on iOS.
+   */
+  const handleExportCoach = useCallback(async (coach?: Coach) => {
+    const targetCoach = coach ?? selectedCoach;
+    if (!targetCoach) return;
+    setActionMenuVisible(false);
+
+    try {
+      const markdown = await coachesApi.exportAsMarkdown(targetCoach.id);
+      const file = new File(Paths.cache, exportFileName(targetCoach.title));
+      file.create({ overwrite: true });
+      file.write(markdown);
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'text/markdown',
+        UTI: 'net.daringfireball.markdown',
+        dialogTitle: `Export ${targetCoach.title}`,
+      });
+    } catch (error) {
+      console.error('Failed to export coach:', error);
+      Alert.alert('Export Failed', 'The coach could not be exported.');
+    }
+  }, [selectedCoach]);
 
   const closeActionMenu = () => {
     setActionMenuVisible(false);
@@ -670,6 +809,31 @@ export function CoachLibraryScreen() {
       {/* Source Filter (User vs System) */}
       {renderSourceFilter()}
 
+      {/* Import / export action row. Import lives here because it creates a
+          coach rather than acting on one; export is per-coach and sits in that
+          coach's action menu, next to the other single-coach actions. */}
+      <View
+        className="flex-row items-center px-4 py-2 gap-3"
+        testID="coach-import-export-row"
+      >
+        <TouchableOpacity
+          className="flex-row items-center gap-2 px-3 py-2 rounded-lg border border-border-subtle"
+          onPress={handleImportPress}
+          disabled={isImporting}
+          testID="import-coach-button"
+        >
+          {isImporting && !importPreview ? (
+            <ActivityIndicator size="small" color={colors.text.secondary} />
+          ) : (
+            <Feather name="upload" size={16} color={colors.text.secondary} />
+          )}
+          <Text className="text-sm font-semibold text-text-secondary">Import coach</Text>
+        </TouchableOpacity>
+        <Text className="flex-1 text-xs text-text-tertiary">
+          Markdown file or URL. Export any coach from its ··· menu.
+        </Text>
+      </View>
+
       {/* Load Error Display */}
       {loadError && (
         <View className="mx-4 mt-2 p-3 bg-error/10 border border-error/30 rounded-lg flex-row items-center justify-between">
@@ -811,6 +975,19 @@ export function CoachLibraryScreen() {
               </TouchableOpacity>
             )}
 
+            {/* Export works for every coach, forked or not — the markdown is
+                what the importer on any surface reads back. */}
+            <TouchableOpacity
+              className="flex-row items-center px-4 py-2.5"
+              onPress={() => void handleExportCoach()}
+              testID="export-coach-button"
+            >
+              <View className="w-6 mr-2 items-center">
+                <Feather name="download" size={18} color={colors.text.primary} />
+              </View>
+              <Text className="text-base text-text-primary">Export as Markdown</Text>
+            </TouchableOpacity>
+
             {/* Rename only for user-created coaches */}
             {!selectedCoach?.is_system && (
               <TouchableOpacity className="flex-row items-center px-4 py-2.5" onPress={handleRename}>
@@ -846,6 +1023,117 @@ export function CoachLibraryScreen() {
         onCancel={handleRenameCancel}
         testID="rename-coach-dialog"
       />
+
+      {/* Import-from-URL prompt */}
+      <PromptDialog
+        visible={importUrlPromptVisible}
+        title="Import from URL"
+        message="Paste a link to a coach markdown document"
+        defaultValue=""
+        submitText="Preview"
+        cancelText="Cancel"
+        onSubmit={(url) => void handleImportFromUrlSubmit(url)}
+        onCancel={() => setImportUrlPromptVisible(false)}
+        testID="import-url-dialog"
+      />
+
+      {/* Import confirm sheet — what the server parsed, before anything is written */}
+      <Modal
+        visible={importPreview !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={cancelImport}
+      >
+        <View className="flex-1 bg-black/60 justify-end">
+          <View
+            className="bg-background-primary rounded-t-2xl max-h-[85%]"
+            style={{ padding: spacing.md }}
+            testID="import-preview-sheet"
+          >
+            <Text className="text-lg font-bold text-text-primary mb-1">Import Coach</Text>
+            <Text className="text-xs text-text-tertiary mb-3" numberOfLines={1}>
+              {pendingImport?.source}
+            </Text>
+
+            <ScrollView style={{ maxHeight: 340 }} testID="import-preview-body">
+              {importPreview?.valid === false ? (
+                <View testID="import-preview-invalid">
+                  <Text className="text-error text-sm font-semibold mb-2">
+                    This document is not a valid coach.
+                  </Text>
+                  {(importPreview.errors ?? []).map((message) => (
+                    <Text key={message} className="text-error text-sm mb-1">
+                      • {message}
+                    </Text>
+                  ))}
+                </View>
+              ) : (
+                <View testID="import-preview-parsed">
+                  <Text className="text-text-primary text-base font-semibold">
+                    {importPreview?.parsed?.title ?? importPreview?.parsed?.name}
+                  </Text>
+                  <Text className="text-text-secondary text-sm mt-1">
+                    {importPreview?.parsed?.purpose}
+                  </Text>
+                  <Text className="text-text-tertiary text-xs mt-2">
+                    {importPreview?.parsed?.category}
+                    {importPreview?.token_count !== undefined
+                      ? ` · ${importPreview.token_count} tokens`
+                      : ''}
+                  </Text>
+                  {(importPreview?.parsed?.tags ?? []).length > 0 && (
+                    <Text className="text-text-tertiary text-xs mt-1">
+                      {(importPreview?.parsed?.tags ?? []).join(', ')}
+                    </Text>
+                  )}
+                  {importPreview?.duplicate_exists && (
+                    <Text className="text-warning text-sm mt-3" testID="import-duplicate-warning">
+                      You already have an identical coach. Importing adds a second copy.
+                    </Text>
+                  )}
+                  {(importPreview?.warnings ?? []).map((message) => (
+                    <Text key={message} className="text-warning text-sm mt-2">
+                      • {message}
+                    </Text>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <View className="flex-row gap-3 mt-4">
+              <TouchableOpacity
+                className="flex-1 py-3 rounded-full items-center border border-border-subtle"
+                onPress={cancelImport}
+                testID="cancel-import-button"
+              >
+                <Text className="text-base font-semibold text-text-primary">Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="flex-1 py-3 rounded-full items-center"
+                style={{
+                  backgroundColor: importPreview?.valid
+                    ? colors.pierre.violet
+                    : colors.background.tertiary,
+                }}
+                onPress={() => void handleConfirmImport()}
+                disabled={!importPreview?.valid || isImporting}
+                testID="confirm-import-button"
+              >
+                {isImporting ? (
+                  <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
+                ) : (
+                  <Text
+                    className="text-base font-semibold"
+                    style={{ color: colors.tokens.onPrimary }}
+                  >
+                    Import
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

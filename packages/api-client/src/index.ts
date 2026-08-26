@@ -9,6 +9,7 @@ export type {
   PlatformAdapter,
   AuthStorage,
   AuthFailureHandler,
+  ResponseBodyReader,
   HttpClientConfig,
   ApiClientOptions,
   ApiMetadata,
@@ -26,19 +27,32 @@ export type { EndpointKeys } from './core/endpoints';
 export { createAuthApi } from './domains/auth';
 export type { AuthApi, LoginCredentials, RegisterCredentials } from './domains/auth';
 
-export { createChatApi } from './domains/chat';
+export { createChatApi, replySceneBlocks } from './domains/chat';
 export type {
   ChatApi,
   Conversation,
   Message,
   ConversationsResponse,
   MessagesResponse,
-  SendMessageResponse,
-  SendMessageOptions,
+  TurnEnvelope,
+  SendTurnOptions,
+  ChatMessageAction,
   CreateConversationOptions,
-  ChatVerdictRow,
-  ChatVerdictsResponse,
 } from './domains/chat';
+// The turn envelope's own shapes live in @pierre/shared-types, where web and
+// mobile read them from one declaration; re-exported here so a client that
+// already imports the chat API does not need a second import path.
+export type {
+  AssistantTurn,
+  ReplyBlock,
+  ReplyNotice,
+  ReplyVerdictChip,
+  TurnTelemetry,
+  TurnProgress,
+} from '@pierre/shared-types';
+export { parseTurnBody, readEventStream, TurnRequestError } from './core/turn-stream';
+export type { TurnCallbacks, TurnProgressSink, SseFrame } from './core/turn-stream';
+export type { ClaimVerdict, ChatVerdictsResponse } from './domains/chat';
 
 export { createCoachesApi } from './domains/coaches';
 export type {
@@ -78,6 +92,8 @@ export { createUserApi } from './domains/user';
 export type {
   UserApi,
   UserStats,
+  SupportedLocale,
+  UpdateLocaleResponse,
   McpToken,
   McpTokensResponse,
   CreateMcpTokenRequest,
@@ -114,6 +130,19 @@ export type {
   ListNotificationsParams,
 } from './domains/notifications';
 
+export {
+  createFeatureFlagsApi,
+  FEATURE_KEYS,
+  FALLBACK_FEATURE_FLAGS,
+  mergeFeatureFlags,
+} from './domains/featureFlags';
+export type {
+  FeatureFlagsApi,
+  FeatureFlagMap,
+  KnownFeatureFlag,
+  MeFeaturesResponse,
+} from './domains/featureFlags';
+
 export { createGroupsApi } from './domains/groups';
 export type {
   GroupsApi,
@@ -124,11 +153,12 @@ export type {
   GroupAggregateStats,
   GroupWeeklyReport,
   GroupHealthFlag,
-  MemberGroupComparison,
   ListGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
+  GroupWeeklyReportResponse,
+  GroupHealthFlagsResponse,
 } from './domains/groups';
 
 // Re-export platform adapters
@@ -151,6 +181,7 @@ import { createUserApi } from './domains/user';
 import { createMessagingApi } from './domains/messaging';
 import { createNotificationsApi } from './domains/notifications';
 import { createGroupsApi } from './domains/groups';
+import { createFeatureFlagsApi } from './domains/featureFlags';
 
 /**
  * Complete API service combining all domain APIs.
@@ -177,6 +208,8 @@ export interface PierreApiService {
   notifications: ReturnType<typeof createNotificationsApi>;
   /** Groups API */
   groups: ReturnType<typeof createGroupsApi>;
+  /** Feature flags API */
+  featureFlags: ReturnType<typeof createFeatureFlagsApi>;
   /** Underlying axios instance for custom requests */
   axios: AxiosInstance;
   /** Platform adapter */
@@ -212,7 +245,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
 
   return {
     auth: createAuthApi(axios, adapter.authStorage),
-    chat: createChatApi(axios),
+    chat: createChatApi(axios, adapter),
     coaches: createCoachesApi(axios),
     oauth: createOAuthApi(axios),
     social: createSocialApi(axios),
@@ -221,6 +254,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     messaging: createMessagingApi(axios),
     notifications: createNotificationsApi(axios),
     groups: createGroupsApi(axios),
+    featureFlags: createFeatureFlagsApi(axios),
     axios,
     adapter,
   };

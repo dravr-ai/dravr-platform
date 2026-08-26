@@ -27,6 +27,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use super::coaches_tool_shape::{
+    destructive_annotations, extract_format, finalize_payload, read_only_annotations,
+    write_annotations,
+};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
@@ -35,78 +39,13 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::coaches::{
     CoachCategory, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
 };
 use pierre_core::models::TenantId;
-use pierre_formatters::{format_output, OutputFormat};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
-
-/// Extract output format ("json" or "toon") from tool arguments.
-fn extract_format(args: &Value) -> OutputFormat {
-    args.get("format")
-        .and_then(Value::as_str)
-        .map(OutputFormat::from_str_param)
-        .unwrap_or_default()
-}
-
-/// Apply TOON formatting to a result payload, mirroring `apply_format_to_response`.
-///
-/// For JSON format, returns `value` unchanged. For TOON format, returns
-/// `{ "<data_key>_toon": <encoded>, "format": "toon" }` on success, or falls
-/// back to `{ "<data_key>": <value>, "format": "json", "format_fallback": true,
-/// "format_error": "<msg>" }` if encoding fails.
-fn finalize_payload(value: Value, data_key: &str, format: OutputFormat) -> Value {
-    match format {
-        OutputFormat::Json => value,
-        OutputFormat::Toon => match format_output(&value, OutputFormat::Toon) {
-            Ok(formatted) => {
-                let toon_key = format!("{data_key}_toon");
-                json!({
-                    toon_key: formatted.data,
-                    "format": "toon",
-                })
-            }
-            Err(e) => json!({
-                data_key: value,
-                "format": "json",
-                "format_fallback": true,
-                "format_error": e.to_string(),
-            }),
-        },
-    }
-}
-
-/// Annotations for idempotent write operations (create, update)
-fn write_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for destructive operations (delete)
-fn destructive_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(true),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for read-only coach retrieval operations
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 // ============================================================================
 // ListCoachesTool
@@ -441,6 +380,7 @@ impl McpTool<dyn ToolRuntime> for CreateCoachTool {
                 example_inputs: None,
                 example_outputs: None,
                 success_criteria: None,
+                max_tool_iterations: None,
             };
 
             let manager = ctx.resources.coaches_manager();
@@ -698,6 +638,7 @@ impl McpTool<dyn ToolRuntime> for UpdateCoachTool {
                 example_inputs: None,
                 example_outputs: None,
                 success_criteria: None,
+                max_tool_iterations: FieldUpdate::Keep,
             };
 
             let manager = ctx.resources.coaches_manager();

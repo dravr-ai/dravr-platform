@@ -2,6 +2,7 @@
 // ABOUTME: Parses quota exceeded (429) responses into actionable messages
 
 import axios from 'axios';
+import { TurnRequestError } from '@pierre/api-client';
 
 interface QuotaDetails {
   limit_type: string;
@@ -33,13 +34,29 @@ function formatQuotaMessage(details: QuotaDetails): string {
   }
 }
 
+/**
+ * The two carriers a refused request can arrive in: an `AxiosError` from the
+ * ordinary domain methods, and a `TurnRequestError` from `sendTurn`, which
+ * reads its response body frame by frame and so cannot ride axios. Both hold
+ * the same two facts, and both are formatted by the one path below.
+ */
+function refusal(err: unknown): { status?: number; data?: QuotaErrorData } | null {
+  if (err instanceof TurnRequestError) {
+    return { status: err.status, data: (err.body ?? undefined) as QuotaErrorData | undefined };
+  }
+  if (axios.isAxiosError(err)) {
+    return { status: err.response?.status, data: err.response?.data as QuotaErrorData | undefined };
+  }
+  return null;
+}
+
 export function extractErrorMessage(err: unknown, fallback: string): string {
-  if (!axios.isAxiosError(err)) {
+  const refused = refusal(err);
+  if (!refused) {
     return err instanceof Error ? err.message : fallback;
   }
 
-  const status = err.response?.status;
-  const data = err.response?.data as QuotaErrorData | undefined;
+  const { status, data } = refused;
 
   if (status === 429 && data?.details?.limit_type) {
     return formatQuotaMessage(data.details);
@@ -49,5 +66,5 @@ export function extractErrorMessage(err: unknown, fallback: string): string {
     return 'Coach not found. It may have been removed.';
   }
 
-  return data?.message || err.message || fallback;
+  return data?.message || (err instanceof Error ? err.message : '') || fallback;
 }

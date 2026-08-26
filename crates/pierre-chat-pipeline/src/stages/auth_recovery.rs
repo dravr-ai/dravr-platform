@@ -1,5 +1,5 @@
 // ABOUTME: Auth-recovery stage — short-circuits a turn when a tool returned ProviderAuthRequired
-// ABOUTME: Mints a hosted-login URL and renders a deterministic locale-aware reply with the link
+// ABOUTME: Mints a hosted-login URL and returns it as a structured reconnect prompt for the envelope
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,22 +20,29 @@
 //!    and the URL.
 //! 3. Overrides `ToolLoopResult::content` with that deterministic reply so
 //!    downstream stages (`post_process`, `persistence`) see a clean message
-//!    instead of an empty string from the short-circuited tool loop.
+//!    instead of an empty string from the short-circuited tool loop, and
+//!    returns the same prompt as a [`ReconnectPrompt`].
+//!
+//! The URL leaves here as a field, not only as a substring of a sentence. A
+//! surface with [`crate::BlockSupport::reconnect_cta`] renders a control from
+//! it — [`crate::build_envelope`] emits a [`crate::ReplyBlock::Reconnect`] and
+//! keeps the sentence out of the prose — while a surface without one gets the
+//! sentence folded in, with the link autolinked where the transport does that.
 //!
 //! Without this stage the user receives a generic "your connection expired"
 //! message with no actionable path forward — exactly what triggered this
 //! work in the first place.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::channel_profile::ChannelProfile;
+use crate::envelope::ReconnectPrompt;
+use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_PROVIDER_REAUTH_REQUIRED,
+    MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED,
 };
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
@@ -71,23 +78,17 @@ pub struct AuthRecoveryDeps<'a> {
 /// mint a hosted-login URL and replace `result.content` with the
 /// localized reply.
 ///
-/// Returns `true` when the stage fired so callers can skip
-/// LLM-content-aware post-processing (text guardrails, claim verification);
-/// returns `false` when the dispatch result was clean and downstream stages
-/// should run normally.
-///
-/// `recovery_dispatched` is updated atomically so observability hooks can
-/// surface the short-circuit alongside the assistant message.
+/// Returns `Some(prompt)` when the stage fired, so callers can skip
+/// LLM-content-aware post-processing (text guardrails, claim verification)
+/// and carry the URL onto the envelope as its own field; returns `None` when
+/// the dispatch result was clean and downstream stages should run normally.
 pub async fn apply_auth_recovery(
     deps: AuthRecoveryDeps<'_>,
     input: &TurnInput,
-    profile: &ChannelProfile,
+    profile: &SurfaceProfile,
     result: &mut ToolLoopResult,
-    recovery_dispatched: &AtomicBool,
-) -> bool {
-    let Some(provider_slug) = result.pending_provider_auth_required.clone() else {
-        return false;
-    };
+) -> Option<ReconnectPrompt> {
+    let provider_slug = result.pending_provider_auth_required.clone()?;
 
     let user_id = match Uuid::parse_str(&input.user_id) {
         Ok(uuid) => uuid,
@@ -100,24 +101,18 @@ pub async fn apply_auth_recovery(
                 error = %e,
                 "auth_recovery: invalid user_id UUID, skipping mint"
             );
-            return false;
+            return None;
         }
     };
 
-    let Some(url) = mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await else {
-        return false;
-    };
+    let url = mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await?;
 
-    let locale = input
-        .locale
-        .as_deref()
-        .filter(|l| !l.is_empty())
-        .unwrap_or(DEFAULT_LOCALE);
-    let display_name = provider_display_name(&provider_slug);
+    let locale = profile.locale.as_str();
+    let display_name = provider_display_name(&provider_slug).to_owned();
     let message = deps.messaging_strings_registry.render(
         KEY_PROVIDER_REAUTH_REQUIRED,
         locale,
-        &[display_name, &url],
+        &[display_name.as_str(), url.as_str()],
     );
 
     info!(
@@ -127,9 +122,13 @@ pub async fn apply_auth_recovery(
         "auth_recovery: emitting reconnect URL in chat reply"
     );
 
-    result.content = message;
-    recovery_dispatched.store(true, Ordering::Relaxed);
-    true
+    result.content.clone_from(&message);
+    Some(ReconnectPrompt {
+        provider: provider_slug,
+        display_name,
+        url,
+        text: message,
+    })
 }
 
 /// Mint the reconnect URL for `provider_slug`.
@@ -143,7 +142,7 @@ async fn mint_reconnect_url(
     provider_slug: &str,
     user_id: Uuid,
     input: &TurnInput,
-    profile: &ChannelProfile,
+    profile: &SurfaceProfile,
 ) -> Option<String> {
     if matches!(provider_slug, "sciotte" | "sciotte_garmin") {
         let target = sciotte_target_for_provider(provider_slug);
@@ -153,7 +152,7 @@ async fn mint_reconnect_url(
                 tenant_id: input.tool_tenant_id.as_uuid(),
                 provider: "sciotte",
                 target,
-                channel: profile.channel.as_str(),
+                channel: profile.surface.as_str(),
                 channel_thread: None,
             },
             deps.admin_jwt_secret,

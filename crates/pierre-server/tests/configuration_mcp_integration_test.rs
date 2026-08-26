@@ -239,9 +239,12 @@ async fn test_configuration_tools_count_in_total() {
     // configuration tools: this split is by name prefix, and the tool is
     // registered under the chat-callable `physiology` category precisely
     // because it is not operator configuration.
+    // 2026-08-25: the Coach Store tools browse_coach_store,
+    // search_coach_store and install_coach_from_store added (99→102, total
+    // 105→108) — the marketplace had no chat-callable surface at all.
     assert_eq!(
-        fitness_tools, 99,
-        "Expected exactly 99 non-configuration tools"
+        fitness_tools, 102,
+        "Expected exactly 102 non-configuration tools"
     );
-    assert_eq!(tools.len(), 105, "Expected total of 105 tools"); // 99 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 108, "Expected total of 108 tools"); // 102 non-configuration + 6 configuration
 }

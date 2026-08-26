@@ -22,6 +22,7 @@ export const userApi = pierreApi.user;
 export const messagingLinkApi = pierreApi.messaging;
 export const notificationsApi = pierreApi.notifications;
 export const groupsApi = pierreApi.groups;
+export const featureFlagsApi = pierreApi.featureFlags;
 
 // Providers API delegates to shared oauth module
 export const providersApi = {
@@ -46,8 +47,7 @@ export type {
   PlanView,
   PlansResponse,
 } from './billing';
-export { featureFlagsApi } from './featureFlags';
-export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from './featureFlags';
+export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pierre/api-client';
 
 // Export types from shared package
 export type { Coach, StoreCoach } from '@pierre/shared-types';

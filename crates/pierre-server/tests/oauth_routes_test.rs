@@ -855,6 +855,7 @@ async fn test_login_with_correct_credentials() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     server_resources
         .common

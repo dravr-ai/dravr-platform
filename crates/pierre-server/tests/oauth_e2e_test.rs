@@ -477,6 +477,7 @@ async fn test_oauth_callback_error_handling() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let admin_id = database
         .repositories()
@@ -528,6 +529,7 @@ async fn test_oauth_callback_error_handling() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let test_user_id = database
         .repositories()
@@ -789,6 +791,7 @@ async fn test_oauth_state_csrf_protection() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let admin_id = database
         .repositories()

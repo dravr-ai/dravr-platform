@@ -13,7 +13,7 @@ use pierre_config::admin_definitions::{
     register_group_permissions, register_heart_rate_zones, register_llm_pricing,
     register_llm_provider_config, register_mcp_network, register_monitoring, register_nutrition,
     register_rate_limiting, register_recommendation_engine, register_sleep_recovery,
-    register_sqlx_pool, register_strava_provider, register_tokio_runtime,
+    register_sqlx_pool, register_strava_provider, register_tokio_runtime, register_tool_execution,
     register_training_stress_balance, register_usage_quotas, register_weather_analysis,
     ParameterDefinition,
 };
@@ -250,6 +250,9 @@ impl AdminConfigService {
 
         // Group Permissions — see config::admin::definitions::register_group_permissions
         register_group_permissions(&mut defs);
+
+        // Tool Execution — per-turn tool-loop budget — see config::admin::definitions::register_tool_execution
+        register_tool_execution(&mut defs);
 
         defs
     }

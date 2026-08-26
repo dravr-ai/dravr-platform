@@ -253,6 +253,7 @@ async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>>
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     // Test instrumented database operation (has #[tracing::instrument])

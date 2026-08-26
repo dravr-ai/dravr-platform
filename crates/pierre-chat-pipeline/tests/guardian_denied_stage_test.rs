@@ -19,29 +19,10 @@
 use std::sync::Arc;
 
 use pierre_chat_pipeline::stages::guardian_denied::apply_guardian_denied;
-use pierre_chat_pipeline::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, EN_GUARDIAN_DENIED, FR_GUARDIAN_DENIED,
 };
-use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_tool_runtime::tool_execution::{GuardianDenial, ToolLoopResult};
-use uuid::Uuid;
-
-/// A `TurnInput` carrying only the locale the stage reads; the rest are inert
-/// placeholders.
-fn turn_input(locale: Option<&str>) -> TurnInput {
-    let tenant = TenantId::from_uuid(Uuid::new_v4());
-    TurnInput {
-        conversation_id: "conv-1".to_owned(),
-        user_id: Uuid::new_v4().to_string(),
-        conversation_tenant_id: tenant,
-        tool_tenant_id: tenant,
-        content: "disconnect my strava".to_owned(),
-        locale: locale.map(ToOwned::to_owned),
-        turn_id: ConversationTurnId::new(),
-        ambient_context: None,
-    }
-}
 
 /// A `ToolLoopResult` with an empty body, optionally carrying a Guardian
 /// denial — the shape the tool loop hands the recovery stages.
@@ -63,13 +44,12 @@ fn loop_result(denied: Option<GuardianDenial>) -> ToolLoopResult {
 #[test]
 fn denial_renders_localized_reply_and_short_circuits() {
     let registry = Arc::new(MessagingStringsRegistry::new());
-    let input = turn_input(Some("en"));
     let mut result = loop_result(Some(GuardianDenial {
         tool_name: "disconnect_provider".to_owned(),
         reason: "budget_exceeded".to_owned(),
     }));
 
-    let fired = apply_guardian_denied(&registry, &input, &mut result);
+    let fired = apply_guardian_denied(&registry, "en", &mut result);
 
     assert!(fired, "the stage must fire when a tool was guardian-denied");
     assert_eq!(
@@ -81,13 +61,12 @@ fn denial_renders_localized_reply_and_short_circuits() {
 #[test]
 fn denial_respects_resolved_locale() {
     let registry = Arc::new(MessagingStringsRegistry::new());
-    let input = turn_input(Some("fr"));
     let mut result = loop_result(Some(GuardianDenial {
         tool_name: "delete_coach".to_owned(),
         reason: "tainted_sink".to_owned(),
     }));
 
-    assert!(apply_guardian_denied(&registry, &input, &mut result));
+    assert!(apply_guardian_denied(&registry, "fr", &mut result));
     assert_eq!(
         result.content, FR_GUARDIAN_DENIED,
         "a French turn must get the French guardian-denied string"
@@ -95,18 +74,21 @@ fn denial_respects_resolved_locale() {
 }
 
 #[test]
-fn missing_locale_falls_back_to_default_not_empty() {
+fn unsupported_locale_falls_back_to_the_default_string() {
+    // The surface profile always carries a locale, so the stage never sees an
+    // absent one. It can still be handed a code the string catalogue does not
+    // stock (a channel reporting a language nobody translated), and the reply
+    // must then read as the default locale rather than as an empty message.
     let registry = Arc::new(MessagingStringsRegistry::new());
-    let input = turn_input(None);
     let mut result = loop_result(Some(GuardianDenial {
         tool_name: "disconnect_provider".to_owned(),
         reason: "egress_forbidden".to_owned(),
     }));
 
-    assert!(apply_guardian_denied(&registry, &input, &mut result));
-    assert!(
-        !result.content.is_empty(),
-        "a None locale must fall back to the default-locale string, never empty"
+    assert!(apply_guardian_denied(&registry, "is", &mut result));
+    assert_eq!(
+        result.content, FR_GUARDIAN_DENIED,
+        "an unstocked locale must render DEFAULT_LOCALE's string, never empty"
     );
 }
 
@@ -116,10 +98,9 @@ fn clean_turn_is_a_no_op() {
     // stage must not fire and must not touch the (empty) content the LLM path
     // will fill in downstream.
     let registry = Arc::new(MessagingStringsRegistry::new());
-    let input = turn_input(Some("en"));
     let mut result = loop_result(None);
 
-    let fired = apply_guardian_denied(&registry, &input, &mut result);
+    let fired = apply_guardian_denied(&registry, "en", &mut result);
 
     assert!(
         !fired,

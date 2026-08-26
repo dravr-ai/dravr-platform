@@ -2,71 +2,24 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Social feed tab displaying shared coach insights from friends
-// ABOUTME: Includes reactions, adapt-to-my-training feature, and infinite scroll
+// ABOUTME: Switches between the friends' feed and the athlete's adapted-insight history
 
 import { useState, useEffect, useCallback } from 'react';
 import { useModal } from '@pierre/ui-logic';
 import { clsx } from 'clsx';
-import { TrendingUp, Users, Plus } from 'lucide-react';
+import { TrendingUp, Users, Plus, RefreshCw } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { FeedItem, InsightSuggestion, ReactionType } from '@pierre/shared-types';
 import { socialApi } from '../../services/api';
+import { useAdaptedInsights } from '../../hooks/useAdaptedInsights';
 import { Card, Button, TabHeader } from '../ui';
 import ShareInsightModal from './ShareInsightModal';
 import AdaptInsightModal from './AdaptInsightModal';
-import type { InsightType, TrainingPhase } from '../../types/social';
 
-interface InsightSuggestion {
-  insight_type: InsightType;
-  suggested_content: string;
-  suggested_title?: string;
-  relevance_score: number;
-  sport_type?: string;
-  training_phase?: TrainingPhase;
-  source_activity_id?: string;
-}
-
-interface SharedInsight {
-  id: string;
-  user_id: string;
-  visibility: string;
-  insight_type: string;
-  sport_type: string | null;
-  content: string;
-  title: string | null;
-  training_phase: string | null;
-  reaction_count: number;
-  adapt_count: number;
-  created_at: string;
-  updated_at: string;
-  expires_at: string | null;
-  source_activity_id: string | null;
-  coach_generated: boolean;
-}
-
-interface FeedAuthor {
-  user_id: string;
-  display_name: string | null;
-  email: string;
-}
-
-interface ReactionCounts {
-  like: number;
-  celebrate: number;
-  inspire: number;
-  support: number;
-  total: number;
-}
-
-interface FeedItem {
-  insight: SharedInsight;
-  author: FeedAuthor;
-  reactions: ReactionCounts;
-  user_reaction: string | null;
-  user_has_adapted: boolean;
-}
-
-type ReactionType = 'like' | 'celebrate' | 'inspire' | 'support';
+/** The two things this tab shows: what friends shared, and what the coach
+ * rewrote for this athlete. Mobile splits them across two screens. */
+type FeedView = 'feed' | 'adapted';
 
 const REACTION_CONFIG: Record<ReactionType, { icon: string; color: string; label: string }> = {
   like: { icon: '👍', color: 'text-info', label: 'Like' },
@@ -99,6 +52,8 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
   const [selectedInsightId, setSelectedInsightId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<InsightSuggestion[]>([]);
   const [showSuggestionsBanner, setShowSuggestionsBanner] = useState(true);
+  const [view, setView] = useState<FeedView>('feed');
+  const adapted = useAdaptedInsights({ enabled: view === 'adapted' });
 
   // Load coach suggestions
   const loadSuggestions = useCallback(async () => {
@@ -109,7 +64,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
       // catch below never runs, and `suggestions.length` throws into the
       // ErrorBoundary that sits above the dashboard shell — taking out the
       // sidebar and every other tab, not just this one.
-      setSuggestions(Array.isArray(response.suggestions) ? (response.suggestions as InsightSuggestion[]) : []);
+      setSuggestions(Array.isArray(response.suggestions) ? response.suggestions : []);
     } catch (error) {
       // Silently fail - suggestions are optional enhancement
       console.debug('Failed to load suggestions:', error);
@@ -126,9 +81,9 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
 
       const response = await socialApi.getFeed({ cursor: cursor ?? undefined, limit: 20 });
 
-      // Same guard as the suggestions call: the cast cannot make a missing
-      // array present, and an undefined `items` reaches feedItems.length.
-      const items = Array.isArray(response.items) ? (response.items as unknown as FeedItem[]) : [];
+      // Same guard as the suggestions call: a missing array must not reach
+      // feedItems.length, which would throw into the dashboard ErrorBoundary.
+      const items: FeedItem[] = Array.isArray(response.items) ? response.items : [];
       if (cursor) {
         setFeedItems(prev => [...prev, ...items]);
       } else {
@@ -302,8 +257,41 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
+      {/* View switch — the friends' feed vs this athlete's adapted history */}
+      <div className="flex gap-2" role="tablist" aria-label="Social views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'feed'}
+          onClick={() => setView('feed')}
+          className={clsx(
+            'px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]',
+            view === 'feed'
+              ? 'bg-primary text-on-primary'
+              : 'bg-surface-container-low text-on-surface-variant border ghost-border hover:bg-surface-container hover:text-on-surface'
+          )}
+        >
+          Feed
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'adapted'}
+          onClick={() => setView('adapted')}
+          className={clsx(
+            'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors min-h-[44px]',
+            view === 'adapted'
+              ? 'bg-primary text-on-primary'
+              : 'bg-surface-container-low text-on-surface-variant border ghost-border hover:bg-surface-container hover:text-on-surface'
+          )}
+        >
+          <RefreshCw className="w-4 h-4" />
+          Adapted
+        </button>
+      </div>
+
       {/* Suggestions Banner */}
-      {suggestions.length > 0 && showSuggestionsBanner && (
+      {view === 'feed' && suggestions.length > 0 && showSuggestionsBanner && (
         <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl">
           {/* Header with dismiss */}
           <div className="flex items-center justify-between mb-3">
@@ -341,7 +329,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
       )}
 
       {/* Feed Content */}
-      {isLoading ? (
+      {view === 'feed' && (isLoading ? (
         <div className="flex justify-center py-8">
           <div className="pierre-spinner"></div>
         </div>
@@ -501,6 +489,81 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
             </div>
           )}
         </div>
+      ))}
+
+      {/* Adapted history — every insight the coach rewrote for this athlete,
+          paged the same way the mobile AdaptedInsightsScreen pages it. */}
+      {view === 'adapted' && (
+        adapted.isLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="pierre-spinner"></div>
+          </div>
+        ) : adapted.isError ? (
+          <Card variant="dark" className="!p-8 text-center">
+            <h3 className="text-lg font-semibold text-on-surface mb-2">
+              Could not load your adapted insights
+            </h3>
+            <p className="text-on-surface-variant">
+              The adapted-insight history is unavailable right now. Try again in a moment.
+            </p>
+          </Card>
+        ) : adapted.insights.length === 0 ? (
+          <Card variant="dark" className="!p-8 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/20 flex items-center justify-center">
+              <RefreshCw className="w-8 h-8 text-primary" />
+            </div>
+            <h3 className="text-lg font-semibold text-on-surface mb-2">No adapted insights yet</h3>
+            <p className="text-on-surface-variant">
+              Tap "Adapt to My Training" on a friend's insight and your personalized version
+              will be saved here.
+            </p>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {adapted.insights.map((insight) => (
+              <Card key={insight.id} variant="dark" className="!p-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                    <RefreshCw className="w-4 h-4 text-primary" />
+                  </div>
+                  <p className="text-sm text-outline">{formatRelativeTime(insight.created_at)}</p>
+                </div>
+                <div className="text-on-surface prose prose-sm dark:prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-strong:text-on-surface prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="break-all">
+                          {children}
+                        </a>
+                      ),
+                    }}
+                  >
+                    {insight.adapted_content}
+                  </Markdown>
+                </div>
+                {insight.adaptation_context && (
+                  <p className="text-sm text-on-surface-variant mt-3 pt-3 border-t ghost-border">
+                    <span className="font-medium text-on-surface">Context: </span>
+                    {insight.adaptation_context}
+                  </p>
+                )}
+              </Card>
+            ))}
+
+            {adapted.hasNextPage && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  variant="secondary"
+                  onClick={() => adapted.fetchNextPage()}
+                  loading={adapted.isFetchingNextPage}
+                >
+                  Load More
+                </Button>
+              </div>
+            )}
+          </div>
+        )
       )}
 
       </div>

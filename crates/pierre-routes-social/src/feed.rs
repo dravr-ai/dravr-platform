@@ -24,8 +24,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 
 use pierre_core::errors::AppError;
 use pierre_core::models::SharedInsight;
@@ -44,7 +42,6 @@ use crate::{SocialMetadata, SocialRestRoutes};
 /// `pierre-server`) so the feed payload can construct it without crossing the
 /// crate boundary; the in-server insights routes re-export it from here.
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SharedInsightResponse {
     /// Unique identifier
     pub id: String,
@@ -102,7 +99,6 @@ impl From<SharedInsight> for SharedInsightResponse {
 
 /// Author information for feed display
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct FeedAuthorResponse {
     /// User ID
     pub user_id: String,
@@ -114,7 +110,6 @@ pub struct FeedAuthorResponse {
 
 /// Reaction counts by type
 #[derive(Debug, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ReactionCountsResponse {
     /// Number of likes
     pub like: i32,
@@ -130,7 +125,6 @@ pub struct ReactionCountsResponse {
 
 /// A feed item with full metadata
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct FeedItemResponse {
     /// The shared insight
     pub insight: SharedInsightResponse,
@@ -146,7 +140,6 @@ pub struct FeedItemResponse {
 
 /// Response for social feed
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct FeedResponse {
     /// Feed items with full metadata
     pub items: Vec<FeedItemResponse>,
@@ -164,7 +157,6 @@ pub struct FeedResponse {
 
 /// Query parameters for feed
 #[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct FeedQuery {
     /// Maximum results
     pub limit: Option<i64>,

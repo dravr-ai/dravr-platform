@@ -13,6 +13,12 @@ on:
       - 'Cargo.lock'
       - 'deny.toml'
       - 'scripts/ci/**'
+      # The fast gate now also reads the clients and the shared packages: the
+      # surface gates fail on a reply block only one client renders and on a
+      # generated capability catalogue left behind.
+      - 'frontend/src/**'
+      - 'frontend-mobile/src/**'
+      - 'packages/**'
       - '.github/workflows/ci-backend.yml'
       - '.github/actions/rust-setup/**'
   pull_request:
@@ -24,6 +30,9 @@ on:
       - 'Cargo.lock'
       - 'deny.toml'
       - 'scripts/ci/**'
+      - 'frontend/src/**'
+      - 'frontend-mobile/src/**'
+      - 'packages/**'
       - '.github/workflows/ci-backend.yml'
       - '.github/actions/rust-setup/**'
   schedule:
@@ -91,7 +100,7 @@ jobs:
           fi
 
   fast-gate:
-    name: Fast Gate (fmt + architecture + secrets)
+    name: Fast Gate (fmt + architecture + secrets + surfaces)
     runs-on: ubuntu-latest
 
     steps:
@@ -101,6 +110,9 @@ jobs:
           # .build vendors llm-registre (nested submodule), whose gates
           # architectural-validation.sh hard-requires — so: recursive.
           submodules: recursive
+          # The phantom-surface and turn-envelope gates diff against the base
+          # of the push; a depth-1 checkout has nothing to diff against.
+          fetch-depth: 50
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
@@ -121,6 +133,14 @@ jobs:
 
       - name: Secret Pattern Validation
         run: ./scripts/ci/validate-no-secrets.sh
+
+      # Compile-free, like everything else in this job. Both gates read source
+      # with grep and awk; neither needs a toolchain or a running server.
+      - name: Phantom Surface Detection
+        run: ./scripts/ci/check-phantom-surfaces.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+
+      - name: Turn Envelope Convergence
+        run: ./scripts/ci/check-turn-envelope.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)

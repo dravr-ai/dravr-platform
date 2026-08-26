@@ -18,7 +18,6 @@ use uuid::Uuid;
 use super::intake::maybe_start_intake;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
-use crate::services::outgoing::proactive_text;
 use pierre_chat_pipeline::stages::persistence::create_conversation;
 use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_LINK_FALLBACK_PROMPT,
@@ -26,6 +25,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
+use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
 
 use super::linking::hydrate_analytics_consent;

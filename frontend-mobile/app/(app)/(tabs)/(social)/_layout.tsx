@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Social tab stack layout for Expo Router
-// ABOUTME: Contains SocialFeed, Friends, Adapted Insights, Share Insight, and Activity screens
+// ABOUTME: Contains SocialFeed, Friends, Adapted Insights, and Share Insight screens
 
 import { Stack } from 'expo-router';
 

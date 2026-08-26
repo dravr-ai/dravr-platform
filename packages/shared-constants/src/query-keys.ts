@@ -54,6 +54,12 @@ export const QUERY_KEYS = {
     all: ['chat'] as const,
     conversations: () => ['chat-conversations'] as const,
     messages: (conversationId: string | null) => ['chat-messages', conversationId] as const,
+    /**
+     * The caller's runnable slash commands. Keyed by conversation because the
+     * server narrows group-scoped commands to the group that conversation is
+     * bound to — the same athlete gets a different list in a group thread.
+     */
+    commands: (conversationId?: string | null) => ['chat-commands', conversationId ?? null] as const,
   },
 
   // ==================== COACHES ====================
@@ -181,6 +187,7 @@ export const QUERY_KEYS = {
     friends: () => ['social-friends'] as const,
     friendRequests: () => ['social-friend-requests'] as const,
     settings: () => ['social-settings'] as const,
+    adapted: () => ['social-adapted'] as const,
   },
 
   // ==================== NOTIFICATIONS ====================
@@ -199,7 +206,10 @@ export const QUERY_KEYS = {
     detail: (groupId: string) => ['groups', groupId] as const,
     members: (groupId: string) => ['groups', groupId, 'members'] as const,
     stats: (groupId: string) => ['groups', groupId, 'stats'] as const,
+    report: (groupId: string) => ['groups', groupId, 'report'] as const,
+    health: (groupId: string) => ['groups', groupId, 'health'] as const,
     invites: (groupId: string) => ['groups', groupId, 'invites'] as const,
+    transcript: (groupId: string) => ['groups', groupId, 'transcript'] as const,
     permissions: () => ['groups', 'permissions'] as const,
     coached: () => ['groups', 'coached'] as const,
   },

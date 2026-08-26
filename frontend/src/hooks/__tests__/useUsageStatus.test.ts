@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect } from 'vitest'
-import { computeWarningState } from '../useUsageStatus'
+import { computeWarningState, warningStateFromNotice } from '../useUsageStatus'
 import type { UsageStatusResponse, LimitCheckResult } from '../../services/api/usage'
 
 function makeLimitCheck(overrides: Partial<LimitCheckResult> = {}): LimitCheckResult {
@@ -158,5 +158,42 @@ describe('computeWarningState', () => {
 
     expect(result.level).toBe('blocked')
     expect(result.message).toContain('Weekly messages')
+  })
+})
+
+describe('warningStateFromNotice', () => {
+  it('states the counter the turn actually measured, not a scraped countdown', () => {
+    // The regression this turns red: going back to `errorMessage.match(/in (\d+)
+    // seconds/)`. That read a number out of an English sentence and never knew
+    // which cap had been hit; the block carries the counter, the cap and the
+    // reset instant outright.
+    const state = warningStateFromNotice({
+      kind: 'quota_warning',
+      level: 'approaching',
+      current: 45,
+      limit: 50,
+      resets_at: '2026-08-26T00:00:00Z',
+    })
+
+    expect(state.level).toBe('warning')
+    expect(state.message).toContain('90%')
+    expect(state.message).toContain('(45/50)')
+    expect(state.resetsAt).toBe('2026-08-26T00:00:00Z')
+    // A notice rode a turn that already succeeded, so it never blocks sending.
+    expect(state.sendDisabled).toBe(false)
+  })
+
+  it('names the burst zone when the athlete is inside the allowance', () => {
+    const state = warningStateFromNotice({
+      kind: 'quota_warning',
+      level: 'burst',
+      current: 56,
+      limit: 50,
+      resets_at: '2026-08-26T00:00:00Z',
+    })
+
+    expect(state.level).toBe('burst')
+    expect(state.message).toContain('burst zone')
+    expect(state.message).toContain('(56/50)')
   })
 })

@@ -11,6 +11,7 @@ import type { ProviderStatus } from '../services/api';
 import { track } from '../services/analytics';
 import { Card, Badge } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import SciotteLoginModal from './SciotteLoginModal';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 
@@ -128,11 +129,22 @@ export default function ProviderConnectionCards({
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const queryClient = useQueryClient();
 
-  // Fetch providers from server (includes OAuth and non-OAuth providers)
+  // Fetch providers from server (includes OAuth and non-OAuth providers).
+  //
+  // The 5s poll is transient by intent: an OAuth grant completes in a *second
+  // tab*, so this one can only learn about it by asking. It therefore runs
+  // while there is an answer to wait for — an attempt in flight, or no
+  // connection landed yet — and stops the moment one arrives, rather than
+  // ticking for as long as the screen is mounted. A second provider connected
+  // later re-arms it through `connectingProvider`.
   const { data: providersData, isLoading, refetch } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
-    refetchInterval: 5000,
+    refetchInterval: query => {
+      if (connectingProvider) return PROVIDER_LINK_POLL_INTERVAL_MS;
+      const landed = query.state.data?.providers?.some(p => p.connected) ?? false;
+      return landed ? false : PROVIDER_LINK_POLL_INTERVAL_MS;
+    },
   });
 
   // OAuth-first with a Sciotte fallback: the `sciotte` card launches real Strava
@@ -142,7 +154,7 @@ export default function ProviderConnectionCards({
   // `pierre_oauth_result` (firing a `storage` event here in the opener); on a
   // failed Strava result we open the Sciotte credential login for the same data.
   // Only *failed* Strava results are consumed — successful results are left
-  // untouched for App/useOAuthHandler's success handlers.
+  // untouched for the success handlers in ChatTab and UserSettings.
   useEffect(() => {
     const consumeFailedStrava = () => {
       let stored: string | null;

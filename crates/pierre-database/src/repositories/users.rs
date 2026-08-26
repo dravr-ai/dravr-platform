@@ -105,6 +105,13 @@ pub trait UserRepository: Send + Sync {
     /// timezone change (travel, DST tooling glitches). Reading code
     /// treats `None` as UTC at prompt-assembly time.
     async fn set_timezone(&self, user_id: Uuid, timezone: &str) -> AppResult<()>;
+    /// Persist the user's pinned colour scheme (`"light"` / `"dark"`), or
+    /// clear the pin with `None` so clients follow the operating system.
+    ///
+    /// Written by `PUT /api/user/theme`. Server-side chart renders
+    /// (messaging PNG minting) read the stored value and treat `None` as
+    /// dark — the scheme messaging clients draw media bubbles on.
+    async fn set_theme(&self, user_id: Uuid, theme: Option<&str>) -> AppResult<()>;
     /// Set the user's billing tier (Starter / Professional / Enterprise).
     ///
     /// Called by Stripe webhook handlers on `customer.subscription.updated`

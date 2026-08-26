@@ -1,10 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+// ABOUTME: Web app entry point — mounts React, Chart.js and the i18n runtime
+// ABOUTME: Registers the locale writer that keeps chrome and reply language equal
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { initI18n } from '@pierre/i18n'
 import './index.css'
 import App from './App.tsx'
+import { persistLocale } from './i18n/localePersister'
+
+// One preference, two owners: i18next renders the chrome, `users.locale`
+// decides the language the coach answers in. Registering the writer here — the
+// only place the app is constructed — means every language change made
+// anywhere in the app reaches the server, instead of stopping at localStorage.
+initI18n({ persistLocale })
 
 // Register Chart.js components globally
 import {

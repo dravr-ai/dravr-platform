@@ -27,8 +27,6 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
@@ -43,13 +41,14 @@ use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{MiddlewareCtx, SocialCtx};
 
+use crate::group_digest_scheduler::tier_enables_digest;
+
 // ============================================================================
 // Response Types
 // ============================================================================
 
 /// Response for a single coaching group
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GroupResponse {
     /// Group ID
     pub id: String,
@@ -101,7 +100,6 @@ impl From<CoachingGroup> for GroupResponse {
 
 /// Response for listing groups (uses the model's lightweight summary)
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListGroupsResponse {
     /// Groups the user belongs to
     pub groups: Vec<GroupSummary>,
@@ -113,7 +111,6 @@ pub struct ListGroupsResponse {
 
 /// Response for listing the groups a user is the human coach of
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct CoachedGroupsResponse {
     /// Groups the user coaches
     pub groups: Vec<GroupResponse>,
@@ -125,7 +122,6 @@ pub struct CoachedGroupsResponse {
 
 /// Response for a group member
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct MemberResponse {
     /// Membership record ID
     pub id: String,
@@ -162,7 +158,6 @@ impl From<GroupMember> for MemberResponse {
 
 /// Response for listing members
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListMembersResponse {
     /// Active members
     pub members: Vec<MemberResponse>,
@@ -174,7 +169,6 @@ pub struct ListMembersResponse {
 
 /// Response for a group invite
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct InviteResponse {
     /// Invite ID
     pub id: String,
@@ -217,7 +211,6 @@ impl From<GroupInvite> for InviteResponse {
 
 /// Response for listing invites
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListInvitesResponse {
     /// Invites for this group
     pub invites: Vec<InviteResponse>,
@@ -229,7 +222,6 @@ pub struct ListInvitesResponse {
 
 /// Metadata for group API responses
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GroupMetadata {
     /// Response timestamp
     pub timestamp: String,
@@ -239,7 +231,6 @@ pub struct GroupMetadata {
 
 /// Response wrapper for group aggregate stats
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct StatsResponse {
     /// Aggregate statistics
     pub stats: GroupAggregateStats,
@@ -249,7 +240,6 @@ pub struct StatsResponse {
 
 /// Response wrapper for weekly report
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct WeeklyReportResponse {
     /// Weekly report data
     pub report: GroupWeeklyReport,
@@ -259,7 +249,6 @@ pub struct WeeklyReportResponse {
 
 /// Response wrapper for health flags
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct HealthFlagsResponse {
     /// Health flags for group members
     pub flags: Vec<GroupHealthFlag>,
@@ -271,12 +260,17 @@ pub struct HealthFlagsResponse {
 
 /// Response for group creation permissions check
 #[derive(Debug, Serialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GroupPermissionsResponse {
     /// Whether the current user can create groups
     pub can_create: bool,
     /// Current group creation policy for the tenant
     pub policy: String,
+    /// Whether the tenant's plan tier enables the weekly digest — the same
+    /// [`GroupFeatureFlags::weekly_digest`](pierre_groups::strategies::tier::GroupFeatureFlags::weekly_digest)
+    /// read that decides which tenants the digest scheduler sweeps. The group
+    /// detail surfaces render the weekly report and health flags off this
+    /// flag instead of deriving a tier of their own.
+    pub weekly_digest: bool,
 }
 
 // ============================================================================
@@ -285,7 +279,6 @@ pub struct GroupPermissionsResponse {
 
 /// Request to create a group invite
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct CreateInviteBody {
     /// Number of days until the invite expires (None = never)
     pub expires_in_days: Option<i64>,
@@ -299,7 +292,6 @@ pub struct CreateInviteBody {
 
 /// Request to update a member's role
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct UpdateRoleBody {
     /// New role for the member
     pub role: GroupRole,
@@ -307,7 +299,6 @@ pub struct UpdateRoleBody {
 
 /// Request to update peer sharing consent
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct UpdatePeerConsentBody {
     /// Whether the user consents to peer data sharing
     pub consent: bool,
@@ -652,7 +643,16 @@ impl GroupRoutes {
 
         let can_create = is_tenant_admin || policy == "everyone";
 
-        let response = GroupPermissionsResponse { can_create, policy };
+        // The tier flag the digest scheduler gates on, resolved from the
+        // tenant's own plan so the clients paint the server's decision.
+        let plan = resources.repos().tenants.get_by_id(tenant_id).await?.plan;
+        let weekly_digest = tier_enables_digest(&plan);
+
+        let response = GroupPermissionsResponse {
+            can_create,
+            policy,
+            weekly_digest,
+        };
 
         Ok((StatusCode::OK, Json(response)).into_response())
     }

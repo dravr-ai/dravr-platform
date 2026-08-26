@@ -2,35 +2,25 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: React Query hook that fetches the calling user's feature flag map (mobile)
-// ABOUTME: Mirrors the web hook so component code can read flags identically across surfaces
+// ABOUTME: Types, keys and the failure answer all come from the shared @pierre/api-client domain
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { apiClient } from '../services/api';
+import {
+  FEATURE_KEYS,
+  mergeFeatureFlags,
+  type FeatureFlagMap,
+  type KnownFeatureFlag,
+} from '@pierre/api-client';
+import { QUERY_KEYS } from '@pierre/shared-constants';
+import { featureFlagsApi } from '../services/api';
 
-export type FeatureFlagMap = Record<string, boolean>;
+export { FEATURE_KEYS };
+export type { FeatureFlagMap, KnownFeatureFlag };
 
-export interface KnownFeatureFlag {
-  key: string;
-  description: string;
-  default_enabled: boolean;
-}
-
-export interface MeFeaturesResponse {
-  flags: FeatureFlagMap;
-  known: KnownFeatureFlag[];
-}
-
-const FALLBACK_FLAGS: FeatureFlagMap = {
-  api_tokens: false,
-  billing_header: false,
-};
-
-export const FEATURE_KEYS = {
-  apiTokens: 'api_tokens',
-  billingHeader: 'billing_header',
-} as const;
-
+/** Shape returned by `useFeatureFlags`. The `flags` map always covers every
+ * known key, populated either from the server (when loaded) or from the
+ * shared compile defaults (otherwise). */
 export interface UseFeatureFlagsResult {
   flags: FeatureFlagMap;
   known: KnownFeatureFlag[];
@@ -38,24 +28,23 @@ export interface UseFeatureFlagsResult {
   isError: boolean;
 }
 
+/** Fetch `/api/me/features` once after auth and cache it for the session.
+ * Components read `flags[FEATURE_KEYS.apiTokens]` directly. */
 export function useFeatureFlags(): UseFeatureFlagsResult {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['feature-flags', 'me'],
-    queryFn: async () => {
-      const response = await apiClient.get<MeFeaturesResponse>('/api/me/features');
-      return response.data;
-    },
+    queryKey: QUERY_KEYS.featureFlags.self(),
+    queryFn: () => featureFlagsApi.getMyFeatures(),
+    // Flags rarely change in a single session; keep the cache warm.
     staleTime: 5 * 60_000,
   });
 
-  return useMemo(() => {
-    const flags = data?.flags ?? FALLBACK_FLAGS;
-    const merged: FeatureFlagMap = { ...FALLBACK_FLAGS, ...flags };
-    return {
-      flags: merged,
+  return useMemo(
+    () => ({
+      flags: mergeFeatureFlags(data?.flags),
       known: data?.known ?? [],
       isLoading,
       isError,
-    };
-  }, [data, isLoading, isError]);
+    }),
+    [data, isLoading, isError],
+  );
 }

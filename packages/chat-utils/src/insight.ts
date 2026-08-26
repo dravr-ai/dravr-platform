@@ -2,7 +2,6 @@
 // ABOUTME: Identifies insight prompts and their corresponding assistant responses
 
 import type { Message } from '@pierre/shared-types';
-import { stripContextPrefix } from './message';
 
 /**
  * The standard prefix used for insight generation prompts.
@@ -53,5 +52,5 @@ export const detectInsightMessages = (messages: Message[]): Set<string> => {
  * @returns The formatted insight prompt string
  */
 export const createInsightPrompt = (content: string): string => {
-  return `${INSIGHT_PROMPT_PREFIX}:\n\n${stripContextPrefix(content)}`;
+  return `${INSIGHT_PROMPT_PREFIX}:\n\n${content}`;
 };

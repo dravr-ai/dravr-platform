@@ -24,7 +24,7 @@ use pierre_core::models::coaches::{
     CoachCategory, CoachListItem, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter,
     UpdateCoachRequest,
 };
-use pierre_core::models::{CoachingPersona, Dossier, Pillar, SportProfile, TenantId};
+use pierre_core::models::{CoachingPersona, SportProfile, TenantId};
 use pierre_database::database::coaches::compute_request_hash;
 use pierre_database::database::ChatManager;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
@@ -37,12 +37,14 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::{field, warn, Span};
 use uuid::Uuid;
 
+use super::proposal_profile::{build_profile_view, pillar_context_prompt, ProfileView};
 use super::types::{
-    CoachProposalResponse, CoachResponse, CreateCoachBody, ForkCoachResponse, GenerateCoachRequest,
-    GenerateCoachResponse, GeneratedCoachData, HideCoachResponse, ImportCoachResponse,
-    ImportFromUrlBody, ImportPreviewResponse, ListCoachesQuery, ListCoachesResponse,
-    MissingPrerequisite, ParsedCoachFields, ProposedCoach, RecordUsageResponse, SearchCoachesQuery,
-    SportProfileSummary, SportShare, ToggleFavoriteResponse, UpdateCoachBody,
+    validate_max_tool_iterations, CoachProposalResponse, CoachResponse, CreateCoachBody,
+    ForkCoachResponse, GenerateCoachRequest, GenerateCoachResponse, GeneratedCoachData,
+    HideCoachResponse, ImportCoachResponse, ImportFromUrlBody, ImportPreviewResponse,
+    ListCoachesQuery, ListCoachesResponse, MissingPrerequisite, ParsedCoachFields, ProposedCoach,
+    RecordUsageResponse, SearchCoachesQuery, SportProfileSummary, ToggleFavoriteResponse,
+    UpdateCoachBody,
 };
 
 /// Resolve the [`ChatProvider`] handle the coach-generation route needs.
@@ -419,166 +421,6 @@ pub async fn build_coach_proposal<C: CoachesCtx + MiddlewareCtx + ToolRuntime>(
     Ok((profile_view.summary, coaches))
 }
 
-/// Clamp + flatten untrusted fact text before it enters the re-rank LLM prompt.
-fn sanitize_for_prompt(s: &str) -> String {
-    s.chars()
-        .take(120)
-        .collect::<String>()
-        .replace(['\n', '\r'], " ")
-}
-
-/// Build a short coach-matching context line from the user's onboarding facts:
-/// their North Star (sanitized, the most match-relevant signal) plus which
-/// pillars they have shared context on (labels only). `None` when the user has
-/// no non-stale pillar context yet — the proposal then matches on sport-mix.
-fn pillar_context_prompt(dossier: &Dossier) -> Option<String> {
-    let mut parts = Vec::new();
-
-    let north_star: Vec<String> = dossier
-        .north_star
-        .iter()
-        .filter(|f| !f.stale)
-        .map(|f| sanitize_for_prompt(&f.object))
-        .filter(|s| !s.is_empty())
-        .collect();
-    if !north_star.is_empty() {
-        parts.push(format!(
-            "North Star (the athlete's core motivations): {}",
-            north_star.join("; ")
-        ));
-    }
-
-    let covered: Vec<&str> = Pillar::ALL
-        .iter()
-        .filter(|p| {
-            dossier
-                .pillars
-                .get(p)
-                .is_some_and(|facts| facts.iter().any(|f| !f.stale))
-        })
-        .map(|p| p.display_label())
-        .collect();
-    if !covered.is_empty() {
-        parts.push(format!("Has shared context on: {}", covered.join(", ")));
-    }
-
-    (!parts.is_empty()).then(|| parts.join(". "))
-}
-
-/// The user's sport profile in the two shapes the proposal needs: the
-/// serializable [`SportProfileSummary`] for the response, and a short
-/// human-readable `prompt_text` describing the athlete for the LLM re-rank.
-struct ProfileView {
-    summary: SportProfileSummary,
-    prompt_text: String,
-    primary_sport: Option<String>,
-}
-
-/// Build the [`ProfileView`] from a (possibly absent) sport profile.
-///
-/// With activities present, produces the sport mix (sorted by count desc) and a
-/// one-line athlete description. Otherwise returns a cold-start view describing
-/// whether a provider is connected at all.
-fn build_profile_view(
-    profile: Option<&SportProfile>,
-    providers: &HashSet<String>,
-    config: &CoachRecommendationConfig,
-) -> ProfileView {
-    match profile {
-        Some(profile) if profile.total_activities > 0 => {
-            let total = profile.total_activities.max(1);
-            let mut sport_mix: Vec<SportShare> = profile
-                .sport_counts
-                .iter()
-                .map(|(sport, &count)| SportShare {
-                    sport: prettify_sport_label(sport),
-                    count,
-                    share: share_fraction(count, total),
-                })
-                .collect();
-            sport_mix.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.sport.cmp(&b.sport)));
-
-            let primary_sport = profile.primary_sport().map(|s| prettify_sport_label(&s));
-            let mix_text = sport_mix
-                .iter()
-                .map(|s| format!("{} {:.0}%", s.sport, s.share * 100.0))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let prompt_text = format!(
-                "Trains primarily {primary}; recent sport mix over {days} days: {mix_text} \
-                 ({total} activities).",
-                primary = primary_sport.as_deref().unwrap_or("various sports"),
-                days = profile.window_days,
-                total = profile.total_activities,
-            );
-
-            ProfileView {
-                summary: SportProfileSummary {
-                    has_profile: true,
-                    primary_sport: primary_sport.clone(),
-                    total_activities: profile.total_activities,
-                    window_days: profile.window_days,
-                    sport_mix,
-                },
-                prompt_text,
-                primary_sport,
-            }
-        }
-        _ => {
-            let prompt_text = if providers.is_empty() {
-                "New athlete: no fitness provider connected yet.".to_owned()
-            } else {
-                "New athlete: a provider is connected but no recent activities are available yet."
-                    .to_owned()
-            };
-            ProfileView {
-                summary: SportProfileSummary {
-                    has_profile: false,
-                    primary_sport: None,
-                    total_activities: 0,
-                    window_days: config.window_days,
-                    sport_mix: Vec::new(),
-                },
-                prompt_text,
-                primary_sport: None,
-            }
-        }
-    }
-}
-
-/// Turn a canonical sport label into a human-readable display string.
-///
-/// `SportProfile` stores uncatalogued sports as the `Debug` form of
-/// [`SportType::Other`] — e.g. `Other("alpine_ski")`. This unwraps that wrapper
-/// and title-cases the `snake_case` token so the onboarding profile shows
-/// "Alpine Ski" rather than `Other("alpine_ski")`. Catalogued labels like
-/// `run` become `Run`.
-fn prettify_sport_label(label: &str) -> String {
-    let inner = label
-        .strip_prefix("Other(\"")
-        .and_then(|rest| rest.strip_suffix("\")"))
-        .unwrap_or(label);
-    inner
-        .split('_')
-        .filter(|word| !word.is_empty())
-        .map(|word| {
-            let mut chars = word.chars();
-            chars.next().map_or_else(String::new, |first| {
-                format!("{}{}", first.to_uppercase(), chars.as_str())
-            })
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// `count / total` as an `f32` fraction without precision-loss casts, mirroring
-/// the approach in [`SportProfile`].
-fn share_fraction(count: u32, total: u32) -> f32 {
-    let count = f32::from(u16::try_from(count).unwrap_or(u16::MAX));
-    let total = f32::from(u16::try_from(total.max(1)).unwrap_or(u16::MAX));
-    count / total
-}
-
 /// Re-rank `eligible` candidates into the final proposal list.
 ///
 /// When `use_llm` is true, asks the configured chat provider to pick the best
@@ -765,6 +607,7 @@ pub(super) async fn handle_create<C: CoachesCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
+    validate_max_tool_iterations(body.max_tool_iterations)?;
 
     let manager = super::get_coaches_manager(&ctx);
 
@@ -1192,6 +1035,10 @@ pub(super) async fn handle_update<C: CoachesCtx + MiddlewareCtx>(
     let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
 
+    // Only a value the request actually assigns is range-checked; an absent
+    // field and an explicit clear both mean "inherit" and carry no number.
+    validate_max_tool_iterations(body.max_tool_iterations.assigned())?;
+
     let manager = super::get_coaches_manager(&ctx);
     let request: UpdateCoachRequest = body.into();
     let coach = manager
@@ -1351,49 +1198,4 @@ pub(super) async fn handle_list_hidden<C: CoachesCtx + MiddlewareCtx>(
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::pillar_context_prompt;
-    use pierre_core::models::{Dossier, DossierFact, Pillar};
-    use uuid::Uuid;
-
-    fn fact(object: &str, stale: bool) -> DossierFact {
-        DossierFact {
-            kind: "north_star".to_owned(),
-            subject: "you".to_owned(),
-            predicate: "value".to_owned(),
-            object: object.to_owned(),
-            confidence: 0.9,
-            source: "onboarding".to_owned(),
-            updated_at: chrono::Utc::now(),
-            valid_until: None,
-            stale,
-        }
-    }
-
-    #[test]
-    fn empty_dossier_yields_no_context() {
-        let d = Dossier::empty(Uuid::nil(), Uuid::nil());
-        assert!(pillar_context_prompt(&d).is_none());
-    }
-
-    #[test]
-    fn north_star_and_covered_pillars_surface() {
-        let mut d = Dossier::empty(Uuid::nil(), Uuid::nil());
-        d.north_star = vec![fact("be present for my kids", false)];
-        d.pillars
-            .insert(Pillar::Fuelling, vec![fact("avoid dairy", false)]);
-        let ctx = pillar_context_prompt(&d).unwrap_or_default();
-        assert!(ctx.contains("be present for my kids"));
-        assert!(ctx.contains("Fuelling"));
-    }
-
-    #[test]
-    fn stale_only_context_is_ignored() {
-        let mut d = Dossier::empty(Uuid::nil(), Uuid::nil());
-        d.north_star = vec![fact("old motivation", true)];
-        assert!(pillar_context_prompt(&d).is_none());
-    }
 }

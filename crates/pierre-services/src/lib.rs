@@ -78,6 +78,10 @@ pub mod coach_import;
 /// Coach-selection recording — the one emit site for `coach.selected`
 pub mod coach_selection;
 
+/// Coach Store browse / search / install, shared by the REST routes and the
+/// chat-callable `store` MCP tools.
+pub mod coach_store;
+
 /// Coach lifecycle operations: prerequisites, assignments, and generation
 pub mod coaches;
 
@@ -133,6 +137,11 @@ pub mod about_you;
 pub mod email_verification;
 pub mod link_token;
 
+/// Platform-initiated outbound messaging: send a localized text on every
+/// channel a user has linked (`client-messaging` feature).
+#[cfg(feature = "client-messaging")]
+pub mod messaging_broadcast;
+
 /// Background outbound retry worker for messaging delivery queue
 #[cfg(feature = "client-messaging")]
 pub mod messaging_outbound;
@@ -140,6 +149,11 @@ pub mod messaging_outbound;
 /// Seed messaging channel configs from environment variables on startup
 #[cfg(feature = "client-messaging")]
 pub mod messaging_seed;
+
+/// Publish the slash-command catalogue to Telegram's `setMyCommands` so the
+/// bot's `/` menu matches what the server dispatches (`client-messaging`).
+#[cfg(feature = "client-messaging")]
+pub mod telegram_bot_commands;
 
 /// Channel-group binding for the messaging ingress path — resolves or
 /// auto-creates a `coaching_groups` row for a non-DM chat
@@ -195,6 +209,15 @@ pub mod provider_error_filter;
 
 /// App-wide rate limiter for external fitness provider APIs
 pub mod provider_rate_limiter;
+
+/// The messaging delivery sink for dispatched notifications — the third sink
+/// beside persist and Expo push (`client-messaging` feature).
+#[cfg(feature = "client-messaging")]
+pub mod notification_channel_sink;
+
+/// The usage-cap policy shared by chat turns and direct `/mcp` tool
+/// calls — one ladder, one tier resolution, one bypass rule.
+pub mod quota_policy;
 
 /// Provider data refresh service: freshness checks, on-chat triggers, manual sync.
 ///

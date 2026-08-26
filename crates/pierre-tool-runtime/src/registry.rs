@@ -300,12 +300,14 @@ impl ToolRegistry {
     /// activity/athlete/stats reads, analytics, recovery, nutrition, sleep,
     /// recipes, mobility, goals, and coach-authored memory writes. Provider
     /// connection toggles are included so the LLM can offer to reconnect a
-    /// dropped provider rather than refusing the turn.
+    /// dropped provider rather than refusing the turn, and the Coach Store
+    /// browse / search / install tools so "what coaches are there?" has an
+    /// answer on every surface instead of only in the web UI.
     ///
     /// Excluded categories are UI surfaces or operator workflows that should
-    /// not fire on natural-language inputs: coach create/delete/assign,
-    /// store install/uninstall, config write/delete, claim verification, and
-    /// admin operations.
+    /// not fire on natural-language inputs: coach create/delete/assign, store
+    /// uninstall, config write/delete, claim verification, and admin
+    /// operations.
     ///
     /// The set replaces a hand-curated 15-tool list that drifted from the
     /// registry — endurance dossier/history tools registered after the list
@@ -335,6 +337,13 @@ impl ToolRegistry {
             // or the coach is steered (by the group prompt) toward a tool the LLM
             // can never see, and silently falls back to the requester's own data.
             "groups",
+            // Coach Store browse / search / install. The store answers "what
+            // coaches exist?", a question every chat surface gets asked and
+            // none could answer: the category was absent here, so web, mobile
+            // and messaging alike refused. `coaches` stays out — that category
+            // holds create/delete/assign, which are UI and operator gestures.
+            // Uninstall is registered outside `store` for the same reason.
+            "store",
         ];
 
         let allowed_names: HashSet<&str> = CHAT_CALLABLE_CATEGORIES

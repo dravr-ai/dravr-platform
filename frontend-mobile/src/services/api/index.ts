@@ -46,3 +46,5 @@ export const userApi = api.user;
 export const messagingApi = api.messaging;
 export const notificationsApi = api.notifications;
 export const groupsApi = api.groups;
+// Effective feature flags for the calling user — the gate both clients read.
+export const featureFlagsApi = api.featureFlags;

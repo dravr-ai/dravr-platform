@@ -30,8 +30,6 @@ use axum::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 use uuid::Uuid;
 
 #[cfg(feature = "client-notifications")]
@@ -68,7 +66,6 @@ use super::{SharedInsightResponse, SocialMetadata};
 
 /// Response for listing insights
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListInsightsResponse {
     /// List of insights
     pub insights: Vec<SharedInsightResponse>,
@@ -84,7 +81,6 @@ pub struct ListInsightsResponse {
 
 /// Response for a reaction
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ReactionResponse {
     /// Reaction ID
     pub id: String,
@@ -112,7 +108,6 @@ impl From<InsightReaction> for ReactionResponse {
 
 /// Response for listing reactions
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListReactionsResponse {
     /// List of reactions
     pub reactions: Vec<ReactionResponse>,
@@ -122,7 +117,6 @@ pub struct ListReactionsResponse {
 
 /// Summary of reactions by type
 #[derive(Debug, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ReactionSummaryResponse {
     /// Number of likes
     pub like_count: i32,
@@ -138,7 +132,6 @@ pub struct ReactionSummaryResponse {
 
 /// Response for an adapted insight
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct AdaptedInsightResponse {
     /// Unique identifier
     pub id: String,
@@ -172,7 +165,6 @@ impl From<AdaptedInsight> for AdaptedInsightResponse {
 
 /// Response for listing adapted insights
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListAdaptedInsightsResponse {
     /// List of adapted insights
     pub adapted_insights: Vec<AdaptedInsightResponse>,
@@ -188,7 +180,6 @@ pub struct ListAdaptedInsightsResponse {
 
 /// Response for adapting an insight (includes source insight for context)
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct AdaptInsightResultResponse {
     /// The adapted insight
     pub adapted: AdaptedInsightResponse,
@@ -200,7 +191,6 @@ pub struct AdaptInsightResultResponse {
 
 /// Response for a coach-generated insight suggestion
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct InsightSuggestionResponse {
     /// Type of insight
     pub insight_type: String,
@@ -234,7 +224,6 @@ impl From<InsightSuggestion> for InsightSuggestionResponse {
 
 /// Response for listing insight suggestions
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListSuggestionsResponse {
     /// List of suggestions
     pub suggestions: Vec<InsightSuggestionResponse>,
@@ -246,7 +235,6 @@ pub struct ListSuggestionsResponse {
 
 /// Response for generated insight
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GenerateInsightResponse {
     /// The generated shareable content
     pub content: String,
@@ -260,7 +248,6 @@ pub struct GenerateInsightResponse {
 
 /// Request to share an insight
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ShareInsightBody {
     /// Type of insight
     pub insight_type: String,
@@ -278,7 +265,6 @@ pub struct ShareInsightBody {
 
 /// Request to generate a shareable insight from analysis content
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GenerateInsightBody {
     /// The analysis content to transform into a shareable insight
     pub content: String,
@@ -286,7 +272,6 @@ pub struct GenerateInsightBody {
 
 /// Request to react to an insight
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ReactToInsightBody {
     /// Type of reaction
     pub reaction_type: String,
@@ -294,7 +279,6 @@ pub struct ReactToInsightBody {
 
 /// Request to adapt an insight
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct AdaptInsightBody {
     /// Optional context to include in adaptation
     pub context: Option<String>,
@@ -306,7 +290,6 @@ pub struct AdaptInsightBody {
 
 /// Request to update helpful status
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct UpdateHelpfulBody {
     /// Whether the adaptation was helpful
     pub was_helpful: bool,
@@ -314,7 +297,6 @@ pub struct UpdateHelpfulBody {
 
 /// Request to share an insight from an activity (coach-mediated)
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ShareFromActivityBody {
     /// Activity ID that generated the insight (optional for chat-based insights)
     pub activity_id: Option<String>,
@@ -336,7 +318,6 @@ pub struct ShareFromActivityBody {
 
 /// Query parameters for listing insights
 #[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListInsightsQuery {
     /// Filter by insight type
     pub insight_type: Option<String>,
@@ -348,7 +329,6 @@ pub struct ListInsightsQuery {
 
 /// Query parameters for insight suggestions
 #[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SuggestionsQuery {
     /// Specific activity ID to generate suggestions for
     pub activity_id: Option<String>,
@@ -364,7 +344,6 @@ pub struct SuggestionsQuery {
 
 /// Query parameters for listing adapted insights
 #[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListAdaptedQuery {
     /// Maximum results
     pub limit: Option<i64>,

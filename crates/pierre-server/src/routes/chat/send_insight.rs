@@ -7,27 +7,25 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::Json;
-use pierre_core::models::{default_locale, AddMessageParams, ConversationTurnId};
+use uuid::Uuid;
+
+use pierre_core::models::{AddMessageParams, ConversationTurnId};
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::stages::persistence::{persist_assistant_response, persist_user_message};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
-use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::ChatMessage;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 
-use super::dto::{
-    resolve_scene_blocks, ChatCompletionResponse, MessageResponse, SendMessageRequest,
+use super::dto::{MessageResponse, SendMessageRequest};
+use super::turn_response::{
+    platform_blocks, AssistantResponse, TurnResponse, TurnTelemetryResponse,
 };
-use super::quotas::{apply_usage_warning_headers, UsageWarning};
-use super::usage::{extract_or_estimate_tokens, increment_usage_counters, post_process_content};
-use super::{
-    build_mcp_tools, get_llm_provider, DEFAULT_MAX_TOOL_ITERATIONS, INSIGHT_PROMPT_PREFIX,
-};
+use super::usage::{extract_or_estimate_tokens, post_process_content};
+use super::{build_mcp_tools, get_llm_provider, INSIGHT_PROMPT_PREFIX};
+use pierre_chat_pipeline::{increment_usage_counters_scoped, QuotaState, UsageIncrementScope};
+use pierre_core::constants::tool_execution::DEFAULT_MAX_TOOL_ITERATIONS;
 use pierre_tool_runtime::tool_execution::{self, ToolLoopParams};
 
 /// Dispatch an insight-generation request.
@@ -48,12 +46,13 @@ pub struct SendInsightInputs {
     pub user_id_str: String,
     /// Tenant identifier
     pub tenant_id: TenantId,
-    /// Tenant identifier (stringified UUID)
-    pub tenant_id_str: String,
+    /// Authenticated athlete
+    pub user_id: Uuid,
     /// Inbound request body
     pub request: SendMessageRequest,
-    /// Usage-warning headers prepared upstream
-    pub usage_warning: UsageWarning,
+    /// What the turn service's pre-turn quota check measured. Rides out as a
+    /// notice block on the turn rather than as response headers.
+    pub usage_warning: QuotaState,
 }
 
 #[tracing::instrument(
@@ -65,19 +64,21 @@ pub struct SendInsightInputs {
         content_len = inputs.request.content.len(),
     )
 )]
-pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response, AppError> {
+pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<TurnResponse, AppError> {
     let SendInsightInputs {
         resources,
         conversation_id,
         user_id_str,
         tenant_id,
-        tenant_id_str,
+        user_id,
         request,
         usage_warning,
     } = inputs;
+    let tenant_id_str = tenant_id.to_string();
     // Verify ownership and persist user message.
     let msg_result = persist_user_message(
         resources.common.repos.chat.as_ref(),
+        resources.common.repos.groups.as_ref(),
         &conversation_id,
         &user_id_str,
         tenant_id,
@@ -91,19 +92,6 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
     // the athlete's stored locale. Falls back to the default when the row is
     // unreadable — a chart with French axis labels is a far smaller problem
     // than dropping the chart.
-    let reply_locale = match parse_uuid(&user_id_str) {
-        Ok(uuid) => resources
-            .common
-            .repos
-            .users
-            .get_global(uuid)
-            .await
-            .ok()
-            .flatten()
-            .map_or_else(default_locale, |u| u.locale),
-        Err(_) => default_locale(),
-    };
-
     let insight_prompt = resources.insight_generation_prompt();
     let analysis_content = request
         .content
@@ -140,7 +128,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
         model: &conv.model,
         user_id: &user_id_str,
         tenant_id,
-        max_iterations: DEFAULT_MAX_TOOL_ITERATIONS,
+        max_iterations: usize::from(DEFAULT_MAX_TOOL_ITERATIONS),
         call_recorder,
         // Insight generation runs out-of-band on an existing conversation
         // and writes its own assistant row afterwards. Tool-round messages
@@ -177,6 +165,7 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
     };
     let (assistant_msg, updated_conv) = persist_assistant_response(
         resources.common.repos.chat.as_ref(),
+        resources.common.repos.groups.as_ref(),
         &assistant_params,
         tenant_id,
     )
@@ -189,9 +178,29 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
 
     let total_tokens_used =
         i64::from(prompt_tokens.unwrap_or(0)) + i64::from(token_count.unwrap_or(0));
-    increment_usage_counters(&resources, &tenant_id_str, &user_id_str, total_tokens_used).await;
+    increment_usage_counters_scoped(
+        &resources.chat_pipeline_context(),
+        tenant_id,
+        user_id,
+        total_tokens_used,
+        &UsageIncrementScope {
+            conversation_id: Some(conversation_id.as_str()),
+            coach_id: conv.coach_id.as_deref(),
+        },
+    )
+    .await;
 
-    let response = ChatCompletionResponse {
+    // An insight is one JSON document, not a conversation turn with charts:
+    // the prose block is the whole reply. The activity list the tool loop
+    // captured folds into it the same way it would on any surface without an
+    // activity panel — an insight card has none.
+    let insight_text = match result.activity_list {
+        Some(list) => format!("{}\n\n{}", list.trim_end(), assistant_msg.content),
+        None => assistant_msg.content.clone(),
+    };
+    let blocks = platform_blocks(insight_text, None, Vec::new(), &usage_warning);
+    let response = TurnResponse {
+        turn_id: turn_id.to_string(),
         user_message: MessageResponse {
             id: user_msg.id,
             role: user_msg.role,
@@ -200,31 +209,27 @@ pub async fn send_insight_message(inputs: SendInsightInputs) -> Result<Response,
             scene_blocks: None,
             created_at: user_msg.created_at,
         },
-        assistant_message: MessageResponse {
-            id: assistant_msg.id,
-            role: assistant_msg.role,
-            content: assistant_msg.content,
-            token_count: assistant_msg.token_count,
-            scene_blocks: resolve_scene_blocks(
-                assistant_msg.content_blocks.as_deref(),
-                &reply_locale,
-            ),
-            created_at: assistant_msg.created_at,
+        assistant: AssistantResponse {
+            message: MessageResponse {
+                id: assistant_msg.id,
+                role: assistant_msg.role,
+                content: assistant_msg.content,
+                token_count: assistant_msg.token_count,
+                scene_blocks: None,
+                created_at: assistant_msg.created_at,
+            },
+            blocks,
+            finish_reason: result.finish_reason.clone(),
         },
         conversation_updated_at: updated_conv.updated_at,
-        model: conv.model.clone(),
-        execution_time_ms,
-        activity_list: result.activity_list,
-        card_title: None,
-        actions: None,
-        is_command_response: false,
-        // Insight requests bypass the unified pipeline and never
-        // emit AG-UI events; the field is omitted from the JSON
-        // body via `skip_serializing_if = "Option::is_none"`.
-        agui_run_id: None,
+        telemetry: TurnTelemetryResponse {
+            model: conv.model.clone(),
+            provider_name: provider.name().to_owned(),
+            tool_calls_count: result.tool_calls_count,
+            tools_called: result.tools_called.clone(),
+            execution_time_ms,
+        },
     };
 
-    let mut http_response = (StatusCode::OK, Json(response)).into_response();
-    apply_usage_warning_headers(&mut http_response, usage_warning);
-    Ok(http_response)
+    Ok(response)
 }

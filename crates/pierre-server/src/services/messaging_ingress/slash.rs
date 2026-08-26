@@ -1,5 +1,5 @@
-// ABOUTME: Slash-command dispatch entry point for messaging ingress
-// ABOUTME: Wraps services::commands::dispatch::try_dispatch with channel-link auth/locale resolution
+// ABOUTME: Slash-command entry point for messaging ingress — addressing, /connect, and rendering
+// ABOUTME: The dispatch itself is the turn service's; this file only frames the answer for a channel
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,14 +16,14 @@ use tracing::info;
 use pierre_auth::auth::AuthResult;
 
 use crate::mcp::resources::ServerContext;
-use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+use pierre_chat_pipeline::{dispatch_slash, CommandTurn, RenderCapabilities, SlashRequest};
 use pierre_services::channel_error_reply::ChannelErrorReply;
-use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::addressing::reply_recipient;
 use super::card_or_rich_text;
 use super::connect::build_connect_card_direct;
 use super::locale::resolve_messaging_locale;
+use super::surface::messaging_render_profile;
 use super::ResolvedSession;
 use pierre_contremaitre::messaging_strings::KEY_NO_PROVIDER_CONNECTED;
 
@@ -122,16 +122,18 @@ pub(super) struct SlashCommandContext<'a> {
     pub webhook_tenant_id: TenantId,
 }
 
-/// Resolve and execute slash commands against [`pierre_commands::dispatch`].
+/// Answer a channel message that is a slash command.
 ///
-/// Returns `Some(SlashReply)` if the message was a recognized command,
-/// `None` if it should be passed through to the LLM pipeline.
+/// Returns `Some(SlashReply)` when the text was a command, `None` when it
+/// should be passed through to a coaching turn.
 ///
-/// Delegates parsing + handler execution + analytics to
-/// [`pierre_commands::dispatch::try_dispatch`] — the single
-/// authority for every chat surface. This function's remaining job is
-/// messaging-specific: resolving auth/tenant/locale from the channel link
-/// and wrapping the outcome into a [`SlashReply`] for the renderer.
+/// Parsing, handler execution and analytics belong to
+/// [`pierre_chat_pipeline::dispatch_slash`] — the one dispatch every chat
+/// surface reaches a command through. What is messaging-specific stays here:
+/// resolving auth, tenant and locale from the channel link, minting the
+/// `/connect` card (which needs in-process token minting), addressing the
+/// answer to the room it came from, and choosing a card, rich text or plain
+/// text for it.
 pub(super) async fn try_handle_slash_command(
     resources: &Arc<ServerContext>,
     ctx: SlashCommandContext<'_>,
@@ -238,39 +240,34 @@ pub(super) async fn try_handle_slash_command(
         });
     }
 
-    // Slash dispatch requires both the command-name catalog and the
-    // handler-name map. They live on ServerContext alongside the rest of
-    // the registries; the dispatcher takes them as explicit refs so the
-    // pierre-commands crate stays free of ServerContext.
-    let Some(cmd_registry) = resources.common.command_registry.as_ref() else {
-        // Registries not configured (test contexts that skip the
-        // commands/ catalog). Treat as "not a command" so the caller
-        // falls through to the LLM pipeline.
-        return None;
-    };
-    let handler_registry = resources.common.command_handler_registry.as_ref()?;
-    let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
-        Arc::<ServerContext>::clone(resources);
-    let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
+    // The surface's capabilities, resolved from the real transport: whether an
+    // action renders as a button or as an autolinked line. The character
+    // ceiling is not a handler's concern — a reply past it is split into
+    // ordered messages by `send_channel_response`, not trimmed here.
+    let profile = messaging_render_profile(channel_type, &locale);
 
-    let outcome = match try_dispatch(DispatchRequest {
-        ctx: &ctx_dyn,
-        command_registry: cmd_registry,
-        command_handler_registry: handler_registry,
-        user_id: user_uuid,
-        tenant_id: user_tenant,
-        channel_type: channel,
-        locale: &locale,
-        is_direct_message,
-        conversation_id: Some(&session.conversation),
-        conversation_tenant_id: conversation_tenant,
-        sender_id: Some(sender_id),
-        text,
-        tool_runtime: &tool_runtime,
-    })
+    // The dispatch itself belongs to the turn service, which every chat
+    // surface reaches it through, so a command behaves the same wherever it is
+    // typed. What is left here is a channel's own: who the answer is addressed
+    // to, and whether its controls render as buttons.
+    let command = match dispatch_slash(
+        &resources.chat_pipeline_context(),
+        &SlashRequest {
+            user_id: user_uuid,
+            tenant_id: user_tenant,
+            conversation_id: &session.conversation,
+            conversation_tenant_id: conversation_tenant,
+            channel_type: channel,
+            locale: &locale,
+            is_direct_message,
+            sender_id: Some(sender_id),
+            text,
+        },
+    )
     .await
     {
-        Ok(outcome) => outcome,
+        Ok(Some(command)) => command,
+        Ok(None) => return None,
         Err(e) => {
             // Single centralized funnel: logs the full error with a
             // correlation id and returns a channel-safe body. Never
@@ -295,64 +292,60 @@ pub(super) async fn try_handle_slash_command(
         }
     };
 
-    match outcome {
-        DispatchOutcome::NotACommand => None,
-        DispatchOutcome::UnknownCommand { body } => Some(SlashReply {
-            message: OutgoingMessage {
-                channel_type,
-                recipient_id: reply_target,
-                content: MessageContent::Text { body },
-                turn_id: CanotTurnId::new(),
-                reply_to: None,
-                thread_id,
-            },
-            command_name: None,
-        }),
-        DispatchOutcome::Executed {
-            command_name,
-            response,
-        } => {
-            info!(
-                command = %command_name,
-                user_id = %session.user_id,
-                channel = %channel,
-                "Slash command executed"
-            );
-            let content = if response.is_card() {
-                card_or_rich_text(
-                    channel_type,
-                    response.card_title.unwrap_or_default(),
-                    response.text,
-                    response
-                        .actions
-                        .into_iter()
-                        .map(|a| CardAction {
-                            label: a.label,
-                            action_type: a.action_type,
-                            value: a.value,
-                        })
-                        .collect(),
-                )
-            } else if response.is_rich_text {
-                MessageContent::RichText {
-                    body: response.text,
-                }
-            } else {
-                MessageContent::Text {
-                    body: response.text,
-                }
-            };
-            Some(SlashReply {
-                message: OutgoingMessage {
-                    channel_type,
-                    recipient_id: reply_target,
-                    content,
-                    turn_id: CanotTurnId::new(),
-                    reply_to: None,
-                    thread_id,
-                },
-                command_name: Some(command_name),
-            })
-        }
+    if let Some(name) = command.command_name.as_deref() {
+        info!(
+            command = %name,
+            user_id = %session.user_id,
+            channel = %channel,
+            "Slash command reply addressed"
+        );
     }
+    let command_name = command.command_name.clone();
+    Some(SlashReply {
+        message: OutgoingMessage {
+            channel_type,
+            recipient_id: reply_target,
+            content: command_content(&profile.render, command),
+            turn_id: CanotTurnId::new(),
+            reply_to: None,
+            thread_id,
+        },
+        command_name,
+    })
+}
+
+/// Frame a command's answer as the content this channel will carry.
+///
+/// A card where the handler asked for one and the channel draws controls; the
+/// channel's rich-text dialect where it asked for that; plain text otherwise.
+/// The choice is the surface's capability, never its name — a channel without
+/// buttons gets the same answer with its actions written out as text by
+/// [`card_or_rich_text`].
+fn command_content(render: &RenderCapabilities, command: CommandTurn) -> MessageContent {
+    let CommandTurn {
+        text,
+        is_rich_text,
+        card_title,
+        actions,
+        ..
+    } = command;
+    if let Some(title) = card_title {
+        return card_or_rich_text(
+            render,
+            title,
+            text,
+            actions
+                .into_iter()
+                .map(|action| CardAction {
+                    label: action.label,
+                    action_type: action.kind.as_str().to_owned(),
+                    value: action.value,
+                })
+                .collect(),
+        );
+    }
+    if is_rich_text {
+        return MessageContent::RichText { body: text };
+    }
+    MessageContent::Text { body: text }
 }

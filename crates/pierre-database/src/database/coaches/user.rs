@@ -63,7 +63,7 @@ impl CoachesManager {
             visibility: CoachVisibility::Private,
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
-            max_tool_iterations: None,
+            max_tool_iterations: request.max_tool_iterations,
             temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
@@ -114,7 +114,7 @@ impl CoachesManager {
         .bind(CoachVisibility::Private.as_str()) // visibility
         .bind(Option::<String>::None) // prerequisites (user-created coaches don't have prerequisites)
         .bind(Option::<String>::None) // forked_from (not a fork)
-        .bind(Option::<i32>::None) // max_tool_iterations
+        .bind(request.max_tool_iterations)
         .bind(Option::<f32>::None) // temperature
         .bind(&request.startup_query)
         .bind(&data_requirements_json)
@@ -162,7 +162,7 @@ impl CoachesManager {
             visibility: CoachVisibility::Private,
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
-            max_tool_iterations: None,
+            max_tool_iterations: request.max_tool_iterations,
             temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
@@ -409,6 +409,11 @@ impl CoachesManager {
             .success_criteria
             .clone()
             .or(existing.success_criteria);
+        // Three-way, not a coalesce: an absent field keeps the stored budget,
+        // an explicit null clears it back to inheriting the admin value.
+        let max_tool_iterations = request
+            .max_tool_iterations
+            .resolve(existing.max_tool_iterations);
 
         // When instructions is updated, also update system_prompt for runtime compatibility
         let system_prompt = instructions
@@ -423,7 +428,8 @@ impl CoachesManager {
                 category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8,
                 startup_query = $12, data_requirements = $13,
                 purpose = $14, when_to_use = $15, instructions = $16,
-                example_inputs = $17, example_outputs = $18, success_criteria = $19
+                example_inputs = $17, example_outputs = $18, success_criteria = $19,
+                max_tool_iterations = $20
             WHERE id = $9 AND user_id = $10 AND tenant_id = $11
             ",
         )
@@ -446,6 +452,7 @@ impl CoachesManager {
         .bind(&example_inputs)
         .bind(&example_outputs)
         .bind(&success_criteria)
+        .bind(max_tool_iterations)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update coach: {e}")))?;

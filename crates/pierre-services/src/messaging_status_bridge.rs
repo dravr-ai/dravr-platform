@@ -100,17 +100,33 @@ pub struct OpenStatusParams<'a> {
     pub api_base_override: Option<&'a str>,
 }
 
+/// An opened status bridge: the adapter that edits the placeholder, plus the
+/// channel-native id of the placeholder message itself.
+///
+/// The id matters after the turn ends, not during it: on a channel that
+/// streams status, the assistant's first reply IS the placeholder collapsed in
+/// place, so this is the channel message id that reply was finally delivered
+/// under. Without it the platform has no row to attach an emoji reaction to
+/// for the message the athlete is actually looking at.
+pub struct OpenedStatus {
+    /// Drives `editMessageText` / `chat.update` / `PATCH messages`.
+    pub adapter: Arc<dyn StatusAdapter + Send + Sync>,
+    /// Telegram `message_id`, Slack `ts`, or Discord message snowflake of the
+    /// placeholder — rendered as text, the shape every channel-message id is
+    /// stored in.
+    pub channel_message_id: String,
+}
+
 /// Open the per-channel [`StatusAdapter`] for `params`, sending the
-/// initial placeholder message.
+/// initial placeholder message, and return it beside that placeholder's
+/// channel-native id.
 ///
 /// Returns `None` when the channel does not support in-place progress
 /// updates (`WhatsApp`, Messenger) or when the required credentials
 /// are missing from `channel_config`. The caller MUST treat `None` as
 /// "skip progress rendering, send a single final reply instead"
 /// rather than tearing the turn down.
-pub async fn open_status_adapter(
-    params: &OpenStatusParams<'_>,
-) -> Option<Arc<dyn StatusAdapter + Send + Sync>> {
+pub async fn open_status_adapter(params: &OpenStatusParams<'_>) -> Option<OpenedStatus> {
     match params.channel_type {
         ChannelType::Telegram => open_telegram(params).await,
         ChannelType::Slack => open_slack(params).await,
@@ -124,9 +140,7 @@ pub async fn open_status_adapter(
     }
 }
 
-async fn open_telegram(
-    params: &OpenStatusParams<'_>,
-) -> Option<Arc<dyn StatusAdapter + Send + Sync>> {
+async fn open_telegram(params: &OpenStatusParams<'_>) -> Option<OpenedStatus> {
     let bot_token = params.channel_config.bot_token.as_deref()?;
     let thread_id = params.thread_id.and_then(|t| t.parse::<i64>().ok());
     // Production path hits `api.telegram.org`; tests supply a mock
@@ -151,7 +165,10 @@ async fn open_telegram(
         .await
     };
     match result {
-        Ok(adapter) => Some(Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>),
+        Ok(adapter) => Some(OpenedStatus {
+            channel_message_id: adapter.message_id().to_string(),
+            adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+        }),
         Err(e) => {
             warn!(error = %e, "Telegram status placeholder open failed; skipping progress rendering");
             None
@@ -159,7 +176,7 @@ async fn open_telegram(
     }
 }
 
-async fn open_slack(params: &OpenStatusParams<'_>) -> Option<Arc<dyn StatusAdapter + Send + Sync>> {
+async fn open_slack(params: &OpenStatusParams<'_>) -> Option<OpenedStatus> {
     // Slack's bot credential lives in `api_key` (format `xoxb-...`);
     // `bot_token` is used by channels whose API uses a distinct prefix
     // (Discord, for example).
@@ -184,7 +201,10 @@ async fn open_slack(params: &OpenStatusParams<'_>) -> Option<Arc<dyn StatusAdapt
         .await
     };
     match result {
-        Ok(adapter) => Some(Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>),
+        Ok(adapter) => Some(OpenedStatus {
+            channel_message_id: adapter.ts().to_owned(),
+            adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+        }),
         Err(e) => {
             warn!(error = %e, "Slack status placeholder open failed; skipping progress rendering");
             None
@@ -192,9 +212,7 @@ async fn open_slack(params: &OpenStatusParams<'_>) -> Option<Arc<dyn StatusAdapt
     }
 }
 
-async fn open_discord(
-    params: &OpenStatusParams<'_>,
-) -> Option<Arc<dyn StatusAdapter + Send + Sync>> {
+async fn open_discord(params: &OpenStatusParams<'_>) -> Option<OpenedStatus> {
     let bot_token = params.channel_config.bot_token.as_deref()?;
     let result = if let Some(base) = params.api_base_override {
         DiscordStatusAdapter::open_with_base(
@@ -208,7 +226,10 @@ async fn open_discord(
         DiscordStatusAdapter::open(bot_token, params.conversation_id, params.placeholder_text).await
     };
     match result {
-        Ok(adapter) => Some(Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>),
+        Ok(adapter) => Some(OpenedStatus {
+            channel_message_id: adapter.message_id().to_owned(),
+            adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+        }),
         Err(e) => {
             warn!(error = %e, "Discord status placeholder open failed; skipping progress rendering");
             None

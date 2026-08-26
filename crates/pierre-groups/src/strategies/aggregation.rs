@@ -1,5 +1,5 @@
 // ABOUTME: Group statistics computation with caching strategies
-// ABOUTME: Live, cached, and hybrid approaches for group aggregate stats and member comparison
+// ABOUTME: Live and cached approaches for group aggregate stats
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,12 +7,9 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{
-    GroupAggregateStats, GroupTrend, MemberFitnessSnapshot, MemberGroupComparison,
-    OvertrainingRiskLevel,
+    GroupAggregateStats, GroupTrend, MemberFitnessSnapshot, OvertrainingRiskLevel,
 };
-use uuid::Uuid;
 
 use crate::service::{TREND_DECLINING_FRACTION, TREND_IMPROVING_FRACTION};
 
@@ -23,17 +20,6 @@ use crate::service::{TREND_DECLINING_FRACTION, TREND_IMPROVING_FRACTION};
 pub trait GroupAggregationStrategy: Send + Sync {
     /// Compute aggregate stats from member snapshots
     fn aggregate_stats(&self, snapshots: &[MemberFitnessSnapshot]) -> GroupAggregateStats;
-
-    /// Compare a member against group norms
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the member is not found in the snapshots
-    fn compare_member(
-        &self,
-        user_id: Uuid,
-        snapshots: &[MemberFitnessSnapshot],
-    ) -> AppResult<MemberGroupComparison>;
 
     /// Maximum acceptable data staleness for this strategy
     fn staleness_tolerance(&self) -> Duration;
@@ -134,61 +120,6 @@ impl GroupAggregationStrategy for LiveAggregation {
         Self::compute_stats(snapshots)
     }
 
-    fn compare_member(
-        &self,
-        user_id: Uuid,
-        snapshots: &[MemberFitnessSnapshot],
-    ) -> AppResult<MemberGroupComparison> {
-        let member = snapshots.iter().find(|s| s.user_id == user_id);
-        let total = snapshots.len();
-
-        let (volume_percentile, ctl_percentile, display_name) = member.map_or_else(
-            || (50.0, None, "Unknown".to_owned()),
-            |m| {
-                let vol_rank = snapshots
-                    .iter()
-                    .filter(|s| s.weekly_volume_km <= m.weekly_volume_km)
-                    .count();
-                let vol_pct = if total > 0 {
-                    (vol_rank as f64 / total as f64) * 100.0
-                } else {
-                    50.0
-                };
-
-                let ctl_pct = m.ctl.map(|member_ctl| {
-                    let rank = snapshots
-                        .iter()
-                        .filter(|s| s.ctl.is_none_or(|c| c <= member_ctl))
-                        .count();
-                    if total > 0 {
-                        (rank as f64 / total as f64) * 100.0
-                    } else {
-                        50.0
-                    }
-                });
-
-                (vol_pct, ctl_pct, m.display_name.clone())
-            },
-        );
-
-        let comparison_text = format!(
-            "Volume: top {:.0}% of group. {}",
-            100.0 - volume_percentile,
-            ctl_percentile.map_or_else(
-                || "CTL data not available.".to_owned(),
-                |p| format!("CTL: top {:.0}% of group.", 100.0 - p)
-            )
-        );
-
-        Ok(MemberGroupComparison {
-            user_id,
-            display_name,
-            volume_percentile,
-            ctl_percentile,
-            comparison_text,
-        })
-    }
-
     fn staleness_tolerance(&self) -> Duration {
         Duration::from_secs(0)
     }
@@ -226,14 +157,6 @@ impl GroupAggregationStrategy for CachedAggregation {
     fn aggregate_stats(&self, snapshots: &[MemberFitnessSnapshot]) -> GroupAggregateStats {
         // Cache-aside: compute fresh, caller is responsible for caching the result
         LiveAggregation::compute_stats(snapshots)
-    }
-
-    fn compare_member(
-        &self,
-        user_id: Uuid,
-        snapshots: &[MemberFitnessSnapshot],
-    ) -> AppResult<MemberGroupComparison> {
-        LiveAggregation.compare_member(user_id, snapshots)
     }
 
     fn staleness_tolerance(&self) -> Duration {

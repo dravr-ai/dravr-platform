@@ -26,11 +26,9 @@ type FlowState = 'loading' | 'suggestions' | 'editing' | 'submitting' | 'error';
 interface ShareInsightModalProps {
   onClose: () => void;
   onSuccess: () => void;
-  /** Optional activity ID to filter suggestions for a specific activity */
-  activityId?: string;
 }
 
-export default function ShareInsightModal({ onClose, onSuccess, activityId }: ShareInsightModalProps) {
+export default function ShareInsightModal({ onClose, onSuccess }: ShareInsightModalProps) {
   // Flow state
   const [flowState, setFlowState] = useState<FlowState>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -43,16 +41,13 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
   const [editedContent, setEditedContent] = useState('');
   const [visibility, setVisibility] = useState<ShareVisibility>('friends_only');
 
-  // Fetch suggestions on mount (optionally filtered by activityId)
+  // Fetch the coach's share suggestions on mount.
   const fetchSuggestions = useCallback(async () => {
     try {
       setError(null);
       setFlowState('loading');
 
-      const response = await socialApi.getInsightSuggestions({
-        limit: 10,
-        activity_id: activityId,
-      });
+      const response = await socialApi.getInsightSuggestions({ limit: 10 });
       // See SocialFeedTab: the cast cannot guarantee the array is present, and
       // the length checks below would throw on undefined.
       setSuggestions(Array.isArray(response.suggestions) ? (response.suggestions as InsightSuggestion[]) : []);
@@ -68,7 +63,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
       setError('Failed to load coach suggestions. Please try again.');
       setFlowState('error');
     }
-  }, [activityId]);
+  }, []);
 
   useEffect(() => {
     fetchSuggestions();

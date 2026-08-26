@@ -49,6 +49,7 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     UserRepository::create(db, &user)
         .await

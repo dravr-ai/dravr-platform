@@ -135,6 +135,24 @@ const mockInvites = {
   ],
 };
 
+/** Health flags exactly as `GET /api/groups/:id/health` serialises them. */
+const mockHealthFlags = [
+  {
+    user_id: 'user-456',
+    display_name: 'Alice Runner',
+    flag_type: 'volume_drop',
+    severity: 'warning',
+    detail: 'weekly volume down 35% from prior week',
+  },
+  {
+    user_id: 'user-789',
+    display_name: 'Bob Cyclist',
+    flag_type: 'inactive',
+    severity: 'warning',
+    detail: 'no activity for 11 days',
+  },
+];
+
 const mockStats = {
   stats: {
     total_members: 5,
@@ -154,10 +172,17 @@ interface GroupMockOptions {
   userGroupRole?: 'owner' | 'admin' | 'member';
   canCreateGroup?: boolean;
   groupCreationPolicy?: string;
+  /** The tenant tier flag gating the weekly report + health flags panel. */
+  weeklyDigest?: boolean;
 }
 
 async function setupGroupMocks(page: Page, options: GroupMockOptions = {}) {
-  const { userGroupRole = 'owner', canCreateGroup = true, groupCreationPolicy = 'everyone' } = options;
+  const {
+    userGroupRole = 'owner',
+    canCreateGroup = true,
+    groupCreationPolicy = 'everyone',
+    weeklyDigest = true,
+  } = options;
   const mockMembers = buildMockMembers(userGroupRole);
 
   // Group creation permissions
@@ -165,7 +190,11 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ can_create: canCreateGroup, policy: groupCreationPolicy }),
+      body: JSON.stringify({
+        can_create: canCreateGroup,
+        policy: groupCreationPolicy,
+        weekly_digest: weeklyDigest,
+      }),
     });
   });
 
@@ -285,21 +314,29 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}) {
     });
   });
 
-  // Health flags
+  // Health flags — the route answers `{ flags, total, metadata }`.
   await page.route('**/api/groups/group-1/health', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ flags: [] }),
+      body: JSON.stringify({ flags: mockHealthFlags, total: mockHealthFlags.length }),
     });
   });
 
-  // Weekly report
+  // Weekly report — the route wraps it as `{ report, metadata }`.
   await page.route('**/api/groups/group-1/report', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ summary: 'Good week.', highlights: [], concerns: [], recommendations: [], stats: mockStats.stats }),
+      body: JSON.stringify({
+        report: {
+          summary: 'Marathon Training 2026 had 3/3 active members this week.',
+          highlights: ['Alice Runner is in fresh form (TSB +9, 12% of CTL)'],
+          concerns: ['Bob Cyclist: no activity for 11 days'],
+          recommendations: ['Review 1 flagged member(s) and consider recovery adjustments.'],
+          stats: mockStats.stats,
+        },
+      }),
     });
   });
 
@@ -477,8 +514,91 @@ test.describe('Group Coaching - Detail', () => {
     await goToGroupDetail(page);
     await page.getByRole('tab', { name: /Stats/ }).click();
     await expect(page.getByText('38.5')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Active Members')).toBeVisible();
-    await expect(page.getByText('Avg Weekly Volume')).toBeVisible();
+    // Exact: the weekly-report summary beside these stats also contains the
+    // phrase ("...had 3/3 active members this week"), so a substring match now
+    // resolves to two elements.
+    await expect(page.getByText('Active Members', { exact: true })).toBeVisible();
+    await expect(page.getByText('Avg Weekly Volume', { exact: true })).toBeVisible();
+  });
+
+  test('shows the weekly report and one row per flagged member', async ({ page }) => {
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Stats/ }).click();
+
+    await expect(page.getByTestId('group-report-summary')).toHaveText(
+      'Marathon Training 2026 had 3/3 active members this week.',
+    );
+    await expect(page.getByTestId('group-report-highlight')).toHaveCount(1);
+    await expect(page.getByTestId('group-report-concern')).toHaveCount(1);
+    await expect(page.getByTestId('group-report-recommendation')).toHaveCount(1);
+    await expect(page.getByTestId('group-health-flag-row')).toHaveCount(2);
+    await expect(page.getByText('Health flags (2)')).toBeVisible();
+  });
+
+  test('withholds the weekly report when the tenant tier does not include it', async ({ page }) => {
+    await loginAndGoToGroups(page, { weeklyDigest: false });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Stats/ }).click();
+
+    await expect(page.getByTestId('group-insights-tier-locked')).toBeVisible();
+    await expect(page.getByTestId('group-report-summary')).toHaveCount(0);
+  });
+
+  test('opens a group-scoped conversation from the detail header', async ({ page }) => {
+    const conversationRequests: Array<Record<string, unknown>> = [];
+    await page.route('**/api/chat/conversations', async (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        conversationRequests.push(body);
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'conv-group-1',
+            title: body.title,
+            model: 'gemini-1.5-flash',
+            coach_id: body.coach_id,
+            group_id: body.group_id,
+            total_tokens: 0,
+            message_count: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
+      });
+    });
+
+    await goToGroupDetail(page);
+    await page.getByTestId('group-chat-button').click();
+
+    await expect.poll(() => conversationRequests.length).toBe(1);
+    expect(conversationRequests[0]).toMatchObject({
+      title: 'Marathon Training 2026',
+      group_id: 'group-1',
+    });
+    await expect.poll(() => new URL(page.url()).hash).toBe('#chat/conv-group-1');
+  });
+
+  test('binds the peer-consent switch to the caller own membership row', async ({ page }) => {
+    const consentBodies: Array<Record<string, unknown>> = [];
+    await page.route('**/api/groups/group-*/members/me/consent', async (route) => {
+      consentBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    await goToGroupDetail(page);
+    const toggle = page.getByTestId('peer-consent-switch');
+    await expect(toggle).not.toBeChecked();
+
+    await toggle.click();
+    await expect.poll(() => consentBodies.length).toBe(1);
+    expect(consentBodies[0]).toEqual({ consent: true });
   });
 });
 

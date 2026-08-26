@@ -10,7 +10,15 @@ import { BookOpen } from 'lucide-react';
 import { coachesApi } from '../services/api';
 import type { Coach } from '../types/api';
 import type { ImportPreviewResponse } from '@pierre/shared-types';
-import { Card, Button, TabHeader, Select, Textarea, Radio } from './ui';
+import { Card, Button, TabHeader } from './ui';
+import {
+  CoachFormModal,
+  DEFAULT_COACH_FORM_DATA,
+  coachToFormData,
+  formDataToCreateRequest,
+  formDataToUpdateRequest,
+} from './chat';
+import type { CoachFormData } from './chat';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -58,48 +66,6 @@ const CATEGORY_BORDER_COLORS: Record<string, string> = {
 // LLM context window size for percentage calculation
 const CONTEXT_WINDOW_SIZE = 128000;
 
-interface CoachFormData {
-  title: string;
-  description: string;
-  system_prompt: string;
-  category: string;
-  tags: string;
-  startup_query: string;
-  prefetch_enabled: boolean;
-  activity_count: number;
-  sport_types: string;
-  time_frame: string;
-  detail_mode: string;
-  athlete_profile: boolean;
-  purpose: string;
-  when_to_use: string;
-  instructions: string;
-  example_inputs: string;
-  example_outputs: string;
-  success_criteria: string;
-}
-
-const defaultFormData: CoachFormData = {
-  title: '',
-  description: '',
-  system_prompt: '',
-  category: 'Training',
-  tags: '',
-  startup_query: '',
-  prefetch_enabled: false,
-  activity_count: 20,
-  sport_types: '',
-  time_frame: '12w',
-  detail_mode: 'summary',
-  athlete_profile: false,
-  purpose: '',
-  when_to_use: '',
-  instructions: '',
-  example_inputs: '',
-  example_outputs: '',
-  success_criteria: '',
-};
-
 interface CoachLibraryTabProps {
   onBack?: () => void;
 }
@@ -109,7 +75,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
   const [selectedCoach, setSelectedCoach] = useState<Coach | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [formData, setFormData] = useState<CoachFormData>(defaultFormData);
+  const [formData, setFormData] = useState<CoachFormData>(DEFAULT_COACH_FORM_DATA);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [selectedSource, setSelectedSource] = useState<CoachSource>('all');
@@ -153,36 +119,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
 
   // Create mutation
   const createMutation = useMutation({
-    mutationFn: (data: typeof formData) => coachesApi.create({
-      title: data.title,
-      description: data.description || undefined,
-      system_prompt: data.system_prompt,
-      category: data.category,
-      tags: data.tags.split(',').map(t => t.trim()).filter(Boolean),
-      startup_query: data.startup_query.trim() || undefined,
-      data_requirements: data.prefetch_enabled ? {
-        activities: {
-          count: data.activity_count,
-          sport_types: data.sport_types.split(',').map(s => s.trim()).filter(Boolean),
-          time_frame: data.time_frame,
-          mode: data.detail_mode as 'summary' | 'detailed',
-          format: 'toon' as const,
-          analysis_type: 'general_overview',
-        },
-        athlete_profile: data.athlete_profile,
-      } : undefined,
-      purpose: data.purpose.trim() || undefined,
-      when_to_use: data.when_to_use.trim() || undefined,
-      instructions: data.instructions.trim() || undefined,
-      example_inputs: data.example_inputs.trim() || undefined,
-      example_outputs: data.example_outputs.trim() || undefined,
-      success_criteria: data.success_criteria.trim() || undefined,
-    }),
+    mutationFn: (data: CoachFormData) => coachesApi.create(formDataToCreateRequest(data)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
       setIsCreating(false);
-      setFormData(defaultFormData);
+      setFormData(DEFAULT_COACH_FORM_DATA);
     },
     onError: (error: Error) => {
       setActionError(error.message || 'Failed to create coach');
@@ -191,35 +133,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
 
   // Update mutation
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: typeof formData }) => coachesApi.update(id, {
-      title: data.title,
-      description: data.description || undefined,
-      system_prompt: data.system_prompt,
-      category: data.category,
-      tags: data.tags.split(',').map(t => t.trim()).filter(Boolean),
-      startup_query: data.startup_query.trim() || undefined,
-      data_requirements: data.prefetch_enabled ? {
-        activities: {
-          count: data.activity_count,
-          sport_types: data.sport_types.split(',').map(s => s.trim()).filter(Boolean),
-          time_frame: data.time_frame,
-          mode: data.detail_mode as 'summary' | 'detailed',
-          format: 'toon' as const,
-          analysis_type: 'general_overview',
-        },
-        athlete_profile: data.athlete_profile,
-      } : undefined,
-      purpose: data.purpose.trim() || undefined,
-      when_to_use: data.when_to_use.trim() || undefined,
-      instructions: data.instructions.trim() || undefined,
-      example_inputs: data.example_inputs.trim() || undefined,
-      example_outputs: data.example_outputs.trim() || undefined,
-      success_criteria: data.success_criteria.trim() || undefined,
-    }),
+    mutationFn: ({ id, data }: { id: string; data: CoachFormData }) => coachesApi.update(id, formDataToUpdateRequest(data)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
       setIsEditing(false);
+      setFormData(DEFAULT_COACH_FORM_DATA);
       setSelectedCoach(null);
     },
     onError: (error: Error) => {
@@ -424,39 +343,31 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     setImportError(null);
   }, []);
 
-  // Load form data when editing
-  useEffect(() => {
-    if (isEditing && selectedCoach) {
-      setFormData({
-        title: selectedCoach.title,
-        description: selectedCoach.description || '',
-        system_prompt: selectedCoach.system_prompt,
-        category: selectedCoach.category,
-        tags: selectedCoach.tags.join(', '),
-        startup_query: selectedCoach.startup_query || '',
-        prefetch_enabled: !!selectedCoach.data_requirements?.activities,
-        activity_count: selectedCoach.data_requirements?.activities?.count ?? 20,
-        sport_types: (selectedCoach.data_requirements?.activities?.sport_types || []).join(', '),
-        time_frame: selectedCoach.data_requirements?.activities?.time_frame || '12w',
-        detail_mode: selectedCoach.data_requirements?.activities?.mode || 'summary',
-        athlete_profile: selectedCoach.data_requirements?.athlete_profile ?? false,
-        purpose: selectedCoach.purpose || '',
-        when_to_use: selectedCoach.when_to_use || '',
-        instructions: selectedCoach.instructions || '',
-        example_inputs: selectedCoach.example_inputs || '',
-        example_outputs: selectedCoach.example_outputs || '',
-        success_criteria: selectedCoach.success_criteria || '',
-      });
-    }
-  }, [isEditing, selectedCoach]);
+  // The single coach editor: CoachFormModal, shared with the Chat tab. Create
+  // and edit both flow through it, so the tool-budget field and its
+  // inherit/clear semantics exist everywhere a coach can be authored.
+  const handleStartCreate = () => {
+    setFormData(DEFAULT_COACH_FORM_DATA);
+    setIsCreating(true);
+  };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isCreating) {
-      createMutation.mutate(formData);
-    } else if (isEditing && selectedCoach) {
+  const handleStartEdit = (coach: Coach) => {
+    setFormData(coachToFormData(coach));
+    setIsEditing(true);
+  };
+
+  const handleCoachFormSubmit = () => {
+    if (isEditing && selectedCoach) {
       updateMutation.mutate({ id: selectedCoach.id, data: formData });
+    } else {
+      createMutation.mutate(formData);
     }
+  };
+
+  const handleCoachFormClose = () => {
+    setIsCreating(false);
+    setIsEditing(false);
+    setFormData(DEFAULT_COACH_FORM_DATA);
   };
 
   const handleDelete = () => {
@@ -494,7 +405,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     if (actionMenuCoach && renameValue.trim()) {
       updateMutation.mutate({
         id: actionMenuCoach.id,
-        data: { ...formData, title: renameValue.trim() },
+        data: { ...coachToFormData(actionMenuCoach), title: renameValue.trim() },
       });
       setIsRenameDialogOpen(false);
       setActionMenuCoach(null);
@@ -546,11 +457,6 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
       if (a.is_favorite !== b.is_favorite) return a.is_favorite ? -1 : 1;
       return b.use_count - a.use_count;
     });
-
-  // Token count estimation (same formula as mobile: text.length / 4)
-  const estimateTokenCount = (text: string): number => {
-    return Math.ceil(text.length / 4);
-  };
 
   // Context percentage calculation (tokens / 128000 * 100)
   const getContextPercentage = (tokens: number): string => {
@@ -735,8 +641,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     );
   };
 
-  // Coach list view
-  if (!selectedCoach && !isCreating) {
+  // Coach list view (also the backdrop for the create modal)
+  if (!selectedCoach) {
     return (
       <div className="h-full flex flex-col bg-surface">
         <TabHeader
@@ -829,10 +735,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 aria-hidden="true"
               />
               <button
-                onClick={() => {
-                  setFormData(defaultFormData);
-                  setIsCreating(true);
-                }}
+                onClick={handleStartCreate}
                 className="p-2 rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient hover:shadow-ambient min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Create Coach"
                 aria-label="Create Coach"
@@ -1001,7 +904,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 : 'Try adjusting your filters.'}
             </p>
             {!favoritesOnly && (coachesData?.coaches || []).length === 0 && (
-              <Button onClick={() => setIsCreating(true)}>Create Your First Coach</Button>
+              <Button onClick={handleStartCreate}>Create Your First Coach</Button>
             )}
           </Card>
         ) : (
@@ -1333,240 +1236,22 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             </div>
           </div>
         )}
+
+        <CoachFormModal
+          isOpen={isCreating}
+          isEditing={false}
+          formData={formData}
+          onFormDataChange={setFormData}
+          onSubmit={handleCoachFormSubmit}
+          onClose={handleCoachFormClose}
+          isSubmitting={createMutation.isPending}
+          submitError={createMutation.isError}
+        />
       </div>
     );
   }
 
-  // Create/Edit form view
-  if (isCreating || isEditing) {
-    const tokenCount = estimateTokenCount(formData.system_prompt);
-
-    return (
-      <div className="max-w-2xl mx-auto">
-        <Card variant="dark">
-          {/* Card header with integrated back button - industry standard pattern */}
-          <div className="flex items-center gap-3 pb-4 mb-6 border-b ghost-border">
-            <button
-              onClick={() => {
-                setIsCreating(false);
-                setIsEditing(false);
-                setFormData(defaultFormData);
-                setSelectedCoach(null);
-              }}
-              className="p-1.5 rounded-lg text-outline hover:text-primary hover:bg-surface-container-low transition-colors"
-              title="Back to coaches"
-            >
-              <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <h2 className="text-xl font-semibold text-on-surface">
-              {isCreating ? 'Create Coach' : `Edit "${selectedCoach?.title}"`}
-            </h2>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Title */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                Title <span className="text-error">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent"
-                placeholder="e.g., Marathon Training Coach"
-                maxLength={100}
-                required
-              />
-            </div>
-
-            {/* Category */}
-            <Select
-              label="Category"
-              value={formData.category}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-              options={COACH_CATEGORIES.map((cat) => ({ value: cat, label: cat }))}
-            />
-
-            {/* Description */}
-            <Textarea
-              label="Description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              rows={2}
-              maxLength={500}
-              placeholder="Brief description of the coach's specialty..."
-              helpText={`${formData.description.length}/500`}
-            />
-
-            {/* System Prompt */}
-            <Textarea
-              label="System Prompt *"
-              value={formData.system_prompt}
-              onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-              className="font-mono"
-              rows={8}
-              maxLength={4000}
-              placeholder="You are an expert coach with deep knowledge of..."
-              required
-              helpText={`~${tokenCount.toLocaleString()} tokens (${getContextPercentage(tokenCount)}% context) · ${formData.system_prompt.length}/4000`}
-            />
-
-            {/* Tags */}
-            <div>
-              <label className="block text-sm font-medium text-on-surface mb-1">
-                Tags
-              </label>
-              <input
-                type="text"
-                value={formData.tags}
-                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-primary focus:border-transparent"
-                placeholder="marathon, endurance, beginner (comma-separated)"
-              />
-            </div>
-
-            {/* Data Context */}
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-on-surface/90 mb-3">Data Context</h3>
-
-              <div className="mb-4">
-                <Textarea
-                  label="Startup Query (optional)"
-                  rows={2}
-                  placeholder="What should the coach analyze on first message?"
-                  value={formData.startup_query}
-                  onChange={(e) => setFormData({ ...formData, startup_query: e.target.value })}
-                />
-              </div>
-
-              <label className="flex items-center gap-2 mb-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.prefetch_enabled}
-                  onChange={(e) => setFormData({ ...formData, prefetch_enabled: e.target.checked })}
-                  className="w-4 h-4 rounded ghost-border text-primary focus:ring-primary bg-surface-container-low"
-                />
-                <span className="text-sm text-on-surface/70">Pre-fetch activity data when conversation starts</span>
-              </label>
-
-              {formData.prefetch_enabled && (
-                <div className="space-y-3 pl-4 border-l-2 border-primary/20">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-on-surface/50 mb-1">Activity count</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={200}
-                        value={formData.activity_count}
-                        onChange={(e) => setFormData({ ...formData, activity_count: Math.max(1, Math.min(200, Number(e.target.value))) })}
-                        className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm focus:border-primary/50 focus:outline-none"
-                      />
-                    </div>
-                    <Select
-                      label="Time frame"
-                      size="sm"
-                      value={formData.time_frame}
-                      onChange={(e) => setFormData({ ...formData, time_frame: e.target.value })}
-                      options={[
-                        { value: '3w', label: '3 weeks' },
-                        { value: '8w', label: '8 weeks' },
-                        { value: '12w', label: '12 weeks' },
-                        { value: '16w', label: '16 weeks' },
-                        { value: '6m', label: '6 months' },
-                      ]}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-on-surface/50 mb-1">
-                      Sport types <span className="text-on-surface/30">(comma-separated, empty = all)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Run, Ride, Swim"
-                      value={formData.sport_types}
-                      onChange={(e) => setFormData({ ...formData, sport_types: e.target.value })}
-                      className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm placeholder-white/30 focus:border-primary/50 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    <Radio
-                      name="detail_mode"
-                      label="Summary"
-                      checked={formData.detail_mode === 'summary'}
-                      onChange={() => setFormData({ ...formData, detail_mode: 'summary' })}
-                    />
-                    <Radio
-                      name="detail_mode"
-                      label="Detailed (laps, splits)"
-                      checked={formData.detail_mode === 'detailed'}
-                      onChange={() => setFormData({ ...formData, detail_mode: 'detailed' })}
-                    />
-                  </div>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.athlete_profile}
-                      onChange={(e) => setFormData({ ...formData, athlete_profile: e.target.checked })}
-                      className="w-3.5 h-3.5 rounded ghost-border text-primary focus:ring-primary bg-surface-container-low"
-                    />
-                    <span className="text-xs text-on-surface/60">Also fetch athlete profile</span>
-                  </label>
-                </div>
-              )}
-            </div>
-
-            {actionError && (
-              <div className="p-3 rounded-lg bg-error/10 border border-error/30">
-                <p className="text-sm text-error">{actionError}</p>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex items-center gap-3 pt-4 border-t">
-              <Button
-                type="submit"
-                disabled={createMutation.isPending || updateMutation.isPending}
-              >
-                {createMutation.isPending || updateMutation.isPending ? (
-                  <span className="flex items-center gap-2">
-                    <div className="pierre-spinner w-4 h-4"></div>
-                    Saving...
-                  </span>
-                ) : (
-                  isCreating ? 'Create Coach' : 'Save Changes'
-                )}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => {
-                  setIsCreating(false);
-                  setIsEditing(false);
-                  setFormData(defaultFormData);
-                  setSelectedCoach(null);
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </Card>
-      </div>
-    );
-  }
-
-  // Coach detail view - TypeScript guard for selectedCoach
-  if (!selectedCoach) {
-    return null;
-  }
-
+  // Coach detail view (also the backdrop for the edit modal)
   return (
     <div className="max-w-3xl mx-auto">
       {/* Coach Details Card */}
@@ -1614,7 +1299,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           <div className="flex items-center gap-2">
             <Button
               variant="secondary"
-              onClick={() => setIsEditing(true)}
+              onClick={() => handleStartEdit(selectedCoach)}
             >
               <svg className="w-4 h-4 mr-2" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1753,6 +1438,17 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           </div>
         </div>
       </Card>
+
+      <CoachFormModal
+        isOpen={isEditing}
+        isEditing
+        formData={formData}
+        onFormDataChange={setFormData}
+        onSubmit={handleCoachFormSubmit}
+        onClose={handleCoachFormClose}
+        isSubmitting={updateMutation.isPending}
+        submitError={updateMutation.isError}
+      />
     </div>
   );
 }

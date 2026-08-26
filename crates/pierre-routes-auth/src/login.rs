@@ -11,6 +11,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use std::str::FromStr;
 use tokio::task;
 use tracing::{debug, error, field, field::Empty, info, warn, Span};
 
@@ -22,14 +23,14 @@ use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csr
 use pierre_config::constants::error_messages;
 use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::{CoachingPersona, UserStatus};
+use pierre_core::models::{CoachingPersona, ColorScheme, UserStatus};
 
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
     ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, OAuth2ErrorResponse,
     OAuth2TokenRequest, OAuth2TokenResponse, RefreshTokenRequest, RegisterRequest,
     RegisterResponse, SessionResponse, UpdateCoachingPersonaRequest, UpdateLocaleRequest,
-    UpdateProfileRequest, UpdateProfileResponse, UserInfo, UserStatsResponse,
+    UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo, UserStatsResponse,
 };
 
 use pierre_services::analytics::{analytics, cache_user_email, hash_id};
@@ -1059,6 +1060,48 @@ pub async fn handle_update_locale(
         Json(json!({ "message": "Locale updated", "locale": locale })),
     )
         .into_response())
+}
+
+/// Handle theme-preference update for authenticated users.
+///
+/// Persists (or clears) the user's pinned colour scheme on the `users`
+/// table. `"light"` / `"dark"` pin the scheme across devices; JSON `null`
+/// clears the pin so clients follow the operating system. Server-side
+/// chart renders (messaging PNG minting) read this column and treat a
+/// cleared pin as dark. Answers `204 No Content` — the client already
+/// flipped its local theme and needs nothing back.
+pub async fn handle_update_theme(
+    State(resources): State<AuthRoutesContext>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateThemeRequest>,
+) -> Result<Response, AppError> {
+    let auth = resources
+        .auth_middleware
+        .authenticate_request_with_headers(&headers)
+        .await?;
+    let user_id = auth.user_id;
+
+    // `ColorScheme` is the one allowed set; JSON null clears the pin.
+    let scheme = request
+        .theme
+        .as_deref()
+        .map(str::trim)
+        .map(ColorScheme::from_str)
+        .transpose()?;
+
+    resources
+        .repos
+        .users
+        .set_theme(user_id, scheme.map(ColorScheme::as_str))
+        .await?;
+
+    info!(
+        user_id = %user_id,
+        theme = scheme.map_or("system", ColorScheme::as_str),
+        "User theme updated"
+    );
+
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 /// Handle coaching-persona update for authenticated users.

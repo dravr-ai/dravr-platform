@@ -17,7 +17,7 @@ use pierre_core::models::TenantId;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use super::coaches::row_to_coach_pg;
+use super::coaches_rows::row_to_coach_pg;
 
 pub(super) async fn assign_coach(
     pool: &PgPool,

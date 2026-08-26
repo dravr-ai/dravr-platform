@@ -14,12 +14,12 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::outgoing::proactive_text;
 use pierre_contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_SESSION_EXPIRED, KEY_LINK_SUCCESS,
     KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
 };
 use pierre_services::analytics::{analytics, cache_user_email, hash_id};
+use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::user_status_gate::messaging_key_for_status;
 
 use super::locale::resolve_messaging_locale;

@@ -38,6 +38,7 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::coaches::{
     CoachCategory, CoachVisibility, CreateSystemCoachRequest, UpdateCoachRequest,
 };
@@ -642,6 +643,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                 example_inputs: None,
                 example_outputs: None,
                 success_criteria: None,
+                max_tool_iterations: FieldUpdate::Keep,
             };
 
             let manager = ctx.resources.coaches_manager();

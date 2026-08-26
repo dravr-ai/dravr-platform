@@ -7,10 +7,10 @@
 import { useRef, useEffect } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { isInsightPrompt, detectInsightMessages, splitActivityContent, filterDisplayMessages } from '@pierre/chat-utils';
+import { isInsightPrompt, detectInsightMessages, filterDisplayMessages } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
-import type { ChatVerdictRow } from '@pierre/api-client';
-import type { Message, MessageActionItem, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
+import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
+import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls } from './utils';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 
@@ -20,16 +20,17 @@ interface MessageListProps {
   messageFeedback: Map<string, MessageFeedback>;
   /** Saved thumbs-down reasons, keyed by assistant message id. */
   messageFeedbackComment: Map<string, string>;
-  /** Activity lists keyed by assistant message ID (from new API field) */
-  activityLists: Map<string, string>;
-  /** Slash-command action buttons, keyed by assistant message id.
-   *  Present when the server returned a card with selectable options
-   *  (e.g. per-coach buttons on `/coach`). Not persisted — this map is
-   *  filled by the current turn's response only. */
-  messageActions?: Map<string, MessageActionItem[]>;
+  /**
+   * The server's own reply blocks, keyed by assistant message id.
+   *
+   * Filled by the turn that produced them: the pipeline read this surface's
+   * render capabilities and decided which pieces get their own block. Not
+   * persisted — a message with no entry is drawn from its transcript row.
+   */
+  messageBlocks?: Map<string, ReplyBlock[]>;
   insightMessageIds: Set<string>;
   /** Claim verdicts for the active conversation, keyed by message_id. */
-  verdicts?: ChatVerdictRow[];
+  verdicts?: ClaimVerdict[];
   /** Label shown above assistant turns — the active coach's name, or
    *  'Dravr' when the conversation has no coach attached. */
   assistantLabel?: string;
@@ -41,7 +42,6 @@ interface MessageListProps {
    *  in the streaming bubble alongside the token-delta text. */
   progressStatusText?: string | null;
   errorMessage: string | null;
-  errorCountdown: number | null;
   oauthNotification: OAuthNotification | null;
   onDismissError: () => void;
   onDismissOAuthNotification: () => void;
@@ -55,11 +55,11 @@ interface MessageListProps {
   onSubmitFeedbackReason: (messageId: string, comment: string) => void;
   onRetryMessage: (messageId: string) => void;
   /** Click handler for the verdict chip → open detail drawer. */
-  onShowVerdict?: (verdict: ChatVerdictRow) => void;
+  onShowVerdict?: (verdict: ClaimVerdict) => void;
   /** "Ask me about this claim" callback → ChatTab dispatches a follow-up. */
-  onAskAboutClaim?: (verdict: ChatVerdictRow) => void;
-  /** Click handler for interactive command action buttons. */
-  onActionClick?: (action: MessageActionItem) => void;
+  onAskAboutClaim?: (verdict: ClaimVerdict) => void;
+  /** Press handler for a control the reply's `actions` block carried. */
+  onActionClick?: (action: ChatMessageAction) => void;
 }
 
 export default function MessageList({
@@ -67,8 +67,7 @@ export default function MessageList({
   messageMetadata,
   messageFeedback,
   messageFeedbackComment,
-  activityLists,
-  messageActions,
+  messageBlocks,
   insightMessageIds,
   verdicts,
   assistantLabel,
@@ -77,7 +76,6 @@ export default function MessageList({
   streamingContent,
   progressStatusText,
   errorMessage,
-  errorCountdown,
   oauthNotification,
   onDismissError,
   onDismissOAuthNotification,
@@ -124,20 +122,6 @@ export default function MessageList({
         // Combine passed-in insight IDs with detected ones
         const isInsight = insightMessageIds.has(msg.id) || detectedInsightIds.has(msg.id);
 
-        // Resolve activity list: new API field first, then parse old baked-in content
-        let resolvedActivityList: string | undefined;
-        if (msg.role === 'assistant') {
-          const apiList = activityLists.get(msg.id);
-          if (apiList) {
-            resolvedActivityList = apiList;
-          } else {
-            const [parsed] = splitActivityContent(msg.content);
-            resolvedActivityList = parsed ?? undefined;
-          }
-        }
-
-        const actions = msg.role === 'assistant' ? messageActions?.get(msg.id) : undefined;
-
         return (
           <MessageItem
             key={msg.id}
@@ -147,8 +131,7 @@ export default function MessageList({
             feedbackComment={messageFeedbackComment.get(msg.id)}
             isError={msg.isError}
             hasInsight={isInsight}
-            activityList={resolvedActivityList}
-            actions={actions}
+            blocks={messageBlocks?.get(msg.id)}
             verdicts={verdicts}
             assistantLabel={assistantLabel}
             onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
@@ -252,11 +235,7 @@ export default function MessageList({
           </div>
           <div className="flex-1 pt-1">
             <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3">
-              <p className="text-error text-sm">
-                {errorCountdown !== null
-                  ? errorMessage.replace(/in \d+ seconds/, `in ${errorCountdown} seconds`)
-                  : errorMessage}
-              </p>
+              <p className="text-error text-sm">{errorMessage}</p>
               <button
                 onClick={onDismissError}
                 className="text-error hover:text-error text-xs mt-2 underline transition-colors"

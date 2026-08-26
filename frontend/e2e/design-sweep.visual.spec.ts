@@ -5,22 +5,20 @@
 // ABOUTME: Machine gates prove token mechanics; only a rendered screen proves it looks right
 
 import { test, expect, type Page } from '@playwright/test';
+import { webNavLabels } from '@pierre/shared-constants';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
 
 // A colour or primitive change touches dozens of files at once. Type-checks and
 // lint prove the classes exist; they cannot show that a status chip still reads
 // as a status chip. This sweep exists so that review has pixels to look at, and
 // so a reviewer can diff two runs instead of trusting a summary.
-const USER_SURFACES = [
-  'Chat',
-  'Coaches',
-  'Discover',
-  'Data Providers',
-  'Groups',
-  'Insights',
-  'Notifications',
-  'Usage',
-] as const;
+//
+// The athlete-facing surfaces come from the shared registry, not from a list
+// kept here. This file used to declare its own — a third surface declaration
+// beside the registry and the sidebar — which is exactly the drift source the
+// registry exists to remove: a surface added to the product reached neither
+// this sweep nor anyone's attention.
+const USER_SURFACES = webNavLabels();
 
 // Admin surfaces are where the dense-data patterns live — tables, filter rows,
 // status chips, verdict badges. They carry more colour per pixel than anything

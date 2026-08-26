@@ -1,11 +1,14 @@
 // ABOUTME: React Query hooks for push notification management
-// ABOUTME: Provides hooks for notification feed, unread count, preferences, and device tokens
+// ABOUTME: Provides hooks for notification feed, unread count, per-category preferences, and actions
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { QUERY_KEYS } from '../../../packages/shared-constants/src/query-keys';
 import { notificationsApi } from '../services/api';
-import type { ListNotificationsParams } from '@pierre/shared-types';
+import type {
+  ListNotificationsParams,
+  UpdateNotificationPreferenceRequest,
+} from '@pierre/shared-types';
 
 /**
  * Hook for fetching the notification feed with pagination and filtering.
@@ -106,7 +109,11 @@ export function useNotificationPreferences() {
   });
 
   const updatePreference = useMutation({
-    mutationFn: notificationsApi.updatePreference,
+    // Wrapped rather than passed by reference: React Query hands a mutation
+    // context as a second argument, and forwarding that into the api-client
+    // method would make the two clients' call shapes differ for no reason.
+    mutationFn: (request: UpdateNotificationPreferenceRequest) =>
+      notificationsApi.updatePreference(request),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.notifications.preferences(),

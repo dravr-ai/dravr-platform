@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use super::user_preferences as preferences;
 use super::Database;
 use crate::backends::shared;
 use crate::repositories::{ProfileRepository, UserRepository};
@@ -33,7 +34,7 @@ const USER_COLUMNS: &str = "id, email, display_name, password_hash, tier, \
      is_active, user_status, is_admin, role, approved_by, approved_at, \
      created_at, last_active, firebase_uid, auth_provider, \
      analytics_consent, analytics_consent_at, locale, \
-     coaching_persona, manages_roster, timezone";
+     coaching_persona, manages_roster, timezone, theme";
 
 impl Database {
     /// Create or update a user
@@ -186,7 +187,7 @@ impl Database {
                    u.is_active, u.user_status, u.is_admin, u.role, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
                    u.analytics_consent, u.analytics_consent_at, u.locale,
-                   u.coaching_persona, u.manages_roster, u.timezone
+                   u.coaching_persona, u.manages_roster, u.timezone, u.theme
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
             WHERE u.id = $1
@@ -300,6 +301,8 @@ impl Database {
         // assembly falls back to UTC at read time so the field stays
         // optional all the way through.
         let timezone: Option<String> = row.try_get("timezone").ok().flatten();
+        // theme — "light"/"dark" pin; NULL when the user follows the system.
+        let theme: Option<String> = row.try_get("theme").ok().flatten();
 
         // Derive role from explicit role column if present, otherwise from is_admin.
         // If is_admin is true but role says 'user' (e.g. seeder omitted role column
@@ -357,6 +360,7 @@ impl Database {
             coaching_persona,
             manages_roster,
             timezone,
+            theme,
         })
     }
 
@@ -1120,93 +1124,6 @@ impl Database {
             .ok_or_else(|| AppError::not_found("User after tier update"))
     }
 
-    /// Update user's analytics consent preference
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the user is not found or database update fails
-    pub async fn update_analytics_consent_impl(
-        &self,
-        user_id: Uuid,
-        enabled: bool,
-    ) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE users SET
-                analytics_consent = ?1,
-                analytics_consent_at = CURRENT_TIMESTAMP
-            WHERE id = ?2
-            ",
-        )
-        .bind(enabled)
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to update analytics consent: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-
-        Ok(())
-    }
-
-    /// Update user's preferred locale.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the user is not found or database update fails.
-    pub async fn update_user_locale_impl(&self, user_id: Uuid, locale: &str) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE users SET locale = ?1 WHERE id = ?2
-            ",
-        )
-        .bind(locale)
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to update user locale: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-
-        Ok(())
-    }
-
-    /// Set the user's coaching persona (output format / cadence preference).
-    ///
-    /// Persisted as `snake_case` enum text — the column has
-    /// `NOT NULL DEFAULT 'casual'` and the application-side `CoachingPersona`
-    /// enum is the source of truth for the allowed value set.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the user is not found or database update fails.
-    pub async fn set_coaching_persona_impl(
-        &self,
-        user_id: Uuid,
-        persona: CoachingPersona,
-    ) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE users SET coaching_persona = ?1 WHERE id = ?2
-            ",
-        )
-        .bind(persona.as_str())
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to set coaching persona: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-
-        Ok(())
-    }
-
     /// Update user's password hash
     ///
     /// # Errors
@@ -1308,37 +1225,22 @@ impl UserRepository for Database {
         Self::get_first_admin_user(self).await
     }
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()> {
-        Self::update_analytics_consent_impl(self, user_id, enabled).await
+        preferences::update_analytics_consent(&self.pool, user_id, enabled).await
     }
     async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {
-        Self::update_user_locale_impl(self, user_id, locale).await
+        preferences::update_locale(&self.pool, user_id, locale).await
     }
     async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()> {
-        Self::set_coaching_persona_impl(self, user_id, persona).await
+        preferences::set_coaching_persona(&self.pool, user_id, persona).await
     }
     async fn set_manages_roster(&self, user_id: Uuid, manages_roster: bool) -> AppResult<()> {
-        let result = sqlx::query("UPDATE users SET manages_roster = ?1 WHERE id = ?2")
-            .bind(i64::from(manages_roster))
-            .bind(user_id.to_string())
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to set manages_roster: {e}")))?;
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-        Ok(())
+        preferences::set_manages_roster(&self.pool, user_id, manages_roster).await
     }
     async fn set_timezone(&self, user_id: Uuid, timezone: &str) -> AppResult<()> {
-        let result = sqlx::query("UPDATE users SET timezone = ?1 WHERE id = ?2")
-            .bind(timezone)
-            .bind(user_id.to_string())
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to set timezone: {e}")))?;
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-        Ok(())
+        preferences::set_timezone(&self.pool, user_id, timezone).await
+    }
+    async fn set_theme(&self, user_id: Uuid, theme: Option<&str>) -> AppResult<()> {
+        preferences::set_theme(&self.pool, user_id, theme).await
     }
     async fn set_tier(&self, user_id: Uuid, tier: UserTier) -> AppResult<User> {
         Self::set_user_tier_impl(self, user_id, tier).await

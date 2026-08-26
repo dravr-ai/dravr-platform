@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::super::StoreListingsRepository;
-use super::coaches::row_to_coach_pg;
+use super::coaches_rows::{row_to_coach_pg, token_count_as_i32};
 use super::PostgresDatabase;
 use crate::database::store_listings::{CoachWithListing, StoreListing};
 use async_trait::async_trait;
@@ -122,13 +122,6 @@ fn row_to_coach_with_listing_pg(row: &PgRow) -> AppResult<CoachWithListing> {
     };
 
     Ok(CoachWithListing { coach, listing })
-}
-
-/// Convert a `u32` token count to `i32` for binding to `PostgreSQL` INTEGER columns.
-/// Token counts are bounded well within `i32` range (max ~25K tokens for 100K chars).
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-const fn token_count_as_i32(count: u32) -> i32 {
-    count as i32
 }
 
 impl PostgresDatabase {

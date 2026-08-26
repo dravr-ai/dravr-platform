@@ -4,10 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 
 const getAuthorizeUrlForProvider = vi.fn().mockResolvedValue('https://www.strava.com/oauth/authorize?x=1');
@@ -126,5 +127,47 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
 
     expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     expect(localStorage.getItem('pierre_oauth_result')).toBe(ok);
+  });
+
+  describe('the OAuth-callback poll is transient', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('keeps asking while no grant has landed — the callback lands in another tab', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
+      renderCards();
+      await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PROVIDER_LINK_POLL_INTERVAL_MS * 3);
+      });
+      await waitFor(() => expect(getProvidersStatus.mock.calls.length).toBeGreaterThan(1));
+    });
+
+    it('stops the moment a connection lands, instead of ticking for the life of the screen', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
+      renderCards();
+      await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(1));
+
+      // The grant completes in the other tab; the next poll sees it.
+      getProvidersStatus.mockResolvedValue({
+        providers: [{ ...stravaCard('oauth'), connected: true }],
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PROVIDER_LINK_POLL_INTERVAL_MS);
+      });
+      await waitFor(() => expect(screen.getByText('Connected')).toBeInTheDocument());
+
+      const callsWhenLanded = getProvidersStatus.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PROVIDER_LINK_POLL_INTERVAL_MS * 20);
+      });
+      expect(getProvidersStatus).toHaveBeenCalledTimes(callsWhenLanded);
+    });
   });
 });

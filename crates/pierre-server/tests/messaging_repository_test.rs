@@ -72,6 +72,7 @@ async fn create_test_message(
         content_body: Some("test"),
         correlation_id: "test-corr",
         raw_payload: None,
+        chat_message_id: None,
     };
     db.repositories()
         .messaging
@@ -439,6 +440,7 @@ async fn test_insert_message_returns_true_on_first_insert() {
         content_body: Some("Hello"),
         correlation_id: "corr-1",
         raw_payload: Some(r#"{"Body":"Hello"}"#),
+        chat_message_id: None,
     };
 
     let inserted = db
@@ -472,6 +474,7 @@ async fn test_insert_duplicate_message_returns_false() {
         content_body: Some("Hello"),
         correlation_id: "corr-1",
         raw_payload: None,
+        chat_message_id: None,
     };
     let first = db
         .repositories()
@@ -494,6 +497,7 @@ async fn test_insert_duplicate_message_returns_false() {
         content_body: Some("Hello again"),
         correlation_id: "corr-2",
         raw_payload: None,
+        chat_message_id: None,
     };
     let second = db
         .repositories()
@@ -528,6 +532,7 @@ async fn test_get_session_messages() {
             content_body: Some(&format!("Message {i}")),
             correlation_id: &format!("corr-{i}"),
             raw_payload: None,
+            chat_message_id: None,
         };
         db.repositories()
             .messaging
@@ -568,6 +573,7 @@ async fn test_get_session_messages_pagination() {
             content_body: Some("msg"),
             correlation_id: &format!("corr-{i}"),
             raw_payload: None,
+            chat_message_id: None,
         };
         db.repositories()
             .messaging

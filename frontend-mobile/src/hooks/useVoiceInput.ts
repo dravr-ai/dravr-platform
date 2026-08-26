@@ -2,8 +2,9 @@
 // ABOUTME: Wraps expo-speech-recognition with state management and error handling
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { getLocales } from 'expo-localization';
+import { useAuth } from '../contexts/AuthContext';
 import type {
   ExpoSpeechRecognitionErrorCode,
   ExpoSpeechRecognitionErrorEvent,
@@ -66,6 +67,9 @@ interface UseVoiceInputResult extends VoiceInputState {
 // Timeout duration for voice input (30 seconds)
 const VOICE_TIMEOUT_MS = 30000;
 
+// Used only when neither the athlete nor the device names a language.
+const FALLBACK_RECOGNITION_LOCALE = 'en-US';
+
 // Map expo-speech-recognition error codes to our typed errors
 function mapErrorCode(code: ExpoSpeechRecognitionErrorCode, message: string): VoiceError {
   switch (code) {
@@ -85,7 +89,30 @@ function mapErrorCode(code: ExpoSpeechRecognitionErrorCode, message: string): Vo
   }
 }
 
+/**
+ * The BCP-47 tag the recognizer listens in.
+ *
+ * The athlete's stored `users.locale` wins: it is the language every coach
+ * turn, notification and messaging reply is already written in, so dictation
+ * must listen in it too. That column holds a short code (`fr`), so when the
+ * device carries a tag in the same language its regional form (`fr-CA`) is
+ * used instead — same language, better pronunciation model. With no stored
+ * locale the device's own first tag stands alone.
+ */
+export function resolveRecognitionLocale(
+  storedLocale: string | undefined,
+  deviceTags: readonly string[],
+): string {
+  const languageOf = (tag: string): string => tag.toLowerCase().split('-')[0];
+  if (!storedLocale) {
+    return deviceTags[0] ?? FALLBACK_RECOGNITION_LOCALE;
+  }
+  const language = languageOf(storedLocale);
+  return deviceTags.find((tag) => languageOf(tag) === language) ?? storedLocale;
+}
+
 export function useVoiceInput(): UseVoiceInputResult {
+  const { user } = useAuth();
   const [state, setState] = useState<VoiceInputState>({
     isListening: false,
     transcript: '',
@@ -201,8 +228,10 @@ export function useVoiceInput(): UseVoiceInputResult {
         return;
       }
 
-      // Use device locale, defaulting to en-US
-      const locale = Platform.OS === 'ios' ? 'en-US' : 'en-US';
+      const locale = resolveRecognitionLocale(
+        user?.locale,
+        getLocales().map((deviceLocale) => deviceLocale.languageTag),
+      );
 
       // Start recognition with options
       ExpoSpeechRecognitionModule?.start({
@@ -237,7 +266,7 @@ export function useVoiceInput(): UseVoiceInputResult {
         },
       }));
     }
-  }, [state.isAvailable, clearTimeoutRef]);
+  }, [state.isAvailable, clearTimeoutRef, user?.locale]);
 
   const stopListening = useCallback(async () => {
     clearTimeoutRef();

@@ -233,6 +233,27 @@ pub mod defaults {
     pub const DEFAULT_ANALYTICS_CACHE_TTL_SECS: u64 = 3600; // 1 hour
 }
 
+/// Tool-loop iteration budget bounds.
+///
+/// One band shared by every writer and reader of the per-turn tool-call
+/// budget: the `coaches.max_tool_iterations` column, the
+/// `tool_execution.max_iterations` admin configuration parameter, and the
+/// chat pipeline that resolves the two into the budget for a turn. Held as
+/// `u16` so each consumer widens losslessly — `usize` for the loop counter,
+/// `i32` for the coach column, `i64` for the JSON config value.
+pub mod tool_execution {
+    /// Budget used when neither the coach nor the admin configuration sets one.
+    pub const DEFAULT_MAX_TOOL_ITERATIONS: u16 = 10;
+
+    /// Smallest accepted budget — one pass still lets the model call a tool
+    /// and answer from its result.
+    pub const MIN_MAX_TOOL_ITERATIONS: u16 = 1;
+
+    /// Largest accepted budget. Caps how long one turn can spend fanning out
+    /// tool calls before the loop must answer.
+    pub const MAX_MAX_TOOL_ITERATIONS: u16 = 50;
+}
+
 /// Configuration system constants
 pub mod configuration_system {
     /// Number of available configuration parameters in catalog

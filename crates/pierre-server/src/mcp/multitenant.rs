@@ -1114,8 +1114,6 @@ impl ProviderToolRouter {
         // CONDITIONAL IMPORTS - Based on feature flags
         // ═══════════════════════════════════════════════════════════════
 
-        #[cfg(feature = "transport-sse")]
-        use crate::agui::AgUiRoutes;
         #[cfg(feature = "client-api-keys")]
         use crate::routes::api_keys::ApiKeyRoutes;
         #[cfg(feature = "client-chat")]
@@ -1129,8 +1127,6 @@ impl ProviderToolRouter {
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
         use crate::routes::memory::MemoryRoutes;
-        #[cfg(feature = "openapi")]
-        use crate::routes::openapi::OpenApiRoutes;
         #[cfg(feature = "client-tenants")]
         use crate::routes::tenants::TenantRoutes;
         #[cfg(feature = "client-chat")]
@@ -1326,16 +1322,6 @@ impl ProviderToolRouter {
             ))
         };
 
-        // AG-UI event stream: clients subscribe per run_id to receive
-        // lifecycle, step, tool-call, and text-delta events while the
-        // chat pipeline runs. Feature-gated on `transport-sse` because
-        // AG-UI is delivered over SSE.
-        #[cfg(feature = "transport-sse")]
-        let app = app.merge(AgUiRoutes::routes(
-            (*resources.sse.agui_registry).clone(),
-            Arc::clone(&resources.auth.auth_middleware),
-        ));
-
         // ═══════════════════════════════════════════════════════════════
         // CLIENT-WEB ROUTES
         // ═══════════════════════════════════════════════════════════════
@@ -1375,8 +1361,26 @@ impl ProviderToolRouter {
             .merge(UsageRoutes::routes(Arc::clone(resources)))
             .merge(LlmConsumptionRoutes::routes(Arc::clone(resources)));
 
+        // The surface-capability catalogue the shared-constants generator
+        // reads. Public and stateless: compiled-in product capabilities, the
+        // same bytes for every caller.
+        #[cfg(all(feature = "client-chat", feature = "client-messaging"))]
+        let app = {
+            use crate::routes::surfaces::SurfaceRoutes;
+            app.merge(SurfaceRoutes::routes())
+        };
+
         // Phase B Sprint C5 — user-facing harness memory facts (list / forget)
         let app = app.merge(MemoryRoutes::routes(Arc::clone(resources)));
+
+        // The slash commands this caller may actually run. Resolved per caller
+        // through the same availability predicates `/help` asks, so the in-app
+        // palette advertises exactly what the messaging `/help` would list.
+        #[cfg(feature = "client-messaging")]
+        let app = {
+            use crate::routes::commands::CommandRoutes;
+            app.merge(CommandRoutes::routes(Arc::clone(resources)))
+        };
 
         // Runtime feature flags — self-read endpoint. The admin CRUD
         // endpoints come in through `AdminRoutes::cookie_admin_routes`
@@ -1473,13 +1477,6 @@ impl ProviderToolRouter {
             use pierre_routes_social::NotificationRoutes;
             app.merge(NotificationRoutes::routes(Arc::clone(resources)))
         };
-
-        // ═══════════════════════════════════════════════════════════════
-        // OPENAPI DOCUMENTATION ROUTES
-        // ═══════════════════════════════════════════════════════════════
-
-        #[cfg(feature = "openapi")]
-        let app = app.merge(OpenApiRoutes::routes());
 
         // ═══════════════════════════════════════════════════════════════
         // CSRF PROTECTION LAYER

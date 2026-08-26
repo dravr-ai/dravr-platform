@@ -5,7 +5,7 @@
 // ABOUTME: Provides autocomplete and type checking for translation keys
 
 import { useTranslation as useI18nextTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
+import type { i18n as I18nInstance, TFunction } from 'i18next';
 
 // Define the structure of translation keys based on the JSON files
 export interface TranslationKeys {
@@ -72,14 +72,31 @@ export interface TranslationKeys {
   validation: Record<string, string>;
 }
 
+/** What [`useTranslation`] hands a component. */
+export interface TranslationHandle {
+  /** Resolve a dot-notation key, e.g. `t('common.welcome')`. */
+  t: TFunction;
+  /** The live i18next instance, for imperative work like changing language. */
+  i18n: I18nInstance;
+  /** The locale currently rendering, e.g. `'fr'`. */
+  language: string;
+  /** Switch the rendered locale. Does NOT touch `users.locale` — use the language switcher for that. */
+  changeLanguage: I18nInstance['changeLanguage'];
+}
+
 /**
- * Type-safe translation hook
- * Usage: const { t } = useTranslation();
- * Then: t('common.welcome') or t('auth.loginFailed')
+ * Type-safe translation hook.
+ *
+ * Usage: `const { t } = useTranslation();` then `t('common.welcome')` or
+ * `t('auth.loginFailed')`.
+ *
+ * The return type is written out rather than inferred: inferring it names
+ * i18next through a relative `node_modules` path, which is not portable
+ * across the workspace packages that consume this one.
  */
-export function useTranslation() {
+export function useTranslation(): TranslationHandle {
   const { t, i18n } = useI18nextTranslation();
-  
+
   return {
     t: t as TFunction,
     i18n,

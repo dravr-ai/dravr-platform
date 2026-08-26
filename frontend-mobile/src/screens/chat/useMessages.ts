@@ -3,20 +3,18 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { type FlashListRef } from '@shopify/flash-list';
-import { v4 as uuidv4 } from 'uuid';
 import { chatApi } from '../../services/api';
-import { isInsightPrompt, detectInsightMessages, createInsightPrompt, filterDisplayMessages } from '@pierre/chat-utils';
+import { holdIdleWhileBusy, idleSignal } from '../../services/idleSignal';
+import { replySceneBlocks } from '@pierre/api-client';
+import type { ClaimVerdict, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
+import {
+  isInsightPrompt,
+  detectInsightMessages,
+  createInsightPrompt,
+  filterDisplayMessages,
+  statusTextForProgress,
+} from '@pierre/chat-utils';
 import type { Message } from '../../types';
-
-/**
- * Slash-command action button (e.g. per-coach select on `/coach`).
- * Attached to an assistant message for the current turn only.
- */
-export interface MessageActionItem {
-  label: string;
-  action_type: string;
-  value: string;
-}
 
 export interface MessagesState {
   messages: Message[];
@@ -26,27 +24,44 @@ export interface MessagesState {
   /** Saved thumbs-down reasons, keyed by message id. */
   messageFeedbackComment: Record<string, string>;
   insightMessages: Set<string>;
-  /** Activity lists keyed by assistant message ID (from new API field) */
-  activityLists: Record<string, string>;
   /**
-   * Slash-command action buttons keyed by assistant message id. Present
-   * when the server returned a card with selectable options (e.g.
-   * `/coach` → per-coach buttons). Not persisted — cleared on
-   * conversation switch; history re-renders show the text body only.
+   * What the server decided this turn draws, keyed by assistant message id.
+   *
+   * The pipeline read the mobile surface's render capabilities and produced
+   * this list — the activity panel, the controls, the chips, the reconnect
+   * call to action. Not persisted: a reloaded conversation has no block list
+   * on the wire, so the renderer decodes its rows back into the same shape.
    */
-  messageActions: Record<string, MessageActionItem[]>;
+  messageBlocks: Record<string, ReplyBlock[]>;
   /**
-   * AG-UI run id for the in-flight turn, or `null` between turns.
-   * Components pass this into `useAgUiProgress` to render pipeline
-   * progress (e.g. "reading your question…") while the assistant is
-   * working. Reset to `null` once the HTTP turn response lands.
+   * Claim verdicts attached to the loaded conversation's messages.
+   *
+   * The richer half of the same facts the turn's `verdicts` block carries:
+   * these rows come from the conversation's verdict read, so a chip on a
+   * message read back from history knows what was flagged too.
    */
-  aguiRunId: string | null;
+  verdicts: ClaimVerdict[];
+  /**
+   * The quota notice the turn's own pre-turn check reported, or `null`.
+   *
+   * Carries the counter, its cap and its reset instant, so the banner states
+   * what was actually measured instead of a countdown scraped out of prose.
+   */
+  quotaNotice: ReplyNotice | null;
+  /**
+   * What the in-flight turn is doing right now (e.g. "reading your
+   * question…"), or `null` between turns.
+   *
+   * Read off the turn's own response body — the same one the reply arrives
+   * on — so there is no second subscription to open and nothing to correlate.
+   * Reset to `null` once the turn lands.
+   */
+  progressText: string | null;
 }
 
 export interface MessagesActions {
   loadMessages: (conversationId: string) => Promise<void>;
-  sendMessage: (
+  sendTurn: (
     conversationId: string,
     messageText: string,
     onConversationNeeded?: () => Promise<string | null>
@@ -66,7 +81,7 @@ export interface MessagesActions {
   ) => Promise<void>;
   clearMessages: () => void;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-  setActivityLists: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  setMessageBlocks: React.Dispatch<React.SetStateAction<Record<string, ReplyBlock[]>>>;
   setIsSending: (sending: boolean) => void;
   scrollToBottom: () => void;
   flatListRef: React.RefObject<FlashListRef<Message> | null>;
@@ -79,9 +94,10 @@ export function useMessages(): MessagesState & MessagesActions {
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   const [messageFeedbackComment, setMessageFeedbackComment] = useState<Record<string, string>>({});
   const [insightMessages, setInsightMessages] = useState<Set<string>>(new Set());
-  const [activityLists, setActivityLists] = useState<Record<string, string>>({});
-  const [messageActions, setMessageActions] = useState<Record<string, MessageActionItem[]>>({});
-  const [aguiRunId, setAguiRunId] = useState<string | null>(null);
+  const [messageBlocks, setMessageBlocks] = useState<Record<string, ReplyBlock[]>>({});
+  const [verdicts, setVerdicts] = useState<ClaimVerdict[]>([]);
+  const [quotaNotice, setQuotaNotice] = useState<ReplyNotice | null>(null);
+  const [progressText, setProgressText] = useState<string | null>(null);
   const flatListRef = useRef<FlashListRef<Message>>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -146,6 +162,17 @@ export function useMessages(): MessagesState & MessagesActions {
       setMessageFeedback(ratings);
       setMessageFeedbackComment(comments);
 
+      // The verdict read is a separate endpoint, and a conversation that has
+      // none answers with an empty list. A failure here costs the chips and
+      // nothing else, so it must not take the transcript down with it.
+      try {
+        const verdictResponse = await chatApi.getConversationVerdicts(conversationId);
+        setVerdicts(verdictResponse.verdicts ?? []);
+      } catch (verdictErr) {
+        setVerdicts([]);
+        console.error('Failed to load claim verdicts:', verdictErr);
+      }
+
       deferredScrollToBottom(100);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load messages';
@@ -154,7 +181,7 @@ export function useMessages(): MessagesState & MessagesActions {
     }
   }, [deferredScrollToBottom]);
 
-  const sendMessage = useCallback(async (
+  const sendTurn = useCallback(async (
     conversationId: string,
     messageText: string,
   ) => {
@@ -172,78 +199,86 @@ export function useMessages(): MessagesState & MessagesActions {
     setMessages(prev => [...prev, userMessage]);
     deferredScrollToBottom(200);
 
-    // Fresh run id per turn — the SSE consumer in `useAgUiProgress`
-    // opens a subscription against `/api/agui/runs/{runId}/stream`
-    // while the REST request is in flight. Resetting to null in the
-    // `finally` below closes the subscription once the assistant
-    // reply has rendered via the REST response.
-    const runId = uuidv4();
-    setAguiRunId(runId);
+    setProgressText(null);
 
+    // The reply arrives already decomposed: the server read this surface's
+    // render capabilities and decided which pieces get their own block. Held
+    // until `onDone` supplies the assistant message id they are keyed by.
+    const turnBlocks: ReplyBlock[] = [];
+    // A streaming turn holds the client active: the athlete asked and is
+    // waiting, even with the screen untouched. Released in the finally so
+    // the idle threshold measures the quiet after the turn, not during it.
+    const releaseIdleHold = holdIdleWhileBusy();
     try {
-      const response = await chatApi.sendMessage(conversationId, messageText, {
-        aguiRunId: runId,
-      });
+      await chatApi.sendTurn(conversationId, messageText, {
+        // A turn left streaming into a backgrounded app holds a server instance
+        // open; the idle watch aborts it and the athlete re-sends on return.
+        signal: idleSignal(),
+        onProgress: progress => {
+          const text = statusTextForProgress(progress);
+          if (text !== null) setProgressText(text);
+        },
+        onBlock: block => {
+          // A quota notice is a fact about the turn rather than about the
+          // reply, and the usage banner is where it belongs. Everything else
+          // is part of the message and is drawn by the renderer's switch.
+          if (block.type === 'notice') {
+            setQuotaNotice(block.notice);
+            return;
+          }
+          turnBlocks.push(block);
+        },
+        onDone: turn => {
+          const assistantId = turn.assistant.message.id;
+          if (turnBlocks.length > 0 && assistantId) {
+            const blocks = [...turnBlocks];
+            setMessageBlocks(prev => ({ ...prev, [assistantId]: blocks }));
+          }
 
-      // Store activity list if the API returned one
-      if (response.activity_list && response.assistant_message?.id) {
-        setActivityLists(prev => ({
-          ...prev,
-          [response.assistant_message.id]: response.activity_list as string,
-        }));
-      }
-
-      // Slash-command responses (e.g. /coach) carry clickable action
-      // buttons. Attach them by assistant message id so the list
-      // renderer can show them below the body.
-      if (
-        Array.isArray(response.actions) &&
-        response.actions.length > 0 &&
-        response.assistant_message?.id
-      ) {
-        setMessageActions(prev => ({
-          ...prev,
-          [response.assistant_message.id]: response.actions as MessageActionItem[],
-        }));
-      }
-
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== userMessage.id);
-        const newMessages: Message[] = [];
-        if (response.user_message?.id) {
-          newMessages.push(response.user_message);
-        }
-        if (response.assistant_message?.id) {
-          newMessages.push({
-            ...response.assistant_message,
-            model: response.model,
-            execution_time_ms: response.execution_time_ms,
+          setMessages(prev => {
+            const filtered = prev.filter(m => m.id !== userMessage.id);
+            const newMessages: Message[] = [];
+            if (turn.user_message?.id) {
+              newMessages.push(turn.user_message);
+            }
+            if (assistantId) {
+              newMessages.push({
+                ...turn.assistant.message,
+                model: turn.telemetry.model,
+                execution_time_ms: turn.telemetry.execution_time_ms,
+                // The envelope carries the turn's scenes; without lifting them
+                // here the athlete reads the raw viz marker until the
+                // conversation is reloaded and the persisted row supplies them.
+                scene_blocks: replySceneBlocks(turn),
+              });
+            }
+            return [...filtered, ...newMessages];
           });
-        }
-        return [...filtered, ...newMessages];
+        },
+        onError: sendErr => {
+          setError(sendErr.message);
+          const errorResponse: Message = {
+            id: `error-${Date.now()}`,
+            role: 'assistant',
+            content: `⚠️ ${sendErr.message}\n\nPlease try again.`,
+            created_at: new Date().toISOString(),
+            isError: true,
+          };
+          setMessages(prev => {
+            const updated = prev.map(m =>
+              m.id === userMessage.id ? { ...m, id: `user-${Date.now()}` } : m
+            );
+            return [...updated, errorResponse];
+          });
+        },
       });
-      deferredScrollToBottom(200);
-    } catch (sendErr) {
-      const errorMsg = sendErr instanceof Error ? sendErr.message : 'Failed to send message';
-      setError(errorMsg);
-      const errorResponse: Message = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: `⚠️ ${errorMsg}\n\nPlease try again.`,
-        created_at: new Date().toISOString(),
-        isError: true,
-      };
-      setMessages(prev => {
-        const updated = prev.map(m =>
-          m.id === userMessage.id ? { ...m, id: `user-${Date.now()}` } : m
-        );
-        return [...updated, errorResponse];
-      });
-      deferredScrollToBottom(200);
     } finally {
-      setIsSending(false);
-      setAguiRunId(null);
+      releaseIdleHold();
     }
+
+    deferredScrollToBottom(200);
+    setIsSending(false);
+    setProgressText(null);
   }, [isSending, deferredScrollToBottom]);
 
   const createInsight = useCallback(async (
@@ -265,34 +300,41 @@ export function useMessages(): MessagesState & MessagesActions {
     const insightPrompt = createInsightPrompt(content);
     deferredScrollToBottom(200);
 
-    // Insight generation intentionally skips `aguiRunId` — the server
-    // refuses it on the insight path with a 400 because the insight
-    // endpoint returns a single JSON payload rather than a streaming
-    // pipeline run. Don't regress that contract.
+    // An insight answers as one JSON document rather than a frame stream, so
+    // no progress arrives and the strip stays hidden for the whole turn.
+    // A streaming turn holds the client active: the athlete asked and is
+    // waiting, even with the screen untouched. Released in the finally so
+    // the idle threshold measures the quiet after the turn, not during it.
+    const releaseIdleHold = holdIdleWhileBusy();
     try {
-      const response = await chatApi.sendMessage(resolvedConversationId, insightPrompt);
-
-      if (response.assistant_message?.id) {
-        setInsightMessages(prev => {
-          const updated = new Set(prev);
-          updated.add(response.assistant_message.id);
-          return updated;
-        });
-
-        setMessages(prev => [...prev, {
-          ...response.assistant_message,
-          model: response.model,
-          execution_time_ms: response.execution_time_ms,
-        }]);
-      }
-      deferredScrollToBottom(200);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to generate insight';
-      setError(errorMsg);
-      console.error('Failed to create insight:', err);
+      await chatApi.sendTurn(resolvedConversationId, insightPrompt, {
+        signal: idleSignal(),
+        onDone: turn => {
+          const insightId = turn.assistant.message.id;
+          if (!insightId) return;
+          setInsightMessages(prev => {
+            const updated = new Set(prev);
+            updated.add(insightId);
+            return updated;
+          });
+          setMessages(prev => [...prev, {
+            ...turn.assistant.message,
+            model: turn.telemetry.model,
+            execution_time_ms: turn.telemetry.execution_time_ms,
+            scene_blocks: replySceneBlocks(turn),
+          }]);
+        },
+        onError: err => {
+          setError(err.message);
+          console.error('Failed to create insight:', err);
+        },
+      });
     } finally {
-      setIsSending(false);
+      releaseIdleHold();
     }
+
+    deferredScrollToBottom(200);
+    setIsSending(false);
   }, [isSending, deferredScrollToBottom]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
@@ -306,49 +348,62 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(true);
     setError(null);
 
-    const runId = uuidv4();
-    setAguiRunId(runId);
+    setProgressText(null);
 
+    const retriedBlocks: ReplyBlock[] = [];
+    // A streaming turn holds the client active: the athlete asked and is
+    // waiting, even with the screen untouched. Released in the finally so
+    // the idle threshold measures the quiet after the turn, not during it.
+    const releaseIdleHold = holdIdleWhileBusy();
     try {
-      const response = await chatApi.sendMessage(conversationId, userMessage.content, {
-        aguiRunId: runId,
+      await chatApi.sendTurn(conversationId, userMessage.content, {
+        signal: idleSignal(),
+        onProgress: progress => {
+          const text = statusTextForProgress(progress);
+          if (text !== null) setProgressText(text);
+        },
+        onBlock: block => {
+          if (block.type === 'notice') {
+            setQuotaNotice(block.notice);
+            return;
+          }
+          retriedBlocks.push(block);
+        },
+        onDone: turn => {
+          const retriedId = turn.assistant.message.id;
+          if (!retriedId) return;
+          if (retriedBlocks.length > 0) {
+            const blocks = [...retriedBlocks];
+            setMessageBlocks(prev => ({ ...prev, [retriedId]: blocks }));
+          }
+          setMessages(prev => [...prev, {
+            ...turn.assistant.message,
+            model: turn.telemetry.model,
+            execution_time_ms: turn.telemetry.execution_time_ms,
+            // The envelope carries the turn's scenes; without lifting them here
+            // the athlete reads the raw viz marker until the conversation is
+            // reloaded and the persisted row supplies them.
+            scene_blocks: replySceneBlocks(turn),
+          }]);
+        },
+        onError: err => {
+          setError(err.message);
+          setMessages(prev => [...prev, {
+            id: `error-${Date.now()}`,
+            role: 'assistant',
+            content: `⚠️ ${err.message}\n\nPlease try again.`,
+            created_at: new Date().toISOString(),
+            isError: true,
+          }]);
+        },
       });
-
-      // Store activity list if the API returned one
-      if (response.activity_list && response.assistant_message?.id) {
-        setActivityLists(prev => ({
-          ...prev,
-          [response.assistant_message.id]: response.activity_list as string,
-        }));
-      }
-
-      setMessages(prev => {
-        if (response.assistant_message?.id) {
-          return [...prev, {
-            ...response.assistant_message,
-            model: response.model,
-            execution_time_ms: response.execution_time_ms,
-          }];
-        }
-        return prev;
-      });
-      deferredScrollToBottom(200);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to get response';
-      setError(errorMsg);
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: `⚠️ ${errorMsg}\n\nPlease try again.`,
-        created_at: new Date().toISOString(),
-        isError: true,
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      deferredScrollToBottom(200);
     } finally {
-      setIsSending(false);
-      setAguiRunId(null);
+      releaseIdleHold();
     }
+
+    deferredScrollToBottom(200);
+    setIsSending(false);
+    setProgressText(null);
   }, [messages, deferredScrollToBottom]);
 
   // Apply a rating change optimistically and persist it. Clicking the active
@@ -416,6 +471,7 @@ export function useMessages(): MessagesState & MessagesActions {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
+    setVerdicts([]);
     setError(null);
   }, []);
 
@@ -426,11 +482,12 @@ export function useMessages(): MessagesState & MessagesActions {
     messageFeedback,
     messageFeedbackComment,
     insightMessages,
-    activityLists,
-    messageActions,
-    aguiRunId,
+    messageBlocks,
+    verdicts,
+    quotaNotice,
+    progressText,
     loadMessages,
-    sendMessage,
+    sendTurn,
     createInsight,
     retryMessage,
     handleThumbsUp,
@@ -438,7 +495,7 @@ export function useMessages(): MessagesState & MessagesActions {
     submitFeedbackReason,
     clearMessages,
     setMessages,
-    setActivityLists,
+    setMessageBlocks,
     setIsSending,
     scrollToBottom,
     flatListRef,

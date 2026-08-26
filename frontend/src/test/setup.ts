@@ -2,6 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import '@testing-library/jest-dom'
+import { initI18n } from '@pierre/i18n'
 
 // Mock fetch for API calls
 global.fetch = vi.fn()
@@ -22,6 +23,13 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
       removeListener: () => {},
       dispatchEvent: () => false,
     }) as MediaQueryList
+}
+
+// Polyfill scrollIntoView — jsdom does not implement it, so any test that renders
+// a list which auto-scrolls to its bottom sentinel (MessageList) throws out of a
+// passive effect, which surfaces as an unhandled error rather than a test failure.
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {}
 }
 
 // Mock IntersectionObserver (not available in jsdom)
@@ -112,3 +120,15 @@ vi.mock('react-chartjs-2', () => ({
   Bar: vi.fn(() => 'Bar Chart'),
   Doughnut: vi.fn(() => 'Doughnut Chart'),
 }))
+// Initialize i18next for every test file. In production main.tsx does this
+// before the first render, so a component calling useTranslation() can assume
+// a live instance; without it here, any test rendering translated chrome
+// crashes on an undefined i18n. The persister rejects rather than no-opping:
+// a test that changes language must register the writer it means to assert,
+// so a missing client→server wire fails loudly instead of passing quietly.
+await initI18n({
+  persistLocale: () =>
+    Promise.reject(
+      new Error('No locale persister registered for this test — call initI18n({ persistLocale }).'),
+    ),
+})

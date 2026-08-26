@@ -16,6 +16,8 @@ import { PromptDialog } from '../../components/ui';
 import { SharePreviewModal } from '../../components/social';
 import { socialApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
+import { trustedActionUrl } from '@pierre/chat-utils';
+import type { ChatMessageAction } from '@pierre/shared-types';
 import type { ShareVisibility, Coach } from '../../types';
 
 import { ChatHeader } from './ChatHeader';
@@ -84,6 +86,11 @@ export function ChatScreen() {
       if (isAuthenticated) {
         coachSelection.loadCoaches();
         providerStatus.loadProviderStatus();
+        // Conversations can be opened from outside this screen — the group
+        // detail screen creates a group-scoped one and routes here by id. The
+        // id resolves against this list, so a stale list lands the athlete on
+        // an empty composer instead of the conversation they just opened.
+        void conversations.loadConversations();
         // Messaging turns arrive async via inbound webhook with no push to the
         // app. Reload the open conversation on focus so a reply sent from
         // Telegram (or any channel) appears without a manual pull-to-refresh.
@@ -167,6 +174,14 @@ export function ChatScreen() {
     }
   }, []);
 
+  // A turn's pre-turn quota check reports its counters as a `notice` reply
+  // block. Hand it to the banner, which is the one place a cap is stated.
+  const { quotaNotice } = messagesHook;
+  const { applyNotice } = usageStatus;
+  useEffect(() => {
+    if (quotaNotice) applyNotice(quotaNotice);
+  }, [quotaNotice, applyNotice]);
+
   // Message sending
   const handleSendMessage = useCallback(async () => {
     if (!inputText.trim() || messagesHook.isSending) return;
@@ -185,22 +200,29 @@ export function ChatScreen() {
 
     try {
       trackMobile({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
-      await messagesHook.sendMessage(conversationId, messageText);
+      await messagesHook.sendTurn(conversationId, messageText);
     } finally {
       usageStatus.invalidate();
     }
   }, [inputText, messagesHook, conversations, usageStatus]);
 
   /**
-   * Click handler for a slash-command action button (e.g. per-coach
-   * select on /coach). Postback actions send `value` as the next user
-   * message, flowing through the same dispatch pipeline a typed command
-   * would. URL actions open in the system browser via handleOpenUrl.
+   * Press handler for a control the reply's `actions` block carried.
+   *
+   * A `postback` sends its `value` as the next turn, so the press flows
+   * through the same dispatch pipeline a typed command would. A `url` opens
+   * its `value` in the system browser — but only after `trustedActionUrl`
+   * vouches for the host: the value reaches the client inside a
+   * model-adjacent reply, so an unvouched address is an open redirect wearing
+   * a button. A refused URL opens nothing.
    */
   const handleActionClick = useCallback(
-    async (action: { action_type: string; value: string }) => {
+    async (action: ChatMessageAction) => {
       if (action.action_type === 'url') {
-        await handleOpenUrl(action.value);
+        const target = trustedActionUrl(action.value, [
+          process.env.EXPO_PUBLIC_API_URL ?? '',
+        ]);
+        if (target) await handleOpenUrl(target);
         return;
       }
       // postback: send value as next turn. Uses existing handleSendMessage
@@ -266,7 +288,7 @@ export function ChatScreen() {
           setMessages: messagesHook.setMessages,
           setIsSending: messagesHook.setIsSending,
           scrollToBottom: messagesHook.scrollToBottom,
-          setActivityLists: messagesHook.setActivityLists,
+          setMessageBlocks: messagesHook.setMessageBlocks,
         });
       },
     });
@@ -279,7 +301,7 @@ export function ChatScreen() {
       setMessages: messagesHook.setMessages,
       setIsSending: messagesHook.setIsSending,
       scrollToBottom: messagesHook.scrollToBottom,
-      setActivityLists: messagesHook.setActivityLists,
+      setMessageBlocks: messagesHook.setMessageBlocks,
     });
   }, [coachSelection, conversations, messagesHook]);
 
@@ -310,7 +332,7 @@ export function ChatScreen() {
         return;
       }
     }
-    await messagesHook.sendMessage(conversationId, prompt);
+    await messagesHook.sendTurn(conversationId, prompt);
   }, [conversations, messagesHook]);
 
   // Provider modal handlers
@@ -464,8 +486,8 @@ export function ChatScreen() {
           messageFeedback={messagesHook.messageFeedback}
           messageFeedbackComment={messagesHook.messageFeedbackComment}
           insightMessages={messagesHook.insightMessages}
-          activityLists={messagesHook.activityLists}
-          messageActions={messagesHook.messageActions}
+          messageBlocks={messagesHook.messageBlocks}
+          verdicts={messagesHook.verdicts}
           flatListRef={messagesHook.flatListRef}
           onScrollToBottom={messagesHook.scrollToBottom}
           onCoachSelect={handleCoachSelect}
@@ -479,7 +501,7 @@ export function ChatScreen() {
           onActionClick={handleActionClick}
         />
 
-        <ChatProgressStrip runId={messagesHook.aguiRunId} />
+        <ChatProgressStrip statusText={messagesHook.progressText} />
 
         <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
 

@@ -350,22 +350,6 @@ describe('MessageItem', () => {
     });
   });
 
-  describe('context prefix stripping', () => {
-    it('should strip context prefix from message content', () => {
-      const messageWithContext: Message = {
-        id: 'msg-context',
-        role: 'assistant',
-        content: '[Context: User just connected Strava] Here is your analysis.',
-        created_at: new Date().toISOString(),
-      };
-
-      render(<MessageItem message={messageWithContext} />);
-
-      expect(screen.getByText('Here is your analysis.')).toBeInTheDocument();
-      expect(screen.queryByText(/Context:/)).not.toBeInTheDocument();
-    });
-  });
-
   describe('tool scaffolding stripping', () => {
     it('strips residual <tool_result> XML embedded in displayed content', () => {
       // Defensive guard: whole tool_call/tool_result rows are filtered out in

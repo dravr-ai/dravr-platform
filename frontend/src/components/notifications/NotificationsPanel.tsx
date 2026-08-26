@@ -28,9 +28,9 @@ import {
   NOTIFICATION_CATEGORIES,
   formatNotificationTime,
   formatCollapsedCount,
+  webNotificationRoute,
 } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
-import { resolveNotificationRoute } from './navigation';
 
 /** Map Lucide icon components by category for rendering */
 const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
@@ -69,12 +69,13 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
       // routing hint; the legacy `data.route` key was never wired on
       // the server side, so reading it left every Recovery / activity
       // notification stranded with no destination (web QA 2026-05-09).
-      // Resolve via the shared mapper so the panel and any future
-      // surface (slash-command card, push-tap handler) agree. Coach
-      // messages carry the conversation id on `data.id` and resolve to
-      // `chat/<id>` so the click opens the thread, not the empty picker.
+      // Resolved from the server's own screen vocabulary against the shared
+      // surface registry, so this panel, the mobile centre and any future
+      // surface land in the same place. Coach messages carry the conversation
+      // id on `data.id` and resolve to `chat/<id>`, which opens the thread
+      // rather than the empty picker.
       const data = item.data as Record<string, unknown> | undefined;
-      const route = resolveNotificationRoute(data);
+      const route = webNotificationRoute(data);
       if (route && onNavigate) {
         onNavigate(route);
       }
@@ -88,7 +89,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
         markAsRead(item.id);
       }
       const data = item.data as Record<string, unknown> | undefined;
-      const route = resolveNotificationRoute(data, action.id);
+      const route = webNotificationRoute(data, action.id);
       if (route && onNavigate) {
         onNavigate(route);
       }

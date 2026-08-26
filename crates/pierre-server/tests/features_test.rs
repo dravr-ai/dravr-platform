@@ -65,6 +65,4 @@ fn test_client_checks_with_default_features() {
 fn test_infrastructure_checks_with_default_features() {
     // With server-full, oauth should be enabled
     assert!(FeatureConfig::oauth());
-    // Note: openapi is NOT part of server-full by default
-    // It must be explicitly enabled with --features openapi
 }

@@ -5,17 +5,36 @@
 // ABOUTME: Displays group header info and delegates to sub-components for each tab
 
 import { useState } from 'react';
-import { ArrowLeft, Users, BarChart3, Link2, Settings, Crown, UserCog } from 'lucide-react';
-import { useGroup, useGroupMembers, useGroupStats, useUpdateGroup, useLeaveGroup, useDeleteGroup, useRemoveCoach } from '../../hooks/useGroups';
+import { ArrowLeft, Users, BarChart3, Link2, MessageSquare, Settings, Crown, UserCog, MessageCircle } from 'lucide-react';
+import {
+  useGroup,
+  useGroupMembers,
+  useGroupPermissions,
+  useGroupStats,
+  useUpdateGroup,
+  useUpdatePeerConsent,
+  useLeaveGroup,
+  useDeleteGroup,
+  useRemoveCoach,
+  useStartGroupConversation,
+} from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
 import { Card, Button, Tabs, TabPanel, Input, Textarea, Select, Checkbox, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import MemberList from './MemberList';
 import InviteManager from './InviteManager';
+import GroupInsightsPanel from './GroupInsightsPanel';
+import GroupTranscriptPanel from './GroupTranscriptPanel';
 import type { GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
 
 interface GroupDetailProps {
   groupId: string;
   onBack: () => void;
+  /**
+   * Dashboard route navigator, `tab[/subview]`. Opening a group chat routes to
+   * `chat/<conversationId>` so the freshly created group-scoped conversation
+   * is the one the chat tab mounts.
+   */
+  onNavigate: (route: string) => void;
 }
 
 const DETAIL_TABS = [
@@ -23,6 +42,11 @@ const DETAIL_TABS = [
     id: 'members',
     label: 'Members',
     icon: <Users className="w-4 h-4" />,
+  },
+  {
+    id: 'room',
+    label: 'Room',
+    icon: <MessageCircle className="w-4 h-4" />,
   },
   {
     id: 'stats',
@@ -47,14 +71,17 @@ const TREND_DISPLAY: Record<GroupTrend, { label: string; color: string }> = {
   declining: { label: 'Declining', color: 'text-warning' },
 };
 
-export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
+export default function GroupDetail({ groupId, onBack, onNavigate }: GroupDetailProps) {
   const { group, isLoading: isGroupLoading } = useGroup(groupId);
   const { members, isLoading: isMembersLoading } = useGroupMembers(groupId);
   const { stats, isLoading: isStatsLoading } = useGroupStats(groupId);
+  const { weeklyDigest } = useGroupPermissions();
   const { updateGroup, isPending: isUpdating } = useUpdateGroup(groupId);
+  const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
+  const { startConversation, isPending: isStartingChat } = useStartGroupConversation();
   const auth = useAuth();
   const showError = useErrorToast();
   const showSuccess = useSuccessToast();
@@ -85,6 +112,46 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
   const currentUserRole: GroupRole = currentMember?.role ?? 'member';
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin' || isOwner;
+
+  /**
+   * Set the caller's own peer-sharing consent. The route writes the caller's
+   * membership row and nothing else, so this switch is bound to
+   * `currentMember` — never to a row picked off the roster.
+   */
+  const handleConsentChange = async (consent: boolean) => {
+    try {
+      await updateConsent(consent);
+      showSuccess(
+        consent ? 'Sharing on' : 'Sharing off',
+        consent
+          ? 'Your training data is now readable by this group.'
+          : 'Your training data is no longer readable by this group.',
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update sharing consent';
+      showError('Update failed', message);
+    }
+  };
+
+  /**
+   * Open a chat scoped to this group. The conversation carries `group_id`,
+   * which is what turns on group context and the peer-grounding stage; a chat
+   * opened without it is a plain 1:1 with the group's coach persona.
+   */
+  const handleOpenGroupChat = async () => {
+    if (!group) return;
+    try {
+      const conversation = await startConversation({
+        groupId,
+        groupName: group.name,
+        coachId: group.coach_id,
+      });
+      onNavigate(`chat/${encodeURIComponent(conversation.id)}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to open group chat';
+      showError('Chat failed', message);
+    }
+  };
 
   const handleSaveSettings = async () => {
     if (!group) return;
@@ -198,8 +265,42 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
               )}
             </div>
           </div>
+
+          <Button
+            variant="primary"
+            onClick={handleOpenGroupChat}
+            loading={isStartingChat}
+            data-testid="group-chat-button"
+          >
+            <span className="flex items-center gap-2 whitespace-nowrap">
+              <MessageSquare className="w-4 h-4" />
+              Chat with Coach
+            </span>
+          </Button>
         </div>
       </div>
+
+      {/* The caller's own peer-sharing consent. The group can allow peer
+          sharing, but each athlete still decides whether their own training
+          data is part of it — and the web app had no control for it at all. */}
+      {currentMember && (
+        <div data-testid="peer-consent-card">
+          <Card variant="dark" className="!p-5">
+            <Checkbox
+              label="Share my training data with this group"
+              description={
+                group.peer_data_sharing
+                  ? 'Lets the coach compare you with the rest of the group. Applies to your membership only.'
+                  : 'Group sharing is off, so your data stays private either way.'
+              }
+              checked={currentMember.peer_sharing_consent}
+              disabled={isSavingConsent}
+              onChange={(e) => void handleConsentChange(e.target.checked)}
+              data-testid="peer-consent-switch"
+            />
+          </Card>
+        </div>
+      )}
 
       {/* Tab navigation */}
       <Tabs
@@ -219,6 +320,13 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
             currentUserId={currentUserId}
             isLoading={isMembersLoading}
           />
+        </Card>
+      </TabPanel>
+
+      {/* Room tab: the shared transcript every surface writes into */}
+      <TabPanel id="room" activeTab={activeTab}>
+        <Card variant="dark" className="!p-5">
+          <GroupTranscriptPanel groupId={groupId} />
         </Card>
       </TabPanel>
 
@@ -264,6 +372,14 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
             <p className="text-outline">No stats available yet.</p>
           </Card>
         )}
+
+        <div className="mt-4">
+          <GroupInsightsPanel
+            groupId={groupId}
+            isAdmin={isAdmin}
+            weeklyDigestEnabled={weeklyDigest}
+          />
+        </div>
       </TabPanel>
 
       {/* Invites tab */}

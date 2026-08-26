@@ -180,16 +180,18 @@ test.describe('Coach Data Requirements', () => {
     await createBtn.first().click();
     await page.waitForTimeout(300);
 
-    // Fill title (required) - first text input in the form
-    const titleInput = page.locator('input').first();
+    // Fill title (required) — the shared modal's title input
+    const titleInput = page.getByPlaceholder('e.g., Marathon Training Coach');
     await titleInput.fill('My Training Coach');
 
-    // Fill system prompt (required) - second textarea (first is description)
-    const systemPromptField = page.locator('textarea').nth(1);
+    // Fill system prompt (required)
+    const systemPromptField = page.getByPlaceholder(
+      "Define your coach's personality, expertise, and communication style..."
+    );
     await systemPromptField.fill('You are a training coach specialized in endurance.');
 
-    // Fill startup query - third textarea (after description and system prompt)
-    const startupField = page.locator('textarea').nth(2);
+    // Fill startup query
+    const startupField = page.getByPlaceholder(/What should the coach analyze on first message/);
     await startupField.fill('Analyze my recent training trends');
 
     // Enable pre-fetch
@@ -201,8 +203,8 @@ test.describe('Coach Data Requirements', () => {
     const activityInput = page.locator('input[type="number"]').first();
     await activityInput.fill('30');
 
-    // Submit the form
-    const submitBtn = page.getByRole('button', { name: /Create Coach/i }).last();
+    // Submit the form (the modal's submit button, not the header one)
+    const submitBtn = page.locator('button[type="submit"]', { hasText: 'Create Coach' });
     await submitBtn.click();
     await page.waitForTimeout(500);
 
@@ -233,13 +235,15 @@ test.describe('Coach Data Requirements', () => {
     await page.waitForTimeout(300);
 
     // Fill only required fields
-    const titleInput = page.locator('input').first();
+    const titleInput = page.getByPlaceholder('e.g., Marathon Training Coach');
     await titleInput.fill('Simple Coach');
-    const systemPromptField = page.locator('textarea').nth(1);
+    const systemPromptField = page.getByPlaceholder(
+      "Define your coach's personality, expertise, and communication style..."
+    );
     await systemPromptField.fill('You are a simple coach.');
 
-    // Submit without enabling pre-fetch
-    const submitBtn = page.getByRole('button', { name: /Create Coach/i }).last();
+    // Submit without enabling pre-fetch (the modal's submit button)
+    const submitBtn = page.locator('button[type="submit"]', { hasText: 'Create Coach' });
     await submitBtn.click();
     await page.waitForTimeout(500);
 

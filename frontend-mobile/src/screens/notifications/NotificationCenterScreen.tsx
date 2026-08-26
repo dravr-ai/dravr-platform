@@ -11,7 +11,7 @@ import {
   Image,
 } from 'react-native';
 import { NotificationDetailModal } from '../../components/notifications/NotificationDetailModal';
-import { resolveNotificationTarget } from '../../components/notifications/navigation';
+import { mobileNotificationTarget } from '@pierre/shared-constants';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -186,9 +186,10 @@ export function NotificationCenterScreen() {
 
   const handleDetailNavigate = useCallback((item: NotificationItem) => {
     // Resolve `data.screen` (coach messages carry the conversation id on
-    // `data.id`) to a grouped expo-router target. The legacy `data.route`
-    // key this once read was never wired server-side.
-    const target = resolveNotificationTarget(item.data);
+    // `data.id`) to a grouped expo-router target, through the same shared
+    // resolver the web panel uses. The legacy `data.route` key this once read
+    // was never wired server-side.
+    const target = mobileNotificationTarget(item.data);
     if (target) {
       router.push(target as never);
     }
@@ -200,7 +201,7 @@ export function NotificationCenterScreen() {
     }
     // Route to the screen specified in data with the action context. Coach
     // "Reply" resolves to the chat tab with the conversation preselected.
-    const target = resolveNotificationTarget(item.data, actionId);
+    const target = mobileNotificationTarget(item.data, actionId);
     if (target) {
       router.push(target as never);
     }

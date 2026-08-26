@@ -24,9 +24,8 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use crate::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_GUARDIAN_CONFIRM_PROMPT,
+    MessagingStringsRegistry, KEY_GUARDIAN_CONFIRM_PROMPT,
 };
 use pierre_tool_runtime::tool_execution::ToolLoopResult;
 
@@ -38,20 +37,18 @@ use pierre_tool_runtime::tool_execution::ToolLoopResult;
 /// Returns `true` when the stage fired so callers can skip LLM-content-aware
 /// post-processing (text guardrails, claim verification); returns `false`
 /// when no tool was parked and downstream stages should run normally.
+///
+/// `locale` is the turn's resolved BCP-47 short code, taken from
+/// [`crate::SurfaceProfile::locale`] — resolution happened at the ingress
+/// boundary, so this stage renders rather than re-derives.
 pub fn apply_guardian_confirm(
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
-    input: &TurnInput,
+    locale: &str,
     result: &mut ToolLoopResult,
 ) -> bool {
     let Some(confirm) = result.guardian_confirm.as_ref() else {
         return false;
     };
-
-    let locale = input
-        .locale
-        .as_deref()
-        .filter(|l| !l.is_empty())
-        .unwrap_or(DEFAULT_LOCALE);
 
     let message = messaging_strings_registry.render(
         KEY_GUARDIAN_CONFIRM_PROMPT,

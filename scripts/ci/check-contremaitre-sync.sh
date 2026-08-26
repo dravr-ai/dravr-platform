@@ -189,6 +189,22 @@ else
                 printf '%s\n' "$PHANTOM" | sed 's/^/   /'
                 TOOL_DRIFT=true
             fi
+
+            # Order, not just membership. contremaitre_test asserts EXPECTED_TOOLS
+            # is sorted, and Rust sorts &str by bytes: '_' (0x5F) lands before any
+            # lowercase letter, so search_coach_store precedes search_coaches. The
+            # set comparison above pipes through `sort -u` and cannot see this, and
+            # a hand-inserted name reads as correct to every human alphabet.
+            EXPECTED_ORDER="$(awk '/EXPECTED_TOOLS/{f=1} f{print} f&&/^\];/{exit}' "$EXPECTED_FILE" 2>/dev/null \
+                | grep -oE '"[a-z0-9_]+"' | tr -d '"' || true)"
+            if [[ -n "$EXPECTED_ORDER" ]] \
+               && ! diff -q <(printf '%s\n' "$EXPECTED_ORDER") \
+                            <(printf '%s\n' "$EXPECTED_ORDER" | LC_ALL=C sort) >/dev/null; then
+                echo -e "${RED}❌ EXPECTED_TOOLS is not in byte order — test_expected_tools_list_is_sorted will fail:${NC}"
+                diff <(printf '%s\n' "$EXPECTED_ORDER") \
+                     <(printf '%s\n' "$EXPECTED_ORDER" | LC_ALL=C sort) | sed 's/^/   /' | head -12
+                TOOL_DRIFT=true
+            fi
         fi
 
         # 3b. hardcoded total in configuration_mcp_integration_test.rs

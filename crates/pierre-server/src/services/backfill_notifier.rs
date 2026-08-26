@@ -35,12 +35,13 @@
 //! against an archived thread would be noise.
 
 use std::fmt::Write as _;
+use std::iter::once;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock, Weak};
 
 use async_trait::async_trait;
 use chrono::{Duration, TimeZone, Utc};
-use pierre_chat_pipeline::{PipelineHooks, TurnInput};
+use pierre_chat_pipeline::{PipelineHooks, ServedTurn, TurnRequest};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
     KEY_BACKFILL_READY, KEY_PROVIDER_REAUTH_REQUIRED,
@@ -60,9 +61,11 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress::addressing::reply_recipient;
+use crate::services::messaging_ingress::block_render::{channel_ceiling, fan_out};
+use crate::services::messaging_ingress::build_messaging_profile;
 use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
-use crate::services::messaging_ingress::{build_messaging_profile, compose_messaging_reply};
-use crate::services::outgoing::proactive_text;
+use pierre_chat_pipeline::TurnTelemetry;
+use pierre_services::messaging_broadcast::proactive_text;
 
 /// Max activities rendered inline in the completion notice; the rest collapse
 /// into a "… and N more" footer so a deep backfill can't flood the channel.
@@ -186,11 +189,18 @@ pub struct ReentryRequest<'a> {
 /// prepended to the analysis on delivery so the user SEES their activities,
 /// mirroring the live messaging path.
 pub struct ReentryReply {
-    /// The coach's in-persona analysis text.
-    pub content: String,
-    /// The `get_activities` `activity_list` prose captured from the turn, when
-    /// the re-entry called the tool. `None` when no list was produced.
-    pub activity_list: Option<String>,
+    /// The reply exactly as the channel will send it.
+    ///
+    /// A messaging surface has no activity panel, so the athlete's list is
+    /// already folded into this string by the pipeline — the push sends it
+    /// verbatim rather than composing it a second time.
+    pub body: String,
+    /// Whether the re-entry turn actually fetched the athlete's activities.
+    ///
+    /// The push exists to deliver a freshly backfilled history, so a coach
+    /// reply that never looked at it is discarded in favour of the templated
+    /// list rather than surfacing an analysis of nothing.
+    pub fetched_activities: bool,
 }
 
 /// Re-runs one chat-pipeline turn so the backfill-completion push can deliver a
@@ -207,7 +217,7 @@ pub trait ChatReentry: Send + Sync {
     async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply>;
 }
 
-/// Production [`ChatReentry`]: drives `pierre_chat_pipeline::run` through the
+/// Production [`ChatReentry`]: drives `pierre_chat_pipeline::execute` through the
 /// composition-root [`ServerContext`].
 ///
 /// Holds a [`Weak`] handle to break the DI-graph cycle — the context owns the
@@ -228,45 +238,66 @@ impl PipelineChatReentry {
     }
 }
 
+/// Whether a re-entry turn engaged with the athlete's activities, and so may be
+/// trusted to answer about them.
+///
+/// Reads `activity_list_captured` and deliberately does NOT scan `tools_called`
+/// for `get_activities`: the platform injects that tool name when it prefetches
+/// activities into the prompt on the model's behalf, so the name is present in
+/// turns where the model never looked at the data and answered with a refusal.
+/// Trusting the name would push that refusal to the athlete in place of the
+/// history they asked for.
+#[must_use]
+pub const fn engaged_with_activities(telemetry: &TurnTelemetry) -> bool {
+    telemetry.activity_list_captured
+}
+
 #[async_trait]
 impl ChatReentry for PipelineChatReentry {
     async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply> {
         let resources = self.ctx.upgrade()?;
-        let profile = build_messaging_profile(&resources, req.channel_type);
-        let mut ctx = resources.chat_pipeline_context();
-        // Honor the tenant's BYO LLM key for the synthesized turn, exactly as a
-        // live messaging turn does.
-        if let Some(provider) = resources
-            .resolve_byo_chat_provider(req.tenant_id, req.user_id)
-            .await
-        {
-            ctx.chat_provider = Some(provider);
-        }
-        let turn_input = TurnInput {
+        let profile = build_messaging_profile(&resources, req.channel_type, req.locale.to_owned());
+        let ctx = resources.chat_pipeline_context();
+        let channel_slug = req.channel_type.to_string();
+        let request = TurnRequest {
             conversation_id: req.conversation_id.to_owned(),
-            user_id: req.user_id.to_string(),
+            user_id: req.user_id,
             conversation_tenant_id: req.tenant_id,
             tool_tenant_id: req.tenant_id,
             content: req.prompt.to_owned(),
-            locale: Some(req.locale.to_owned()),
             // Fresh correlation id — this is a new (proactive) turn.
             turn_id: CoreTurnId::new(),
             // Proactive pushes land in the user's own DM conversation.
             ambient_context: None,
+            channel_type: &channel_slug,
+            is_direct_message: true,
+            sender_id: None,
+            self_served_prefix: None,
+            // No AG-UI wiring: this is a detached background turn, not a live
+            // request with a status placeholder to edit.
+            hooks: PipelineHooks::none(),
         };
-        // No AG-UI hooks: this is a detached background turn, not a live
-        // request with a status placeholder to edit.
-        let hooks = PipelineHooks::none();
-        match pierre_chat_pipeline::run(&ctx, turn_input, &profile, &hooks).await {
-            // Carry the activity_list the re-asked question produced (sorted per
-            // the user's wording) so the push prepends it like a live turn does.
-            Ok(result) if !result.content.trim().is_empty() => Some(ReentryReply {
-                content: result.content,
-                activity_list: result.activity_list,
-            }),
+        // Through the same turn service a live turn takes, so this synthesized
+        // reply spends the athlete's budget, honours their BYO LLM key and is
+        // refused by the same caps — a proactive push is a real model call, and
+        // a ladder of its own is how one stops being any of those things.
+        match pierre_chat_pipeline::execute(&ctx, request, &profile).await {
+            // The envelope's prose already carries the list the re-asked
+            // question produced (sorted per the user's wording), folded in
+            // exactly as a live messaging turn folds it.
+            Ok(ServedTurn::Pipeline(result)) if !result.assistant.prose().trim().is_empty() => {
+                Some(ReentryReply {
+                    body: result.assistant.prose().to_owned(),
+                    fetched_activities: engaged_with_activities(&result.telemetry),
+                })
+            }
+            // An empty reply, a slash command (the prompt is platform-authored
+            // and never one) or a caller-served turn (never requested here) all
+            // mean there is nothing to push: the notifier falls back to the
+            // templated activity list.
             Ok(_) => None,
             Err(e) => {
-                warn!(error = %e, "Backfill push: chat re-entry pipeline run failed");
+                warn!(error = %e, "Backfill push: chat re-entry turn failed");
                 None
             }
         }
@@ -753,9 +784,11 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // rendered from the warmed cache the backfill just wrote, is the SPINE
             // — the user ALWAYS receives the data they asked for, regardless of the
             // model. We still attempt an in-persona coach answer via chat re-entry,
-            // but only TRUST it when the model actually engaged with the data: a
-            // re-entry that called `get_activities` carries an `activity_list`. A
-            // re-entry that refused ("Ça sort de ce que je peux t'aider…"), offered
+            // but only TRUST it when the model actually engaged with the data:
+            // `activity_list_captured` is set only when the tool loop itself
+            // returned a list, never when the platform prefetched activities into
+            // the prompt on the model's behalf. A re-entry that refused ("Ça sort
+            // de ce que je peux t'aider…"), offered
             // to show instead of showing, or otherwise skipped the tool produced no
             // list — so we drop its text and render the list ourselves, never
             // surfacing a refusal on top of (or instead of) the user's own
@@ -770,21 +803,23 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     &locale,
                 )
                 .await
-                .filter(|r| r.activity_list.is_some())
+                .filter(|r| r.fetched_activities)
             {
-                Some(coach_reply) => compose_messaging_reply(
-                    coach_reply.activity_list.as_deref(),
-                    coach_reply.content,
-                    &self.strings,
-                    &locale,
-                ),
+                Some(coach_reply) => coach_reply.body,
                 None => self.render_list_body(&locale, &warmed),
             }
         };
 
         // Fresh turn — this is a proactive push, not a reply to the
         // originating turn.
-        let outgoing = proactive_text(channel_type, recipient, body);
+        // A warmed history can be long — a coach answer over a deep window, or
+        // the templated list itself. The channel accepts a bounded message and
+        // rejects anything past it, so the notice goes out as ordered parts,
+        // each inside the ceiling, rather than being dropped whole.
+        let parts = fan_out(
+            proactive_text(channel_type, recipient, body),
+            channel_ceiling(channel_type),
+        );
 
         // Load the channel config + adapter from the BOT/channel-owner tenant
         // (resolved via the channel link), NOT the user's own tenant — the
@@ -797,38 +832,46 @@ impl BackfillNotifier for ServerBackfillNotifier {
             return;
         };
 
-        if let Err(e) = adapter.send(&outgoing, &channel_config).await {
+        let push_user_id = user_id.to_string();
+        let failed = FailedOutbound {
+            message_tenant_id: tenant_id,
+            queue_tenant_id: channel_tenant_id,
+            session_id: &session_id,
+            user_id: Some(&push_user_id),
+            channel: &channel_str,
+        };
+        let mut remaining = parts.into_iter();
+        while let Some(outgoing) = remaining.next() {
+            let Err(e) = adapter.send(&outgoing, &channel_config).await else {
+                continue;
+            };
             warn!(error = %e, channel = %channel_str, "Failed to send backfill-ready notice on channel");
             // Path parity with the synchronous reply: a failed channel send (e.g.
             // Meta WhatsApp error 131047, out-of-24h-window/template-required) must
             // be persisted + queued for the background retry worker, not silently
             // dropped. The message row lands on the user/session tenant; the queue
             // row lands on the bot/channel-owner tenant so the worker resolves the
-            // right channel config on re-send.
-            let push_user_id = user_id.to_string();
-            if let Err(enqueue_err) = enqueue_failed_outbound(
-                self.repos.messaging.as_ref(),
-                adapter.as_ref(),
-                &outgoing,
-                &FailedOutbound {
-                    message_tenant_id: tenant_id,
-                    queue_tenant_id: channel_tenant_id,
-                    session_id: &session_id,
-                    user_id: Some(&push_user_id),
-                    channel: &channel_str,
-                },
-            )
-            .await
-            {
-                error!(error = %enqueue_err, "Backfill push: failed to enqueue dropped notice for retry");
+            // right channel config on re-send. The parts after it are queued too:
+            // sending them now would put a continuation in front of its opening.
+            for dropped in once(outgoing).chain(remaining.by_ref()) {
+                if let Err(enqueue_err) = enqueue_failed_outbound(
+                    self.repos.messaging.as_ref(),
+                    adapter.as_ref(),
+                    &dropped,
+                    &failed,
+                )
+                .await
+                {
+                    error!(error = %enqueue_err, "Backfill push: failed to enqueue dropped notice for retry");
+                }
             }
-        } else {
-            info!(
-                channel = %channel_str,
-                count = warmed.len().max(activity_count),
-                "Sent backfill-ready notice on channel"
-            );
+            return;
         }
+        info!(
+            channel = %channel_str,
+            count = warmed.len().max(activity_count),
+            "Sent backfill-ready notice on channel"
+        );
     }
 
     async fn push_provider_reauth(

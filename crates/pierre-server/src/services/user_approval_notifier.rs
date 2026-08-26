@@ -12,27 +12,19 @@
 //! is best-effort — failures are logged, never propagated, so a notification
 //! can't fail the approval.
 
-use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_REGISTRATION_APPROVED,
-};
-use pierre_core::models::messaging::{ChannelConfig, ChannelType};
+use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_REGISTRATION_APPROVED};
 use pierre_core::models::TenantId;
-use pierre_database::backends::MessagingRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::factory::create_adapter_from_config;
+use pierre_services::messaging_broadcast::send_to_linked_channels;
 use pierre_services::user_approval::UserApprovalNotifier;
-use serde_json::Value;
-use tracing::{info, warn};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::outgoing::proactive_text;
 
 /// Account-approved notifier: sends the approval email plus a localized message
 /// on each of the user's linked messaging channels.
@@ -70,95 +62,18 @@ impl ApprovalNotifier {
     }
 
     /// Send the approval message to each of the user's linked channels.
+    ///
+    /// Rendered per link locale through the shared proactive path — the same
+    /// one the notification messaging sink uses, so "which channels has this
+    /// user linked, and how do we reach them" is resolved in one place.
     async fn send_channel_messages(&self, user_id: Uuid, tenant_id: TenantId) {
-        let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
-        let links = match db
-            .list_user_channel_links(tenant_id, &user_id.to_string())
-            .await
-        {
-            Ok(links) => links,
-            Err(e) => {
-                warn!(error = %e, "Failed to list channel links for approval message");
-                return;
-            }
-        };
-        for link in &links {
-            self.send_one_channel(tenant_id, link).await;
-        }
-    }
-
-    /// Deliver the localized approval message to a single linked channel.
-    async fn send_one_channel(&self, tenant_id: TenantId, link: &Value) {
-        let Some(channel_str) = link.get("channel_type").and_then(Value::as_str) else {
-            return;
-        };
-        let Some(recipient) = link.get("channel_user_id").and_then(Value::as_str) else {
-            return;
-        };
-        let locale = link
-            .get("locale")
-            .and_then(Value::as_str)
-            .unwrap_or(DEFAULT_LOCALE);
-
-        let Ok(channel_type) = ChannelType::from_str(channel_str) else {
-            warn!(channel = %channel_str, "Unknown channel type for approval message");
-            return;
-        };
-
-        let Some((adapter, channel_config)) = self
-            .resolve_sender(tenant_id, channel_str, channel_type)
-            .await
-        else {
-            return;
-        };
-
-        let body = self.strings.render(KEY_REGISTRATION_APPROVED, locale, &[]);
-        let outgoing = proactive_text(channel_type, recipient.to_owned(), body);
-
-        if let Err(e) = adapter.send(&outgoing, &channel_config).await {
-            warn!(error = %e, channel = %channel_str, "Failed to send approval message on channel");
-        } else {
-            info!(channel = %channel_str, "Sent account-approved message on channel");
-        }
-    }
-
-    /// Resolve the channel adapter and its config for an outbound send, or
-    /// `None` (logged) when the channel is unconfigured or undeserializable.
-    async fn resolve_sender(
-        &self,
-        tenant_id: TenantId,
-        channel_str: &str,
-        channel_type: ChannelType,
-    ) -> Option<(Arc<dyn MessagingChannel>, ChannelConfig)> {
-        let raw_config = self.load_channel_config(tenant_id, channel_str).await?;
-        let adapter = create_adapter_from_config(channel_type, &raw_config)
-            .inspect_err(|e| {
-                warn!(error = %e, channel = %channel_str, "Failed to build adapter for approval message");
-            })
-            .ok()?;
-        let channel_config: ChannelConfig = serde_json::from_value(raw_config)
-            .inspect_err(|e| {
-                warn!(error = %e, "Failed to deserialize channel config for approval message");
-            })
-            .ok()?;
-        Some((adapter, channel_config))
-    }
-
-    /// Load the raw channel config JSON for a tenant + channel, or `None`
-    /// (logged) when absent or the lookup fails.
-    async fn load_channel_config(&self, tenant_id: TenantId, channel_str: &str) -> Option<Value> {
-        let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
-        match db.get_channel_config(tenant_id, channel_str).await {
-            Ok(Some(cfg)) => Some(cfg),
-            Ok(None) => {
-                warn!(channel = %channel_str, "No channel config for approval message");
-                None
-            }
-            Err(e) => {
-                warn!(error = %e, "Failed to load channel config for approval message");
-                None
-            }
-        }
+        send_to_linked_channels(
+            self.repos.messaging.as_ref(),
+            tenant_id,
+            user_id,
+            |locale| self.strings.render(KEY_REGISTRATION_APPROVED, locale, &[]),
+        )
+        .await;
     }
 }
 

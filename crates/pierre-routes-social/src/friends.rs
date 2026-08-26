@@ -19,8 +19,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 use uuid::Uuid;
 
 use pierre_core::errors::{AppError, ErrorCode};
@@ -38,7 +36,6 @@ use crate::{SocialMetadata, SocialRestRoutes};
 
 /// Response for a friend connection
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct FriendConnectionResponse {
     /// Connection ID
     pub id: String,
@@ -72,7 +69,6 @@ impl From<FriendConnection> for FriendConnectionResponse {
 
 /// Response for a friend connection with user info
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct FriendWithInfoResponse {
     /// Connection ID
     pub id: String,
@@ -98,7 +94,6 @@ pub struct FriendWithInfoResponse {
 
 /// Response for listing friends
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListFriendsResponse {
     /// List of friend connections with user info
     pub friends: Vec<FriendWithInfoResponse>,
@@ -114,7 +109,6 @@ pub struct ListFriendsResponse {
 
 /// Response for a pending friend request with user info
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PendingRequestWithInfoResponse {
     /// Connection ID
     pub id: String,
@@ -144,7 +138,6 @@ pub struct PendingRequestWithInfoResponse {
 
 /// Response for pending friend requests
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct PendingRequestsResponse {
     /// Requests sent by the user (includes receiver's info)
     pub sent: Vec<PendingRequestWithInfoResponse>,
@@ -156,7 +149,6 @@ pub struct PendingRequestsResponse {
 
 /// User profile for search results
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct UserProfileResponse {
     /// User ID
     pub id: String,
@@ -173,7 +165,6 @@ pub struct UserProfileResponse {
 
 /// Response for user search
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SearchUsersResponse {
     /// List of users
     pub users: Vec<UserProfileResponse>,
@@ -187,7 +178,6 @@ pub struct SearchUsersResponse {
 
 /// Request to send a friend request
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SendFriendRequestBody {
     /// ID of the user to send request to
     pub receiver_id: String,
@@ -195,7 +185,6 @@ pub struct SendFriendRequestBody {
 
 /// Request to respond to a friend request
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct RespondFriendRequestBody {
     /// Whether to accept the request
     pub accept: bool,
@@ -207,7 +196,6 @@ pub struct RespondFriendRequestBody {
 
 /// Query parameters for listing friends
 #[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListFriendsQuery {
     /// Maximum results
     pub limit: Option<i64>,
@@ -217,7 +205,6 @@ pub struct ListFriendsQuery {
 
 /// Query parameters for user search
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SearchUsersQuery {
     /// Search query string
     pub q: String,

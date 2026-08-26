@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the AG-UI protocol module in pierre-server
-// ABOUTME: Exercises event wire format, filter semantics, and RunRegistry fan-out
+// ABOUTME: Exercises event wire format, filter semantics, and in-process RunRegistry fan-out
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,20 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_core::models::TenantId;
 use pierre_mcp_server::agui::emitter::{AgUiSink, BroadcastSink, NoopSink};
 use pierre_mcp_server::agui::events::AgUiEventKind;
-use pierre_mcp_server::agui::{
-    AgUiEvent, AgUiEventFilter, AuthorizedSubscribe, PublishOutcome, RunOwner, RunRegistry,
-};
+use pierre_mcp_server::agui::{AgUiEvent, AgUiEventFilter, PublishOutcome, RunRegistry};
 use tokio::sync::broadcast;
-use uuid::Uuid;
-
-/// Synthetic owner for sink-level tests — real runs bind to the
-/// authenticated `user_id` and JWT `active_tenant_id`.
-fn test_owner() -> RunOwner {
-    RunOwner::new(Uuid::new_v4(), TenantId::generate())
-}
 
 /// Events serialize with the AG-UI spec's screaming-snake-case `type` tag
 /// so the wire format is interoperable with any AG-UI client.
@@ -74,7 +64,7 @@ async fn registry_subscribe_returns_none_for_unknown_run() {
 async fn broadcast_sink_fans_events_to_subscribers() {
     let registry = RunRegistry::new();
     let run_id = "run_fanout_test";
-    let _producer = registry.register(run_id, test_owner());
+    let _producer = registry.register(run_id);
     let Some(mut subscription) = registry.subscribe_self(run_id) else {
         panic!("subscribe must succeed for a registered run");
     };
@@ -101,7 +91,7 @@ async fn broadcast_sink_fans_events_to_subscribers() {
 async fn broadcast_sink_respects_filter_denies() {
     let registry = RunRegistry::new();
     let run_id = "run_filter_test";
-    let _producer = registry.register(run_id, test_owner());
+    let _producer = registry.register(run_id);
     let Some(mut subscription) = registry.subscribe_self(run_id) else {
         panic!("subscribe must succeed");
     };
@@ -137,7 +127,7 @@ async fn noop_sink_drops_events() {
 async fn late_subscribers_receive_replay_backlog() {
     let registry = RunRegistry::new();
     let run_id = "run_replay_test";
-    let _producer = registry.register(run_id, test_owner());
+    let _producer = registry.register(run_id);
     let sink = BroadcastSink::new(registry.clone(), AgUiEventFilter::default());
 
     // Emit three events BEFORE any subscriber exists.
@@ -167,38 +157,6 @@ async fn late_subscribers_receive_replay_backlog() {
     registry.unregister(run_id);
 }
 
-/// `authorize_and_subscribe` makes owner check + subscribe atomic.
-///
-/// The two steps run together under the registry shard guard so a
-/// concurrent `unregister` + `register` with a different owner
-/// cannot leak a stream against a slot the caller does not own.
-#[tokio::test]
-async fn authorize_and_subscribe_returns_forbidden_for_other_owner() {
-    let registry = RunRegistry::new();
-    let run_id = "run_toctou_test";
-    let owner = test_owner();
-    let other = test_owner();
-    let _producer = registry.register(run_id, owner);
-
-    match registry.authorize_and_subscribe(run_id, other) {
-        AuthorizedSubscribe::Forbidden => {}
-        AuthorizedSubscribe::Ok(_) => panic!("must not return Ok for non-owner"),
-        AuthorizedSubscribe::NotFound => panic!("run is registered, expected Forbidden"),
-    }
-
-    // Same owner gets through.
-    assert!(matches!(
-        registry.authorize_and_subscribe(run_id, owner),
-        AuthorizedSubscribe::Ok(_),
-    ));
-
-    // Unknown run is NotFound, not Forbidden.
-    assert!(matches!(
-        registry.authorize_and_subscribe("does_not_exist", owner),
-        AuthorizedSubscribe::NotFound,
-    ));
-}
-
 /// `publish` returns `NoSlot` for an unregistered run.
 ///
 /// The sink uses that signal to log a warning so operators can spot
@@ -212,7 +170,7 @@ async fn publish_distinguishes_no_slot_from_no_subscribers() {
     );
 
     let run_id = "run_no_subs_test";
-    let _producer = registry.register(run_id, test_owner());
+    let _producer = registry.register(run_id);
     // Registered but no subscribers connected yet → NoSubscribers,
     // and the event is buffered for replay.
     assert_eq!(
@@ -235,7 +193,7 @@ async fn publish_distinguishes_no_slot_from_no_subscribers() {
 async fn subscribe_after_publish_does_not_redeliver_on_receiver() {
     let registry = RunRegistry::new();
     let run_id = "run_no_redelivery_test";
-    let _producer = registry.register(run_id, test_owner());
+    let _producer = registry.register(run_id);
 
     // Publish one event, then subscribe — the event MUST appear in the
     // backlog once, and the live receiver MUST NOT yield it.
@@ -277,10 +235,10 @@ async fn run_scope_guard_unregisters_on_drop() {
     let registry = RunRegistry::new();
     let run_id = "run_scope_test";
     {
-        let _scope = registry.register_scoped(run_id, test_owner());
-        assert!(registry.owner_of(run_id).is_some());
+        let _scope = registry.register_scoped(run_id);
+        assert!(registry.subscribe_self(run_id).is_some());
         assert_eq!(registry.active_run_count(), 1);
     } // scope drops here
-    assert!(registry.owner_of(run_id).is_none());
+    assert!(registry.subscribe_self(run_id).is_none());
     assert_eq!(registry.active_run_count(), 0);
 }

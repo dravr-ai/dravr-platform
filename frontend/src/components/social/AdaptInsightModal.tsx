@@ -5,33 +5,9 @@
 // ABOUTME: Shows the adapted personalized content from the Dravr AI coach
 
 import { useState, useEffect } from 'react';
+import type { AdaptedInsight, SharedInsight } from '@pierre/shared-types';
 import { socialApi } from '../../services/api';
 import { Button, Modal } from '../ui';
-
-interface AdaptedInsight {
-  id: string;
-  user_id: string;
-  source_insight_id: string;
-  adapted_content: string;
-  adaptation_context: string | null;
-  created_at: string;
-}
-
-interface SharedInsight {
-  id: string;
-  user_id: string;
-  visibility: string;
-  insight_type: string;
-  sport_type: string | null;
-  content: string;
-  title: string | null;
-  training_phase: string | null;
-  reaction_count: number;
-  adapt_count: number;
-  created_at: string;
-  updated_at: string;
-  expires_at: string | null;
-}
 
 interface AdaptInsightModalProps {
   insightId: string;

@@ -20,15 +20,23 @@
 //!    token usage and model metadata, then re-reads the conversation
 //!    record so the caller can access updated `updated_at` / `summary`
 //!    fields.
+//!
+//! Both message writers also fan the row out to the group's shared room
+//! transcript (`group_transcript_entries`) when the conversation is
+//! group-bound, so every surface's group turns land in one queryable,
+//! consent-gated room view.
 
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_database::repositories::CoachingGroupRepository;
 
 use crate::turn::{CreateConversationResult, UserMessageResult};
 use pierre_config::environment::LlmProviderType;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
 use pierre_core::models::TenantId;
+use pierre_core::uuid_utils::parse_uuid;
 
 /// Validate the model and create a conversation.
 ///
@@ -65,11 +73,50 @@ pub async fn create_conversation(
     Ok(CreateConversationResult { conversation })
 }
 
+/// Fan a just-persisted user/assistant row out to the group's shared room
+/// transcript when the conversation is group-bound.
+///
+/// The entry is attributed to the conversation's member (`user_id`) for both
+/// speakers: a coach row is the reply that member received, so consent
+/// withholding hides the pair together. Non-group conversations append
+/// nothing.
+///
+/// # Errors
+///
+/// Returns database errors from the transcript append — the room transcript
+/// is turn persistence, and a silently missing row would replay as a hole in
+/// every member's shared view.
+async fn fan_out_to_group_transcript(
+    groups: &dyn CoachingGroupRepository,
+    conversation: &ConversationRecord,
+    tenant_id: TenantId,
+    user_id: &str,
+    speaker: TranscriptSpeaker,
+    content: &str,
+    source_message_id: &str,
+) -> AppResult<()> {
+    let Some(group_id) = conversation.group_id.as_deref() else {
+        return Ok(());
+    };
+    let tenant_str = tenant_id.to_string();
+    let entry = NewGroupTranscriptEntry {
+        group_id,
+        tenant_id: &tenant_str,
+        author_user_id: parse_uuid(user_id)?,
+        speaker,
+        content,
+        source_conversation_id: Some(&conversation.id),
+        source_message_id: Some(source_message_id),
+    };
+    groups.append_transcript_entry(&entry).await
+}
+
 /// Verify conversation ownership and persist the user message.
 ///
 /// Business rules:
 /// - Conversation must exist and belong to the user/tenant
 /// - Message is persisted before LLM dispatch (crash-safe)
+/// - Group-bound conversations fan the row out to the shared room transcript
 /// - Returns both message and conversation (for model/prompt access in LLM step)
 ///
 /// # Errors
@@ -79,6 +126,7 @@ pub async fn create_conversation(
 /// failure.
 pub async fn persist_user_message(
     database: &dyn ChatRepository,
+    groups: &dyn CoachingGroupRepository,
     conversation_id: &str,
     user_id: &str,
     tenant_id: TenantId,
@@ -104,6 +152,17 @@ pub async fn persist_user_message(
         content_blocks: None,
     };
     let message = database.add_message(&user_msg_params).await?;
+
+    fan_out_to_group_transcript(
+        groups,
+        &conversation,
+        tenant_id,
+        user_id,
+        TranscriptSpeaker::Member,
+        content,
+        &message.id,
+    )
+    .await?;
 
     Ok(UserMessageResult {
         message,
@@ -141,6 +200,8 @@ pub async fn get_conversation_history(
 /// Called after LLM dispatch + tool execution completes. Returns the
 /// persisted message record and updated conversation so the caller can
 /// observe `updated_at` / `summary` fields that moved as a result.
+/// Group-bound conversations fan the reply out to the shared room
+/// transcript, attributed to the member it answered.
 ///
 /// # Errors
 ///
@@ -148,6 +209,7 @@ pub async fn get_conversation_history(
 /// after saving. Returns database errors on message persistence failure.
 pub async fn persist_assistant_response(
     database: &dyn ChatRepository,
+    groups: &dyn CoachingGroupRepository,
     params: &AddMessageParams<'_>,
     tenant_id: TenantId,
 ) -> AppResult<(MessageRecord, ConversationRecord)> {
@@ -157,6 +219,17 @@ pub async fn persist_assistant_response(
         .get_conversation(params.conversation_id, params.user_id, tenant_id)
         .await?
         .ok_or_else(|| AppError::internal("Failed to get updated conversation"))?;
+
+    fan_out_to_group_transcript(
+        groups,
+        &conversation,
+        tenant_id,
+        params.user_id,
+        TranscriptSpeaker::Coach,
+        params.content,
+        &message.id,
+    )
+    .await?;
 
     Ok((message, conversation))
 }

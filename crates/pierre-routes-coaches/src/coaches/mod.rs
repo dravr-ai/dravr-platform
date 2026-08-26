@@ -10,6 +10,9 @@
 //! JWT authentication to identify the user and tenant.
 
 mod admin;
+/// Athlete-profile view + the pillar-context prompt block, shared by the
+/// coach-proposal REST route and the messaging auto-send.
+pub mod proposal_profile;
 /// Request and response types for coach API endpoints.
 pub mod types;
 mod user;
@@ -82,10 +85,6 @@ where
         .route(
             "/api/coaches/{id}/versions",
             get(versions::handle_list_versions::<C>),
-        )
-        .route(
-            "/api/coaches/{id}/versions/{version}",
-            get(versions::handle_get_version::<C>),
         )
         .route(
             "/api/coaches/{id}/versions/{version}/revert",

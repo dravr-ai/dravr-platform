@@ -331,6 +331,7 @@ fn test_user_creation_with_required_fields() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     assert_eq!(user.id, user_id);
@@ -379,6 +380,7 @@ fn test_user_serialization_roundtrip() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     let json = serde_json::to_string(&original_user).unwrap();
@@ -562,6 +564,7 @@ fn test_user_with_encrypted_tokens() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     // Verify tokens are present

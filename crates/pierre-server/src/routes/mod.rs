@@ -59,6 +59,14 @@ pub mod health_data;
 #[cfg(feature = "client-chat")]
 pub mod chat;
 
+/// Per-caller slash-command catalogue (`GET /api/commands`).
+///
+/// Needs the messaging feature: the command registry, its argument
+/// signatures and the handlers that answer `is_available` are all loaded
+/// under it. Without them there is no catalogue to resolve.
+#[cfg(feature = "client-messaging")]
+pub mod commands;
+
 /// Usage quota status routes
 #[cfg(feature = "client-chat")]
 pub mod usage;
@@ -100,14 +108,6 @@ pub mod user_mcp_tokens;
 #[cfg(feature = "client-messaging")]
 pub mod messaging;
 
-// ═══════════════════════════════════════════════════════════════
-// OPENAPI FEATURE
-// ═══════════════════════════════════════════════════════════════
-
-/// `OpenAPI` documentation routes (feature-gated)
-#[cfg(feature = "openapi")]
-pub mod openapi;
-
 /// GitHub webhook handler for the contremaitre source repository (push events).
 pub mod contremaitre_webhook;
 
@@ -121,6 +121,15 @@ pub mod endurance;
 /// to the user's local calendar day. Kept separate from billing so
 /// neither module accumulates unrelated endpoints.
 pub mod user_profile;
+
+/// Surface-capability catalogue (`GET /api/surfaces/capabilities`).
+///
+/// Needs both features: the table is only complete when the chat pipeline is
+/// compiled in to resolve it and every messaging channel is compiled in to
+/// report its transport. A partial catalogue would generate client constants
+/// that quietly omit surfaces.
+#[cfg(all(feature = "client-chat", feature = "client-messaging"))]
+pub mod surfaces;
 
 /// Chart images for messaging channels: signed short-TTL PNG URLs.
 pub mod viz;

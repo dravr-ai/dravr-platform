@@ -22,6 +22,7 @@
 use pierre_core::models::messaging::{CardAction, ChannelType, OutgoingMessage};
 
 use super::card_or_rich_text;
+use super::surface::messaging_render_profile;
 use pierre_core::models::TenantId;
 use pierre_database::backends::TenantRepository;
 use pierre_database::repositories::shorten_url;
@@ -115,10 +116,11 @@ async fn mint_connect_url(
 /// fails (the caller falls back to the plain web link).
 ///
 /// `body` is the localized prompt; the URL rides a `url` [`CardAction`], which
-/// renders as a native button on Telegram/Slack/Discord/Messenger. On
-/// `WhatsApp` (no native cards — [`super::card_or_rich_text`] consults the
-/// channel renderer's `supports_cards`) the reply is shaped at build time as
-/// rich text with the link as an autolinked `label: url` line.
+/// renders as a native button wherever the surface lays actions out as
+/// controls. Where it does not — `WhatsApp` today —
+/// [`super::card_or_rich_text`] reads the surface's `action_buttons`
+/// capability and shapes the reply at build time as rich text with the link
+/// as an autolinked `label: url` line.
 #[allow(clippy::too_many_arguments)]
 pub async fn build_connect_card_direct(
     resources: &ServerContext,
@@ -154,7 +156,7 @@ pub async fn build_connect_card_direct(
         channel_type,
         recipient_id: recipient_id.to_owned(),
         content: card_or_rich_text(
-            channel_type,
+            &messaging_render_profile(channel_type, locale).render,
             title,
             body,
             vec![CardAction {

@@ -12,7 +12,7 @@ use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
     GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupSummary,
     GroupTrend, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag,
-    MemberGroupComparison, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
+    MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
 };
 use pierre_core::models::FormBand;
 use pierre_core::models::TenantId;
@@ -937,20 +937,6 @@ impl GroupService {
     ) -> GroupAggregateStats {
         let aggregator = self.tier.aggregation_strategy();
         aggregator.aggregate_stats(snapshots)
-    }
-
-    /// Compare a member against group norms
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the member is not found in the snapshots.
-    pub fn compare_member(
-        &self,
-        user_id: Uuid,
-        snapshots: &[MemberFitnessSnapshot],
-    ) -> AppResult<MemberGroupComparison> {
-        let aggregator = self.tier.aggregation_strategy();
-        aggregator.compare_member(user_id, snapshots)
     }
 
     /// Get health flags for all members based on physiological thresholds.

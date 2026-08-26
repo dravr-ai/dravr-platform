@@ -6,6 +6,8 @@ import { Alert } from 'react-native';
 import { chatApi, coachesApi } from '../../services/api';
 import { extractErrorMessage } from '../../utils/errorMessages';
 import type { Coach, Message, Conversation } from '../../types';
+import type { ReplyBlock } from '@pierre/shared-types';
+import type { CreateConversationParams } from './useConversations';
 
 export interface CoachSelectionState {
   coaches: Coach[];
@@ -30,11 +32,11 @@ export interface CoachSelectionActions {
   startCoachConversation: (
     coach: Coach,
     options: {
-      createConversation: (params: { title: string; coach_id?: string }) => Promise<Conversation>;
+      createConversation: (params: CreateConversationParams) => Promise<Conversation>;
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
-      setActivityLists?: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+      setMessageBlocks?: React.Dispatch<React.SetStateAction<Record<string, ReplyBlock[]>>>;
     }
   ) => Promise<void>;
   setPendingCoachAction: (action: { coach: Coach } | null) => void;
@@ -108,11 +110,11 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
   const startCoachConversation = useCallback(async (
     coach: Coach,
     options: {
-      createConversation: (params: { title: string; coach_id?: string }) => Promise<Conversation>;
+      createConversation: (params: CreateConversationParams) => Promise<Conversation>;
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
-      setActivityLists?: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+      setMessageBlocks?: React.Dispatch<React.SetStateAction<Record<string, ReplyBlock[]>>>;
     }
   ) => {
     try {
@@ -137,30 +139,44 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
       };
       options.setMessages([userMessage]);
 
-      const response = await chatApi.sendMessage(conversation.id, initialMessage);
+      // The reply arrives already decomposed — the server read this surface's
+      // render capabilities and decided which pieces get their own block.
+      const openingBlocks: ReplyBlock[] = [];
+      await chatApi.sendTurn(conversation.id, initialMessage, {
+        onBlock: block => {
+          openingBlocks.push(block);
+        },
+        onDone: turn => {
+          const assistantId = turn.assistant.message.id;
+          if (openingBlocks.length > 0 && assistantId && options.setMessageBlocks) {
+            const blocks = [...openingBlocks];
+            options.setMessageBlocks(prev => ({ ...prev, [assistantId]: blocks }));
+          }
 
-      // Store activity list if the API returned one
-      if (response.activity_list && response.assistant_message?.id && options.setActivityLists) {
-        options.setActivityLists(prev => ({
-          ...prev,
-          [response.assistant_message.id]: response.activity_list as string,
-        }));
-      }
-
-      options.setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== userMessage.id);
-        const newMessages: Message[] = [];
-        if (response.user_message?.id) {
-          newMessages.push(response.user_message);
-        }
-        if (response.assistant_message?.id) {
-          newMessages.push({
-            ...response.assistant_message,
-            model: response.model,
-            execution_time_ms: response.execution_time_ms,
+          options.setMessages(prev => {
+            const filtered = prev.filter(m => m.id !== userMessage.id);
+            const newMessages: Message[] = [];
+            if (turn.user_message?.id) {
+              newMessages.push(turn.user_message);
+            }
+            if (assistantId) {
+              newMessages.push({
+                ...turn.assistant.message,
+                model: turn.telemetry.model,
+                execution_time_ms: turn.telemetry.execution_time_ms,
+              });
+            }
+            return [...filtered, ...newMessages];
           });
-        }
-        return [...filtered, ...newMessages];
+        },
+        onError: turnErr => {
+          // Through the same formatter every other refusal takes, so a quota
+          // 429 still names the limit it hit instead of degrading to the raw
+          // HTTP message.
+          const message = extractErrorMessage(turnErr, 'Failed to start coach conversation');
+          setError(message);
+          Alert.alert('Coach Error', message);
+        },
       });
       options.scrollToBottom();
     } catch (err) {

@@ -53,6 +53,7 @@ async fn seed_pg_user(db: &Database) -> Uuid {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     db.repositories()
         .users

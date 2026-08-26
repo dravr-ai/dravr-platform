@@ -209,6 +209,7 @@ impl TestServer {
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
             timezone: None,
+            theme: None,
         };
 
         let repos = self.database.repositories();

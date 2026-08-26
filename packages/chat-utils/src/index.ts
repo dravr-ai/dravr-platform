@@ -9,9 +9,15 @@ export {
   createInsightPrompt,
 } from './insight';
 
-// Message processing utilities
-export { stripContextPrefix, buildOutgoingMessage } from './message';
-export type { ProviderContextInput } from './message';
+// The trusted-domain gate a `url` reply action passes before a client opens it
+export { trustedActionUrl } from './action-url';
+
+// A turn's `notice` block -> the usage banner both clients show
+export { quotaNoticeBanner } from './quota';
+export type { QuotaBanner } from './quota';
+
+// Persisted transcript row -> the ReplyBlock list a live turn arrives in
+export { transcriptBlocks } from './blocks';
 
 // Activity list parsing (backward compat for old messages with baked-in content)
 export { splitActivityContent, countActivities } from './activity';
@@ -27,12 +33,8 @@ export {
 } from './conversation';
 export type { MessageChannelOrigin } from './conversation';
 
-// AG-UI progress event → status text mapping (shared by web + mobile)
-export {
-  statusTextForAguiEvent,
-  isTerminalAguiEvent,
-  type AguiEventWire,
-} from './agui';
+// Turn-progress event → status text mapping (shared by web + mobile)
+export { statusTextForProgress, THINKING_PLACEHOLDER } from './progress';
 
 // Inline visual blocks: split a reply on its positional markers, parse the
 // resolved scenes. Shared so web and mobile interleave prose and charts the

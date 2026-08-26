@@ -356,5 +356,6 @@ pub fn definition_to_create_request(definition: &CoachDefinition) -> CreateCoach
         example_inputs: definition.sections.example_inputs.clone(),
         example_outputs: definition.sections.example_outputs.clone(),
         success_criteria: definition.sections.success_criteria.clone(),
+        max_tool_iterations: None,
     }
 }

@@ -30,9 +30,10 @@ use pierre_evals::{
 };
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, VerdictLayer};
 
+use crate::envelope::VerdictChip;
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
-    DEFAULT_LOCALE, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
+    KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_core::models::TenantId;
 use pierre_llm::{ChatProvider, LlmProvider};
@@ -90,11 +91,11 @@ pub fn resolve_claim_judge(
 ///    case the per-turn locale heuristic in `messaging_ingress` misses
 ///    (a 4-word user question can't be detected, but the 200-word reply
 ///    can).
-/// 2. **Caller-supplied `locale`** — usually the per-turn locale that
-///    upstream code attempted to resolve from the user's input or
-///    `users.locale`. Honored verbatim when set.
-/// 3. **`DEFAULT_LOCALE`** — last resort.
-pub(crate) fn resolve_banner_locale(reply: &str, locale: Option<&str>) -> String {
+/// 2. **The turn's resolved `locale`** — [`crate::SurfaceProfile::locale`],
+///    settled once at the ingress boundary from the user's input, the
+///    channel link, and `users.locale`. Honored verbatim whenever the
+///    reply's own language is inconclusive.
+pub(crate) fn resolve_banner_locale(reply: &str, locale: &str) -> String {
     if let Some(info) = whatlang::detect(reply) {
         if info.is_reliable() {
             let detected = match info.lang() {
@@ -110,7 +111,7 @@ pub(crate) fn resolve_banner_locale(reply: &str, locale: Option<&str>) -> String
             }
         }
     }
-    locale.unwrap_or(DEFAULT_LOCALE).to_owned()
+    locale.to_owned()
 }
 
 /// Approximate "lead" of a coach reply for verification-banner deduplication.
@@ -250,6 +251,55 @@ const fn action_rank(action: ResolvedAction) -> u8 {
     }
 }
 
+/// The single user-facing affordance for a turn's flagged claims.
+///
+/// One flagged claim earns one warning. Which shape it takes is a surface
+/// capability — a chip rail, or a caveat written into the reply — and the two
+/// are variants of one enum rather than two independent outputs, so a surface
+/// cannot receive both. Web shipped banner *and* chips for a single claim
+/// before this type existed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WarnAffordance {
+    /// Structured chips beside an untouched reply.
+    Chips(Vec<VerdictChip>),
+    /// A caveat appended to the reply text, for a surface with no chip rail.
+    Banner(String),
+    /// Nothing worth surfacing — no claim resolved to a user-facing warning.
+    Silent,
+}
+
+/// Build the one affordance a set of flagged claims earns.
+///
+/// `renders_chips` is the surface capability, not a channel name.
+#[must_use]
+pub fn warn_affordance(
+    shown: &[(&str, bool)],
+    reply: &str,
+    renders_chips: bool,
+    banner_header: &str,
+) -> WarnAffordance {
+    if renders_chips {
+        if shown.is_empty() {
+            return WarnAffordance::Silent;
+        }
+        return WarnAffordance::Chips(
+            shown
+                .iter()
+                .map(|&(claim, contradicted)| VerdictChip {
+                    claim: claim.trim().to_owned(),
+                    contradicted,
+                })
+                .collect(),
+        );
+    }
+    let bullets = warning_bullets(shown, reply);
+    if bullets.is_empty() {
+        return WarnAffordance::Silent;
+    }
+    let body = bullets.join("\n");
+    WarnAffordance::Banner(format!("{reply}\n\n---\n{banner_header}\n{body}"))
+}
+
 /// Format the caveat bullets from the actionable problems.
 ///
 /// Lists each flagged claim verbatim so the reader can challenge or wave
@@ -293,12 +343,22 @@ pub fn warning_bullets(problems: &[(&str, bool)], reply: &str) -> Vec<String> {
 pub struct ClaimVerificationParams<'a> {
     /// Pipeline context providing the registries and corpus.
     pub ctx: &'a ChatPipelineContext,
+    /// `true` when the surface attaches verdicts to the reply as chips.
+    ///
+    /// The one input that decides which of the two affordances a flagged claim
+    /// gets. When set, the Warn path returns [`ClaimVerificationOutcome::chips`]
+    /// and leaves the reply text alone; when clear, it appends the caveat
+    /// banner and returns no chips. Never both — the web surface used to draw
+    /// the banner *and* the chips for a single flagged claim, telling the
+    /// athlete the same thing twice in two registers.
+    pub renders_chips: bool,
     /// Assistant reply text to scan.
     pub reply: &'a str,
     /// Parsed verification config (from the coach's prompt frontmatter).
     pub config: &'a VerificationConfig,
-    /// Resolved locale for Warn/Block fallback strings, `None` → default.
-    pub locale: Option<&'a str>,
+    /// The turn's resolved locale, used for the Warn/Block fallback strings
+    /// when the reply's own language cannot be detected.
+    pub locale: &'a str,
     /// User whose physiology backs the personalized snapshot.
     pub user_id: &'a str,
     /// Tenant owning the user's data (multi-tenant scoping for snapshot reads).
@@ -318,6 +378,10 @@ pub struct ClaimVerificationOutcome {
     /// Raw verdicts produced by the detector, kept together with their claims
     /// so the caller can persist them with the assistant `message_id`.
     pub pending_verdicts: Vec<(ExtractedClaim, VerdictOutcome)>,
+    /// The flagged claims to attach to the reply, populated only when
+    /// [`ClaimVerificationParams::renders_chips`] is set — which is exactly
+    /// when [`Self::content`] was left without a caveat banner.
+    pub chips: Vec<VerdictChip>,
 }
 
 /// Run `stage` under a panic boundary, degrading per the coach's configured
@@ -384,6 +448,7 @@ where
                     reply.to_owned()
                 },
                 pending_verdicts: Vec::new(),
+                chips: Vec::new(),
             }
         }
     }
@@ -425,6 +490,7 @@ pub async fn apply_claim_verification(
 async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificationOutcome {
     let ClaimVerificationParams {
         ctx,
+        renders_chips,
         reply,
         config,
         locale,
@@ -438,6 +504,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
         return ClaimVerificationOutcome {
             content: reply.to_owned(),
             pending_verdicts: Vec::new(),
+            chips: Vec::new(),
         };
     }
 
@@ -495,6 +562,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
             return ClaimVerificationOutcome {
                 content: reply.to_owned(),
                 pending_verdicts: Vec::new(),
+                chips: Vec::new(),
             };
         }
     };
@@ -502,11 +570,13 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
         return ClaimVerificationOutcome {
             content: reply.to_owned(),
             pending_verdicts: Vec::new(),
+            chips: Vec::new(),
         };
     }
 
     let problems = actionable_problems(&verdicts);
 
+    let mut chips = Vec::new();
     let content = if problems.is_empty() {
         reply.to_owned()
     } else {
@@ -524,15 +594,21 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
                         })
                     })
                     .collect();
-                let bullets = warning_bullets(&shown, reply);
-                if bullets.is_empty() {
-                    reply.to_owned()
-                } else {
-                    let header = ctx
-                        .messaging_strings_registry
-                        .get(KEY_VERIFICATION_WARN_SUFFIX, locale);
-                    let body = bullets.join("\n");
-                    format!("{reply}\n\n---\n{header}\n{body}")
+                // One affordance per flagged claim. A surface that attaches
+                // chips gets them and an untouched reply; a surface without
+                // chips gets the caveat banner written into the reply. The
+                // branch is here, at the single place the warning is produced,
+                // so the two cannot both fire.
+                let header = ctx
+                    .messaging_strings_registry
+                    .get(KEY_VERIFICATION_WARN_SUFFIX, locale);
+                match warn_affordance(&shown, reply, renders_chips, &header) {
+                    WarnAffordance::Chips(built) => {
+                        chips = built;
+                        reply.to_owned()
+                    }
+                    WarnAffordance::Banner(text) => text,
+                    WarnAffordance::Silent => reply.to_owned(),
                 }
             }
             ResolvedAction::Pass | ResolvedAction::RecordOnly => reply.to_owned(),
@@ -550,6 +626,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     ClaimVerificationOutcome {
         content,
         pending_verdicts: verdicts,
+        chips,
     }
 }
 

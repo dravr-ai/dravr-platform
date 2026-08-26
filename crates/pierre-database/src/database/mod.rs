@@ -49,6 +49,8 @@ pub mod memory;
 /// Multi-channel messaging gateway (channel configs, sessions, messages, queue)
 pub mod messaging;
 pub mod messaging_link_states;
+/// Reaction → chat-message resolution for the shared per-message feedback write
+pub mod messaging_reactions;
 /// Mobility features (stretching exercises and yoga poses)
 pub mod mobility;
 /// OAuth callback notification handling
@@ -103,6 +105,8 @@ pub mod user_oauth_tokens;
 pub mod user_onboarding;
 /// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (`SQLite`)
 pub mod user_physiological_profiles;
+/// Single-column preference writes on the users row (locale, persona, theme, …)
+pub mod user_preferences;
 /// Per-user rate-limit exemption table (`SQLite`) backing `UserRateLimitOverrideRepository`.
 pub mod user_rate_limit_overrides;
 /// Per-user admin tier override table (`SQLite`) backing `UserTierOverrideRepository`.

@@ -8,13 +8,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::field_update::FieldUpdate;
+
 /// Activity data requirements for coach startup context assembly
 ///
 /// Specifies exactly what activity data a coach needs pre-fetched
 /// before the first conversation turn, enabling deterministic data
 /// retrieval instead of relying on LLM interpretation of natural language.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ActivityDataRequirements {
     /// Number of activities to fetch
     pub count: u32,
@@ -87,7 +88,6 @@ impl ActivityDataRequirements {
 /// Defines what data should be pre-fetched before the coach conversation starts,
 /// separating deterministic data fetching from creative LLM analysis.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct DataRequirements {
     /// Activity data to pre-fetch
     #[serde(default)]
@@ -553,6 +553,14 @@ pub struct CreateCoachRequest {
     /// Success definition (from ## Success Criteria section)
     #[serde(default)]
     pub success_criteria: Option<String>,
+
+    /// Per-coach tool-loop iteration budget for a chat turn. `None` leaves the
+    /// coach on the admin configuration value, then the platform default.
+    /// Accepted range is
+    /// `MIN_MAX_TOOL_ITERATIONS ..= MAX_MAX_TOOL_ITERATIONS` from
+    /// [`crate::constants::tool_execution`].
+    #[serde(default)]
+    pub max_tool_iterations: Option<i32>,
 }
 
 /// Request to update an existing coach
@@ -588,6 +596,16 @@ pub struct UpdateCoachRequest {
     pub example_outputs: Option<String>,
     /// New `success_criteria` (if provided)
     pub success_criteria: Option<String>,
+
+    /// New per-coach tool-loop iteration budget.
+    /// [`FieldUpdate::Keep`] leaves the stored value untouched,
+    /// `FieldUpdate::Set(None)` clears it so the coach inherits the admin
+    /// configuration value again, and `FieldUpdate::Set(Some(v))` pins `v`.
+    /// Accepted range is
+    /// `MIN_MAX_TOOL_ITERATIONS ..= MAX_MAX_TOOL_ITERATIONS` from
+    /// [`crate::constants::tool_execution`].
+    #[serde(default, skip_serializing_if = "FieldUpdate::is_keep")]
+    pub max_tool_iterations: FieldUpdate<i32>,
 }
 
 /// Filter options for listing coaches

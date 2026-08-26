@@ -10,6 +10,7 @@ import type {
   McpToken,
   OAuthApp,
   OAuthAppCredentials,
+  ThemePreference,
   User,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
@@ -18,6 +19,19 @@ import { ENDPOINTS } from '../core/endpoints';
 export type { CoachingPersona, McpToken, User };
 
 // Types - aligned with actual backend responses
+
+/**
+ * A locale the platform speaks end to end: `SUPPORTED_LOCALES` on
+ * `PUT /api/user/locale`, and one column in the five-locale messaging string
+ * table. `fr` is the default the server falls back to.
+ */
+export type SupportedLocale = 'fr' | 'en' | 'es' | 'de' | 'pt';
+
+/** Echo returned by `PUT /api/user/locale` confirming what was stored. */
+export interface UpdateLocaleResponse {
+  message: string;
+  locale: SupportedLocale;
+}
 
 export interface UserStats {
   connected_providers: number;
@@ -184,6 +198,37 @@ export function createUserApi(axios: AxiosInstance) {
         { enabled }
       );
       return response.data;
+    },
+
+    // ==================== LOCALE ====================
+
+    /**
+     * Set the language the coach answers in (`users.locale`).
+     *
+     * The server owns reply language; the clients own chrome language. This
+     * is the one call that keeps them equal — the language switcher fires it
+     * on every change. The server accepts `fr`, `en`, `es`, `de` and `pt` and
+     * rejects anything else with `400`, so an unsupported tag surfaces as a
+     * failed switch rather than a silently ignored preference.
+     */
+    async updateLocale(locale: SupportedLocale): Promise<UpdateLocaleResponse> {
+      const response = await axios.put<UpdateLocaleResponse>(ENDPOINTS.USER.LOCALE, {
+        locale,
+      });
+      return response.data;
+    },
+
+    // ==================== THEME ====================
+
+    /**
+     * Persist the viewer's theme choice (`users.theme`) via
+     * `PUT /api/user/theme`. `light` / `dark` pin a scheme across devices;
+     * `null` means "follow the system". The server answers `204 No Content`,
+     * so there is nothing to return — callers fire this alongside the local
+     * theme flip and must never let a failed write block that flip.
+     */
+    async updateTheme(theme: ThemePreference): Promise<void> {
+      await axios.put(ENDPOINTS.USER.THEME, { theme });
     },
 
     // ==================== COACHING PERSONA ====================

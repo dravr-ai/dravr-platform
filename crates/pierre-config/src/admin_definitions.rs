@@ -3,9 +3,19 @@
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+//
+// file-size-ok: parameter catalog, not logic — 89 `ParameterDefinition` entries
+// across 23 `register_*` builders, each a flat literal of key, display name,
+// description, category, data type, default, and range. Every knob an operator
+// can turn costs its fixed block of lines here, so the length measures how much
+// of the platform is admin-configurable, not how complex this module is.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
+
+use pierre_core::constants::tool_execution::{
+    DEFAULT_MAX_TOOL_ITERATIONS, MAX_MAX_TOOL_ITERATIONS, MIN_MAX_TOOL_ITERATIONS,
+};
 
 use crate::admin_types::{boot_env, config_env, ConfigDataType, EnvBinding, ParameterRange};
 use crate::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
@@ -2180,6 +2190,41 @@ pub fn register_group_permissions<S: BuildHasher>(
             valid_range: None,
             enum_options: Some(vec!["admins_only".to_owned(), "everyone".to_owned()]),
             units: None,
+            scientific_basis: None,
+            env: None,
+            is_runtime_configurable: true,
+            requires_restart: false,
+        },
+    );
+}
+
+/// Register the `Tool Execution` catalog entry.
+///
+/// `tool_execution.max_iterations` is the tenant-wide tool-loop budget a chat
+/// turn gets when the coach carries no `max_tool_iterations` of its own. The
+/// range mirrors [`MIN_MAX_TOOL_ITERATIONS`] through [`MAX_MAX_TOOL_ITERATIONS`],
+/// the band the chat pipeline clamps to and the coach create/update route
+/// rejects outside of.
+pub fn register_tool_execution<S: BuildHasher>(defs: &mut HashMap<String, ParameterDefinition, S>) {
+    add_definition(
+        defs,
+        ParameterDefinition {
+            key: "tool_execution.max_iterations".to_owned(),
+            display_name: "Max Tool Iterations".to_owned(),
+            description: "Maximum tool-call rounds one chat turn may run before the \
+                model must answer from what it already has. Applies to every coach \
+                that does not set its own per-coach budget."
+                .to_owned(),
+            category: "tool_execution".to_owned(),
+            data_type: ConfigDataType::Integer,
+            default_value: serde_json::json!(DEFAULT_MAX_TOOL_ITERATIONS),
+            valid_range: Some(ParameterRange {
+                min: serde_json::json!(MIN_MAX_TOOL_ITERATIONS),
+                max: serde_json::json!(MAX_MAX_TOOL_ITERATIONS),
+                step: Some(1.0),
+            }),
+            enum_options: None,
+            units: Some("iterations".to_owned()),
             scientific_basis: None,
             env: None,
             is_runtime_configurable: true,

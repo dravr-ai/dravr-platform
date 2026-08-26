@@ -21,9 +21,12 @@ import { Feather } from '@expo/vector-icons';
 import { spacing, borderRadius, useThemeColors, useTheme } from '../../constants/theme';
 import type { AppearancePref } from '../../hooks/useAppearancePref';
 import { Input } from '../../components/ui';
+import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../contexts/AuthContext';
 import { userApi, oauthApi } from '../../services/api';
 import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
+import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
 import type { McpToken, ExtendedProviderStatus } from '../../types';
 import { BILLING_ENABLED } from '../../constants/features';
 // Destinations for the About rows. Same targets the web Settings screen links
@@ -102,6 +105,7 @@ export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const { pref: appearancePref, setPref: setAppearancePref } = useTheme();
+  const { t } = useTranslation();
 
   // Glassmorphism card style — derived per render so it tracks the active scheme.
   const glassCardStyle: ViewStyle = {
@@ -110,8 +114,15 @@ export function SettingsScreen() {
     borderColor: colors.border.default,
     borderRadius: 16,
   };
+  // `api_tokens` is the gate the web Settings screen already applies to its API
+  // Tokens tab. Mobile adopts the same key rather than minting long-lived MCP
+  // bearer credentials for every user by default.
+  const { flags: featureFlags } = useFeatureFlags();
+  const apiTokensEnabled = featureFlags[FEATURE_KEYS.apiTokens];
   const [tokens, setTokens] = useState<McpToken[]>([]);
+  const [showTokenManager, setShowTokenManager] = useState(false);
   const [showCreateToken, setShowCreateToken] = useState(false);
+  const [revokingTokenId, setRevokingTokenId] = useState<string | null>(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [newTokenName, setNewTokenName] = useState('');
   const [isCreatingToken, setIsCreatingToken] = useState(false);
@@ -126,10 +137,10 @@ export function SettingsScreen() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && apiTokensEnabled) {
       loadTokens();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, apiTokensEnabled]);
 
   // Reload provider status when screen comes into focus (e.g., after OAuth connection)
   useFocusEffect(
@@ -190,6 +201,39 @@ export function SettingsScreen() {
     } finally {
       setIsCreatingToken(false);
     }
+  };
+
+  /**
+   * Revoke one MCP token after an explicit confirm.
+   *
+   * A minted token is a long-lived bearer credential for the athlete's whole
+   * fitness history, so the mobile surface that creates them has to be able to
+   * take them back — the confirm mirrors the destructive-action pattern the
+   * rest of this screen uses for sign-out and provider disconnects.
+   */
+  const handleRevokeToken = (token: McpToken) => {
+    Alert.alert(
+      'Revoke Token',
+      `Revoke "${token.name}"? Any client still using it loses access immediately.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Revoke',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setRevokingTokenId(token.id);
+              await userApi.revokeMcpToken(token.id);
+              setTokens((prev) => prev.filter((t) => t.id !== token.id));
+            } catch {
+              Alert.alert('Error', 'Failed to revoke token');
+            } finally {
+              setRevokingTokenId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleChangePassword = async () => {
@@ -397,7 +441,7 @@ export function SettingsScreen() {
                 it a mobile-only user cannot see which provider is serving them
                 or supply their own. */}
             <TouchableOpacity
-              style={settingsRowStyle}
+              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
               onPress={() => router.push('/(app)/(tabs)/(settings)/ai-provider')}
               testID="settings-ai-provider-button"
             >
@@ -405,6 +449,24 @@ export function SettingsScreen() {
                 <Feather name="cpu" size={20} color={colors.text.secondary} />
               </View>
               <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>AI Provider</Text>
+              <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+            </TouchableOpacity>
+
+            {/* Notification preferences. The GET/PUT endpoints, the api-client
+                method and this hook all existed; nothing rendered them, so a
+                muted category could only be set from another client. */}
+            <TouchableOpacity
+              style={settingsRowStyle}
+              onPress={() => router.push('/(app)/(tabs)/(settings)/notification-preferences')}
+              testID="settings-notifications-button"
+            >
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <Feather name="bell" size={20} color={colors.text.secondary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>Notifications</Text>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>What reaches you, and when</Text>
+              </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
           </View>
@@ -441,20 +503,25 @@ export function SettingsScreen() {
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
-              onPress={() => setShowCreateToken(true)}
-              testID="settings-mcp-tokens-button"
-            >
-              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                <Feather name="key" size={20} color={colors.text.secondary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: colors.text.primary }}>MCP Tokens</Text>
-                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{tokens.length} active</Text>
-              </View>
-              <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-            </TouchableOpacity>
+            {/* Gated on `api_tokens`, the same flag the web Settings screen uses
+                for its API Tokens tab. It defaults off, so neither surface hands
+                out long-lived MCP bearer credentials unless a tenant turns it on. */}
+            {apiTokensEnabled && (
+              <TouchableOpacity
+                style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
+                onPress={() => setShowTokenManager(true)}
+                testID="settings-mcp-tokens-button"
+              >
+                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                  <Feather name="key" size={20} color={colors.text.secondary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, color: colors.text.primary }}>MCP Tokens</Text>
+                  <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{tokens.length} active</Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
@@ -512,17 +579,22 @@ export function SettingsScreen() {
 
         {/* Appearance Section — System / Light / Dark */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-appearance-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Appearance</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('settings.appearance')}</Text>
           <View style={glassCardStyle}>
             {(['system', 'dark', 'light'] as const).map((option, idx, arr) => {
               const isSelected = appearancePref === option;
-              const label = option === 'system' ? 'System' : option === 'dark' ? 'Dark' : 'Light';
+              const label =
+                option === 'system'
+                  ? t('settings.appearanceSystem')
+                  : option === 'dark'
+                    ? t('settings.appearanceDark')
+                    : t('settings.appearanceLight');
               const description =
                 option === 'system'
-                  ? 'Follow device setting'
+                  ? t('settings.appearanceSystemHint')
                   : option === 'dark'
-                    ? 'Boreal ink — recommended'
-                    : 'Boreal paper';
+                    ? t('settings.appearanceDarkHint')
+                    : t('settings.appearanceLightHint');
               const icon = option === 'system' ? 'smartphone' : option === 'dark' ? 'moon' : 'sun';
               const isLast = idx === arr.length - 1;
               return (
@@ -565,6 +637,15 @@ export function SettingsScreen() {
               );
             })}
           </View>
+        </View>
+
+        {/* Language Section — the switcher's only reachable home. It sets the
+            chrome language AND `users.locale`, so the coach answers in the
+            language the athlete reads the app in. */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-language-section">
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 4 }}>{t('settings.language')}</Text>
+          <Text style={{ fontSize: 13, color: colors.text.tertiary, marginBottom: 12 }}>{t('settings.languageDescription')}</Text>
+          <LanguageSwitcher serverLocale={user?.locale} />
         </View>
 
         {/* Usage Section */}
@@ -714,6 +795,98 @@ export function SettingsScreen() {
         </View>
       </ScrollView>
 
+      {/* MCP Token Manager — the list the mint flow never had. Without it a
+          minted bearer credential could not be taken back from the device that
+          created it. */}
+      <Modal
+        visible={showTokenManager}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowTokenManager(false)}
+      >
+        <View
+          className="flex-1 bg-black/70 justify-center"
+          style={{ paddingHorizontal: spacing.lg }}
+        >
+          <View
+            className="bg-surface-container-low p-5"
+            style={{ borderRadius: borderRadius.xl, maxHeight: '80%' }}
+            testID="mcp-token-manager"
+          >
+            <Text className="text-xl font-semibold text-on-surface mb-1 text-center">
+              MCP Tokens
+            </Text>
+            <Text className="text-sm text-on-surface-variant mb-4 text-center">
+              Bearer credentials external MCP clients use to read your fitness data.
+            </Text>
+
+            {tokens.length === 0 ? (
+              <Text
+                className="text-sm text-on-surface-variant text-center py-6"
+                testID="mcp-token-empty"
+              >
+                No active tokens.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }} testID="mcp-token-list">
+                {tokens.map((token) => (
+                  <View
+                    key={token.id}
+                    className="flex-row items-center py-3 border-b border-border-subtle"
+                    testID={`mcp-token-row-${token.id}`}
+                  >
+                    <View className="flex-1 pr-3">
+                      <Text className="text-base text-on-surface" numberOfLines={1}>
+                        {token.name}
+                      </Text>
+                      <Text className="text-xs text-on-surface-variant font-mono mt-0.5">
+                        {token.token_prefix}… · used {token.usage_count}×
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      className="px-3 py-1.5 rounded-md bg-error/20"
+                      onPress={() => handleRevokeToken(token)}
+                      disabled={revokingTokenId === token.id}
+                      testID={`revoke-token-${token.id}`}
+                    >
+                      {revokingTokenId === token.id ? (
+                        <ActivityIndicator size="small" color={colors.error} />
+                      ) : (
+                        <Text className="text-error text-sm font-semibold">Revoke</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <View className="flex-row gap-3 mt-5">
+              <TouchableOpacity
+                className="flex-1 py-3 rounded-full items-center"
+                style={{ backgroundColor: colors.background.tertiary }}
+                onPress={() => setShowTokenManager(false)}
+                testID="close-token-manager"
+              >
+                <Text className="text-base font-semibold text-on-surface">Close</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="flex-1 py-3 rounded-full items-center"
+                style={{ backgroundColor: colors.pierre.violet }}
+                onPress={() => {
+                  setShowTokenManager(false);
+                  setShowCreateToken(true);
+                }}
+                testID="new-token-button"
+              >
+                <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>
+                  New Token
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Create Token Modal */}
       <Modal
         visible={showCreateToken}
@@ -749,7 +922,10 @@ export function SettingsScreen() {
                   onPress={() => {
                     setShowCreateToken(false);
                     setNewToken(null);
+                    // Back to the list, where the new token is now revocable.
+                    setShowTokenManager(true);
                   }}
+                  testID="token-created-done"
                 >
                   <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Done</Text>
                 </TouchableOpacity>

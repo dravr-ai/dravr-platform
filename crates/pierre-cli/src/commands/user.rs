@@ -115,6 +115,7 @@ async fn update_existing_admin_user(
         coaching_persona: existing_user.coaching_persona,
         manages_roster: existing_user.manages_roster,
         timezone: existing_user.timezone.clone(),
+        theme: existing_user.theme,
     };
 
     repos.users.create(&updated_user).await?;
@@ -229,6 +230,7 @@ fn build_admin_user(
         coaching_persona: CoachingPersona::default(),
         manages_roster: false,
         timezone: None,
+        theme: None,
     }
 }
 

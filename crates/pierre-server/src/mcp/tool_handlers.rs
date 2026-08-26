@@ -20,7 +20,7 @@ use dravr_tronc::mcp::tool::ToolContext;
 use pierre_auth::auth::AuthMethod as AuthResultMethod;
 use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::TenantContext;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{ConversationTurnId, UserTier};
 use pierre_core::models::{OAuthNotification, TenantId};
@@ -29,6 +29,7 @@ use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
+use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
 use pierre_services::usage_counter::{increment_counter, UsageCounterService};
 use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::guardian::{self, DenyReason, GateOutcome, TurnKey};
@@ -730,62 +731,54 @@ impl ToolHandlers {
         }
     }
 
-    /// Check daily and weekly tool call quotas before executing a tool
+    /// Check the usage caps that apply to a direct `POST /mcp` tool call.
+    /// Returns `Some(McpResponse)` with a JSON-RPC error if any cap is
+    /// breached, or `None` if execution is allowed.
     ///
-    /// Returns `Some(McpResponse)` with a JSON-RPC error if any quota is exceeded,
-    /// or `None` if execution is allowed. Uses the same `daily_tool_calls` and
-    /// `weekly_tool_calls` counters as the chat route for shared budget enforcement.
-    /// Admin and owner roles bypass quota enforcement entirely.
+    /// The decision belongs to [`pierre_services::quota_policy::check_quotas`]
+    /// with [`QuotaSurface::McpToolCall`]: the same account ladder, tier
+    /// resolution, tier-default degradation and `QUOTA_BYPASS_USER_IDS`
+    /// allow-list a chat turn passes — plus the `daily_tool_calls` /
+    /// `weekly_tool_calls` ladder this path increments after a tool runs.
+    /// A second local implementation once resolved thresholds itself and
+    /// exempted the admin role, which chat never did — the same account was
+    /// refused at two different doors. Only the JSON-RPC shaping is local.
     async fn check_tool_quota(
         resources: &Arc<ServerContext>,
         tenant_context: &TenantContext,
         user_id: Uuid,
         request_id: Option<Value>,
     ) -> Option<McpResponse> {
-        // Admin role bypasses quota enforcement for debugging and testing.
-        // Owners (tenant creators) remain subject to quotas as cost control.
-        if let Ok(Some(role)) = resources
-            .common
-            .repos
-            .tenants
-            .get_user_role(user_id, tenant_context.tenant_id)
-            .await
-        {
-            if role == "admin" {
-                debug!("Skipping MCP tool quota check for admin user {}", user_id);
-                return None;
-            }
-        }
-
-        let tenant_id_str = tenant_context.tenant_id.to_string();
-        let user_id_str = user_id.to_string();
-        let tier = Self::resolve_user_tier(resources, user_id).await;
-        // Degrade to tier defaults when admin config is unavailable
-        // rather than skipping enforcement.
-        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
-            Some(c) => c,
-            None => default_admin_config(),
+        let inputs = QuotaPolicyInputs {
+            repos: resources.common.repos.as_ref(),
+            admin_config: resources
+                .coach
+                .admin_config
+                .as_deref()
+                .map(|c| c as &dyn AdminConfigLookup),
         };
-        let usage_svc =
-            UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
-
-        // Check daily, then weekly quota
-        for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
-            if let Some(response) = Self::check_single_quota(
-                &usage_svc,
-                &tenant_id_str,
-                &user_id_str,
-                counter_type,
-                &tier,
-                request_id.clone(),
-            )
-            .await
-            {
-                return Some(response);
+        match check_quotas(
+            &inputs,
+            tenant_context.tenant_id,
+            user_id,
+            &QuotaSurface::McpToolCall,
+        )
+        .await
+        {
+            Ok(_) => None,
+            Err(e) if e.code == ErrorCode::QuotaExceeded => {
+                warn!(
+                    user_id = %user_id,
+                    tenant_id = %tenant_context.tenant_id,
+                    "Tool call quota exceeded: {}", e.message
+                );
+                Some(Self::build_rate_limit_error(request_id, &e))
+            }
+            Err(e) => {
+                warn!("Failed to check tool call quota: {e}");
+                None
             }
         }
-
-        None
     }
 
     /// Resolve the user's tier from the `users` row. Falls back to
@@ -799,7 +792,13 @@ impl ToolHandlers {
         }
     }
 
-    /// Check a single quota counter and return an error response if exceeded
+    /// Check one `get_activities` mode counter and return an error response if
+    /// the hard limit is breached.
+    ///
+    /// Scoped to the activity-mode ladder, which is a per-tool token-cost guard
+    /// rather than an account cap: it is keyed on the arguments of a single
+    /// tool, so it has no chat-turn counterpart and does not belong in the
+    /// shared policy.
     async fn check_single_quota(
         usage_svc: &UsageCounterService<'_>,
         tenant_id: &str,
@@ -819,42 +818,43 @@ impl ToolHandlers {
                     current = check.current,
                     limit = check.limit,
                     counter_type,
-                    "Tool call quota exceeded"
+                    "Activity quota exceeded"
                 );
                 Some(Self::build_rate_limit_error(
                     request_id,
-                    counter_type,
-                    check.current,
-                    check.limit,
-                    &check.resets_at,
+                    &AppError::quota_exceeded(
+                        counter_type,
+                        check.current,
+                        check.limit,
+                        &check.resets_at,
+                    ),
                 ))
             }
             Err(e) => {
-                warn!(counter_type, "Failed to check tool call quota: {e}");
+                warn!(counter_type, "Failed to check activity quota: {e}");
                 None
             }
             _ => None,
         }
     }
 
-    /// Build a JSON-RPC error response for rate limit exceeded
-    fn build_rate_limit_error(
-        request_id: Option<Value>,
-        limit_type: &str,
-        current: i64,
-        limit: i64,
-        resets_at: &str,
-    ) -> McpResponse {
+    /// Shape a [`ErrorCode::QuotaExceeded`] refusal into the JSON-RPC error the
+    /// MCP transport returns.
+    ///
+    /// `AppError::quota_exceeded` already carries `limit_type`, `current`,
+    /// `limit` and `resets_at` in `details`, so the payload is the policy's own
+    /// numbers rather than a second reading of the counters.
+    fn build_rate_limit_error(request_id: Option<Value>, error: &AppError) -> McpResponse {
+        let data = error
+            .details
+            .as_deref()
+            .cloned()
+            .unwrap_or_else(|| json!({ "message": error.message }));
         McpResponse::error_with_data(
             request_id,
             ERROR_RATE_LIMIT_EXCEEDED,
             "Rate limit exceeded".to_owned(),
-            json!({
-                "limit_type": limit_type,
-                "current": current,
-                "limit": limit,
-                "resets_at": resets_at,
-            }),
+            data,
         )
     }
 

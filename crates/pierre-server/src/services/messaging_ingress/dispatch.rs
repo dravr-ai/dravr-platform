@@ -6,46 +6,37 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Instant;
 
-use futures_util::FutureExt;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
-use pierre_core::models::{ConversationTurnId, TenantId};
-use pierre_core::tokens::estimate_chat_tokens;
+use pierre_core::models::{ColorScheme, ConversationTurnId, TenantId, TranscriptSpeaker};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
-use pierre_llm::TokenUsage;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
-use tokio::sync::Mutex as TokioMutex;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use pierre_chat_pipeline::{self, DispatchResult, PipelineHooks, TurnInput};
+use super::scene_publisher::MessagingScenePublisher;
+use pierre_chat_pipeline::{self, PipelineHooks, ServedTurn, TurnRequest};
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_COACH_PROPOSAL_FOOTER,
     KEY_COACH_PROPOSAL_WELCOME, KEY_COACH_PROPOSAL_WELCOME_GENERIC, KEY_EMPTY_REPLY,
     KEY_ERROR_GENERIC, KEY_QUOTA_EXCEEDED,
 };
-use pierre_core::error_helpers::panic_payload_str;
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::AppError;
 use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
-use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::analytics::hash_id;
-use pierre_services::usage_counter::UsageCounterService;
 
 use super::addressing::reply_recipient;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
+use super::block_render::{render_reply, RenderedReply};
 use super::connect;
+use super::identity_leak_notify::{emit_identity_leak, LeakContext};
 use super::intake;
-use super::quota_gate::MessagingQuotaGate;
-use super::viz_delivery::{
-    plan_media, strip_viz_markers, target as viz_target, VizDelivery, VizMedia,
+use super::turn_guard::{
+    acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_guarded, TurnOutcome,
 };
-use super::{
-    build_messaging_profile, compose_messaging_reply, content_body_text, outbound_retry,
-    PendingDispatch, CONVERSATION_DISPATCH_LOCKS,
-};
+use super::{build_messaging_profile, content_body_text, outbound_retry, PendingDispatch};
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::user_status_gate::messaging_key_for_status;
 
@@ -300,71 +291,108 @@ fn render_coach_proposal_text(
 /// a single chat message). Falls back to the standard outbound send
 /// path when the bridge is disabled (`WhatsApp`/Messenger), inactive
 /// (credentials missing), or errored mid-turn (edit rejected).
+///
+/// `prose` arrives already split to what one message on this channel carries,
+/// so a long answer is several bubbles rather than a truncated one. They go
+/// out in order, and the status placeholder — which is a single editable
+/// message — settles the first of them.
 async fn deliver_reply(
     dispatch: &PendingDispatch,
     messaging_agui: Option<&MessagingAgUiWiring>,
     channel_config: &ChannelConfig,
-    content: String,
+    prose: Vec<String>,
     turn_id: ConversationTurnId,
-    charts: Vec<VizMedia>,
+    attachments: Vec<MessageContent>,
+    assistant_message_id: &str,
 ) {
-    // Markers are for clients that interleave prose and charts. A channel gets
-    // either an image or nothing, so the placeholder is noise either way.
-    let content = strip_viz_markers(&content);
+    let mut parts = prose.into_iter();
+    let Some(first) = parts.next() else {
+        return;
+    };
 
     // AG-UI streams the reply by editing the status message it already posted,
-    // so when it finalizes, the prose is delivered and a second send would
-    // duplicate it. It settles the PROSE only — the charts below are a
-    // different message and still have to go out.
+    // so when it finalizes, the first part is delivered and a second send would
+    // duplicate it. It settles that PART only — the continuation and the
+    // attachments below are different messages and still have to go out.
     //
     // This used to `return` here, which silently dropped every chart on any
     // channel with status streaming. Slack has it on always, so a granted coach
     // could emit a perfectly valid chart, have it lifted and stored, and the
     // athlete would still only ever see the paragraph (observed 2026-08-20).
-    let prose_sent_by_agui = match messaging_agui {
-        Some(wiring) => wiring.finalize_reply(&content).await,
+    let first_sent_by_agui = match messaging_agui {
+        Some(wiring) => {
+            wiring
+                .finalize_reply(&first, dispatch, assistant_message_id)
+                .await
+        }
         None => false,
     };
 
-    if !prose_sent_by_agui {
-        // Use conversation_id (channel/chat/thread) as the reply target
-        // when available; fall back to sender_id for DM-only platforms
-        // (e.g., WhatsApp).
-        let reply_target =
-            reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id).to_owned();
-
-        // The outbound reply carries the turn id from the inbound utterance,
-        // so a consumer inspecting the `DeliveryReceipt` can look up the full
-        // turn trace via `/internal/conversation-turn`. `.into()` bridges
-        // pierre-core's newtype to canot's.
-        let outgoing = OutgoingMessage {
-            channel_type: dispatch.channel_type,
-            recipient_id: reply_target,
-            content: MessageContent::Text { body: content },
-            turn_id: turn_id.into(),
-            reply_to: Some(dispatch.channel_message_id.clone()),
-            thread_id: dispatch.thread_id.clone(),
-        };
-        send_outbound_response(dispatch, channel_config, &outgoing).await;
+    if !first_sent_by_agui {
+        send_outbound_response(
+            dispatch,
+            channel_config,
+            &reply_message(dispatch, turn_id, MessageContent::Text { body: first }),
+            Some(assistant_message_id),
+        )
+        .await;
     }
 
-    // Charts follow the prose, in the order the coach placed them. Sent as
-    // separate messages because no channel here renders several images inside
-    // one text bubble, and the prose must land first — it is what makes the
-    // pictures mean something.
-    for chart in charts {
-        let media = OutgoingMessage {
-            channel_type: dispatch.channel_type,
-            recipient_id: reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id)
-                .to_owned(),
-            content: chart.into_content(),
-            turn_id: turn_id.into(),
-            // Threaded under the prose rather than the athlete's message, so a
-            // client that groups replies keeps the chart with its explanation.
-            reply_to: Some(dispatch.channel_message_id.clone()),
-            thread_id: dispatch.thread_id.clone(),
-        };
-        send_outbound_response(dispatch, channel_config, &media).await;
+    for continuation in parts {
+        send_outbound_response(
+            dispatch,
+            channel_config,
+            &reply_message(
+                dispatch,
+                turn_id,
+                MessageContent::Text { body: continuation },
+            ),
+            Some(assistant_message_id),
+        )
+        .await;
+    }
+
+    // Charts and controls follow the prose, in the order the coach placed
+    // them. Sent as separate messages because no channel here renders several
+    // images inside one text bubble, and the prose must land first — it is
+    // what makes the pictures mean something.
+    for attachment in attachments {
+        send_outbound_response(
+            dispatch,
+            channel_config,
+            &reply_message(dispatch, turn_id, attachment),
+            Some(assistant_message_id),
+        )
+        .await;
+    }
+}
+
+/// Address one piece of the assistant reply back at the conversation it came
+/// from.
+///
+/// Uses `conversation_id` (channel/chat/thread) as the reply target when
+/// available; falls back to `sender_id` for DM-only platforms (e.g.
+/// `WhatsApp`).
+///
+/// Every piece carries the turn id from the inbound utterance, so a consumer
+/// inspecting the `DeliveryReceipt` can look up the full turn trace via
+/// `/internal/conversation-turn` — and a split reply reads as one turn rather
+/// than several. `.into()` bridges pierre-core's newtype to canot's. Each is
+/// threaded under the athlete's message so a client that groups replies keeps
+/// the whole answer together.
+pub(super) fn reply_message(
+    dispatch: &PendingDispatch,
+    turn_id: ConversationTurnId,
+    content: MessageContent,
+) -> OutgoingMessage {
+    OutgoingMessage {
+        channel_type: dispatch.channel_type,
+        recipient_id: reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id)
+            .to_owned(),
+        content,
+        turn_id: turn_id.into(),
+        reply_to: Some(dispatch.channel_message_id.clone()),
+        thread_id: dispatch.thread_id.clone(),
     }
 }
 
@@ -380,11 +408,7 @@ async fn report_dispatch_failure(
     channel_config: &ChannelConfig,
     err: &AppError,
 ) {
-    // Correlation ID is surfaced in the user-facing reply and the
-    // log record so an operator receiving a Slack alert can grep
-    // Cloud Logging for the full error chain without access to
-    // conversation IDs (which are PII-adjacent).
-    let correlation_id = Uuid::new_v4();
+    let (correlation_id, short_id) = new_correlation_id();
     error!(
         correlation_id = %correlation_id,
         error = %err,
@@ -400,14 +424,13 @@ async fn report_dispatch_failure(
         error_type = "llm_dispatch_failed",
         "messaging error"
     );
-    let short_id = correlation_id.to_string()[..8].to_owned();
     let template = dispatch
         .resources
         .mcp
         .messaging_strings_registry
         .get(KEY_ERROR_GENERIC, &dispatch.locale);
     let user_message = format_template(&template, &[&short_id]);
-    send_error_reply(dispatch, channel_config, &user_message).await;
+    send_plain_reply(dispatch, channel_config, &user_message).await;
 }
 
 /// Send the localized denial for a quota or rate-limit refusal.
@@ -442,7 +465,7 @@ async fn send_quota_denial_reply(
         .mcp
         .messaging_strings_registry
         .get(key, &dispatch.locale);
-    send_error_reply(dispatch, channel_config, &body).await;
+    send_plain_reply(dispatch, channel_config, &body).await;
 }
 
 /// Maximum ambient-transcript lines injected into a group turn's prompt.
@@ -454,56 +477,63 @@ const AMBIENT_TRANSCRIPT_MAX_LINE_CHARS: usize = 240;
 
 /// Build the speaker-labeled ambient transcript for a group turn.
 ///
-/// Group chat history is per member — each member's `chat_messages` holds
-/// only their own exchanges with the coach — so this reassembles the room
-/// view from `messaging_messages` across every member's session: inbound
-/// rows labeled with the sender's display name, outbound rows labeled
-/// "Coach". The triggering message itself is excluded (it arrives as the
-/// turn's user content). Returns `None` when the room has no other recent
-/// messages, so DM-shaped groups cost no prompt tokens.
+/// Reads the group's shared room transcript (`group_transcript_entries`) —
+/// the same surface-neutral read model web and mobile members read — through
+/// the consent-gated visibility query, with the requesting member as the
+/// viewer: an unconsented peer's content never enters this member's prompt.
+/// Member rows are labeled with the sender's display name, coach rows
+/// "Coach". The triggering message is not yet in the transcript (the turn
+/// pipeline fans it out at persistence), so nothing is excluded here.
+/// Returns `None` when the room has no other recent messages, so DM-shaped
+/// groups cost no prompt tokens.
 async fn build_group_ambient_context(dispatch: &PendingDispatch) -> Option<String> {
-    let chat_id = dispatch
-        .conversation_id
-        .as_deref()
-        .filter(|c| !c.is_empty())?;
-    let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
-
-    let limit = i64::try_from(AMBIENT_TRANSCRIPT_MAX_LINES).unwrap_or(25) + 1;
-    let rows = match db
-        .list_recent_chat_messages(
-            dispatch.channel_tenant_id,
-            &dispatch.channel,
-            chat_id,
-            limit,
+    let conversation = dispatch
+        .resources
+        .common
+        .repos
+        .chat
+        .get_conversation(
+            &dispatch.session.conversation,
+            &dispatch.session.user_id,
+            dispatch.session_tenant_id,
         )
         .await
+        .ok()??;
+    let group_id = conversation.group_id?;
+
+    let limit = i64::try_from(AMBIENT_TRANSCRIPT_MAX_LINES).unwrap_or(25);
+    let entries = match dispatch
+        .resources
+        .common
+        .repos
+        .groups
+        .list_transcript_visible_to(&group_id, dispatch.auth_result.user_id, limit)
+        .await
     {
-        Ok(rows) => rows,
+        Ok(entries) => entries,
         Err(e) => {
             warn!(error = %e, "ambient transcript load failed; dispatching without it");
             return None;
         }
     };
 
-    // Newest-first from the query; drop the triggering message, restore
-    // chronological order, cap the line count.
+    // Newest-first from the query; restore chronological order, cap the
+    // per-line length.
     let mut lines: Vec<String> = Vec::new();
     let mut label_cache: HashMap<String, String> = HashMap::new();
-    for row in rows
-        .iter()
-        .filter(|r| r["channel_message_id"].as_str() != Some(dispatch.channel_message_id.as_str()))
-        .take(AMBIENT_TRANSCRIPT_MAX_LINES)
-    {
-        let Some(body) = row["content_body"].as_str().filter(|b| !b.is_empty()) else {
+    for entry in &entries {
+        if entry.content.is_empty() {
             continue;
+        }
+        let label = match entry.speaker {
+            TranscriptSpeaker::Coach => "Coach".to_owned(),
+            TranscriptSpeaker::Member => {
+                let author = entry.author_user_id.to_string();
+                speaker_label(dispatch, &author, &mut label_cache).await
+            }
         };
-        let label = if row["direction"].as_str() == Some("outbound") {
-            "Coach".to_owned()
-        } else {
-            let user_id = row["user_id"].as_str().unwrap_or_default();
-            speaker_label(dispatch, user_id, &mut label_cache).await
-        };
-        let truncated: String = body
+        let truncated: String = entry
+            .content
             .chars()
             .take(AMBIENT_TRANSCRIPT_MAX_LINE_CHARS)
             .collect();
@@ -547,6 +577,32 @@ async fn speaker_label(
     label
 }
 
+/// Read the colour scheme the athlete pinned, for the charts this turn mints.
+///
+/// A messaging chart is fetched by the channel's servers, not the athlete's
+/// device, so nothing on the wire can report the scheme the athlete is looking
+/// at — the `users.theme` pin is the only signal there is. An athlete who
+/// pinned nothing, or whose row cannot be read, gets
+/// [`ColorScheme::Dark`]: messaging clients overwhelmingly draw media bubbles
+/// on dark, and a chart in the wrong scheme still beats no chart.
+async fn athlete_color_scheme(dispatch: &PendingDispatch) -> ColorScheme {
+    match dispatch
+        .resources
+        .common
+        .repos
+        .users
+        .get_global(dispatch.auth_result.user_id)
+        .await
+    {
+        Ok(Some(user)) => ColorScheme::resolve(user.theme.as_deref()),
+        Ok(None) => ColorScheme::default(),
+        Err(e) => {
+            warn!(error = %e, "theme lookup failed for chart minting; painting dark");
+            ColorScheme::default()
+        }
+    }
+}
+
 /// Dispatch a message through the LLM pipeline and send the response back via the channel
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
@@ -564,10 +620,7 @@ async fn speaker_label(
     )
 )]
 pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
-    let lock = CONVERSATION_DISPATCH_LOCKS
-        .entry(dispatch.session.conversation.clone())
-        .or_insert_with(|| Arc::new(TokioMutex::new(())))
-        .clone();
+    let lock = acquire_dispatch_lock(&dispatch.session.conversation);
     let dispatch_guard = lock.lock().await;
 
     let start = Instant::now();
@@ -584,33 +637,11 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     );
     tracing::trace!(text = %dispatch.text_content, "messaging dispatch user message");
 
-    let profile = build_messaging_profile(&dispatch.resources, dispatch.channel_type);
-    // Reuse the turn id canot generated at the webhook boundary
-    // (stored on `dispatch.turn_id`). The inbound webhook is the
-    // boundary for platform-side observability: a single inbound
-    // message plus its full LLM/tool chain is one turn, and canot's
-    // log spans already key off this id.
-    let turn_id = dispatch.turn_id;
-    // Group turns get the room's recent cross-member transcript; DMs skip
-    // the lookup entirely.
-    let ambient_context = if dispatch.is_group_chat {
-        build_group_ambient_context(&dispatch).await
-    } else {
-        None
-    };
-    let turn_input = TurnInput {
-        conversation_id: dispatch.session.conversation.clone(),
-        user_id: dispatch.session.user_id.clone(),
-        // The conversation lives under the session tenant (user's own for DMs);
-        // the pipeline reads/writes it with this tenant. Tools still execute
-        // under user_tenant_id (the same value for DMs).
-        conversation_tenant_id: dispatch.session_tenant_id,
-        tool_tenant_id: dispatch.user_tenant_id,
-        content: dispatch.text_content.clone(),
-        locale: Some(dispatch.locale.clone()),
-        turn_id,
-        ambient_context,
-    };
+    let profile = build_messaging_profile(
+        &dispatch.resources,
+        dispatch.channel_type,
+        dispatch.locale.clone(),
+    );
 
     // Load the per-tenant channel config exactly once per turn.
     //
@@ -644,19 +675,12 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     maybe_send_connect_card(&dispatch, &channel_config).await;
     maybe_send_intake_question(&dispatch, &channel_config).await;
 
-    // Register an AG-UI run for this messaging turn so in-process
-    // consumers (channel-side status adapters, ops dashboards) can
-    // subscribe via `resources.agui_registry.subscribe_self(run_id)`
-    // and render pipeline progress to Telegram/Slack/Discord.
-    // Without this wiring the pipeline's `hooks.agui` stayed `None` on
-    // every messaging turn and AG-UI events were produced only for
-    // HTTP web-chat callers that passed `agui_run_id`.
-    //
-    // The run is owned by `(session.user_id, user_tenant_id)` so any
-    // cross-user HTTP subscriber (e.g. canot's `AgUiConsumer` against
-    // the platform SSE route) still goes through the owner check in
-    // `RunRegistry::authorize_and_subscribe`. Scope drops at function
-    // exit, auto-unregistering on success, error, or panic.
+    // Register an AG-UI run for this messaging turn so the in-process
+    // channel-side status adapter can subscribe via
+    // `resources.agui_registry.subscribe_self(run_id)` and render pipeline
+    // progress to Telegram/Slack/Discord. The run id never leaves the
+    // process. Scope drops at function exit, auto-unregistering on success,
+    // error, or panic.
     //
     // `setup_messaging_agui` also opens an in-channel status adapter
     // (Telegram editMessageText / Slack chat.update / Discord PATCH
@@ -664,60 +688,96 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // AG-UI event as a `set_status` call so the user sees the pipeline
     // stage in real time.
     let messaging_agui = setup_messaging_agui(&dispatch, &channel_config).await;
-    // Pre-dispatch quota enforcement, scoped to the USER's tenant — the same
-    // `TierQuotaConfig` matrix web chat enforces inline. Without this hook a
-    // messaging turn bypassed every message/token cap (registre#9).
-    let quota_gate = MessagingQuotaGate {
-        resources: Arc::clone(&dispatch.resources),
-    };
+    // Charts: this channel cannot draw a spec, so the pipeline asks the
+    // publisher for a signed image URL per block once the assistant row is
+    // durable, and the envelope carries them as `SceneImage` blocks.
+    let scene_publisher = MessagingScenePublisher::new(
+        Arc::clone(&dispatch.resources),
+        profile.render,
+        athlete_color_scheme(&dispatch).await,
+    );
     let hooks = PipelineHooks {
         agui: messaging_agui.as_ref().map(|w| w.run()),
-        quota_gate: Some(&quota_gate),
+        scene_publisher: Some(&scene_publisher),
         ..PipelineHooks::none()
     };
 
-    let mut ctx = dispatch.resources.chat_pipeline_context();
-    // Use the tenant's own LLM key (BYO) for this turn when one is stored.
-    if let Some(provider) = dispatch
-        .resources
-        .resolve_byo_chat_provider(dispatch.user_tenant_id, dispatch.auth_result.user_id)
-        .await
-    {
-        ctx.chat_provider = Some(provider);
-    }
+    // Group turns get the room's recent cross-member transcript; DMs skip
+    // the lookup entirely.
+    let ambient_context = if dispatch.is_group_chat {
+        build_group_ambient_context(&dispatch).await
+    } else {
+        None
+    };
+    let request = TurnRequest {
+        conversation_id: dispatch.session.conversation.clone(),
+        user_id: dispatch.auth_result.user_id,
+        // The conversation lives under the session tenant (the athlete's own
+        // for a DM, the bot's for a shared room so every member reads one
+        // transcript).
+        conversation_tenant_id: dispatch.session_tenant_id,
+        // Tools, provider credentials AND usage counters all run under the
+        // athlete's own tenant, never the bot's (registre#9).
+        tool_tenant_id: dispatch.user_tenant_id,
+        content: dispatch.text_content.clone(),
+        // Reuse the turn id canot generated at the webhook boundary: a single
+        // inbound message plus its full LLM/tool chain is one turn, and
+        // canot's log spans already key off this id.
+        turn_id: dispatch.turn_id,
+        ambient_context,
+        channel_type: &dispatch.channel,
+        is_direct_message: !dispatch.is_group_chat,
+        sender_id: Some(&dispatch.sender_id),
+        // Every inbound message here is a coaching turn; this surface has no
+        // structured-generation content it serves itself.
+        self_served_prefix: None,
+        hooks,
+    };
+
+    let ctx = dispatch.resources.chat_pipeline_context();
     // Panic boundary: a bug in any pipeline stage must unwind into a structured
     // failure for *this* turn (graceful user reply + correlation-id log), never
-    // escape the spawned task. `AssertUnwindSafe` is sound because a caught
-    // panic aborts the whole turn — none of the borrowed state is touched
-    // afterwards; we report and return.
-    let run = AssertUnwindSafe(pierre_chat_pipeline::run(
-        &ctx, turn_input, &profile, &hooks,
-    ));
-    let dispatch_result = match run.catch_unwind().await {
-        Ok(Ok(result)) => result,
-        // A quota or rate-limit refusal is the user's plan speaking, not a
-        // fault: send the localized denial instead of the generic apology,
-        // and log at WARN — paging on-call for a budget working as designed
-        // is how real faults get tuned out.
-        Ok(Err(e))
-            if matches!(
-                e.code,
-                ErrorCode::QuotaExceeded | ErrorCode::RateLimitExceeded
-            ) =>
-        {
-            send_quota_denial_reply(&dispatch, &channel_config, &e).await;
+    // escape the spawned task.
+    let dispatch_result =
+        match run_guarded(pierre_chat_pipeline::execute(&ctx, request, &profile)).await {
+            TurnOutcome::Delivered(served) => served,
+            // A quota or rate-limit refusal is the user's plan speaking, not a
+            // fault: send the localized denial instead of the generic apology,
+            // and log at WARN — paging on-call for a budget working as designed
+            // is how real faults get tuned out.
+            TurnOutcome::QuotaDenied(e) => {
+                send_quota_denial_reply(&dispatch, &channel_config, &e).await;
+                return;
+            }
+            // Includes a panic caught inside any pipeline stage: the athlete gets
+            // an apology carrying a correlation id instead of silence.
+            TurnOutcome::Failed(e) => {
+                report_dispatch_failure(&dispatch, &channel_config, &e).await;
+                return;
+            }
+        };
+
+    // A slash command reaches the turn service only when the ingress did not
+    // already answer it — the catalog was unavailable when the message
+    // arrived, say. Its reply is account state, not coaching: send the text
+    // and stop, rather than handing the athlete an LLM answer to a command.
+    let dispatch_result = match dispatch_result {
+        ServedTurn::Pipeline(envelope) => *envelope,
+        ServedTurn::Command { command, .. } => {
+            send_plain_reply(&dispatch, &channel_config, &command.text).await;
             return;
         }
-        Ok(Err(e)) => {
-            report_dispatch_failure(&dispatch, &channel_config, &e).await;
-            return;
-        }
-        Err(panic) => {
-            let err = AppError::internal(format!(
-                "chat pipeline panicked: {}",
-                panic_payload_str(panic.as_ref())
-            ));
-            report_dispatch_failure(&dispatch, &channel_config, &err).await;
+        // Unreachable by construction and typed that way: `self_served_prefix`
+        // is `None` above, so the turn service has nothing to hand back for
+        // the caller to serve.
+        ServedTurn::CallerServed { .. } => {
+            error!("turn service returned a caller-served turn on a surface that asked for none");
+            report_dispatch_failure(
+                &dispatch,
+                &channel_config,
+                &AppError::internal("messaging turn produced no reply"),
+            )
+            .await;
             return;
         }
     };
@@ -734,119 +794,67 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         channel = %dispatch.channel,
         response_type = "llm",
         execution_time_ms = execution_time_ms,
-        model = %dispatch_result.model,
+        model = %dispatch_result.telemetry.model,
         "messaging response sent"
     );
 
-    // Security signal: the coach reply identified as the underlying model/
-    // provider and was withheld at the response boundary (the chat pipeline's
-    // identity-leak stage). The user received the canned withheld string, not
-    // the leak; this event surfaces the withhold on #dravr-signal so a
-    // recurrence is visible instead of silent in the logs. The `pattern_*`
-    // labels (extra fields beyond the catalogue's required set) identify which
-    // pattern class fired — never the reply text, which is never persisted.
-    //
-    // The tenant is `session_tenant_id` — the SAME field this path hands the
-    // pipeline as `conversation_tenant_id` (see the `TurnInput` construction
-    // below), which is what the detection side logs. It used to be
-    // `channel_tenant_id`, and the two are documented to differ whenever a
-    // messaging user belongs to a different tenant than the bot owning the
-    // webhook. On the 2026-08-05 Telegram break that is exactly what happened:
-    // detection recorded 0f09bd31 and this alert recorded 988c4bbc for one
-    // turn. Since the event dedups per tenant, keying it on the bot's tenant
-    // collapses leaks from different athletes into one another, and an operator
-    // triaging from #dravr-signal cannot reach the conversation — so
-    // `conversation_id` and `turn_id` ride along for that.
-    if let Some(leak) = dispatch_result.identity_leak {
-        info!(
-            target: "notify",
-            event = "messaging.identity_leak",
-            tenant_id = %dispatch.session_tenant_id,
-            conversation_id = %dispatch.session.conversation,
-            turn_id = %dispatch_result.turn_id,
-            channel = %dispatch.channel,
-            model = %dispatch_result.model,
-            pattern_class = leak.class.as_str(),
-            pattern_locale = leak.locale,
-            pattern_index = leak.pattern_index,
-            "coach reply identified as the underlying model/provider; withheld at the response boundary"
-        );
-    }
+    // Security signal: the reply identified as the underlying model/provider and
+    // was withheld at the response boundary. The athlete received the canned
+    // withheld string, not the leak, so nothing about this turn looks unusual
+    // from outside — the alert is the only thing that makes it visible.
+    emit_identity_leak(
+        &dispatch_result,
+        &LeakContext {
+            conversation_tenant_id: dispatch.session_tenant_id,
+            conversation_id: &dispatch.session.conversation,
+            channel: &dispatch.channel,
+        },
+    );
 
-    // Record LLM usage for cost tracking and quota enforcement
-    // Per-LLM-call rows are written inline by the chat pipeline's
-    // `LlmCallRecorder`; the turn-summary marker row has been removed
-    // now that `llm_usage` is a pure per-call ledger.
-    let _ = execution_time_ms;
+    // Per-LLM-call `llm_usage` rows are written inline by the chat pipeline's
+    // `LlmCallRecorder`, and the daily/weekly counters the next turn's quota
+    // check reads were incremented by the turn service under the athlete's own
+    // tenant. Nothing to record here.
 
-    // Increment usage counters (message count, token count, tool call count)
-    increment_messaging_usage_counters(&dispatch, &dispatch_result).await;
-
-    // Prepend the activity list to the coach's analysis so the user actually
-    // SEES their activities. The web/mobile UI auto-renders this list as a card;
-    // text channels have no such card, so without this the coach's "the list is
-    // already shown" assumption leaves messaging users with analysis only. The
-    // list follows the request's `sort_by` order and is adaptively capped for
-    // small screens.
-    let reply_body = compose_messaging_reply(
-        dispatch_result.activity_list.as_deref(),
-        dispatch_result.content,
+    // Lay the envelope's blocks out for this channel. Every rendering decision
+    // was already made against the surface's capabilities inside the pipeline
+    // — what a text channel cannot draw is folded into the prose, what it can
+    // arrives as its own block — so this is layout and splitting, nothing more.
+    let RenderedReply { prose, attachments } = render_reply(
+        &profile.render,
+        &dispatch_result.assistant,
         &dispatch.resources.mcp.messaging_strings_registry,
-        &dispatch.locale,
+        &dispatch_result.locale,
     );
 
     // Guard: skip sending empty responses. The LLM occasionally returns empty
     // content (e.g., when the input is too technical or the context is exhausted)
     // and no list — Telegram rejects empty message text with HTTP 400.
-    if reply_body.trim().is_empty() {
+    if prose.is_empty() {
         warn!(
             conversation_id = %dispatch.session.conversation,
             "LLM returned empty response, sending fallback"
         );
+        // The turn's own language, not the athlete's stored preference: the
+        // fallback stands in for the reply that did not arrive, so it speaks
+        // the language that reply would have been written in.
         let empty_reply = dispatch
             .resources
             .mcp
             .messaging_strings_registry
-            .get(KEY_EMPTY_REPLY, &dispatch.locale);
-        send_error_reply(&dispatch, &channel_config, &empty_reply).await;
+            .get(KEY_EMPTY_REPLY, &dispatch_result.locale);
+        send_plain_reply(&dispatch, &channel_config, &empty_reply).await;
         return;
     }
-
-    // Fidelity negotiation: channels that publish media get the charts as
-    // images, everyone else keeps the prose that explains them.
-    let charts = plan_media(
-        &VizDelivery {
-            target: viz_target(
-                dispatch.session.conversation.clone(),
-                dispatch.auth_result.user_id.to_string(),
-                // `session_tenant_id`, NOT `user_tenant_id`: the viz route
-                // re-reads the message through the tenant-scoped repository, so
-                // the token has to name the tenant the conversation was written
-                // under — the same one handed to the pipeline as
-                // `conversation_tenant_id` above. The two differ whenever a
-                // messaging user belongs to a different tenant than the bot
-                // owning the webhook, which is every Slack channel chat: the
-                // token named the athlete's tenant, the lookup found nothing
-                // there, and every chart 404'd for the channel that fetched it.
-                dispatch.session_tenant_id,
-                dispatch_result.assistant_message.id.clone(),
-            ),
-            stored_blocks: dispatch_result.assistant_message.content_blocks.as_deref(),
-            channel_type: dispatch.channel_type,
-            locale: &dispatch.locale,
-            base_url: &dispatch.resources.common.config.base_url,
-            press_enabled: dispatch.resources.common.photograveur.is_enabled(),
-        },
-        &dispatch.resources.auth.admin_jwt_secret,
-    );
 
     deliver_reply(
         &dispatch,
         messaging_agui.as_ref(),
         &channel_config,
-        reply_body,
+        prose,
         dispatch_result.turn_id,
-        charts,
+        attachments,
+        &dispatch_result.assistant.message.id,
     )
     .await;
 
@@ -861,25 +869,14 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
 }
 
-/// Remove the per-conversation lock from the shared map if no other task still holds it.
+/// Send one plain-text body back to the athlete, outside the envelope path.
 ///
-/// Prevents unbounded growth of `CONVERSATION_DISPATCH_LOCKS` under
-/// high conversation cardinality while staying safe: if a concurrent
-/// dispatch cloned the `Arc` before we got here, the strong count
-/// exceeds 2 and we leave the entry in place. The next waiter will
-/// simply reinsert on a later call if it was already evicted.
-fn evict_idle_dispatch_lock(conversation_id: &str, local: &Arc<TokioMutex<()>>) {
-    // Strong references: the one in the DashMap entry + `local` held here.
-    // Any higher count means another dispatch task is waiting on this lock.
-    CONVERSATION_DISPATCH_LOCKS.remove_if(conversation_id, |_, stored| {
-        Arc::ptr_eq(stored, local) && Arc::strong_count(stored) <= 2
-    });
-}
-
-/// Send a user-facing error message when LLM dispatch fails or returns empty content.
-///
-/// Ensures the user always gets feedback instead of silence when something goes wrong.
-async fn send_error_reply(dispatch: &PendingDispatch, channel_config: &ChannelConfig, body: &str) {
+/// Everything the platform says when the turn produced no reply to lay out: a
+/// failure apology with its correlation id, a quota denial, the empty-reply
+/// fallback, a slash-command answer. Each of those is a finished sentence
+/// already in the athlete's language, so there is nothing to render — only to
+/// address and send.
+async fn send_plain_reply(dispatch: &PendingDispatch, channel_config: &ChannelConfig, body: &str) {
     let reply_target =
         reply_recipient(dispatch.conversation_id.as_deref(), &dispatch.sender_id).to_owned();
 
@@ -898,82 +895,10 @@ async fn send_error_reply(dispatch: &PendingDispatch, channel_config: &ChannelCo
         thread_id: dispatch.thread_id.clone(),
     };
 
-    send_outbound_response(dispatch, channel_config, &outgoing).await;
-}
-
-/// Extract real token counts from provider usage, or estimate from content length.
-///
-/// Returns `(prompt_tokens, completion_tokens)` as i64 for direct use in usage recording.
-/// When real usage is unavailable (CLI-based providers), estimates from the user message
-/// and completion text using a character-based heuristic.
-fn estimate_or_extract_messaging_tokens(
-    usage: Option<&TokenUsage>,
-    user_text: &str,
-    completion_text: &str,
-) -> (i64, i64) {
-    usage.map_or_else(
-        || {
-            let (est_prompt, est_completion) = estimate_chat_tokens(user_text, completion_text);
-            debug!(
-                est_prompt,
-                est_completion,
-                "Using estimated token counts for messaging (provider returned no usage)"
-            );
-            (i64::from(est_prompt), i64::from(est_completion))
-        },
-        |u| (i64::from(u.prompt_tokens), i64::from(u.completion_tokens)),
-    )
-}
-
-/// Increment usage counters (messages, tokens, tool calls) after a messaging dispatch
-async fn increment_messaging_usage_counters(dispatch: &PendingDispatch, result: &DispatchResult) {
-    // Record against tier defaults even when admin config is absent, so
-    // counters stay consistent with the always-on web enforcement path.
-    let admin_config: &dyn AdminConfigLookup =
-        match dispatch.resources.coach.admin_config.as_deref() {
-            Some(c) => c,
-            None => default_admin_config(),
-        };
-
-    // The USER's tenant, not the bot's: enforcement — web's inline check and
-    // the messaging `QuotaGate` — reads counters under the user tenant, so
-    // recording under `channel_tenant_id` made messaging usage invisible to
-    // every quota read except the coincidence where the two tenants matched
-    // (registre#9).
-    let tenant_id_str = dispatch.user_tenant_id.to_string();
-    let usage_svc = UsageCounterService::new(
-        dispatch.resources.common.repos.usage_counters.as_ref(),
-        admin_config,
-    );
-
-    // Use real token counts when available, fall back to estimation for CLI providers
-    let (est_prompt, est_completion) = estimate_or_extract_messaging_tokens(
-        result.usage.as_ref(),
-        &dispatch.text_content,
-        &result.content,
-    );
-    let total_tokens = est_prompt + est_completion;
-
-    // Build list of (counter_type, amount) pairs to increment
-    let mut counters: Vec<(&str, i64)> = vec![("daily_messages", 1), ("weekly_messages", 1)];
-    if total_tokens > 0 {
-        counters.push(("daily_tokens", total_tokens));
-        counters.push(("weekly_tokens", total_tokens));
-    }
-
-    for (counter_type, amount) in counters {
-        if let Err(e) = usage_svc
-            .increment(
-                &tenant_id_str,
-                &dispatch.session.user_id,
-                counter_type,
-                amount,
-            )
-            .await
-        {
-            error!("Failed to increment {counter_type} counter for messaging: {e}");
-        }
-    }
+    // Nothing here is a coaching answer — an apology, a quota denial, a slash
+    // command's account state — so the row carries no assistant message id and
+    // an emoji on it resolves to nothing to rate.
+    send_outbound_response(dispatch, channel_config, &outgoing, None).await;
 }
 
 /// Load channel config, send outbound message, and persist the result
@@ -981,6 +906,7 @@ async fn send_outbound_response(
     dispatch: &PendingDispatch,
     channel_config: &ChannelConfig,
     outgoing: &OutgoingMessage,
+    assistant_message_id: Option<&str>,
 ) {
     let db: &dyn MessagingRepository = dispatch.resources.common.repos.messaging.as_ref();
 
@@ -992,7 +918,8 @@ async fn send_outbound_response(
                 channel = %dispatch.channel,
                 "Outbound message sent successfully"
             );
-            persist_outbound_message(db, dispatch, channel_msg_id, outgoing).await;
+            persist_outbound_message(db, dispatch, channel_msg_id, outgoing, assistant_message_id)
+                .await;
         }
         Err(e) => {
             warn!(
@@ -1033,11 +960,12 @@ pub(super) async fn load_channel_config(
 }
 
 /// Persist an outbound message after successful delivery
-async fn persist_outbound_message(
+pub(super) async fn persist_outbound_message(
     db: &dyn MessagingRepository,
     dispatch: &PendingDispatch,
     channel_message_id: &str,
     outgoing: &OutgoingMessage,
+    assistant_message_id: Option<&str>,
 ) {
     let out_msg_id = Uuid::new_v4().to_string();
     let body = content_body_text(&outgoing.content);
@@ -1056,6 +984,10 @@ async fn persist_outbound_message(
         content_body: body.as_deref(),
         correlation_id: &correlation_str,
         raw_payload: None,
+        // This send and the assistant row it delivers are the one moment both
+        // ids are in hand; stamping it here is what lets an emoji reaction on
+        // the channel message resolve back to a message to rate.
+        chat_message_id: assistant_message_id,
     };
     if let Err(e) = db.insert_message(&out_params).await {
         error!(error = %e, "Failed to persist outbound message");

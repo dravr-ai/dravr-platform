@@ -27,8 +27,9 @@ use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::{CoachCategory, CoachWithListing, PublishStatus};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
-use pierre_services::coach_grading::{
-    compute_coach_grades, rerank_by_grade, DEFAULT_VERDICT_LIMIT,
+use pierre_services::coach_store::{
+    browse_store, install_store_coach, search_store, BrowseStoreParams, StoreCoach,
+    DEFAULT_STORE_PAGE_SIZE,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{field, info, Span};
@@ -54,51 +55,6 @@ pub struct SearchCoachesQuery {
     pub q: String,
     /// Maximum number of results (default 20, max 100)
     pub limit: Option<u32>,
-}
-
-/// A published coach for the Store API (subset of full Coach)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoreCoach {
-    /// Unique coach identifier
-    pub id: Uuid,
-    /// Coach title
-    pub title: String,
-    /// Coach description
-    pub description: Option<String>,
-    /// Category for organization
-    pub category: CoachCategory,
-    /// Tags for discovery
-    pub tags: Vec<String>,
-    /// Sample prompts showing usage
-    pub sample_prompts: Vec<String>,
-    /// Token count estimate
-    pub token_count: u32,
-    /// Number of installations
-    pub install_count: u32,
-    /// Optional icon URL
-    pub icon_url: Option<String>,
-    /// When published (ISO 8601 format)
-    pub published_at: Option<String>,
-    /// Author ID (optional - for author profile linking)
-    pub author_id: Option<String>,
-}
-
-impl From<CoachWithListing> for StoreCoach {
-    fn from(cwl: CoachWithListing) -> Self {
-        Self {
-            id: cwl.coach.id,
-            title: cwl.coach.title,
-            description: cwl.coach.description,
-            category: cwl.coach.category,
-            tags: cwl.coach.tags,
-            sample_prompts: cwl.coach.sample_prompts,
-            token_count: cwl.coach.token_count,
-            install_count: cwl.listing.install_count,
-            icon_url: cwl.listing.icon_url,
-            published_at: cwl.listing.published_at.map(|dt| dt.to_rfc3339()),
-            author_id: cwl.listing.author_id,
-        }
-    }
 }
 
 /// Full coach details for the Store (includes system prompt)
@@ -245,57 +201,29 @@ async fn handle_browse<C: CoachesCtx + MiddlewareCtx>(
     let auth = auth.into_inner();
     let viewer_tenant = get_user_tenant(&auth)?;
 
-    let manager = get_store_manager(&ctx);
-
-    let category = query.category.as_ref().map(|c| CoachCategory::parse(c));
-    let sort_by = query
-        .sort_by
-        .as_deref()
-        .map_or(StoreSortOrder::Newest, StoreSortOrder::parse);
-    let limit = query.limit.unwrap_or(20).clamp(1, 100);
-
-    // Use cursor-based pagination for efficient infinite scrolling
-    let page = manager
-        .get_published_coaches_cursor(category, sort_by, limit, query.cursor.as_deref())
-        .await?;
-
-    let mut store_coaches: Vec<StoreCoach> = page.items.into_iter().map(StoreCoach::from).collect();
-
-    // Re-rank the returned page by coach grade (Sprint C22). Grades
-    // are computed from the viewer tenant's recent claim verdicts
-    // so low-quality coaches fall below higher-graded peers even if
-    // they shipped with more installs. Failures degrade to the
-    // existing install_count ordering.
-    match compute_coach_grades(
-        &ctx.repos().coach_repos(),
-        viewer_tenant,
-        DEFAULT_VERDICT_LIMIT,
-    )
-    .await
-    {
-        Ok(grading) => {
-            rerank_by_grade(&mut store_coaches, |c| c.id.to_string(), &grading);
-        }
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "failed to compute coach grades for store rank; falling back to install_count"
-            );
-        }
-    }
+    let params = BrowseStoreParams {
+        category: query.category.as_ref().map(|c| CoachCategory::parse(c)),
+        sort_by: query
+            .sort_by
+            .as_deref()
+            .map_or(StoreSortOrder::Newest, StoreSortOrder::parse),
+        limit: query.limit.unwrap_or(DEFAULT_STORE_PAGE_SIZE),
+        cursor: query.cursor.as_deref(),
+    };
+    let page = browse_store(&ctx.repos().coach_repos(), viewer_tenant, &params).await?;
 
     info!(
         "User {} browsed store: {} coaches (category={:?}, sort={:?}, has_more={})",
         auth.user_id,
-        store_coaches.len(),
+        page.coaches.len(),
         query.category,
         query.sort_by,
         page.has_more
     );
 
     let response = BrowseCoachesResponse {
-        coaches: store_coaches,
-        next_cursor: page.next_cursor.map(|c| c.to_string()),
+        coaches: page.coaches,
+        next_cursor: page.next_cursor,
         has_more: page.has_more,
         metadata: build_metadata(),
     };
@@ -397,18 +325,8 @@ async fn handle_search<C: CoachesCtx + MiddlewareCtx>(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
 
-    if query.q.trim().is_empty() {
-        return Err(AppError::invalid_input("Search query cannot be empty"));
-    }
-
-    let manager = get_store_manager(&ctx);
-
     // Search across all tenants (global Store)
-    let coaches = manager
-        .search_published_coaches(&query.q, query.limit)
-        .await?;
-
-    let store_coaches: Vec<StoreCoach> = coaches.into_iter().map(StoreCoach::from).collect();
+    let store_coaches = search_store(&ctx.repos().coach_repos(), &query.q, query.limit).await?;
 
     info!(
         "User {} searched store for '{}': {} results",
@@ -450,20 +368,18 @@ async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
     span.record("user_id", field::display(&auth.user_id));
     span.record("tenant_id", field::display(&tenant_id));
 
-    let manager = get_store_manager(&ctx);
-
-    // Validate coach ID format
-    Uuid::parse_str(&coach_id)
-        .map_err(|_| AppError::invalid_input(format!("Invalid coach ID: {coach_id}")))?;
-
     // Install the coach (creates user's copy)
-    let installed = manager
-        .install_from_store(&coach_id, auth.user_id, tenant_id)
-        .await?;
+    let store_coach = install_store_coach(
+        &ctx.repos().coach_repos(),
+        &coach_id,
+        auth.user_id,
+        tenant_id,
+    )
+    .await?;
 
     info!(
         "User {} installed coach '{}' ({}) from Store",
-        auth.user_id, installed.title, coach_id
+        auth.user_id, store_coach.title, coach_id
     );
 
     // notify: coach was successfully installed (coach_slug is on the span).
@@ -472,21 +388,6 @@ async fn handle_install<C: CoachesCtx + MiddlewareCtx>(
         event = "coach.installed",
         "coach installed from store"
     );
-
-    // For the install response, we return an InstalledCoach (no listing data)
-    let store_coach = StoreCoach {
-        id: installed.id,
-        title: installed.title,
-        description: installed.description,
-        category: installed.category,
-        tags: installed.tags,
-        sample_prompts: installed.sample_prompts,
-        token_count: installed.token_count,
-        install_count: 0,
-        icon_url: None,
-        published_at: None,
-        author_id: None,
-    };
 
     let response = InstallCoachResponse {
         message: format!("Successfully installed '{}'", store_coach.title),

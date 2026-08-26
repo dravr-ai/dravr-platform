@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Individual message item in the chat message list
-// ABOUTME: Memoized for performance when rendering many messages
+// ABOUTME: Individual message item in the chat message list — one switch over the turn's reply blocks
+// ABOUTME: The server decided what this surface draws; nothing here re-derives it from the reply prose
 
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb, ShieldAlert } from 'lucide-react';
-import type { ChatVerdictRow } from '@pierre/api-client';
-import { parseWorkoutPlan } from '@pierre/shared-types';
-import type { Message, MessageActionItem, MessageMetadata, MessageFeedback } from './types';
-import { splitActivityContent, countActivities, stripToolScaffolding } from '@pierre/chat-utils';
-import { linkifyUrls, stripContextPrefix } from './utils';
+import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
+import {
+  mergeVerdictSeverities,
+  parseWorkoutPlan,
+  summarizeVerdicts,
+  verdictSummaryLabel,
+  type VerdictTone,
+} from '@pierre/shared-types';
+import type { Message, MessageMetadata, MessageFeedback } from './types';
+import { countActivities, parseSceneBlocks, splitVizMarkers, transcriptBlocks } from '@pierre/chat-utils';
+import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
-import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 
@@ -24,14 +29,17 @@ interface MessageItemProps {
   feedback?: MessageFeedback;
   isError?: boolean;
   hasInsight?: boolean;
-  /** Pre-resolved activity list text (from API field or parsed from old content) */
-  activityList?: string;
-  /** Action buttons returned by a slash-command response (e.g. per-coach
-   *  select buttons on `/coach`). Rendered below the message body.
-   *  Not persisted — only present on the turn that produced them. */
-  actions?: MessageActionItem[];
+  /**
+   * What the server decided this surface draws for this turn, in its order.
+   *
+   * Present on the turn that just landed — the pipeline read the web surface's
+   * render capabilities and produced this list. A history row has no block list
+   * on the wire, so one is decoded from the persisted row instead; either way
+   * the switch below walks exactly one list.
+   */
+  blocks?: ReplyBlock[];
   /** Claim verdicts attached to this message, if any. */
-  verdicts?: ChatVerdictRow[];
+  verdicts?: ClaimVerdict[];
   /** Label shown above assistant turns — the active coach's name, or
    *  'Dravr' when the conversation has no coach attached. */
   assistantLabel?: string;
@@ -47,60 +55,15 @@ interface MessageItemProps {
   onSubmitReason?: (comment: string) => void;
   onRetry?: () => void;
   /** Open the verdict detail drawer for a single verdict. */
-  onShowVerdict?: (verdict: ChatVerdictRow) => void;
+  onShowVerdict?: (verdict: ClaimVerdict) => void;
   /** Send a follow-up user message (used by "ask me about this claim"). */
-  onAskAboutClaim?: (verdict: ChatVerdictRow) => void;
-  /** Click handler for a command-response action button (postback or url). */
-  onActionClick?: (action: MessageActionItem) => void;
+  onAskAboutClaim?: (verdict: ClaimVerdict) => void;
+  /** Press handler for a control the reply's `actions` block carried. */
+  onActionClick?: (action: ChatMessageAction) => void;
 }
 
-type WorstStrengthTone = 'success' | 'warning' | 'error' | 'info' | 'secondary';
-
-interface VerdictSummary {
-  worstStatus: ChatVerdictRow['status'];
-  worstStrength: ChatVerdictRow['evidence_strength'];
-  count: number;
-}
-
-const STATUS_PRIORITY: Record<ChatVerdictRow['status'], number> = {
-  contradicted: 4,
-  unsupported: 3,
-  unverifiable: 2,
-  rhetorical: 1,
-  supported: 0,
-};
-
-const STRENGTH_PRIORITY: Record<ChatVerdictRow['evidence_strength'], number> = {
-  none: 4,
-  weak: 3,
-  mixed: 2,
-  strong: 1,
-};
-
-const STATUS_TONE: Record<ChatVerdictRow['status'], WorstStrengthTone> = {
-  contradicted: 'error',
-  unsupported: 'warning',
-  unverifiable: 'secondary',
-  rhetorical: 'info',
-  supported: 'success',
-};
-
-function summarizeVerdicts(verdicts: ChatVerdictRow[]): VerdictSummary | null {
-  if (verdicts.length === 0) return null;
-  let worstStatus: ChatVerdictRow['status'] = 'supported';
-  let worstStrength: ChatVerdictRow['evidence_strength'] = 'strong';
-  for (const v of verdicts) {
-    if (STATUS_PRIORITY[v.status] > STATUS_PRIORITY[worstStatus]) {
-      worstStatus = v.status;
-    }
-    if (STRENGTH_PRIORITY[v.evidence_strength] > STRENGTH_PRIORITY[worstStrength]) {
-      worstStrength = v.evidence_strength;
-    }
-  }
-  return { worstStatus, worstStrength, count: verdicts.length };
-}
-
-function chipClassForTone(tone: WorstStrengthTone): string {
+/** Chip classes for the tone the shared rollup assigned the worst verdict. */
+function chipClassForTone(tone: VerdictTone): string {
   switch (tone) {
     case 'success':
       return 'bg-success/15 text-success hover:bg-success/25';
@@ -175,8 +138,7 @@ const MessageItem = memo(function MessageItem({
   feedback,
   isError = false,
   hasInsight = false,
-  activityList,
-  actions,
+  blocks,
   verdicts,
   assistantLabel,
   onCopy,
@@ -193,53 +155,162 @@ const MessageItem = memo(function MessageItem({
   onActionClick,
 }: MessageItemProps) {
   const isUser = message.role === 'user';
-  // Defensive: drop any residual <tool_call>/<tool_result> scaffolding embedded
-  // in a visible turn's content. Whole tool-plumbing rows are already filtered
-  // upstream in MessageList; this guards the rarer leaked-into-content case.
-  const rawContent = stripToolScaffolding(stripContextPrefix(message.content));
-
-  // When an activity list is present, strip it from the displayed content (for old baked-in messages)
-  const content = activityList ? splitActivityContent(rawContent)[1] : rawContent;
-
-  // Provider re-auth replies (from the auth_recovery stage) embed a one-time
-  // hosted-login URL on its own line. Surface it as a prominent "Reconnect"
-  // button and drop the raw token URL from the rendered text. The URL pattern
-  // is locale-independent, so this works for every language the reply ships in.
-  const reconnectUrl = useMemo(() => {
-    const match = content.match(/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/);
-    return match ? match[0] : null;
-  }, [content]);
-  const displayContent = reconnectUrl ? content.replace(reconnectUrl, '').trim() : content;
-
-  // Visual blocks the coach embedded in this reply, already resolved
-  // server-side. Charts, tables and the training plan all arrive here. The prose carries a ⟦viz:N⟧ marker where each one
-  // sat, so the reply renders as alternating prose and charts rather than the
-  // charts being appended in a lump at the end.
-  const sceneBlocks = useMemo(
-    () => parseSceneBlocks(message.scene_blocks),
-    [message.scene_blocks],
-  );
-  // Builder-coach replies carry a schema-validated plan as a `workout_plan`
-  // block on the same rail as charts and tables. It renders as a card rather
-  // than raw JSON, exactly as before — only where it arrives from changed.
-  const workoutPlan = useMemo(() => {
-    const plan = sceneBlocks.find((b) => b.kind === 'workout_plan');
-    return plan ? parseWorkoutPlan(JSON.stringify(plan.plan)) : null;
-  }, [sceneBlocks]);
-
-  const segments = useMemo(
-    () => splitVizMarkers(linkifyUrls(displayContent)),
-    [displayContent],
-  );
 
   const messageVerdicts = useMemo(
     () => (verdicts ?? []).filter((v) => v.message_id === message.id),
     [verdicts, message.id],
   );
-  const verdictSummary = useMemo(
-    () => summarizeVerdicts(messageVerdicts),
-    [messageVerdicts],
+
+  // One list, whatever the turn's age: the server's own blocks when it just
+  // landed, the same shape decoded from the persisted row when it did not.
+  const replyBlocks = useMemo(
+    () => blocks ?? transcriptBlocks(message, messageVerdicts),
+    [blocks, message, messageVerdicts],
   );
+
+  // The reply's charts, which the prose positions with its ⟦viz:N⟧ markers
+  // rather than appending in a lump — so they are resolved once here and drawn
+  // inside the prose arm below.
+  const scenes = useMemo(() => {
+    const scene = replyBlocks.find((block) => block.type === 'scene');
+    return scene?.type === 'scene' ? parseSceneBlocks(scene.scene_blocks) : [];
+  }, [replyBlocks]);
+
+  /**
+   * Draw one reply block.
+   *
+   * The only place this surface decides what a piece of a reply looks like.
+   * Every arm renders what the server already chose to send; none of them
+   * inspects the prose to work out whether a different arm should have fired.
+   */
+  function renderBlock(block: ReplyBlock, key: number): ReactNode {
+    switch (block.type) {
+      case 'prose': {
+        const segments = splitVizMarkers(linkifyUrls(block.text));
+        return (
+          <div
+            key={key}
+            className={`text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}
+          >
+            {segments.map((segment, i) =>
+              segment.kind === 'prose' ? (
+                <Markdown key={i} remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                  {segment.text}
+                </Markdown>
+              ) : (
+                scenes[segment.index] && <SceneView key={i} block={scenes[segment.index]} />
+              ),
+            )}
+          </div>
+        );
+      }
+
+      case 'activity_list':
+        return (
+          <details key={key} className="mb-3">
+            <summary className="cursor-pointer text-sm text-on-surface-variant hover:text-on-surface transition-colors select-none">
+              Your Activities ({countActivities(block.text)})
+            </summary>
+            <div className="mt-2 ml-4 text-on-surface text-sm prose prose-sm dark:prose-invert max-w-none">
+              <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                {block.text}
+              </Markdown>
+            </div>
+          </details>
+        );
+
+      case 'workout_plan': {
+        const plan = parseWorkoutPlan(JSON.stringify(block.plan));
+        return plan ? <WorkoutPlanCard key={key} plan={plan} /> : null;
+      }
+
+      // The charts this block carries are positioned by the prose's own
+      // ⟦viz:N⟧ markers and drawn in the prose arm. Drawing them here too is
+      // the same chart twice.
+      case 'scene':
+        return null;
+
+      case 'scene_image':
+        return (
+          <img
+            key={key}
+            src={block.url}
+            alt={block.caption ?? 'Chart'}
+            className="mt-3 max-w-full rounded-lg"
+          />
+        );
+
+      case 'verdicts': {
+        const summary = summarizeVerdicts(mergeVerdictSeverities(messageVerdicts, block.chips));
+        if (!summary || isUser) return null;
+        const detail = messageVerdicts[0];
+        return (
+          <div key={key} className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={detail && onShowVerdict ? () => onShowVerdict(detail) : undefined}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors ${chipClassForTone(summary.tone)}`}
+              title={`${summary.count} claim verdict${summary.count === 1 ? '' : 's'} — worst: ${summary.worstStatus}, ${summary.worstStrength ?? summary.worstStatus}`}
+            >
+              <ShieldAlert className="w-3 h-3" />
+              <span>{verdictSummaryLabel(summary)}</span>
+            </button>
+            {summary.count > 1 ? <span className="text-xs text-outline">Click for details</span> : null}
+            {onAskAboutClaim && detail && summary.count === 1 ? (
+              <button
+                type="button"
+                onClick={() => onAskAboutClaim(detail)}
+                className="text-xs text-primary hover:underline"
+              >
+                Ask me about this claim
+              </button>
+            ) : null}
+          </div>
+        );
+      }
+
+      case 'actions':
+        return (
+          <div key={key} className="mt-3">
+            {block.title ? (
+              <div className="mb-1.5 text-xs font-medium text-on-surface-variant">{block.title}</div>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {block.actions.map((action, idx) => (
+                <button
+                  key={`${action.value}-${idx}`}
+                  type="button"
+                  onClick={() => onActionClick?.(action)}
+                  className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+
+      case 'reconnect':
+        return (
+          <div key={key} className="mt-3">
+            <a
+              href={block.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-on-primary hover:bg-primary/90 transition-colors no-underline"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reconnect {block.display_name}
+            </a>
+          </div>
+        );
+
+      // A quota notice is a fact about the turn, not about the message: the
+      // conversation's usage banner shows it once, above the transcript.
+      case 'notice':
+        return null;
+    }
+  }
 
   return (
     <div className="flex gap-3">
@@ -260,100 +331,7 @@ const MessageItem = memo(function MessageItem({
         <div className="font-medium text-on-surface text-sm mb-1">
           {isUser ? 'You' : (assistantLabel ?? 'Dravr')}
         </div>
-        {/* Collapsible activity list (collapsed by default) */}
-        {activityList && (
-          <details className="mb-3">
-            <summary className="cursor-pointer text-sm text-on-surface-variant hover:text-on-surface transition-colors select-none">
-              Your Activities ({countActivities(activityList)})
-            </summary>
-            <div className="mt-2 ml-4 text-on-surface text-sm prose prose-sm dark:prose-invert max-w-none">
-              <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-                {activityList}
-              </Markdown>
-            </div>
-          </details>
-        )}
-        {workoutPlan && <WorkoutPlanCard plan={workoutPlan} />}
-        {(!workoutPlan || content.trim().length > 0) && (
-          <div className={`text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80 ${isError ? 'text-error' : ''}`}>
-            {segments.map((segment, i) =>
-              segment.kind === 'prose' ? (
-                <Markdown key={i} remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-                  {segment.text}
-                </Markdown>
-              ) : (
-                sceneBlocks[segment.index] && (
-                  <SceneView key={i} block={sceneBlocks[segment.index]} />
-                )
-              ),
-            )}
-          </div>
-        )}
-        {/* Provider re-auth CTA — render the hosted-login link as a prominent
-            button instead of a bare URL, opening the sciotte reconnect flow. */}
-        {!isUser && reconnectUrl && (
-          <div className="mt-3">
-            <a
-              href={reconnectUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-on-primary hover:bg-primary/90 transition-colors no-underline"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Reconnect
-            </a>
-          </div>
-        )}
-        {/* Command action buttons (e.g. per-coach select on /coach).
-            Rendered below the message body; clicking sends the button's
-            postback value as the user's next turn, flowing through the
-            same dispatcher as a typed command. Present only on the turn
-            that produced them — history re-renders without buttons. */}
-        {!isUser && actions && actions.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {actions.map((action, idx) => (
-              <button
-                key={`${action.value}-${idx}`}
-                type="button"
-                onClick={() => onActionClick?.(action)}
-                className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-        )}
-        {/* Claim verdict chips — one summary chip + per-claim drawer triggers */}
-        {!isUser && verdictSummary && messageVerdicts.length > 0 && (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onShowVerdict?.(messageVerdicts[0])}
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors ${chipClassForTone(STATUS_TONE[verdictSummary.worstStatus])}`}
-              title={`${verdictSummary.count} claim verdict${verdictSummary.count === 1 ? '' : 's'} — worst: ${verdictSummary.worstStatus}, ${verdictSummary.worstStrength}`}
-            >
-              <ShieldAlert className="w-3 h-3" />
-              <span>
-                {verdictSummary.count} verdict{verdictSummary.count === 1 ? '' : 's'} ·{' '}
-                {verdictSummary.worstStrength}
-              </span>
-            </button>
-            {messageVerdicts.length > 1 ? (
-              <span className="text-xs text-outline">
-                Click for details
-              </span>
-            ) : null}
-            {onAskAboutClaim && messageVerdicts.length === 1 ? (
-              <button
-                type="button"
-                onClick={() => onAskAboutClaim(messageVerdicts[0])}
-                className="text-xs text-primary hover:underline"
-              >
-                Ask me about this claim
-              </button>
-            ) : null}
-          </div>
-        )}
+        {replyBlocks.map((block, index) => renderBlock(block, index))}
         {/* Action icons and metadata for assistant messages - matches mobile design */}
         {!isUser && (
           <div className="mt-2 flex items-center gap-4">

@@ -7,15 +7,14 @@
 // Types and utilities
 export * from './types';
 export * from './utils';
+export * from './coachForm';
 
 // Components
-export { default as ChatSidebar } from './ChatSidebar';
 export { default as ConversationItem } from './ConversationItem';
 export { default as MessageItem } from './MessageItem';
 export { default as MessageList } from './MessageList';
+export { default as VerdictDrawer } from './VerdictDrawer';
 export { default as MessageInput } from './MessageInput';
-export { default as MyCoachCard } from './MyCoachCard';
-export { default as CategoryFilterButton } from './CategoryFilterButton';
 export { default as ProviderConnectionModal } from './ProviderConnectionModal';
 export { default as CoachFormModal } from './CoachFormModal';
 export { default as CreateCoachFromConversationModal } from './CreateCoachFromConversationModal';

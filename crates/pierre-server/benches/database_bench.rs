@@ -59,6 +59,7 @@ fn generate_test_user() -> User {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     }
 }
 

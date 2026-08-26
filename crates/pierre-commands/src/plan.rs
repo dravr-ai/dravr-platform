@@ -9,8 +9,7 @@ use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_BLOCK_LINE, KEY_PLAN_DAY_LINE, KEY_PLAN_EMPTY,
     KEY_PLAN_GOAL_LINE, KEY_PLAN_NO_COVERAGE, KEY_PLAN_NO_SESSION, KEY_PLAN_REST, KEY_PLAN_RESUMES,
-    KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY, KEY_PLAN_TOMORROW, KEY_PLAN_TRUNCATED,
-    KEY_PLAN_WEEK_HEADER,
+    KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY, KEY_PLAN_TOMORROW, KEY_PLAN_WEEK_HEADER,
 };
 use pierre_core::errors::AppError;
 use pierre_memory::training_plans::{
@@ -27,24 +26,6 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// Weeks the selection may return — `/plan` never shows more than the current
 /// and next, matching the prompt-side block.
 const PLAN_WEEK_LIMIT: usize = 2;
-
-/// Outbound text budget for a `/plan` reply.
-///
-/// The cross-channel floor: Discord and Messenger both cap text at 2000
-/// characters, against Telegram/WhatsApp's 4096 and Slack's 40000 (canot's
-/// `ChannelDescriptor::max_message_length`).
-///
-/// LIMITATION(registre#2): no chunking infrastructure exists anywhere in the send
-/// path, so a reply over the channel's limit is dropped by the platform rather
-/// than split — truncating at the floor is what makes `/plan` safe on all five
-/// channels.
-///
-/// LIMITATION(registre#1): `ChannelDescriptor::max_message_length` is not threaded through
-/// `PlatformCommandContext`, so this is deliberately the floor and not the
-/// per-channel value — the descriptor lookup is feature-gated per channel and
-/// the resolved limit belongs to the transport, not to this handler. Threading
-/// it through lets Telegram and Slack use their real headroom.
-const PLAN_TEXT_BUDGET: usize = 2_000;
 
 /// What the athlete asked to see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -303,27 +284,6 @@ fn render_view(
     out
 }
 
-/// Truncate to the outbound budget on a line boundary, appending the marker.
-///
-/// Cutting mid-line would leave a half-written session that reads as real
-/// prescription, so the cut lands between days.
-fn cap_to_budget(reg: &MessagingStringsRegistry, locale: &str, body: String) -> String {
-    if body.chars().count() <= PLAN_TEXT_BUDGET {
-        return body;
-    }
-    let marker = reg.render(KEY_PLAN_TRUNCATED, locale, &[]);
-    let room = PLAN_TEXT_BUDGET.saturating_sub(marker.chars().count());
-    let mut kept = String::with_capacity(room);
-    for line in body.lines() {
-        if kept.chars().count() + line.chars().count() + 1 > room {
-            break;
-        }
-        kept.push_str(line);
-        kept.push('\n');
-    }
-    format!("{}{marker}", kept.trim_end())
-}
-
 #[async_trait]
 impl CommandHandler for PlanShowHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
@@ -396,10 +356,11 @@ impl CommandHandler for PlanShowHandler {
             }
         }
 
-        Ok(CommandResponse::rich_text(cap_to_budget(
-            reg,
-            &ctx.locale,
-            body,
-        )))
+        // The whole plan, however long. A body past what one message on this
+        // channel carries is split into ordered messages by the egress
+        // (`messaging_ingress::block_render::fan_out`), so a twelve-week plan
+        // arrives complete instead of stopping at a week boundary with a
+        // "truncated" marker.
+        Ok(CommandResponse::rich_text(body))
     }
 }

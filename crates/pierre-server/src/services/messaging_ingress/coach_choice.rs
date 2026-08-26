@@ -15,11 +15,11 @@
 //! rebuilding it: the proposal is LLM-re-ranked, so a rebuild can come back in a
 //! different order and bind a coach the user did not pick.
 
-use crate::services::outgoing::proactive_text;
 use pierre_contremaitre::messaging_strings::KEY_COACH_USER_UPDATED;
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
+use pierre_services::messaging_broadcast::proactive_text;
 use tracing::{info, warn};
 use uuid::Uuid;
 

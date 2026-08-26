@@ -112,7 +112,7 @@ protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 # TRANSPORT FEATURES
 # ═══════════════════════════════════════════════════════════════
 transport-http = []
-transport-sse = ["dep:pierre-sse", "pierre-agui/transport-sse", "pierre-tool-runtime/transport-sse", "pierre-chat-pipeline?/transport-sse"]
+transport-sse = ["dep:pierre-sse", "pierre-tool-runtime/transport-sse", "pierre-chat-pipeline?/transport-sse"]
 transport-stdio = []
 
 transport-all = ["transport-http", "transport-sse", "transport-stdio"]
@@ -173,10 +173,6 @@ server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers",
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all", "gcp-kms"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all", "gcp-kms"]
 server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "client-messaging", "oauth", "all-providers", "tools-all", "analytics-posthog", "gcp-kms"]
-
-# OpenAPI documentation (SwaggerUI) - excluded from production by default
-# Enable with: cargo build --features openapi
-openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui", "pierre-core/openapi", "pierre-routes-coaches/openapi", "pierre-routes-social?/openapi"]
 
 [dependencies]
 embacle = { version = "0.21.3" }
@@ -251,11 +247,6 @@ tower-http = { version = "0.6", features = ["trace", "request-id", "cors", "time
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-# Lightweight language detector used to pick the message-local locale for
-# status/thinking placeholders and scope-refusal interpolation. Falls back
-# to the user's stored locale when the score is below whatlang's confidence
-# threshold (short / mixed-language messages).
-whatlang = "0.16"
 base64 = "0.22"
 bytes = "1.11"
 url = "2.5"
@@ -308,11 +299,6 @@ rsa = "0.9"
 # TOON format for token-efficient LLM serialization (~40% token reduction vs JSON)
 toon-format = { version = "0.2", optional = true }
 rand_chacha = "0.9"
-# OpenAPI documentation generation with utoipa
-# OpenAPI documentation - optional (enable with --features openapi)
-utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"], optional = true }
-utoipa-axum = { version = "0.2", optional = true }
-utoipa-swagger-ui = { version = "9.0", features = ["axum"], optional = true }
 html-escape = "0.2.13"
 cron = "0.15.0"
 # Product analytics — optional PostHog integration for messaging funnel tracking
@@ -322,6 +308,11 @@ cron = "0.15.0"
 [dev-dependencies]
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
+# Test-only: `verification_banner_locale_test` probes `resolve_banner_locale`
+# (pub(crate) in the pipeline crate) by re-running the same whatlang call
+# against the same inputs. Production language detection lives in
+# pierre-chat-pipeline's turn service, which carries its own dependency.
+whatlang = "0.16"
 embacle = { version = "0.21.3" }
 tempfile = "3.26"
 serial_test = "3.4"

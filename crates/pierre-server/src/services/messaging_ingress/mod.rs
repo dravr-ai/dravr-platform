@@ -13,6 +13,8 @@ mod coach_choice;
 mod connect;
 /// Platform-asked intake: profile type then the PAR-Q+, verbatim and strictly parsed.
 mod intake;
+/// Resolves a messaging channel's `SurfaceProfile` from the canot descriptor.
+pub mod surface;
 /// Per-channel fidelity negotiation: cards natively or as rich text, charts as media.
 pub mod viz_delivery;
 
@@ -25,32 +27,40 @@ pub use viz_delivery::card_or_rich_text;
 mod dispatch;
 /// Channel-linking commands (`/start <code>`, `LINK <code>`) + analytics-consent hydration.
 mod linking;
-/// Messaging-turn locale resolution + content-language detection helpers.
+/// Messaging-turn stored-locale resolution (channel link, then user profile).
 pub mod locale;
 /// In-chat OTP linking flow + logout + supporting helpers.
 mod otp;
 /// Shared failed-outbound enqueue helper — single source of truth for the retry
 /// queue, reused by the synchronous reply path and the backfill-completion push.
 pub mod outbound_retry;
-/// Compose a messaging reply: prepend the (adaptively capped) activity list to the coach analysis.
-mod reply_compose;
+/// Inbound emoji reactions mapped onto the shared per-message feedback write.
+pub mod reactions;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.
 mod session;
-/// Slash-command dispatch wrapper (channel-link auth/locale + `commands::dispatch::try_dispatch`).
+/// Channel framing around the turn service's slash dispatch: channel-link
+/// auth and locale in, an addressed `OutgoingMessage` out.
 #[cfg(feature = "client-messaging")]
 mod slash;
+/// Ambient room-chatter capture into the shared group transcript read model.
+mod transcript;
 
-pub use locale::{detect_turn_locale, resolve_messaging_locale};
+pub use locale::resolve_messaging_locale;
 
 pub(crate) use dispatch::dispatch_and_respond;
+/// Lays an assistant turn's blocks out as ordered channel messages, splitting
+/// prose past the channel's per-message ceiling.
+pub mod block_render;
 mod channel_auth_outcome;
-mod quota_gate;
+pub mod identity_leak_notify;
+mod scene_publisher;
+/// Per-conversation dispatch ordering + the pipeline panic boundary.
+pub mod turn_guard;
 use channel_auth_outcome::{
     handle_channel_auth_outcome, resolve_channel_user_email, ChannelAuthOutcomeInputs,
 };
 use dispatch::load_channel_config;
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
-pub(crate) use reply_compose::compose_messaging_reply;
 // Re-exported (not just `use`) so the messaging-reset integration test can
 // reach the helper — pierre-server keeps test modules external, not in src/.
 pub use otp::is_reset_command;
@@ -68,7 +78,6 @@ pub use slash::slash_reply_should_be_private;
 #[cfg(feature = "client-messaging")]
 use slash::{try_handle_slash_command, SlashCommandContext};
 
-use dashmap::DashMap;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::groups::GroupRespondMode;
 use pierre_core::models::messaging::{
@@ -78,15 +87,14 @@ use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
 use pierre_messaging::channel::MessagingChannel;
-use std::sync::{Arc, LazyLock};
-use tokio::sync::Mutex as TokioMutex;
+use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use serde_json::Value;
 
 use crate::mcp::resources::ServerContext;
-use pierre_chat_pipeline::ChannelProfile;
+use pierre_chat_pipeline::SurfaceProfile;
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_services::analytics::hash_id;
 
@@ -122,24 +130,22 @@ fn extract_thread_id(metadata: &Value) -> Option<String> {
         .map(|id| id.to_string())
 }
 
-/// Build a [`ChannelProfile`] for the originating messaging channel.
+/// Build the [`SurfaceProfile`] for the originating messaging channel.
 ///
-/// All four supported messaging channels currently share the same knobs
-/// (env-override model policy, five tool-loop iterations, messaging
-/// context prompt appended). Channel-specific overrides can be added by
-/// branching inside this helper without touching pipeline code.
+/// Nothing here is per-channel: the transport answers come from canot (see
+/// [`surface::transport_caps`]) and the prose contract comes from
+/// contremaitre, so a channel's real ceiling and its real media/card support
+/// reach the pipeline without a table in this repository to keep in sync.
 pub(crate) fn build_messaging_profile(
     resources: &Arc<ServerContext>,
     channel_type: ChannelType,
-) -> ChannelProfile {
-    let suffix = resources.messaging_context_prompt();
-    match channel_type {
-        ChannelType::Telegram => ChannelProfile::telegram(suffix),
-        ChannelType::WhatsApp => ChannelProfile::whatsapp(suffix),
-        ChannelType::Discord => ChannelProfile::discord(suffix),
-        ChannelType::Slack => ChannelProfile::slack(suffix),
-        ChannelType::Messenger => ChannelProfile::messenger(suffix),
-    }
+    locale: String,
+) -> SurfaceProfile {
+    SurfaceProfile::resolve(&surface::messaging_surface_request(
+        channel_type,
+        locale,
+        Some(resources.messaging_context_prompt()),
+    ))
 }
 
 /// Data needed to dispatch a message through the LLM pipeline after HTTP 200
@@ -199,12 +205,14 @@ pub(crate) struct PendingDispatch {
     /// the prompt, since each member's conversation history holds only
     /// their own exchanges with the coach.
     pub(super) is_group_chat: bool,
-    /// Resolved BCP-47 locale for this turn.
+    /// The athlete's stored BCP-47 locale for this channel, resolved via
+    /// [`resolve_messaging_locale`] when the dispatch is enqueued.
     ///
-    /// Threaded into `TurnInput` so the chat pipeline's guardrail /
-    /// verification / empty-reply fallbacks speak the user's
-    /// language. Populated via [`resolve_messaging_locale`] when the
-    /// dispatch is enqueued.
+    /// The language of everything the platform says *around* a turn: the
+    /// status placeholder, the connect card, an error apology, a quota
+    /// denial. The turn's own language is refined from the athlete's message
+    /// inside the turn service and comes back on
+    /// [`pierre_chat_pipeline::TurnEnvelope::locale`].
     pub(super) locale: String,
     /// Conversation-turn correlation identifier set by canot's webhook
     /// adapter on [`IncomingMessage::turn_id`]. Threaded through the
@@ -253,7 +261,16 @@ pub(crate) async fn persist_inbound(
     (stored_count, pending_dispatches)
 }
 
-/// Send an outgoing message to a channel user, loading config and spawning delivery
+/// Send an outgoing reply to a channel user, loading config and spawning
+/// delivery.
+///
+/// A body past the channel's ceiling is split here, at the one point every
+/// non-pipeline reply in this module passes through: an over-limit message is
+/// rejected outright by the channel API, so a `/plan`, an intake question or a
+/// coach list that outgrew Discord's 2000 characters used to arrive truncated
+/// or not at all. The parts are sent sequentially inside one spawned task so a
+/// split answer never arrives out of order, and a failure part-way stops the
+/// rest rather than posting a tail with no head.
 async fn send_channel_response(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
@@ -261,12 +278,17 @@ async fn send_channel_response(
     adapter: &Arc<dyn MessagingChannel>,
     message: OutgoingMessage,
 ) {
+    let ceiling = block_render::channel_ceiling(message.channel_type);
+    let messages = block_render::fan_out(message, ceiling);
     let config = load_channel_config(db, tenant_id, channel).await;
     if let Some(cfg) = config {
         let adapter_clone = Arc::clone(adapter);
         tokio::spawn(async move {
-            if let Err(e) = adapter_clone.send(&message, &cfg).await {
-                error!(error = %e, "Failed to send channel response");
+            for message in messages {
+                if let Err(e) = adapter_clone.send(&message, &cfg).await {
+                    error!(error = %e, "Failed to send channel response");
+                    return;
+                }
             }
         });
     }
@@ -288,16 +310,21 @@ async fn send_private_channel_response(
     message: OutgoingMessage,
     recipient_user_id: &str,
 ) {
+    let ceiling = block_render::channel_ceiling(message.channel_type);
+    let messages = block_render::fan_out(message, ceiling);
     let config = load_channel_config(db, tenant_id, channel).await;
     if let Some(cfg) = config {
         let adapter_clone = Arc::clone(adapter);
         let recipient = recipient_user_id.to_owned();
         tokio::spawn(async move {
-            if let Err(e) = adapter_clone
-                .send_private_reply(&message, &recipient, &cfg)
-                .await
-            {
-                error!(error = %e, "Failed to send private slash-command reply");
+            for message in messages {
+                if let Err(e) = adapter_clone
+                    .send_private_reply(&message, &recipient, &cfg)
+                    .await
+                {
+                    error!(error = %e, "Failed to send private slash-command reply");
+                    return;
+                }
             }
         });
     }
@@ -779,11 +806,6 @@ async fn persist_single_message(
         },
         |text_content| {
             let sanitized = sanitize_for_dispatch(channel, &session.user_id, text_content);
-            // Prefer the language of the message itself over the stored
-            // `users.locale` so status placeholders / refusal lines match
-            // the language the LLM will reply in (LLMs mirror the user's
-            // current message language, not the stored preference).
-            let turn_locale = detect_turn_locale(&sanitized, &locale);
             Ok(PersistOutcome::StoredWithDispatch(Box::new(
                 PendingDispatch {
                     resources: Arc::clone(resources),
@@ -801,7 +823,7 @@ async fn persist_single_message(
                     channel_message_id: message.channel_message_id.clone(),
                     thread_id,
                     is_group_chat: !message.is_direct_message,
-                    locale: turn_locale,
+                    locale,
                     // Canot generates the turn id at the webhook boundary
                     // (see canot's IncomingMessage::turn_id); adopt it so
                     // canot-emitted log spans and the platform's
@@ -948,6 +970,8 @@ async fn handle_ambient_group_message(
     {
         return Ok(PersistOutcome::HandledNotStored);
     }
+
+    transcript::append_ambient_transcript_entry(resources, tenant_id, &session, message).await;
 
     emit_message_received(
         &session.user_id,
@@ -1170,6 +1194,9 @@ async fn store_inbound_message(
         content_body: content_body.as_deref(),
         correlation_id: &correlation_str,
         raw_payload: raw_payload.as_deref(),
+        // Inbound rows are what the athlete said; there is no assistant reply
+        // to rate on this side of the turn.
+        chat_message_id: None,
     };
 
     match db.insert_message(&params).await {
@@ -1191,15 +1218,6 @@ async fn store_inbound_message(
         }
     }
 }
-
-/// Per-conversation dispatch locks ensuring sequential LLM processing.
-///
-/// Without this, concurrent webhook calls for the same conversation race:
-/// message 2's dispatch can finish before message 1's, producing out-of-order
-/// replies. The lock serializes dispatches per conversation while allowing
-/// different conversations to proceed in parallel.
-pub(super) static CONVERSATION_DISPATCH_LOCKS: LazyLock<DashMap<String, Arc<TokioMutex<()>>>> =
-    LazyLock::new(DashMap::new);
 
 /// Extract a content type label from the message content variant
 fn content_type_label(content: &MessageContent) -> &'static str {

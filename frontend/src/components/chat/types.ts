@@ -31,17 +31,6 @@ export interface MessageMetadata {
   executionTimeMs: number;
 }
 
-/**
- * Interactive button returned by a slash-command handler (e.g. per-coach
- * select button on `/coach`). Attached to the current assistant turn;
- * not persisted on the server.
- */
-export interface MessageActionItem {
-  label: string;
-  action_type: string;
-  value: string;
-}
-
 export type MessageFeedback = 'up' | 'down' | null;
 
 export interface OAuthNotification {
@@ -83,6 +72,18 @@ export interface CoachFormData {
   example_inputs: string;
   example_outputs: string;
   success_criteria: string;
+  /**
+   * Per-turn tool-loop iteration budget for this coach, in three states.
+   *
+   * - `undefined` — untouched. The request omits the key, so an existing pin
+   *   survives an unrelated edit and a coach without one keeps following the
+   *   tenant-wide `tool_execution.max_iterations` an admin can raise.
+   * - `null` — the user emptied the box. The update request sends an explicit
+   *   `null`, which clears a stored pin back to inheriting; a create request
+   *   has nothing to clear and omits it.
+   * - a number — an explicit per-coach budget the user typed.
+   */
+  max_tool_iterations?: number | null;
 }
 
 export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
@@ -103,6 +104,9 @@ export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
   example_inputs: '',
   example_outputs: '',
   success_criteria: '',
+  // Left undefined so a coach created without touching the budget field
+  // inherits the tenant-wide limit instead of pinning one.
+  max_tool_iterations: undefined,
 };
 
 // Re-export for convenience

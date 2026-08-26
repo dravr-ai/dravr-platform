@@ -121,7 +121,7 @@ pub async fn resolve(
     ctx: &ChatPipelineContext,
     conv: &ConversationRecord,
     tenant_id: TenantId,
-    locale: Option<&str>,
+    locale: &str,
 ) -> GuidedResolution {
     let Some(state) = OnboardingState::from_column(conv.onboarding_state.as_deref()) else {
         return GuidedResolution::Inactive;
@@ -224,7 +224,7 @@ async fn leave_guided_mode(
     state: OnboardingState,
     tenant_id: TenantId,
     dossier: &Dossier,
-    locale: Option<&str>,
+    locale: &str,
 ) -> GuidedResolution {
     // The completion summary is rendered BEFORE the marker is retired, so a
     // failed write does not also cost the athlete their wrap-up.

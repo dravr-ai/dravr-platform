@@ -2,16 +2,16 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Conversations panel for sidebar chat history display
-// ABOUTME: Groups conversations by coach (session hierarchy) per Phase B Sprint C15
+// ABOUTME: Groups conversations by coach, with a search that reaches into collapsed groups
 
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, MessageSquare } from 'lucide-react';
+import { ChevronDown, ChevronRight, MessageSquare, Search } from 'lucide-react';
 import { chatApi, coachesApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import type { Conversation, Coach } from '../chat/types';
 import ConversationItem from '../chat/ConversationItem';
-import { ConfirmDialog } from '../ui';
+import { ConfirmDialog, Input } from '../ui';
 
 interface ConversationsPanelProps {
   selectedConversation: string | null;
@@ -89,6 +89,7 @@ export default function ConversationsPanel({
   const [editedTitleValue, setEditedTitleValue] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ id: string; title: string } | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => loadCollapsedSet());
+  const [searchQuery, setSearchQuery] = useState('');
   const queryClient = useQueryClient();
 
   const { data: conversationsData, isLoading } = useQuery<{ conversations: Conversation[] }>({
@@ -117,9 +118,21 @@ export default function ConversationsPanel({
     return map;
   }, [coaches]);
 
+  // Filter before grouping, exactly like the mobile ConversationsScreen: the
+  // search runs across every conversation, not only the ones currently on
+  // screen, so a match inside a collapsed coach still has a group to land in.
+  const filteredConversations = useMemo(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return conversations;
+    const query = trimmed.toLowerCase();
+    return conversations.filter((conv) => (conv.title ?? '').toLowerCase().includes(query));
+  }, [searchQuery, conversations]);
+
+  const searchActive = searchQuery.trim().length > 0;
+
   const sessionGroups = useMemo<SessionGroup[]>(() => {
     const buckets = new Map<string, Conversation[]>();
-    for (const conv of conversations) {
+    for (const conv of filteredConversations) {
       const key = conv.coach_id ?? '__no_coach__';
       const bucket = buckets.get(key);
       if (bucket) {
@@ -157,7 +170,7 @@ export default function ConversationsPanel({
     }
 
     return groups;
-  }, [conversations, coachTitleById]);
+  }, [filteredConversations, coachTitleById]);
 
   const toggleGroup = (groupKey: string): void => {
     setCollapsedGroups((prev) => {
@@ -234,14 +247,30 @@ export default function ConversationsPanel({
         <h3 className="text-[11px] font-bold text-on-surface-variant tracking-wider uppercase px-3 mb-2">
           Coaching sessions
         </h3>
+        <div className="px-3 mb-2">
+          <Input
+            type="search"
+            size="sm"
+            leftIcon={<Search className="w-3.5 h-3.5" />}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search conversations"
+            aria-label="Search conversations"
+          />
+        </div>
         <div className="space-y-1 max-h-96 overflow-y-auto">
           {isLoading ? (
             <div className="px-3 py-2 text-outline text-sm">Loading...</div>
           ) : sessionGroups.length === 0 ? (
-            <div className="px-3 py-2 text-outline text-sm">No conversations yet</div>
+            <div className="px-3 py-2 text-outline text-sm">
+              {searchActive ? 'No matching conversations' : 'No conversations yet'}
+            </div>
           ) : (
             sessionGroups.map((group) => {
-              const isCollapsed = collapsedGroups.has(group.key);
+              // A search overrides the collapsed state: a match the user cannot
+              // see is not a search result. The stored collapse is untouched,
+              // so clearing the box restores exactly what they had folded.
+              const isCollapsed = !searchActive && collapsedGroups.has(group.key);
               return (
                 <div
                   key={group.key}
@@ -282,7 +311,10 @@ export default function ConversationsPanel({
                   </button>
                   {!isCollapsed && (
                     <div className="ml-4 space-y-0.5 mt-0.5">
-                      {group.conversations.slice(0, 10).map((conv) => (
+                      {/* The unsearched sidebar shows the 10 most recent per
+                          coach; a search shows every match, so a hit past the
+                          tenth is still reachable. */}
+                      {(searchActive ? group.conversations : group.conversations.slice(0, 10)).map((conv) => (
                         <ConversationItem
                           key={conv.id}
                           conversation={conv}

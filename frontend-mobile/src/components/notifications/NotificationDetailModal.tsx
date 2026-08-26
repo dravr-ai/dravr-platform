@@ -18,7 +18,7 @@ import {
   formatNotificationTime,
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationItem, NotificationAction } from '@pierre/shared-types';
-import { resolveNotificationTarget } from './navigation';
+import { mobileNotificationTarget } from '@pierre/shared-constants';
 
 interface NotificationDetailModalProps {
   visible: boolean;
@@ -51,7 +51,7 @@ export function NotificationDetailModal({
   // to a screen AND there's no more specific action button (a coach "Reply"
   // already routes to the thread, so a second button would be redundant).
   const hasActions = !!notification.actions && notification.actions.length > 0;
-  const showNavigate = !hasActions && resolveNotificationTarget(notification.data) !== null;
+  const showNavigate = !hasActions && mobileNotificationTarget(notification.data) !== null;
 
   return (
     <Modal

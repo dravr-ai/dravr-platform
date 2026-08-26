@@ -7,6 +7,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { messagingLinkApi } from '../services/api';
+import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
 
@@ -43,11 +44,15 @@ export default function OnboardingMessagingConfigure({
   });
 
   // Poll the user's linked channels — the desktop can only learn the phone
-  // finished by asking. When this channel appears, the link has landed.
+  // finished by asking. The wait is what is being polled for, so the interval
+  // ends with it: once this channel appears the answer cannot change again,
+  // and a poll that kept running would bill an instance for a screen the
+  // athlete has already left.
   const { data: links } = useQuery({
     queryKey: ['messaging-links'],
     queryFn: () => messagingLinkApi.listLinks(),
-    refetchInterval: 3000,
+    refetchInterval: query =>
+      query.state.data?.some((l) => l.channel === channel) ? false : CHANNEL_LINK_POLL_INTERVAL_MS,
   });
 
   useEffect(() => {

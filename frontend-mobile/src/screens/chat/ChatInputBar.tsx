@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Chat input bar component with text input, voice, and send buttons
+// ABOUTME: Chat input bar with text input, slash-command palette, voice and send buttons
 // ABOUTME: Keyboard-aware positioning — animates above keyboard or tab bar
 
 import React, { useEffect, useRef } from 'react';
@@ -9,6 +9,8 @@ import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, Keyboard, P
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, useThemeColors, useTheme } from '../../constants/theme';
 import { VoiceButton, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
+import { CommandPalette } from '../../components/CommandPalette';
+import { useCommandPalette } from '../../hooks/useCommandPalette';
 
 interface ChatInputBarProps {
   inputText: string;
@@ -39,6 +41,9 @@ export function ChatInputBar({
   const colors = useThemeColors();
   const { scheme } = useTheme();
   const displayText = isListening ? partialTranscript : inputText;
+  // Dictation is prose, never a command, so the palette reads the typed text
+  // rather than what is on screen mid-transcription.
+  const palette = useCommandPalette(isListening ? '' : inputText);
   const canSend = inputText.trim() && !isSending && !isListening && !disabled;
   const isDark = scheme === 'dark';
 
@@ -87,6 +92,10 @@ export function ChatInputBar({
         backgroundColor: 'transparent',
       }}
     >
+      <CommandPalette
+        matches={palette.matches}
+        onSelect={(entry) => onChangeText(palette.draftFor(entry))}
+      />
       <View
         className="flex-row items-center rounded-full px-3 min-h-[44px] max-h-[100px]"
         style={{

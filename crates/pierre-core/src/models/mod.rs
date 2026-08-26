@@ -114,8 +114,8 @@ pub use roster::CoachAthleteAssignment;
 
 // User domain
 pub use user::{
-    default_locale, CoachingPersona, PreApprovedEmail, User, UserId, UserPhysiologicalProfile,
-    UserStatus, UserTier,
+    default_locale, CoachingPersona, ColorScheme, PreApprovedEmail, User, UserId,
+    UserPhysiologicalProfile, UserStatus, UserTier,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
@@ -246,14 +246,15 @@ pub mod groups;
 pub mod notifications;
 pub use groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
-    GroupInvite, GroupMember, GroupRole, GroupSummary, GroupSummaryBlock, GroupTrend,
-    GroupWeeklyReport, HealthFlagSeverity, JoinGroupRequest, MemberFitnessSnapshot, MemberFlag,
-    MemberGroupComparison, MemberSummaryCard, OvertrainingRiskLevel, SummaryDetailLevel,
-    UpdateGroupRequest,
+    GroupInvite, GroupMember, GroupRole, GroupSummary, GroupSummaryBlock, GroupTranscriptEntry,
+    GroupTrend, GroupWeeklyReport, HealthFlagSeverity, JoinGroupRequest, MemberFitnessSnapshot,
+    MemberFlag, MemberSummaryCard, NewGroupTranscriptEntry, OvertrainingRiskLevel,
+    SummaryDetailLevel, TranscriptSpeaker, UpdateGroupRequest,
 };
 pub use notifications::{
     CreateNotificationParams, DevicePlatform, DeviceToken, ListNotificationsQuery, Notification,
     NotificationCategory, NotificationFeedResponse, NotificationItem, NotificationPreference,
-    NotificationPreferenceItem, NotificationPreferencesResponse, RegisterDeviceTokenRequest,
-    ScheduledNotification, UpdateNotificationPreferenceRequest, UpsertNotificationPreferenceParams,
+    NotificationPreferenceItem, NotificationPreferencesResponse, NotificationScreen,
+    RegisterDeviceTokenRequest, ScheduledNotification, UpdateNotificationPreferenceRequest,
+    UpsertNotificationPreferenceParams,
 };

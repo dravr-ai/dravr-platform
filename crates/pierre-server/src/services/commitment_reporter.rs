@@ -66,7 +66,7 @@ use uuid::Uuid;
 
 use crate::services::backfill_notifier::{config_adapter_resolver, AdapterResolver};
 use crate::services::messaging_ingress::addressing::reply_recipient;
-use crate::services::outgoing::proactive_text;
+use pierre_services::messaging_broadcast::proactive_text;
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{

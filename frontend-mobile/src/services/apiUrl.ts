@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 // ABOUTME: Single source of truth for the Pierre API base URL across mobile code paths
-// ABOUTME: REST (services/api/index.ts) and SSE consumers (hooks/useAgUiProgress) resolve through this
+// ABOUTME: Every request the app makes — REST and the chat turn stream alike — resolves through this
 
 import { Platform } from 'react-native';
 

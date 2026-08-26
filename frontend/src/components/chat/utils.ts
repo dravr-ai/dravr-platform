@@ -7,9 +7,6 @@
 // OAuth-aware URL formatting
 export { getFriendlyUrlName, linkifyUrls } from '@pierre/domain-utils';
 
-// Message processing
-export { stripContextPrefix } from '@pierre/chat-utils';
-
 // Category styling helpers
 export { getCategoryBadgeClass, getCategoryIcon } from '@pierre/domain-utils';
 

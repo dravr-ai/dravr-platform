@@ -45,7 +45,6 @@ function renderList(messages: Message[]) {
       messageFeedback={{}}
       messageFeedbackComment={{}}
       insightMessages={new Set()}
-      activityLists={{}}
       flatListRef={React.createRef()}
       onScrollToBottom={jest.fn()}
       onCoachSelect={jest.fn()}

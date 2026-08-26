@@ -5,11 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
+use std::slice;
 use std::sync::Arc;
 use std::time::Duration;
 
 use http::HeaderMap;
-use pierre_core::models::messaging::{ChannelType, IncomingMessage};
+use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
 use pierre_messaging::channel::MessagingChannel;
@@ -28,6 +29,7 @@ type SlackWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
+use crate::services::messaging_ingress::reactions;
 use pierre_runtime_context::DataContext;
 
 /// Start the Slack Socket Mode background service.
@@ -57,16 +59,25 @@ pub fn start_slack_socket_mode(resources: &Arc<ServerContext>) {
         .unwrap_or_default();
 
     let (tx, rx) = mpsc::channel::<IncomingMessage>(256);
+    // Reactions ride their own channel rather than the message stream: they
+    // rate a reply already sent, so they never open a turn and must not be
+    // mistaken for one anywhere downstream.
+    let (reaction_tx, reaction_rx) = mpsc::channel::<InboundReaction>(256);
 
     let producer_allow = allowed_bot_ids.clone();
     tokio::spawn(async move {
-        run_reconnect_loop(app_token, producer_allow, tx).await;
+        run_reconnect_loop(app_token, producer_allow, tx, reaction_tx).await;
         warn!("Slack Socket Mode: producer loop exited");
     });
 
     let processor_resources = Arc::clone(resources);
     tokio::spawn(async move {
         process_socket_messages(processor_resources, rx).await;
+    });
+
+    let reaction_resources = Arc::clone(resources);
+    tokio::spawn(async move {
+        process_socket_reactions(reaction_resources, reaction_rx).await;
     });
 
     info!(
@@ -90,15 +101,33 @@ pub fn parse_allowed_bot_ids(raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// The two streams one socket frame can feed.
+///
+/// A frame carries either conversational input or a rating on something
+/// already said. They go to different consumers, and keeping them in one
+/// struct is what stops every function in the frame path from growing an
+/// argument each time the socket learns to carry something new.
+struct SocketSinks {
+    /// Inbound messages, drained by the LLM dispatch consumer.
+    messages: mpsc::Sender<IncomingMessage>,
+    /// Emoji reactions, drained by the feedback consumer.
+    reactions: mpsc::Sender<InboundReaction>,
+}
+
 /// Outer reconnect loop: re-opens the Socket Mode connection on clean
 /// disconnects and after transient errors.
 async fn run_reconnect_loop(
     app_token: String,
     allowed_bot_ids: Vec<String>,
     tx: mpsc::Sender<IncomingMessage>,
+    reaction_tx: mpsc::Sender<InboundReaction>,
 ) {
+    let sinks = SocketSinks {
+        messages: tx,
+        reactions: reaction_tx,
+    };
     loop {
-        match connect_and_stream(&app_token, &allowed_bot_ids, &tx).await {
+        match connect_and_stream(&app_token, &allowed_bot_ids, &sinks).await {
             Ok(()) => {
                 info!("Slack Socket Mode: disconnected cleanly, reconnecting");
             }
@@ -124,7 +153,7 @@ enum FrameOutcome {
 async fn connect_and_stream(
     app_token: &str,
     allowed_bot_ids: &[String],
-    tx: &mpsc::Sender<IncomingMessage>,
+    sinks: &SocketSinks,
 ) -> Result<(), String> {
     use futures_util::StreamExt;
 
@@ -136,7 +165,7 @@ async fn connect_and_stream(
         .map_err(|e| format!("WSS connect failed: {e}"))?;
 
     while let Some(frame) = StreamExt::next(&mut ws).await {
-        match handle_ws_frame(frame, &mut ws, allowed_bot_ids, tx).await? {
+        match handle_ws_frame(frame, &mut ws, allowed_bot_ids, sinks).await? {
             FrameOutcome::Continue => {}
             FrameOutcome::Disconnect => return Ok(()),
         }
@@ -150,7 +179,7 @@ async fn handle_ws_frame(
     frame: Result<Message, WsError>,
     ws: &mut SlackWs,
     allowed_bot_ids: &[String],
-    tx: &mpsc::Sender<IncomingMessage>,
+    sinks: &SocketSinks,
 ) -> Result<FrameOutcome, String> {
     use futures_util::SinkExt;
 
@@ -176,7 +205,7 @@ async fn handle_ws_frame(
         }
     };
 
-    handle_envelope(&envelope, ws, allowed_bot_ids, tx).await
+    handle_envelope(&envelope, ws, allowed_bot_ids, sinks).await
 }
 
 /// Branch on the envelope's `type` field. Split from `handle_ws_frame` so
@@ -185,7 +214,7 @@ async fn handle_envelope(
     envelope: &Value,
     ws: &mut SlackWs,
     allowed_bot_ids: &[String],
-    tx: &mpsc::Sender<IncomingMessage>,
+    sinks: &SocketSinks,
 ) -> Result<FrameOutcome, String> {
     let frame_type = envelope.get("type").and_then(|v| v.as_str()).unwrap_or("");
     match frame_type {
@@ -193,7 +222,7 @@ async fn handle_envelope(
             info!("Slack Socket Mode: hello received");
             Ok(FrameOutcome::Continue)
         }
-        "events_api" => handle_events_api(envelope, ws, allowed_bot_ids, tx).await,
+        "events_api" => handle_events_api(envelope, ws, allowed_bot_ids, sinks).await,
         "disconnect" => {
             let reason = envelope.get("reason").and_then(|v| v.as_str());
             info!(reason = ?reason, "Slack Socket Mode: server-side disconnect");
@@ -212,7 +241,7 @@ async fn handle_events_api(
     envelope: &Value,
     ws: &mut SlackWs,
     allowed_bot_ids: &[String],
-    tx: &mpsc::Sender<IncomingMessage>,
+    sinks: &SocketSinks,
 ) -> Result<FrameOutcome, String> {
     use futures_util::SinkExt;
 
@@ -223,7 +252,7 @@ async fn handle_events_api(
             .map_err(|e| format!("ack send failed: {e}"))?;
     }
     if let Some(payload) = envelope.get("payload") {
-        deliver_payload(payload, allowed_bot_ids, tx).await;
+        deliver_payload(payload, allowed_bot_ids, sinks).await;
     }
     Ok(FrameOutcome::Continue)
 }
@@ -264,28 +293,80 @@ async fn open_connection(app_token: &str) -> Result<String, String> {
         .ok_or_else(|| "apps.connections.open response missing `url`".to_owned())
 }
 
-/// Reuse canot's existing Slack event parser on the socket payload so the
-/// bot-filter allow-list applies identically on both ingress paths.
+/// Reuse canot's existing Slack parsers on the socket payload so both ingress
+/// paths read a frame identically — the same bot-filter allow-list on
+/// messages, the same reaction events.
 ///
 /// The socket `payload` field carries the same Events API shape that
-/// [`SlackTransport::parse_inbound`] expects, so we serialize back to bytes,
-/// construct a transport with the allow-list, and feed it through. The
-/// `signing_secret` argument is unused here — socket-mode frames are authed
-/// by the xapp- token on the connection, not HMAC on the body.
-async fn deliver_payload(
-    payload: &Value,
-    allowed_bot_ids: &[String],
-    tx: &mpsc::Sender<IncomingMessage>,
-) {
+/// [`SlackTransport::parse_inbound`] and its reaction parser expect, so we
+/// serialize back to bytes, construct a transport with the allow-list, and
+/// feed it through. The `signing_secret` argument is unused here —
+/// socket-mode frames are authed by the xapp- token on the connection, not
+/// HMAC on the body.
+///
+/// Reactions go first: they rate a reply the athlete already has, so they
+/// never wait behind a turn.
+async fn deliver_payload(payload: &Value, allowed_bot_ids: &[String], sinks: &SocketSinks) {
+    for reaction in parse_socket_reactions(payload).await {
+        if sinks.reactions.send(reaction).await.is_err() {
+            warn!("Slack Socket Mode: reaction consumer channel closed, dropping reaction");
+            break;
+        }
+    }
+
     let Some(messages) = parse_socket_payload(payload, allowed_bot_ids).await else {
         return;
     };
     for msg in messages {
-        if tx.send(msg).await.is_err() {
+        if sinks.messages.send(msg).await.is_err() {
             warn!("Slack Socket Mode: consumer channel closed, dropping message");
             return;
         }
     }
+}
+
+/// Hand the socket payload to canot's Slack reaction parser.
+///
+/// Socket Mode carries `reaction_added` / `reaction_removed` in the same
+/// Events API shape the webhook posts, so the same parser reads both. The
+/// descriptor is consulted rather than assumed — the gate is the channel's own
+/// declaration everywhere the platform parses reactions. A payload that is not
+/// a reaction event yields an empty list, which is the common case.
+async fn parse_socket_reactions(payload: &Value) -> Vec<InboundReaction> {
+    if !reactions::channel_delivers_reactions(ChannelType::Slack) {
+        return Vec::new();
+    }
+    let transport = SlackTransport::new("socket-mode-has-no-signing-secret".to_owned());
+    let body = match serde_json::to_vec(payload) {
+        Ok(b) => b,
+        Err(e) => {
+            warn!(error = %e, "Slack Socket Mode: re-serialize payload failed");
+            return Vec::new();
+        }
+    };
+    match transport.parse_reactions(&HeaderMap::new(), &body).await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, "Slack Socket Mode: parse_reactions failed");
+            Vec::new()
+        }
+    }
+}
+
+/// Consumer task: drains reactions and applies each as message feedback.
+async fn process_socket_reactions(
+    resources: Arc<ServerContext>,
+    mut rx: mpsc::Receiver<InboundReaction>,
+) {
+    while let Some(reaction) = rx.recv().await {
+        debug!(
+            channel_message_id = %reaction.channel_message_id,
+            action = %reaction.action,
+            "Slack Socket Mode: received reaction"
+        );
+        reactions::apply_reactions(&resources, slice::from_ref(&reaction)).await;
+    }
+    info!("Slack Socket Mode: reaction consumer stopped");
 }
 
 /// Re-serialize the socket payload and hand it to canot's parser. Returns

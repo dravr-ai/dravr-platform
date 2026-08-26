@@ -14,10 +14,24 @@ export interface ConversationsState {
   error: string | null;
 }
 
+/**
+ * What a caller may attach to a new conversation.
+ *
+ * `group_id` scopes the conversation to a coaching group: the server checks
+ * the caller's membership, then gates group context and the peer-grounding
+ * fabrication stage on it. Leaving it off makes the conversation a personal
+ * 1:1 chat, whatever coach persona it carries.
+ */
+export interface CreateConversationParams {
+  title: string;
+  coach_id?: string;
+  group_id?: string;
+}
+
 export interface ConversationsActions {
   loadConversations: () => Promise<void>;
   setCurrentConversation: (conversation: Conversation | null) => void;
-  createConversation: (params: { title: string; coach_id?: string }) => Promise<Conversation>;
+  createConversation: (params: CreateConversationParams) => Promise<Conversation>;
   deleteConversation: (conversationId: string) => Promise<void>;
   renameConversation: (conversationId: string, newTitle: string) => Promise<void>;
   handleNewChat: () => void;
@@ -59,7 +73,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
     }
   }, []);
 
-  const createConversation = useCallback(async (params: { title: string; coach_id?: string }): Promise<Conversation> => {
+  const createConversation = useCallback(async (params: CreateConversationParams): Promise<Conversation> => {
     try {
       setError(null);
       const conversation = await chatApi.createConversation(params);

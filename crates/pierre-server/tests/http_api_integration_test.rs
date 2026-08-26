@@ -86,6 +86,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 

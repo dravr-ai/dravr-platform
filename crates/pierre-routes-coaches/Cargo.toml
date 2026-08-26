@@ -34,12 +34,6 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 [features]
 default = []
 client-notifications = ["dep:pierre-notifications", "pierre-runtime-context/client-notifications"]
-openapi = ["dep:utoipa", "pierre-core/openapi"]
-
-[dependencies.utoipa]
-version = "5.4"
-optional = true
-features = ["axum_extras", "chrono", "uuid"]
 
 [lints]
 workspace = true

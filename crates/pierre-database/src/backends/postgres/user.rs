@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::super::{ProfileRepository, UserRepository};
+use super::user_preferences as preferences;
 use super::PostgresDatabase;
 use crate::backends::shared;
 use async_trait::async_trait;
@@ -33,7 +34,7 @@ const USER_COLUMNS: &str =
     "id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, \
      role, user_status, approved_by, approved_at, created_at, last_active, \
      firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, \
-     coaching_persona, manages_roster, timezone";
+     coaching_persona, manages_roster, timezone, theme";
 
 #[async_trait]
 impl UserRepository for PostgresDatabase {
@@ -79,7 +80,7 @@ impl UserRepository for PostgresDatabase {
                    u.is_active, u.is_admin, u.role, u.user_status, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
                    u.analytics_consent, u.analytics_consent_at, u.locale,
-                   u.coaching_persona, u.manages_roster, u.timezone
+                   u.coaching_persona, u.manages_roster, u.timezone, u.theme
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
             WHERE u.id = $1
@@ -137,6 +138,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_default(),
                     manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                     timezone: row.try_get("timezone").ok().flatten(),
+                    theme: row.try_get("theme").ok().flatten(),
                 }))
             },
         )
@@ -196,6 +198,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_default(),
                     manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                     timezone: row.try_get("timezone").ok().flatten(),
+                    theme: row.try_get("theme").ok().flatten(),
                 }))
             },
         )
@@ -275,6 +278,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_default(),
                     manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                     timezone: row.try_get("timezone").ok().flatten(),
+                    theme: row.try_get("theme").ok().flatten(),
                 }))
             },
         )
@@ -342,6 +346,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_default(),
                     manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                     timezone: row.try_get("timezone").ok().flatten(),
+                    theme: row.try_get("theme").ok().flatten(),
                 }))
             },
         )
@@ -401,6 +406,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_default(),
                     manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                     timezone: row.try_get("timezone").ok().flatten(),
+                    theme: row.try_get("theme").ok().flatten(),
                 }))
             },
         )
@@ -459,7 +465,7 @@ impl UserRepository for PostgresDatabase {
                        u.approved_by, u.approved_at, u.created_at, u.last_active,
                        u.firebase_uid, u.auth_provider,
                        u.analytics_consent, u.analytics_consent_at, u.locale,
-                   u.coaching_persona, u.manages_roster, u.timezone
+                   u.coaching_persona, u.manages_roster, u.timezone, u.theme
                 FROM users u
                 INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
                 WHERE COALESCE(u.user_status, 'active') = $1
@@ -540,6 +546,7 @@ impl UserRepository for PostgresDatabase {
                     .unwrap_or_default(),
                 manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                 timezone: row.try_get("timezone").ok().flatten(),
+                theme: row.try_get("theme").ok().flatten(),
             });
         }
 
@@ -840,6 +847,7 @@ impl UserRepository for PostgresDatabase {
                     .unwrap_or_default(),
                 manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                 timezone: row.try_get("timezone").ok().flatten(),
+                theme: row.try_get("theme").ok().flatten(),
             });
         }
 
@@ -909,89 +917,27 @@ impl UserRepository for PostgresDatabase {
     }
 
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE users SET
-                analytics_consent = $1,
-                analytics_consent_at = CURRENT_TIMESTAMP
-            WHERE id = $2
-            ",
-        )
-        .bind(enabled)
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to update analytics consent: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-
-        Ok(())
+        preferences::update_analytics_consent(&self.pool, user_id, enabled).await
     }
 
     async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE users SET locale = $1 WHERE id = $2
-            ",
-        )
-        .bind(locale)
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to update user locale: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-
-        Ok(())
+        preferences::update_locale(&self.pool, user_id, locale).await
     }
 
     async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE users SET coaching_persona = $1 WHERE id = $2
-            ",
-        )
-        .bind(persona.as_str())
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to set coaching persona: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-
-        Ok(())
+        preferences::set_coaching_persona(&self.pool, user_id, persona).await
     }
 
     async fn set_manages_roster(&self, user_id: Uuid, manages_roster: bool) -> AppResult<()> {
-        let result = sqlx::query("UPDATE users SET manages_roster = $1 WHERE id = $2")
-            .bind(manages_roster)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to set manages_roster: {e}")))?;
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-        Ok(())
+        preferences::set_manages_roster(&self.pool, user_id, manages_roster).await
     }
 
     async fn set_timezone(&self, user_id: Uuid, timezone: &str) -> AppResult<()> {
-        let result = sqlx::query("UPDATE users SET timezone = $1 WHERE id = $2")
-            .bind(timezone)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to set timezone: {e}")))?;
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found(format!("User with ID: {user_id}")));
-        }
-        Ok(())
+        preferences::set_timezone(&self.pool, user_id, timezone).await
+    }
+
+    async fn set_theme(&self, user_id: Uuid, theme: Option<&str>) -> AppResult<()> {
+        preferences::set_theme(&self.pool, user_id, theme).await
     }
 
     async fn set_tier(&self, user_id: Uuid, tier: UserTier) -> AppResult<User> {
@@ -1242,5 +1188,6 @@ fn pg_row_to_user(row: &PgRow) -> User {
             .unwrap_or_default(),
         manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
         timezone: row.try_get("timezone").ok().flatten(),
+        theme: row.try_get("theme").ok().flatten(),
     }
 }

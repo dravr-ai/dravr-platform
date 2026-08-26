@@ -1,93 +1,43 @@
-// ABOUTME: Per-run broadcast registry keyed by run_id with replay buffer and ownership binding
-// ABOUTME: Producers publish serialized events; subscribers consume via tokio broadcast receivers
+// ABOUTME: Per-run broadcast registry keyed by run_id with a bounded replay buffer
+// ABOUTME: Producers publish serialized events; the in-process status bridge consumes them
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Per-run AG-UI broadcast registry.
 //!
-//! Each active agent run owns a [`tokio::sync::broadcast`] channel keyed
-//! by its `run_id`. Producers (the chat pipeline) publish serialized
-//! [`super::events::AgUiEvent`] strings; subscribers (SSE route handlers,
-//! Telegram adapters) receive copies.
+//! Each active messaging run owns a [`tokio::sync::broadcast`] channel keyed
+//! by its `run_id`. The producer (the chat pipeline) publishes serialized
+//! [`super::events::AgUiEvent`] strings; the consumer
+//! (`pierre_services::messaging_status_bridge`) receives copies and turns
+//! them into Telegram/Slack/Discord placeholder edits.
 //!
-//! Every registration carries an owning [`RunOwner`] — the `(user_id,
-//! tenant_id)` pair the turn was issued for. SSE route handlers MUST
-//! look up the owner before returning a subscription so a caller can
-//! never read another user's run even if they learn the `run_id` (URL
-//! capture, log leak, brute-force guess against a short id). The
-//! broadcast channel stays private to producer code; subscribers go
-//! through the route handler which enforces the owner check.
+//! Both halves live in this process and inside one turn: the dispatcher mints
+//! the `run_id`, registers it, and hands it straight to the status consumer it
+//! spawns. Nothing outside the process can name a run, so the registry carries
+//! no identity and performs no authorization — the in-app surfaces read their
+//! progress off the turn's own event stream instead
+//! (`pierre_services::chat_stream`).
 //!
-//! Each registration also retains a bounded ring buffer of the most
-//! recent serialized events
-//! ([`AGUI_RUN_REPLAY_BUFFER_SIZE`](crate::AGUI_RUN_REPLAY_BUFFER_SIZE)).
-//! A late-subscribing client (the common case: the channel adapter
-//! hands the `run_id` back to the browser, which races to open the
-//! SSE stream while the pipeline is already emitting) receives the
-//! buffered events first and then transitions to the live broadcast
-//! — so the HTTP client can always reconstruct at least the most
-//! recent window of the run regardless of when it connects.
+//! Each registration retains a bounded ring buffer of the most recent
+//! serialized events
+//! ([`AGUI_RUN_REPLAY_BUFFER_SIZE`](crate::AGUI_RUN_REPLAY_BUFFER_SIZE)). The
+//! consumer is spawned a moment after `register_scoped`, so the events emitted
+//! in between are already in the buffer and are flushed before it switches to
+//! the live receiver.
 //!
-//! `broadcast` fits AG-UI's fan-out model — a single run can have
-//! multiple live consumers (the originating HTTP client plus, say, an
-//! ops dashboard) — and drops the oldest messages rather than blocking
-//! the producer if a consumer lags, which matches the pipeline's
-//! no-back-pressure guarantee.
+//! `broadcast` fits the fan-out model — one run can have several live
+//! consumers — and drops the oldest messages rather than blocking the producer
+//! if a consumer lags, which matches the pipeline's no-back-pressure
+//! guarantee.
 
 use crate::AGUI_RUN_REPLAY_BUFFER_SIZE;
 use dashmap::DashMap;
 use pierre_core::constants::network_config::SSE_BROADCAST_CHANNEL_SIZE;
-use pierre_core::models::TenantId;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
-use uuid::Uuid;
-
-/// Identity of the user who owns an AG-UI run. Set at registration
-/// time; SSE subscribers must match both `user_id` and `tenant_id`
-/// before the route returns a stream.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct RunOwner {
-    /// Authenticated user that issued the turn this run belongs to.
-    pub user_id: Uuid,
-    /// Tenant the run was issued under. Must match the caller's
-    /// tenant context so cross-tenant reads are impossible even when
-    /// the same `user_id` exists in multiple tenants.
-    pub tenant_id: TenantId,
-}
-
-impl RunOwner {
-    /// Construct an owner record.
-    #[must_use]
-    pub const fn new(user_id: Uuid, tenant_id: TenantId) -> Self {
-        Self { user_id, tenant_id }
-    }
-
-    /// `true` when `caller` matches this owner on both user and tenant.
-    #[must_use]
-    pub fn authorizes(&self, caller: Self) -> bool {
-        self.user_id == caller.user_id && self.tenant_id == caller.tenant_id
-    }
-}
-
-/// Outcome of [`RunRegistry::authorize_and_subscribe`].
-///
-/// A single combined operation so the owner check and the subscribe
-/// happen under one [`DashMap`] entry borrow — eliminates the
-/// time-of-check / time-of-use window between separate `owner_of`
-/// and `subscribe` calls. Without this, a concurrent
-/// `unregister` + `register` with a different owner could let a
-/// caller attach to a different user's slot in between.
-pub enum AuthorizedSubscribe {
-    /// Run is registered and the caller owns it.
-    Ok(RunSubscription),
-    /// Run is registered but owned by someone else.
-    Forbidden,
-    /// Run is not (or no longer) registered.
-    NotFound,
-}
 
 /// Outcome of [`RunRegistry::publish`].
 ///
@@ -134,7 +84,7 @@ impl PublishOutcome {
 
 /// Snapshot of a run's recent event backlog plus a live receiver.
 ///
-/// Returned from [`RunRegistry::subscribe`] so the HTTP handler can
+/// Returned from [`RunRegistry::subscribe_self`] so the consumer can
 /// flush the backlog first, then switch to the live channel without
 /// losing any messages in between.
 pub struct RunSubscription {
@@ -146,12 +96,10 @@ pub struct RunSubscription {
     pub receiver: broadcast::Receiver<String>,
 }
 
-/// Internal entry per registered run: the broadcast sender, the
-/// bounded replay buffer, and the owner identity used for auth
-/// checks at subscribe time.
+/// Internal entry per registered run: the broadcast sender and the
+/// bounded replay buffer.
 struct RunSlot {
     sender: broadcast::Sender<String>,
-    owner: RunOwner,
     recent: Arc<Mutex<VecDeque<String>>>,
 }
 
@@ -176,28 +124,25 @@ impl RunRegistry {
         Self::default()
     }
 
-    /// Register a run owned by `owner` and return its broadcast sender.
+    /// Register a run and return its broadcast sender.
     ///
-    /// Idempotent — if a run with the same `run_id` already exists
-    /// with the same owner, the existing sender is returned so
-    /// late-arriving subscribers can join an in-flight run. When an
-    /// existing registration has a *different* owner, the call logs
-    /// and replaces the slot; the old subscribers observe the channel
-    /// closing.
-    pub fn register(&self, run_id: &str, owner: RunOwner) -> broadcast::Sender<String> {
+    /// Idempotent — if a run with the same `run_id` already exists the
+    /// existing sender is returned, so a consumer that attaches after the
+    /// producer started joins the same channel rather than replacing it.
+    ///
+    /// Run ids are minted per turn by the producer (`Uuid::new_v4`) and never
+    /// leave the process: the only consumer is the in-process messaging
+    /// status bridge, which subscribes through [`Self::subscribe_self`] on
+    /// the id it was just handed. There is no network surface to authorize.
+    pub fn register(&self, run_id: &str) -> broadcast::Sender<String> {
         if let Some(existing) = self.inner.channels.get(run_id) {
-            if existing.value().owner == owner {
-                return existing.value().sender.clone();
-            }
-            drop(existing);
-            warn!(run_id = %run_id, "AG-UI run re-registered with new owner");
+            return existing.value().sender.clone();
         }
         let (tx, _rx) = broadcast::channel(SSE_BROADCAST_CHANNEL_SIZE);
         self.inner.channels.insert(
             run_id.to_owned(),
             RunSlot {
                 sender: tx.clone(),
-                owner,
                 recent: Arc::new(Mutex::new(VecDeque::with_capacity(
                     AGUI_RUN_REPLAY_BUFFER_SIZE,
                 ))),
@@ -216,8 +161,8 @@ impl RunRegistry {
     /// registry entries. The scope guard guarantees the slot is
     /// removed whether the turn succeeded, errored, or panicked.
     #[must_use]
-    pub fn register_scoped(&self, run_id: &str, owner: RunOwner) -> RunScope {
-        let sender = self.register(run_id, owner);
+    pub fn register_scoped(&self, run_id: &str) -> RunScope {
+        let sender = self.register(run_id);
         RunScope {
             registry: self.clone(),
             run_id: run_id.to_owned(),
@@ -225,40 +170,11 @@ impl RunRegistry {
         }
     }
 
-    /// Return the owner of a registered run, or `None` when the run
-    /// has not yet started or has already been unregistered.
-    #[must_use]
-    pub fn owner_of(&self, run_id: &str) -> Option<RunOwner> {
-        self.inner.channels.get(run_id).map(|entry| entry.owner)
-    }
-
-    /// Atomically authorize a caller and produce a subscription.
+    /// Subscribe to a run's backlog plus its live channel.
     ///
-    /// Holds the [`DashMap`] entry guard across both the owner-match
-    /// and the `subscribe` call so a concurrent `unregister` +
-    /// `register` with a different owner cannot interleave between
-    /// the two and hand the caller a stream against a slot they do
-    /// not own. SSE route handlers MUST use this entry point rather
-    /// than chaining [`Self::owner_of`] + the lower-level
-    /// [`Self::subscribe_self`].
-    #[must_use]
-    pub fn authorize_and_subscribe(&self, run_id: &str, caller: RunOwner) -> AuthorizedSubscribe {
-        let Some(entry) = self.inner.channels.get(run_id) else {
-            return AuthorizedSubscribe::NotFound;
-        };
-        let slot = entry.value();
-        if !slot.owner.authorizes(caller) {
-            return AuthorizedSubscribe::Forbidden;
-        }
-        AuthorizedSubscribe::Ok(snapshot(slot))
-    }
-
-    /// Subscribe without any authorization check.
-    ///
-    /// Identity-agnostic so the pipeline can attach to its own runs
-    /// (the producer half of the broadcast already proves identity);
-    /// network handlers MUST use [`Self::authorize_and_subscribe`]
-    /// instead.
+    /// Identity-agnostic because the only caller is in process and already
+    /// holds the `run_id` it registered a moment earlier — the producer half
+    /// of the broadcast is the proof of identity.
     #[must_use]
     pub fn subscribe_self(&self, run_id: &str) -> Option<RunSubscription> {
         self.inner

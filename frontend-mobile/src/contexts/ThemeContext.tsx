@@ -1,9 +1,13 @@
 // ABOUTME: Mobile theme context — resolves the active scheme + exposes dynamic palette
 // ABOUTME: Wires AsyncStorage preference into NativeWind's color scheme + JS-side colors
 
-import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
 import { View } from 'react-native';
 import { useColorScheme } from 'nativewind';
+import Toast from 'react-native-toast-message';
+import { useTranslation } from '@pierre/i18n';
+import type { ThemePreference } from '@pierre/shared-types';
+import { userApi } from '../services/api';
 import {
   BOREAL_LIGHT,
   BOREAL_DARK,
@@ -56,6 +60,8 @@ interface ThemeColors {
   success: string;
   warning: string;
   error: string;
+  /** Informational tint (DESIGN.md §2). */
+  info: string;
 }
 
 interface ThemeContextValue {
@@ -109,6 +115,7 @@ function buildPalette(scheme: ColorScheme): ThemeColors {
     success: scheme === 'dark' ? '#79a694' : '#2e7d5b',
     warning: scheme === 'dark' ? '#d6b87a' : '#8f6a2e',
     error: tokens.error,
+    info: scheme === 'dark' ? '#9bb6bd' : '#3e7283',
   };
 }
 
@@ -134,8 +141,29 @@ interface ThemeProviderProps {
 }
 
 export function ThemeProvider({ children }: ThemeProviderProps): React.ReactElement {
-  const { pref, loading, setPref } = useAppearancePref();
+  const { pref, loading, setPref: persistPref } = useAppearancePref();
   const { colorScheme: nwScheme, setColorScheme } = useColorScheme();
+  const { t } = useTranslation();
+
+  // Both theme controls (the header sun/moon toggle and Settings → Appearance)
+  // land here, so this is the one place the choice reaches the server.
+  // `system` is stored as `null` — no pin, follow the device. The write is
+  // fire-and-forget: the local flip has already been persisted and rendered,
+  // and a failed request only surfaces as an error toast, never a revert.
+  const setPref = useCallback(
+    async (next: AppearancePref) => {
+      await persistPref(next);
+      const theme: ThemePreference = next === 'system' ? null : next;
+      userApi.updateTheme(theme).catch(() => {
+        Toast.show({
+          type: 'error',
+          text1: t('settings.theme'),
+          text2: t('settings.themeSyncFailed'),
+        });
+      });
+    },
+    [persistPref, t],
+  );
 
   // Resolve user pref -> the scheme the UI renders. 'system' falls through to
   // NativeWind's detected OS scheme, which itself defaults to dark when the

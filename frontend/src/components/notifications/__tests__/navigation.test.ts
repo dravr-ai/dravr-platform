@@ -1,74 +1,70 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Locks the notification screen → tab id mapping
+// ABOUTME: Locks the web half of the shared notification screen → route resolution
 // ABOUTME: Regression coverage for the 2026-05-09 web sweep where Recovery rows didn't navigate
 
 import { describe, it, expect } from 'vitest';
-import { mapScreenToTab, resolveNotificationRoute } from '../navigation';
+import { webNotificationRoute } from '@pierre/shared-constants';
 
-describe('mapScreenToTab', () => {
+describe('webNotificationRoute', () => {
   it('routes recovery + activity + activities + stats to the Insights tab', () => {
-    expect(mapScreenToTab('recovery')).toBe('insights');
-    expect(mapScreenToTab('activity')).toBe('insights');
-    expect(mapScreenToTab('activities')).toBe('insights');
-    expect(mapScreenToTab('stats')).toBe('insights');
+    for (const screen of ['recovery', 'activity', 'activities', 'stats']) {
+      expect(webNotificationRoute({ screen })).toBe('insights');
+    }
   });
 
   it('routes social to the Insights tab (friends sub-view is set by the caller)', () => {
-    expect(mapScreenToTab('social')).toBe('insights');
-  });
-
-  it('routes coach back to the chat tab', () => {
-    expect(mapScreenToTab('coach')).toBe('chat');
+    expect(webNotificationRoute({ screen: 'social' })).toBe('insights');
   });
 
   it('routes settings deep links to the settings tab', () => {
-    expect(mapScreenToTab('settings')).toBe('settings');
+    expect(webNotificationRoute({ screen: 'settings' })).toBe('settings');
   });
 
-  it('returns null for unknown screen names so callers do not strand the user', () => {
-    expect(mapScreenToTab('unknown_screen')).toBeNull();
-    expect(mapScreenToTab('')).toBeNull();
-    expect(mapScreenToTab(undefined)).toBeNull();
-    expect(mapScreenToTab(null)).toBeNull();
+  it('routes a provider-reauth notification to Data Providers', () => {
+    // `connections` is what pierre-tool-runtime emits on provider_needs_reauth.
+    // Neither client's hand-written map handled it, so the tap went nowhere.
+    expect(webNotificationRoute({ screen: 'connections', provider: 'whoop' })).toBe(
+      'data-providers',
+    );
   });
-});
 
-describe('resolveNotificationRoute', () => {
   it('deep-links a coach message to its conversation thread', () => {
     // dravr-commere trigger_coach_message payload shape.
     const data = { screen: 'coach', action: 'chat', id: 'conv-abc-123' };
-    expect(resolveNotificationRoute(data)).toBe('chat/conv-abc-123');
+    expect(webNotificationRoute(data)).toBe('chat/conv-abc-123');
   });
 
   it('deep-links from the Reply action button the same way', () => {
     const data = { screen: 'coach', action: 'chat', id: 'conv-abc-123' };
-    expect(resolveNotificationRoute(data, 'reply')).toBe('chat/conv-abc-123');
+    expect(webNotificationRoute(data, 'reply')).toBe('chat/conv-abc-123');
   });
 
   it('percent-encodes conversation ids that contain reserved characters', () => {
     const data = { screen: 'coach', id: 'conv/with space' };
-    expect(resolveNotificationRoute(data)).toBe(`chat/${encodeURIComponent('conv/with space')}`);
+    expect(webNotificationRoute(data)).toBe(`chat/${encodeURIComponent('conv/with space')}`);
   });
 
   it('falls back to the bare chat tab when a coach payload carries no id', () => {
-    expect(resolveNotificationRoute({ screen: 'coach' })).toBe('chat');
-    expect(resolveNotificationRoute({ screen: 'coach', id: 42 })).toBe('chat');
+    expect(webNotificationRoute({ screen: 'coach' })).toBe('chat');
+    expect(webNotificationRoute({ screen: 'coach', id: 42 })).toBe('chat');
   });
 
-  it('routes non-coach screens to their tab without a sub-view', () => {
-    expect(resolveNotificationRoute({ screen: 'recovery', id: 'ignored' })).toBe('insights');
-    expect(resolveNotificationRoute({ screen: 'settings' })).toBe('settings');
+  it('ignores a conversation id on a screen that is not the chat surface', () => {
+    expect(webNotificationRoute({ screen: 'recovery', id: 'ignored' })).toBe('insights');
   });
 
   it('resolves via the action id when the payload has no usable screen', () => {
-    expect(resolveNotificationRoute({}, 'settings')).toBe('settings');
+    expect(webNotificationRoute({}, 'settings')).toBe('settings');
   });
 
   it('returns null when neither screen nor action id maps anywhere', () => {
-    expect(resolveNotificationRoute(undefined)).toBeNull();
-    expect(resolveNotificationRoute({})).toBeNull();
-    expect(resolveNotificationRoute({ screen: 'unknown' }, 'reply')).toBeNull();
+    expect(webNotificationRoute(undefined)).toBeNull();
+    expect(webNotificationRoute(null)).toBeNull();
+    expect(webNotificationRoute({})).toBeNull();
+    expect(webNotificationRoute({ screen: 'unknown_screen' }, 'reply')).toBeNull();
+    // The legacy `route` key is not honoured — only `screen` routes.
+    expect(webNotificationRoute({ route: '/somewhere' })).toBeNull();
   });
 });

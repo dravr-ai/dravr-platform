@@ -100,6 +100,57 @@ jest.mock('expo-haptics', () => ({
   },
 }));
 
+// Mock expo-localization
+// The device's language list. `getLocales` is a jest.fn so a spec that cares
+// about which tag the recognizer receives can hand the hook a different device.
+jest.mock('expo-localization', () => ({
+  getLocales: jest.fn(() => [
+    { languageTag: 'en-US', languageCode: 'en', regionCode: 'US' },
+  ]),
+  getCalendars: jest.fn(() => []),
+}));
+
+// Mock expo-document-picker — specs drive the picked file, not the system UI
+jest.mock('expo-document-picker', () => ({
+  getDocumentAsync: jest.fn(() => Promise.resolve({ canceled: true, assets: null })),
+}));
+
+// Mock expo-sharing — the share sheet is a system surface with nothing to assert
+jest.mock('expo-sharing', () => ({
+  isAvailableAsync: jest.fn(() => Promise.resolve(true)),
+  shareAsync: jest.fn(() => Promise.resolve()),
+}));
+
+// Mock expo-file-system's File/Paths API with an in-memory filesystem, so a
+// spec can read back exactly what the export wrote.
+const mockFileContents = {};
+jest.mock('expo-file-system', () => {
+  class MockFile {
+    constructor(...parts) {
+      this.uri = parts
+        .map((part) => (typeof part === 'string' ? part : part.uri))
+        .join('/');
+    }
+    create() {
+      mockFileContents[this.uri] = '';
+    }
+    write(content) {
+      mockFileContents[this.uri] = content;
+    }
+    text() {
+      return Promise.resolve(mockFileContents[this.uri] ?? '');
+    }
+    delete() {
+      delete mockFileContents[this.uri];
+    }
+  }
+  return {
+    File: MockFile,
+    Paths: { cache: { uri: 'file:///cache' }, document: { uri: 'file:///documents' } },
+    __mockFileContents: mockFileContents,
+  };
+});
+
 // Mock expo-speech-recognition
 const mockEventListeners = {};
 jest.mock('expo-speech-recognition', () => ({
@@ -274,3 +325,17 @@ jest.mock('expo-router', () => {
   };
 });
 
+
+// Initialize i18next once per test file. The root layout does this before any
+// screen mounts in production, so a screen calling useTranslation() can assume
+// a live instance; without it here, rendering translated chrome crashes on an
+// undefined i18n. The persister rejects rather than no-opping: a test that
+// changes language must register the writer it means to assert, so a missing
+// client→server wire fails loudly instead of passing quietly.
+const { initI18n } = require('@pierre/i18n');
+initI18n({
+  persistLocale: () =>
+    Promise.reject(
+      new Error('No locale persister registered for this test — call initI18n({ persistLocale }).'),
+    ),
+});

@@ -78,6 +78,7 @@ async fn seed_starter_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     repos.users.create(&user).await.unwrap();
 

@@ -10,8 +10,8 @@
 //!
 //! - Prepends a safety disclaimer when a guardrail trigger is detected in
 //!   the reply.
-//! - Rejects replies that exceed the configured length ceiling with a
-//!   graceful fallback message.
+//! - Trims replies that exceed the admin's configured length ceiling to its
+//!   leading characters rather than a canned placeholder.
 //! - Rejects replies that reference blocked topics.
 //!
 //! Reads the active rules from
@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC,
+    MessagingStringsRegistry, KEY_GUARDRAIL_BLOCKED_TOPIC,
 };
 use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 
@@ -32,23 +32,29 @@ use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection}
 ///
 /// Returns the (possibly disclaimer-prepended) reply, or a graceful
 /// fallback string from the `messaging_strings_registry` when guardrails
-/// reject the response. `locale` is the BCP-47 short code resolved upstream;
-/// `None` triggers the registry's `DEFAULT_LOCALE` fallback.
+/// reject the response.
+///
+/// One ceiling is in force here: the admin's `max_response_chars` guardrail,
+/// which is a policy about how much a coach may say. The surface's transport
+/// ceiling is *not* applied here — an over-limit reply is split into ordered
+/// messages at the egress ([`pierre_core::chunking::chunk_reply`]), so the
+/// athlete reads the whole answer instead of a prefix that stops mid-thought.
+///
+/// `locale` is the BCP-47 short code resolved once at the ingress boundary.
 pub fn apply_text_guardrails(
     harness_config_registry: &Arc<HarnessConfigRegistry>,
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
     reply: &str,
-    locale: Option<&str>,
+    locale: &str,
 ) -> String {
-    let locale = locale.unwrap_or(DEFAULT_LOCALE);
     let rules = harness_config_registry.current_guardrails();
     match rules.apply(reply, locale) {
         GuardrailOutcome::Allowed(text) => text,
         GuardrailOutcome::Rejected(GuardrailRejection::TooLong { length, cap }) => {
             // Surface the full content the model produced (everything received)
-            // so over-cap responses are inspectable, then return the first chunk
-            // (the leading `cap` characters) rather than discarding it to a
-            // canned placeholder — the user always sees the real content prefix.
+            // so over-cap responses are inspectable, then return the leading
+            // `cap` characters rather than discarding it to a canned
+            // placeholder — the user always sees the real content prefix.
             tracing::warn!(
                 length,
                 cap,

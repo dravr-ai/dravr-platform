@@ -22,9 +22,8 @@
 
 use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
-    DEFAULT_LOCALE, KEY_CALIBRATE_COMPLETE_HEADER, KEY_CALIBRATE_COMPLETE_MISSING,
-    KEY_CALIBRATE_FOLLOWUP_NO_PLAN, KEY_CALIBRATE_FOLLOWUP_PLAN, KEY_CALIBRATE_TOPIC_INJURY,
-    KEY_CALIBRATE_TOPIC_RECOVERY,
+    KEY_CALIBRATE_COMPLETE_HEADER, KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_FOLLOWUP_NO_PLAN,
+    KEY_CALIBRATE_FOLLOWUP_PLAN, KEY_CALIBRATE_TOPIC_INJURY, KEY_CALIBRATE_TOPIC_RECOVERY,
 };
 use pierre_core::models::{
     CalibrationTopic, ConversationRecord, Dossier, OnboardingState, TenantId,
@@ -104,10 +103,9 @@ pub async fn render(
     state: &OnboardingState,
     tenant_id: TenantId,
     dossier: &Dossier,
-    locale: Option<&str>,
+    locale: &str,
 ) -> String {
     let reg = &ctx.messaging_strings_registry;
-    let locale = locale.filter(|l| !l.is_empty()).unwrap_or(DEFAULT_LOCALE);
     let asked =
         CalibrationTopic::for_conditions(calibration_conditions(dossier, state.snapshot.as_ref()));
 

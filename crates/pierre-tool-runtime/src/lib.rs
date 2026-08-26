@@ -79,6 +79,9 @@ pub mod group_fitness;
 /// The Guardian: dispatch-time taint/budget/egress guard + the absorbed tenant
 /// tool-disable allowlist, interposed at the universal execution chokepoint.
 pub mod guardian;
+/// Streaming Copilot ACP turn execution, feeding the turn-event sink.
+#[cfg(feature = "client-chat")]
+mod headless_stream;
 pub mod implementations;
 /// Universal protocol envelope (types, executor, auth, format, provider helpers, handlers)
 pub mod protocol;

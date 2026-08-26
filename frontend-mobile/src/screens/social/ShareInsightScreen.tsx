@@ -30,7 +30,6 @@ export function ShareInsightScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const params = useLocalSearchParams<{
-    activityId?: string;
     content?: string;
     insightType?: string;
     visibility?: string;
@@ -38,7 +37,6 @@ export function ShareInsightScreen() {
   const { isAuthenticated } = useAuth();
 
   // Get optional params from route
-  const activityId = params.activityId;
   const prePopulatedContent = params.content;
   const prePopulatedInsightType = params.insightType;
   const prePopulatedVisibility = params.visibility;
@@ -65,7 +63,7 @@ export function ShareInsightScreen() {
     (prePopulatedInsightType as InsightType | undefined) || null
   );
 
-  // Fetch suggestions on mount (optionally filtered by activityId)
+  // Fetch the coach's shareable insights across the athlete's recent training.
   // Skip if content is pre-populated
   const fetchSuggestions = useCallback(async () => {
     // Skip fetching if content was pre-populated from chat
@@ -77,7 +75,6 @@ export function ShareInsightScreen() {
       setError(null);
       const response = await socialApi.getInsightSuggestions({
         limit: 10,
-        activity_id: activityId,
       });
       setSuggestions(response.suggestions);
       setFlowState(response.suggestions.length > 0 ? 'suggestions' : 'error');
@@ -89,7 +86,7 @@ export function ShareInsightScreen() {
       setError('Failed to load coach suggestions. Please try again.');
       setFlowState('error');
     }
-  }, [activityId, prePopulatedContent]);
+  }, [prePopulatedContent]);
 
   useEffect(() => {
     if (isAuthenticated && !prePopulatedContent) {

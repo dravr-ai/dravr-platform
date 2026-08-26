@@ -19,25 +19,8 @@
 use std::sync::Arc;
 
 use pierre_chat_pipeline::stages::guardian_confirm::apply_guardian_confirm;
-use pierre_chat_pipeline::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
-use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_tool_runtime::tool_execution::{GuardianConfirmRequest, ToolLoopResult};
-use uuid::Uuid;
-
-fn turn_input(locale: Option<&str>) -> TurnInput {
-    let tenant = TenantId::from_uuid(Uuid::new_v4());
-    TurnInput {
-        conversation_id: "conv-1".to_owned(),
-        user_id: Uuid::new_v4().to_string(),
-        conversation_tenant_id: tenant,
-        tool_tenant_id: tenant,
-        content: "disconnect my strava".to_owned(),
-        locale: locale.map(ToOwned::to_owned),
-        turn_id: ConversationTurnId::new(),
-        ambient_context: None,
-    }
-}
 
 fn loop_result(confirm: Option<GuardianConfirmRequest>) -> ToolLoopResult {
     ToolLoopResult {
@@ -57,13 +40,12 @@ fn loop_result(confirm: Option<GuardianConfirmRequest>) -> ToolLoopResult {
 #[test]
 fn park_renders_localized_prompt_with_tool_and_token() {
     let registry = Arc::new(MessagingStringsRegistry::new());
-    let input = turn_input(Some("en"));
     let mut result = loop_result(Some(GuardianConfirmRequest {
         tool_name: "disconnect_provider".to_owned(),
         pending_id: "abc123def456".to_owned(),
     }));
 
-    let fired = apply_guardian_confirm(&registry, &input, &mut result);
+    let fired = apply_guardian_confirm(&registry, "en", &mut result);
 
     assert!(fired, "the stage must fire when a tool was parked");
     assert!(
@@ -86,13 +68,12 @@ fn park_renders_localized_prompt_with_tool_and_token() {
 #[test]
 fn park_respects_resolved_locale() {
     let registry = Arc::new(MessagingStringsRegistry::new());
-    let input = turn_input(Some("fr"));
     let mut result = loop_result(Some(GuardianConfirmRequest {
         tool_name: "disconnect_provider".to_owned(),
         pending_id: "abc123".to_owned(),
     }));
 
-    let fired = apply_guardian_confirm(&registry, &input, &mut result);
+    let fired = apply_guardian_confirm(&registry, "fr", &mut result);
 
     assert!(fired);
     assert!(
@@ -105,11 +86,10 @@ fn park_respects_resolved_locale() {
 #[test]
 fn clean_turn_is_a_no_op() {
     let registry = Arc::new(MessagingStringsRegistry::new());
-    let input = turn_input(Some("en"));
     let mut result = loop_result(None);
     result.content = "normal reply".to_owned();
 
-    let fired = apply_guardian_confirm(&registry, &input, &mut result);
+    let fired = apply_guardian_confirm(&registry, "en", &mut result);
 
     assert!(!fired, "no park, no fire");
     assert_eq!(result.content, "normal reply", "content must be untouched");

@@ -394,6 +394,8 @@ impl AuthService {
         tenant_id: TenantId,
         provider: &str,
     ) {
+        use pierre_core::models::NotificationScreen;
+
         let claimed = self
             .resources
             .repos()
@@ -410,7 +412,10 @@ impl AuthService {
         let data = [
             ("type", "provider_needs_reauth"),
             ("provider", provider),
-            ("screen", "connections"),
+            // Named through the shared vocabulary, not as a loose string: the
+            // clients resolve `data.screen` to a surface through the same
+            // enum, so a token nothing routes cannot be emitted here.
+            ("screen", NotificationScreen::Connections.as_str()),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_owned(), JsonValue::String(v.to_owned())))

@@ -20,8 +20,8 @@ use pierre_tool_runtime::tool_execution::{
 };
 use tracing::{info, warn};
 
-use crate::channel_profile::ChannelProfile;
 use crate::recorders::{ChatRepoToolMessageRecorder, UsageRepoCallRecorder};
+use crate::surface_profile::{ProviderStreaming, SurfaceProfile};
 use crate::turn::TurnInput;
 use crate::{call_type_for_profile, ChatPipelineContext};
 use embacle_tool_host::ToolSession;
@@ -36,7 +36,7 @@ use super::prefetch::{
 ///
 /// Owns pipeline stages 9 through 14: MCP executor construction, coach
 /// `DataRequirements` activity prefetch, LLM provider resolution, Tier
-/// 1 context-window compaction, per-channel max-iteration budget
+/// 1 context-window compaction, the surface's max-iteration budget
 /// resolution, and the tool loop itself.
 ///
 /// # Errors
@@ -54,7 +54,7 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// Inbound turn payload (carries `turn_id`, `conversation_id`, user content).
     pub input: &'a TurnInput,
     /// Channel-shape profile (web vs messaging vs A2A vs ...).
-    pub profile: &'a ChannelProfile,
+    pub profile: &'a SurfaceProfile,
     /// Effective LLM model id selected for this turn.
     pub active_model: &'a str,
     /// Active coach runtime context, when one is bound.
@@ -82,7 +82,7 @@ pub(crate) struct DispatchLlmInputs<'a> {
     skip_all,
     fields(
         turn_id = %inputs.input.turn_id,
-        channel = inputs.profile.channel.as_str(),
+        channel = inputs.profile.surface.as_str(),
         conversation_id = %inputs.input.conversation_id,
         model = %inputs.active_model,
         max_iterations,
@@ -93,7 +93,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     inputs: DispatchLlmInputs<'_>,
     llm_messages: &mut Vec<ChatMessage>,
     max_iterations: usize,
-    stream_sink: Option<crate::ChatStreamSink>,
+    stream_sink: Option<crate::TurnEventSink>,
 ) -> AppResult<(chat_tool_loop::ToolLoopResult, String)> {
     let DispatchLlmInputs {
         ctx,
@@ -193,10 +193,26 @@ pub(crate) async fn dispatch_llm_with_tools(
         )
         .await;
 
+    // Cross the surface's transport half with the provider's producer half.
+    // A delta sink is installed only where both answer yes: the surface reads
+    // frames AND this turn's loop emits text deltas. On a function-calling
+    // provider the sink would receive nothing, and passing it anyway is what
+    // made the headless loop log `stream = true` for turns that never
+    // streamed and left the route holding a channel no frame ever crossed.
+    let provider_streaming = ProviderStreaming::from_sdk_tool_calling(
+        provider.capabilities().supports_sdk_tool_calling(),
+    );
+    let streams_partial_text = profile
+        .render
+        .progressive
+        .delivers_partial_text(provider_streaming);
+    let stream_sink = stream_sink.filter(|_| streams_partial_text);
+
     info!(
         provider = %provider_name,
         message_count = llm_messages.len(),
         max_iterations,
+        streams_partial_text,
         "Chat pipeline dispatch starting tool loop"
     );
 
@@ -306,7 +322,7 @@ pub(crate) async fn dispatch_llm_with_tools(
             warn!(
                 conversation_id = %input.conversation_id,
                 turn_id = %input.turn_id,
-                channel = profile.channel.as_str(),
+                channel = profile.surface.as_str(),
                 loopback_calls_served = ?loopback_calls_served,
                 dispatch_ms = u64::try_from(loop_start.elapsed().as_millis()).unwrap_or(u64::MAX),
                 error = %e,
@@ -360,7 +376,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     info!(
         conversation_id = %input.conversation_id,
         turn_id = %input.turn_id,
-        channel = profile.channel.as_str(),
+        channel = profile.surface.as_str(),
         content_len = result.content.len(),
         tool_calls = result.tool_calls_count,
         // Per-turn tool-usage observability: the exact tools the coach ran and

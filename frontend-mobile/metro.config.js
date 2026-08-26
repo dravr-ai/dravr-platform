@@ -42,6 +42,7 @@ config.resolver.extraNodeModules = {
   '@pierre/shared-types': path.resolve(monorepoRoot, 'packages/shared-types'),
   '@pierre/shared-constants': path.resolve(monorepoRoot, 'packages/shared-constants'),
   '@pierre/api-client': path.resolve(monorepoRoot, 'packages/api-client'),
+  '@pierre/i18n': path.resolve(monorepoRoot, 'packages/i18n'),
 };
 
 // Use resolveRequest to redirect @pierre/api-client to mobile-specific entry
@@ -50,6 +51,22 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === '@pierre/api-client') {
     return {
       filePath: path.resolve(monorepoRoot, 'packages/api-client/src/index-mobile.ts'),
+      type: 'sourceFile',
+    };
+  }
+  // @pierre/i18n keeps its AsyncStorage-backed hook behind a `./native`
+  // subpath so a web bundle never pulls React Native in. extraNodeModules maps
+  // only the bare package name, so the subpath is resolved to its file here —
+  // the same treatment @pierre/api-client's mobile entry gets.
+  if (moduleName === '@pierre/i18n/native') {
+    return {
+      filePath: path.resolve(monorepoRoot, 'packages/i18n/src/native.ts'),
+      type: 'sourceFile',
+    };
+  }
+  if (moduleName === '@pierre/i18n') {
+    return {
+      filePath: path.resolve(monorepoRoot, 'packages/i18n/src/index.ts'),
       type: 'sourceFile',
     };
   }

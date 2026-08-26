@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 105
+// Tool count: 108
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -255,6 +255,25 @@ export interface AnalyzeWeatherImpactParams {
 
   /** Temperature and distance units: 'metric' (default) or 'imperial'. */
   units?: string;
+}
+
+
+/**
+ * Browse the Coach Store — the catalogue of PUBLISHED coaches anyone can install. Use this when the athlete asks what coaches exist, or for a coach of a given kind they do not already have. Distinct from `list_coaches`, which lists only the coaches ALREADY in their library. Returns a page plus a `next_cursor` for the following one.
+ */
+export interface BrowseCoachStoreParams {
+
+  /** Optional category filter: training, nutrition, recovery, recipes, mobility, analysis, or custom. */
+  category?: string;
+
+  /** Opaque cursor from a previous call's `next_cursor`, to fetch the next page. */
+  cursor?: string;
+
+  /** Coaches per page (1-100, default 20). */
+  limit?: number;
+
+  /** Ordering: 'newest' (default), 'popular' (most installed), or 'title'. */
+  sort_by?: string;
 }
 
 
@@ -998,6 +1017,16 @@ export interface HideCoachParams {
 
 
 /**
+ * Install a published Coach Store coach into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific coach — pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, `activate_coach` makes it the coach that answers.
+ */
+export interface InstallCoachFromStoreParams {
+
+  /** UUID of the published coach to install, as returned by `browse_coach_store` or `search_coach_store`. Required. */
+  coach_id: string;
+}
+
+
+/**
  * List available AI coaches for personalized training guidance
  */
 export interface ListCoachesParams {
@@ -1406,6 +1435,19 @@ export interface SaveTrainingPlanParams {
 
 
 /**
+ * Search the Coach Store for PUBLISHED coaches matching a phrase, e.g. 'ultra trail' or 'vegetarian nutrition'. Searches the whole marketplace, unlike `search_coaches`, which searches only the athlete's own library. Install a result with `install_coach_from_store`.
+ */
+export interface SearchCoachStoreParams {
+
+  /** Max results (1-100, default 20). */
+  limit?: number;
+
+  /** Text to match against a published coach's title, description or tags. Required. */
+  query: string;
+}
+
+
+/**
  * Search for coaches by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.
  */
 export interface SearchCoachesParams {
@@ -1789,7 +1831,7 @@ export interface McpErrorResponse {
 /**
  * Union type of all available tool names
  */
-export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "commitment_cancel" | "commitment_create" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "set_physiology" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
+export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "browse_coach_store" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "commitment_cancel" | "commitment_create" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "install_coach_from_store" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coach_store" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "set_physiology" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
 
 /**
  * Map of tool names to their parameter types
@@ -1811,6 +1853,7 @@ export interface ToolParamsMap {
   "analyze_sleep_quality": AnalyzeSleepQualityParams;
   "analyze_training_load": AnalyzeTrainingLoadParams;
   "analyze_weather_impact": AnalyzeWeatherImpactParams;
+  "browse_coach_store": BrowseCoachStoreParams;
   "calculate_daily_nutrition": CalculateDailyNutritionParams;
   "calculate_fitness_score": CalculateFitnessScoreParams;
   "calculate_metrics": CalculateMetricsParams;
@@ -1864,6 +1907,7 @@ export interface ToolParamsMap {
   "get_weather_forecast": GetWeatherForecastParams;
   "get_yoga_pose": GetYogaPoseParams;
   "hide_coach": HideCoachParams;
+  "install_coach_from_store": InstallCoachFromStoreParams;
   "list_coaches": ListCoachesParams;
   "list_coaching_playbooks": ListCoachingPlaybooksParams;
   "list_data_sources": ListDataSourcesParams;
@@ -1881,6 +1925,7 @@ export interface ToolParamsMap {
   "remember_fact": RememberFactParams;
   "save_recipe": SaveRecipeParams;
   "save_training_plan": SaveTrainingPlanParams;
+  "search_coach_store": SearchCoachStoreParams;
   "search_coaches": SearchCoachesParams;
   "search_food": SearchFoodParams;
   "search_recipes": SearchRecipesParams;

@@ -8,12 +8,15 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog, TabHeader } from './ui';
 import { chatApi, providersApi, coachesApi, oauthApi } from '../services/api';
+import { holdIdleWhileBusy, idleSignal } from '../services/api/idleSignal';
 import { track } from '../services/analytics';
-import { useAuth } from '../hooks/useAuth';
-import { useAgUiProgress } from '../hooks/useAgUiProgress';
 import PromptSuggestions from './PromptSuggestions';
 import { MessageCircle, Plus, Sparkles } from 'lucide-react';
-import { createInsightPrompt, stripContextPrefix, buildOutgoingMessage } from '@pierre/chat-utils';
+import {
+  createInsightPrompt,
+  statusTextForProgress,
+  trustedActionUrl,
+} from '@pierre/chat-utils';
 import {
   MessageList,
   MessageInput,
@@ -21,101 +24,31 @@ import {
   CoachFormModal,
   CreateCoachFromConversationModal,
   DEFAULT_COACH_FORM_DATA,
+  coachToFormData,
+  formDataToCreateRequest,
+  formDataToUpdateRequest,
 } from './chat';
-import ChatVerdictDrawer from './chat/ChatVerdictDrawer';
+import VerdictDrawer from './chat/VerdictDrawer';
 import UsageWarningBanner from './chat/UsageWarningBanner';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import ShareChatMessageModal from './social/ShareChatMessageModal';
 import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import type { ChatVerdictRow } from '@pierre/api-client';
+import { replySceneBlocks } from '@pierre/api-client';
+import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type {
   Message,
   Conversation,
   Coach,
   MessageMetadata,
-  MessageActionItem,
   MessageFeedback,
   OAuthNotification,
   CoachDeleteConfirmation,
   PendingCoachAction,
   CoachFormData,
 } from './chat';
-import type { CreateCoachRequest, UpdateCoachRequest, MessageFeedbackEntry } from '@pierre/shared-types';
-
-/** Convert UI form data to API request, building data_requirements from structured fields */
-function formDataToCreateRequest(data: CoachFormData): CreateCoachRequest {
-  const request: CreateCoachRequest = {
-    title: data.title,
-    description: data.description || undefined,
-    system_prompt: data.system_prompt,
-    category: data.category,
-  };
-
-  if (data.startup_query.trim()) {
-    request.startup_query = data.startup_query.trim();
-  }
-
-  if (data.prefetch_enabled) {
-    request.data_requirements = {
-      activities: {
-        count: data.activity_count,
-        sport_types: data.sport_types,
-        time_frame: data.time_frame,
-        mode: data.detail_mode,
-        format: 'toon',
-        analysis_type: 'general_overview',
-      },
-      athlete_profile: data.athlete_profile,
-    };
-  }
-
-  // Pass structured sections when provided
-  if (data.purpose.trim()) request.purpose = data.purpose.trim();
-  if (data.when_to_use.trim()) request.when_to_use = data.when_to_use.trim();
-  if (data.instructions.trim()) request.instructions = data.instructions.trim();
-  if (data.example_inputs.trim()) request.example_inputs = data.example_inputs.trim();
-  if (data.example_outputs.trim()) request.example_outputs = data.example_outputs.trim();
-  if (data.success_criteria.trim()) request.success_criteria = data.success_criteria.trim();
-
-  return request;
-}
-
-/** Convert UI form data to API update request */
-function formDataToUpdateRequest(data: CoachFormData): UpdateCoachRequest {
-  const request: UpdateCoachRequest = {
-    title: data.title,
-    description: data.description || undefined,
-    system_prompt: data.system_prompt,
-    category: data.category,
-    startup_query: data.startup_query.trim() || undefined,
-  };
-
-  if (data.prefetch_enabled) {
-    request.data_requirements = {
-      activities: {
-        count: data.activity_count,
-        sport_types: data.sport_types,
-        time_frame: data.time_frame,
-        mode: data.detail_mode,
-        format: 'toon',
-        analysis_type: 'general_overview',
-      },
-      athlete_profile: data.athlete_profile,
-    };
-  }
-
-  // Pass structured sections when provided
-  if (data.purpose.trim()) request.purpose = data.purpose.trim();
-  if (data.when_to_use.trim()) request.when_to_use = data.when_to_use.trim();
-  if (data.instructions.trim()) request.instructions = data.instructions.trim();
-  if (data.example_inputs.trim()) request.example_inputs = data.example_inputs.trim();
-  if (data.example_outputs.trim()) request.example_outputs = data.example_outputs.trim();
-  if (data.success_criteria.trim()) request.success_criteria = data.success_criteria.trim();
-
-  return request;
-}
+import type { MessageFeedbackEntry } from '@pierre/shared-types';
 
 interface ChatTabProps {
   selectedConversation: string | null;
@@ -125,20 +58,17 @@ interface ChatTabProps {
 
 export default function ChatTab({ selectedConversation, onSelectConversation, onNavigateToInsights }: ChatTabProps) {
   const queryClient = useQueryClient();
-  const { token } = useAuth();
   const showSuccessToast = useSuccessToast();
   const showInfoToast = useInfoToast();
   const showErrorToast = useErrorToast();
   const [newMessage, setNewMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
-  // AG-UI run id for the in-flight turn, or `null` between turns. Sent
-  // as `agui_run_id` with the chat POST so the backend registers the
-  // run; `useAgUiProgress` subscribes to it to surface pipeline
-  // progress (e.g. "reading your question…") while the turn streams.
-  const [aguiRunId, setAguiRunId] = useState<string | null>(null);
+  // What the in-flight turn is doing right now — the stage it entered or the
+  // tool it is calling — read off the turn's own `progress` frames. Same
+  // response body the reply arrives on, so there is nothing to correlate.
+  const [progressStatusText, setProgressStatusText] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [errorCountdown, setErrorCountdown] = useState<number | null>(null);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
@@ -151,11 +81,10 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   // Saved thumbs-down reasons, keyed by message id. Hydrated from the server
   // alongside the ratings so a reload re-renders the comment.
   const [messageFeedbackComment, setMessageFeedbackComment] = useState<Map<string, string>>(new Map());
-  const [activityLists, setActivityLists] = useState<Map<string, string>>(new Map());
-  // Slash-command action buttons (e.g. per-coach select on /coach).
-  // Keyed by assistant message id; not persisted — buttons disappear
-  // when the conversation is reloaded, the text body stays.
-  const [messageActions, setMessageActions] = useState<Map<string, MessageActionItem[]>>(new Map());
+  // What the server decided this turn draws, keyed by assistant message id.
+  // Not persisted: a reloaded conversation has no block list on the wire, so
+  // its rows are decoded back into the same shape by the renderer.
+  const [messageBlocks, setMessageBlocks] = useState<Map<string, ReplyBlock[]>>(new Map());
   const [showCoachModal, setShowCoachModal] = useState(false);
   const [editingCoachId, setEditingCoachId] = useState<string | null>(null);
   const [coachFormData, setCoachFormData] = useState<CoachFormData>(DEFAULT_COACH_FORM_DATA);
@@ -219,7 +148,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     queryFn: () => chatApi.getConversationVerdicts(selectedConversation!),
     enabled: !!selectedConversation,
   });
-  const verdicts: ChatVerdictRow[] = verdictsData?.verdicts ?? [];
+  const verdicts: ClaimVerdict[] = verdictsData?.verdicts ?? [];
 
   // Conversations and coaches power the coach-aware chat header and the
   // assistant author label. The conversation carries `coach_id`; the coach
@@ -249,16 +178,9 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   }, [conversationsData, coachesListData, selectedConversation, pendingCoachId]);
 
   // Drawer state for the claim verdict detail surface.
-  const [selectedVerdict, setSelectedVerdict] = useState<ChatVerdictRow | null>(null);
+  const [selectedVerdict, setSelectedVerdict] = useState<ClaimVerdict | null>(null);
 
-  // Live pipeline progress for the in-flight turn. The hook subscribes
-  // to the AG-UI SSE stream for `aguiRunId` (Bearer-authed via `token`)
-  // and surfaces a short status line ("reading your question…",
-  // "calling get_activities…") that renders in the streaming bubble
-  // alongside the token-delta text.
-  const { statusText: aguiStatusText } = useAgUiProgress(aguiRunId, token);
-
-  const handleAskAboutClaim = useCallback((verdict: ChatVerdictRow) => {
+  const handleAskAboutClaim = useCallback((verdict: ClaimVerdict) => {
     setNewMessage(
       `Can you back up this claim with evidence? "${verdict.claim_text}"`,
     );
@@ -493,76 +415,22 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     };
   }, [queryClient, createConversation, onSelectConversation]);
 
-  // Handle sending a pending prompt
-  useEffect(() => {
-    if (pendingPrompt && selectedConversation && !isStreaming) {
-      const promptToSend = pendingPrompt;
-      setPendingPrompt(null);
-      setNewMessage(promptToSend);
-      setTimeout(() => {
-        const sendButton = document.querySelector('[aria-label="Send message"]') as HTMLButtonElement;
-        sendButton?.click();
-      }, 100);
-    }
-  }, [pendingPrompt, selectedConversation, isStreaming]);
-
-  // Error countdown timer
-  useEffect(() => {
-    if (!errorMessage) {
-      setErrorCountdown(null);
-      return;
-    }
-    const match = errorMessage.match(/in (\d+) seconds/);
-    if (match) {
-      setErrorCountdown(parseInt(match[1], 10));
-    }
-  }, [errorMessage]);
-
-  useEffect(() => {
-    if (errorCountdown === null || errorCountdown <= 0) {
-      if (errorCountdown === 0) {
-        setErrorMessage(null);
-        setErrorCountdown(null);
-      }
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setErrorCountdown(prev => {
-        if (prev === null || prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [errorCountdown]);
-
-  // Send message handler
-  const handleSendMessage = useCallback(async () => {
-    if (!newMessage.trim() || !selectedConversation || isStreaming) return;
+  /**
+   * Send one turn and fold the result into the transcript.
+   *
+   * Takes its content as an argument rather than reading the composer, so
+   * every caller — the send button, a queued coach prompt, a command action
+   * button, a retry — dispatches the same way. The composer is state; a
+   * caller that had to seed it and then wait for React to commit is what
+   * produced the simulated button clicks this replaced.
+   */
+  const sendTurn = useCallback(async (displayContent: string) => {
+    if (!displayContent || !selectedConversation || isStreaming) return;
 
     if (connectingProvider) {
       sessionStorage.setItem('pierre_oauth_conversation', selectedConversation);
     }
 
-    const displayContent = newMessage.trim();
-    // Attach the provider-context hint via the shared helper, which exempts
-    // slash commands (the backend dispatcher needs the leading '/' at position
-    // 0). Single source of truth for the prefix rule across web + mobile.
-    const connectedProviders = providersData?.providers
-      ?.filter(p => p.connected)
-      .map(p => p.display_name)
-      .join(', ');
-    const messageContent = buildOutgoingMessage(displayContent, {
-      justConnectedProvider: oauthNotification?.provider ?? null,
-      connectedProviders: hasConnectedProvider ? (connectedProviders ?? null) : null,
-      isFirstMessage: !messagesData?.messages || messagesData.messages.length === 0,
-    });
-
-    setNewMessage('');
     setIsStreaming(true);
     setStreamingContent('');
     setErrorMessage(null);
@@ -576,201 +444,137 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       created_at: new Date().toISOString(),
     };
 
-    queryClient.setQueryData(['chat-messages', selectedConversation], (old: { messages: Message[] } | undefined) => ({
+    queryClient.setQueryData(QUERY_KEYS.chat.messages(selectedConversation), (old: { messages: Message[] } | undefined) => ({
       messages: [...(old?.messages || []), tempUserMessage],
     }));
 
-    // Fresh run id per turn — `useAgUiProgress` subscribes to the
-    // matching AG-UI stream while the chat POST below is in flight.
-    // Reset to null in the `finally` so the subscription closes once
-    // the assistant reply has rendered.
-    const runId = crypto.randomUUID();
-    setAguiRunId(runId);
+    setProgressStatusText(null);
 
-    try {
-      // Request SSE — the backend streams ACP token deltas + tool-call
-      // observations as they arrive and ends with a `done` event carrying
-      // the same JSON the blocking branch would have returned. The
-      // streaming body keeps nginx (60s `proxy_read_timeout`) from cutting
-      // off long turns and lets us render the assistant reply
-      // progressively as the model produces it.
-      const response = await fetch(`/api/chat/conversations/${selectedConversation}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-          'Authorization': `Bearer ${token}`,
-          'X-Client-Platform': 'web',
-        },
-        body: JSON.stringify({ content: messageContent, agui_run_id: runId }),
-      });
-
-      if (!response.ok || !response.body) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
-      }
-
-      let assembled = '';
-      type StreamAssistantMessage = {
-        id?: string;
-        role?: 'user' | 'assistant' | 'system';
-        content?: string;
-        token_count?: number;
-        created_at?: string;
-      };
-      type StreamFinalPayload = {
-        assistant_message?: StreamAssistantMessage;
-        model?: string;
-        execution_time_ms?: number;
-        activity_list?: string;
-        actions?: MessageActionItem[];
-      };
-      let finalData: StreamFinalPayload | null = null;
-
-      // Slash-command turns return a single JSON document (is_command_response),
-      // not an SSE stream — the dispatcher answers synchronously with no AG-UI
-      // run. Detect by content-type and use the body as the final payload
-      // directly; the SSE reader below understands only `event:`/`data:` frames
-      // and would otherwise parse zero frames and drop the command's reply.
-      const isEventStream = (response.headers.get('content-type') ?? '').includes('text/event-stream');
-      if (!isEventStream) {
-        finalData = (await response.json().catch(() => null)) as StreamFinalPayload | null;
-      } else {
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      const dispatch = (eventName: string, dataJson: string) => {
-        if (eventName === 'delta') {
-          try {
-            const parsed = JSON.parse(dataJson) as { delta?: string };
-            if (parsed.delta) {
-              assembled += parsed.delta;
-              setStreamingContent(assembled);
-            }
-          } catch {
-            // Ignore malformed delta payloads — keep the stream alive.
-          }
-        } else if (eventName === 'done') {
-          try {
-            finalData = JSON.parse(dataJson);
-          } catch {
-            finalData = null;
-          }
-        } else if (eventName === 'error') {
-          let message: string;
-          try {
-            const parsed = JSON.parse(dataJson) as { error?: string };
-            message = parsed.error ?? 'Server error';
-          } catch {
-            // Bad JSON — fall back to a generic surface message.
-            message = 'Server error';
-          }
-          throw new Error(message);
+    let assembled = '';
+    // The server decided which pieces this surface draws; `onBlock` collects
+    // them in that order. Held here until `onDone` supplies the assistant
+    // message id they are keyed by.
+    const turnBlocks: ReplyBlock[] = [];
+    // A streaming turn holds the client active: the athlete asked a question
+    // and is watching for the answer, even with the mouse untouched. Released
+    // in the `finally` below, so the idle threshold measures the quiet AFTER
+    // the turn rather than racing the model.
+    const releaseIdleHold = holdIdleWhileBusy();
+    await chatApi.sendTurn(selectedConversation, displayContent, {
+      // A turn left streaming into a tab abandoned mid-answer still holds a
+      // server instance open; the hold above covers the athlete who is
+      // waiting, the signal covers the one who walked away.
+      signal: idleSignal(),
+      onDelta: delta => {
+        assembled += delta;
+        setStreamingContent(assembled);
+      },
+      onProgress: progress => {
+        // One vocabulary, rendered the same way here and on mobile and in the
+        // messaging channels' placeholder edits.
+        const text = statusTextForProgress(progress);
+        if (text !== null) setProgressStatusText(text);
+      },
+      onBlock: block => {
+        // A quota notice is a fact about the turn rather than about the reply,
+        // and the conversation banner is where it belongs. Everything else is
+        // part of the message and is drawn by the renderer's block switch.
+        if (block.type === 'notice') {
+          usageStatus.applyNotice(block.notice);
+          return;
         }
-        // Other events (tool_call, keepalive) — ignore for now; no UX yet.
-      };
+        turnBlocks.push(block);
+      },
+      onDone: turn => {
+        const assistantMessageId = turn.assistant.message.id;
+        const { model, execution_time_ms: executionTimeMs } = turn.telemetry;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let sep: number;
-        while ((sep = buffer.indexOf('\n\n')) !== -1) {
-          const chunk = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-          let eventName = 'message';
-          const dataLines: string[] = [];
-          for (const line of chunk.split('\n')) {
-            if (line.startsWith('event:')) {
-              eventName = line.slice(line[6] === ' ' ? 7 : 6).trim();
-            } else if (line.startsWith('data:')) {
-              dataLines.push(line.slice(line[5] === ' ' ? 6 : 5));
-            }
-          }
-          if (dataLines.length > 0) {
-            dispatch(eventName, dataLines.join('\n'));
-          }
+        if (assistantMessageId && model) {
+          setMessageMetadata(prev => {
+            const newMap = new Map(prev);
+            newMap.set(assistantMessageId, { model, executionTimeMs });
+            return newMap;
+          });
         }
-      }
-      }
 
-      const data: StreamFinalPayload = finalData ?? {};
-      const assistantMessageId = data.assistant_message?.id || '';
-      const model = data.model || '';
-      const executionTimeMs = data.execution_time_ms || 0;
+        // The panel, the controls, the chips and the reconnect call to action
+        // all came from the block walk above; nothing here sniffs a flat field
+        // or a sentence to work out what to draw.
+        if (turnBlocks.length > 0 && assistantMessageId) {
+          const blocks = [...turnBlocks];
+          setMessageBlocks(prev => {
+            const newMap = new Map(prev);
+            newMap.set(assistantMessageId, blocks);
+            return newMap;
+          });
+        }
 
-      if (assistantMessageId && model) {
-        setMessageMetadata(prev => {
-          const newMap = new Map(prev);
-          newMap.set(assistantMessageId, { model, executionTimeMs });
-          return newMap;
-        });
-      }
+        // Inject the persisted assistant message into the cache directly so
+        // the streaming bubble can be cleared in the same batch — invalidating
+        // and waiting for the refetch leaves a window where both the streaming
+        // bubble (assembled deltas) and the just-arrived persisted message
+        // render together, surfacing as a duplicated opening sentence. The
+        // turn envelope carries the whole turn, so the assistant message it
+        // holds already includes any post-processing additions the refetch
+        // would have brought in.
+        const assistantMessage = turn.assistant.message;
+        if (assistantMessage.id && assistantMessage.content) {
+          const persisted: Message = {
+            id: assistantMessage.id,
+            role: assistantMessage.role ?? 'assistant',
+            content: assistantMessage.content,
+            token_count: assistantMessage.token_count,
+            created_at: assistantMessage.created_at ?? new Date().toISOString(),
+            scene_blocks: replySceneBlocks(turn),
+          };
+          queryClient.setQueryData(
+            QUERY_KEYS.chat.messages(selectedConversation),
+            (old: { messages: Message[] } | undefined) => {
+              const existing = old?.messages ?? [];
+              if (existing.some(m => m.id === persisted.id)) {
+                return { messages: existing };
+              }
+              return { messages: [...existing, persisted] };
+            },
+          );
+        }
 
-      if (data.activity_list && assistantMessageId) {
-        setActivityLists(prev => {
-          const newMap = new Map(prev);
-          newMap.set(assistantMessageId, data.activity_list as string);
-          return newMap;
-        });
-      }
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      },
+      onError: error => {
+        setErrorMessage(error.message);
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
+      },
+    });
 
-      if (Array.isArray(data.actions) && data.actions.length > 0 && assistantMessageId) {
-        setMessageActions(prev => {
-          const newMap = new Map(prev);
-          newMap.set(assistantMessageId, data.actions as MessageActionItem[]);
-          return newMap;
-        });
-      }
+    releaseIdleHold();
+    setIsStreaming(false);
+    setStreamingContent('');
+    // The delivered assistant reply is now the source of truth; the progress
+    // line has nothing left to say.
+    setProgressStatusText(null);
+    usageStatus.invalidate();
+  }, [selectedConversation, isStreaming, connectingProvider, queryClient, usageStatus]);
 
-      // Inject the persisted assistant message into the cache directly so
-      // the streaming bubble can be cleared in the same batch — invalidating
-      // and waiting for the refetch leaves a window where both the streaming
-      // bubble (assembled deltas) and the just-arrived persisted message
-      // render together, surfacing as a duplicated opening sentence. The
-      // server's `done` payload mirrors `ChatCompletionResponse`, so the
-      // assistant_message it carries already includes any post-processing
-      // additions the refetch would have brought in.
-      const assistantMessage = data.assistant_message;
-      if (assistantMessage?.id && assistantMessage.content) {
-        const persisted: Message = {
-          id: assistantMessage.id,
-          role: assistantMessage.role ?? 'assistant',
-          content: assistantMessage.content,
-          token_count: assistantMessage.token_count,
-          created_at: assistantMessage.created_at ?? new Date().toISOString(),
-        };
-        queryClient.setQueryData(
-          ['chat-messages', selectedConversation],
-          (old: { messages: Message[] } | undefined) => {
-            const existing = old?.messages ?? [];
-            if (existing.some(m => m.id === persisted.id)) {
-              return { messages: existing };
-            }
-            return { messages: [...existing, persisted] };
-          },
-        );
-      }
+  /** The composer's own send: hand the typed text to {@link sendTurn} and clear the box. */
+  const handleSendMessage = useCallback(() => {
+    const typed = newMessage.trim();
+    if (!typed) return;
+    setNewMessage('');
+    void sendTurn(typed);
+  }, [newMessage, sendTurn]);
 
-      setIsStreaming(false);
-      setStreamingContent('');
-
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to send message';
-      setErrorMessage(message);
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
-      setIsStreaming(false);
-      setStreamingContent('');
-    } finally {
-      // Closing the run id collapses the AG-UI progress strip; the
-      // streamed assistant reply is now the source of truth.
-      setAguiRunId(null);
-      usageStatus.invalidate();
+  // A prompt queued while the conversation was still being created is sent
+  // as soon as one exists. It goes straight to `sendTurn`; seeding the
+  // composer and clicking its own button was the round-trip this replaced.
+  useEffect(() => {
+    if (pendingPrompt && selectedConversation && !isStreaming) {
+      const promptToSend = pendingPrompt;
+      setPendingPrompt(null);
+      void sendTurn(promptToSend);
     }
-  }, [newMessage, selectedConversation, isStreaming, connectingProvider, oauthNotification, hasConnectedProvider, messagesData?.messages, providersData?.providers, queryClient, token, usageStatus]);
+  }, [pendingPrompt, selectedConversation, isStreaming, sendTurn]);
+
 
   // Coach handlers. The optional coachId is what we now propagate to the
   // conversation record — the server resolves the coach's system prompt.
@@ -797,26 +601,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
   const handleEditCoach = (coach: Coach) => {
     setEditingCoachId(coach.id);
-    const dr = coach.data_requirements;
-    setCoachFormData({
-      title: coach.title,
-      description: coach.description || '',
-      system_prompt: coach.system_prompt,
-      category: coach.category,
-      startup_query: coach.startup_query || '',
-      prefetch_enabled: !!dr?.activities,
-      activity_count: dr?.activities?.count ?? 20,
-      sport_types: dr?.activities?.sport_types ?? [],
-      time_frame: dr?.activities?.time_frame ?? '12w',
-      detail_mode: (dr?.activities?.mode as 'summary' | 'detailed') ?? 'summary',
-      athlete_profile: dr?.athlete_profile ?? false,
-      purpose: coach.purpose || '',
-      when_to_use: coach.when_to_use || '',
-      instructions: coach.instructions || '',
-      example_inputs: coach.example_inputs || '',
-      example_outputs: coach.example_outputs || '',
-      success_criteria: coach.success_criteria || '',
-    });
+    setCoachFormData(coachToFormData(coach));
     setShowCoachModal(true);
   };
 
@@ -863,49 +648,46 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
   // Message action handlers
   const handleCopyMessage = useCallback((content: string) => {
-    navigator.clipboard.writeText(stripContextPrefix(content));
+    navigator.clipboard.writeText(content);
     showSuccessToast('Copied', 'Message copied to clipboard', 2000);
   }, [showSuccessToast]);
 
   /**
-   * Click handler for a command action button (e.g. the per-coach select
-   * buttons on `/coach`). Postback actions seed the composer with the
-   * button's `value` (usually another slash command like
-   * `/coach select <uuid>`) and immediately dispatch, so the click flows
-   * through the exact same pipeline a typed command would.
+   * Press handler for a control the reply's `actions` block carried.
+   *
+   * A `postback` sends its `value` as the next turn, so the press flows
+   * through the exact same pipeline a typed command would. A `url` opens its
+   * `value` — but only after {@link trustedActionUrl} vouches for the host:
+   * the value reaches the client inside a model-adjacent reply, so an
+   * unvouched address is an open redirect wearing a button. A refused URL
+   * opens nothing.
    */
-  const handleActionClick = useCallback((action: MessageActionItem) => {
-    if (action.action_type !== 'postback') {
-      // URL actions and unknown types are ignored for now — the server
-      // currently only produces postback actions from /coach, /group.
+  const handleActionClick = useCallback((action: ChatMessageAction) => {
+    if (action.action_type === 'url') {
+      const target = trustedActionUrl(action.value, [window.location.origin]);
+      if (target) window.open(target, '_blank', 'noopener,noreferrer');
       return;
     }
-    setNewMessage(action.value);
-    // Defer one tick so React commits setNewMessage before handleSendMessage
-    // reads it back on the next render cycle.
-    setTimeout(() => {
-      void handleSendMessage();
-    }, 0);
-  }, [handleSendMessage]);
+    void sendTurn(action.value);
+  }, [sendTurn]);
 
   const handleShareMessage = useCallback((content: string) => {
     // Use native Web Share API if available, otherwise copy to clipboard
-    const strippedContent = stripContextPrefix(content);
     if (navigator.share) {
       navigator.share({
         title: 'Dravr AI Insight',
-        text: strippedContent,
+        text: content,
       }).catch(() => {
         // User cancelled share, ignore
       });
     } else {
-      navigator.clipboard.writeText(strippedContent);
+      navigator.clipboard.writeText(content);
       showInfoToast('Copied', 'Message copied to clipboard for sharing', 2000);
     }
   }, [showInfoToast]);
 
   const handleShareToFeed = useCallback((content: string) => {
-    setShareToFeedContent(stripContextPrefix(content));
+    setShareToFeedContent(content);
     setShowShareToFeedModal(true);
   }, []);
 
@@ -920,33 +702,24 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     // Create the insight prompt (will be hidden from display by the filter)
     const insightPrompt = createInsightPrompt(content);
 
-    try {
-      // Send the insight prompt via the chat API (will appear in chat as response)
-      const response = await fetch(`/api/chat/conversations/${selectedConversation}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ content: insightPrompt }),
-      });
+    // The same transport as every other turn. This send used to build its own
+    // request with its own header set — no client-platform, no AG-UI run —
+    // which is how a header the server added reached the chat composer and
+    // not this button.
+    await chatApi.sendTurn(selectedConversation, insightPrompt, {
+      // Refresh messages to show the generated insight. Insights are one-shot
+      // JSON on a self-served path, so the reply is read back from history
+      // rather than folded in from the envelope.
+      onDone: () => {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
+      },
+      onError: error => setErrorMessage(error.message),
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
-      }
-
-      // Refresh messages to show the generated insight
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to generate insight';
-      setErrorMessage(message);
-    } finally {
-      setIsGeneratingInsight(false);
-      setIsStreaming(false);
-      setStreamingContent('');
-    }
-  }, [isGeneratingInsight, selectedConversation, isStreaming, queryClient, token]);
+    setIsGeneratingInsight(false);
+    setIsStreaming(false);
+    setStreamingContent('');
+  }, [isGeneratingInsight, selectedConversation, isStreaming, queryClient]);
 
   // Apply a rating change optimistically and persist it. Clicking the active
   // rating again toggles it off (DELETE); otherwise the rating is upserted.
@@ -1021,30 +794,35 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }
   }, [selectedConversation]);
 
+  /**
+   * Retry a failed assistant turn.
+   *
+   * Drops the failed row from the transcript and re-sends the user message
+   * that produced it, so the athlete is left with one attempt rather than a
+   * failure followed by its replacement.
+   */
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!selectedConversation || isStreaming) return;
 
-    // Find the message to retry and get the preceding user message
     const messages = messagesData?.messages || [];
     const messageIndex = messages.findIndex(m => m.id === messageId);
     if (messageIndex <= 0) return;
 
-    // Find the user message that preceded this assistant message
+    // Walk back to the user message that produced this assistant turn.
     let userMessageIndex = messageIndex - 1;
     while (userMessageIndex >= 0 && messages[userMessageIndex].role !== 'user') {
       userMessageIndex--;
     }
     if (userMessageIndex < 0) return;
 
-    const userMessage = messages[userMessageIndex];
-    setNewMessage(userMessage.content);
-
-    // Use setTimeout to allow state update before triggering send
-    setTimeout(() => {
-      const sendButton = document.querySelector('[aria-label="Send message"]') as HTMLButtonElement;
-      sendButton?.click();
-    }, 100);
-  }, [selectedConversation, isStreaming, messagesData?.messages]);
+    queryClient.setQueryData(
+      QUERY_KEYS.chat.messages(selectedConversation),
+      (old: { messages: Message[] } | undefined) => ({
+        messages: (old?.messages ?? []).filter(m => m.id !== messageId),
+      }),
+    );
+    await sendTurn(messages[userMessageIndex].content);
+  }, [selectedConversation, isStreaming, messagesData?.messages, queryClient, sendTurn]);
 
   const handleProviderModalClose = () => {
     setShowProviderModal(false);
@@ -1216,18 +994,17 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 messageMetadata={messageMetadata}
                 messageFeedback={messageFeedback}
                 messageFeedbackComment={messageFeedbackComment}
-                activityLists={activityLists}
-                messageActions={messageActions}
+                messageBlocks={messageBlocks}
                 insightMessageIds={new Set<string>()}
                 verdicts={verdicts}
+                assistantLabel={activeCoachTitle ?? undefined}
                 isLoading={messagesLoading}
                 isStreaming={isStreaming}
                 streamingContent={streamingContent}
-                progressStatusText={aguiStatusText}
+                progressStatusText={progressStatusText}
                 errorMessage={errorMessage}
-                errorCountdown={errorCountdown}
                 oauthNotification={oauthNotification}
-                onDismissError={() => { setErrorMessage(null); setErrorCountdown(null); }}
+                onDismissError={() => setErrorMessage(null)}
                 onDismissOAuthNotification={() => setOauthNotification(null)}
                 onCopyMessage={handleCopyMessage}
                 onShareMessage={handleShareMessage}
@@ -1253,6 +1030,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
             showIdeas={showIdeas}
             onToggleIdeas={() => setShowIdeas(!showIdeas)}
             onSelectPrompt={handleFillPrompt}
+            conversationId={selectedConversation}
           />
         </div>
       )}
@@ -1315,7 +1093,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       />
 
       {selectedVerdict ? (
-        <ChatVerdictDrawer
+        <VerdictDrawer
           verdict={selectedVerdict}
           onClose={() => setSelectedVerdict(null)}
           onAskAboutClaim={() => {

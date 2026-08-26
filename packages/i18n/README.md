@@ -1,230 +1,121 @@
 # @pierre/i18n
 
-Unified internationalization package for Pierre web and mobile applications.
+Unified internationalization for the Dravr web and mobile apps.
 
-## Features
+## The contract this package exists to keep
 
-- 🌍 Support for English, Spanish, and French
-- ⚛️ Works with both React (web) and React Native (mobile)
-- 🔄 Automatic language persistence
-- 📝 Type-safe translation keys
-- 🎯 Easy to extend with new languages
-- 🔌 Based on industry-standard i18next
+The platform has two locale systems and they used to disagree:
 
-## Installation
+- the **server** owns *reply* language — `users.locale`, `DEFAULT_LOCALE = "fr"`, five
+  locales enforced at `entries == keys * 5` in
+  `crates/pierre-contremaitre/src/messaging_strings.rs`;
+- the **clients** own *chrome* language — i18next, persisted per device.
 
-This package is part of the Pierre monorepo workspace and is automatically linked when you run:
+A user could read the app in English while their coach answered in French, because
+nothing joined the two. This package joins them: `initI18n` takes a **required**
+`persistLocale` writer, and every language change made through
+`useLanguageSwitcher` / `useLanguageSwitcherNative` writes both halves —
+i18next for what the user reads, `PUT /api/user/locale` for what the coach answers in.
 
-```bash
-bun install
-```
+`SUPPORTED_LANGUAGES` is therefore exactly the server's `SUPPORTED_LOCALES`, and
+`DEFAULT_LANGUAGE` is exactly `DEFAULT_LOCALE`:
 
-## Usage
+| Locale | Name | |
+|---|---|---|
+| `fr` | Français | default, matching `DEFAULT_LOCALE` |
+| `en` | English | |
+| `es` | Español | |
+| `de` | Deutsch | |
+| `pt` | Português | European Portuguese, `tu` form |
 
-### Web (frontend/)
+## Entry points
 
-1. **Initialize i18n in your app entry point:**
+| Import | Contents |
+|---|---|
+| `@pierre/i18n` | everything platform-neutral, plus `useLanguageSwitcher` (localStorage) |
+| `@pierre/i18n/native` | `useLanguageSwitcherNative` (AsyncStorage) |
+
+The native hook lives behind a subpath so a web bundle never pulls React Native in.
+Mobile resolves both through `metro.config.js` (`resolveRequest`), `tsconfig.json`
+(`paths`) and `jest.config.js` (`moduleNameMapper`).
+
+## Setup
+
+Each app registers its own writer once, at the root, before the first render.
 
 ```tsx
-// App.tsx or main.tsx
+// frontend/src/main.tsx
 import { initI18n } from '@pierre/i18n';
+import { persistLocale } from './i18n/localePersister';
 
-// Initialize before rendering
-initI18n();
-
-function App() {
-  return <YourApp />;
-}
+initI18n({ persistLocale });
 ```
 
-2. **Use translations in components:**
+```ts
+// frontend/src/i18n/localePersister.ts
+import type { LocalePersister } from '@pierre/i18n';
+import { userApi } from '../services/api';
+
+export const persistLocale: LocalePersister = async (language) => {
+  await userApi.updateLocale(language);
+};
+```
+
+Mobile is the same call from `app/_layout.tsx`. Test runners initialize it too —
+`frontend/src/test/setup.ts` and `frontend-mobile/jest.setup.js` — with a persister
+that **rejects**, so a test that changes language has to register the writer it means
+to assert instead of passing on a silent no-op.
+
+## Using translations
 
 ```tsx
 import { useTranslation } from '@pierre/i18n';
 
-function LoginPage() {
+function Row() {
   const { t } = useTranslation();
-
-  return (
-    <div>
-      <h1>{t('common.welcome')}</h1>
-      <input placeholder={t('common.email')} />
-      <input type="password" placeholder={t('common.password')} />
-      <button>{t('common.login')}</button>
-    </div>
-  );
+  return <p>{t('settings.languageDescription')}</p>;
 }
 ```
 
-3. **Add language switcher:**
+Keys are dot-notation over ten namespaces: `common`, `auth`, `chat`, `coaches`,
+`settings`, `social`, `insights`, `providers`, `errors`, `validation`.
+Interpolation uses `{{name}}`: `t('validation.minLength', { min: 8 })`.
+
+## Switching language
 
 ```tsx
 import { useLanguageSwitcher, SUPPORTED_LANGUAGES, LANGUAGE_NAMES } from '@pierre/i18n';
 
-function LanguageSwitcher() {
-  const { currentLanguage, changeLanguage } = useLanguageSwitcher();
-
-  return (
-    <select value={currentLanguage} onChange={(e) => changeLanguage(e.target.value)}>
-      {SUPPORTED_LANGUAGES.map((lang) => (
-        <option key={lang} value={lang}>
-          {LANGUAGE_NAMES[lang]}
-        </option>
-      ))}
-    </select>
-  );
-}
+const { currentLanguage, changeLanguage, syncState } = useLanguageSwitcher({
+  serverLocale: user?.locale,
+});
 ```
 
-### Mobile (frontend-mobile/)
+- `serverLocale` is adopted on first load **only** when this device has no stored
+  choice, so a language picked on the web carries over to the phone.
+- `changeLanguage` never rejects. `syncState` reports the server half:
+  `'saving'` while the PUT is in flight, `'error'` once the chrome moved but
+  `users.locale` did not. Render that error — a silently dropped write is the
+  disagreement this package exists to close.
 
-1. **Initialize i18n in your app entry point:**
+Both `LanguageSwitcher` components (`frontend/src/components/LanguageSwitcher.tsx`,
+`frontend-mobile/src/components/LanguageSwitcher.tsx`) already do this, and are
+mounted in the web `UserSettings` Appearance card and the mobile `SettingsScreen`
+language section.
 
-```tsx
-// App.tsx
-import { initI18n } from '@pierre/i18n';
+## Adding a locale
 
-// Initialize before rendering
-initI18n();
+Adding one here without adding it to the server ships a language the coach cannot
+answer in. The order is:
 
-export default function App() {
-  return <YourApp />;
-}
-```
+1. add the locale to `SUPPORTED_LOCALES` in `crates/pierre-routes-auth/src/login.rs`;
+2. add its column to `messaging_strings.rs` — all keys, or the invariant test reds;
+3. create `src/locales/<tag>/translation.json` with **every** key translated;
+4. add it to `SUPPORTED_LANGUAGES`, `LANGUAGE_NAMES` and `defaultI18nConfig.resources`;
+5. add its flag to both `LanguageSwitcher` components.
 
-2. **Use translations in screens/components:**
-
-```tsx
-import { useTranslation } from '@pierre/i18n';
-import { View, Text, TextInput, Button } from 'react-native';
-
-function LoginScreen() {
-  const { t } = useTranslation();
-
-  return (
-    <View>
-      <Text>{t('common.welcome')}</Text>
-      <TextInput placeholder={t('common.email')} />
-      <TextInput placeholder={t('common.password')} secureTextEntry />
-      <Button title={t('common.login')} />
-    </View>
-  );
-}
-```
-
-3. **Add language switcher (use native version for mobile):**
-
-```tsx
-import { useLanguageSwitcherNative, SUPPORTED_LANGUAGES, LANGUAGE_NAMES } from '@pierre/i18n';
-import { View, Text, TouchableOpacity } from 'react-native';
-
-function LanguageSwitcher() {
-  const { currentLanguage, changeLanguage } = useLanguageSwitcherNative();
-
-  return (
-    <View>
-      {SUPPORTED_LANGUAGES.map((lang) => (
-        <TouchableOpacity
-          key={lang}
-          onPress={() => changeLanguage(lang)}
-          style={{ opacity: currentLanguage === lang ? 1 : 0.6 }}
-        >
-          <Text>{LANGUAGE_NAMES[lang]}</Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-}
-```
-
-## Translation Structure
-
-Translations are organized into namespaces for better organization:
-
-- `common` - Common UI elements (buttons, labels, actions)
-- `auth` - Authentication and registration
-- `chat` - Chat and messaging
-- `coaches` - Coach management
-- `settings` - Settings and preferences
-- `social` - Social features
-- `insights` - Analytics and insights
-- `providers` - Provider connections
-- `errors` - Error messages
-- `validation` - Form validation messages
-
-## Supported Languages
-
-- 🇺🇸 English (`en`) - Default
-- 🇪🇸 Spanish (`es`)
-- 🇫🇷 French (`fr`)
-
-## Adding New Languages
-
-1. Create a new directory in `src/locales/` (e.g., `de` for German)
-2. Copy `en/translation.json` to your new directory
-3. Translate all strings
-4. Update `SUPPORTED_LANGUAGES` in `src/config.ts`
-5. Add the language name to `LANGUAGE_NAMES`
-6. Import and add the translations to `defaultI18nConfig.resources`
-
-## Translation Key Format
-
-Use dot notation to access nested keys:
-
-```tsx
-t('common.welcome')        // "Welcome"
-t('auth.loginFailed')      // "Login failed"
-t('chat.typeMessage')      // "Type a message..."
-```
-
-## Interpolation
-
-For dynamic values, use interpolation:
-
-```tsx
-// In translation file:
-{
-  "validation": {
-    "minLength": "Minimum length is {{min}} characters"
-  }
-}
-
-// In code:
-t('validation.minLength', { min: 8 })
-// Output: "Minimum length is 8 characters"
-```
-
-## Type Safety
-
-The package provides type-safe translation keys through the `TranslationKeys` interface. TypeScript will provide autocomplete for available keys.
-
-## Best Practices
-
-1. **Use descriptive keys**: Prefer `auth.invalidCredentials` over `error1`
-2. **Keep translations short**: Mobile screens have limited space
-3. **Test all languages**: Verify UI layout with longer translations (German, French)
-4. **Use placeholders**: For dynamic content, use interpolation
-5. **Maintain consistency**: Use the same terms across languages
-6. **Context matters**: Consider cultural differences in translations
-
-## Troubleshooting
-
-### Translations not updating
-
-Make sure you've initialized i18n before rendering:
-
-```tsx
-initI18n();
-```
-
-### Language not persisting
-
-- **Web**: Check browser localStorage
-- **Mobile**: Ensure AsyncStorage permissions are granted
-
-### Missing translations
-
-Check the browser/Metro console for missing key warnings. i18next will fall back to the English translation if a key is missing.
+`frontend/src/i18n/__tests__/localeCorpus.test.ts` fails on a locale that is declared
+but short of keys, or that never diverged from English.
 
 ## License
 

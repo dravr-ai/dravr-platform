@@ -105,8 +105,8 @@ commit on `feature/harness-prep`.
 
 Backend: `crates/pierre-server/src/routes/admin/claim_verdicts.rs`
 with two handlers (list recent, list by conversation). Frontend:
-`ClaimVerdictsTab` + `ClaimVerdictDrawer` with status/category/coach
-filters and a drill-down drawer.
+`ClaimVerdictsTab` with status/category/coach filters, drilling into
+the shared `chat/VerdictDrawer`.
 
 ### Sprint C3 — HarnessConfigTab + GuardrailsTab merged
 
@@ -135,8 +135,8 @@ size limit). The service owns `ChatVerdictRow` +
 `ChatVerdictListResponse`. Route:
 `GET /api/chat/conversations/{conversation_id}/verdicts`. Frontend:
 `MessageItem` adds a verdict chip + summary line for the worst
-verdict, and a "Ask me about this claim" CTA that opens a
-`ChatVerdictDrawer`.
+verdict, and a "Ask me about this claim" CTA that opens
+`chat/VerdictDrawer` — the same drawer the admin triage table opens.
 
 ### Sprint C5 — User MemoryPanel
 

@@ -9,10 +9,11 @@
 //! Per-concern split:
 //!
 //! - [`chat::conversations`] — CRUD on `chat_conversations` + message listing
+//! - [`chat::group_transcript`] — the shared room view of a coaching group
 //! - [`chat::send_message`] — web-chat POST → unified pipeline (optional AG-UI)
 //! - [`chat::send_insight`] — insight-generation POST → JSON-shaped one-shot
-//! - [`chat::quotas`] — pre-chat quota gate + response-header warnings
-//! - [`chat::usage`] — terminal `llm_usage` summary row + counter increments
+//! - [`chat::turn_response`] — the wire shape of one turn's envelope
+//! - [`chat::usage`] — insight-path token accounting and JSON post-processing
 //! - [`chat::dto`] — request/response shapes shared across the handlers
 //! - [`chat::common`] — auth / tenant resolution shared by every handler
 
@@ -20,11 +21,10 @@ mod common;
 mod conversations;
 mod dto;
 mod feedback;
-// Crate-visible: the quota policy is one function with two call sites — web
-// chat inline here, and messaging ingress through its `QuotaGate` hook.
-pub(crate) mod quotas;
+mod group_transcript;
 mod send_insight;
 mod send_message;
+mod turn_response;
 mod usage;
 
 use std::sync::Arc;
@@ -40,14 +40,15 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::tool_execution::build_mcp_tools as services_build_mcp_tools;
 
 pub use dto::{
-    ChatCompletionResponse, ConversationListResponse, ConversationResponse,
-    ConversationSummaryResponse, CreateConversationRequest, FeedbackRating, ListConversationsQuery,
-    MessageFeedbackEntry, MessageResponse, MessagesListResponse, SendMessageRequest,
-    UpdateConversationRequest, UpsertFeedbackRequest,
+    ChatMessageAction, ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
+    CreateConversationRequest, FeedbackRating, ListConversationsQuery, MessageFeedbackEntry,
+    MessageResponse, MessagesListResponse, SendMessageRequest, UpdateConversationRequest,
+    UpsertFeedbackRequest,
 };
-
-/// Default maximum number of tool call iterations before forcing a text response.
-pub(super) const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
+pub use turn_response::{
+    AssistantResponse, NoticeResponse, ReplyBlockResponse, TurnResponse, TurnTelemetryResponse,
+    VerdictChipResponse,
+};
 
 /// Prefix used to detect insight generation requests from the frontend.
 /// Must match the `INSIGHT_PROMPT_PREFIX` constant in `@pierre/chat-utils`.
@@ -107,6 +108,11 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}/messages",
                 get(conversations::get_messages),
+            )
+            // Shared group room transcript (membership-gated, consent-filtered)
+            .route(
+                "/api/chat/groups/{group_id}/transcript",
+                get(group_transcript::get_group_transcript),
             )
             // POST messages with MCP tool support (non-streaming)
             .route(

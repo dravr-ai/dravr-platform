@@ -79,6 +79,15 @@ jobs:
         working-directory: frontend-mobile
         run: bun run test -- --coverage
 
+      # The integration config's `app` project drives the real screens, hooks and
+      # @pierre/api-client against a stubbed axios adapter -- production code from
+      # the component tree down to the request URL, with no simulator and no
+      # backend. It is selected explicitly because the sibling `api` project
+      # health-checks a live server on 8081 and would abort the run here.
+      - name: Run app integration specs
+        working-directory: frontend-mobile
+        run: bunx jest --config integration/jest.config.js --selectProjects app
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         if: always()

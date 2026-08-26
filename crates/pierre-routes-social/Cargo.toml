@@ -15,7 +15,6 @@ default = ["client-notifications"]
 client-notifications = [
     "pierre-tool-runtime/client-notifications",
 ]
-openapi = ["dep:utoipa", "pierre-core/openapi"]
 
 [dependencies]
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
@@ -44,7 +43,6 @@ serde_json = "1.0"
 # rt + time + macros power the weekly-digest background scheduler (tokio::spawn + interval).
 tokio = { version = "1.50", features = ["rt", "time", "macros"] }
 tracing = "0.1"
-utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"], optional = true }
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [lints]

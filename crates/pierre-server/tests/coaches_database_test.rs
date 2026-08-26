@@ -7,6 +7,7 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::TenantId;
 use pierre_database::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateCoachRequest, CreateSystemCoachRequest,
@@ -302,6 +303,7 @@ async fn test_create_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -345,6 +347,7 @@ async fn test_create_coach_minimal() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -382,6 +385,7 @@ async fn test_get_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let created = manager
@@ -433,6 +437,7 @@ async fn test_get_coach_wrong_user() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let created = manager
@@ -489,6 +494,7 @@ async fn test_list_coaches() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -533,6 +539,7 @@ async fn test_list_coaches_by_category() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -579,6 +586,7 @@ async fn test_list_coaches_favorites_only() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         };
         let coach = manager
             .create(test_user_id(), test_tenant(), &request)
@@ -629,6 +637,7 @@ async fn test_list_coaches_with_pagination() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -694,6 +703,7 @@ async fn test_list_coaches_user_isolation() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &request)
@@ -716,6 +726,7 @@ async fn test_list_coaches_user_isolation() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     manager
         .create(other_user_id(), test_tenant(), &request)
@@ -764,6 +775,7 @@ async fn test_update_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -786,6 +798,7 @@ async fn test_update_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
 
     let updated = manager
@@ -827,6 +840,7 @@ async fn test_update_coach_partial() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -850,6 +864,7 @@ async fn test_update_coach_partial() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
 
     let updated = manager
@@ -889,6 +904,7 @@ async fn test_update_coach_not_found() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
 
     let result = manager
@@ -923,6 +939,7 @@ async fn test_delete_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -978,6 +995,7 @@ async fn test_delete_coach_wrong_user() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1025,6 +1043,7 @@ async fn test_toggle_favorite() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1104,6 +1123,7 @@ async fn test_activate_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1149,6 +1169,7 @@ async fn test_activate_coach_deactivates_others() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     let coach1 = manager
         .create(test_user_id(), test_tenant(), &request1)
@@ -1170,6 +1191,7 @@ async fn test_activate_coach_deactivates_others() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     let coach2 = manager
         .create(test_user_id(), test_tenant(), &request2)
@@ -1225,6 +1247,7 @@ async fn test_deactivate_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1294,6 +1317,7 @@ async fn test_get_active_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1337,6 +1361,7 @@ async fn test_active_coach_user_isolation() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     let coach = manager
         .create(test_user_id(), test_tenant(), &request)
@@ -1386,6 +1411,7 @@ async fn test_record_usage() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1550,6 +1576,7 @@ async fn test_search_coaches() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         },
         CreateCoachRequest {
             title: "Nutrition Advisor".to_owned(),
@@ -1566,6 +1593,7 @@ async fn test_search_coaches() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         },
         CreateCoachRequest {
             title: "Recovery Coach".to_owned(),
@@ -1582,6 +1610,7 @@ async fn test_search_coaches() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         },
     ];
 
@@ -1646,6 +1675,7 @@ async fn test_search_coaches_with_limit() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -1691,6 +1721,7 @@ async fn test_count_coaches() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -1916,6 +1947,7 @@ async fn test_update_system_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
 
     let updated = manager
@@ -2106,6 +2138,7 @@ async fn test_list_coaches_includes_assigned_system_coaches() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &personal_request)
@@ -2613,6 +2646,7 @@ async fn test_personal_coaches_remain_isolated_with_system_coaches() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &personal_request)
@@ -2802,6 +2836,7 @@ async fn test_create_coach_with_structured_fields() {
         example_inputs: Some("I want to run a sub-3:30 marathon in 16 weeks. I can train 5 days/week.".to_owned()),
         example_outputs: Some("Provide a week-by-week breakdown with daily workouts, paces, and recovery notes.".to_owned()),
         success_criteria: Some("The plan should be progressive, include tapering, and respect rest days.".to_owned()),
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -2880,6 +2915,7 @@ async fn test_create_coach_without_structured_fields() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -2934,6 +2970,7 @@ async fn test_update_coach_adds_structured_fields() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -2963,6 +3000,7 @@ async fn test_update_coach_adds_structured_fields() {
         example_inputs: Some("Show me my training summary for this week.".to_owned()),
         example_outputs: Some("A breakdown by zone with weekly totals.".to_owned()),
         success_criteria: Some("Identify overtraining risks and recovery needs.".to_owned()),
+        max_tool_iterations: FieldUpdate::Keep,
     };
 
     let updated = manager
@@ -3139,6 +3177,7 @@ async fn test_token_count_with_structured_fields() {
         example_inputs: Some(example_inputs.to_owned()),
         example_outputs: Some(example_outputs.to_owned()),
         success_criteria: Some(success_criteria.to_owned()),
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -3167,4 +3206,256 @@ async fn test_token_count_with_structured_fields() {
         coach.token_count, system_prompt_token_count,
         "Token count should come from structured sections, not system_prompt"
     );
+}
+
+/// `max_tool_iterations` is the per-coach tool-call budget the chat pipeline
+/// reads to override the admin default. `CoachesManager::create` must persist a
+/// caller-supplied value, not just carry it in the returned struct — so this
+/// asserts the concrete budget on a fresh read back out of the database.
+#[tokio::test]
+async fn test_create_coach_persists_max_tool_iterations() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let request = CreateCoachRequest {
+        title: "Budgeted Coach".to_owned(),
+        description: None,
+        system_prompt: "You are a coach with a wide tool budget.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec![],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+        max_tool_iterations: Some(23),
+    };
+
+    let created = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+    assert_eq!(created.max_tool_iterations, Some(23));
+
+    // Re-read: proves the value reached the coaches row, not just the struct
+    // the create path returns.
+    let fetched = manager
+        .get(&created.id.to_string(), test_user_id(), test_tenant())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fetched.max_tool_iterations, Some(23));
+}
+
+/// `CoachesManager::update` must write a new `max_tool_iterations` over the
+/// stored one. The update path resolves the request against the stored value,
+/// so a coach created with a budget and updated to a different budget proves
+/// the request value wins rather than the existing one leaking through.
+#[tokio::test]
+async fn test_update_coach_writes_max_tool_iterations() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let request = CreateCoachRequest {
+        title: "Budgeted Coach".to_owned(),
+        description: None,
+        system_prompt: "You are a coach with a wide tool budget.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec![],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+        max_tool_iterations: Some(23),
+    };
+
+    let created = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+
+    let update = UpdateCoachRequest {
+        title: None,
+        description: None,
+        system_prompt: None,
+        category: None,
+        tags: None,
+        sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+        max_tool_iterations: FieldUpdate::Set(Some(7)),
+    };
+
+    let updated = manager
+        .update(
+            &created.id.to_string(),
+            test_user_id(),
+            test_tenant(),
+            &update,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.max_tool_iterations, Some(7));
+
+    let fetched = manager
+        .get(&created.id.to_string(), test_user_id(), test_tenant())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fetched.max_tool_iterations, Some(7));
+}
+
+/// An update that carries no budget must leave the stored one alone. Without
+/// [`FieldUpdate::Keep`] resolving to the existing value, an unrelated edit (a
+/// title change) would silently reset the coach's tool budget to the admin
+/// default.
+#[tokio::test]
+async fn test_update_coach_preserves_max_tool_iterations_when_absent() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let request = CreateCoachRequest {
+        title: "Budgeted Coach".to_owned(),
+        description: None,
+        system_prompt: "You are a coach with a wide tool budget.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec![],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+        max_tool_iterations: Some(23),
+    };
+
+    let created = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+
+    let update = UpdateCoachRequest {
+        title: Some("Renamed Coach".to_owned()),
+        description: None,
+        system_prompt: None,
+        category: None,
+        tags: None,
+        sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
+    };
+
+    let updated = manager
+        .update(
+            &created.id.to_string(),
+            test_user_id(),
+            test_tenant(),
+            &update,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.title, "Renamed Coach");
+    assert_eq!(updated.max_tool_iterations, Some(23));
+}
+
+/// A budget you can set but never unset is unfinished. `FieldUpdate::Set(None)`
+/// is the wire's explicit `null` — the update must write NULL over the stored
+/// 23 so the coach goes back to inheriting the admin value, which the old
+/// `request.or(existing)` coalesce could never do.
+#[tokio::test]
+async fn test_update_coach_clears_max_tool_iterations_on_an_explicit_null() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let request = CreateCoachRequest {
+        title: "Budgeted Coach".to_owned(),
+        description: None,
+        system_prompt: "You are a coach with a wide tool budget.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec![],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+        max_tool_iterations: Some(23),
+    };
+
+    let created = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+    assert_eq!(created.max_tool_iterations, Some(23));
+
+    let update = UpdateCoachRequest {
+        title: None,
+        description: None,
+        system_prompt: None,
+        category: None,
+        tags: None,
+        sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+        max_tool_iterations: FieldUpdate::Set(None),
+    };
+
+    let updated = manager
+        .update(
+            &created.id.to_string(),
+            test_user_id(),
+            test_tenant(),
+            &update,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.max_tool_iterations, None);
+    // Title untouched: clearing the budget is not a wholesale reset.
+    assert_eq!(updated.title, "Budgeted Coach");
+
+    // Re-read: proves NULL reached the coaches row, not just the struct the
+    // update path returns.
+    let fetched = manager
+        .get(&created.id.to_string(), test_user_id(), test_tenant())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fetched.max_tool_iterations, None);
 }

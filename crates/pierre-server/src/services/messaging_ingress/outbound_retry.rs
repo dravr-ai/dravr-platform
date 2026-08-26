@@ -82,6 +82,10 @@ pub(crate) async fn enqueue_failed_outbound(
         content_body: body.as_deref(),
         correlation_id: &correlation_str,
         raw_payload: Some(&payload_str),
+        // The send failed before the channel assigned an id, so this row is
+        // keyed on the synthetic `retry-…` id above. No inbound reaction can
+        // quote that id, so there is nothing for a rating to resolve through.
+        chat_message_id: None,
     };
     let inserted = db.insert_message(&out_params).await?;
     if !inserted {

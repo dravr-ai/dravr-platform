@@ -834,6 +834,7 @@ mod messaging_routes_tests {
             content_body: Some("retry test message"),
             correlation_id: &Uuid::new_v4().to_string(),
             raw_payload: None,
+            chat_message_id: None,
         };
         db.insert_message(&msg_params).await.unwrap();
 

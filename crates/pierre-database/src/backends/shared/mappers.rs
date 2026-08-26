@@ -144,6 +144,7 @@ where
         // Prompt assembly falls back to UTC at read time so this stays
         // optional through the whole stack.
         timezone: row.try_get("timezone").ok().flatten(),
+        theme: row.try_get("theme").ok().flatten(),
     })
 }
 

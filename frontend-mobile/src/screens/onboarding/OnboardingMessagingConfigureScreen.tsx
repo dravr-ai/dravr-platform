@@ -13,6 +13,7 @@ import { Card, Button } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagingApi } from '../../services/api';
 import { useMessagingOnboarding } from '../../hooks/useMessagingOnboarding';
+import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 
 /**
  * Connect the chosen messaging channel (mobile). Deep-link channels show a QR
@@ -41,10 +42,18 @@ export function OnboardingMessagingConfigureScreen() {
     retry: 1,
   });
 
+  // The link is completed on this same phone (or another device), so the
+  // screen can only learn by asking. The wait is what is polled for, so the
+  // interval ends with it — the answer cannot change once the channel appears,
+  // and a poll that kept running would bill an instance for a screen the
+  // athlete has already left. Same rule, same constant, as the web client.
   const { data: links } = useQuery({
     queryKey: ['messaging-links'],
     queryFn: () => messagingApi.listLinks(),
-    refetchInterval: 3000,
+    refetchInterval: query =>
+      query.state.data?.some((l) => l.channel === channel)
+        ? false
+        : CHANNEL_LINK_POLL_INTERVAL_MS,
   });
 
   useEffect(() => {

@@ -349,10 +349,20 @@ pub const KEY_RATE_LIMITED: &str = "messaging.rate_limited";
 
 /// Key: a chat quota is exhausted for the sender's plan.
 ///
-/// Daily/weekly messages or tokens, emitted by the pre-dispatch quota gate;
-/// distinct from [`KEY_RATE_LIMITED`], which is about request pacing rather
-/// than a consumed budget.
+/// Daily/weekly messages or tokens, sent when the turn service's pre-turn
+/// check refuses the turn outright; distinct from [`KEY_RATE_LIMITED`], which
+/// is about request pacing rather than a consumed budget.
 pub const KEY_QUOTA_EXCEEDED: &str = "messaging.quota_exceeded";
+
+/// Key: a chat quota is close, or the sender is inside its burst allowance.
+///
+/// The soft counterpart to [`KEY_QUOTA_EXCEEDED`]: the turn ran and the reply
+/// went out, and this line rides with it so the athlete learns the budget is
+/// nearly spent before it refuses them. The in-app client draws the same
+/// standing as a notice element; a chat channel has no element to draw, so it
+/// gets the sentence. `{0}` = counter value, `{1}` = the cap, `{2}` = when it
+/// resets.
+pub const KEY_QUOTA_WARNING: &str = "messaging.quota_warning";
 
 /// Key: user has not connected any fitness provider yet.
 ///
@@ -398,6 +408,15 @@ pub const KEY_CONNECT_TITLE: &str = "messaging.connect.title";
 /// `AppError::ProviderAuthRequired`. `{0}` = provider display name
 /// (e.g. `Garmin Connect`, `Strava`); `{1}` = one-time hosted-login URL.
 pub const KEY_PROVIDER_REAUTH_REQUIRED: &str = "messaging.provider.reauth_required";
+
+/// Key: button label on the reconnect Card a card-rendering channel gets
+/// alongside the reauth sentence.
+///
+/// The sentence ([`KEY_PROVIDER_REAUTH_REQUIRED`]) already carries the URL as
+/// text for channels that only autolink. Where buttons render, the same URL
+/// also rides a `url` `CardAction` labelled with this string, so the athlete
+/// taps instead of copying. `{0}` = provider display name.
+pub const KEY_PROVIDER_RECONNECT_BUTTON: &str = "messaging.provider.reconnect_button";
 
 // ── /status command keys ──────────────────────────────────────────────────
 
@@ -592,8 +611,6 @@ pub const KEY_PLAN_RESUMES: &str = "commands.plan.resumes";
 pub const KEY_PLAN_EMPTY: &str = "commands.plan.empty";
 /// Key: `/plan` note appended when the plan's goal fact has been superseded.
 pub const KEY_PLAN_STALE_GOAL: &str = "commands.plan.stale_goal";
-/// Key: `/plan` truncation marker when the render exceeds the channel's limit.
-pub const KEY_PLAN_TRUNCATED: &str = "commands.plan.truncated";
 
 // ── /group command keys ───────────────────────────────────────────────────
 
@@ -646,6 +663,16 @@ pub const KEY_GROUP_RESPOND_MENTIONS: &str = "commands.group.respond_mentions";
 pub const KEY_GROUP_RESPOND_ALL: &str = "commands.group.respond_all";
 /// Key: `/group status` line shown when the group is in mentions-only mode.
 pub const KEY_GROUP_RESPOND_STATUS_MENTIONS: &str = "commands.group.respond_status_mentions";
+/// Key: `/group coach detach` confirmation — the group's human coach was
+/// cleared. `{0}` = group name.
+pub const KEY_GROUP_COACH_DETACHED: &str = "commands.group.coach_detached";
+
+// ── Notification messaging-sink keys ────────────────────────────
+
+/// Key: wrapper the notification messaging sink renders around a dispatched
+/// notification before sending it on a linked chat channel.
+/// `{0}` = notification title, `{1}` = notification body.
+pub const KEY_NOTIFICATION_CHANNEL_BODY: &str = "notifications.channel_body";
 
 // ── /coach command keys ───────────────────────────────────────────────────
 
@@ -809,6 +836,8 @@ pub(crate) const FR_ACCOUNT_SUSPENDED: &str =
     "Ton compte Dravr est suspendu. Contacte le support pour rétablir l'accès.";
 pub(crate) const FR_RATE_LIMITED: &str = "Tu envoies des messages un peu trop vite pour ton forfait. Attends un moment, puis réessaie — je serai là.";
 pub(crate) const FR_QUOTA_EXCEEDED: &str = "Tu as atteint la limite de conversation de ton forfait pour le moment. Elle se réinitialise automatiquement — reviens un peu plus tard.";
+pub(crate) const FR_QUOTA_WARNING: &str =
+    "Petite note : tu as utilisé {0} de {1} sur ton forfait. Le compteur se réinitialise le {2}.";
 pub(crate) const FR_NO_PROVIDER_CONNECTED: &str = "Avant de discuter, connecte un service de fitness (Strava, Garmin, Whoop) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi ici :\n{0}";
 pub(crate) const FR_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Avant de discuter, connecte un service de fitness (Strava, Garmin, Whoop) depuis l'app Dravr — sans ça je n'ai aucune donnée d'activité pour t'aider.\n\nConnecte-toi avec ton compte {1} ici :\n{0}";
 pub(crate) const FR_CONNECT_PROMPT: &str = "Connectons ton service de fitness (Strava, Garmin ou Whoop) pour que je puisse te coacher sur tes vraies données. Touche le bouton ci-dessous pour te connecter en toute sécurité.";
@@ -816,6 +845,7 @@ pub(crate) const FR_CONNECT_BUTTON: &str = "Connecter mon compte";
 pub(crate) const FR_CONNECT_TITLE: &str = "Connecter un service de fitness";
 
 pub(crate) const FR_PROVIDER_REAUTH_REQUIRED: &str = "La connexion à {0} a expiré — je ne peux pas récupérer tes données pour le moment. Reconnecte ton compte ici (lien valide 24 heures) :\n\n{1}\n\nUne fois reconnecté, repose-moi ta question.";
+pub(crate) const FR_PROVIDER_RECONNECT_BUTTON: &str = "Reconnecter {0}";
 
 pub(crate) const FR_STATUS_HEADER: &str = "Ton statut Dravr :\n";
 pub(crate) const FR_STATUS_PROVIDERS_NONE: &str = "\nFournisseurs : aucun connecté";
@@ -897,7 +927,6 @@ pub(crate) const FR_PLAN_RESUMES: &str = "Le plan reprend le {0}.";
 pub(crate) const FR_PLAN_EMPTY: &str = "Aucun plan enregistré pour l'instant — demande à ton coach d'en construire un vers ton objectif.";
 pub(crate) const FR_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Ton objectif a changé depuis — demande à ton coach de mettre le plan à jour.";
-pub(crate) const FR_PLAN_TRUNCATED: &str = "\n… (tronqué — utilise /plan today pour le détail)";
 
 pub(crate) const FR_GROUP_LIST_EMPTY: &str =
     "Tu n'es membre d'aucun groupe.\nCrée ou rejoins un groupe via l'app web ou mobile.";
@@ -928,6 +957,8 @@ pub(crate) const FR_GROUP_RESPOND_USAGE: &str =
 pub(crate) const FR_GROUP_RESPOND_MENTIONS: &str = "Le coach ne répond plus que lorsqu'on l'interpelle (mentionne-le avec @ ou réponds à l'un de ses messages). Il continue de suivre la discussion pour garder le contexte.";
 pub(crate) const FR_GROUP_RESPOND_ALL: &str =
     "Le coach répond de nouveau à tous les messages du groupe.";
+pub(crate) const FR_GROUP_COACH_DETACHED: &str = "{0} n'a plus de coach humain attitré.";
+pub(crate) const FR_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const FR_GROUP_RESPOND_STATUS_MENTIONS: &str = "Le coach ne répond que lorsqu'on l'interpelle. Pour revenir à tous les messages : /group respond all";
 pub(crate) const FR_GROUP_CONSENT_UPDATED: &str =
     "Le partage de tes données avec les autres membres de {1} est maintenant {0}.";
@@ -1073,6 +1104,8 @@ pub(crate) const EN_ACCOUNT_SUSPENDED: &str =
     "Your Dravr account is suspended. Contact support to restore access.";
 pub(crate) const EN_RATE_LIMITED: &str = "You're sending messages a little faster than your plan allows. Give it a moment and try again — I'll be here.";
 pub(crate) const EN_QUOTA_EXCEEDED: &str = "You've reached your plan's chat limit for now. It resets automatically — check back a bit later.";
+pub(crate) const EN_QUOTA_WARNING: &str =
+    "Heads-up: you've used {0} of {1} on your plan. The counter resets on {2}.";
 pub(crate) const EN_NO_PROVIDER_CONNECTED: &str = "Before we chat, connect a fitness service (Strava, Garmin, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nConnect here:\n{0}";
 pub(crate) const EN_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Before we chat, connect a fitness service (Strava, Garmin, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nSign in with your {1} account here:\n{0}";
 pub(crate) const EN_CONNECT_PROMPT: &str = "Let's connect your fitness service (Strava, Garmin or Whoop) so I can coach you on your real data. Tap the button below to connect securely.";
@@ -1080,6 +1113,7 @@ pub(crate) const EN_CONNECT_BUTTON: &str = "Connect your account";
 pub(crate) const EN_CONNECT_TITLE: &str = "Connect a fitness service";
 
 pub(crate) const EN_PROVIDER_REAUTH_REQUIRED: &str = "Your {0} connection has expired — I can't fetch your data right now. Reconnect here (link valid for 24 hours):\n\n{1}\n\nOnce reconnected, ask me again.";
+pub(crate) const EN_PROVIDER_RECONNECT_BUTTON: &str = "Reconnect {0}";
 
 pub(crate) const EN_STATUS_HEADER: &str = "Your Dravr status:\n";
 pub(crate) const EN_STATUS_PROVIDERS_NONE: &str = "\nProviders: none connected";
@@ -1167,7 +1201,6 @@ pub(crate) const EN_PLAN_EMPTY: &str =
     "No plan saved yet — ask your coach to build one toward your goal.";
 pub(crate) const EN_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Your goal has changed since this plan — ask your coach to refresh it.";
-pub(crate) const EN_PLAN_TRUNCATED: &str = "\n… (truncated — use /plan today for detail)";
 
 pub(crate) const EN_GROUP_LIST_EMPTY: &str =
     "You are not a member of any groups.\nCreate or join a group via the web or mobile app.";
@@ -1197,6 +1230,8 @@ pub(crate) const EN_GROUP_RESPOND_USAGE: &str =
 pub(crate) const EN_GROUP_RESPOND_MENTIONS: &str = "The coach now replies only when addressed (@-mention it or reply to one of its messages). It keeps following the discussion for context.";
 pub(crate) const EN_GROUP_RESPOND_ALL: &str =
     "The coach now replies to every message in the group again.";
+pub(crate) const EN_GROUP_COACH_DETACHED: &str = "{0} no longer has an attached human coach.";
+pub(crate) const EN_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const EN_GROUP_RESPOND_STATUS_MENTIONS: &str =
     "The coach replies only when addressed. To go back to every message: /group respond all";
 pub(crate) const EN_GROUP_CONSENT_UPDATED: &str =
@@ -1319,6 +1354,8 @@ pub(crate) const ES_ACCOUNT_SUSPENDED: &str =
     "Tu cuenta de Dravr está suspendida. Contacta con soporte para recuperar el acceso.";
 pub(crate) const ES_RATE_LIMITED: &str = "Estás enviando mensajes un poco más rápido de lo que permite tu plan. Espera un momento y vuelve a intentarlo — aquí estaré.";
 pub(crate) const ES_QUOTA_EXCEEDED: &str = "Has alcanzado el límite de conversación de tu plan por ahora. Se reinicia automáticamente — vuelve un poco más tarde.";
+pub(crate) const ES_QUOTA_WARNING: &str =
+    "Aviso: has usado {0} de {1} de tu plan. El contador se reinicia el {2}.";
 pub(crate) const ES_NO_PROVIDER_CONNECTED: &str = "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nConéctate aquí:\n{0}";
 pub(crate) const ES_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nInicia sesión con tu cuenta {1} aquí:\n{0}";
 pub(crate) const ES_CONNECT_PROMPT: &str = "Conectemos tu servicio de fitness (Strava, Garmin o Whoop) para que pueda orientarte con tus datos reales. Toca el botón de abajo para conectarte de forma segura.";
@@ -1326,6 +1363,7 @@ pub(crate) const ES_CONNECT_BUTTON: &str = "Conectar mi cuenta";
 pub(crate) const ES_CONNECT_TITLE: &str = "Conectar un servicio de fitness";
 
 pub(crate) const ES_PROVIDER_REAUTH_REQUIRED: &str = "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí (enlace válido durante 24 horas):\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.";
+pub(crate) const ES_PROVIDER_RECONNECT_BUTTON: &str = "Volver a conectar {0}";
 
 pub(crate) const ES_STATUS_HEADER: &str = "Tu estado en Dravr:\n";
 pub(crate) const ES_STATUS_PROVIDERS_NONE: &str = "\nProveedores: ninguno conectado";
@@ -1411,7 +1449,6 @@ pub(crate) const ES_PLAN_EMPTY: &str =
     "Aún no hay plan guardado — pide a tu coach que construya uno hacia tu objetivo.";
 pub(crate) const ES_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Tu objetivo ha cambiado desde este plan — pide a tu coach que lo actualice.";
-pub(crate) const ES_PLAN_TRUNCATED: &str = "\n… (recortado — usa /plan today para el detalle)";
 
 pub(crate) const ES_GROUP_LIST_EMPTY: &str =
     "No eres miembro de ningún grupo.\nCrea o únete a un grupo desde la app web o móvil.";
@@ -1442,6 +1479,8 @@ pub(crate) const ES_GROUP_RESPOND_USAGE: &str =
 pub(crate) const ES_GROUP_RESPOND_MENTIONS: &str = "El entrenador ahora solo responde cuando se le menciona (menciónalo con @ o responde a uno de sus mensajes). Sigue leyendo la conversación para mantener el contexto.";
 pub(crate) const ES_GROUP_RESPOND_ALL: &str =
     "El entrenador vuelve a responder a todos los mensajes del grupo.";
+pub(crate) const ES_GROUP_COACH_DETACHED: &str = "{0} ya no tiene un entrenador humano asignado.";
+pub(crate) const ES_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const ES_GROUP_RESPOND_STATUS_MENTIONS: &str = "El entrenador solo responde cuando se le menciona. Para volver a todos los mensajes: /group respond all";
 pub(crate) const ES_GROUP_CONSENT_UPDATED: &str =
     "Compartir tus datos con los demás miembros de {1} está ahora {0}.";
@@ -1559,6 +1598,8 @@ pub(crate) const DE_ACCOUNT_SUSPENDED: &str =
     "Dein Dravr-Konto ist gesperrt. Wende dich an den Support, um den Zugang wiederherzustellen.";
 pub(crate) const DE_RATE_LIMITED: &str = "Du sendest Nachrichten etwas schneller, als dein Tarif erlaubt. Warte einen Moment und versuch es dann noch einmal — ich bin hier.";
 pub(crate) const DE_QUOTA_EXCEEDED: &str = "Du hast das Chat-Kontingent deines Tarifs vorerst erreicht. Es setzt sich automatisch zurück — schau etwas später wieder vorbei.";
+pub(crate) const DE_QUOTA_WARNING: &str =
+    "Hinweis: Du hast {0} von {1} deines Tarifs verbraucht. Der Zähler wird am {2} zurückgesetzt.";
 pub(crate) const DE_NO_PROVIDER_CONNECTED: &str = "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, Whoop) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nVerbinde dich hier:\n{0}";
 pub(crate) const DE_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Bevor wir chatten, verbinde einen Fitness-Dienst (Strava, Garmin, Whoop) in der Dravr-App — ohne ihn habe ich keine Aktivitätsdaten, um dich zu coachen.\n\nMelde dich mit deinem Konto {1} hier an:\n{0}";
 pub(crate) const DE_CONNECT_PROMPT: &str = "Verbinden wir deinen Fitness-Dienst (Strava, Garmin oder Whoop), damit ich dich mit echten Daten coachen kann. Tippe unten auf den Button, um dich sicher zu verbinden.";
@@ -1566,6 +1607,7 @@ pub(crate) const DE_CONNECT_BUTTON: &str = "Konto verbinden";
 pub(crate) const DE_CONNECT_TITLE: &str = "Fitness-Dienst verbinden";
 
 pub(crate) const DE_PROVIDER_REAUTH_REQUIRED: &str = "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu (Link 24 Stunden gültig):\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.";
+pub(crate) const DE_PROVIDER_RECONNECT_BUTTON: &str = "{0} neu verbinden";
 
 pub(crate) const DE_STATUS_HEADER: &str = "Dein Dravr-Status:\n";
 pub(crate) const DE_STATUS_PROVIDERS_NONE: &str = "\nAnbieter: keine verbunden";
@@ -1650,7 +1692,6 @@ pub(crate) const DE_PLAN_EMPTY: &str =
     "Noch kein Plan gespeichert — bitte deinen Coach, einen auf dein Ziel hin zu bauen.";
 pub(crate) const DE_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Dein Ziel hat sich seitdem geändert — bitte deinen Coach, den Plan zu aktualisieren.";
-pub(crate) const DE_PLAN_TRUNCATED: &str = "\n… (gekürzt — nutze /plan today für Details)";
 
 pub(crate) const DE_GROUP_LIST_EMPTY: &str =
     "Du bist in keiner Gruppe.\nErstelle oder tritt einer Gruppe über die Web- oder Mobile-App bei.";
@@ -1681,6 +1722,8 @@ pub(crate) const DE_GROUP_RESPOND_USAGE: &str =
 pub(crate) const DE_GROUP_RESPOND_MENTIONS: &str = "Der Coach antwortet jetzt nur noch, wenn er angesprochen wird (mit @ erwähnen oder auf eine seiner Nachrichten antworten). Er verfolgt das Gespräch weiterhin als Kontext.";
 pub(crate) const DE_GROUP_RESPOND_ALL: &str =
     "Der Coach antwortet wieder auf jede Nachricht in der Gruppe.";
+pub(crate) const DE_GROUP_COACH_DETACHED: &str = "{0} hat jetzt keinen menschlichen Coach mehr.";
+pub(crate) const DE_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const DE_GROUP_RESPOND_STATUS_MENTIONS: &str = "Der Coach antwortet nur, wenn er angesprochen wird. Zurück zu jeder Nachricht: /group respond all";
 pub(crate) const DE_GROUP_CONSENT_UPDATED: &str =
     "Das Teilen deiner Daten mit den anderen Mitgliedern von {1} ist jetzt {0}.";
@@ -1804,6 +1847,8 @@ pub(crate) const PT_ACCOUNT_SUSPENDED: &str =
     "A tua conta Dravr está suspensa. Contacta o suporte para restabelecer o acesso.";
 pub(crate) const PT_RATE_LIMITED: &str = "Estás a enviar mensagens um pouco mais depressa do que o teu plano permite. Aguarda um momento e tenta novamente — eu estarei aqui.";
 pub(crate) const PT_QUOTA_EXCEEDED: &str = "Atingiste o limite de conversa do teu plano por agora. Ele repõe-se automaticamente — volta um pouco mais tarde.";
+pub(crate) const PT_QUOTA_WARNING: &str =
+    "Nota: já usaste {0} de {1} do teu plano. O contador repõe-se a {2}.";
 pub(crate) const PT_NO_PROVIDER_CONNECTED: &str = "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nLiga-te aqui:\n{0}";
 pub(crate) const PT_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nEntra com a tua conta {1} aqui:\n{0}";
 pub(crate) const PT_CONNECT_PROMPT: &str = "Vamos ligar o teu serviço de fitness (Strava, Garmin ou Whoop) para que eu possa ajudar-te com os teus dados reais. Toca no botão abaixo para te ligares em segurança.";
@@ -1811,6 +1856,7 @@ pub(crate) const PT_CONNECT_BUTTON: &str = "Ligar a minha conta";
 pub(crate) const PT_CONNECT_TITLE: &str = "Ligar um serviço de fitness";
 
 pub(crate) const PT_PROVIDER_REAUTH_REQUIRED: &str = "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente a tua conta aqui (link válido por 24 horas):\n\n{1}\n\nDepois de te reconectares, volta a perguntar-me.";
+pub(crate) const PT_PROVIDER_RECONNECT_BUTTON: &str = "Ligar novamente {0}";
 
 pub(crate) const PT_STATUS_HEADER: &str = "O teu estado no Dravr:\n";
 pub(crate) const PT_STATUS_PROVIDERS_NONE: &str = "\nFornecedores: nenhum ligado";
@@ -1895,7 +1941,6 @@ pub(crate) const PT_PLAN_EMPTY: &str =
     "Ainda não há plano guardado — pede ao teu coach para construir um até ao teu objetivo.";
 pub(crate) const PT_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ O teu objetivo mudou desde este plano — pede ao teu coach para o atualizar.";
-pub(crate) const PT_PLAN_TRUNCATED: &str = "\n… (truncado — usa /plan today para o detalhe)";
 
 pub(crate) const PT_GROUP_LIST_EMPTY: &str =
     "Não és membro de nenhum grupo.\nCria ou junta-te a um grupo pela app web ou móvel.";
@@ -1925,6 +1970,8 @@ pub(crate) const PT_GROUP_RESPOND_USAGE: &str =
 pub(crate) const PT_GROUP_RESPOND_MENTIONS: &str = "O treinador agora só responde quando é chamado (mencione-o com @ ou responda a uma das suas mensagens). Continua a acompanhar a conversa para manter o contexto.";
 pub(crate) const PT_GROUP_RESPOND_ALL: &str =
     "O treinador volta a responder a todas as mensagens do grupo.";
+pub(crate) const PT_GROUP_COACH_DETACHED: &str = "{0} já não tem um treinador humano associado.";
+pub(crate) const PT_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const PT_GROUP_RESPOND_STATUS_MENTIONS: &str = "O treinador só responde quando é chamado. Para voltar a todas as mensagens: /group respond all";
 pub(crate) const PT_GROUP_CONSENT_UPDATED: &str =
     "Partilhar os teus dados com os outros membros de {1} está agora {0}.";
@@ -2026,6 +2073,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ACCOUNT_SUSPENDED, "fr", FR_ACCOUNT_SUSPENDED),
     (KEY_RATE_LIMITED, "fr", FR_RATE_LIMITED),
     (KEY_QUOTA_EXCEEDED, "fr", FR_QUOTA_EXCEEDED),
+    (KEY_QUOTA_WARNING, "fr", FR_QUOTA_WARNING),
     (KEY_NO_PROVIDER_CONNECTED, "fr", FR_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2036,6 +2084,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_BUTTON, "fr", FR_CONNECT_BUTTON),
     (KEY_CONNECT_TITLE, "fr", FR_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "fr", FR_PROVIDER_REAUTH_REQUIRED),
+    (
+        KEY_PROVIDER_RECONNECT_BUTTON,
+        "fr",
+        FR_PROVIDER_RECONNECT_BUTTON,
+    ),
     (KEY_STATUS_HEADER, "fr", FR_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "fr", FR_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "fr", FR_STATUS_PROVIDERS_LABEL),
@@ -2098,7 +2151,6 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "fr", FR_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "fr", FR_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "fr", FR_PLAN_STALE_GOAL),
-    (KEY_PLAN_TRUNCATED, "fr", FR_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "fr", FR_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "fr", FR_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "fr", FR_GROUP_LIST_ITEM),
@@ -2121,6 +2173,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_MENTIONS, "fr", FR_GROUP_RESPOND_MENTIONS),
     (KEY_GROUP_RESPOND_ALL, "fr", FR_GROUP_RESPOND_ALL),
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "fr", FR_GROUP_RESPOND_STATUS_MENTIONS),
+    (KEY_GROUP_COACH_DETACHED, "fr", FR_GROUP_COACH_DETACHED),
+    (KEY_NOTIFICATION_CHANNEL_BODY, "fr", FR_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "fr", FR_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "fr", FR_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "fr", FR_COACH_LIST_CARD_TITLE),
@@ -2210,6 +2264,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ACCOUNT_SUSPENDED, "en", EN_ACCOUNT_SUSPENDED),
     (KEY_RATE_LIMITED, "en", EN_RATE_LIMITED),
     (KEY_QUOTA_EXCEEDED, "en", EN_QUOTA_EXCEEDED),
+    (KEY_QUOTA_WARNING, "en", EN_QUOTA_WARNING),
     (KEY_NO_PROVIDER_CONNECTED, "en", EN_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2220,6 +2275,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_BUTTON, "en", EN_CONNECT_BUTTON),
     (KEY_CONNECT_TITLE, "en", EN_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "en", EN_PROVIDER_REAUTH_REQUIRED),
+    (
+        KEY_PROVIDER_RECONNECT_BUTTON,
+        "en",
+        EN_PROVIDER_RECONNECT_BUTTON,
+    ),
     (KEY_STATUS_HEADER, "en", EN_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "en", EN_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "en", EN_STATUS_PROVIDERS_LABEL),
@@ -2282,7 +2342,6 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "en", EN_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "en", EN_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "en", EN_PLAN_STALE_GOAL),
-    (KEY_PLAN_TRUNCATED, "en", EN_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "en", EN_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "en", EN_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "en", EN_GROUP_LIST_ITEM),
@@ -2305,6 +2364,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_MENTIONS, "en", EN_GROUP_RESPOND_MENTIONS),
     (KEY_GROUP_RESPOND_ALL, "en", EN_GROUP_RESPOND_ALL),
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "en", EN_GROUP_RESPOND_STATUS_MENTIONS),
+    (KEY_GROUP_COACH_DETACHED, "en", EN_GROUP_COACH_DETACHED),
+    (KEY_NOTIFICATION_CHANNEL_BODY, "en", EN_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "en", EN_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "en", EN_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "en", EN_COACH_LIST_CARD_TITLE),
@@ -2394,6 +2455,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ACCOUNT_SUSPENDED, "es", ES_ACCOUNT_SUSPENDED),
     (KEY_RATE_LIMITED, "es", ES_RATE_LIMITED),
     (KEY_QUOTA_EXCEEDED, "es", ES_QUOTA_EXCEEDED),
+    (KEY_QUOTA_WARNING, "es", ES_QUOTA_WARNING),
     (KEY_NO_PROVIDER_CONNECTED, "es", ES_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2404,6 +2466,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_BUTTON, "es", ES_CONNECT_BUTTON),
     (KEY_CONNECT_TITLE, "es", ES_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "es", ES_PROVIDER_REAUTH_REQUIRED),
+    (
+        KEY_PROVIDER_RECONNECT_BUTTON,
+        "es",
+        ES_PROVIDER_RECONNECT_BUTTON,
+    ),
     (KEY_STATUS_HEADER, "es", ES_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "es", ES_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "es", ES_STATUS_PROVIDERS_LABEL),
@@ -2465,7 +2532,6 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "es", ES_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "es", ES_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "es", ES_PLAN_STALE_GOAL),
-    (KEY_PLAN_TRUNCATED, "es", ES_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "es", ES_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "es", ES_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "es", ES_GROUP_LIST_ITEM),
@@ -2488,6 +2554,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_MENTIONS, "es", ES_GROUP_RESPOND_MENTIONS),
     (KEY_GROUP_RESPOND_ALL, "es", ES_GROUP_RESPOND_ALL),
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "es", ES_GROUP_RESPOND_STATUS_MENTIONS),
+    (KEY_GROUP_COACH_DETACHED, "es", ES_GROUP_COACH_DETACHED),
+    (KEY_NOTIFICATION_CHANNEL_BODY, "es", ES_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "es", ES_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "es", ES_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "es", ES_COACH_LIST_CARD_TITLE),
@@ -2578,6 +2646,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ACCOUNT_SUSPENDED, "de", DE_ACCOUNT_SUSPENDED),
     (KEY_RATE_LIMITED, "de", DE_RATE_LIMITED),
     (KEY_QUOTA_EXCEEDED, "de", DE_QUOTA_EXCEEDED),
+    (KEY_QUOTA_WARNING, "de", DE_QUOTA_WARNING),
     (KEY_NO_PROVIDER_CONNECTED, "de", DE_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2588,6 +2657,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_BUTTON, "de", DE_CONNECT_BUTTON),
     (KEY_CONNECT_TITLE, "de", DE_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "de", DE_PROVIDER_REAUTH_REQUIRED),
+    (
+        KEY_PROVIDER_RECONNECT_BUTTON,
+        "de",
+        DE_PROVIDER_RECONNECT_BUTTON,
+    ),
     (KEY_STATUS_HEADER, "de", DE_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "de", DE_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "de", DE_STATUS_PROVIDERS_LABEL),
@@ -2649,7 +2723,6 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "de", DE_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "de", DE_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "de", DE_PLAN_STALE_GOAL),
-    (KEY_PLAN_TRUNCATED, "de", DE_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "de", DE_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "de", DE_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "de", DE_GROUP_LIST_ITEM),
@@ -2672,6 +2745,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_MENTIONS, "de", DE_GROUP_RESPOND_MENTIONS),
     (KEY_GROUP_RESPOND_ALL, "de", DE_GROUP_RESPOND_ALL),
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "de", DE_GROUP_RESPOND_STATUS_MENTIONS),
+    (KEY_GROUP_COACH_DETACHED, "de", DE_GROUP_COACH_DETACHED),
+    (KEY_NOTIFICATION_CHANNEL_BODY, "de", DE_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "de", DE_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "de", DE_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "de", DE_COACH_LIST_CARD_TITLE),
@@ -2762,6 +2837,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_ACCOUNT_SUSPENDED, "pt", PT_ACCOUNT_SUSPENDED),
     (KEY_RATE_LIMITED, "pt", PT_RATE_LIMITED),
     (KEY_QUOTA_EXCEEDED, "pt", PT_QUOTA_EXCEEDED),
+    (KEY_QUOTA_WARNING, "pt", PT_QUOTA_WARNING),
     (KEY_NO_PROVIDER_CONNECTED, "pt", PT_NO_PROVIDER_CONNECTED),
     (
         KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -2772,6 +2848,11 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_CONNECT_BUTTON, "pt", PT_CONNECT_BUTTON),
     (KEY_CONNECT_TITLE, "pt", PT_CONNECT_TITLE),
     (KEY_PROVIDER_REAUTH_REQUIRED, "pt", PT_PROVIDER_REAUTH_REQUIRED),
+    (
+        KEY_PROVIDER_RECONNECT_BUTTON,
+        "pt",
+        PT_PROVIDER_RECONNECT_BUTTON,
+    ),
     (KEY_STATUS_HEADER, "pt", PT_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "pt", PT_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "pt", PT_STATUS_PROVIDERS_LABEL),
@@ -2833,7 +2914,6 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "pt", PT_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "pt", PT_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "pt", PT_PLAN_STALE_GOAL),
-    (KEY_PLAN_TRUNCATED, "pt", PT_PLAN_TRUNCATED),
     (KEY_GROUP_LIST_EMPTY, "pt", PT_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "pt", PT_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "pt", PT_GROUP_LIST_ITEM),
@@ -2856,6 +2936,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_RESPOND_MENTIONS, "pt", PT_GROUP_RESPOND_MENTIONS),
     (KEY_GROUP_RESPOND_ALL, "pt", PT_GROUP_RESPOND_ALL),
     (KEY_GROUP_RESPOND_STATUS_MENTIONS, "pt", PT_GROUP_RESPOND_STATUS_MENTIONS),
+    (KEY_GROUP_COACH_DETACHED, "pt", PT_GROUP_COACH_DETACHED),
+    (KEY_NOTIFICATION_CHANNEL_BODY, "pt", PT_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "pt", PT_GROUP_CONSENT_UPDATED),
     (KEY_COACH_LIST_EMPTY, "pt", PT_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "pt", PT_COACH_LIST_CARD_TITLE),

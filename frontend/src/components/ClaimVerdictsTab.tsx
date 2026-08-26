@@ -7,9 +7,10 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { adminApi, type ClaimVerdictRow } from '../services/api/admin';
+import { adminApi } from '../services/api/admin';
+import type { ClaimVerdict } from '@pierre/shared-types';
 import { Card, Button, Badge, Select , Input } from './ui';
-import ClaimVerdictDrawer from './ClaimVerdictDrawer';
+import VerdictDrawer from './chat/VerdictDrawer';
 import { useAuth } from '../hooks/useAuth';
 
 const STATUS_OPTIONS = [
@@ -33,8 +34,8 @@ const CATEGORY_OPTIONS = [
 
 const LIMIT_OPTIONS = [25, 50, 100, 200] as const;
 
-type StatusKey = ClaimVerdictRow['status'];
-type StrengthKey = ClaimVerdictRow['evidence_strength'];
+type StatusKey = ClaimVerdict['status'];
+type StrengthKey = ClaimVerdict['evidence_strength'];
 type BadgeVariant = 'success' | 'warning' | 'error' | 'info' | 'secondary';
 
 const STATUS_VARIANT: Record<StatusKey, BadgeVariant> = {
@@ -72,7 +73,7 @@ export default function ClaimVerdictsTab() {
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [coachFilter, setCoachFilter] = useState<string>('');
   const [limit, setLimit] = useState<number>(50);
-  const [selectedVerdict, setSelectedVerdict] = useState<ClaimVerdictRow | null>(null);
+  const [selectedVerdict, setSelectedVerdict] = useState<ClaimVerdict | null>(null);
 
   const queryKey = useMemo(
     () => ['admin', 'claim-verdicts', tenantId, statusFilter, categoryFilter, coachFilter, limit] as const,
@@ -268,7 +269,7 @@ export default function ClaimVerdictsTab() {
       </Card>
 
       {selectedVerdict ? (
-        <ClaimVerdictDrawer
+        <VerdictDrawer
           verdict={selectedVerdict}
           onClose={() => setSelectedVerdict(null)}
         />

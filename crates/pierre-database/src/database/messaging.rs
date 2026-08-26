@@ -6,7 +6,7 @@
 
 use crate::repositories::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
-    MessagingRepository, UpsertChannelConfigParams,
+    MessagingRepository, ReactionFeedbackTarget, UpsertChannelConfigParams,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -16,6 +16,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use serde_json::Value;
 use sqlx::Row;
 
+use super::messaging_reactions::find_reaction_feedback_target;
 use super::Database;
 
 // ════════════════════════════════════════════════════════════════
@@ -471,8 +472,9 @@ impl Database {
             r"
             INSERT OR IGNORE INTO messaging_messages
                 (id, tenant_id, session_id, direction, channel_type, channel_message_id,
-                 sender_id, content_type, content_body, correlation_id, raw_payload, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 sender_id, content_type, content_body, correlation_id, raw_payload,
+                 chat_message_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ",
         )
         .bind(params.id)
@@ -486,6 +488,7 @@ impl Database {
         .bind(params.content_body)
         .bind(params.correlation_id)
         .bind(params.raw_payload)
+        .bind(params.chat_message_id)
         .bind(&now)
         .execute(&self.pool)
         .await
@@ -887,7 +890,7 @@ impl Database {
     ) -> AppResult<Vec<Value>> {
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, channel_type, channel_user_id, display_name, linked_at
+            SELECT id, tenant_id, user_id, channel_type, channel_user_id, display_name, locale, linked_at
             FROM messaging_channel_links
             WHERE tenant_id = ? AND user_id = ?
             ORDER BY linked_at
@@ -909,6 +912,11 @@ impl Database {
                     "channel_type": r.get::<String, _>("channel_type"),
                     "channel_user_id": r.get::<String, _>("channel_user_id"),
                     "display_name": r.get::<Option<String>, _>("display_name"),
+                    // The link's own locale. Absent from this projection until
+                    // 2026-08, which silently sent every proactive message in
+                    // the default locale: callers read `link["locale"]`, found
+                    // nothing, and fell back.
+                    "locale": r.get::<Option<String>, _>("locale"),
                     "linked_at": r.get::<String, _>("linked_at"),
                 })
             })
@@ -1271,6 +1279,21 @@ impl MessagingRepository for Database {
         self.insert_message_impl(params).await
     }
 
+    async fn find_reaction_feedback_target(
+        &self,
+        channel_type: &str,
+        channel_message_id: &str,
+        channel_conversation_id: Option<&str>,
+    ) -> AppResult<Option<ReactionFeedbackTarget>> {
+        find_reaction_feedback_target(
+            &self.pool,
+            channel_type,
+            channel_message_id,
+            channel_conversation_id,
+        )
+        .await
+    }
+
     async fn get_session_messages(
         &self,
         session_id: &str,
@@ -1280,50 +1303,6 @@ impl MessagingRepository for Database {
     ) -> AppResult<Vec<Value>> {
         self.get_session_messages_impl(session_id, tenant_id, limit, offset)
             .await
-    }
-
-    async fn list_recent_chat_messages(
-        &self,
-        tenant_id: TenantId,
-        channel_type: &str,
-        channel_conversation_id: &str,
-        limit: i64,
-    ) -> AppResult<Vec<Value>> {
-        let rows = sqlx::query(
-            r"
-            SELECT m.sender_id, m.direction, m.content_body, m.channel_message_id,
-                   m.created_at, s.user_id
-            FROM messaging_messages m
-            JOIN messaging_sessions s ON s.id = m.session_id
-            WHERE m.tenant_id = ? AND s.tenant_id = ? AND s.channel_type = ?
-              AND COALESCE(s.channel_conversation_id, '') = ?
-              AND m.content_body IS NOT NULL AND m.content_body != ''
-            ORDER BY m.created_at DESC
-            LIMIT ?
-            ",
-        )
-        .bind(tenant_id)
-        .bind(tenant_id)
-        .bind(channel_type)
-        .bind(channel_conversation_id)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list recent chat messages: {e}")))?;
-
-        Ok(rows
-            .iter()
-            .map(|r| {
-                serde_json::json!({
-                    "sender_id": r.get::<String, _>("sender_id"),
-                    "user_id": r.get::<String, _>("user_id"),
-                    "direction": r.get::<String, _>("direction"),
-                    "content_body": r.get::<Option<String>, _>("content_body"),
-                    "channel_message_id": r.get::<String, _>("channel_message_id"),
-                    "created_at": r.get::<String, _>("created_at"),
-                })
-            })
-            .collect())
     }
 
     async fn insert_delivery_receipt(

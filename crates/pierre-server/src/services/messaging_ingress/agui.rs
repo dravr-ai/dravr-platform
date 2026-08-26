@@ -6,18 +6,19 @@
 
 use std::sync::Arc;
 
-use pierre_core::models::messaging::ChannelConfig;
+use pierre_core::models::messaging::{ChannelConfig, MessageContent};
 use pierre_messaging::agui_status::StatusAdapter;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
+use crate::agui::{AgUiEventFilter, BroadcastSink, RunScope};
 use pierre_contremaitre::messaging_strings::KEY_THINKING_PLACEHOLDER;
 use pierre_services::messaging_status_bridge::{
     open_status_adapter, spawn_status_consumer, OpenStatusParams,
 };
 
+use super::dispatch::{persist_outbound_message, reply_message};
 use super::PendingDispatch;
 
 /// AG-UI wiring for a single messaging turn.
@@ -40,6 +41,12 @@ pub(super) struct MessagingAgUiWiring {
     sink: BroadcastSink,
     thread_id: String,
     status_adapter: Option<Arc<dyn StatusAdapter + Send + Sync>>,
+    /// Channel-native id of the placeholder message the adapter edits.
+    ///
+    /// When `finalize` succeeds, that placeholder IS the assistant's first
+    /// reply bubble, so this is the channel message id the reply was delivered
+    /// under — and the id an emoji reaction on it will arrive quoting.
+    status_message_id: Option<String>,
     /// Abort handle for the AG-UI → status adapter consumer task.
     ///
     /// The task normally terminates on its own when the broadcast
@@ -64,12 +71,26 @@ impl MessagingAgUiWiring {
     /// Returns `true` when the adapter actually sent the reply — the
     /// caller skips the standard `send_outbound_response` path to
     /// avoid posting the reply twice.
-    pub(super) async fn finalize_reply(&self, reply: &str) -> bool {
+    ///
+    /// The delivery still gets an outbound row. On a channel that streams
+    /// status the reply never travels the normal send path, so without this
+    /// the athlete's main reply bubble would be the one message the platform
+    /// holds no record of — and an emoji on it would resolve to nothing.
+    pub(super) async fn finalize_reply(
+        &self,
+        reply: &str,
+        dispatch: &PendingDispatch,
+        assistant_message_id: &str,
+    ) -> bool {
         let Some(adapter) = self.status_adapter.as_ref() else {
             return false;
         };
         match adapter.finalize(reply).await {
-            Ok(()) => true,
+            Ok(()) => {
+                self.record_finalized_reply(reply, dispatch, assistant_message_id)
+                    .await;
+                true
+            }
             Err(e) => {
                 warn!(
                     run_id = %self.scope.run_id(),
@@ -79,6 +100,35 @@ impl MessagingAgUiWiring {
                 false
             }
         }
+    }
+
+    /// Persist the outbound row for a reply the status adapter delivered by
+    /// collapsing its placeholder, stamped with the assistant message it
+    /// carried so a reaction can resolve back to it.
+    async fn record_finalized_reply(
+        &self,
+        reply: &str,
+        dispatch: &PendingDispatch,
+        assistant_message_id: &str,
+    ) {
+        let Some(channel_message_id) = self.status_message_id.as_deref() else {
+            return;
+        };
+        let outgoing = reply_message(
+            dispatch,
+            dispatch.turn_id,
+            MessageContent::Text {
+                body: reply.to_owned(),
+            },
+        );
+        persist_outbound_message(
+            dispatch.resources.common.repos.messaging.as_ref(),
+            dispatch,
+            channel_message_id,
+            &outgoing,
+            Some(assistant_message_id),
+        )
+        .await;
     }
 }
 
@@ -120,12 +170,11 @@ pub(super) async fn setup_messaging_agui(
     // but the dispatch's authenticated principal is AuthResult.
     let user_id = dispatch.auth_result.user_id;
     let run_id = Uuid::new_v4().to_string();
-    let owner = RunOwner::new(user_id, dispatch.user_tenant_id);
     let scope = dispatch
         .resources
         .sse
         .agui_registry
-        .register_scoped(&run_id, owner);
+        .register_scoped(&run_id);
     let sink = BroadcastSink::new(
         (*dispatch.resources.sse.agui_registry).clone(),
         AgUiEventFilter::default(),
@@ -141,22 +190,33 @@ pub(super) async fn setup_messaging_agui(
     // task *after* the run is registered — otherwise the consumer's
     // `subscribe_self` would race the register call and miss early
     // events even with the replay backlog.
-    let (status_adapter, status_consumer) =
-        maybe_open_status_bridge(dispatch, channel_config, &run_id).await;
+    let bridge = maybe_open_status_bridge(dispatch, channel_config, &run_id).await;
 
     Some(MessagingAgUiWiring {
         scope,
         sink,
         thread_id: dispatch.session.conversation.clone(),
-        status_adapter,
-        status_consumer,
+        status_adapter: bridge.as_ref().map(|b| Arc::clone(&b.adapter)),
+        status_message_id: bridge.as_ref().map(|b| b.channel_message_id.clone()),
+        status_consumer: bridge.and_then(|b| b.consumer),
     })
+}
+
+/// An open status bridge: the adapter, the placeholder message it edits, and
+/// the background task mirroring AG-UI events into it.
+struct StatusBridge {
+    /// Drives the in-channel progress edits.
+    adapter: Arc<dyn StatusAdapter + Send + Sync>,
+    /// Channel-native id of the placeholder the adapter edits.
+    channel_message_id: String,
+    /// The AG-UI → status consumer task, when one was spawned.
+    consumer: Option<JoinHandle<()>>,
 }
 
 /// Open a status adapter + consumer task against the pre-loaded
 /// channel config.
 ///
-/// Returns `(None, None)` when either:
+/// Returns `None` when either:
 ///
 /// - (a) the channel does not support progress rendering (`WhatsApp`/Messenger);
 /// - (b) the dispatch lacks a `conversation_id`;
@@ -170,13 +230,10 @@ async fn maybe_open_status_bridge(
     dispatch: &PendingDispatch,
     channel_config: &ChannelConfig,
     run_id: &str,
-) -> (
-    Option<Arc<dyn StatusAdapter + Send + Sync>>,
-    Option<JoinHandle<()>>,
-) {
+) -> Option<StatusBridge> {
     let conversation_id = match dispatch.conversation_id.as_deref() {
         Some(c) if !c.is_empty() => c,
-        _ => return (None, None),
+        _ => return None,
     };
 
     // Localized "thinking…" placeholder — resolved from the messaging-strings
@@ -199,16 +256,18 @@ async fn maybe_open_status_bridge(
         // mock server to verify dispatch routing per `ChannelType`.
         api_base_override: None,
     };
-    let Some(adapter) = open_status_adapter(&params).await else {
-        return (None, None);
-    };
+    let opened = open_status_adapter(&params).await?;
 
     let consumer = spawn_status_consumer(
         &dispatch.resources.sse.agui_registry,
         run_id.to_owned(),
-        Arc::clone(&adapter),
+        Arc::clone(&opened.adapter),
         Arc::clone(&dispatch.resources.mcp.messaging_strings_registry),
         dispatch.locale.clone(),
     );
-    (Some(adapter), consumer)
+    Some(StatusBridge {
+        adapter: opened.adapter,
+        channel_message_id: opened.channel_message_id,
+        consumer,
+    })
 }

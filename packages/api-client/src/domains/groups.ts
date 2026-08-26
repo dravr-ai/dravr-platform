@@ -19,13 +19,15 @@ import type {
   GroupAggregateStats,
   GroupWeeklyReport,
   GroupHealthFlag,
-  MemberGroupComparison,
   ListGroupsResponse,
   CoachedGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
+  GroupWeeklyReportResponse,
+  GroupHealthFlagsResponse,
   GroupPermissionsResponse,
+  GroupTranscriptResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -41,12 +43,13 @@ export type {
   GroupAggregateStats,
   GroupWeeklyReport,
   GroupHealthFlag,
-  MemberGroupComparison,
   ListGroupsResponse,
   CoachedGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
+  GroupWeeklyReportResponse,
+  GroupHealthFlagsResponse,
   GroupPermissionsResponse,
 };
 
@@ -176,22 +179,37 @@ export function createGroupsApi(axios: AxiosInstance) {
       return response.data;
     },
 
-    /** Get weekly report for a group */
-    async getWeeklyReport(groupId: string): Promise<GroupWeeklyReport> {
-      const response = await axios.get<GroupWeeklyReport>(ENDPOINTS.GROUPS.REPORT(groupId));
+    /**
+     * Get the weekly report for a group (admin/owner only).
+     *
+     * The route wraps the report in `{ report, metadata }`, mirroring
+     * {@link getStats}; the wrapper is what comes back so callers read the
+     * same shape the server sends.
+     */
+    async getWeeklyReport(groupId: string): Promise<GroupWeeklyReportResponse> {
+      const response = await axios.get<GroupWeeklyReportResponse>(
+        ENDPOINTS.GROUPS.REPORT(groupId),
+      );
       return response.data;
     },
 
-    /** Get health flags for a group */
-    async getHealthFlags(groupId: string): Promise<GroupHealthFlag[]> {
-      const response = await axios.get<GroupHealthFlag[]>(ENDPOINTS.GROUPS.HEALTH(groupId));
+    /** Get health flags for a group's members (admin/owner only) */
+    async getHealthFlags(groupId: string): Promise<GroupHealthFlagsResponse> {
+      const response = await axios.get<GroupHealthFlagsResponse>(ENDPOINTS.GROUPS.HEALTH(groupId));
       return response.data;
     },
 
-    /** Compare a member against group norms */
-    async getMemberComparison(groupId: string, userId: string): Promise<MemberGroupComparison> {
-      const response = await axios.get<MemberGroupComparison>(
-        `${ENDPOINTS.GROUPS.MEMBERS(groupId)}/${userId}/comparison`,
+    /**
+     * Read the group's shared room transcript as the authenticated member.
+     *
+     * The server withholds an unconsented member's entries while keeping them
+     * on the roster, so the caller renders exactly what the pipeline's own
+     * ambient context sees -- one visibility rule, every surface.
+     */
+    async getTranscript(groupId: string, limit?: number): Promise<GroupTranscriptResponse> {
+      const response = await axios.get<GroupTranscriptResponse>(
+        ENDPOINTS.GROUPS.TRANSCRIPT(groupId),
+        limit === undefined ? undefined : { params: { limit } },
       );
       return response.data;
     },

@@ -127,6 +127,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 
@@ -1333,6 +1334,7 @@ async fn test_oauth_connection_status_no_connections() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     database.repositories().users.create(&user).await?;
 
@@ -1381,6 +1383,7 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     database.repositories().users.create(&user).await?;
 
@@ -1438,6 +1441,7 @@ async fn test_oauth_disconnect_invalid_provider() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     database.repositories().users.create(&user).await?;
 
@@ -1809,6 +1813,7 @@ async fn test_complete_auth_flow() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 

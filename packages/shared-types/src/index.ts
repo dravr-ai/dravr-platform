@@ -108,6 +108,8 @@ export type {
   SuspendUserRequest,
   ForgotPasswordResponse,
   ResetPasswordResponse,
+  ThemePreference,
+  UpdateThemeRequest,
 } from './auth.js';
 
 // API types (chat, prompts, common patterns)
@@ -122,7 +124,40 @@ export type {
   ApiMetadata,
   PaginatedResponse,
   ListResponse,
+  CommandEntry,
+  CommandCatalogueResponse,
 } from './api.js';
+
+// Chat turn envelope (the terminal document of one turn, on every surface)
+export type {
+  ChatMessageAction,
+  ReplyVerdictChip,
+  ReplyNotice,
+  ReplyBlock,
+  TurnTelemetry,
+  AssistantTurn,
+  TurnEnvelope,
+  TurnProgress,
+} from './turn.js';
+
+// Claim-verdict row and the one severity rollup both clients read
+export type {
+  ClaimVerdictStatus,
+  ClaimEvidenceStrength,
+  ClaimVerdictCategory,
+  ClaimVerdictLayer,
+  VerdictTone,
+  ClaimVerdict,
+  VerdictSeverity,
+  VerdictSummary,
+} from './verdict.js';
+export {
+  VERDICT_STATUS_TONE,
+  verdictChipSeverity,
+  mergeVerdictSeverities,
+  summarizeVerdicts,
+  verdictSummaryLabel,
+} from './verdict.js';
 
 // Structured-workout plan types (builder-coach plan cards)
 export type {
@@ -221,13 +256,24 @@ export type {
   CreateInviteRequest,
   GroupSummary,
   GroupAggregateStats,
-  MemberGroupComparison,
   GroupHealthFlag,
   GroupWeeklyReport,
   ListGroupsResponse,
   CoachedGroupsResponse,
   GroupMembersResponse,
+  GroupTranscriptEntry,
+  GroupTranscriptResponse,
+  TranscriptMember,
   GroupInvitesResponse,
   GroupStatsResponse,
+  GroupWeeklyReportResponse,
+  GroupHealthFlagsResponse,
   GroupPermissionsResponse,
 } from './groups.js';
+
+// Feature-flag types (GET /api/me/features)
+export type {
+  FeatureFlagMap,
+  KnownFeatureFlag,
+  MeFeaturesResponse,
+} from './feature-flags.js';

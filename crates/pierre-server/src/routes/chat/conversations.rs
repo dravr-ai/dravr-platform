@@ -19,60 +19,18 @@ use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::stages::persistence::create_conversation as create_conversation_row;
 use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
 use pierre_core::errors::AppError;
-use pierre_core::errors::ErrorCode;
 use pierre_core::models::{default_locale, TenantId};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 
-use super::common::get_tenant_id;
+use super::common::{get_tenant_id, verify_group_membership};
 use super::dto::resolve_scene_blocks;
 use super::dto::{
     ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
     CreateConversationRequest, ListConversationsQuery, MessageFeedbackEntry, MessageResponse,
     MessagesListResponse, UpdateConversationRequest,
 };
-
-/// Reject conversation creation when the caller is not an active member of
-/// the requested group. `group_id` must be a real `coaching_group` the user
-/// belongs to — otherwise the LLM would be handed peer fitness data the
-/// caller has no relationship to.
-async fn verify_group_membership(
-    resources: &Arc<ServerContext>,
-    group_id: &str,
-    user_id: Uuid,
-    tenant_id: TenantId,
-) -> Result<(), AppError> {
-    let member = resources
-        .common
-        .repos
-        .groups
-        .get_member(group_id, user_id)
-        .await?;
-    if matches!(&member, Some(m) if m.left_at.is_none()) {
-        return Ok(());
-    }
-
-    // The group's human coach can attach a conversation even though they are
-    // not a member — they oversee the group through its coach persona, with
-    // each member's data still gated by their own peer_sharing_consent.
-    if let Some(group) = resources
-        .common
-        .repos
-        .groups
-        .get_group(group_id, tenant_id)
-        .await?
-    {
-        if group.coach_user_id == Some(user_id) {
-            return Ok(());
-        }
-    }
-
-    Err(AppError::new(
-        ErrorCode::PermissionDenied,
-        "Cannot attach conversation to a group you don't belong to",
-    ))
-}
 
 /// Best-effort `coach_assignments.use_count++` for REST-created conversations,
 /// via the shared selection recorder that also emits `coach.selected`.

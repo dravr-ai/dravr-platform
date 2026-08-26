@@ -6,20 +6,16 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { featureFlagsApi, type FeatureFlagMap, type KnownFeatureFlag } from '../services/api/featureFlags';
+import { mergeFeatureFlags } from '@pierre/api-client';
+import type { FeatureFlagMap, KnownFeatureFlag } from '@pierre/api-client';
+import { featureFlagsApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
-/** Default values used by the hook before the network call resolves and when
- * the request errors. Mirrors the compile-time defaults in
- * `pierre_core::feature_flags::FeatureKey::default_enabled`. */
-const FALLBACK_FLAGS: FeatureFlagMap = {
-  api_tokens: false,
-  billing_header: false,
-};
+export { FEATURE_KEYS } from '@pierre/api-client';
 
 /** Shape returned by `useFeatureFlags`. The `flags` map always covers every
- * known key, populated either from the server (when loaded) or from
- * `FALLBACK_FLAGS` (otherwise). */
+ * known key, populated either from the server (when loaded) or from the
+ * shared compile defaults (otherwise). */
 export interface UseFeatureFlagsResult {
   flags: FeatureFlagMap;
   known: KnownFeatureFlag[];
@@ -28,7 +24,7 @@ export interface UseFeatureFlagsResult {
 }
 
 /** Fetch `/api/me/features` once after auth and cache the result for the
- * session. Components consume `flags[FEATURE_KEYS.api_tokens]` directly. */
+ * session. Components consume `flags[FEATURE_KEYS.apiTokens]` directly. */
 export function useFeatureFlags(): UseFeatureFlagsResult {
   const { data, isLoading, isError } = useQuery({
     queryKey: QUERY_KEYS.featureFlags.self(),
@@ -37,23 +33,16 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
     staleTime: 5 * 60_000,
   });
 
-  return useMemo(() => {
-    const flags = data?.flags ?? FALLBACK_FLAGS;
-    // Ensure every known key has a value: server response wins, fall back to
-    // FALLBACK_FLAGS for keys the server hasn't returned yet.
-    const merged: FeatureFlagMap = { ...FALLBACK_FLAGS, ...flags };
-    return {
-      flags: merged,
+  return useMemo(
+    () => ({
+      // `mergeFeatureFlags` is the shared answer for a missing response:
+      // server values layered over the compile defaults, so a flag the
+      // server omits (or a failed request) resolves to off, not on.
+      flags: mergeFeatureFlags(data?.flags),
       known: data?.known ?? [],
       isLoading,
       isError,
-    };
-  }, [data, isLoading, isError]);
+    }),
+    [data, isLoading, isError],
+  );
 }
-
-/** Stable storage-string constants for components that read flags. Matches
- * `FeatureKey::as_str` on the backend. */
-export const FEATURE_KEYS = {
-  apiTokens: 'api_tokens',
-  billingHeader: 'billing_header',
-} as const;

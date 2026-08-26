@@ -9,6 +9,9 @@ import { render, screen, act, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import UserSettings from '../UserSettings';
+import { ThemeProvider } from '../../hooks/useTheme';
+import { ToastProvider } from '../ui';
+import { userApi } from '../../services/api';
 
 // Mock lazy-loaded components
 vi.mock('../A2AClientList', () => ({
@@ -98,6 +101,7 @@ const disconnectProvider = vi.fn().mockResolvedValue(undefined);
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
   userApi: {
+    updateTheme: vi.fn().mockResolvedValue(undefined),
     getUserStats: vi.fn().mockResolvedValue({ connected_providers: 2, days_active: 45 }),
     getUserOAuthApps: vi.fn().mockResolvedValue({ apps: [] }),
     getMcpTokens: vi.fn().mockResolvedValue({ tokens: [] }),
@@ -145,7 +149,11 @@ function renderUserSettings(props: Parameters<typeof UserSettings>[0] = {}) {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <UserSettings {...props} />
+      <ThemeProvider>
+        <ToastProvider>
+          <UserSettings {...props} />
+        </ToastProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
@@ -153,6 +161,88 @@ function renderUserSettings(props: Parameters<typeof UserSettings>[0] = {}) {
 describe('UserSettings Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe('Appearance', () => {
+    it('renders the theme toggle on the Profile tab and flips the scheme', async () => {
+      const user = userEvent.setup();
+      localStorage.removeItem('dravr.theme');
+
+      await act(async () => {
+        renderUserSettings();
+      });
+
+      // The provider defaults new visitors to dark, so the control offers light.
+      // Chrome renders in French: DEFAULT_LOCALE is `fr` and this test client
+      // has no stored language preference.
+      expect(screen.getByText('Apparence')).toBeInTheDocument();
+      expect(screen.getByText('Tu utilises le mode sombre.')).toBeInTheDocument();
+      expect(document.documentElement.classList.contains('dark')).toBe(true);
+
+      const toggle = screen.getByRole('button', { name: 'Passer au mode clair' });
+      await user.click(toggle);
+
+      await waitFor(() => {
+        expect(screen.getByText('Tu utilises le mode clair.')).toBeInTheDocument();
+      });
+      expect(document.documentElement.classList.contains('dark')).toBe(false);
+      expect(localStorage.getItem('dravr.theme')).toBe('light');
+      expect(
+        screen.getByRole('button', { name: 'Passer au mode sombre' }),
+      ).toBeInTheDocument();
+
+      // The flip is also pushed to the account so other devices follow.
+      expect(userApi.updateTheme).toHaveBeenCalledTimes(1);
+      expect(userApi.updateTheme).toHaveBeenCalledWith('light');
+    });
+
+    it('keeps the local flip and shows a toast when the server write fails', async () => {
+      const user = userEvent.setup();
+      localStorage.removeItem('dravr.theme');
+      vi.mocked(userApi.updateTheme).mockRejectedValueOnce(new Error('offline'));
+
+      await act(async () => {
+        renderUserSettings();
+      });
+
+      const toggle = screen.getByRole('button', { name: 'Passer au mode clair' });
+      await user.click(toggle);
+
+      // The theme still flipped locally — the write is fire-and-forget.
+      await waitFor(() => {
+        expect(screen.getByText('Tu utilises le mode clair.')).toBeInTheDocument();
+      });
+      expect(localStorage.getItem('dravr.theme')).toBe('light');
+      expect(userApi.updateTheme).toHaveBeenCalledWith('light');
+
+      // And the failure surfaced as an error toast.
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'Le thème a changé ici, mais la préférence n\'a pas pu être enregistrée sur ton compte. Réessaie.',
+          ),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('mounts the language switcher next to the theme control', async () => {
+      await act(async () => {
+        renderUserSettings();
+      });
+
+      // The switcher shipped on both clients and was reachable from neither.
+      // This asserts it has a home: remove the mount and the language a user
+      // reads the app in — and the language their coach answers in — becomes
+      // unchangeable again.
+      const select = screen.getByLabelText('Choisir la langue');
+      expect(select).toBeInTheDocument();
+      expect(select).toHaveValue('fr');
+      expect(
+        screen.getByText("L'interface et les réponses de ton coach suivent toutes deux ce réglage."),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '🇩🇪 Deutsch' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '🇵🇹 Português' })).toBeInTheDocument();
+    });
   });
 
   describe('Tab Navigation', () => {

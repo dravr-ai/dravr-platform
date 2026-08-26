@@ -1126,27 +1126,10 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
         "non-owner (same tenant) must not read version history"
     );
 
-    // Attacker must NOT read a specific version snapshot either.
-    let attacker_ver = AxumTestRequest::get(&format!("/api/coaches/{}/versions/1", coach.id))
-        .header("authorization", &attacker_token)
-        .send(router.clone())
-        .await;
-    assert_eq!(
-        attacker_ver.status_code(),
-        StatusCode::NOT_FOUND,
-        "non-owner (same tenant) must not read a version snapshot"
-    );
-
-    // Positive control: the legitimate owner CAN read both, on the same URLs.
+    // Positive control: the legitimate owner CAN read the history on the same URL.
     let owner_list = AxumTestRequest::get(&format!("/api/coaches/{}/versions", coach.id))
-        .header("authorization", &owner_token)
-        .send(router.clone())
-        .await;
-    assert_eq!(owner_list.status_code(), StatusCode::OK);
-
-    let owner_ver = AxumTestRequest::get(&format!("/api/coaches/{}/versions/1", coach.id))
         .header("authorization", &owner_token)
         .send(router)
         .await;
-    assert_eq!(owner_ver.status_code(), StatusCode::OK);
+    assert_eq!(owner_list.status_code(), StatusCode::OK);
 }

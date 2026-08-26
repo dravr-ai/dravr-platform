@@ -265,12 +265,6 @@ impl FeatureConfig {
         cfg!(feature = "oauth")
     }
 
-    /// Check if `OpenAPI` is enabled
-    #[must_use]
-    pub const fn openapi() -> bool {
-        cfg!(feature = "openapi")
-    }
-
     // ==========================================================================
     // Validation methods
     // ==========================================================================
@@ -372,7 +366,7 @@ impl FeatureConfig {
     }
 
     fn log_other_features() {
-        let other = collect_enabled(&[(Self::oauth(), "oauth"), (Self::openapi(), "openapi")]);
+        let other = collect_enabled(&[(Self::oauth(), "oauth")]);
         if !other.is_empty() {
             info!("Other: {}", other.join(", "));
         }

@@ -13,7 +13,6 @@ use uuid::Uuid;
 
 /// Role within a coaching group
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GroupRole {
     /// Group creator with full control
@@ -67,7 +66,6 @@ impl GroupRole {
 
 /// When the group's AI coach replies in the bound channel chat
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GroupRespondMode {
     /// Reply to every member message (the original behavior)
@@ -120,7 +118,6 @@ impl fmt::Display for GroupRole {
 /// the member role enum means a human coach never counts against
 /// `max_members` and never appears in the athlete roster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GroupInviteKind {
     /// Standard athlete membership (the default for every existing invite)
@@ -159,7 +156,6 @@ impl fmt::Display for GroupInviteKind {
 
 /// A coaching group binding a coach persona to multiple athletes
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CoachingGroup {
     /// Unique group identifier
     pub id: Uuid,
@@ -206,7 +202,6 @@ pub struct CoachingGroup {
 
 /// A member within a coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GroupMember {
     /// Unique membership record identifier
     pub id: Uuid,
@@ -231,9 +226,91 @@ pub struct GroupMember {
     pub display_name: Option<String>,
 }
 
+/// Who spoke in a group transcript entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TranscriptSpeaker {
+    /// A group member's own words (a coaching-turn message or ambient room
+    /// chatter).
+    Member,
+    /// The AI coach's reply, attributed to the member it answered.
+    Coach,
+}
+
+impl TranscriptSpeaker {
+    /// String representation for database storage
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Member => "member",
+            Self::Coach => "coach",
+        }
+    }
+
+    /// Parse from database string
+    #[must_use]
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "member" => Some(Self::Member),
+            "coach" => Some(Self::Coach),
+            _ => None,
+        }
+    }
+}
+
+/// One utterance in a group's shared room transcript — the surface-neutral
+/// read model behind the group chat view and the ambient prompt block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupTranscriptEntry {
+    /// Unique entry identifier
+    pub id: Uuid,
+    /// Group whose room this entry belongs to
+    pub group_id: Uuid,
+    /// Tenant the writing conversation/session lives under (audit; reads are
+    /// keyed on `group_id` because membership is cross-tenant)
+    pub tenant_id: String,
+    /// The member this entry is attributed to: the speaker for `member`
+    /// rows, the member the coach answered for `coach` rows
+    pub author_user_id: Uuid,
+    /// Who spoke
+    pub speaker: TranscriptSpeaker,
+    /// The utterance text
+    pub content: String,
+    /// The member conversation the row was fanned out from; `None` for
+    /// ambient room chatter captured outside any turn
+    pub source_conversation_id: Option<String>,
+    /// Provenance id of the source row (`chat_messages.id` for turn rows,
+    /// the channel-native message id for ambient rows)
+    pub source_message_id: Option<String>,
+    /// When the utterance was recorded
+    pub created_at: DateTime<Utc>,
+    /// Author display name (populated from user profile on read, not stored)
+    #[serde(default)]
+    pub author_display_name: Option<String>,
+}
+
+/// Parameters for appending one entry to a group's shared transcript.
+#[derive(Debug, Clone, Copy)]
+pub struct NewGroupTranscriptEntry<'a> {
+    /// Group whose room the entry joins
+    pub group_id: &'a str,
+    /// Tenant the writing conversation/session lives under
+    pub tenant_id: &'a str,
+    /// The member this entry is attributed to (see
+    /// [`GroupTranscriptEntry::author_user_id`])
+    pub author_user_id: Uuid,
+    /// Who spoke
+    pub speaker: TranscriptSpeaker,
+    /// The utterance text
+    pub content: &'a str,
+    /// The member conversation the row was fanned out from, when any
+    pub source_conversation_id: Option<&'a str>,
+    /// Provenance id of the source row, when any
+    pub source_message_id: Option<&'a str>,
+}
+
 /// An invite code for joining a group
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GroupInvite {
     /// Unique invite identifier
     pub id: Uuid,
@@ -266,7 +343,6 @@ pub struct GroupInvite {
 
 /// Request to create a new coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateGroupRequest {
     /// Group name
     pub name: String,
@@ -280,7 +356,6 @@ pub struct CreateGroupRequest {
 
 /// Request to update a coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct UpdateGroupRequest {
     /// Updated name
     pub name: Option<String>,
@@ -300,7 +375,6 @@ pub struct UpdateGroupRequest {
 
 /// Request to join a group via invite code
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct JoinGroupRequest {
     /// The invite code
     pub invite_code: String,
@@ -312,7 +386,6 @@ pub struct JoinGroupRequest {
 
 /// Lightweight group summary for list views
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GroupSummary {
     /// Group ID
     pub id: Uuid,
@@ -340,7 +413,6 @@ pub struct GroupSummary {
 
 /// Pre-computed fitness snapshot for a group member
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MemberFitnessSnapshot {
     /// Member's user ID
     pub user_id: Uuid,
@@ -410,7 +482,6 @@ pub struct MemberFitnessSnapshot {
 /// cost and the surface area of data shared between peers. Members
 /// who haven't opted in via `peer_sharing_consent` never appear here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RosterActivity {
     /// Workout start time. Date-only sources (e.g. Strava-mirror scrapes)
     /// render at midnight UTC of the workout day.
@@ -445,7 +516,6 @@ pub struct RosterActivity {
 
 /// Overtraining risk level for a member
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum OvertrainingRiskLevel {
     /// No risk detected
@@ -459,7 +529,6 @@ pub enum OvertrainingRiskLevel {
 
 /// Token-efficient summary card for LLM system prompt injection
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MemberSummaryCard {
     /// Member's user ID
     pub user_id: Uuid,
@@ -477,7 +546,6 @@ pub struct MemberSummaryCard {
 
 /// Detail level for member summary generation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SummaryDetailLevel {
     /// Minimal one-line roster card (~50 tokens)
@@ -490,7 +558,6 @@ pub enum SummaryDetailLevel {
 
 /// Alert flag for a group member
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum MemberFlag {
     /// TSB below threshold, high fatigue
@@ -509,7 +576,6 @@ pub enum MemberFlag {
 
 /// Formatted group summary block for LLM injection
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GroupSummaryBlock {
     /// Full text to inject into system prompt
     pub text: String,
@@ -521,7 +587,6 @@ pub struct GroupSummaryBlock {
 
 /// Aggregate statistics for a coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GroupAggregateStats {
     /// Total members in the group
     pub total_members: i64,
@@ -539,7 +604,6 @@ pub struct GroupAggregateStats {
 
 /// Direction of a group-level metric trend
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum GroupTrend {
     /// Volume/fitness improving
@@ -551,25 +615,8 @@ pub enum GroupTrend {
     Declining,
 }
 
-/// Comparison of one member against group norms
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct MemberGroupComparison {
-    /// User being compared
-    pub user_id: Uuid,
-    /// Display name
-    pub display_name: String,
-    /// Percentile rank in the group (0-100)
-    pub volume_percentile: f64,
-    /// Percentile rank for CTL
-    pub ctl_percentile: Option<f64>,
-    /// Human-readable comparison text
-    pub comparison_text: String,
-}
-
 /// Health flag for a group member needing attention
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GroupHealthFlag {
     /// User who is flagged
     pub user_id: Uuid,
@@ -585,7 +632,6 @@ pub struct GroupHealthFlag {
 
 /// Severity level for health flags
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum HealthFlagSeverity {
     /// Informational, no action needed
@@ -598,7 +644,6 @@ pub enum HealthFlagSeverity {
 
 /// Weekly report for a coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GroupWeeklyReport {
     /// Summary text
     pub summary: String,

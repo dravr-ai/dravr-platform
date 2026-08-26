@@ -21,11 +21,32 @@
     "./onboarding": {
       "types": "./src/onboarding.ts",
       "import": "./src/onboarding.ts"
+    },
+    "./coaches": {
+      "types": "./src/coaches.ts",
+      "import": "./src/coaches.ts"
+    },
+    "./query-policy": {
+      "types": "./src/query-policy.ts",
+      "import": "./src/query-policy.ts"
+    },
+    "./commands": {
+      "types": "./src/commands.ts",
+      "import": "./src/commands.ts"
+    },
+    "./surfaces": {
+      "types": "./src/surfaces.ts",
+      "import": "./src/surfaces.ts"
+    },
+    "./notification-routing": {
+      "types": "./src/notification-routing.ts",
+      "import": "./src/notification-routing.ts"
     }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "generate": "node ../../scripts/sdk/generate-surface-capabilities.js"
   },
   "dependencies": {
     "@pierre/shared-types": "*"

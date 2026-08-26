@@ -86,6 +86,9 @@ async fn a_healthy_verifier_result_passes_through_untouched() {
             ClaimVerificationOutcome {
                 content: verified,
                 pending_verdicts: Vec::new(),
+                // This surface folds the banner into the reply, so the chip
+                // list is the empty half of the affordance XOR.
+                chips: Vec::new(),
             }
         },
         REPLY,

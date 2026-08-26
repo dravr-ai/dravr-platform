@@ -72,38 +72,6 @@ pub(super) async fn handle_list_versions<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /api/coaches/:id/versions/:version - Get a specific version
-pub(super) async fn handle_get_version<C: CoachesCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Path((id, version)): Path<(String, i32)>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    let manager = super::get_coaches_manager(&ctx);
-    // Authorization: mirror the coach-detail access rule (owner, assigned, or
-    // system) before exposing a version snapshot's private content.
-    if manager
-        .get_by_id(&id, auth.user_id, tenant_id)
-        .await?
-        .is_none()
-    {
-        return Err(AppError::not_found(format!("Coach {id}")));
-    }
-    let version_data = manager
-        .get_version(&id, version, tenant_id)
-        .await?
-        .ok_or_else(|| AppError::not_found(format!("Version {version} for coach {id}")))?;
-
-    let created_by = version_data.created_by;
-    let mut response: CoachVersionResponse = version_data.into();
-    let mut creator_names: HashMap<Uuid, Option<String>> = HashMap::new();
-    response.created_by_name =
-        resolve_creator_name(&ctx, tenant_id, created_by, &mut creator_names).await;
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
 /// Handle POST /api/coaches/:id/versions/:version/revert - Revert to a version
 pub(super) async fn handle_revert_version<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,

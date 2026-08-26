@@ -184,6 +184,7 @@ impl IntegrationTestServer {
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
             timezone: None,
+            theme: None,
         };
 
         let repos = self.resources.coach.database.repositories();
@@ -256,6 +257,7 @@ impl IntegrationTestServer {
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
             timezone: None,
+            theme: None,
         };
 
         let repos = self.resources.coach.database.repositories();

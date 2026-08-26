@@ -46,6 +46,18 @@ export const ENDPOINTS = {
       `/api/chat/conversations/${conversationId}/messages/${messageId}/feedback`,
   },
 
+  // ==================== SLASH COMMANDS ====================
+  /**
+   * The slash commands the calling athlete may actually run.
+   *
+   * Resolved per caller by the same availability predicates `/help` asks each
+   * handler, so a palette built from it never offers a command the caller
+   * would be refused. Not under CHAT because a command is not a turn — the
+   * palette opens before there is anything to send, and outside a conversation
+   * there is no conversation id to hang it from.
+   */
+  COMMANDS: '/api/commands',
+
   // ==================== COACHES ====================
   COACHES: {
     /** List/create coaches */
@@ -64,8 +76,6 @@ export const ENDPOINTS = {
     FORK: (id: string) => `/api/coaches/${id}/fork`,
     /** List versions */
     VERSIONS: (id: string) => `/api/coaches/${id}/versions`,
-    /** Get specific version */
-    VERSION: (id: string, version: number) => `/api/coaches/${id}/versions/${version}`,
     /** Revert to version */
     VERSION_REVERT: (id: string, version: number) =>
       `/api/coaches/${id}/versions/${version}/revert`,
@@ -217,6 +227,8 @@ export const ENDPOINTS = {
       `/api/groups/${groupId}/members/${userId}/role`,
     /** Update own peer sharing consent */
     MY_CONSENT: (id: string) => `/api/groups/${id}/members/me/consent`,
+    /** The shared room transcript (membership-gated, consent-filtered) */
+    TRANSCRIPT: (id: string) => `/api/chat/groups/${id}/transcript`,
     /** List/create invites */
     INVITES: (id: string) => `/api/groups/${id}/invites`,
     /** Specific invite */
@@ -253,6 +265,18 @@ export const ENDPOINTS = {
     CHANGE_PASSWORD: '/api/user/change-password',
     /** Analytics consent */
     ANALYTICS_CONSENT: '/api/user/analytics-consent',
+    /**
+     * Reply language (`users.locale`) — the language the coach answers in.
+     * Clients PUT this whenever the viewer changes the app language, so the
+     * chrome and the coach never speak two different languages.
+     */
+    LOCALE: '/api/user/locale',
+    /**
+     * Theme preference (`users.theme`) — `light`/`dark` pins a scheme across
+     * devices, `null` clears the pin back to following the system. Clients
+     * PUT this whenever the viewer changes the theme control.
+     */
+    THEME: '/api/user/theme',
     /** Coaching persona (output format / cadence) */
     COACHING_PERSONA: '/api/user/coaching-persona',
     /** LLM settings */
@@ -276,6 +300,12 @@ export const ENDPOINTS = {
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
   },
+  // ==================== FEATURE FLAGS ====================
+  FEATURE_FLAGS: {
+    /** Effective feature flags for the calling user, plus the known-flag registry */
+    ME: '/api/me/features',
+  },
+
   /** End-user messaging channel linking (onboarding) — not the admin channel-config surface */
   MESSAGING: {
     /** Secret-free connectable-channel list for the onboarding picker */

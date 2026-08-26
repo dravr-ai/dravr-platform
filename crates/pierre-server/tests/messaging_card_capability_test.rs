@@ -1,4 +1,4 @@
-// ABOUTME: Content tests for card_or_rich_text — emitters consult the channel's card
+// ABOUTME: Content tests for card_or_rich_text — emitters read the surface's action_buttons
 // ABOUTME: capability and shape Card vs RichText fallback accordingly (registre#3 wiring)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,8 +6,16 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_chat_pipeline::RenderCapabilities;
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent};
 use pierre_mcp_server::services::messaging_ingress::card_or_rich_text;
+use pierre_mcp_server::services::messaging_ingress::surface::messaging_render_profile;
+
+/// What `channel`'s surface can render, resolved the way production resolves
+/// it — through the canot renderer, never through a name match in this file.
+fn render(channel: ChannelType) -> RenderCapabilities {
+    messaging_render_profile(channel, "en").render
+}
 
 fn url_action() -> Vec<CardAction> {
     vec![CardAction {
@@ -25,8 +33,13 @@ fn test_card_capable_channels_keep_native_card_content() {
         ChannelType::Discord,
         ChannelType::Messenger,
     ] {
+        let caps = render(channel);
+        assert!(
+            caps.blocks.action_buttons,
+            "{channel:?} renders native controls, so the capability must be true"
+        );
         let content = card_or_rich_text(
-            channel,
+            &caps,
             "Connect a provider".to_owned(),
             "Tap the button to link your account.".to_owned(),
             url_action(),
@@ -50,8 +63,13 @@ fn test_card_capable_channels_keep_native_card_content() {
 
 #[test]
 fn test_whatsapp_degrades_to_rich_text_with_tappable_link() {
+    let caps = render(ChannelType::WhatsApp);
+    assert!(
+        !caps.blocks.action_buttons,
+        "WhatsApp degrades a Card, so the capability must be false"
+    );
     let content = card_or_rich_text(
-        ChannelType::WhatsApp,
+        &caps,
         "Connect a provider".to_owned(),
         "Tap the link to connect.".to_owned(),
         url_action(),
@@ -78,7 +96,7 @@ fn test_whatsapp_degrades_to_rich_text_with_tappable_link() {
 #[test]
 fn test_whatsapp_empty_title_yields_no_empty_bold_marker() {
     let content = card_or_rich_text(
-        ChannelType::WhatsApp,
+        &render(ChannelType::WhatsApp),
         String::new(),
         "Just the body.".to_owned(),
         url_action(),

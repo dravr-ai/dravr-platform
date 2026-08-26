@@ -204,14 +204,6 @@ export function createCoachesApi(axios: AxiosInstance) {
     },
 
     /**
-     * Get a specific version of a coach.
-     */
-    async getVersion(coachId: string, version: number): Promise<CoachVersion> {
-      const response = await axios.get<CoachVersion>(ENDPOINTS.COACHES.VERSION(coachId, version));
-      return response.data;
-    },
-
-    /**
      * Revert a coach to a previous version.
      */
     async revertToVersion(
@@ -315,7 +307,6 @@ export function createCoachesApi(axios: AxiosInstance) {
     getHiddenCoaches: api.getHidden,
     forkCoach: api.fork,
     getCoachVersions: api.getVersions,
-    getCoachVersion: api.getVersion,
     revertCoachToVersion: api.revertToVersion,
     getCoachVersionDiff: api.getVersionDiff,
     generateCoachFromConversation: api.generateFromConversation,

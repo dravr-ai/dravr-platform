@@ -87,6 +87,14 @@ jest.mock('../src/screens/chat/useUsageStatus', () => ({
 }));
 
 // Must import AFTER mocks
+// The MCP Tokens row is gated on the shared `api_tokens` flag. These specs are
+// about the rest of the screen, so the flag hook answers with its off default
+// rather than dragging a QueryClientProvider into every render.
+jest.mock('../src/hooks/useFeatureFlags', () => ({
+  useFeatureFlags: () => ({ flags: { api_tokens: false, billing_header: false }, known: [], isLoading: false, isError: false }),
+  FEATURE_KEYS: { apiTokens: 'api_tokens', billingHeader: 'billing_header' },
+}));
+
 import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
 
 describe('SettingsScreen - admin pure-operator gating', () => {

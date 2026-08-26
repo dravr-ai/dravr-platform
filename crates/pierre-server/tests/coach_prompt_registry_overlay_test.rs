@@ -44,7 +44,7 @@ fn contremaitre_coach_reads_registry_overlay_not_db_column() {
         category: CoachCategory::Training,
     };
 
-    let resolved = resolve_coach_base_prompt(&registry, &coach_ctx, Some("en"));
+    let resolved = resolve_coach_base_prompt(&registry, &coach_ctx, "en");
     assert_eq!(
         resolved, "REGISTRY_OVERLAY_MARKER",
         "contremaitre coach must read live PromptRegistry, not stale DB column"
@@ -83,7 +83,7 @@ fn custom_coach_reads_db_column_ignoring_registry() {
         category: CoachCategory::Custom,
     };
 
-    let resolved = resolve_coach_base_prompt(&registry, &coach_ctx, Some("en"));
+    let resolved = resolve_coach_base_prompt(&registry, &coach_ctx, "en");
     assert_eq!(
         resolved, "USER_AUTHORED_PROMPT",
         "custom coaches read DB column — registry is contremaitre-only"
@@ -114,7 +114,7 @@ fn contremaitre_coach_falls_back_to_db_on_registry_miss() {
         category: CoachCategory::Training,
     };
 
-    let resolved = resolve_coach_base_prompt(&registry, &coach_ctx, Some("en"));
+    let resolved = resolve_coach_base_prompt(&registry, &coach_ctx, "en");
     assert_eq!(
         resolved, "DB_FALLBACK_VALUE",
         "registry miss must fall back to coaches.system_prompt DB column"
@@ -155,9 +155,9 @@ fn contremaitre_coach_locale_routing_picks_caller_locale() {
         category: CoachCategory::Training,
     };
 
-    let en = resolve_coach_base_prompt(&registry, &coach_ctx, Some("en"));
+    let en = resolve_coach_base_prompt(&registry, &coach_ctx, "en");
     assert_eq!(en, "ENGLISH_PROMPT");
 
-    let fr = resolve_coach_base_prompt(&registry, &coach_ctx, Some("fr"));
+    let fr = resolve_coach_base_prompt(&registry, &coach_ctx, "fr");
     assert_eq!(fr, "PROMPT_FRANCAIS");
 }

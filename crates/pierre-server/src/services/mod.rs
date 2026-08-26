@@ -56,11 +56,6 @@ pub mod commitment_refresher;
 #[cfg(feature = "client-messaging")]
 pub mod commitment_reporter;
 
-/// Outbound channel-message constructors shared by the proactive senders
-/// (backfill/approval notifiers) and the messaging-ingress reply paths.
-#[cfg(feature = "client-messaging")]
-pub(crate) mod outgoing;
-
 /// AuthService-backed credential refresher installed on the health-sync
 /// storage post-Arc (the refresh path needs the composition-root runtime).
 #[cfg(feature = "health-sync")]

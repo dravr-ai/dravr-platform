@@ -17,6 +17,7 @@ mod common;
 use std::sync::Arc;
 
 use chrono::Utc;
+use pierre_chat_pipeline::detect_turn_locale;
 use pierre_commands::status::StatusHandler;
 use pierre_commands::{CommandHandler, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
@@ -28,9 +29,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::CreateChannelLinkParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::services::messaging_ingress::{
-    detect_turn_locale, resolve_messaging_locale,
-};
+use pierre_mcp_server::services::messaging_ingress::resolve_messaging_locale;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
@@ -122,9 +121,12 @@ fn registry_exposes_coach_scope_carve_outs_for_every_locale() {
     );
 }
 
-/// `detect_turn_locale` picks the message-content language over the stored
-/// fallback so status placeholders match the LLM's reply language even when
-/// the user is writing in a language different from their saved preference.
+/// The turn service's `detect_turn_locale` picks the message-content language
+/// over the stored fallback, so every platform string a turn renders matches
+/// the language the model will reply in even when the athlete is writing in a
+/// language different from their saved preference. One implementation for
+/// every surface — web chat used to import this from the messaging ingress,
+/// which is the plainest evidence it never belonged to a channel.
 #[test]
 fn detect_turn_locale_matches_message_language_over_fallback() {
     // English sentence, user.locale = "fr" → detected "en".

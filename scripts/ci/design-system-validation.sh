@@ -38,7 +38,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 # comment and explaining why in the commit, because it means the design system
 # lost ground.
 # ============================================================================
-BASELINE_WEB_RAW_INPUT=59
+BASELINE_WEB_RAW_INPUT=49
 BASELINE_WEB_RAW_PALETTE=2
 BASELINE_MOBILE_RAW_PALETTE=28
 BASELINE_MOBILE_RAW_TEXTINPUT=17

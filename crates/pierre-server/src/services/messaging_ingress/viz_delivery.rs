@@ -26,36 +26,13 @@
 
 use std::fmt::Write as _;
 
-use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent};
-use pierre_core::models::TenantId;
-use pierre_messaging::channels::discord::renderer::DiscordRenderer;
-use pierre_messaging::channels::messenger::renderer::MessengerRenderer;
-use pierre_messaging::channels::slack::renderer::SlackRenderer;
-use pierre_messaging::channels::telegram::renderer::TelegramRenderer;
-use pierre_messaging::channels::whatsapp::renderer::WhatsAppRenderer;
-use pierre_messaging::ResponseRenderer;
+use pierre_chat_pipeline::RenderCapabilities;
+use pierre_core::models::messaging::{CardAction, MessageContent};
+use pierre_core::models::{ColorScheme, TenantId};
 use serde_json::Value;
 use tracing::debug;
 
 use crate::routes::viz::{VizTarget, VizToken};
-
-/// Whether `channel_type`'s renderer publishes [`MessageContent::Media`]
-/// natively rather than degrading it.
-///
-/// This is the consumer `ResponseRenderer::supports_media` never had. Asking
-/// the renderer rather than hard-coding a list means a channel gaining media
-/// support in canot reaches athletes on the next dependency bump, with no
-/// change here.
-#[must_use]
-pub fn renders_media_natively(channel_type: ChannelType) -> bool {
-    match channel_type {
-        ChannelType::WhatsApp => WhatsAppRenderer.supports_media(),
-        ChannelType::Messenger => MessengerRenderer.supports_media(),
-        ChannelType::Discord => DiscordRenderer.supports_media(),
-        ChannelType::Slack => SlackRenderer.supports_media(),
-        ChannelType::Telegram => TelegramRenderer.supports_media(),
-    }
-}
 
 /// What the egress needs to turn one reply's blocks into media.
 pub struct VizDelivery<'a> {
@@ -63,10 +40,17 @@ pub struct VizDelivery<'a> {
     pub target: VizTarget,
     /// The blocks as stored on the message — specs, not scenes.
     pub stored_blocks: Option<&'a str>,
-    /// Channel the reply is going to.
-    pub channel_type: ChannelType,
+    /// What the surface the reply is going to can render. `scene_raster`
+    /// decides whether this reply gets pixels or the prose fallback.
+    pub render: &'a RenderCapabilities,
     /// Locale the axis labels must resolve in.
     pub locale: &'a str,
+    /// Colour scheme the press service paints the chart in, resolved from the
+    /// athlete's `users.theme` pin. The channel's servers fetch the PNG, not
+    /// the athlete's device, so the pin is the only thing that can speak for
+    /// the athlete here — and an athlete who pinned nothing gets dark, which
+    /// is what messaging clients draw media bubbles on.
+    pub theme: ColorScheme,
     /// Public base URL the channel's fetcher will resolve.
     pub base_url: &'a str,
     /// Whether a press service is configured at all.
@@ -107,11 +91,8 @@ pub fn plan_media(delivery: &VizDelivery<'_>, secret: &str) -> Vec<VizMedia> {
         debug!("viz media: no press service configured; sending prose only");
         return Vec::new();
     }
-    if !renders_media_natively(delivery.channel_type) {
-        debug!(
-            channel = ?delivery.channel_type,
-            "viz media: channel does not publish media; sending prose only"
-        );
+    if !delivery.render.blocks.scene_raster {
+        debug!("viz media: surface cannot show a rasterised chart; sending prose only");
         return Vec::new();
     }
     let Some(raw) = delivery.stored_blocks else {
@@ -126,10 +107,7 @@ pub fn plan_media(delivery: &VizDelivery<'_>, secret: &str) -> Vec<VizMedia> {
             let token = VizToken::for_block(
                 delivery.target.clone(),
                 index,
-                // Messaging clients overwhelmingly render media on a dark
-                // bubble, and a chart cannot read the athlete's app theme from
-                // inside Telegram.
-                "dark",
+                delivery.theme.as_str(),
                 delivery.locale,
             )
             .mint(secret);
@@ -205,37 +183,26 @@ pub fn target(
     }
 }
 
-/// Whether `channel_type`'s renderer lays out [`MessageContent::Card`]
-/// natively (buttons, blocks, templates) rather than degrading it to text.
+/// Shape a card-intent reply for a surface.
 ///
-/// Card-emitting paths consult this to pick the content shape up front:
-/// canot's renderers do degrade an unsupported Card, but only generically —
-/// the emitter can do better (rich-text emphasis, each action on its own
-/// line) because it knows what the card means.
-fn renders_cards_natively(channel_type: ChannelType) -> bool {
-    match channel_type {
-        ChannelType::WhatsApp => WhatsAppRenderer.supports_cards(),
-        ChannelType::Messenger => MessengerRenderer.supports_cards(),
-        ChannelType::Discord => DiscordRenderer.supports_cards(),
-        ChannelType::Slack => SlackRenderer.supports_cards(),
-        ChannelType::Telegram => TelegramRenderer.supports_cards(),
-    }
-}
-
-/// Shape a card-intent reply for `channel_type`.
-///
-/// Returns a native [`MessageContent::Card`] where the channel renders cards,
+/// Returns a native [`MessageContent::Card`] where the surface lays actions
+/// out as controls ([`pierre_chat_pipeline::BlockSupport::action_buttons`]),
 /// otherwise a [`MessageContent::RichText`] fallback: bold title (when
 /// non-empty), the body, then one `label: value` line per action — a bare URL
-/// value stays tappable as autolinked text on channels without buttons.
+/// value stays tappable as autolinked text where buttons do not render.
+///
+/// Card-emitting paths consult the capability to pick the content shape up
+/// front: canot's renderers do degrade an unsupported Card, but only
+/// generically — the emitter can do better because it knows what the card
+/// means.
 #[must_use]
 pub fn card_or_rich_text(
-    channel_type: ChannelType,
+    render: &RenderCapabilities,
     title: String,
     body: String,
     actions: Vec<CardAction>,
 ) -> MessageContent {
-    if renders_cards_natively(channel_type) {
+    if render.blocks.action_buttons {
         return MessageContent::Card {
             title,
             body,

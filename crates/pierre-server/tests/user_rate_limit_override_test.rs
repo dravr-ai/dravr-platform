@@ -47,6 +47,7 @@ async fn build_user(
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     repos.users.create(&user).await.unwrap();
     let tenant = Tenant {

@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ClaimVerdictsTab from '../ClaimVerdictsTab';
-import type { ClaimVerdictRow } from '../../services/api/admin';
+import type { ClaimVerdict } from '@pierre/shared-types';
 
 // Mock the admin API before component import time
 vi.mock('../../services/api/admin', async () => {
@@ -35,7 +35,7 @@ vi.mock('../../hooks/useAuth', () => ({
 
 const { adminApi } = await import('../../services/api/admin');
 
-function sampleVerdict(overrides: Partial<ClaimVerdictRow> = {}): ClaimVerdictRow {
+function sampleVerdict(overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
   return {
     id: 'v1',
     tenant_id: 'tenant-a',
@@ -99,7 +99,11 @@ describe('ClaimVerdictsTab', () => {
     expect(screen.getByText(/Showing 2 verdicts/)).toBeInTheDocument();
   });
 
-  it('opens the drawer when a row is clicked', async () => {
+  // The admin table and the chat chip open the SAME drawer now — one component,
+  // one `humanizeCategory`, one `formatTimestamp`. Its heading is the chat
+  // one's, so an assertion on the deleted admin heading is what turns red if
+  // the second drawer ever comes back.
+  it('opens the shared verdict drawer when a row is clicked', async () => {
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
       verdicts: [sampleVerdict()],
       total: 1,
@@ -110,9 +114,12 @@ describe('ClaimVerdictsTab', () => {
     });
     fireEvent.click(screen.getByText(/Take 5 g of creatine/i));
     await waitFor(() => {
-      expect(screen.getByText(/Verdict detail/i)).toBeInTheDocument();
+      expect(screen.getByText('About this claim')).toBeInTheDocument();
       expect(screen.getByText(/ISSN 2017 position stand/i)).toBeInTheDocument();
     });
+    // The admin read carries provenance the chat read does not, and the one
+    // drawer shows it only when it is there.
+    expect(screen.getByText('Coach')).toBeInTheDocument();
   });
 
   it('passes status filter into the API call', async () => {

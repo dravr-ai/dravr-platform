@@ -1119,10 +1119,12 @@ test.describe('User Coaches - Chat Interface', () => {
     await setupUserCoachesMocks(page);
 
     let createCalled = false;
+    let createdBody: Record<string, unknown> = {};
     await page.route('**/api/coaches', async (route) => {
       if (route.request().method() === 'POST') {
         createCalled = true;
         const body = route.request().postDataJSON();
+        createdBody = body;
         await route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -1153,16 +1155,30 @@ test.describe('User Coaches - Chat Interface', () => {
     // Click Create Coach button in the panel header
     await page.getByRole('button', { name: 'Create Coach' }).click();
 
-    // Fill in the form - Title is input, Description is first textarea, System Prompt is second textarea
-    await page.getByPlaceholder('e.g., Marathon Training Coach').fill('New Test Coach');
-    // System Prompt is the second textarea (first is Description)
-    await page.locator('textarea').nth(1).fill('Test system prompt for the coach');
+    // The Coaches tab opens the shared CoachFormModal — the same editor the
+    // Chat tab uses, tool-budget field included. The deleted inline editor's
+    // distinguishing chrome (its Tags input) must not render anywhere.
+    await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeVisible();
+    await expect(
+      page.getByPlaceholder('marathon, endurance, beginner (comma-separated)')
+    ).toHaveCount(0);
 
-    // Submit the form
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    // Fill in the form — the modal's Description is an input, System Prompt a textarea
+    await page.getByPlaceholder('e.g., Marathon Training Coach').fill('New Test Coach');
+    await page
+      .getByPlaceholder("Define your coach's personality, expertise, and communication style...")
+      .fill('Test system prompt for the coach');
+    // The tool budget is settable from this surface — the whole point of one editor
+    await page.getByLabel('Max tool iterations per turn').fill('25');
+
+    // Submit the form (the modal's submit button, not the header one)
+    await page.locator('button[type="submit"]', { hasText: 'Create Coach' }).click();
 
     await page.waitForTimeout(500);
     expect(createCalled).toBe(true);
+    expect(createdBody.title).toBe('New Test Coach');
+    expect(createdBody.system_prompt).toBe('Test system prompt for the coach');
+    expect(createdBody.max_tool_iterations).toBe(25);
   });
 
   test('can create coach with Training category and verify icon', async ({ page }) => {
@@ -1199,10 +1215,13 @@ test.describe('User Coaches - Chat Interface', () => {
 
     // Click Create Coach
     await page.getByRole('button', { name: 'Create Coach' }).click();
+    await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeVisible();
 
-    // Fill form with Training category - System Prompt is the second textarea
+    // Fill the shared modal's fields
     await page.getByPlaceholder('e.g., Marathon Training Coach').fill('My Training Coach');
-    await page.locator('textarea').nth(1).fill('Training system prompt for the coach');
+    await page
+      .getByPlaceholder("Define your coach's personality, expertise, and communication style...")
+      .fill('Training system prompt for the coach');
 
     // Select Training category from dropdown
     const categorySelect = page.locator('select').first();
@@ -1210,8 +1229,8 @@ test.describe('User Coaches - Chat Interface', () => {
       await categorySelect.selectOption('Training');
     }
 
-    // Submit
-    await page.getByRole('button', { name: 'Create Coach' }).click();
+    // Submit (the modal's submit button, not the header one)
+    await page.locator('button[type="submit"]', { hasText: 'Create Coach' }).click();
     await page.waitForTimeout(500);
 
     // Verify the category was sent correctly

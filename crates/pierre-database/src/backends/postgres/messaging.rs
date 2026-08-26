@@ -5,10 +5,11 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::messaging_link_states as link_states;
+use super::messaging_reactions::find_reaction_feedback_target;
 use super::PostgresDatabase;
 use crate::repositories::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
-    MessagingRepository, UpsertChannelConfigParams,
+    MessagingRepository, ReactionFeedbackTarget, UpsertChannelConfigParams,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -422,8 +423,9 @@ impl MessagingRepository for PostgresDatabase {
             r"
             INSERT INTO messaging_messages
                 (id, tenant_id, session_id, direction, channel_type, channel_message_id,
-                 sender_id, content_type, content_body, correlation_id, raw_payload, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                 sender_id, content_type, content_body, correlation_id, raw_payload,
+                 chat_message_id, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (tenant_id, channel_message_id) DO NOTHING
             ",
         )
@@ -438,12 +440,28 @@ impl MessagingRepository for PostgresDatabase {
         .bind(params.content_body)
         .bind(params.correlation_id)
         .bind(params.raw_payload)
+        .bind(params.chat_message_id)
         .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to insert message: {e}")))?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_reaction_feedback_target(
+        &self,
+        channel_type: &str,
+        channel_message_id: &str,
+        channel_conversation_id: Option<&str>,
+    ) -> AppResult<Option<ReactionFeedbackTarget>> {
+        find_reaction_feedback_target(
+            &self.pool,
+            channel_type,
+            channel_message_id,
+            channel_conversation_id,
+        )
+        .await
     }
 
     async fn get_session_messages(
@@ -487,53 +505,6 @@ impl MessagingRepository for PostgresDatabase {
                     "content_type": r.get::<String, _>("content_type"),
                     "content_body": r.get::<Option<String>, _>("content_body"),
                     "correlation_id": r.get::<String, _>("correlation_id"),
-                    "created_at": created_at.to_rfc3339(),
-                })
-            })
-            .collect())
-    }
-
-    async fn list_recent_chat_messages(
-        &self,
-        tenant_id: TenantId,
-        channel_type: &str,
-        channel_conversation_id: &str,
-        limit: i64,
-    ) -> AppResult<Vec<Value>> {
-        // Casts mirror get_session_by_channel_identity: migration
-        // 20260417000001 converted messaging_sessions.tenant_id/user_id to
-        // UUID while messaging_messages.tenant_id stayed TEXT.
-        let rows = sqlx::query(
-            r"
-            SELECT m.sender_id, m.direction, m.content_body, m.channel_message_id,
-                   m.created_at, s.user_id::text AS user_id
-            FROM messaging_messages m
-            JOIN messaging_sessions s ON s.id = m.session_id
-            WHERE m.tenant_id = $1 AND s.tenant_id = $1::uuid AND s.channel_type = $2
-              AND COALESCE(s.channel_conversation_id, '') = $3
-              AND m.content_body IS NOT NULL AND m.content_body != ''
-            ORDER BY m.created_at DESC
-            LIMIT $4
-            ",
-        )
-        .bind(tenant_id.to_string())
-        .bind(channel_type)
-        .bind(channel_conversation_id)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list recent chat messages: {e}")))?;
-
-        Ok(rows
-            .iter()
-            .map(|r| {
-                let created_at: DateTime<Utc> = r.get("created_at");
-                serde_json::json!({
-                    "sender_id": r.get::<String, _>("sender_id"),
-                    "user_id": r.get::<String, _>("user_id"),
-                    "direction": r.get::<String, _>("direction"),
-                    "content_body": r.get::<Option<String>, _>("content_body"),
-                    "channel_message_id": r.get::<String, _>("channel_message_id"),
                     "created_at": created_at.to_rfc3339(),
                 })
             })
@@ -832,7 +803,7 @@ impl MessagingRepository for PostgresDatabase {
             SELECT id,
                    tenant_id::text AS tenant_id,
                    user_id::text   AS user_id,
-                   channel_type, channel_user_id, display_name, linked_at
+                   channel_type, channel_user_id, display_name, locale, linked_at
             FROM messaging_channel_links
             WHERE tenant_id = $1::uuid AND user_id = $2::uuid
             ORDER BY linked_at
@@ -856,6 +827,9 @@ impl MessagingRepository for PostgresDatabase {
                     "channel_type": r.get::<String, _>("channel_type"),
                     "channel_user_id": r.get::<String, _>("channel_user_id"),
                     "display_name": r.get::<Option<String>, _>("display_name"),
+                    // The link's own locale — see the SQLite backend for why
+                    // its absence was invisible.
+                    "locale": r.get::<Option<String>, _>("locale"),
                     "linked_at": linked_at.to_rfc3339(),
                 })
             })

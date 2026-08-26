@@ -14,10 +14,6 @@
       "types": "./src/insight.ts",
       "import": "./src/insight.ts"
     },
-    "./message": {
-      "types": "./src/message.ts",
-      "import": "./src/message.ts"
-    },
     "./activity": {
       "types": "./src/activity.ts",
       "import": "./src/activity.ts"
@@ -26,9 +22,21 @@
       "types": "./src/conversation.ts",
       "import": "./src/conversation.ts"
     },
-    "./agui": {
-      "types": "./src/agui.ts",
-      "import": "./src/agui.ts"
+    "./progress": {
+      "types": "./src/progress.ts",
+      "import": "./src/progress.ts"
+    },
+    "./blocks": {
+      "types": "./src/blocks.ts",
+      "import": "./src/blocks.ts"
+    },
+    "./action-url": {
+      "types": "./src/action-url.ts",
+      "import": "./src/action-url.ts"
+    },
+    "./quota": {
+      "types": "./src/quota.ts",
+      "import": "./src/quota.ts"
     }
   },
   "scripts": {

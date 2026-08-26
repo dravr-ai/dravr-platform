@@ -19,11 +19,13 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use pierre_chat_pipeline::stages::activity_fold::shape_for_fold;
+use pierre_chat_pipeline::TurnTelemetry;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{AddMessageParams, ConnectionType};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::{
-    ChatReentry, ReentryReply, ReentryRequest, ServerBackfillNotifier,
+    engaged_with_activities, ChatReentry, ReentryReply, ReentryRequest, ServerBackfillNotifier,
 };
 use pierre_messaging::channel::MessagingChannel;
 use pierre_tool_runtime::runtime::BackfillNotifier;
@@ -333,10 +335,12 @@ async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
 /// was handed, so the test can assert the notifier (a) re-asked the user's own
 /// question and (b) delivered the synthesized reply rather than the list.
 struct FakeReentry {
-    reply: String,
-    /// Optional activity-list prose the fake re-entry "produced", so a test can
-    /// assert the push prepends it to the coach reply.
-    activity_list: Option<String>,
+    /// The reply exactly as the pipeline would have shaped it for a messaging
+    /// surface — activity list already folded into the prose, because the
+    /// surface has no panel to draw it in.
+    body: String,
+    /// Whether the re-entry turn actually fetched the athlete's activities.
+    fetched_activities: bool,
     seen_prompt: Mutex<Option<String>>,
 }
 
@@ -345,8 +349,8 @@ impl ChatReentry for FakeReentry {
     async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply> {
         *self.seen_prompt.lock().unwrap() = Some(req.prompt.to_owned());
         Some(ReentryReply {
-            content: self.reply.clone(),
-            activity_list: self.activity_list.clone(),
+            body: self.body.clone(),
+            fetched_activities: self.fetched_activities,
         })
     }
 }
@@ -407,11 +411,11 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    // The model refused without listing anything (no activity_list).
+    // The model refused without ever calling `get_activities`.
     let reentry = Arc::new(FakeReentry {
-        reply: "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness."
+        body: "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness."
             .to_owned(),
-        activity_list: None,
+        fetched_activities: false,
         seen_prompt: Mutex::new(None),
     });
     let notifier = ServerBackfillNotifier::with_resolver_and_reentry(
@@ -504,13 +508,18 @@ async fn push_prepends_activity_list_to_coach_reply() {
 
     // The list the re-entry's get_activities produced, longest-first (sort_by).
     let activity_list = "Your Activities:\n\n1. [TrailRun] Ultra X - 2023-06-12 - 42.20 km - 4:30:00\n2. [Run] Tempo - 2023-03-01 - 10.00 km - 0:45:00";
+    // The pipeline folds the list into the prose for a surface with no activity
+    // panel, and this is that fold — the push delivers the shaped body verbatim
+    // rather than composing it a second time.
+    let folded = shape_for_fold(Some(activity_list), &strings(), "fr")
+        .expect("a non-empty list must shape into prose");
     let channel = Arc::new(CapturingChannel::default());
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
     let reentry = Arc::new(FakeReentry {
-        reply: "Analyse: belle progression sur tes longues sorties.".to_owned(),
-        activity_list: Some(activity_list.to_owned()),
+        body: format!("{folded}\n\nAnalyse: belle progression sur tes longues sorties."),
+        fetched_activities: true,
         seen_prompt: Mutex::new(None),
     });
     let notifier =
@@ -605,9 +614,11 @@ async fn push_caps_long_activity_list_for_small_screens() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
+    let folded =
+        shape_for_fold(Some(&list), &strings(), "fr").expect("a long list must shape into prose");
     let reentry = Arc::new(FakeReentry {
-        reply: "Analyse.".to_owned(),
-        activity_list: Some(list),
+        body: format!("{folded}\n\nAnalyse."),
+        fetched_activities: true,
         seen_prompt: Mutex::new(None),
     });
     let notifier =
@@ -902,5 +913,40 @@ async fn push_falls_back_to_nudge_on_empty_cache() {
     assert!(
         body.contains("Redemande") || body.contains("Ask me again"),
         "empty cache must fall back to the templated nudge: {body}"
+    );
+}
+
+/// The prefetch injection must not be mistaken for the model engaging.
+///
+/// `tool_dispatch` injects `get_activities` into `tools_called` when the
+/// platform warms the prompt with activities on the model's behalf. If the
+/// trust predicate scanned that list, a coach that refused the question would
+/// still read as "fetched activities", and the completion push would deliver
+/// the refusal in place of the history the athlete asked for.
+#[test]
+fn a_prefetched_tool_name_is_not_the_model_engaging_with_activities() {
+    let prefetched_but_refused = TurnTelemetry {
+        model: "claude-opus-4".to_owned(),
+        provider_name: "copilot_headless".to_owned(),
+        // Exactly what the platform's own prefetch leaves behind.
+        tools_called: vec!["get_activities".to_owned()],
+        tool_calls_count: 1,
+        activity_list_captured: false,
+        usage: None,
+        identity_leak: None,
+    };
+    assert!(
+        !engaged_with_activities(&prefetched_but_refused),
+        "a turn whose only get_activities came from the platform prefetch must \
+         not be trusted to answer about activities"
+    );
+
+    let model_actually_asked = TurnTelemetry {
+        activity_list_captured: true,
+        ..prefetched_but_refused
+    };
+    assert!(
+        engaged_with_activities(&model_actually_asked),
+        "a turn whose tool loop captured a list is the case we do trust"
     );
 }

@@ -82,6 +82,7 @@ fn create_test_user(tier: UserTier) -> User {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     }
 }
 

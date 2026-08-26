@@ -69,7 +69,15 @@ export default function CreateCoachFromConversationModal({
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: CoachFormData) => coachesApi.create(data),
+    // This modal only ever collects these four fields; naming them keeps the
+    // request a `CreateCoachRequest` rather than the whole form blob.
+    mutationFn: (data: CoachFormData) =>
+      coachesApi.create({
+        title: data.title,
+        description: data.description || undefined,
+        system_prompt: data.system_prompt,
+        category: data.category,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
       onSuccess();

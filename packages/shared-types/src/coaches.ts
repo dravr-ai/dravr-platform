@@ -90,6 +90,12 @@ export interface Coach {
   match_score?: number;
   /** Whether this coach is in the user's "Recommended for you" set */
   recommended?: boolean;
+
+  /**
+   * Per-turn tool-loop iteration budget for this coach. Absent when the coach
+   * inherits the tenant-wide `tool_execution.max_iterations` setting.
+   */
+  max_tool_iterations?: number;
 }
 
 /** Response when forking a coach */
@@ -167,6 +173,11 @@ export interface CreateCoachRequest {
   example_outputs?: string;
   /** Success definition (from ## Success Criteria section) */
   success_criteria?: string;
+  /**
+   * Per-turn tool-loop iteration budget. Omit to inherit the tenant-wide
+   * `tool_execution.max_iterations` setting. Range 1..=50.
+   */
+  max_tool_iterations?: number;
 }
 
 /** Request to update an existing coach */
@@ -193,6 +204,13 @@ export interface UpdateCoachRequest {
   example_outputs?: string;
   /** New `success_criteria` (if provided) */
   success_criteria?: string;
+  /**
+   * New per-turn tool-loop iteration budget. Three-way: omit the key to leave
+   * the stored value untouched, send `null` to clear the pin so the coach
+   * inherits the tenant-wide `tool_execution.max_iterations` again, or send a
+   * number in 1..=50 to pin that budget.
+   */
+  max_tool_iterations?: number | null;
 }
 
 /** Standard metadata for coach API responses */

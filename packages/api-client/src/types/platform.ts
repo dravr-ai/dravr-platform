@@ -61,6 +61,22 @@ export interface AuthFailureHandler {
 }
 
 /**
+ * How this platform reads a response body.
+ *
+ * The one place the two runtimes genuinely differ: a browser hands back a
+ * `ReadableStream` the client can render from as bytes land, while React
+ * Native's `fetch` rides XHR and leaves `Response.body` undefined, so the
+ * body is only readable once complete. Both yield the same thing — the body
+ * as text — so the turn parser above them has a single code path and never
+ * asks which platform it is on.
+ *
+ * A body that arrives in one piece is not a degraded turn: the terminal frame
+ * is the same either way, and only the intermediate deltas (which exist on
+ * one provider branch) are lost to the wait.
+ */
+export type ResponseBodyReader = (response: Response) => AsyncIterable<string>;
+
+/**
  * Complete platform adapter combining all platform-specific concerns.
  */
 export interface PlatformAdapter {
@@ -70,7 +86,18 @@ export interface PlatformAdapter {
   authStorage: AuthStorage;
   /** Auth failure handler */
   authFailure: AuthFailureHandler;
-  /** Platform identifier for debugging */
+  /** How this platform reads a streaming response body. */
+  readBody: ResponseBodyReader;
+  /**
+   * How this platform carries its credentials on a turn request.
+   *
+   * Web authenticates with an httpOnly session cookie, so the fetch must
+   * include it; mobile sends a bearer header and has no cookie jar. Declared
+   * here rather than branched on inside the transport, so the send path has
+   * one shape for every surface.
+   */
+  turnCredentials: RequestCredentials;
+  /** Platform identifier, and the `X-Client-Platform` header's value. */
   platform: 'web' | 'mobile';
 }
 

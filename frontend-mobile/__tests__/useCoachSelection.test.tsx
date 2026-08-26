@@ -6,7 +6,7 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 // Mock API service
 const mockListCoaches = jest.fn();
 const mockRecordUsage = jest.fn();
-const mockSendMessage = jest.fn();
+const mockSendTurn = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   coachesApi: {
@@ -14,7 +14,7 @@ jest.mock('../src/services/api', () => ({
     recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
   },
   chatApi: {
-    sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+    sendTurn: (...args: unknown[]) => mockSendTurn(...args),
   },
 }));
 
@@ -71,6 +71,39 @@ const createMockConversation = (overrides: Partial<Conversation> = {}): Conversa
   ...overrides,
 });
 
+/**
+ * `sendTurn` hands the finished turn to `onDone` rather than returning it —
+ * the same method streams for the web client, so its outcome rides callbacks.
+ * These two shape the mock the way the real transport behaves.
+ */
+function resolveTurnWith(turn: unknown) {
+  mockSendTurn.mockImplementation(
+    (
+      _conversationId: string,
+      _content: string,
+      options?: {
+        onBlock?: (block: unknown) => void;
+        onDone?: (turn: unknown) => void;
+      },
+    ) => {
+      // Faithful to the real transport: every block, in order, then the turn.
+      const blocks = (turn as { assistant?: { blocks?: unknown[] } })?.assistant?.blocks ?? [];
+      for (const block of blocks) options?.onBlock?.(block);
+      options?.onDone?.(turn);
+      return Promise.resolve();
+    },
+  );
+}
+
+function failTurnWith(error: unknown) {
+  mockSendTurn.mockImplementation(
+    (_conversationId: string, _content: string, options?: { onError?: (error: unknown) => void }) => {
+      options?.onError?.(error);
+      return Promise.resolve();
+    },
+  );
+}
+
 describe('useCoachSelection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -109,11 +142,20 @@ describe('useCoachSelection', () => {
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
 
-      mockSendMessage.mockResolvedValue({
+      resolveTurnWith({
         user_message: { id: 'msg-1', role: 'user', content: coach.description, created_at: new Date().toISOString() },
-        assistant_message: { id: 'msg-2', role: 'assistant', content: 'Here is your analysis', created_at: new Date().toISOString() },
-        model: 'gemini-2.0-flash',
-        execution_time_ms: 5000,
+        assistant: {
+          message: { id: 'msg-2', role: 'assistant', content: 'Here is your analysis', created_at: new Date().toISOString() },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: {
+          model: 'gemini-2.0-flash',
+          provider_name: 'gemini',
+          tool_calls_count: 0,
+          tools_called: [],
+          execution_time_ms: 5000,
+        },
       });
 
       const { result } = renderHook(() => useCoachSelection());
@@ -141,9 +183,20 @@ describe('useCoachSelection', () => {
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
 
-      mockSendMessage.mockResolvedValue({
+      resolveTurnWith({
         user_message: { id: 'msg-1', role: 'user', content: coach.description, created_at: new Date().toISOString() },
-        assistant_message: { id: 'msg-2', role: 'assistant', content: 'Recovery plan', created_at: new Date().toISOString() },
+        assistant: {
+          message: { id: 'msg-2', role: 'assistant', content: 'Recovery plan', created_at: new Date().toISOString() },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: {
+          model: 'gemini-2.0-flash',
+          provider_name: 'gemini',
+          tool_calls_count: 0,
+          tools_called: [],
+          execution_time_ms: 1000,
+        },
       });
 
       const { result } = renderHook(() => useCoachSelection());
@@ -173,11 +226,20 @@ describe('useCoachSelection', () => {
 
       const apiResponse = {
         user_message: { id: 'user-1', role: 'user', content: 'Analyze my running', created_at: '2024-01-01T00:00:00Z' },
-        assistant_message: { id: 'asst-1', role: 'assistant', content: 'Your training looks great!', created_at: '2024-01-01T00:00:01Z' },
-        model: 'gemini-2.0-flash',
-        execution_time_ms: 3000,
+        assistant: {
+          message: { id: 'asst-1', role: 'assistant', content: 'Your training looks great!', created_at: '2024-01-01T00:00:01Z' },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: {
+          model: 'gemini-2.0-flash',
+          provider_name: 'gemini',
+          tool_calls_count: 0,
+          tools_called: [],
+          execution_time_ms: 3000,
+        },
       };
-      mockSendMessage.mockResolvedValue(apiResponse);
+      resolveTurnWith(apiResponse);
 
       const { result } = renderHook(() => useCoachSelection());
 
@@ -224,9 +286,20 @@ describe('useCoachSelection', () => {
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
 
-      mockSendMessage.mockResolvedValue({
+      resolveTurnWith({
         user_message: { id: 'msg-1', role: 'user', content: coach.startup_query, created_at: new Date().toISOString() },
-        assistant_message: { id: 'msg-2', role: 'assistant', content: 'Plan ready', created_at: new Date().toISOString() },
+        assistant: {
+          message: { id: 'msg-2', role: 'assistant', content: 'Plan ready', created_at: new Date().toISOString() },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: {
+          model: 'gemini-2.0-flash',
+          provider_name: 'gemini',
+          tool_calls_count: 0,
+          tools_called: [],
+          execution_time_ms: 1000,
+        },
       });
 
       const { result } = renderHook(() => useCoachSelection());
@@ -240,7 +313,11 @@ describe('useCoachSelection', () => {
         });
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith('conv-42', 'Provide a marathon training plan');
+      expect(mockSendTurn).toHaveBeenCalledWith(
+        'conv-42',
+        'Provide a marathon training plan',
+        expect.objectContaining({ onDone: expect.any(Function), onError: expect.any(Function) })
+      );
     });
 
     it('should record coach usage', async () => {
@@ -251,9 +328,20 @@ describe('useCoachSelection', () => {
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
 
-      mockSendMessage.mockResolvedValue({
+      resolveTurnWith({
         user_message: { id: 'msg-1', role: 'user', content: coach.description, created_at: new Date().toISOString() },
-        assistant_message: { id: 'msg-2', role: 'assistant', content: 'Done', created_at: new Date().toISOString() },
+        assistant: {
+          message: { id: 'msg-2', role: 'assistant', content: 'Done', created_at: new Date().toISOString() },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: {
+          model: 'gemini-2.0-flash',
+          provider_name: 'gemini',
+          tool_calls_count: 0,
+          tools_called: [],
+          execution_time_ms: 1000,
+        },
       });
 
       const { result } = renderHook(() => useCoachSelection());
@@ -278,9 +366,20 @@ describe('useCoachSelection', () => {
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
 
-      mockSendMessage.mockResolvedValue({
+      resolveTurnWith({
         user_message: { id: 'msg-1', role: 'user', content: coach.description, created_at: new Date().toISOString() },
-        assistant_message: { id: 'msg-2', role: 'assistant', content: 'Response', created_at: new Date().toISOString() },
+        assistant: {
+          message: { id: 'msg-2', role: 'assistant', content: 'Response', created_at: new Date().toISOString() },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: {
+          model: 'gemini-2.0-flash',
+          provider_name: 'gemini',
+          tool_calls_count: 0,
+          tools_called: [],
+          execution_time_ms: 1000,
+        },
       });
 
       const { result } = renderHook(() => useCoachSelection());
@@ -320,7 +419,7 @@ describe('useCoachSelection', () => {
       // Should set error state and show alert
       expect(result.current.error).toBe('Failed to create conversation');
       // Should NOT call sendMessage
-      expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(mockSendTurn).not.toHaveBeenCalled();
     });
 
     it('should handle API error during message send', async () => {
@@ -331,7 +430,7 @@ describe('useCoachSelection', () => {
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
 
-      mockSendMessage.mockRejectedValue(new Error('Network error'));
+      failTurnWith(new Error('Network error'));
 
       const { result } = renderHook(() => useCoachSelection());
 
@@ -358,7 +457,7 @@ describe('useCoachSelection', () => {
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
 
-      mockSendMessage.mockRejectedValue(createAxiosQuotaError());
+      failTurnWith(createAxiosQuotaError());
 
       const { result } = renderHook(() => useCoachSelection());
 
@@ -385,9 +484,20 @@ describe('useCoachSelection', () => {
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
 
-      mockSendMessage.mockResolvedValue({
+      resolveTurnWith({
         user_message: { id: 'msg-1', role: 'user', content: "Let's get started with Nutrition Coach!", created_at: new Date().toISOString() },
-        assistant_message: { id: 'msg-2', role: 'assistant', content: 'Nutrition analysis', created_at: new Date().toISOString() },
+        assistant: {
+          message: { id: 'msg-2', role: 'assistant', content: 'Nutrition analysis', created_at: new Date().toISOString() },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: {
+          model: 'gemini-2.0-flash',
+          provider_name: 'gemini',
+          tool_calls_count: 0,
+          tools_called: [],
+          execution_time_ms: 1000,
+        },
       });
 
       const { result } = renderHook(() => useCoachSelection());
@@ -401,9 +511,10 @@ describe('useCoachSelection', () => {
         });
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendTurn).toHaveBeenCalledWith(
         expect.any(String),
-        "Let's get started with Nutrition Coach!"
+        "Let's get started with Nutrition Coach!",
+        expect.objectContaining({ onDone: expect.any(Function), onError: expect.any(Function) })
       );
     });
   });

@@ -2,10 +2,27 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Modal for creating and editing custom coaches
-// ABOUTME: Includes form fields for title, description, system prompt, and category
+// ABOUTME: Form fields for title, description, system prompt, category, data context, tool budget
 
+import {
+  MIN_MAX_TOOL_ITERATIONS,
+  MAX_MAX_TOOL_ITERATIONS,
+  DEFAULT_MAX_TOOL_ITERATIONS,
+} from '@pierre/shared-constants';
 import type { CoachFormData } from './types';
 import { Select, Textarea, Radio } from '../ui';
+
+/**
+ * Hold the typed budget inside the range the server accepts. A cleared or
+ * non-numeric box yields `null` — the user asking to inherit again — which the
+ * update request sends as an explicit `null` so a stored pin is actually
+ * cleared instead of silently preserved.
+ */
+function clampToolIterations(raw: string): number | null {
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return null;
+  return Math.min(MAX_MAX_TOOL_ITERATIONS, Math.max(MIN_MAX_TOOL_ITERATIONS, parsed));
+}
 
 interface CoachFormModalProps {
   isOpen: boolean;
@@ -239,6 +256,37 @@ export default function CoachFormModal({
                   </label>
                 </div>
               )}
+            </div>
+
+            {/* Tool Budget Section */}
+            <div className="border-t ghost-border pt-4">
+              <h3 className="text-sm font-medium text-on-surface-variant mb-3">Tool Budget</h3>
+              <label
+                htmlFor="max-tool-iterations"
+                className="block text-xs font-medium text-on-surface-variant mb-1"
+              >
+                Max tool iterations per turn
+              </label>
+              <input
+                id="max-tool-iterations"
+                type="number"
+                min={MIN_MAX_TOOL_ITERATIONS}
+                max={MAX_MAX_TOOL_ITERATIONS}
+                value={formData.max_tool_iterations ?? ''}
+                placeholder={String(DEFAULT_MAX_TOOL_ITERATIONS)}
+                onChange={(e) =>
+                  onFormDataChange({
+                    ...formData,
+                    max_tool_iterations: clampToolIterations(e.target.value),
+                  })
+                }
+                className="w-full px-2 py-1.5 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+              <p className="mt-1 text-xs text-on-surface-variant">
+                How many tool-call rounds one reply may run before the coach answers from what it
+                has. {MIN_MAX_TOOL_ITERATIONS}–{MAX_MAX_TOOL_ITERATIONS}. Leave it empty to follow
+                the workspace limit, currently {DEFAULT_MAX_TOOL_ITERATIONS}.
+              </p>
             </div>
 
             <div className="flex gap-3 pt-2">

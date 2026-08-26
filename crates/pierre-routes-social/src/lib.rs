@@ -53,8 +53,6 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 
 use pierre_core::errors::AppError;
 use pierre_database::repositories::SocialRepository;
@@ -120,7 +118,6 @@ pub use settings::{
 
 /// Metadata for social responses
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SocialMetadata {
     /// Response timestamp
     pub timestamp: String,

@@ -29,6 +29,7 @@
 //!   (`tools-recipes`)
 //! - `routes` — `discover_routes` OSM + Overpass route discovery
 //!   (`tools-analytics`)
+//! - `store` — Coach Store browse / search / install (`tools-coaches`)
 //! - `sync` — `refresh_provider_data`, `get_data_freshness` (`tools-connection`)
 //! - `verification` — `verify_claim` tool (`tools-verification`)
 
@@ -54,6 +55,10 @@ pub mod analytics;
 /// Coach CRUD tools (`tools-coaches` feature).
 #[cfg(feature = "tools-coaches")]
 pub mod coaches;
+
+/// Result envelope and annotation sets shared by the coach tools (`tools-coaches` feature).
+#[cfg(feature = "tools-coaches")]
+mod coaches_tool_shape;
 
 /// User configuration tools: `get_configuration_catalog`, `get_user_configuration`,
 /// etc. (`tools-config` feature).
@@ -144,6 +149,11 @@ pub mod weather_forecast;
 /// `suggest_rest_day`, etc. (`tools-sleep` feature).
 #[cfg(feature = "tools-sleep")]
 pub mod sleep;
+
+/// Coach Store tools: `browse_coach_store`, `search_coach_store`,
+/// `install_coach_from_store` (`tools-coaches` feature).
+#[cfg(feature = "tools-coaches")]
+pub mod store;
 
 /// Sync / refresh tools: `refresh_provider_data`, `get_data_freshness`
 /// (`tools-connection` feature).

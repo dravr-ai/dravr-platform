@@ -31,10 +31,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use crate::turn::TurnInput;
-use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_GUARDIAN_DENIED,
-};
+use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_GUARDIAN_DENIED};
 use pierre_tool_runtime::tool_execution::ToolLoopResult;
 
 /// Apply Guardian-denied recovery in place.
@@ -45,20 +42,18 @@ use pierre_tool_runtime::tool_execution::ToolLoopResult;
 /// Returns `true` when the stage fired so callers can skip LLM-content-aware
 /// post-processing (text guardrails, claim verification); returns `false` when
 /// no tool was Guardian-denied and downstream stages should run normally.
+///
+/// `locale` is the turn's resolved BCP-47 short code, taken from
+/// [`crate::SurfaceProfile::locale`] — resolution happened at the ingress
+/// boundary, so this stage renders rather than re-derives.
 pub fn apply_guardian_denied(
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
-    input: &TurnInput,
+    locale: &str,
     result: &mut ToolLoopResult,
 ) -> bool {
     let Some(denial) = result.guardian_denied.as_ref() else {
         return false;
     };
-
-    let locale = input
-        .locale
-        .as_deref()
-        .filter(|l| !l.is_empty())
-        .unwrap_or(DEFAULT_LOCALE);
 
     // The user-facing string is placeholder-free by design: it must not leak
     // the blocked tool name or arguments back into the conversation. The tool

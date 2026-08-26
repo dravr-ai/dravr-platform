@@ -1,46 +1,29 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Language switcher hook for managing language changes
-// ABOUTME: Provides language persistence across app sessions
+// ABOUTME: Web language switcher hook backed by localStorage
+// ABOUTME: Changes chrome language and the coach's reply language in one call
 
-import { useEffect, useCallback } from 'react';
-import { useTranslation } from './types';
-import type { SupportedLanguage } from './config';
+import { useSwitcherCore, type LanguageSwitcherOptions, type LanguageSwitcherResult } from './switcherCore';
 
-export interface LanguageSwitcherOptions {
-  storageKey?: string;
-  onLanguageChange?: (language: SupportedLanguage) => void;
-}
+// Module-level so the identity is stable across renders — the restore effect
+// takes the storage object as a dependency.
+const webLocaleStorage = {
+  read: (key: string): Promise<string | null> => Promise.resolve(localStorage.getItem(key)),
+  write: (key: string, value: string): Promise<void> => {
+    localStorage.setItem(key, value);
+    return Promise.resolve();
+  },
+};
 
 /**
- * Hook for managing language switching with persistence
- * @param options Configuration options for the language switcher
+ * Manage the web app's language.
+ *
+ * Persists to `localStorage` for the next visit and to `users.locale` so the
+ * coach answers in the same language; `syncState` reports the server half.
  */
-export function useLanguageSwitcher(options: LanguageSwitcherOptions = {}) {
-  const { storageKey = 'pierre_app_language', onLanguageChange } = options;
-  const { i18n, language } = useTranslation();
-
-  // Load saved language on mount
-  useEffect(() => {
-    const savedLanguage = localStorage.getItem(storageKey);
-    if (savedLanguage && savedLanguage !== language) {
-      i18n.changeLanguage(savedLanguage);
-    }
-  }, [storageKey, i18n, language]);
-
-  // Change language and persist
-  const changeLanguage = useCallback(
-    (newLanguage: SupportedLanguage) => {
-      i18n.changeLanguage(newLanguage);
-      localStorage.setItem(storageKey, newLanguage);
-      onLanguageChange?.(newLanguage);
-    },
-    [i18n, storageKey, onLanguageChange]
-  );
-
-  return {
-    currentLanguage: language as SupportedLanguage,
-    changeLanguage,
-  };
+export function useLanguageSwitcher(options: LanguageSwitcherOptions = {}): LanguageSwitcherResult {
+  return useSwitcherCore(webLocaleStorage, options);
 }
+
+export type { LanguageSwitcherOptions, LanguageSwitcherResult };

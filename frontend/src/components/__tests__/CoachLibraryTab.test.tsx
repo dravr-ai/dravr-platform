@@ -9,6 +9,7 @@ import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import CoachLibraryTab from '../CoachLibraryTab';
+import { coachesApi } from '../../services/api';
 
 // Mock the coaches API
 vi.mock('../../services/api', () => ({
@@ -295,13 +296,13 @@ describe('CoachLibraryTab Component', () => {
     const createButtons = screen.getAllByRole('button', { name: /Create Coach/i });
     await user.click(createButtons[0]);
 
-    // Wait for form to appear
+    // Wait for the shared editor modal to appear
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/an expert coach with deep knowledge/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Define your coach's personality/i)).toBeInTheDocument();
     });
 
     // Type in system prompt field
-    const systemPromptField = screen.getByPlaceholderText(/an expert coach with deep knowledge/i);
+    const systemPromptField = screen.getByPlaceholderText(/Define your coach's personality/i);
     await user.type(systemPromptField, 'You are a professional coach with expertise.');
 
     // Should show token estimate (text length / 4)
@@ -376,6 +377,65 @@ describe('CoachLibraryTab Component', () => {
     });
 
     expect(screen.getByRole('button', { name: /Delete/i })).toBeInTheDocument();
+  });
+
+  describe('shared coach editor (CoachFormModal)', () => {
+    async function openCreateModal(user: ReturnType<typeof userEvent.setup>) {
+      await act(async () => {
+        renderCoachLibraryTab();
+      });
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: /Create Coach/i }).length).toBeGreaterThan(0);
+      });
+      const createButtons = screen.getAllByRole('button', { name: /Create Coach/i });
+      await user.click(createButtons[0]);
+      await waitFor(() => {
+        expect(screen.getByText('Create Custom Coach')).toBeInTheDocument();
+      });
+    }
+
+    it('creates a coach through CoachFormModal and sends the typed tool budget', async () => {
+      const user = userEvent.setup();
+      await openCreateModal(user);
+
+      await user.type(screen.getByPlaceholderText(/Marathon Training Coach/i), 'Budget Coach');
+      await user.type(
+        screen.getByPlaceholderText(/Define your coach's personality/i),
+        'You budget every tool call.'
+      );
+      await user.type(screen.getByLabelText('Max tool iterations per turn'), '25');
+
+      const submit = screen
+        .getAllByRole('button', { name: 'Create Coach' })
+        .find((b) => b.getAttribute('type') === 'submit');
+      expect(submit).toBeDefined();
+      await user.click(submit as HTMLElement);
+
+      await waitFor(() => {
+        expect(coachesApi.create).toHaveBeenCalledTimes(1);
+      });
+      expect(coachesApi.create).toHaveBeenCalledWith({
+        title: 'Budget Coach',
+        description: undefined,
+        system_prompt: 'You budget every tool call.',
+        category: 'Training',
+        max_tool_iterations: 25,
+      });
+    });
+
+    it('renders no inline editor chrome — the modal is the only editor', async () => {
+      const user = userEvent.setup();
+      await openCreateModal(user);
+
+      // Distinguishing chrome of the deleted inline editor: its Tags input
+      // and its full-page "Back to coaches" header button.
+      expect(
+        screen.queryAllByPlaceholderText('marathon, endurance, beginner (comma-separated)')
+      ).toHaveLength(0);
+      expect(screen.queryAllByTitle('Back to coaches')).toHaveLength(0);
+      // But the shared editor's budget field is reachable from this tab.
+      expect(screen.getByLabelText('Max tool iterations per turn')).toBeInTheDocument();
+    });
   });
 
   describe('search functionality', () => {

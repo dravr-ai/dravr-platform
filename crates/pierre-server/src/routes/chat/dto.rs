@@ -137,24 +137,13 @@ pub struct UpdateConversationRequest {
 }
 
 /// Request to send a message
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SendMessageRequest {
     /// Message content
     pub content: String,
     /// Whether to stream the response
     #[serde(default)]
     pub stream: bool,
-    /// Optional caller-supplied AG-UI `run_id` (UUID).
-    ///
-    /// When present the server registers the run under this id and
-    /// emits AG-UI events the client can consume in parallel via
-    /// `GET /api/agui/runs/{run_id}/stream`.
-    ///
-    /// Use a fresh UUID per turn. Clients that do not care about
-    /// progress feedback should omit the field — the pipeline runs
-    /// without AG-UI overhead in that case.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agui_run_id: Option<String>,
 }
 
 /// Response for a message
@@ -183,52 +172,11 @@ pub struct MessageResponse {
     pub created_at: String,
 }
 
-/// Response with chat completion (non-streaming)
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ChatCompletionResponse {
-    /// User message
-    pub user_message: MessageResponse,
-    /// Assistant response
-    pub assistant_message: MessageResponse,
-    /// Conversation updated timestamp
-    pub conversation_updated_at: String,
-    /// LLM model used for the response
-    pub model: String,
-    /// Total execution time in milliseconds (including tool calls)
-    pub execution_time_ms: u64,
-    /// Activity list from `get_activities` tool, kept separate from message content
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub activity_list: Option<String>,
-    /// Optional card title for command responses (e.g. `/coach` → "Choose a coach").
-    /// Present only when the assistant reply came from a slash-command handler that
-    /// returned a card shape; absent for regular LLM turns.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub card_title: Option<String>,
-    /// Optional action buttons for command responses (e.g. per-coach select buttons).
-    /// Frontends render these as clickable buttons whose click re-POSTs the action's
-    /// `value` (e.g. `/coach select <uuid>`) as the user's next message, flowing back
-    /// through the same dispatch pipeline.
-    ///
-    /// Not persisted — exists only on the turn that produced them. Historical
-    /// messages show the rendered text body.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub actions: Option<Vec<ChatMessageAction>>,
-    /// When `true`, the assistant response came from a local slash-command
-    /// handler rather than the LLM. Frontends can skip the usual
-    /// "LLM-generated" caveats/UI treatment on these turns.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub is_command_response: bool,
-    /// AG-UI `run_id` echoed back when the request supplied one. The
-    /// caller uses it to correlate this turn with its parallel
-    /// `/api/agui/runs/{run_id}/stream` subscription.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub agui_run_id: Option<String>,
-}
-
-/// Interactive button attached to a command-response turn.
+/// Interactive control attached to a turn.
 ///
-/// Mirrors the `CommandAction` shape from `pierre-messaging` but lives in
-/// the HTTP DTO layer so frontends don't need to import messaging types.
+/// The wire form of [`pierre_chat_pipeline::TurnAction`], carried inside an
+/// `actions` reply block. Lives in the HTTP DTO layer so frontends don't need
+/// to import pipeline types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessageAction {
     /// User-visible button label.

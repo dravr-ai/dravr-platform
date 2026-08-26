@@ -23,6 +23,8 @@ pub mod claim_verdicts;
 /// Coaches repository implementation
 pub mod coaches;
 mod coaches_assignments;
+/// `PostgreSQL` row → coach mappers and the coach content/request hashes.
+mod coaches_rows;
 /// Coaching group repository implementation (group CRUD, membership, invites)
 pub mod coaching_groups;
 /// Athlete commitments (`Postgres`) backing `CommitmentRepository`.
@@ -44,6 +46,8 @@ pub mod memory;
 /// Messaging gateway repository implementations
 pub mod messaging;
 pub mod messaging_link_states;
+/// Reaction → chat-message resolution for the shared per-message feedback write
+pub mod messaging_reactions;
 /// Mobility repository implementation (stretching exercises and yoga poses)
 pub mod mobility;
 /// OAuth token and authorization repository implementations
@@ -87,6 +91,8 @@ pub mod user;
 pub mod user_onboarding;
 /// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (Postgres)
 pub mod user_physiological_profiles;
+/// Single-column preference writes on the users row (locale, persona, theme, …)
+pub mod user_preferences;
 /// Per-user rate-limit exemption table (`Postgres`) backing `UserRateLimitOverrideRepository`.
 pub mod user_rate_limit_overrides;
 /// Per-user admin tier override table (`Postgres`) backing `UserTierOverrideRepository`.

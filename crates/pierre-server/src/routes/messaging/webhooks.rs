@@ -9,7 +9,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use pierre_core::models::messaging::{ChannelType, IncomingMessage};
+use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
 use pierre_messaging::channel::MessagingChannel;
@@ -25,6 +25,7 @@ use tracing::{debug, error, field, info, warn, Instrument, Span};
 
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
+use crate::services::messaging_ingress::reactions;
 use pierre_core::errors::AppError;
 
 /// Result of tenant-aware webhook verification
@@ -37,6 +38,9 @@ struct WebhookVerification {
     adapter: Arc<dyn MessagingChannel>,
     /// Parsed inbound messages
     messages: Vec<IncomingMessage>,
+    /// Emoji reactions parsed from the same verified body. Always empty for a
+    /// channel whose descriptor delivers none.
+    reactions: Vec<InboundReaction>,
 }
 
 /// Query parameters for Meta webhook verification (GET request)
@@ -213,6 +217,14 @@ pub async fn handle_webhook(
         if let Some(handshake) = detect_handshake_response(&channel, &body) {
             return Ok((StatusCode::OK, Json(handshake)));
         }
+    }
+
+    // Reactions are rated against messages already sent, so they resolve
+    // against the database this webhook just read — no LLM turn, no reply.
+    // Applied before the dispatch spawn so a payload carrying only reactions
+    // finishes its work inside the request.
+    if !verification.reactions.is_empty() {
+        messaging_ingress::reactions::apply_reactions(&resources, &verification.reactions).await;
     }
 
     // Spawn LLM dispatch as background tasks (non-blocking, webhook returns immediately).
@@ -442,12 +454,44 @@ async fn parse_and_verify(
         AppError::invalid_input(format!("Invalid webhook payload: {e}"))
     })?;
 
+    let reactions = parse_reactions(channel_type, adapter.as_ref(), headers, body).await;
+
     Ok(WebhookVerification {
         tenant_id,
         channel_type,
         adapter,
         messages,
+        reactions,
     })
+}
+
+/// Parse emoji reactions out of the same verified body `receive` just read.
+///
+/// Reactions are feedback on a message already delivered, not new
+/// conversational input, so canot surfaces them on their own call. Channels
+/// whose webhook API carries no reaction event are skipped by asking their
+/// descriptor, never by matching a channel name — a Meta payload therefore
+/// never reaches the reaction mapper at all.
+///
+/// A payload the reaction parser rejects is logged and treated as carrying no
+/// reactions: the messages in the same body have already been parsed and must
+/// still be delivered.
+async fn parse_reactions(
+    channel_type: ChannelType,
+    adapter: &dyn MessagingChannel,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Vec<InboundReaction> {
+    if !reactions::channel_delivers_reactions(channel_type) {
+        return Vec::new();
+    }
+    match adapter.receive_reactions(headers, body).await {
+        Ok(reactions) => reactions,
+        Err(e) => {
+            warn!(channel = %channel_type, error = %e, "Failed to parse inbound reactions");
+            Vec::new()
+        }
+    }
 }
 
 /// A verified webhook config: its owning tenant paired with the constructed

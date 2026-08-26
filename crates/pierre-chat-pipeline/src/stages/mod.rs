@@ -8,8 +8,9 @@
 //!
 //! Each stage is a small, independently-testable function with a narrow
 //! input/output contract. [`super::run`] composes these in a fixed order;
-//! per-channel behavior is gated by [`super::ChannelProfile`], never by
-//! reordering stages or adding conditional branches inside stage bodies.
+//! per-surface behavior is gated by the capabilities on
+//! [`super::SurfaceProfile`], never by reordering stages or adding
+//! conditional branches inside stage bodies.
 //!
 //! Stages are grouped by the pipeline phase they belong to:
 //!
@@ -18,12 +19,11 @@
 //! - Pre-LLM preparation: [`prefetch`], [`compaction`]
 //! - Post-LLM processing: [`guardrails`], [`verification`]
 //! - Lifecycle I/O: [`persistence`]
-//!
-//! Extracted in a later commit on this branch. Module structure lands
-//! first so callers can reference the target paths during migration.
 
 /// First-use acronym expansion: gloss catalogued acronyms deterministically.
 pub mod acronym_expansion;
+/// Shape a `get_activities` list for a surface that folds it into prose.
+pub mod activity_fold;
 /// Re-auth recovery: short-circuit a turn with a hosted-login URL.
 pub mod auth_recovery;
 /// Capability-failure recovery: verify a "my data access is broken" claim
@@ -35,6 +35,8 @@ pub mod compaction;
 /// Deterministic completion for the calibration interview — the facts-landed
 /// check and the platform-rendered wrap-up.
 pub mod completion;
+/// Turns the platform answers itself, without the LLM.
+pub mod deterministic_reply;
 pub mod followups;
 /// Guardian confirm-required recovery: short-circuit a turn with the
 /// localized confirmation ask when the Guardian parked a destructive call.

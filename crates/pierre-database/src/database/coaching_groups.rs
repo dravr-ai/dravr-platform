@@ -9,7 +9,8 @@ use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
     CoachingGroup, GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
-    GroupSummary, UpdateGroupRequest,
+    GroupSummary, GroupTranscriptEntry, NewGroupTranscriptEntry, TranscriptSpeaker,
+    UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use sqlx::sqlite::SqliteRow;
@@ -119,6 +120,32 @@ fn row_to_member(r: &SqliteRow) -> AppResult<GroupMember> {
         joined_at: parse_dt("joined_at", &joined)?,
         left_at: left.map(|s| parse_dt("left_at", &s)).transpose()?,
         display_name: r.try_get("display_name").ok(),
+    })
+}
+
+/// Map a `SQLite` row to `GroupTranscriptEntry`
+fn row_to_transcript_entry(r: &SqliteRow) -> AppResult<GroupTranscriptEntry> {
+    let id_str: String = r.get("id");
+    let group_str: String = r.get("group_id");
+    let author_str: String = r.get("author_user_id");
+    let speaker_str: String = r.get("speaker");
+    let created: String = r.get("created_at");
+
+    Ok(GroupTranscriptEntry {
+        id: parse_uuid_col("id", &id_str)?,
+        group_id: parse_uuid_col("group_id", &group_str)?,
+        tenant_id: r.get("tenant_id"),
+        author_user_id: parse_uuid_col("author_user_id", &author_str)?,
+        speaker: TranscriptSpeaker::from_str_opt(&speaker_str).ok_or_else(|| {
+            AppError::database(format!(
+                "group_transcript_entries column `speaker` holds unknown value `{speaker_str}`"
+            ))
+        })?,
+        content: r.get("content"),
+        source_conversation_id: r.get("source_conversation_id"),
+        source_message_id: r.get("source_message_id"),
+        created_at: parse_dt("created_at", &created)?,
+        author_display_name: r.try_get("author_display_name").ok(),
     })
 }
 
@@ -681,5 +708,74 @@ impl CoachingGroupRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to count groups: {e}")))?;
 
         Ok(row.get("cnt"))
+    }
+
+    async fn append_transcript_entry(&self, entry: &NewGroupTranscriptEntry<'_>) -> AppResult<()> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r"INSERT INTO group_transcript_entries
+              (id, group_id, tenant_id, author_user_id, speaker, content,
+               source_conversation_id, source_message_id, created_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(&id)
+        .bind(entry.group_id)
+        .bind(entry.tenant_id)
+        .bind(entry.author_user_id.to_string())
+        .bind(entry.speaker.as_str())
+        .bind(entry.content)
+        .bind(entry.source_conversation_id)
+        .bind(entry.source_message_id)
+        .bind(&now)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to append transcript entry: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn list_transcript_visible_to(
+        &self,
+        group_id: &str,
+        viewer_user_id: Uuid,
+        limit: i64,
+    ) -> AppResult<Vec<GroupTranscriptEntry>> {
+        // No tenant filter — membership is cross-tenant; the caller verified
+        // the viewer's membership. Consent-gated like the peer-grounding
+        // fetch: peers' entries need the group kill-switch AND that member's
+        // own standing consent; the viewer always sees their own entries.
+        let rows = sqlx::query(
+            r"SELECT e.id, e.group_id, e.tenant_id, e.author_user_id, e.speaker,
+              e.content, e.source_conversation_id, e.source_message_id, e.created_at,
+              u.email AS author_display_name
+              FROM group_transcript_entries e
+              JOIN coaching_groups g ON g.id = e.group_id
+              LEFT JOIN users u ON u.id = e.author_user_id
+              WHERE e.group_id = $1
+                AND (
+                  e.author_user_id = $2
+                  OR (
+                    g.peer_data_sharing = 1
+                    AND EXISTS (
+                      SELECT 1 FROM coaching_group_members gm
+                      WHERE gm.group_id = e.group_id
+                        AND gm.user_id = e.author_user_id
+                        AND gm.peer_sharing_consent = 1
+                        AND gm.left_at IS NULL
+                    )
+                  )
+                )
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT $3",
+        )
+        .bind(group_id)
+        .bind(viewer_user_id.to_string())
+        .bind(limit.clamp(1, 500))
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list transcript entries: {e}")))?;
+
+        rows.iter().map(row_to_transcript_entry).collect()
     }
 }

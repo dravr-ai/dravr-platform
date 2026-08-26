@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import MessageItem from '../MessageItem';
 import type { Message } from '../types';
-import type { ChatVerdictRow } from '@pierre/api-client';
+import type { ClaimVerdict } from '@pierre/shared-types';
 
 function assistantMessage(): Message {
   return {
@@ -28,7 +28,7 @@ function userMessage(): Message {
   };
 }
 
-function verdictForMessage(messageId: string, overrides: Partial<ChatVerdictRow> = {}): ChatVerdictRow {
+function verdictForMessage(messageId: string, overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
   return {
     id: 'v1',
     conversation_id: 'conv-1',
@@ -75,7 +75,7 @@ describe('MessageItem claim verdict chip', () => {
   });
 
   it('summarizes worst-status across multiple verdicts', () => {
-    const verdicts: ChatVerdictRow[] = [
+    const verdicts: ClaimVerdict[] = [
       verdictForMessage('msg-1', { id: 'v1', status: 'supported', evidence_strength: 'strong' }),
       verdictForMessage('msg-1', { id: 'v2', status: 'unsupported', evidence_strength: 'mixed' }),
       verdictForMessage('msg-1', { id: 'v3', status: 'contradicted', evidence_strength: 'weak' }),

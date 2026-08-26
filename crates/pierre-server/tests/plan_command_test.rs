@@ -17,6 +17,7 @@
 use anyhow::Result;
 use pierre_commands::plan::PlanShowHandler;
 use pierre_commands::{CommandHandler, PlatformCommandContext};
+use pierre_core::chunking::chunk_reply;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -836,6 +837,80 @@ async fn an_empty_day_inside_a_covered_week_still_reports_no_session() -> Result
     assert!(
         !text.contains("The plan resumes on"),
         "a plan that already covers today has nothing to resume: {text}"
+    );
+    Ok(())
+}
+
+/// The plan arrives whole, and the surface's ceiling splits it rather than
+/// cutting it.
+///
+/// Two regressions meet in this one reply. `/plan` used to cut every channel
+/// at one hardcoded floor, spending Slack's 40,000-character headroom as if it
+/// were 2,000 (registre#1); it then cut at the *right* number but still cut,
+/// appending a "truncated" marker and telling the athlete to run a different
+/// command to see the rest (registre#2). The handler renders the whole plan
+/// now, and the egress splits it into messages each channel will accept —
+/// sized by that channel's own number, never a constant.
+#[tokio::test]
+async fn the_whole_plan_is_rendered_and_the_surface_ceiling_only_splits_it() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    seed_plan(&resources, user_id, tenant).await?;
+
+    let text = PlanShowHandler
+        .execute(&ctx(
+            &resources,
+            user_id,
+            tenant,
+            &conversation_id,
+            vec!["week".to_owned()],
+        ))
+        .await?
+        .text;
+
+    assert!(
+        text.contains("long endurance"),
+        "the tail of the week must survive the render: {text}"
+    );
+    assert!(
+        !text.contains("truncated"),
+        "nothing is cut, so nothing announces a cut: {text}"
+    );
+    assert!(
+        text.chars().count() > 240,
+        "fixture must be long enough to split: {} chars",
+        text.chars().count()
+    );
+
+    // The same body, laid out for two channels an order of magnitude apart.
+    let cramped = chunk_reply(&text, 240);
+    let roomy = chunk_reply(&text, 40_000);
+
+    assert!(
+        cramped.len() > 1,
+        "a 240-character surface receives several messages, not a truncated one"
+    );
+    assert_eq!(
+        roomy.len(),
+        1,
+        "a 40,000-character surface carries the whole plan in one"
+    );
+    for (index, part) in cramped.iter().enumerate() {
+        assert!(
+            part.chars().count() <= 240,
+            "part {index} is {} characters, over the surface ceiling",
+            part.chars().count()
+        );
+    }
+    let split: String = cramped
+        .concat()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let whole: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    assert_eq!(split, whole, "the split loses nothing the render produced");
+    assert!(
+        cramped.iter().any(|part| part.contains("long endurance")),
+        "the tail the old cap dropped now arrives in a later message"
     );
     Ok(())
 }

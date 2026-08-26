@@ -17,10 +17,16 @@
 #      doc comments describing behaviour in the present tense, but nothing has
 #      ever implemented them, so the branches are unreachable and the real
 #      quota enforcement lives elsewhere (pierre-services/src/usage_counter.rs).
-#   2. A @pierre/api-client domain method with ZERO production call sites.
+#   2. A @pierre/api-client domain method with ZERO production call sites, or
+#      with call sites on only ONE of the two in-app clients.
 #      Recurrence: authApi.refreshToken(), which posts grant_type=refresh_token
 #      to an endpoint whose handler rejects that grant — dormant because no
 #      caller has ever exercised it.
+#      Recurrence: the whole 2026-08 parity survey. This scan used to pool web,
+#      mobile, the shared packages and the SDK into ONE caller list, so a method
+#      called from web alone read as "consumed" and every client-side parity gap
+#      passed green. The pools are separate now: web-only and mobile-only are
+#      reported as the gaps they are.
 #
 # Both were found by a manual cold read months after they were written. Neither
 # is visible to a regression test: nothing broke, because nothing ran.
@@ -107,42 +113,62 @@ else
     grep -rhoE '^[[:space:]]{4}async [a-zA-Z0-9_]+\(' "$DOMAINS"/*.ts 2>/dev/null \
         | sed -E 's/^[[:space:]]*async //; s/\($//' | sort -u > "$TMP/methods.txt"
 
-    # Production consumers only: both apps, the shared packages and the SDK,
-    # excluding test files and the definition files themselves. A method whose
-    # only callers are tests is precisely what the dual rule calls phantom.
-    find frontend/src frontend-mobile/src packages/*/src sdk/src \
-        \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null \
-        | grep -vE '__tests__|\.test\.|\.spec\.' \
-        | grep -v "^${DOMAINS}/" > "$TMP/prod_files.txt"
-
-    PROD_N=$(grep -c . < "$TMP/prod_files.txt" || true)
     METHOD_N=$(grep -c . < "$TMP/methods.txt" || true)
+
+    # Production consumers, per surface. `web` and `mobile` are the two in-app
+    # clients; `shared` is everything that serves both (the api-client's own
+    # core, the shared packages, the SDK). Test files and the definition files
+    # themselves are excluded — a method whose only callers are tests is
+    # precisely what the dual rule calls phantom.
+    surface_files() {
+        find "$@" \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null \
+            | grep -vE '__tests__|\.test\.|\.spec\.' \
+            | grep -v "^${DOMAINS}/"
+    }
+    surface_files frontend/src > "$TMP/files_web.txt"
+    surface_files frontend-mobile/src > "$TMP/files_mobile.txt"
+    surface_files packages/api-client/src packages/shared-constants/src \
+        packages/shared-types/src packages/mcp-types/src sdk/src > "$TMP/files_shared.txt"
+
+    PROD_N=$(cat "$TMP"/files_*.txt 2>/dev/null | grep -c . || true)
 
     if [[ "$PROD_N" -eq 0 || "$METHOD_N" -eq 0 ]]; then
         echo -e "${RED}❌ Parsed zero api-client methods or zero production files — this scan is stale.${NC}"
         FAILED=true
     else
-        # One pass: every method reached by member access anywhere in production
-        # sources. Matching `.name` rather than the bare identifier keeps
-        # by-reference uses in — `queryFn: api.user.getProfile` still carries the
-        # dot — while not counting an unrelated local variable of the same name
-        # as a caller. `authApi.refreshToken` is exactly that case: the bare
+        # Matching `.name` rather than the bare identifier keeps by-reference
+        # uses in — `queryFn: api.user.getProfile` still carries the dot —
+        # while not counting an unrelated local variable of the same name as a
+        # caller. `authApi.refreshToken` is exactly that case: the bare
         # identifier appears all over the auth code as a local, so an
         # identifier-level scan called it used when nothing calls it.
         # The trailing (non-word|end-of-line) group stops `.getVersion` from
         # matching `.getVersionDiff`.
         sed -E 's/^/\\./; s/$/([^a-zA-Z0-9_]|$)/' "$TMP/methods.txt" > "$TMP/patterns.txt"
-        # NUL-delimited xargs from stdin: `xargs -a` is GNU-only and BSD xargs
-        # rejects it, which silently produced an empty match set on macOS and
-        # reported every method as an orphan.
-        tr '\n' '\0' < "$TMP/prod_files.txt" \
-            | xargs -0 grep -ohEf "$TMP/patterns.txt" 2>/dev/null \
-            | sed -E 's/^\.//; s/[^a-zA-Z0-9_]$//' \
-            | sort -u > "$TMP/used.txt"
+
+        for surface in web mobile shared; do
+            # NUL-delimited xargs from stdin: `xargs -a` is GNU-only and BSD
+            # xargs rejects it, which silently produced an empty match set on
+            # macOS and reported every method as an orphan.
+            tr '\n' '\0' < "$TMP/files_${surface}.txt" \
+                | xargs -0 grep -ohEf "$TMP/patterns.txt" 2>/dev/null \
+                | sed -E 's/^\.//; s/[^a-zA-Z0-9_]$//' \
+                | sort -u > "$TMP/used_${surface}.txt"
+        done
+        sort -u "$TMP/used_web.txt" "$TMP/used_mobile.txt" "$TMP/used_shared.txt" > "$TMP/used.txt"
+
         comm -23 "$TMP/methods.txt" "$TMP/used.txt" > "$TMP/orphan_methods.txt"
+        # A parity gap: reached from one client, from neither the other client
+        # nor any shared consumer that would serve both.
+        comm -23 "$TMP/used_web.txt" "$TMP/used_mobile.txt" \
+            | comm -23 - "$TMP/used_shared.txt" > "$TMP/web_only.txt"
+        comm -23 "$TMP/used_mobile.txt" "$TMP/used_web.txt" \
+            | comm -23 - "$TMP/used_shared.txt" > "$TMP/mobile_only.txt"
 
         USED_N=$(grep -c . < "$TMP/used.txt" || true)
         ORPHAN_METHOD_N=$(grep -c . < "$TMP/orphan_methods.txt" || true)
+        WEB_ONLY_N=$(grep -c . < "$TMP/web_only.txt" || true)
+        MOBILE_ONLY_N=$(grep -c . < "$TMP/mobile_only.txt" || true)
 
         # Completeness tripwire: both apps call login/logout/getStatus and many
         # more, so a near-empty match set means the scan itself broke, not that
@@ -165,6 +191,22 @@ else
                 SITE=$(grep -rnE "async ${m}\(" "$DOMAINS"/*.ts 2>/dev/null | head -1 | cut -d: -f1,2)
                 echo "   $m  ($SITE)"
             done < "$TMP/orphan_methods.txt"
+        fi
+
+        if [[ "$ORPHAN_METHOD_N" -ne -1 ]]; then
+            if [[ "$WEB_ONLY_N" -eq 0 && "$MOBILE_ONLY_N" -eq 0 ]]; then
+                echo -e "${GREEN}✅ api-client parity: every called method is reached from both clients.${NC}"
+            else
+                echo -e "${YELLOW}⚠️  api-client methods called from one client only (${WEB_ONLY_N} web, ${MOBILE_ONLY_N} mobile):${NC}"
+                while read -r m; do
+                    [[ -z "$m" ]] && continue
+                    echo "   web only:    $m"
+                done < "$TMP/web_only.txt"
+                while read -r m; do
+                    [[ -z "$m" ]] && continue
+                    echo "   mobile only: $m"
+                done < "$TMP/mobile_only.txt"
+            fi
         fi
     fi
 fi
@@ -255,6 +297,22 @@ if [[ -n "$BASE_REF" ]]; then
     ADDED="$(git diff -U0 "${BASE_REF}...HEAD" -- 'crates/*/src/*.rs' "$DOMAINS" 2>/dev/null \
         | grep '^+' | grep -v '^+++' || true)"
 
+    # Per-client removals, attributed by tree. A method loses parity two ways:
+    # it arrives with a caller on one client only, or its caller on one client
+    # is taken away while the other keeps using it. The second is invisible to
+    # every other gate — nothing breaks, the endpoint still exists, and the
+    # client that dropped it simply stops offering the capability.
+    #
+    # `--diff-filter=d` excludes whole-file deletions: a call site that goes
+    # away because the component around it was deleted is a visible, reviewed
+    # act, and the file was often unrendered scaffolding whose "call" nothing
+    # ever executed. What this catches is the quiet one — a live file losing a
+    # call while the other client keeps making it.
+    REMOVED_WEB="$(git diff -U0 --diff-filter=d "${BASE_REF}...HEAD" -- 'frontend/src' 2>/dev/null \
+        | grep '^-' | grep -v '^---' || true)"
+    REMOVED_MOBILE="$(git diff -U0 --diff-filter=d "${BASE_REF}...HEAD" -- 'frontend-mobile/src' 2>/dev/null \
+        | grep '^-' | grep -v '^---' || true)"
+
     NEW_FOUND=false
     while read -r t; do
         [[ -z "$t" ]] && continue
@@ -274,6 +332,27 @@ if [[ -n "$BASE_REF" ]]; then
         done < "$TMP/orphan_methods.txt"
     fi
 
+    # Parity gaps this change is responsible for.
+    check_parity() {
+        local list="$1" have="$2" missing="$3" removed="$4"
+        [[ -f "$list" ]] || return 0
+        while read -r m; do
+            [[ -z "$m" ]] && continue
+            # Here-strings rather than a pipe into `grep -q`: grep exits at the
+            # first match and the writer takes a SIGPIPE, which prints a
+            # "write error: Broken pipe" line per hit over a diff this size.
+            if grep -qE "async ${m}\(" <<< "$ADDED"; then
+                echo -e "${RED}❌ New api-client method called from ${have} only: ${m}${NC}"
+                NEW_FOUND=true
+            elif grep -qE "\.${m}([^a-zA-Z0-9_]|$)" <<< "$removed"; then
+                echo -e "${RED}❌ ${missing} dropped its last caller of ${m}; ${have} still calls it${NC}"
+                NEW_FOUND=true
+            fi
+        done < "$list"
+    }
+    check_parity "$TMP/web_only.txt" "web" "mobile" "$REMOVED_MOBILE"
+    check_parity "$TMP/mobile_only.txt" "mobile" "web" "$REMOVED_WEB"
+
     if [[ -f "$TMP/orphan_config_fields.txt" ]]; then
         while IFS=$'\t' read -r fld _file; do
             [[ -z "$fld" ]] && continue
@@ -287,12 +366,15 @@ if [[ -n "$BASE_REF" ]]; then
     if [[ "$NEW_FOUND" == "true" ]]; then
         echo ""
         echo -e "${RED}A capability that nothing implements or calls is a phantom surface.${NC}"
-        echo -e "${YELLOW}Wire a production consumer in this same change, or register the gap with a${NC}"
-        echo -e "${YELLOW}LIMITATION(registre#issue): marker naming the item. Do not ship it bare —${NC}"
-        echo -e "${YELLOW}nothing breaks when a phantom is wrong, so no test will ever find it.${NC}"
+        echo -e "${RED}A capability only one client calls is the same thing, on one surface.${NC}"
+        echo -e "${YELLOW}Wire a production consumer on every surface that should have it in this${NC}"
+        echo -e "${YELLOW}same change, or register the gap with a LIMITATION(registre#issue):${NC}"
+        echo -e "${YELLOW}marker naming the item. Do not ship it bare — nothing breaks when a${NC}"
+        echo -e "${YELLOW}phantom is wrong, so no test will ever find it.${NC}"
         FAILED=true
     else
-        echo -e "${GREEN}✅ This change adds no unimplemented trait and no uncalled api-client method.${NC}"
+        echo -e "${GREEN}✅ This change adds no unimplemented trait, no uncalled api-client method,${NC}"
+        echo -e "${GREEN}   and no method that reaches one client but not the other.${NC}"
     fi
 fi
 

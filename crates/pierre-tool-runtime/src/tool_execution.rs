@@ -26,6 +26,7 @@ use tracing::{info, warn};
 
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
+use crate::headless_stream;
 use crate::protocol::{UniversalExecutor, UniversalResponse};
 use crate::registry::ToolRegistry;
 use crate::tool_results::extract_activity_list;
@@ -35,7 +36,7 @@ use pierre_llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponseWithTools, FunctionCall,
     FunctionDeclaration, FunctionResponse, McpServerConfig, MessageRole, TokenUsage, Tool,
 };
-use pierre_services::chat_stream::{ChatStreamEvent, ChatStreamSink};
+use pierre_services::chat_stream::TurnEventSink;
 
 // ============================================================================
 // Shared Types
@@ -157,9 +158,9 @@ pub struct ToolLoopParams<'a> {
     /// headless tool loop branch, the loop calls Copilot's
     /// `converse_stream()` instead of `converse()` and forwards each
     /// observed text delta and tool-call snapshot through the sink.
-    /// The sink is a [`pierre_services::chat_stream::ChatStreamSink`]
+    /// The sink is a [`pierre_services::chat_stream::TurnEventSink`]
     /// — see that type for the event shape.
-    pub stream_sink: Option<ChatStreamSink>,
+    pub stream_sink: Option<TurnEventSink>,
     /// MCP servers exposed to an ACP-managed provider (Copilot Headless) so
     /// the model can call Dravr tools natively over the Agent Client Protocol
     /// instead of text-based `<tool_call>` simulation. Only the headless tool
@@ -1747,7 +1748,7 @@ async fn run_headless_tool_loop(
 
     let call_start = Instant::now();
     let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
-        run_headless_streaming(headless_runner, &request, sink).await
+        headless_stream::run_headless_streaming(headless_runner, &request, sink).await
     } else {
         headless_runner
             .converse(&request)
@@ -1974,56 +1975,6 @@ async fn retry_headless_turn(
         usage: retry.usage,
         finish_reason: retry.finish_reason,
         tool_calls,
-    })
-}
-
-/// Run a streaming Copilot ACP turn, forwarding text deltas and tool-call
-/// observations to `sink` while accumulating the same final
-/// [`HeadlessToolResponse`] that the non-streaming `converse()` produces.
-///
-/// Returns the aggregated response so the caller can record per-call usage
-/// and fold it into `ToolLoopResult` exactly like the non-streaming branch.
-async fn run_headless_streaming(
-    headless_runner: &pierre_llm::CopilotHeadlessRunner,
-    request: &ChatRequest,
-    sink: &ChatStreamSink,
-) -> Result<pierre_llm::HeadlessToolResponse, AppError> {
-    use pierre_llm::HeadlessStreamEvent;
-    use tokio_stream::StreamExt;
-
-    let mut stream = headless_runner
-        .converse_stream(request)
-        .await
-        .map_err(AppError::from)?;
-    let mut final_response: Option<pierre_llm::HeadlessToolResponse> = None;
-
-    while let Some(item) = stream.next().await {
-        let event = item.map_err(AppError::from)?;
-        match event {
-            HeadlessStreamEvent::TextDelta(delta) => {
-                // Send may fail if the receiver was dropped (client disconnected
-                // or the pipeline aborted) — treat as a benign no-op so the ACP
-                // session keeps draining and the run still completes cleanly.
-                let _ = sink.send(ChatStreamEvent::TextDelta(delta));
-            }
-            HeadlessStreamEvent::ToolCall(tc) => {
-                let _ = sink.send(ChatStreamEvent::ToolCall {
-                    id: tc.id,
-                    title: tc.title,
-                    status: tc.status,
-                });
-            }
-            HeadlessStreamEvent::Done(response) => {
-                final_response = Some(response);
-            }
-        }
-    }
-
-    final_response.ok_or_else(|| {
-        AppError::external_service(
-            "copilot-headless",
-            "converse_stream completed without a Done event",
-        )
     })
 }
 

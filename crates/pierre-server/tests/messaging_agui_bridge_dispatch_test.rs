@@ -163,10 +163,15 @@ async fn dispatch_telegram_hits_send_message() {
         placeholder_text: "thinking…",
         api_base_override: Some(&mock_base),
     };
-    let adapter = open_status_adapter(&params).await;
-    assert!(
-        adapter.is_some(),
-        "Telegram dispatch must return Some(adapter) when the mock responds with a valid handshake"
+    let opened = open_status_adapter(&params).await;
+    let opened =
+        opened.expect("Telegram dispatch returns an open bridge when the mock handshake succeeds");
+    // The placeholder's own id: once `finalize` collapses it into the reply,
+    // this is the channel message an emoji reaction will quote, and the id the
+    // outbound row is persisted under.
+    assert_eq!(
+        opened.channel_message_id, "4242",
+        "the Telegram bridge carries the placeholder's message_id"
     );
 
     let captured = calls.lock().expect("mutex").clone();
@@ -196,10 +201,12 @@ async fn dispatch_slack_hits_chat_post_message() {
         placeholder_text: "thinking…",
         api_base_override: Some(&mock_base),
     };
-    let adapter = open_status_adapter(&params).await;
-    assert!(
-        adapter.is_some(),
-        "Slack dispatch must return Some(adapter) when the mock responds with a valid handshake"
+    let opened = open_status_adapter(&params).await;
+    let opened =
+        opened.expect("Slack dispatch returns an open bridge when the mock handshake succeeds");
+    assert_eq!(
+        opened.channel_message_id, "1700000000.000100",
+        "the Slack bridge carries the placeholder's ts"
     );
 
     let captured = calls.lock().expect("mutex").clone();
@@ -229,10 +236,12 @@ async fn dispatch_discord_hits_channel_messages() {
         placeholder_text: "thinking…",
         api_base_override: Some(&mock_base),
     };
-    let adapter = open_status_adapter(&params).await;
-    assert!(
-        adapter.is_some(),
-        "Discord dispatch must return Some(adapter) when the mock responds with a valid handshake"
+    let opened = open_status_adapter(&params).await;
+    let opened =
+        opened.expect("Discord dispatch returns an open bridge when the mock handshake succeeds");
+    assert_eq!(
+        opened.channel_message_id, "msg-1",
+        "the Discord bridge carries the placeholder's message id"
     );
 
     let captured = calls.lock().expect("mutex").clone();

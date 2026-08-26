@@ -2,11 +2,13 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Chat message input component with textarea and send button
-// ABOUTME: Handles keyboard shortcuts and ideas popover
+// ABOUTME: Handles keyboard shortcuts, the slash-command palette, and the ideas popover
 
 import { useRef, useEffect } from 'react';
 import { clsx } from 'clsx';
 import PromptSuggestions from '../PromptSuggestions';
+import CommandPalette from '../CommandPalette';
+import { useCommandPalette } from '../../hooks/useCommandPalette';
 
 interface MessageInputProps {
   value: string;
@@ -18,6 +20,11 @@ interface MessageInputProps {
   showIdeas: boolean;
   onToggleIdeas: () => void;
   onSelectPrompt: (prompt: string, coachId?: string) => void;
+  /**
+   * The open conversation, passed to the slash-command palette so group-scoped
+   * commands are resolved for the group this conversation is bound to.
+   */
+  conversationId?: string | null;
 }
 
 export default function MessageInput({
@@ -29,8 +36,10 @@ export default function MessageInput({
   showIdeas,
   onToggleIdeas,
   onSelectPrompt,
+  conversationId,
 }: MessageInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const palette = useCommandPalette({ value, conversationId, onChange });
 
   // Focus input on mount
   useEffect(() => {
@@ -38,6 +47,9 @@ export default function MessageInput({
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // The palette owns Enter, Tab, the arrows and Escape while it is open:
+    // Enter on a half-typed command completes it rather than sending it.
+    if (palette.handleKeyDown(e)) return;
     // On touch (coarse-pointer) soft keyboards the Return key must insert a
     // newline — there is a dedicated 44x44 Send button. Enter-to-send is kept
     // on pointer-fine (desktop/laptop) devices only.
@@ -66,6 +78,11 @@ export default function MessageInput({
             <PromptSuggestions onSelectPrompt={onSelectPrompt} />
           </div>
         )}
+        <CommandPalette
+          matches={palette.matches}
+          highlightedIndex={palette.highlightedIndex}
+          onSelect={palette.select}
+        />
         <div className="relative">
           {/* The composer is a chat surface, not a form field — DESIGN.md §5
               lists the two separately. It keeps its enclosing rounded field so

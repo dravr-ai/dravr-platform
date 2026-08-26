@@ -109,6 +109,10 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-coaches")]
     register_coach_tools(registry);
 
+    // Coach Store tools (browse / search / install a published coach)
+    #[cfg(feature = "tools-coaches")]
+    register_store_tools(registry);
+
     // Admin tools
     #[cfg(feature = "tools-admin")]
     register_admin_tools(registry);
@@ -474,6 +478,33 @@ fn register_coach_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered coach tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register the Coach Store tools.
+///
+/// Category `store`, which is chat-callable: the marketplace used to be
+/// reachable only from the web UI because `CHAT_CALLABLE_CATEGORIES` named no
+/// store category, so no chat surface — web, mobile or messaging — could
+/// browse or install a coach. Uninstall stays out of the category: removing a
+/// coach the athlete has history with is a deliberate UI gesture, not an
+/// inference from a sentence.
+#[cfg(feature = "tools-coaches")]
+fn register_store_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::store::create_store_tools;
+
+    debug!(
+        "Registering Coach Store tools (registry has {} tools)",
+        registry.len()
+    );
+
+    for tool in create_store_tools() {
+        registry.register_with_category(Arc::from(tool), "store");
+    }
+
+    info!(
+        "Registered Coach Store tools (registry now has {} tools)",
         registry.len()
     );
 }

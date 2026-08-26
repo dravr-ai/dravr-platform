@@ -15,7 +15,7 @@
 /// group/DM split keys the conversation id, so a DM leaves it blank).
 ///
 /// This unifies four previously-divergent copies of the fallback: the
-/// synchronous `deliver_reply` + `send_error_reply` dispatch paths and the
+/// synchronous `deliver_reply` + `send_plain_reply` dispatch paths and the
 /// slash-command reply checked only the `None` case, while the backfill
 /// notifier's `resolve_route` also filtered the empty string. The
 /// empty-string case is the silent-DM-drop class fixed in

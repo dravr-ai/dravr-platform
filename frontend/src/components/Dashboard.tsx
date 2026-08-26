@@ -929,7 +929,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'groups' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             {selectedGroupId ? (
-              <GroupDetail groupId={selectedGroupId} onBack={() => setSelectedGroupId(null)} />
+              <GroupDetail groupId={selectedGroupId} onBack={() => setSelectedGroupId(null)} onNavigate={applyRoute} />
             ) : (
               <GroupManagement onSelectGroup={setSelectedGroupId} pendingInviteCode={pendingInviteCode ?? undefined} onInviteCodeConsumed={onInviteCodeConsumed} />
             )}

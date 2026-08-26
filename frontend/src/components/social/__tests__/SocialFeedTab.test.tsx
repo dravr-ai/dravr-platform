@@ -2,10 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for SocialFeedTab component
-// ABOUTME: Tests feed display, reactions, share modal, and adapt functionality
+// ABOUTME: Tests feed display, reactions, share modal, adapt flow, and the adapted history view
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@testing-library/jest-dom';
 import SocialFeedTab from '../SocialFeedTab';
 import { socialApi } from '../../../services/api';
@@ -19,8 +20,21 @@ vi.mock('../../../services/api', () => ({
     removeReaction: vi.fn(),
     shareInsight: vi.fn(),
     adaptInsight: vi.fn(),
+    getAdaptedInsights: vi.fn(),
   },
 }));
+
+/** The adapted history is a React Query surface, so every render needs a client. */
+function renderTab() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <SocialFeedTab />
+    </QueryClientProvider>,
+  );
+}
 
 const mockFeedItems = {
   items: [
@@ -61,6 +75,29 @@ const mockFeedItems = {
   metadata: { timestamp: '2024-01-01T00:00:00Z', api_version: 'v1' },
 };
 
+const adaptedPage = {
+  insights: [
+    {
+      id: 'adapted-1',
+      user_id: 'user-1',
+      source_insight_id: 'insight-1',
+      adapted_content: 'Your own build block peaks at 62km — hold that before adding the long run.',
+      adaptation_context: 'Based on your last 8 weeks of running volume',
+      created_at: '2024-01-02T00:00:00Z',
+    },
+  ],
+  next_cursor: null,
+  has_more: false,
+  metadata: { timestamp: '2024-01-02T00:00:00Z', api_version: 'v1' },
+};
+
+const emptyAdaptedPage = {
+  insights: [],
+  next_cursor: null,
+  has_more: false,
+  metadata: { timestamp: '2024-01-02T00:00:00Z', api_version: 'v1' },
+};
+
 describe('SocialFeedTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,16 +120,17 @@ describe('SocialFeedTab', () => {
       metadata: { timestamp: '2024-01-01T00:00:00Z', api_version: 'v1' },
     });
     vi.mocked(socialApi.removeReaction).mockResolvedValue(undefined);
+    vi.mocked(socialApi.getAdaptedInsights).mockResolvedValue(emptyAdaptedPage);
   });
 
   it('should render the Social Feed tab with subtitle', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     expect(screen.getByText('Coach insights from your friends')).toBeInTheDocument();
   });
 
   it('should display feed items on mount', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByText('Marathon Ready')).toBeInTheDocument();
@@ -111,7 +149,7 @@ describe('SocialFeedTab', () => {
       metadata: { timestamp: '2024-01-01T00:00:00Z', api_version: 'v1' },
     });
 
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByText('Your feed is empty')).toBeInTheDocument();
@@ -119,7 +157,7 @@ describe('SocialFeedTab', () => {
   });
 
   it('should display insight type badge', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByText('Achievement')).toBeInTheDocument();
@@ -127,7 +165,7 @@ describe('SocialFeedTab', () => {
   });
 
   it('should display context badges for sport type and training phase', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByText('Running')).toBeInTheDocument();
@@ -136,7 +174,7 @@ describe('SocialFeedTab', () => {
   });
 
   it('should show Share Insight button', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Share Insight/i })).toBeInTheDocument();
@@ -144,7 +182,7 @@ describe('SocialFeedTab', () => {
   });
 
   it('should show reaction buttons with counts', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByText('Marathon Ready')).toBeInTheDocument();
@@ -156,7 +194,7 @@ describe('SocialFeedTab', () => {
   });
 
   it('should add a reaction when clicking reaction button', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByText('Marathon Ready')).toBeInTheDocument();
@@ -174,7 +212,7 @@ describe('SocialFeedTab', () => {
   });
 
   it('should show Adapt to My Training button', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Adapt to My Training/i })).toBeInTheDocument();
@@ -192,15 +230,98 @@ describe('SocialFeedTab', () => {
       ],
     });
 
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Adapted/i })).toBeInTheDocument();
     });
   });
 
+  it('lists the adapted history when the Adapted view is selected', async () => {
+    vi.mocked(socialApi.getAdaptedInsights).mockResolvedValue(adaptedPage);
+
+    renderTab();
+
+    await waitFor(() => {
+      expect(screen.getByText('Marathon Ready')).toBeInTheDocument();
+    });
+    // Nothing is fetched until the view is opened.
+    expect(socialApi.getAdaptedInsights).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Adapted' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'Your own build block peaks at 62km — hold that before adding the long run.',
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText('Based on your last 8 weeks of running volume'),
+    ).toBeInTheDocument();
+    expect(socialApi.getAdaptedInsights).toHaveBeenCalledWith({ limit: 20, cursor: undefined });
+    // The friends' feed is not showing while the history is.
+    expect(screen.queryByText('Marathon Ready')).not.toBeInTheDocument();
+  });
+
+  it('pages the adapted history with the cursor the server returned', async () => {
+    vi.mocked(socialApi.getAdaptedInsights)
+      .mockResolvedValueOnce({
+        ...adaptedPage,
+        next_cursor: '20',
+        has_more: true,
+      })
+      .mockResolvedValueOnce({
+        insights: [
+          {
+            id: 'adapted-2',
+            user_id: 'user-1',
+            source_insight_id: 'insight-2',
+            adapted_content: 'Second page adaptation: swap Thursday tempo for hills.',
+            adaptation_context: null,
+            created_at: '2024-01-03T00:00:00Z',
+          },
+        ],
+        next_cursor: null,
+        has_more: false,
+        metadata: { timestamp: '2024-01-03T00:00:00Z', api_version: 'v1' },
+      });
+
+    renderTab();
+    fireEvent.click(screen.getByRole('tab', { name: 'Adapted' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Load More/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Load More/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Second page adaptation: swap Thursday tempo for hills.'),
+      ).toBeInTheDocument();
+    });
+    expect(socialApi.getAdaptedInsights).toHaveBeenLastCalledWith({ limit: 20, cursor: '20' });
+    // The first page stays on screen — a second page appends, it does not replace.
+    expect(
+      screen.getByText(
+        'Your own build block peaks at 62km — hold that before adding the long run.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the adapted empty state when the history is empty', async () => {
+    renderTab();
+    fireEvent.click(screen.getByRole('tab', { name: 'Adapted' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('No adapted insights yet')).toBeInTheDocument();
+    });
+  });
+
   it('should open share modal when clicking Share Insight', async () => {
-    render(<SocialFeedTab />);
+    renderTab();
 
     await waitFor(() => {
       expect(screen.getByText('Marathon Ready')).toBeInTheDocument();

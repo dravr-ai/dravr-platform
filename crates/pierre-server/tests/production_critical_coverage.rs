@@ -56,6 +56,7 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let repos = server.database().repositories();
     repos.users.create(&user).await?;
@@ -113,6 +114,7 @@ async fn test_model_serialization_coverage() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     // Test serialization
@@ -163,6 +165,7 @@ async fn test_admin_auth_flow() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     let repos = database.repositories();
@@ -219,6 +222,7 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
             coaching_persona: CoachingPersona::Casual,
             manages_roster: false,
             timezone: None,
+            theme: None,
         };
         repos.users.create(&user).await?;
         users.push(user);
@@ -270,6 +274,7 @@ async fn test_production_database_scenarios() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     // Create first user
@@ -301,6 +306,7 @@ async fn test_production_database_scenarios() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     let result = repos.users.create(&user2).await;
@@ -340,6 +346,7 @@ async fn test_production_rate_limiting() -> Result<()> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
 
     let repos = database.repositories();

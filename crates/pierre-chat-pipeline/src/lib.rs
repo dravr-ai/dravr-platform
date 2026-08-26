@@ -1,5 +1,5 @@
 // ABOUTME: Unified chat pipeline — single orchestrator for web and messaging turn dispatch
-// ABOUTME: Stages compose into ChatPipeline::run; channel profiles gate per-channel behavior
+// ABOUTME: Stages compose into ChatPipeline::run; surface profiles gate what each stage renders
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,17 +8,22 @@
 //!
 //! Both the web/mobile chat endpoint (`POST /api/chat/conversations/{id}/messages`)
 //! and the messaging ingress (Telegram, `WhatsApp`, Discord, Slack) run every
-//! user turn through [`run`]. The pipeline is channel-agnostic — per-channel
-//! knobs are expressed via [`ChannelProfile`] and the hook traits in [`hooks`].
+//! user turn through [`turn_service::execute`], which runs [`run`]. The
+//! pipeline is surface-agnostic — what a surface can render is expressed via
+//! [`SurfaceProfile`] and the hook traits in [`hooks`].
 //!
 //! # Layering
 //!
 //! - Channel adapters (the Axum `send_message` handler, the messaging ingress
-//!   `dispatch_and_respond` wrapper) own transport and quota UX: they extract
-//!   auth, decide how to reply (HTTP body vs. webhook outbound delivery),
-//!   serialize quota violations per channel, and record usage after the run
-//!   returns — each adapter writes the ledger and counters itself, so the
-//!   pipeline stays agnostic of channel concurrency.
+//!   `dispatch_and_respond` wrapper) own transport only: they extract auth,
+//!   name the surface's capabilities, and decide how to reply (HTTP body vs.
+//!   webhook outbound delivery). Ordering locks, panic boundaries and
+//!   empty-reply guards are theirs too, because they are properties of a
+//!   channel.
+//! - [`turn_service::execute`] owns the turn: the usage caps, the slash
+//!   dispatch, the turn's locale, the tenant's own model key, and the counters
+//!   the next turn's check reads. One ladder, so a capability cannot land on
+//!   one surface and miss another.
 //! - [`run`] owns everything between "I have a persisted user message" and
 //!   "the assistant reply is persisted and post-processed". It is pure enough
 //!   to be tested without HTTP or webhook plumbing.
@@ -32,34 +37,52 @@
 
 #![warn(missing_docs)]
 
-pub mod channel_profile;
+pub mod envelope;
 pub mod hooks;
 pub mod mcp_bridge;
+pub mod quota_policy;
 pub mod recorders;
 pub mod stages;
+pub mod surface_profile;
+mod tool_budget;
 pub mod turn;
+pub mod turn_service;
+pub mod usage_counters;
 
 pub use mcp_bridge::McpBridgeProvider;
 
-pub use channel_profile::{Channel, ChannelProfile, MaxIterations, ModelPolicy};
+pub use envelope::{
+    build_envelope, ActionKind, AssistantTurn, NoticeKind, QuotaLevel, QuotaState,
+    QuotaWarningState, ReconnectPrompt, ReplyBlock, ReplyBlockKind, SceneImage, TurnAction,
+    TurnEnvelope, TurnState, TurnTelemetry, VerdictChip,
+};
 pub use hooks::{
-    AgUiRun, ChatStreamEvent, ChatStreamSink, PipelineHooks, QuotaGate, QuotaWarning,
-    ResponsePostProcess,
+    AgUiRun, PipelineHooks, ProgressKind, ResponsePostProcess, ScenePublishRequest, ScenePublisher,
+    TurnEvent, TurnEventSink, TurnProgress, STAGE_STATUS_FINISHED, STAGE_STATUS_STARTED,
+};
+pub use quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
+pub use surface_profile::{
+    BlockSupport, MessagingTransportCaps, ModelPolicy, ProgressiveSupport, ProseFormat,
+    ProviderStreaming, RenderCapabilities, SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
+};
+pub use turn_service::{
+    detect_turn_locale, dispatch_slash, execute, CommandTurn, ServedTurn, SlashRequest, TurnRequest,
+};
+pub use usage_counters::{
+    increment_usage_counters_scoped, tokens_from_envelope, UsageIncrementScope,
 };
 // Re-exported so that flows which build `ToolLoopParams` directly (the
 // insight route, the messaging ingress) can attach the same per-call
 // recorder the chat pipeline uses.
 pub use recorders::UsageRepoCallRecorder as TurnCallRecorder;
-pub use turn::{
-    CreateConversationResult, DispatchResult, TurnContext, TurnInput, UserMessageResult,
-};
+pub use turn::{CreateConversationResult, TurnInput, UserMessageResult};
 
 use std::mem;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use chrono::Utc;
 use pierre_agui::AgUiEvent;
+use pierre_commands::CommandHandlerRegistry;
 use pierre_config::environment::LlmProviderType;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -78,7 +101,8 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse, LlmProvider};
-use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope, DataContext};
+use pierre_messaging::commands::CommandRegistry;
+use pierre_runtime_context::{AdminConfigLookup, CommandCtx, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
 };
@@ -87,19 +111,22 @@ use pierre_services::memory_extraction::{
     spawn_extract_for_turn, SpawnedExtractionRequest, WITHHELD_REPLY_TRANSCRIPT_MARKER,
 };
 use pierre_services::prompt_leak;
+use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_sse::SseManager;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::field::Empty;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
+use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
 use stages::followups::{ensure_coach_session_attached, finalize_session_state};
 use stages::persistence::{
     get_conversation_history, persist_assistant_response, persist_user_message,
 };
 #[cfg(feature = "tools-verification")]
 use stages::verification::persist_pending_verdicts;
+use tool_budget::resolve_max_iterations;
 
 /// Shared state for every chat pipeline stage.
 ///
@@ -121,6 +148,26 @@ pub struct ChatPipelineContext {
     /// Tool registry used by prompt assembly (Available Tools section) and
     /// tool dispatch.
     pub tool_registry: Arc<ToolRegistry>,
+    /// Narrow runtime context the slash-command handlers run against.
+    ///
+    /// The same composition root behind [`Self::tool_runtime`], behind a
+    /// second trait so `pierre-runtime-context` need not know about tool
+    /// dispatch. Held here because
+    /// [`turn_service::dispatch_slash`] is the single dispatch authority for
+    /// every chat surface, and a surface must not be able to reach a command
+    /// handler by any other route.
+    pub command_ctx: Arc<dyn CommandCtx>,
+    /// Slash-command catalog, built from `commands/*.md` at startup. `None` in
+    /// a host that skips the catalog, which resolves every `/`-prefixed text
+    /// to a coaching turn.
+    pub command_registry: Option<Arc<CommandRegistry>>,
+    /// Handler-name to handler mapping, populated alongside
+    /// [`Self::command_registry`].
+    pub command_handler_registry: Option<Arc<CommandHandlerRegistry>>,
+    /// Short-TTL cache of per-`(tenant, athlete)` chat providers, so a turn
+    /// resolves a stored BYO LLM key without a database read on the common
+    /// no-key path.
+    pub tenant_chat_providers: TenantChatProviderCache,
     /// Narrow `ToolRuntime` façade used by group fitness snapshot fetch and
     /// the `UniversalExecutor` constructed in tool dispatch.
     pub tool_runtime: Arc<dyn ToolRuntime>,
@@ -197,25 +244,40 @@ pub struct ChatPipelineContext {
     pub mcp_bridge: Option<Arc<dyn McpBridgeProvider>>,
 }
 
-/// Emit an AG-UI `STEP_STARTED` event if a sink is wired.
+/// Announce that `step` was entered, on whichever progress rails are wired.
 ///
-/// Extracted from the stage calls so `run_turn` stays under the
-/// workspace cognitive-complexity budget — the `if let` branch
-/// lives in the helper rather than in every emission site.
+/// Both rails carry the same fact to different audiences: the turn's own
+/// event stream is what an in-app client renders in its progress strip, and
+/// the AG-UI registry is what the messaging status bridge reads in process to
+/// edit a Telegram/Slack/Discord placeholder. A surface wires one, the other,
+/// or neither.
+///
+/// Extracted from the stage calls so `run_turn` stays under the workspace
+/// cognitive-complexity budget — the branches live in the helper rather than
+/// at every emission site.
 async fn emit_step_started(hooks: &PipelineHooks<'_>, step: &str) {
-    if let Some(agui) = &hooks.agui {
-        agui.sink
-            .emit(&AgUiEvent::step_started(agui.run_id.clone(), step))
-            .await;
-    }
+    emit_step(hooks, step, STAGE_STATUS_STARTED).await;
 }
 
-/// Emit an AG-UI `STEP_FINISHED` event if a sink is wired.
+/// Announce that `step` was left, on whichever progress rails are wired.
 async fn emit_step_finished(hooks: &PipelineHooks<'_>, step: &str) {
+    emit_step(hooks, step, STAGE_STATUS_FINISHED).await;
+}
+
+/// Shared body of [`emit_step_started`] and [`emit_step_finished`].
+async fn emit_step(hooks: &PipelineHooks<'_>, step: &str, status: &str) {
+    if let Some(sink) = &hooks.stream_sink {
+        // A closed channel means the client hung up mid-turn; the turn still
+        // runs to completion so its reply is persisted.
+        let _ = sink.send(TurnEvent::Progress(TurnProgress::stage(step, status)));
+    }
     if let Some(agui) = &hooks.agui {
-        agui.sink
-            .emit(&AgUiEvent::step_finished(agui.run_id.clone(), step))
-            .await;
+        let event = if status == STAGE_STATUS_STARTED {
+            AgUiEvent::step_started(agui.run_id.clone(), step)
+        } else {
+            AgUiEvent::step_finished(agui.run_id.clone(), step)
+        };
+        agui.sink.emit(&event).await;
     }
 }
 
@@ -234,8 +296,8 @@ struct AssemblePromptArgs<'a> {
     ctx: &'a ChatPipelineContext,
     /// Turn input (user message + identifiers).
     input: &'a TurnInput,
-    /// Per-channel profile.
-    profile: &'a ChannelProfile,
+    /// What the turn's surface can render, plus its resolved locale.
+    profile: &'a SurfaceProfile,
     /// Resolved conversation record.
     conv: &'a ConversationRecord,
     /// Optional coach runtime context.
@@ -513,8 +575,8 @@ struct DispatchStageArgs<'a> {
     ctx: &'a ChatPipelineContext,
     /// Turn input (user message + identifiers).
     input: &'a TurnInput,
-    /// Per-channel profile.
-    profile: &'a ChannelProfile,
+    /// What the turn's surface can render, plus its resolved locale.
+    profile: &'a SurfaceProfile,
     /// Resolved active LLM model identifier.
     active_model: &'a str,
     /// Optional coach runtime context.
@@ -538,7 +600,7 @@ async fn dispatch_stage(
 ) -> AppResult<(chat_tool_loop::ToolLoopResult, String)> {
     emit_step_started(args.hooks, "dispatch").await;
     let max_iterations =
-        resolve_max_iterations(args.profile.max_iterations, args.ctx, args.coach_ctx).await;
+        resolve_max_iterations(args.profile.budget, args.ctx, args.coach_ctx).await;
     let result = stages::tool_dispatch::dispatch_llm_with_tools(
         stages::tool_dispatch::DispatchLlmInputs {
             ctx: args.ctx,
@@ -676,7 +738,7 @@ fn apply_reask_outcome(
 struct RecoveryAndPostProcessInputs<'a> {
     ctx: &'a ChatPipelineContext,
     input: &'a TurnInput,
-    profile: &'a ChannelProfile,
+    profile: &'a SurfaceProfile,
     conv: &'a ConversationRecord,
     coach_ctx: Option<&'a CoachRuntimeContext>,
     prompt_guard: &'a prompt_leak::PromptGuard,
@@ -692,11 +754,18 @@ struct RecoveryAndPostProcessInputs<'a> {
 /// pass the result through post-processing (LLM-produced text) or build a
 /// minimal `PostProcessedReply` straight from the deterministic re-auth
 /// content.
+///
+/// The second element is the reconnect prompt when the re-auth stage fired.
+/// It rides out separately rather than only inside the reply text so the
+/// envelope can offer the URL as a control on a surface that renders one.
 async fn run_recovery_and_post_process(
     inputs: RecoveryAndPostProcessInputs<'_>,
     result: &mut chat_tool_loop::ToolLoopResult,
     hooks: &PipelineHooks<'_>,
-) -> stages::post_process::PostProcessedReply {
+) -> (
+    stages::post_process::PostProcessedReply,
+    Option<ReconnectPrompt>,
+) {
     let RecoveryAndPostProcessInputs {
         ctx,
         input,
@@ -716,24 +785,28 @@ async fn run_recovery_and_post_process(
     // loop short-circuits on whichever fires first).
     let guardian_denied = stages::guardian_denied::apply_guardian_denied(
         &ctx.messaging_strings_registry,
-        input,
+        &profile.locale,
         result,
     );
     let guardian_confirm = !guardian_denied
         && stages::guardian_confirm::apply_guardian_confirm(
             &ctx.messaging_strings_registry,
-            input,
+            &profile.locale,
             result,
         );
     if guardian_denied || guardian_confirm {
-        return stages::post_process::PostProcessedReply {
-            content: mem::take(&mut result.content),
-            #[cfg(feature = "tools-verification")]
-            pending_verdicts: Vec::new(),
-            content_blocks: None,
-            leak_replaced: false,
-            identity_leak: None,
-        };
+        return (
+            stages::post_process::PostProcessedReply {
+                content: mem::take(&mut result.content),
+                #[cfg(feature = "tools-verification")]
+                pending_verdicts: Vec::new(),
+                content_blocks: None,
+                leak_replaced: false,
+                identity_leak: None,
+                verdict_chips: Vec::new(),
+            },
+            None,
+        );
     }
 
     // Capability-failure verification: a reply claiming broken data access is
@@ -756,8 +829,7 @@ async fn run_recovery_and_post_process(
     )
     .await;
 
-    let recovery_dispatched = AtomicBool::new(false);
-    let recovery_active = stages::auth_recovery::apply_auth_recovery(
+    let reconnect = stages::auth_recovery::apply_auth_recovery(
         stages::auth_recovery::AuthRecoveryDeps {
             admin_jwt_secret: &ctx.admin_jwt_secret,
             base_url: &ctx.config.base_url,
@@ -768,19 +840,22 @@ async fn run_recovery_and_post_process(
         input,
         profile,
         result,
-        &recovery_dispatched,
     )
     .await;
 
-    if recovery_active {
-        return stages::post_process::PostProcessedReply {
-            content: mem::take(&mut result.content),
-            #[cfg(feature = "tools-verification")]
-            pending_verdicts: Vec::new(),
-            content_blocks: None,
-            leak_replaced: false,
-            identity_leak: None,
-        };
+    if reconnect.is_some() {
+        return (
+            stages::post_process::PostProcessedReply {
+                content: mem::take(&mut result.content),
+                #[cfg(feature = "tools-verification")]
+                pending_verdicts: Vec::new(),
+                content_blocks: None,
+                leak_replaced: false,
+                identity_leak: None,
+                verdict_chips: Vec::new(),
+            },
+            reconnect,
+        );
     }
 
     // Stage 14a: one bounded re-ask if the model answered as the provider.
@@ -799,40 +874,27 @@ async fn run_recovery_and_post_process(
     // packed into the struct literal. A handful of tool names per turn.
     let tools_called = result.tools_called.clone();
 
-    stages::post_process::post_process_assistant_reply(
+    let post_processed = stages::post_process::post_process_assistant_reply(
         stages::post_process::PostProcessInputs {
             ctx,
             input,
             conv,
             coach_ctx,
             prompt_guard,
-            is_messaging: profile.channel.is_messaging(),
+            profile,
             tools_called: &tools_called,
         },
         mem::take(&mut result.content),
         hooks,
     )
-    .await
+    .await;
+    (post_processed, None)
 }
-
-/// Compiled-in default tool-loop iteration budget when neither the coach
-/// runtime context nor the admin config override specify a value.
-const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
-
-/// Hard ceiling for the admin-config-provided tool-loop budget.
-const MAX_ADMIN_CONFIG_TOOL_ITERATIONS: usize = 50;
 
 /// Pick the `call_type` string used for per-LLM-call `llm_usage` rows
 /// produced by the chat pipeline.
-pub(crate) fn call_type_for_profile(profile: &ChannelProfile) -> &'static str {
-    match profile.channel {
-        Channel::WebChat => "chat",
-        Channel::Telegram
-        | Channel::WhatsApp
-        | Channel::Discord
-        | Channel::Slack
-        | Channel::Messenger => "messaging",
-    }
+pub(crate) fn call_type_for_profile(profile: &SurfaceProfile) -> &'static str {
+    profile.surface.call_type()
 }
 
 /// Record the turn span's deferred `coach_id`/`group_id` fields (declared
@@ -858,7 +920,7 @@ fn record_turn_span_context(conv: &ConversationRecord) {
     skip_all,
     fields(
         turn_id = %input.turn_id,
-        channel = profile.channel.as_str(),
+        channel = profile.surface.as_str(),
         conversation_id = %input.conversation_id,
         tenant_id = %input.conversation_tenant_id,
         user_id = %input.user_id,
@@ -870,9 +932,9 @@ fn record_turn_span_context(conv: &ConversationRecord) {
 pub async fn run(
     ctx: &ChatPipelineContext,
     input: TurnInput,
-    profile: &ChannelProfile,
+    profile: &SurfaceProfile,
     hooks: &PipelineHooks<'_>,
-) -> AppResult<DispatchResult> {
+) -> AppResult<TurnEnvelope> {
     if let Some(agui) = &hooks.agui {
         agui.sink
             .emit(&AgUiEvent::run_started(
@@ -973,27 +1035,20 @@ const fn persisted_finish_reason(
 async fn run_turn(
     ctx: &ChatPipelineContext,
     input: TurnInput,
-    profile: &ChannelProfile,
+    profile: &SurfaceProfile,
     hooks: &PipelineHooks<'_>,
-) -> AppResult<DispatchResult> {
-    let turn_ctx = TurnContext::from_input(&input);
-
-    // Stage 1: Pre-dispatch quota gate (hook).
-    if let Some(gate) = hooks.quota_gate {
-        if let Some(warning) = gate.pre_check(&turn_ctx).await? {
-            debug!(
-                channel = profile.channel.as_str(),
-                warning_code = %warning.code,
-                "quota gate emitted soft warning"
-            );
-        }
-    }
+) -> AppResult<TurnEnvelope> {
+    // The standing [`turn_service::execute`]'s pre-turn check measured, carried
+    // on the input. The envelope surfaces it as a notice block; a hard breach
+    // never reaches here, having refused the turn already.
+    let quota = input.quota.clone();
 
     let database = ctx.repos.chat.as_ref();
 
     // Stage 2: Persist user message.
     let msg_result = persist_user_message(
         database,
+        ctx.repos.groups.as_ref(),
         &input.conversation_id,
         &input.user_id,
         input.conversation_tenant_id,
@@ -1024,6 +1079,7 @@ async fn run_turn(
     let onboarding_turn = match resolve_guided_or_answer(GuidedStageInputs {
         ctx,
         input: &input,
+        profile,
         active_model: &active_model,
         user_message: &user_message,
         conv: &conv,
@@ -1100,7 +1156,7 @@ async fn run_turn(
     // short-circuit, then either skip post-processing (recovery content is
     // already canonical) or run the standard guardrails/verification/hook chain
     // on LLM-produced text.
-    let post_processed = run_recovery_and_post_process(
+    let (post_processed, reconnect) = run_recovery_and_post_process(
         RecoveryAndPostProcessInputs {
             ctx,
             input: &input,
@@ -1120,6 +1176,7 @@ async fn run_turn(
     let content_blocks = post_processed.content_blocks;
     let leak_replaced = post_processed.leak_replaced;
     let identity_leak = post_processed.identity_leak;
+    let verdict_chips = post_processed.verdict_chips;
 
     // Stage 19: Persist assistant response.
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
@@ -1145,9 +1202,13 @@ async fn run_turn(
         model: Some(&active_model),
         content_blocks: content_blocks.as_deref(),
     };
-    let (assistant_message, updated_conversation) =
-        persist_assistant_response(database, &assistant_params, input.conversation_tenant_id)
-            .await?;
+    let (assistant_message, updated_conversation) = persist_assistant_response(
+        database,
+        ctx.repos.groups.as_ref(),
+        &assistant_params,
+        input.conversation_tenant_id,
+    )
+    .await?;
 
     // Stage 19.5: Persist claim verdicts now that the assistant message is durable.
     #[cfg(feature = "tools-verification")]
@@ -1184,29 +1245,95 @@ async fn run_turn(
     })
     .await;
 
-    let dispatch_result = DispatchResult {
-        content: result.content,
-        usage: result.usage,
-        tool_calls_count: result.tool_calls_count,
-        tools_called: result.tools_called,
-        turn_id: input.turn_id,
-        finish_reason: result.finish_reason,
-        activity_list: result.activity_list,
-        model: active_model,
-        provider_name,
-        user_message,
-        assistant_message,
-        conversation: updated_conversation,
-        identity_leak,
+    // Stage 22: publish the reply's chart specs for a surface that fetches
+    // pixels. After persistence on purpose — the specs are addressed by
+    // message id, so there is nothing to sign before the row exists.
+    let scene_images = publish_scenes(hooks, profile, &input, &assistant_message);
+
+    // A surface without an activity panel has the list folded into its prose,
+    // and a raw 186-row history folded into a chat bubble is unreadable — so
+    // the list is shaped for the fold here. Both this and the block-or-fold
+    // decision below read `activity_list_card`: one capability, two
+    // consequences.
+    // Captured before the fold consumes the list: this is the honest "the model
+    // asked for activities and got them" signal, which `tools_called` cannot be
+    // because the platform injects the tool name when it prefetches.
+    let activity_list_captured = result.activity_list.is_some();
+    let activity_list = if profile.render.blocks.activity_list_card {
+        result.activity_list
+    } else {
+        stages::activity_fold::shape_for_fold(
+            result.activity_list.as_deref(),
+            &ctx.messaging_strings_registry,
+            &profile.locale,
+        )
     };
 
-    Ok(dispatch_result)
+    Ok(build_envelope(
+        profile,
+        TurnState {
+            turn_id: input.turn_id,
+            user_message,
+            assistant_message,
+            conversation: updated_conversation,
+            content: result.content,
+            finish_reason: result.finish_reason,
+            activity_list,
+            telemetry: TurnTelemetry {
+                model: active_model,
+                provider_name,
+                tools_called: result.tools_called,
+                tool_calls_count: result.tool_calls_count,
+                activity_list_captured,
+                usage: result.usage,
+                identity_leak,
+            },
+            quota,
+            reconnect,
+            verdict_chips,
+            scene_images,
+            actions: Vec::new(),
+            actions_title: None,
+        },
+    ))
+}
+
+/// Ask the wired [`ScenePublisher`] to mint an image per stored chart spec.
+///
+/// Returns empty when the surface draws specs itself, when no publisher is
+/// wired, or when the reply carried no blocks — all three mean the reply keeps
+/// the sentences the coach wrote around the chart, which is the contract the
+/// visual-blocks prompt sets.
+fn publish_scenes(
+    hooks: &PipelineHooks<'_>,
+    profile: &SurfaceProfile,
+    input: &TurnInput,
+    assistant_message: &MessageRecord,
+) -> Vec<envelope::SceneImage> {
+    if !profile.render.blocks.scene_raster {
+        return Vec::new();
+    }
+    let (Some(publisher), Some(specs)) = (
+        hooks.scene_publisher,
+        assistant_message.content_blocks.as_deref(),
+    ) else {
+        return Vec::new();
+    };
+    publisher.publish(&ScenePublishRequest {
+        specs,
+        conversation_id: &input.conversation_id,
+        user_id: &input.user_id,
+        tenant_id: input.conversation_tenant_id,
+        message_id: &assistant_message.id,
+        locale: &profile.locale,
+    })
 }
 
 /// Everything the guided stage needs from the turn so far.
 struct GuidedStageInputs<'a> {
     ctx: &'a ChatPipelineContext,
     input: &'a TurnInput,
+    profile: &'a SurfaceProfile,
     active_model: &'a str,
     user_message: &'a MessageRecord,
     conv: &'a ConversationRecord,
@@ -1216,7 +1343,7 @@ struct GuidedStageInputs<'a> {
 /// on with an optional guided probe attached.
 enum GuidedOutcome {
     /// The platform answered the turn itself; the caller returns this verbatim.
-    Answered(Box<DispatchResult>),
+    Answered(Box<TurnEnvelope>),
     /// Run the turn normally, probing this topic if one is set.
     Continue(Option<stages::onboarding::OnboardingTurn>),
 }
@@ -1232,18 +1359,14 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
     let GuidedStageInputs {
         ctx,
         input,
+        profile,
         active_model,
         user_message,
         conv,
     } = inputs;
 
-    let guided = stages::onboarding::resolve(
-        ctx,
-        conv,
-        input.conversation_tenant_id,
-        input.locale.as_deref(),
-    )
-    .await;
+    let guided =
+        stages::onboarding::resolve(ctx, conv, input.conversation_tenant_id, &profile.locale).await;
 
     match guided {
         stages::onboarding::GuidedResolution::Probe(turn) => {
@@ -1251,10 +1374,11 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
         }
         stages::onboarding::GuidedResolution::Inactive => Ok(GuidedOutcome::Continue(None)),
         stages::onboarding::GuidedResolution::CalibrationComplete { summary, answered } => {
-            let result = deliver_deterministic_reply(
-                DeterministicReplyInputs {
+            let result = stages::deterministic_reply::deliver(
+                stages::deterministic_reply::DeterministicReplyInputs {
                     ctx,
                     input,
+                    profile,
                     active_model: active_model.to_owned(),
                     user_message: user_message.clone(),
                     conv,
@@ -1273,116 +1397,13 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
                 input,
                 conv,
                 PLATFORM_REPLY_TRANSCRIPT_MARKER,
-                &result.assistant_message.id,
+                &result.assistant.message.id,
                 answered,
             );
             Ok(GuidedOutcome::Answered(Box::new(result)))
         }
     }
 }
-
-/// Everything [`deliver_deterministic_reply`] needs from the turn so far.
-struct DeterministicReplyInputs<'a> {
-    ctx: &'a ChatPipelineContext,
-    input: &'a TurnInput,
-    active_model: String,
-    user_message: MessageRecord,
-    conv: &'a ConversationRecord,
-}
-
-/// Answer the turn with platform-authored text, skipping the LLM entirely.
-///
-/// Used when the reply is something only the platform can state truthfully —
-/// today, the calibration wrap-up, whose whole value is reporting what the
-/// extractor actually wrote. Everything downstream of the dispatch still runs
-/// as usual: the reply is persisted and the conversation reloaded, so the
-/// turn is indistinguishable from any other to callers.
-///
-/// Deliberately skipped: post-processing (guardrails, claim verification,
-/// identity-leak detection) and assistant-side learning. All of them exist to
-/// police or learn from model-generated text, and this text has no model behind
-/// it — running the leak detector over a locale string the platform wrote would
-/// only ever produce false positives.
-///
-/// Memory extraction is NOT skipped, but it belongs to the caller: extraction
-/// reads the athlete's inbound message, which is theirs whoever wrote the
-/// reply, and only the caller knows which guided topic that message answers.
-async fn deliver_deterministic_reply(
-    inputs: DeterministicReplyInputs<'_>,
-    content: String,
-) -> AppResult<DispatchResult> {
-    let DeterministicReplyInputs {
-        ctx,
-        input,
-        active_model,
-        user_message,
-        conv,
-    } = inputs;
-
-    let assistant_params = AddMessageParams {
-        tenant_id: input.conversation_tenant_id,
-        conversation_id: &input.conversation_id,
-        user_id: &input.user_id,
-        role: "assistant",
-        content: &content,
-        token_count: None,
-        finish_reason: Some(DETERMINISTIC_FINISH_REASON),
-        prompt_tokens: None,
-        model: Some(&active_model),
-        content_blocks: None,
-    };
-    let (assistant_message, updated_conversation) = persist_assistant_response(
-        ctx.repos.chat.as_ref(),
-        &assistant_params,
-        input.conversation_tenant_id,
-    )
-    .await?;
-
-    finalize_session_state(
-        &ctx.data,
-        conv.session_id.as_deref(),
-        &[],
-        input.conversation_tenant_id,
-    )
-    .await;
-
-    let dispatch_result = DispatchResult {
-        content,
-        usage: None,
-        tool_calls_count: 0,
-        tools_called: Vec::new(),
-        turn_id: input.turn_id,
-        finish_reason: Some(DETERMINISTIC_FINISH_REASON.to_owned()),
-        activity_list: None,
-        model: active_model,
-        provider_name: DETERMINISTIC_PROVIDER.to_owned(),
-        user_message,
-        assistant_message,
-        conversation: updated_conversation,
-        identity_leak: None,
-    };
-
-    Ok(dispatch_result)
-}
-
-/// Stand-in for the coach reply when extraction runs over a turn the platform
-/// answered itself.
-///
-/// The platform-authored text is a report about the interview, not a coach turn
-/// about the athlete; handing it to the extractor would mint facts out of the
-/// platform's own summary of what it just captured. The athlete's message is
-/// theirs either way, so the reply side is replaced and the user side is
-/// extracted — the same split [`WITHHELD_REPLY_TRANSCRIPT_MARKER`] makes for a
-/// withheld reply, worded for a reply that was never generated rather than one
-/// that was suppressed.
-const PLATFORM_REPLY_TRANSCRIPT_MARKER: &str =
-    "(the platform answered this turn itself; extract only from the user turn above)";
-
-/// Provider label recorded for a turn the platform answered itself. Named
-/// rather than blank so a usage row with no token counts is explicable.
-const DETERMINISTIC_PROVIDER: &str = "platform";
-/// Finish reason recorded for a platform-authored reply.
-const DETERMINISTIC_FINISH_REASON: &str = "deterministic";
 
 /// Resolve the active LLM model for a turn per the channel's [`ModelPolicy`].
 fn resolve_active_model(policy: ModelPolicy, conversation_id: &str, stored_model: &str) -> String {
@@ -1402,44 +1423,4 @@ fn resolve_active_model(policy: ModelPolicy, conversation_id: &str, stored_model
             active
         }
     }
-}
-
-/// Resolve the tool-loop iteration budget for the turn.
-async fn resolve_max_iterations(
-    policy: MaxIterations,
-    ctx: &ChatPipelineContext,
-    coach_ctx: Option<&CoachRuntimeContext>,
-) -> usize {
-    if let MaxIterations::Fixed(n) = policy {
-        return n;
-    }
-
-    if let Some(iterations) = coach_ctx.and_then(|c| c.max_tool_iterations) {
-        #[allow(clippy::cast_sign_loss)]
-        let value = iterations.max(1) as usize;
-        debug!(
-            max_tool_iterations = value,
-            "Using coach-level tool iteration limit"
-        );
-        return value;
-    }
-
-    if let Some(ref admin_config) = ctx.admin_config {
-        if let Ok(Some(val)) = admin_config
-            .get_value("tool_execution.max_iterations", ConfigLookupScope::global())
-            .await
-        {
-            if let Some(config_val) = val.as_i64() {
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                let value = (config_val.max(1) as usize).min(MAX_ADMIN_CONFIG_TOOL_ITERATIONS);
-                debug!(
-                    max_tool_iterations = value,
-                    "Using admin config tool iteration limit"
-                );
-                return value;
-            }
-        }
-    }
-
-    DEFAULT_MAX_TOOL_ITERATIONS
 }

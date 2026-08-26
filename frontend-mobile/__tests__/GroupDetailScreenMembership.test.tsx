@@ -54,6 +54,19 @@ jest.mock('../src/hooks/useGroups', () => ({
     leaveGroup: jest.fn(),
     isLeaving: false,
   }),
+  // The admin controls this screen gained alongside the membership fix. Stubbed
+  // inert so this file keeps testing exactly what it was written for: that the
+  // caller's own row is found, and that every row the API returned is counted.
+  useGroupInvites: () => ({ invites: [], isLoading: false, refetch: jest.fn() }),
+  useUpdateGroup: () => ({ updateGroup: jest.fn(), isPending: false }),
+  useDeleteGroup: () => ({ deleteGroup: jest.fn(), isPending: false }),
+  useDeactivateInvite: () => ({ deactivateInvite: jest.fn(), isPending: false }),
+  useUpdateMemberRole: () => ({ updateMemberRole: jest.fn(), isPending: false }),
+  useUpdatePeerConsent: () => ({ updatePeerConsent: jest.fn(), isPending: false }),
+  useGroupPermissions: () => ({ canCreate: true, policy: 'everyone', weeklyDigest: false }),
+  useGroupWeeklyReport: () => ({ report: null, isLoading: false, refetch: jest.fn() }),
+  useGroupTranscript: () => ({ transcript: { group_id: 'group-1', members: [], entries: [] }, isLoading: false, isError: false, refetch: jest.fn() }),
+  useGroupHealthFlags: () => ({ flags: [], total: 0, isLoading: false, refetch: jest.fn() }),
 }));
 
 jest.mock('../src/services/api', () => ({
@@ -61,6 +74,9 @@ jest.mock('../src/services/api', () => ({
     createInvite: jest.fn(),
     removeMember: jest.fn(),
     removeCoach: jest.fn(),
+  },
+  chatApi: {
+    createConversation: jest.fn(),
   },
 }));
 

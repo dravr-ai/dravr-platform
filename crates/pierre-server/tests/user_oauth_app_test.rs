@@ -78,6 +78,7 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     database.repositories().users.create(&user).await?;
     Ok(user_id)

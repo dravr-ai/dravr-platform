@@ -1,55 +1,32 @@
 // ABOUTME: Hook traits for channel-specific side effects in the unified chat pipeline
-// ABOUTME: QuotaGate and ResponsePostProcess plug channel adapters into the pipeline edges
+// ABOUTME: ResponsePostProcess and ScenePublisher plug channel adapters into the pipeline edges
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Hook traits for channel-specific side effects.
 //!
-//! Per-channel behavior that involves side effects plugs into the pipeline
+//! Per-surface behavior that involves side effects plugs into the pipeline
 //! through these traits rather than appearing as conditional branches inside
 //! [`super::run`]. This keeps the pipeline body linear and channel-agnostic.
 //!
-//! Three extension points:
+//! Two extension points:
 //!
-//! - [`QuotaGate`] — runs before LLM dispatch. Messaging ingress implements
-//!   it (its `MessagingQuotaGate` delegates to the same
-//!   `check_pre_chat_quotas_scoped` policy web chat calls inline before
-//!   invoking the pipeline), refusing the turn with a localized denial reply
-//!   on breach. One policy function, two call sites — the hook is plumbing,
-//!   not a second quota system.
 //! - [`ResponsePostProcess`] — transforms the final reply content before
 //!   persistence. Web's insight-generation flow uses this to parse JSON from
 //!   the LLM; conversational flows use a no-op.
+//! - [`ScenePublisher`] — turns a reply's chart specs into fetchable images.
+//!   Wired by surfaces whose [`crate::BlockSupport::scene_raster`] is set;
+//!   absent everywhere else, because a surface that draws a spec inline has
+//!   nothing to publish.
 
-use async_trait::async_trait;
-
-use super::turn::TurnContext;
+use super::envelope::SceneImage;
 use pierre_agui::AgUiSink;
-use pierre_core::errors::AppResult;
-pub use pierre_services::chat_stream::{ChatStreamEvent, ChatStreamSink};
-
-/// Warning payload produced by a soft-quota hit. Channel adapters decide
-/// how to surface this (HTTP header on web; in-band reply text on messaging).
-#[derive(Debug, Clone)]
-pub struct QuotaWarning {
-    /// Short machine-readable warning code, e.g. `"approaching_message_limit"`.
-    pub code: String,
-    /// Human-readable message suitable for surfacing to the user.
-    pub message: String,
-}
-
-/// Pre-dispatch quota enforcement hook.
-///
-/// Returning `Ok(None)` permits the turn without warning.
-/// Returning `Ok(Some(warning))` permits the turn with a soft warning.
-/// Returning `Err(...)` hard-blocks the turn (channel adapter translates to
-/// HTTP 402/429 on web or polite reply on messaging).
-#[async_trait]
-pub trait QuotaGate: Send + Sync {
-    /// Check whether the turn may proceed.
-    async fn pre_check(&self, ctx: &TurnContext) -> AppResult<Option<QuotaWarning>>;
-}
+use pierre_core::models::TenantId;
+pub use pierre_services::chat_stream::{
+    ProgressKind, TurnEvent, TurnEventSink, TurnProgress, STAGE_STATUS_FINISHED,
+    STAGE_STATUS_STARTED,
+};
 
 /// Synchronous, pure post-processing of the assistant reply content.
 ///
@@ -62,15 +39,49 @@ pub trait ResponsePostProcess: Send + Sync {
     fn transform(&self, raw: &str) -> String;
 }
 
+/// One reply's chart specs, addressed well enough to mint a signed URL per
+/// block.
+pub struct ScenePublishRequest<'a> {
+    /// JSON array of block specs as stored on the assistant message row.
+    pub specs: &'a str,
+    /// Conversation the message belongs to.
+    pub conversation_id: &'a str,
+    /// Author of the turn.
+    pub user_id: &'a str,
+    /// Tenant the conversation was written under — the same one the render
+    /// route re-reads the message with, not the surface's owning tenant.
+    pub tenant_id: TenantId,
+    /// Assistant message row the specs are stored on.
+    pub message_id: &'a str,
+    /// Locale the axis labels must resolve in.
+    pub locale: &'a str,
+}
+
+/// Publishes a reply's chart specs as fetchable images.
+///
+/// Implemented by the surfaces that cannot draw a spec inline and instead hand
+/// their transport a URL to fetch. The pipeline calls it once per turn, after
+/// the assistant message is durable — the specs are addressed by message id,
+/// so there is nothing to publish before the row exists.
+pub trait ScenePublisher: Send + Sync {
+    /// Publish every spec in the request, in order. An empty result means the
+    /// reply keeps the sentences the coach wrote around the chart.
+    fn publish(&self, request: &ScenePublishRequest<'_>) -> Vec<SceneImage>;
+}
+
 /// AG-UI feedback wiring for a single turn.
 ///
-/// When the caller wants progress feedback, it constructs an [`AgUiRun`]
-/// bound to a fresh `run_id` plus an [`AgUiSink`] (typically a
+/// The messaging surfaces' progress rail. A channel adapter constructs an
+/// [`AgUiRun`] bound to a fresh `run_id` plus an [`AgUiSink`] (a
 /// [`pierre_agui::BroadcastSink`] connected to the server-wide
-/// [`pierre_agui::RunRegistry`]) and passes it through
-/// [`PipelineHooks`]. The pipeline emits lifecycle, step, and error
-/// events against that sink. Clients open
-/// `GET /api/agui/runs/{run_id}/stream` to subscribe.
+/// [`pierre_agui::RunRegistry`]) and passes it through [`PipelineHooks`];
+/// the pipeline emits lifecycle, step, and error events against that sink,
+/// and `pierre_services::messaging_status_bridge` subscribes to the same
+/// registry **in process** to drive Telegram/Slack/Discord placeholder edits.
+/// Nothing subscribes over HTTP.
+///
+/// In-app surfaces do not use this: their progress rides the turn's own
+/// stream as [`TurnEvent::Progress`], on the one body the reply arrives on.
 pub struct AgUiRun<'a> {
     /// Stable identifier for this run. Shared with clients so they can
     /// subscribe to the matching SSE stream.
@@ -88,19 +99,22 @@ pub struct AgUiRun<'a> {
 /// Each hook is optional; when absent, the corresponding stage runs a
 /// no-op default.
 pub struct PipelineHooks<'a> {
-    /// Optional pre-dispatch quota gate.
-    pub quota_gate: Option<&'a dyn QuotaGate>,
     /// Optional post-processor for the assistant reply content.
     pub response_post_process: Option<&'a dyn ResponsePostProcess>,
     /// Optional AG-UI progress feedback wiring. When present, the
     /// pipeline emits lifecycle, step, and error events against
     /// `agui.sink`.
     pub agui: Option<AgUiRun<'a>>,
-    /// Optional sink for token-level streaming. When present, the
-    /// dispatch stage calls the LLM provider's streaming variant and
-    /// forwards [`ChatStreamEvent`]s as the model produces them, so the
-    /// route layer can wrap the stream in an SSE response.
-    pub stream_sink: Option<ChatStreamSink>,
+    /// Optional sink for the turn's live event stream. When present the
+    /// pipeline reports each stage it enters and leaves, the dispatch stage
+    /// calls the LLM provider's streaming variant where one exists, and every
+    /// observation is forwarded as a [`TurnEvent`] so the route layer can
+    /// wrap the stream in an SSE response.
+    pub stream_sink: Option<TurnEventSink>,
+    /// Optional chart publisher. Wired by surfaces whose
+    /// [`crate::BlockSupport::scene_raster`] is set; the pipeline emits
+    /// [`crate::ReplyBlock::SceneImage`] from what it returns.
+    pub scene_publisher: Option<&'a dyn ScenePublisher>,
 }
 
 impl PipelineHooks<'_> {
@@ -108,10 +122,10 @@ impl PipelineHooks<'_> {
     #[must_use]
     pub const fn none() -> Self {
         Self {
-            quota_gate: None,
             response_post_process: None,
             agui: None,
             stream_sink: None,
+            scene_publisher: None,
         }
     }
 }

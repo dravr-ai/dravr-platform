@@ -182,6 +182,7 @@ async fn create_test_tenant_user(database: &Database, email: &str, tier: UserTie
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     database
         .repositories()

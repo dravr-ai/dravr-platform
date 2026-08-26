@@ -7,6 +7,7 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::TenantId;
 use pierre_database::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateCoachRequest, CreateSystemCoachRequest,
@@ -192,6 +193,7 @@ async fn test_create_version_manually() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -245,6 +247,7 @@ async fn test_auto_version_on_update() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -275,6 +278,7 @@ async fn test_auto_version_on_update() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
 
     manager
@@ -310,6 +314,7 @@ async fn test_auto_version_on_update() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
 
     manager
@@ -355,6 +360,7 @@ async fn test_get_versions() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -378,6 +384,7 @@ async fn test_get_versions() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update(
@@ -405,6 +412,7 @@ async fn test_get_versions() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update(
@@ -448,6 +456,7 @@ async fn test_get_versions_with_limit() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -472,6 +481,7 @@ async fn test_get_versions_with_limit() {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            max_tool_iterations: FieldUpdate::Keep,
         };
         manager
             .update(
@@ -516,6 +526,7 @@ async fn test_get_specific_version() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -539,6 +550,7 @@ async fn test_get_specific_version() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update(
@@ -585,6 +597,7 @@ async fn test_get_version_not_found() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -621,6 +634,7 @@ async fn test_get_version_wrong_tenant() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -670,6 +684,7 @@ async fn test_revert_to_version() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -693,6 +708,7 @@ async fn test_revert_to_version() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update(
@@ -749,6 +765,7 @@ async fn test_revert_creates_new_version() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -772,6 +789,7 @@ async fn test_revert_creates_new_version() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update(
@@ -837,6 +855,7 @@ async fn test_revert_to_nonexistent_version() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -876,6 +895,7 @@ async fn test_version_snapshot_contains_all_fields() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -930,6 +950,7 @@ async fn test_version_has_content_hash() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -974,6 +995,7 @@ async fn test_different_content_different_hash() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -997,6 +1019,7 @@ async fn test_different_content_different_hash() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update(
@@ -1024,6 +1047,7 @@ async fn test_different_content_different_hash() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update(
@@ -1088,6 +1112,7 @@ async fn test_system_coach_version_on_update() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update_system_coach(&coach.id.to_string(), test_tenant(), &update)
@@ -1135,6 +1160,7 @@ async fn test_update_with_change_summary() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1158,6 +1184,7 @@ async fn test_update_with_change_summary() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update_with_summary(
@@ -1203,6 +1230,7 @@ async fn test_version_tracks_created_by() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1253,6 +1281,7 @@ async fn test_get_versions_empty() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1289,6 +1318,7 @@ async fn test_get_current_version_no_versions() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1325,6 +1355,7 @@ async fn test_version_deleted_with_coach() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
 
     let coach = manager
@@ -1388,6 +1419,7 @@ async fn test_revert_denied_for_non_owner_leaves_coach_unchanged() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     let coach = manager
         .create(test_user_id(), test_tenant(), &request)
@@ -1410,6 +1442,7 @@ async fn test_revert_denied_for_non_owner_leaves_coach_unchanged() {
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: FieldUpdate::Keep,
     };
     manager
         .update(

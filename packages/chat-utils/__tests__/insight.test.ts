@@ -8,7 +8,6 @@ import {
   detectInsightMessages,
   createInsightPrompt,
 } from '../src/insight';
-import { stripContextPrefix } from '../src/message';
 import type { Message } from '@pierre/shared-types';
 
 describe('isInsightPrompt', () => {
@@ -145,11 +144,13 @@ describe('createInsightPrompt', () => {
     expect(isInsightPrompt(prompt)).toBe(true);
   });
 
-  it('strips context prefix before creating prompt', () => {
-    const content = '[Context:training] Your workout was intense';
+  it('carries the reply verbatim — nothing prefixes a message any more', () => {
+    // The `[Context: …]` injection is gone: the server states the athlete's
+    // connected providers itself in `build_provider_context`, so there is no
+    // client-added prefix left for this to strip.
+    const content = 'Your workout was intense';
     const prompt = createInsightPrompt(content);
     expect(prompt).toBe(`${INSIGHT_PROMPT_PREFIX}:\n\nYour workout was intense`);
-    expect(prompt).not.toContain('[Context:');
   });
 
   it('handles content without context prefix', () => {
@@ -161,43 +162,6 @@ describe('createInsightPrompt', () => {
   it('creates valid insight prompt that passes detection', () => {
     const prompt = createInsightPrompt('Some analysis');
     expect(isInsightPrompt(prompt)).toBe(true);
-  });
-});
-
-describe('stripContextPrefix', () => {
-  it('removes context prefix from message', () => {
-    const text = '[Context:training] Hello there';
-    expect(stripContextPrefix(text)).toBe('Hello there');
-  });
-
-  it('handles different context types', () => {
-    expect(stripContextPrefix('[Context:coach] Message')).toBe('Message');
-    expect(stripContextPrefix('[Context:nutrition] Food advice')).toBe('Food advice');
-  });
-
-  it('is case insensitive', () => {
-    expect(stripContextPrefix('[CONTEXT:test] Message')).toBe('Message');
-    expect(stripContextPrefix('[context:test] Message')).toBe('Message');
-  });
-
-  it('preserves text without context prefix', () => {
-    const text = 'Regular message';
-    expect(stripContextPrefix(text)).toBe('Regular message');
-  });
-
-  it('only removes prefix at start of string', () => {
-    const text = 'Message with [Context:test] in middle';
-    expect(stripContextPrefix(text)).toBe('Message with [Context:test] in middle');
-  });
-
-  it('handles empty string', () => {
-    expect(stripContextPrefix('')).toBe('');
-  });
-
-  it('handles whitespace after prefix', () => {
-    // Regex strips trailing whitespace after the prefix bracket
-    expect(stripContextPrefix('[Context:x]  Double space')).toBe('Double space');
-    expect(stripContextPrefix('[Context:x]\nNewline')).toBe('Newline');
   });
 });
 

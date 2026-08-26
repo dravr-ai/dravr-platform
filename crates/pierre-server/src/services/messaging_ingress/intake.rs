@@ -54,7 +54,7 @@ use uuid::Uuid;
 
 use super::session::maybe_start_pillar_walk;
 use crate::mcp::resources::ServerContext;
-use crate::services::outgoing::proactive_text;
+use pierre_services::messaging_broadcast::proactive_text;
 
 /// How many onboarding-sourced facts to scan when counting raised flags.
 ///

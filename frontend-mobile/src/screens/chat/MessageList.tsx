@@ -1,5 +1,5 @@
-// ABOUTME: Message list component with FlatList rendering and empty states
-// ABOUTME: Handles message display, thinking indicator, and coach grid for new chats
+// ABOUTME: Chat message list — one switch over the turn's reply blocks, plus the coach grid and empty states
+// ABOUTME: The server decided what this surface draws; nothing here re-derives it from the reply prose
 
 import React, { useEffect, useState, useMemo } from 'react';
 import {
@@ -17,10 +17,17 @@ import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
-import { splitActivityContent, countActivities, isToolPlumbingMessage, stripToolScaffolding } from '@pierre/chat-utils';
-import { PRIMARY_PALETTE, PROVIDER_COLORS, spacing, fontSize, borderRadius, aiGlow, useThemeColors, useTheme } from '../../constants/theme';
+import { countActivities, isToolPlumbingMessage, transcriptBlocks } from '@pierre/chat-utils';
+import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, aiGlow, useThemeColors, useTheme } from '../../constants/theme';
 import type { Message, Coach } from '../../types';
-import { parseWorkoutPlan } from '@pierre/shared-types';
+import type { ChatMessageAction, ClaimVerdict, ReplyBlock, VerdictTone } from '@pierre/shared-types';
+import {
+  mergeVerdictSeverities,
+  parseWorkoutPlan,
+  summarizeVerdicts,
+  verdictSummaryLabel,
+} from '@pierre/shared-types';
+import type { RenderBlock } from '@pierre/scene-types';
 import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
@@ -210,33 +217,6 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
   },
 });
 
-// Helper to detect OAuth authorization URLs
-const isOAuthUrl = (url: string): { isOAuth: boolean; provider: string | null } => {
-  try {
-    const parsedUrl = new URL(url);
-    const hostname = parsedUrl.hostname.toLowerCase();
-
-    if (hostname === 'www.strava.com' || hostname === 'strava.com') {
-      if (parsedUrl.pathname.includes('/oauth/authorize')) {
-        return { isOAuth: true, provider: 'Strava' };
-      }
-    }
-    if (hostname.endsWith('.garmin.com') || hostname === 'garmin.com') {
-      if (url.includes('oauth')) {
-        return { isOAuth: true, provider: 'Garmin' };
-      }
-    }
-    if (hostname.endsWith('.whoop.com') || hostname === 'whoop.com') {
-      if (url.includes('oauth')) {
-        return { isOAuth: true, provider: 'WHOOP' };
-      }
-    }
-    return { isOAuth: false, provider: null };
-  } catch {
-    return { isOAuth: false, provider: null };
-  }
-};
-
 // Collapsible section for the activity list — closed by default
 function CollapsibleActivities({ activityText }: { activityText: string }) {
   const colors = useThemeColors();
@@ -271,10 +251,21 @@ function CollapsibleActivities({ activityText }: { activityText: string }) {
   );
 }
 
-export interface MessageActionButton {
-  label: string;
-  action_type: string;
-  value: string;
+/** Feedback tint for the tone the shared rollup assigned the worst verdict. */
+function verdictChipColor(tone: VerdictTone, colors: ThemeColors): string {
+  switch (tone) {
+    case 'success':
+      return colors.success;
+    case 'warning':
+      return colors.warning;
+    case 'error':
+      return colors.error;
+    case 'info':
+      return colors.info;
+    case 'secondary':
+    default:
+      return colors.text.secondary;
+  }
 }
 
 interface MessageListProps {
@@ -287,10 +278,16 @@ interface MessageListProps {
   /** Saved thumbs-down reasons, keyed by message id. */
   messageFeedbackComment: Record<string, string>;
   insightMessages: Set<string>;
-  /** Activity lists keyed by assistant message ID (from new API field) */
-  activityLists: Record<string, string>;
-  /** Slash-command action buttons keyed by assistant message id. */
-  messageActions?: Record<string, MessageActionButton[]>;
+  /**
+   * What the server decided this surface draws, keyed by assistant message id.
+   *
+   * Present on the turn that produced it. A message with no entry is drawn
+   * from its transcript row, decoded into the same block shape — so the switch
+   * below walks exactly one list either way.
+   */
+  messageBlocks?: Record<string, ReplyBlock[]>;
+  /** Claim verdicts for the active conversation, keyed by message_id. */
+  verdicts?: ClaimVerdict[];
   flatListRef: React.RefObject<FlashListRef<Message> | null>;
   onScrollToBottom: () => void;
   onCoachSelect: (coach: Coach) => void;
@@ -302,8 +299,8 @@ interface MessageListProps {
   onSubmitFeedbackReason: (messageId: string, comment: string) => void;
   onRetryMessage: (messageId: string) => void;
   onOpenUrl: (url: string) => void;
-  /** Click handler for a slash-command action button. */
-  onActionClick?: (action: MessageActionButton) => void;
+  /** Press handler for a control the reply's `actions` block carried. */
+  onActionClick?: (action: ChatMessageAction) => void;
 }
 
 export function MessageList({
@@ -315,8 +312,8 @@ export function MessageList({
   messageFeedback,
   messageFeedbackComment,
   insightMessages,
-  activityLists,
-  messageActions,
+  messageBlocks,
+  verdicts,
   flatListRef,
   onScrollToBottom,
   onCoachSelect,
@@ -350,109 +347,131 @@ export function MessageList({
     }
   };
 
-  const renderMessageContent = (
-    content: string,
-    isUser: boolean,
-    messageId?: string,
-    sceneBlocksJson?: string,
-  ) => {
-    if (isUser) {
-      return (
-        <Text className="text-base text-text-primary leading-6">
-          {content}
-        </Text>
-      );
-    }
-
-    const urlRegex = /https?:\/\/[^\s<>"\]]+/gi;
-    const oauthUrls = content.match(urlRegex)?.filter(url => {
-      const { isOAuth } = isOAuthUrl(url);
-      return isOAuth;
-    }) || [];
-
-    if (oauthUrls.length > 0) {
-      let cleanContent = content;
-      oauthUrls.forEach(url => {
-        const escapedUrl = url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        cleanContent = cleanContent.replace(new RegExp(`!\\[([^\\]]*)\\]\\(${escapedUrl}\\)`, 'g'), '');
-        cleanContent = cleanContent.replace(new RegExp(`\\[([^\\]]*)\\]\\(${escapedUrl}\\)`, 'g'), '');
-        cleanContent = cleanContent.replace(url, '');
-      });
-
-      return (
-        <View className="flex-row flex-wrap items-center">
-          {oauthUrls.map((url, index) => {
-            const { provider } = isOAuthUrl(url);
-            return (
-              <TouchableOpacity
-                key={`oauth-${index}`}
-                className="px-4 py-2 rounded-lg my-1 self-start"
-                style={{ backgroundColor: PROVIDER_COLORS.strava }}
-                onPress={() => onOpenUrl(url)}
-              >
-                <Text className="text-base font-semibold text-text-primary">
-                  Connect to {provider}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-          {cleanContent.trim() && (
-            <Markdown style={markdownStyles} rules={MARKDOWN_RULES} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
-              {cleanContent.trim()}
-            </Markdown>
-          )}
-        </View>
-      );
-    }
-
-    // Check for activity list: new API field first, then fall back to parsing old content
-    const apiActivityList = messageId ? activityLists[messageId] : undefined;
-    const [parsedActivityList, analysisContent] = apiActivityList
-      ? [null, content]
-      : splitActivityContent(content);
-    const activityText = apiActivityList ?? parsedActivityList;
-
-    if (activityText) {
-      return (
-        <View>
-          <CollapsibleActivities activityText={activityText} />
-          <Markdown style={markdownStyles} rules={MARKDOWN_RULES} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
-            {apiActivityList ? content : analysisContent}
+  /** The reply's own markdown, with its charts drawn where its markers sit. */
+  const renderProse = (text: string, scenes: RenderBlock[], key: number) => (
+    <View key={key}>
+      {splitVizMarkers(text).map((segment, i) =>
+        segment.kind === 'prose' ? (
+          <Markdown
+            key={i}
+            style={markdownStyles}
+            rules={MARKDOWN_RULES}
+            onLinkPress={(url) => { onOpenUrl(url); return false; }}
+          >
+            {segment.text}
           </Markdown>
-        </View>
-      );
-    }
+        ) : scenes[segment.index] ? (
+          <SceneView key={i} block={scenes[segment.index]} />
+        ) : null,
+      )}
+    </View>
+  );
 
-    // Inline visual blocks: the prose carries a ⟦viz:N⟧ marker where each
-    // chart sat, so the reply renders as alternating prose and charts rather
-    // than the charts being appended in a lump at the end.
-    const blocks = parseSceneBlocks(sceneBlocksJson);
-    if (blocks.length > 0) {
-      return (
-        <View>
-          {splitVizMarkers(content).map((segment, i) =>
-            segment.kind === 'prose' ? (
-              <Markdown
-                key={i}
-                style={markdownStyles}
-                rules={MARKDOWN_RULES}
-                onLinkPress={(url) => { onOpenUrl(url); return false; }}
-              >
-                {segment.text}
-              </Markdown>
-            ) : blocks[segment.index] ? (
-              <SceneView key={i} block={blocks[segment.index]} />
-            ) : null,
-          )}
-        </View>
-      );
-    }
+  /**
+   * Draw one reply block.
+   *
+   * The only place this surface decides what a piece of a reply looks like.
+   * Every arm renders what the server already chose to send; none of them
+   * reads the prose to work out whether a different arm should have fired.
+   */
+  const renderBlock = (
+    block: ReplyBlock,
+    key: number,
+    context: { isUser: boolean; scenes: RenderBlock[]; rows: ClaimVerdict[] },
+  ): React.ReactNode => {
+    switch (block.type) {
+      case 'prose':
+        return context.isUser ? (
+          <Text key={key} className="text-base text-text-primary leading-6">
+            {block.text}
+          </Text>
+        ) : (
+          renderProse(block.text, context.scenes, key)
+        );
 
-    return (
-      <Markdown style={markdownStyles} rules={MARKDOWN_RULES} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
-        {content}
-      </Markdown>
-    );
+      case 'activity_list':
+        return <CollapsibleActivities key={key} activityText={block.text} />;
+
+      case 'workout_plan': {
+        const plan = parseWorkoutPlan(JSON.stringify(block.plan));
+        return plan ? <WorkoutPlanCard key={key} plan={plan} /> : null;
+      }
+
+      // The charts this block carries are positioned by the prose's own
+      // ⟦viz:N⟧ markers and drawn in the prose arm. Drawing them here too is
+      // the same chart twice.
+      case 'scene':
+        return null;
+
+      case 'scene_image':
+        return (
+          <Image
+            key={key}
+            source={{ uri: block.url }}
+            className="w-full h-48 rounded-xl mt-3"
+            resizeMode="contain"
+            accessibilityLabel={block.caption ?? 'Chart'}
+          />
+        );
+
+      case 'verdicts': {
+        const summary = summarizeVerdicts(mergeVerdictSeverities(context.rows, block.chips));
+        if (!summary) return null;
+        const tint = verdictChipColor(summary.tone, colors);
+        return (
+          <View
+            key={key}
+            testID="verdict-chip"
+            accessibilityLabel={`Claim verdicts: ${summary.worstStatus}`}
+            className="flex-row items-center self-start mt-2 px-2 py-1 rounded-full"
+            style={{ backgroundColor: `${tint}26` }}
+          >
+            <Ionicons name="shield-half-outline" size={12} color={tint} />
+            <Text className="text-xs ml-1" style={{ color: tint }}>
+              {verdictSummaryLabel(summary)}
+            </Text>
+          </View>
+        );
+      }
+
+      case 'actions':
+        return (
+          <View key={key} className="mt-3">
+            {block.title ? (
+              <Text className="text-xs font-medium text-text-secondary mb-1.5">{block.title}</Text>
+            ) : null}
+            <View className="flex-row flex-wrap gap-2">
+              {block.actions.map((action, idx) => (
+                <TouchableOpacity
+                  key={`${action.value}-${idx}`}
+                  className="px-3 py-2 rounded-lg bg-pierre-violet/15"
+                  onPress={() => onActionClick?.(action)}
+                >
+                  <Text className="text-sm text-primary font-medium">{action.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        );
+
+      case 'reconnect':
+        return (
+          <TouchableOpacity
+            key={key}
+            className="mt-3 self-start px-4 py-2 rounded-lg bg-primary"
+            onPress={() => onOpenUrl(block.url)}
+          >
+            <Text className="text-sm font-medium text-on-primary">
+              Reconnect {block.display_name}
+            </Text>
+          </TouchableOpacity>
+        );
+
+      // A quota notice is a fact about the turn, not about the message: the
+      // usage banner below the transcript shows it once.
+      case 'notice':
+        return null;
+    }
   };
 
   const renderMessage = ({ item }: { item: Message }) => {
@@ -464,23 +483,13 @@ export function MessageList({
 
     const isUser = item.role === 'user';
     const isError = item.isError === true;
-    // Builder-coach replies carry a schema-validated plan as a `workout_plan`
-    // block on the same rail as charts and tables; render it as a card.
-    const planBlock = isUser
-      ? null
-      : parseSceneBlocks(item.scene_blocks).find((b) => b.kind === 'workout_plan');
-    const workoutPlan = planBlock ? parseWorkoutPlan(JSON.stringify(planBlock.plan)) : null;
-    // Strip any residual tool scaffolding that leaked into a visible turn's
-    // content before deriving the rendered body.
-    const cleanedContent = isUser ? item.content : stripToolScaffolding(item.content);
-    // auth_recovery replies embed a one-time hosted-login URL; surface it as a
-    // prominent Reconnect button and drop the raw URL from the rendered text.
-    const reconnectUrl = isUser
-      ? null
-      : (cleanedContent.match(/https?:\/\/\S*\/providers\/sciotte\/login\?token=\S+/)?.[0] ?? null);
-    const assistantContent = reconnectUrl
-      ? cleanedContent.replace(reconnectUrl, '').trim()
-      : cleanedContent;
+    const rows = (verdicts ?? []).filter((verdict) => verdict.message_id === item.id);
+    // One list, whatever the turn's age: the server's own blocks when it just
+    // landed, the same shape decoded from the persisted row when it did not.
+    const blocks = messageBlocks?.[item.id] ?? transcriptBlocks(item, rows);
+    const sceneBlock = blocks.find((block) => block.type === 'scene');
+    const scenes = sceneBlock?.type === 'scene' ? parseSceneBlocks(sceneBlock.scene_blocks) : [];
+    const context = { isUser, scenes, rows };
 
     return (
       <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>
@@ -497,50 +506,14 @@ export function MessageList({
               borderColor: colors.border.strong,
             }}
           >
-            {renderMessageContent(item.content, true, item.id)}
+            {blocks.map((block, index) => renderBlock(block, index, context))}
           </View>
         ) : (
           /* Assistant message — full-width, no bubble, like Claude */
           <View
             className={`w-full ${isError ? 'bg-error/10 rounded-xl p-3 border border-error/30' : ''}`}
           >
-            {workoutPlan ? (
-              <>
-                <WorkoutPlanCard plan={workoutPlan} />
-                {assistantContent.trim().length > 0 &&
-                  renderMessageContent(assistantContent, false, item.id, item.scene_blocks)}
-              </>
-            ) : (
-              renderMessageContent(assistantContent, false, item.id, item.scene_blocks)
-            )}
-          </View>
-        )}
-        {/* Provider re-auth CTA — render the hosted-login link as a prominent
-            Reconnect button instead of a bare URL. */}
-        {!isUser && reconnectUrl && (
-          <TouchableOpacity
-            className="mt-3 self-start px-4 py-2 rounded-lg bg-primary"
-            onPress={() => onOpenUrl(reconnectUrl)}
-          >
-            <Text className="text-sm font-medium text-on-primary">Reconnect</Text>
-          </TouchableOpacity>
-        )}
-        {/* Slash-command action buttons (e.g. per-coach select on /coach).
-            Rendered below the body; tap posts the button's value as the
-            next message through the same dispatch pipeline. Not
-            persisted — buttons only appear on the turn that produced
-            them. */}
-        {!isUser && messageActions && messageActions[item.id] && messageActions[item.id].length > 0 && (
-          <View className="flex-row flex-wrap mt-3 gap-2">
-            {messageActions[item.id].map((action, idx) => (
-              <TouchableOpacity
-                key={`${action.value}-${idx}`}
-                className="px-3 py-2 rounded-lg bg-pierre-violet/15"
-                onPress={() => onActionClick?.(action)}
-              >
-                <Text className="text-sm text-primary font-medium">{action.label}</Text>
-              </TouchableOpacity>
-            ))}
+            {blocks.map((block, index) => renderBlock(block, index, context))}
           </View>
         )}
         {!isUser && (

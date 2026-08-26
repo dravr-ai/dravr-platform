@@ -172,6 +172,12 @@ pub struct CommonSlice {
     /// Messaging slash command registry (loaded from `commands/*.md`).
     #[cfg(feature = "client-messaging")]
     pub command_registry: Option<Arc<CommandRegistry>>,
+    /// Argument signatures from the same `commands/*.md` frontmatter, keyed by
+    /// command name. Loaded once with the registry so the command-catalogue
+    /// route renders the signatures `/help` renders, rather than re-reading
+    /// `PIERRE_COMMANDS_DIR` and drifting from the set the server serves.
+    #[cfg(feature = "client-messaging")]
+    pub command_arg_specs: Option<Arc<HashMap<String, String>>>,
     /// Messaging command handler registry.
     #[cfg(feature = "client-messaging")]
     pub command_handler_registry: Option<Arc<CommandHandlerRegistry>>,

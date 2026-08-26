@@ -33,11 +33,15 @@ appId: ai.dravr.app
 - assertVisible:
     id: "settings-change-password-button"
 
-# Test: should show MCP Tokens option
+# Test: should show Connected Apps option
+# MCP Tokens is deliberately absent here: that row is gated on the `api_tokens`
+# feature flag, which defaults off, so on a stock tenant it does not render.
 - scrollUntilVisible:
     element:
-      id: "settings-mcp-tokens-button"
+      id: "settings-connected-apps-button"
     direction: DOWN
     timeout: 5000
 - assertVisible:
+    id: "settings-connected-apps-button"
+- assertNotVisible:
     id: "settings-mcp-tokens-button"

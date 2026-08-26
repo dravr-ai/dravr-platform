@@ -7,7 +7,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_chat_pipeline::stages::verification::{actionable_problems, warning_bullets};
+use pierre_chat_pipeline::stages::verification::{
+    actionable_problems, warn_affordance, warning_bullets, WarnAffordance,
+};
 use pierre_evals::{ExtractedClaim, VerdictOutcome};
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
@@ -111,4 +113,58 @@ fn warning_bullets_drops_lead_window_echoes() {
     ];
     let bullets = warning_bullets(&problems, reply);
     assert_eq!(bullets, vec!["- affirmation hors du lead".to_owned()]);
+}
+
+/// One flagged claim earns exactly one affordance, chosen by surface capability.
+///
+/// Web once shipped the caveat banner AND the chip rail for a single flagged
+/// claim. `WarnAffordance` makes that unrepresentable rather than merely
+/// discouraged: chips and banner are variants, so no code path can emit both.
+#[test]
+fn a_chip_surface_gets_chips_and_an_untouched_reply() {
+    const REPLY: &str = "Ton CTL est passe de 74 a 88 cette semaine.";
+    let shown = vec![("Ton CTL est passe de 74 a 88", true)];
+
+    let affordance = warn_affordance(&shown, REPLY, true, "Attention");
+    let WarnAffordance::Chips(chips) = affordance else {
+        panic!("a chip-capable surface must get chips, got {affordance:?}");
+    };
+    assert_eq!(chips.len(), 1);
+    assert_eq!(chips[0].claim, "Ton CTL est passe de 74 a 88");
+    assert!(chips[0].contradicted);
+}
+
+#[test]
+fn a_surface_without_chips_gets_the_banner_written_into_the_reply() {
+    // The claim is deliberately NOT in the reply's lead window: a claim the
+    // athlete can already read at the top of the reply is dropped from the
+    // caveat rather than repeated.
+    const REPLY: &str = "Belle semaine de travail, on garde ce rythme la.";
+    let shown = vec![("Ton CTL est passe de 74 a 88", true)];
+
+    let affordance = warn_affordance(&shown, REPLY, false, "Attention");
+    let WarnAffordance::Banner(text) = affordance else {
+        panic!("a surface with no chip rail must get the banner, got {affordance:?}");
+    };
+    assert!(
+        text.starts_with(REPLY),
+        "the banner is appended to the reply, not a replacement: {text}"
+    );
+    assert!(text.contains("Attention"), "banner header missing: {text}");
+    assert!(
+        text.len() > REPLY.len(),
+        "the banner must actually add the caveat: {text}"
+    );
+}
+
+#[test]
+fn nothing_worth_showing_produces_neither_affordance() {
+    assert_eq!(
+        warn_affordance(&[], "Belle seance.", true, "Attention"),
+        WarnAffordance::Silent
+    );
+    assert_eq!(
+        warn_affordance(&[], "Belle seance.", false, "Attention"),
+        WarnAffordance::Silent
+    );
 }

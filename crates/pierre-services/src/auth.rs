@@ -644,6 +644,7 @@ impl AuthService {
             coaching_persona: CoachingPersona::default(),
             manages_roster: false,
             timezone: None,
+            theme: None,
         };
 
         self.data.repos().users.create(&new_user).await?;

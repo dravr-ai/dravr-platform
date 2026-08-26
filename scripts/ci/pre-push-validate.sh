@@ -45,6 +45,7 @@ HAS_INFRA_CHANGES=false
 HAS_INFRA_MODULE_CHANGES=false
 HAS_MCP_TYPES_CHANGES=false
 HAS_API_CLIENT_CHANGES=false
+HAS_SHARED_PACKAGE_CHANGES=false
 
 # Track which crates have changes (folder name under crates/)
 declare -A CHANGED_CRATES
@@ -67,8 +68,9 @@ while IFS= read -r file; do
             fi
             ;;
         frontend/*) HAS_FRONTEND_CHANGES=true ;;
-        packages/mcp-types/*) HAS_MCP_TYPES_CHANGES=true ;;
-        packages/api-client/*) HAS_API_CLIENT_CHANGES=true ;;
+        packages/mcp-types/*) HAS_MCP_TYPES_CHANGES=true; HAS_SHARED_PACKAGE_CHANGES=true ;;
+        packages/api-client/*) HAS_API_CLIENT_CHANGES=true; HAS_SHARED_PACKAGE_CHANGES=true ;;
+        packages/*) HAS_SHARED_PACKAGE_CHANGES=true ;;
         sdk/*) HAS_SDK_CHANGES=true ;;
         frontend-mobile/*) HAS_MOBILE_CHANGES=true ;;
         infra/modules/*) HAS_INFRA_CHANGES=true; HAS_INFRA_MODULE_CHANGES=true ;;
@@ -88,6 +90,7 @@ echo "   Frontend: $HAS_FRONTEND_CHANGES"
 echo "   SDK: $HAS_SDK_CHANGES"
 echo "   MCP types: $HAS_MCP_TYPES_CHANGES"
 echo "   API client: $HAS_API_CLIENT_CHANGES"
+echo "   Shared packages: $HAS_SHARED_PACKAGE_CHANGES"
 echo "   Mobile: $HAS_MOBILE_CHANGES"
 echo "   Infra: $HAS_INFRA_CHANGES"
 if [[ ${#CHANGED_CRATES[@]} -gt 0 ]]; then
@@ -186,13 +189,41 @@ fi
 # api-client method fails here, while the author still has the context to wire
 # a consumer. The standing stock is reported, not blessed — clearing it is a
 # per-surface deletion decision tracked in dravr-ai/carnet (carnet#17).
-if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_API_CLIENT_CHANGES" == "true" ]]; } \
+# Also fires on either client's changes: since the api-client scan is split
+# per surface, a client that drops its last caller of a method the other client
+# still uses is a parity gap this catches — and that change touches neither
+# crates/ nor packages/api-client.
+if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_API_CLIENT_CHANGES" == "true" ]] \
+    || [[ "$HAS_FRONTEND_CHANGES" == "true" ]] || [[ "$HAS_MOBILE_CHANGES" == "true" ]]; } \
     && [[ -x "$PROJECT_ROOT/scripts/ci/check-phantom-surfaces.sh" ]]; then
     echo "Tier 1c: Phantom Surface Detection"
     echo "------------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-phantom-surfaces.sh" "$BASE_REF"; then
         echo ""
         echo "FAIL: Phantom surface check failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
+# TIER 1d: Turn Envelope Convergence (compile-free)
+# ============================================================================
+# The surfaces converged onto one profile, one envelope and one transport. What
+# makes that a framework rather than a snapshot is that adding a capability to
+# one surface without the others fails at authoring time. Nothing did that
+# before — which is why every gap in the original parity survey passed CI green.
+# Catches a reintroduced channel-identity flag, a reply block only one client
+# renders, a hand-rolled fetch() at /api/chat, and a generated capability
+# catalogue that has fallen behind surface_profile.rs.
+if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_FRONTEND_CHANGES" == "true" ]] \
+    || [[ "$HAS_MOBILE_CHANGES" == "true" ]] || [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; } \
+    && [[ -x "$PROJECT_ROOT/scripts/ci/check-turn-envelope.sh" ]]; then
+    echo "Tier 1d: Turn Envelope Convergence"
+    echo "------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-turn-envelope.sh" "$BASE_REF"; then
+        echo ""
+        echo "FAIL: Turn envelope convergence check failed!"
         exit 1
     fi
     echo ""

@@ -147,3 +147,39 @@ export interface ListResponse<T> {
   total: number;
   metadata: ApiMetadata;
 }
+
+// ========== SLASH COMMANDS ==========
+
+/**
+ * One slash command the calling athlete may run.
+ *
+ * Every field comes out of the server's `commands/**\/*.md` frontmatter by way
+ * of the registry `/help` reads, so a client that renders these is showing the
+ * same catalogue messaging shows — never a copy of it.
+ */
+export interface CommandEntry {
+  /** Catalogue id and handler-registry key (`group-invite`). */
+  name: string;
+  /** The string the athlete types (`/group invite`). */
+  command: string;
+  /**
+   * Argument signature (`yes|no`, `[week|today]`), or `null` for a command
+   * that takes no arguments.
+   */
+  args: string | null;
+  /** One-line description — the same text `/help` prints. */
+  description: string;
+  /** Domain grouping (`general`, `group`, `coach`, `data`, …). */
+  domain: string;
+}
+
+/** Response for `GET /api/commands`. */
+export interface CommandCatalogueResponse {
+  /**
+   * The caller's runnable commands, ordered by domain then command string.
+   *
+   * Empty is a real answer: a server built without a command catalogue has
+   * none to offer, and a client that then shows no palette is correct.
+   */
+  commands: CommandEntry[];
+}

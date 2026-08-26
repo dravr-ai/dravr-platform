@@ -188,7 +188,7 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       }
     });
 
-    test('library - create coach button opens wizard', async ({ page }) => {
+    test('library - create coach button opens the coach editor modal', async ({ page }) => {
       await navigateToTab(page, 'Coaches');
       await waitForNetworkIdle(page);
 
@@ -197,9 +197,9 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
         await createButton.first().click();
         await page.waitForTimeout(500);
 
-        await takeVisualScreenshot(page, 'user-library', 'wizard-open');
+        await takeVisualScreenshot(page, 'user-library', 'editor-modal-open');
 
-        // Close the wizard
+        // Close the editor modal
         const closeButton = page.getByRole('button', { name: /close|cancel|×/i });
         if (await closeButton.first().isVisible().catch(() => false)) {
           await closeButton.first().click();

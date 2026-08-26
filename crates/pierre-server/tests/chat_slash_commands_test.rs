@@ -18,7 +18,33 @@ use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, 
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::models::{OnboardingState, Tenant, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::routes::chat::{ChatCompletionResponse, ChatRoutes, ConversationResponse};
+use pierre_mcp_server::routes::chat::{
+    ChatMessageAction, ChatRoutes, ConversationResponse, ReplyBlockResponse, TurnResponse,
+};
+
+/// A command turn is marked by its finish reason, the same field every other
+/// turn reports its outcome on.
+const COMMAND_FINISH_REASON: &str = "command";
+
+/// The controls a turn carries, or an empty slice when it carries none.
+fn turn_actions(body: &TurnResponse) -> Vec<&ChatMessageAction> {
+    body.assistant
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            ReplyBlockResponse::Actions { actions, .. } => Some(actions.iter().collect()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// The label above a turn's controls, when it carried one.
+fn turn_actions_title(body: &TurnResponse) -> Option<&str> {
+    body.assistant.blocks.iter().find_map(|block| match block {
+        ReplyBlockResponse::Actions { title, .. } => title.as_deref(),
+        _ => None,
+    })
+}
 use serde_json::json;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -114,6 +140,7 @@ async fn seed_coach(
         example_inputs: None,
         example_outputs: None,
         success_criteria: None,
+        max_tool_iterations: None,
     };
     let coach = resources
         .common
@@ -204,9 +231,12 @@ async fn help_in_conversation(router: axum::Router, auth: &str, conv_id: &str) -
         .send(router)
         .await;
     assert_eq!(resp.status_code(), StatusCode::OK);
-    let body: ChatCompletionResponse = resp.json();
-    assert!(body.is_command_response);
-    body.assistant_message.content
+    let body: TurnResponse = resp.json();
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
+    body.assistant.message.content
 }
 
 async fn create_conversation(router: axum::Router, auth: &str) -> String {
@@ -246,14 +276,21 @@ async fn coach_command_returns_card_with_actions_no_llm_call() {
         .await;
 
     assert_eq!(resp.status_code(), StatusCode::OK);
-    let body: ChatCompletionResponse = resp.json();
+    let body: TurnResponse = resp.json();
 
     // Command response marker is set so clients can skip LLM-specific UI.
-    assert!(body.is_command_response);
-    // Card title present for /coach (list card).
-    assert!(body.card_title.is_some(), "expected card_title on /coach");
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
+    // The card title labels the controls it belongs to rather than being
+    // pre-folded onto the front of the body text.
+    assert!(
+        turn_actions_title(&body).is_some(),
+        "expected a title on /coach's actions block"
+    );
     // Actions populated with per-coach select buttons.
-    let actions = body.actions.expect("actions array present");
+    let actions = turn_actions(&body);
     assert!(!actions.is_empty(), "expected at least one coach action");
     assert_eq!(actions[0].action_type, "postback");
     assert!(
@@ -263,13 +300,13 @@ async fn coach_command_returns_card_with_actions_no_llm_call() {
     );
     // Markdown emphasis stripped uniformly (same behaviour as messaging channels).
     assert!(
-        !body.assistant_message.content.contains('*'),
+        !body.assistant.message.content.contains('*'),
         "command response must not contain literal markdown asterisks: {}",
-        body.assistant_message.content
+        body.assistant.message.content
     );
     // No LLM tokens billed for a command turn.
-    assert_eq!(body.execution_time_ms, 0);
-    assert_eq!(body.model, "command");
+    assert_eq!(body.telemetry.execution_time_ms, 0);
+    assert_eq!(body.telemetry.model, "command");
 }
 
 #[tokio::test]
@@ -307,17 +344,21 @@ async fn coach_select_in_chat_sets_users_default_coach() {
         .await;
 
     assert_eq!(resp.status_code(), StatusCode::OK);
-    let body: ChatCompletionResponse = resp.json();
-    assert!(body.is_command_response);
+    let body: TurnResponse = resp.json();
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
     // DM wording (KEY_COACH_USER_UPDATED) — never "pour le groupe".
     assert!(
         !body
-            .assistant_message
+            .assistant
+            .message
             .content
             .to_lowercase()
             .contains("group"),
         "web/mobile chat is DM-like; must not mention 'group': {}",
-        body.assistant_message.content
+        body.assistant.message.content
     );
 
     let after = resources
@@ -344,12 +385,15 @@ async fn unknown_slash_command_short_circuits_before_llm() {
         .await;
 
     assert_eq!(resp.status_code(), StatusCode::OK);
-    let body: ChatCompletionResponse = resp.json();
-    assert!(body.is_command_response);
+    let body: TurnResponse = resp.json();
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
     // No card, no actions — unknown commands render as plain localized text.
-    assert!(body.card_title.is_none());
-    assert!(body.actions.is_none());
-    assert_eq!(body.model, "command");
+    assert!(turn_actions_title(&body).is_none());
+    assert!(turn_actions(&body).is_empty());
+    assert_eq!(body.telemetry.model, "command");
 }
 
 #[tokio::test]
@@ -379,8 +423,11 @@ async fn client_platform_header_shapes_channel_type_without_breaking() {
         .await;
 
     assert_eq!(resp.status_code(), StatusCode::OK);
-    let body: ChatCompletionResponse = resp.json();
-    assert!(body.is_command_response);
+    let body: TurnResponse = resp.json();
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
 }
 
 #[tokio::test]
@@ -402,8 +449,11 @@ async fn slash_command_is_not_persisted_to_history() {
         .send(router)
         .await;
     assert_eq!(resp.status_code(), StatusCode::OK);
-    let body: ChatCompletionResponse = resp.json();
-    assert!(body.is_command_response);
+    let body: TurnResponse = resp.json();
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON)
+    );
 
     // The command turn is ephemeral: nothing landed in the transcript.
     let history = resources
@@ -435,18 +485,19 @@ async fn pillars_command_activates_onboarding_mode_no_llm_call() {
         .await;
 
     assert_eq!(resp.status_code(), StatusCode::OK);
-    let body: ChatCompletionResponse = resp.json();
+    let body: TurnResponse = resp.json();
 
     // Deterministic command dispatch — no LLM turn, marked so clients skip
     // streaming UI. The greeting opens the guided walk on the North Star.
-    assert!(
-        body.is_command_response,
+    assert_eq!(
+        body.assistant.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON),
         "/pillars must dispatch as a command"
     );
     assert!(
-        body.assistant_message.content.contains("North Star"),
+        body.assistant.message.content.contains("North Star"),
         "expected the onboarding greeting, got: {}",
-        body.assistant_message.content
+        body.assistant.message.content
     );
 
     // The handler flips the conversation into onboarding mode: subsequent

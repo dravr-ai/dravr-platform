@@ -94,21 +94,26 @@ pub(super) fn validator_for(
 /// Extract and schema-validate a structured plan from an assistant reply.
 ///
 /// Returns `Some` only when the coach declares the matching `output_schema`,
-/// the channel can render a plan card (`is_messaging == false`), a balanced
-/// JSON object is present in the reply, and it validates against the schema.
+/// `plan_card` says the surface can lay a plan card out, a balanced JSON
+/// object is present in the reply, and it validates against the schema.
 /// Otherwise returns `None`, leaving the reply as free text — the expected
-/// path for a prose refusal, a non-builder coach, or a messaging channel
-/// (Telegram/WhatsApp/etc.) that has no card renderer.
+/// path for a prose refusal, a non-builder coach, or any surface with no plan
+/// card to render into.
+///
+/// `plan_card` is [`crate::BlockSupport::workout_plan_card`]. It asks what
+/// the surface can draw, not which surface it is: a channel that grows a
+/// plan-card renderer starts extracting plans with no change here.
 pub fn extract_structured_plan(
     output_schema: Option<&str>,
-    is_messaging: bool,
+    plan_card: bool,
     schemas: &SchemaTexts,
     reply: &str,
 ) -> Option<StructuredExtraction> {
-    // Messaging channels have no plan-card renderer; stripping the JSON would
-    // leave an empty reply. The matching prompt directive is also withheld
-    // there (prompt_assembly), so the coach emits a plain-prose plan instead.
-    if is_messaging {
+    // Without a plan-card renderer, stripping the JSON out of the reply would
+    // leave the athlete an empty message. The matching prompt directive is
+    // withheld on those surfaces too (prompt_assembly), so the coach writes a
+    // plain-prose plan instead of JSON nobody can render.
+    if !plan_card {
         return None;
     }
     if output_schema != Some(STRUCTURED_WORKOUT) {

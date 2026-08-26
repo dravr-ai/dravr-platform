@@ -14,13 +14,13 @@ use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_BODY;
 #[cfg(not(feature = "tools-groups"))]
 use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
 use pierre_contremaitre::messaging_strings::{
-    KEY_GROUP_CONSENT_UPDATED, KEY_GROUP_CONSENT_USAGE, KEY_GROUP_INVITE_FORBIDDEN,
-    KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY, KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM,
-    KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM, KEY_GROUP_MEMBERS_UNKNOWN,
-    KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF, KEY_GROUP_PEER_SHARING_ON,
-    KEY_GROUP_RESPOND_ALL, KEY_GROUP_RESPOND_MENTIONS, KEY_GROUP_RESPOND_STATUS_MENTIONS,
-    KEY_GROUP_RESPOND_USAGE, KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER,
-    KEY_GROUP_STATUS_SUMMARY,
+    KEY_GROUP_COACH_DETACHED, KEY_GROUP_CONSENT_UPDATED, KEY_GROUP_CONSENT_USAGE,
+    KEY_GROUP_INVITE_FORBIDDEN, KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY,
+    KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM, KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM,
+    KEY_GROUP_MEMBERS_UNKNOWN, KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF,
+    KEY_GROUP_PEER_SHARING_ON, KEY_GROUP_RESPOND_ALL, KEY_GROUP_RESPOND_MENTIONS,
+    KEY_GROUP_RESPOND_STATUS_MENTIONS, KEY_GROUP_RESPOND_USAGE, KEY_GROUP_ROLE_ADMIN,
+    KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
 };
 use pierre_core::models::coaches::ListCoachesFilter;
 #[cfg(feature = "tools-groups")]
@@ -191,7 +191,17 @@ const fn role_rank(role: GroupRole) -> u8 {
 /// they check (`get_member`), then adds the group list the other half of them
 /// read instead. Two queries beyond what a single group command costs, paid
 /// once for the whole listing.
-pub(crate) async fn caller_group_standing(
+///
+/// `pub` because the command-catalogue route filters its listing through the
+/// same standing: a palette that offers `/group invite` to an athlete in no
+/// group is lying, and re-deriving the ladder there would be a second source
+/// of truth for group standing.
+///
+/// # Errors
+///
+/// Returns the underlying repository error when the caller's groups or their
+/// membership row cannot be read.
+pub async fn caller_group_standing(
     ctx: &PlatformCommandContext,
 ) -> Result<CallerGroupStanding, AppError> {
     let ambient = match find_target_group(ctx).await? {
@@ -475,14 +485,15 @@ impl CommandHandler for GroupInviteHandler {
     }
 }
 
-/// Handler for `/group coach <name>` — set the group's AI coach persona.
+/// Handler for `/group coach <name>` and `/group coach detach`.
 ///
-/// Owner/admin only. Resolves a Dravr coach by (case-insensitive) title from
-/// the coaches visible to the caller and points the group's `coach_id` at it,
-/// so that persona answers in the group thereafter. Distinct from
-/// `/group invite coach`, which attaches a *human* coach (`coach_user_id`).
-/// Replies in plain text so it does not depend on the `tools-groups`-gated
-/// messaging strings.
+/// Owner/admin only, both forms. `<name>` resolves a Dravr coach by
+/// (case-insensitive) title from the coaches visible to the caller and points
+/// the group's `coach_id` at it, so that persona answers in the group
+/// thereafter. `detach` clears the group's *human* coach
+/// (`coaching_groups.coach_user_id`) — the attachment `/group invite coach`
+/// creates — leaving the AI persona untouched, and is the only way to undo it
+/// from chat.
 pub struct GroupCoachHandler;
 
 impl GroupCoachHandler {
@@ -490,6 +501,38 @@ impl GroupCoachHandler {
     /// `execute` and `is_available`.
     fn permits(role: GroupRole) -> bool {
         role.can_manage_members()
+    }
+
+    /// Clear `coaching_groups.coach_user_id` for the resolved group.
+    ///
+    /// Called only after `execute` has confirmed the caller is an owner or
+    /// admin of that group. Scoped to the tenant that owns the group row,
+    /// which is the channel tenant when the command came from a shared room.
+    async fn detach_human_coach(
+        ctx: &PlatformCommandContext,
+        group: &TargetGroup,
+    ) -> Result<CommandResponse, AppError> {
+        let cleared = ctx
+            .ctx
+            .group_service()
+            .set_group_coach(&group.id.to_string(), None, group.tenant_id)
+            .await?;
+        if !cleared {
+            return Err(AppError::not_found("Group not found"));
+        }
+
+        info!(
+            group_id = %group.id,
+            "Group human coach detached via /group coach detach"
+        );
+
+        Ok(CommandResponse::text(
+            ctx.ctx.messaging_strings_registry().render(
+                KEY_GROUP_COACH_DETACHED,
+                ctx.locale.as_str(),
+                &[&group.name],
+            ),
+        ))
     }
 }
 
@@ -505,7 +548,8 @@ impl CommandHandler for GroupCoachHandler {
         let name = name.trim();
         if name.is_empty() {
             return Ok(CommandResponse::text(
-                "Usage: /group coach <name> — set this group's Dravr coach (e.g. /group coach 5K Marathon)."
+                "Usage: /group coach <name> — set this group's Dravr coach (e.g. /group coach 5K Marathon), \
+                 or /group coach detach to remove the group's human coach."
                     .to_owned(),
             ));
         }
@@ -527,6 +571,14 @@ impl CommandHandler for GroupCoachHandler {
                 locale,
                 &[],
             )));
+        }
+
+        // `detach` clears the human coach attached by `/group invite coach`.
+        // It runs behind the same owner/admin gate as setting the persona, and
+        // is deliberately not a coach *title*: a Dravr coach named "detach"
+        // would still be reachable as `/group coach detach coach`.
+        if name.eq_ignore_ascii_case("detach") {
+            return Self::detach_human_coach(ctx, &group).await;
         }
 
         // Find a visible coach whose title matches — exact (case-insensitive)

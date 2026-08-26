@@ -743,7 +743,7 @@ LOC counts are `src/**.rs` line totals and are approximate.
 | `pierre-config` | 7,436 | Runtime server configuration assembly | `pierre-auth`, `pierre-cache`, `pierre-intelligence`, `pierre-llm`, `pierre-middleware` |
 | `pierre-contremaitre` | 6,821 | Prompt hot-reload + contremaitre integration | `dravr-tronc`, `pierre-database`, `pierre-evals`, `pierre-intelligence`, `pierre-llm`, `pierre-memory` |
 | `pierre-middleware` | 2,835 | HTTP middleware (auth, redaction, CSRF, tenant, request-id) | `pierre-auth`, `pierre-cache`, `pierre-database`, `pierre-runtime-context` |
-| `pierre-agui` | 1,365 | Agent/admin UI plumbing (AG-UI events) | `pierre-core`, `pierre-middleware` |
+| `pierre-agui` | 1,365 | In-process progress vocabulary for messaging channels (AG-UI events) | `pierre-core` |
 | `pierre-logging` | 1,368 | Tracing/log setup + error notification | `dravr-sciotte`, `dravr-tronc`, `pierre-contremaitre`, `pierre-core` |
 | `pierre-runtime-context` | 648 | Focused DI runtime context wiring | `pierre-auth`, `pierre-contremaitre`, `pierre-database`, `pierre-groups`, `pierre-intelligence`, `pierre-providers` |
 | `pierre-mcp-transport` | 1,340 | MCP transport plumbing (sessions, streaming) | `pierre-auth`, `pierre-database`, `pierre-mcp-schema`, `pierre-runtime-context` |

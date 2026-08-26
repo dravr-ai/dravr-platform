@@ -40,22 +40,17 @@ use pierre_chat_pipeline::McpBridgeProvider;
 
 use super::tool_surface::HostedToolBridge;
 use pierre_core::errors::{AppError, AppResult};
-#[cfg(feature = "client-messaging")]
-use pierre_core::models::TenantId;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
     CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
 };
-use pierre_llm::ChatProvider;
 use pierre_mcp_schema::{OAuthCompletedNotification, ProgressNotification};
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
 use pierre_messaging::ChannelRegistry;
-use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
 use pierre_tool_runtime::protocol::types::CancellationToken;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
-use uuid::Uuid;
 
 /// Centralized resource container for dependency injection.
 ///
@@ -353,11 +348,16 @@ impl ServerContext {
             self.common.repos.clone(),
             tool_runtime.clone(),
         )));
+        let command_ctx: Arc<dyn pierre_runtime_context::CommandCtx> = Arc::clone(self) as _;
         pierre_chat_pipeline::ChatPipelineContext {
             repos: self.common.repos.clone(),
             data: self.data(),
             tool_registry: self.mcp.tool_registry.clone(),
             tool_runtime,
+            command_ctx,
+            command_registry: self.common.command_registry.clone(),
+            command_handler_registry: self.common.command_handler_registry.clone(),
+            tenant_chat_providers: self.common.tenant_chat_providers.clone(),
             config: self.common.config.clone(),
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
             admin_config,
@@ -407,23 +407,6 @@ impl ServerContext {
         ]
         .into_iter()
         .collect()
-    }
-
-    /// Resolve the chat provider a `(tenant, user)` should use for a turn,
-    /// honoring a stored BYO LLM key, or `None` to use the global singleton.
-    pub async fn resolve_byo_chat_provider(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-    ) -> Option<Arc<ChatProvider>> {
-        resolve_tenant_chat_provider(
-            &self.common.tenant_chat_providers,
-            self.common.repos.llm_credentials.as_ref(),
-            self.common.repos.security.as_ref(),
-            tenant_id,
-            user_id,
-        )
-        .await
     }
 
     /// Build a [`pierre_routes_web_admin::WebAdminContext`] view over this

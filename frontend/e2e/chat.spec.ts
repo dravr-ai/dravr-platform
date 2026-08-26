@@ -101,6 +101,7 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
+          turn_id: '00000000-0000-4000-8000-000000000001',
           user_message: {
             id: 'msg-new-user',
             conversation_id: 'conv-1',
@@ -108,16 +109,29 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
             content: 'Test message',
             created_at: new Date().toISOString(),
           },
-          assistant_message: {
-            id: 'msg-new-assistant',
-            conversation_id: 'conv-1',
-            role: 'assistant',
-            content: 'Here is the assistant response to your message.',
-            created_at: new Date().toISOString(),
+          assistant: {
+            message: {
+              id: 'msg-new-assistant',
+              conversation_id: 'conv-1',
+              role: 'assistant',
+              content: 'Here is the assistant response to your message.',
+              created_at: new Date().toISOString(),
+            },
+            // The server decided what this surface renders; the client lays
+            // out the blocks it is given.
+            blocks: [
+              { type: 'prose', text: 'Here is the assistant response to your message.' },
+            ],
+            finish_reason: 'stop',
           },
           conversation_updated_at: new Date().toISOString(),
-          model: 'gemini-1.5-flash',
-          execution_time_ms: 1000,
+          telemetry: {
+            model: 'gemini-1.5-flash',
+            provider_name: 'gemini',
+            tool_calls_count: 0,
+            tools_called: [],
+            execution_time_ms: 1000,
+          },
         }),
       });
     } else {

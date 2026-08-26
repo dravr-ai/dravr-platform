@@ -133,7 +133,7 @@ impl CoachesRepository for Database {
             visibility: CoachVisibility::Private,
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
-            max_tool_iterations: None,
+            max_tool_iterations: request.max_tool_iterations,
             temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
@@ -171,7 +171,7 @@ impl CoachesRepository for Database {
         .bind(request.category.as_str()).bind(&tags_json).bind(&sample_prompts_json)
         .bind(i64::from(token_count)).bind(now.to_rfc3339())
         .bind(0i64).bind(CoachVisibility::Private.as_str())
-        .bind(Option::<String>::None).bind(Option::<String>::None).bind(Option::<i32>::None).bind(Option::<f32>::None)
+        .bind(Option::<String>::None).bind(Option::<String>::None).bind(request.max_tool_iterations).bind(Option::<f32>::None)
         .bind(&request.startup_query).bind(&data_requirements_json)
         .bind(&request.purpose).bind(&request.when_to_use).bind(&request.instructions)
         .bind(&request.example_inputs).bind(&request.example_outputs)
@@ -208,7 +208,7 @@ impl CoachesRepository for Database {
             visibility: CoachVisibility::Private,
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
-            max_tool_iterations: None,
+            max_tool_iterations: request.max_tool_iterations,
             temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
@@ -442,6 +442,11 @@ impl CoachesRepository for Database {
             .success_criteria
             .clone()
             .or(existing.success_criteria);
+        // Three-way, not a coalesce: an absent field keeps the stored budget,
+        // an explicit null clears it back to inheriting the admin value.
+        let max_tool_iterations = request
+            .max_tool_iterations
+            .resolve(existing.max_tool_iterations);
         let system_prompt = instructions
             .as_deref()
             .filter(|s| !s.is_empty())
@@ -453,7 +458,8 @@ impl CoachesRepository for Database {
                 category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8,
                 startup_query = $12, data_requirements = $13,
                 purpose = $14, when_to_use = $15, instructions = $16,
-                example_inputs = $17, example_outputs = $18, success_criteria = $19
+                example_inputs = $17, example_outputs = $18, success_criteria = $19,
+                max_tool_iterations = $20
             WHERE id = $9 AND user_id = $10 AND tenant_id = $11",
         )
         .bind(title)
@@ -475,6 +481,7 @@ impl CoachesRepository for Database {
         .bind(&example_inputs)
         .bind(&example_outputs)
         .bind(&success_criteria)
+        .bind(max_tool_iterations)
         .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to update coach: {e}")))?;

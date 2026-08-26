@@ -42,6 +42,7 @@ async fn build_user(repos: &pierre_database::RepositoryRegistry) -> (Uuid, Tenan
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     repos.users.create(&user).await.unwrap();
     let tenant = Tenant {

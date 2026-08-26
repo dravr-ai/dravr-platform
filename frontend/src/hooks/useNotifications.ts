@@ -2,13 +2,16 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: React Query hooks for notification management on the web frontend
-// ABOUTME: Provides hooks for notification feed, unread count, and mutation actions
+// ABOUTME: Provides hooks for notification feed, unread count, per-category preferences, and actions
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { notificationsApi } from '../services/api';
-import type { ListNotificationsParams } from '@pierre/shared-types';
+import type {
+  ListNotificationsParams,
+  UpdateNotificationPreferenceRequest,
+} from '@pierre/shared-types';
 
 /**
  * Hook for fetching the notification feed with pagination and filtering.
@@ -107,5 +110,42 @@ export function useNotificationActions() {
     isMarkingRead: markAsRead.isPending,
     isMarkingAllRead: markAllAsRead.isPending,
     isDeleting: deleteNotification.isPending,
+  };
+}
+
+/**
+ * Hook for managing per-category notification preferences.
+ *
+ * Same shape the mobile hook of this name exposes, so the two preference
+ * surfaces read one contract: `preferences` is the server's per-category list
+ * and `updatePreference` takes an `UpdateNotificationPreferenceRequest`
+ * verbatim. Nothing is derived locally — a category the server does not return
+ * is a category this client does not offer.
+ */
+export function useNotificationPreferences() {
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: QUERY_KEYS.notifications.preferences(),
+    queryFn: () => notificationsApi.getPreferences(),
+    staleTime: 5 * 60_000,
+  });
+
+  const updatePreference = useMutation({
+    mutationFn: (request: UpdateNotificationPreferenceRequest) =>
+      notificationsApi.updatePreference(request),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.notifications.preferences(),
+      });
+    },
+  });
+
+  return {
+    preferences: query.data?.preferences ?? [],
+    isLoading: query.isLoading,
+    isError: query.isError,
+    updatePreference: updatePreference.mutate,
+    isUpdating: updatePreference.isPending,
   };
 }

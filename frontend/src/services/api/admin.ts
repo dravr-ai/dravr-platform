@@ -5,7 +5,7 @@
 // ABOUTME: Handles all administrative functionality for super_admin and admin roles
 
 import { axios } from './client';
-import type { Coach } from '@pierre/shared-types';
+import type { Coach, ClaimVerdict } from '@pierre/shared-types';
 import type { SocialInsightsConfig } from '../../types/api';
 
 /// One stored feature-flag row at either tenant or user scope.
@@ -1092,7 +1092,7 @@ export const adminApi = {
     coach_id?: string;
     limit?: number;
   }): Promise<{
-    verdicts: ClaimVerdictRow[];
+    verdicts: ClaimVerdict[];
     total: number;
   }> {
     const query = new URLSearchParams();
@@ -1109,7 +1109,7 @@ export const adminApi = {
     conversationId: string,
     tenantId: string,
   ): Promise<{
-    verdicts: ClaimVerdictRow[];
+    verdicts: ClaimVerdict[];
     total: number;
   }> {
     const query = new URLSearchParams({ tenant_id: tenantId });
@@ -1574,21 +1574,3 @@ export interface FollowupRow {
   delivered_at: string | null;
 }
 
-/** Wire-format representation of a claim verdict row. */
-export interface ClaimVerdictRow {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  coach_id: string | null;
-  conversation_id: string | null;
-  message_id: string | null;
-  claim_text: string;
-  category: 'physiological' | 'training_prescription' | 'nutrition' | 'recovery' | 'supplement' | 'injury_rehab';
-  status: 'supported' | 'unsupported' | 'contradicted' | 'rhetorical' | 'unverifiable';
-  evidence_strength: 'strong' | 'mixed' | 'weak' | 'none';
-  confidence: number;
-  layer_fired: 'rhetoric' | 'deterministic' | 'personalized' | 'evidence' | 'consistency' | 'judge';
-  explanation: string | null;
-  evidence_refs: string | null;
-  created_at: string;
-}

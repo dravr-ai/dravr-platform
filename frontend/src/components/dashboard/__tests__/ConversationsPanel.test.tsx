@@ -1,5 +1,5 @@
 // ABOUTME: Sprint C15 tests — ConversationsPanel groups conversations by coach
-// ABOUTME: Mocks chatApi.getConversations + coachesApi.list, asserts session hierarchy
+// ABOUTME: Mocks chatApi.getConversations + coachesApi.list, asserts session hierarchy and search
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -126,6 +126,105 @@ describe('ConversationsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Toggle Running Coach session/i }));
     await waitFor(() => {
       expect(screen.getByText('Marathon plan')).toBeInTheDocument();
+    });
+  });
+
+  it('filters the list down to the conversation whose title matches the search', async () => {
+    vi.mocked(chatApi.getConversations).mockResolvedValueOnce({
+      conversations: [
+        sampleConversation({ id: 'c1', coach_id: 'coach-running', title: 'Marathon plan' }),
+        sampleConversation({ id: 'c2', coach_id: 'coach-running', title: 'Track workout' }),
+        sampleConversation({ id: 'c3', coach_id: 'coach-strength', title: 'Deadlift form' }),
+      ],
+    });
+    vi.mocked(coachesApi.list).mockResolvedValueOnce({
+      coaches: [
+        sampleCoach({ id: 'coach-running', title: 'Running Coach' }),
+        sampleCoach({ id: 'coach-strength', title: 'Strength Coach' }),
+      ],
+    });
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByText('Deadlift form')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'deadlift' },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Marathon plan')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Track workout')).not.toBeInTheDocument();
+    expect(screen.getByText('Deadlift form')).toBeInTheDocument();
+    // The non-matching coach drops out of the hierarchy entirely.
+    expect(screen.queryByText('Running Coach')).not.toBeInTheDocument();
+    expect(screen.getByText('Strength Coach')).toBeInTheDocument();
+  });
+
+  it('surfaces a match that sits inside a collapsed group', async () => {
+    vi.mocked(chatApi.getConversations).mockResolvedValueOnce({
+      conversations: [
+        sampleConversation({ id: 'c1', coach_id: 'coach-running', title: 'Marathon plan' }),
+        sampleConversation({ id: 'c2', coach_id: 'coach-strength', title: 'Deadlift form' }),
+      ],
+    });
+    vi.mocked(coachesApi.list).mockResolvedValueOnce({
+      coaches: [
+        sampleCoach({ id: 'coach-running', title: 'Running Coach' }),
+        sampleCoach({ id: 'coach-strength', title: 'Strength Coach' }),
+      ],
+    });
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByText('Deadlift form')).toBeInTheDocument();
+    });
+
+    // Fold the coach that holds the match, then search for it.
+    fireEvent.click(screen.getByRole('button', { name: /Toggle Strength Coach session/i }));
+    await waitFor(() => {
+      expect(screen.queryByText('Deadlift form')).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'deadlift' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Deadlift form')).toBeInTheDocument();
+    });
+
+    // Clearing the search restores the fold the user chose — the search
+    // overrode it, it did not erase it.
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: '' },
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Deadlift form')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Marathon plan')).toBeInTheDocument();
+  });
+
+  it('reports no matching conversations when the search excludes everything', async () => {
+    vi.mocked(chatApi.getConversations).mockResolvedValueOnce({
+      conversations: [
+        sampleConversation({ id: 'c1', coach_id: 'coach-running', title: 'Marathon plan' }),
+      ],
+    });
+    vi.mocked(coachesApi.list).mockResolvedValueOnce({
+      coaches: [sampleCoach({ id: 'coach-running', title: 'Running Coach' })],
+    });
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByText('Marathon plan')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'kettlebell' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching conversations')).toBeInTheDocument();
     });
   });
 

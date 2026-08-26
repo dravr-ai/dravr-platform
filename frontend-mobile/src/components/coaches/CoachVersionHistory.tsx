@@ -17,6 +17,7 @@ import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { PRIMARY_PALETTE, spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
+import type { FieldChange } from '../../types';
 
 // Shadow style for version cards
 const versionCardShadow: ViewStyle = {
@@ -49,6 +50,20 @@ interface VersionsResponse {
   current_version: number;
 }
 
+/** What `GET /api/coaches/:id/versions/:from/diff/:to` answers with. */
+interface VersionDiff {
+  from_version: number;
+  to_version: number;
+  changes: FieldChange[];
+}
+
+/** Render one side of a field change, collapsing an absent value to a word. */
+function diffValueText(value: unknown): string {
+  if (value === null || value === undefined) return '(empty)';
+  const text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+  return text.length > 300 ? `${text.substring(0, 300)}…` : text;
+}
+
 export function CoachVersionHistory({
   coachId,
   coachTitle,
@@ -62,6 +77,13 @@ export function CoachVersionHistory({
   const [isLoading, setIsLoading] = useState(false);
   const [isReverting, setIsReverting] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<VersionItem | null>(null);
+  // Compare mode: the athlete picks two versions and the server reports what
+  // changed between them, field by field. Without it a version's only story was
+  // its own snapshot, which says nothing about what a given edit actually did.
+  const [isComparing, setIsComparing] = useState(false);
+  const [compareSelection, setCompareSelection] = useState<number[]>([]);
+  const [diff, setDiff] = useState<VersionDiff | null>(null);
+  const [isLoadingDiff, setIsLoadingDiff] = useState(false);
 
   const loadVersions = useCallback(async () => {
     try {
@@ -96,7 +118,65 @@ export function CoachVersionHistory({
     });
   };
 
+  const loadDiff = useCallback(
+    async (fromVersion: number, toVersion: number) => {
+      try {
+        setIsLoadingDiff(true);
+        const response = await coachesApi.getVersionDiff(coachId, fromVersion, toVersion);
+        setDiff(response);
+      } catch (error) {
+        console.error('Failed to load version diff:', error);
+        Alert.alert('Error', 'Failed to compare versions');
+      } finally {
+        setIsLoadingDiff(false);
+      }
+    },
+    [coachId],
+  );
+
+  const exitCompareMode = useCallback(() => {
+    setIsComparing(false);
+    setCompareSelection([]);
+    setDiff(null);
+  }, []);
+
+  const enterCompareMode = useCallback(() => {
+    setSelectedVersion(null);
+    setDiff(null);
+    setCompareSelection([]);
+    setIsComparing(true);
+  }, []);
+
+  /**
+   * Add or remove a version from the comparison.
+   *
+   * Two versions make a comparison, so picking a third replaces the older of
+   * the pair rather than refusing the tap. The pair is always sent oldest to
+   * newest so the reported change reads forwards in time.
+   */
+  const toggleCompareSelection = useCallback(
+    (versionNumber: number) => {
+      setDiff(null);
+      setCompareSelection((current) => {
+        if (current.includes(versionNumber)) {
+          return current.filter((v) => v !== versionNumber);
+        }
+        const next = [...current, versionNumber].slice(-2);
+        if (next.length === 2) {
+          const [from, to] = [...next].sort((a, b) => a - b);
+          void loadDiff(from, to);
+        }
+        return next;
+      });
+    },
+    [loadDiff],
+  );
+
   const handleVersionPress = (version: VersionItem) => {
+    if (isComparing) {
+      toggleCompareSelection(version.version);
+      return;
+    }
     if (selectedVersion?.version === version.version) {
       setSelectedVersion(null);
     } else {
@@ -158,14 +238,16 @@ export function CoachVersionHistory({
   };
 
   const renderVersionItem = (version: VersionItem) => {
-    const isSelected = selectedVersion?.version === version.version;
+    const isSelected = !isComparing && selectedVersion?.version === version.version;
     const isCurrent = versionsData?.current_version === version.version;
+    const isPickedForCompare = compareSelection.includes(version.version);
+    const isHighlighted = isSelected || isPickedForCompare;
 
     return (
       <View
         key={version.version}
         className={`rounded-lg mb-3 border ${
-          isSelected ? 'border-primary-500 bg-primary-500/10' : 'border-border-subtle bg-background-secondary'
+          isHighlighted ? 'border-primary-500 bg-primary-500/10' : 'border-border-subtle bg-background-secondary'
         }`}
         style={versionCardShadow}
       >
@@ -195,9 +277,17 @@ export function CoachVersionHistory({
             </Text>
           </View>
           <Ionicons
-            name={isSelected ? 'chevron-up' : 'chevron-down'}
+            name={
+              isComparing
+                ? isPickedForCompare
+                  ? 'checkmark-circle'
+                  : 'ellipse-outline'
+                : isSelected
+                  ? 'chevron-up'
+                  : 'chevron-down'
+            }
             size={20}
-            color={colors.text.tertiary}
+            color={isPickedForCompare ? PRIMARY_PALETTE[500] : colors.text.tertiary}
           />
         </TouchableOpacity>
 
@@ -262,6 +352,15 @@ export function CoachVersionHistory({
               </Text>
             </View>
             <TouchableOpacity
+              className="px-3 py-1.5 mr-1 rounded-lg border border-border-subtle"
+              onPress={isComparing ? exitCompareMode : enterCompareMode}
+              testID="toggle-compare-mode"
+            >
+              <Text className="text-sm font-medium text-text-primary">
+                {isComparing ? 'Done' : 'Compare'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               className="p-2 -mr-2"
               onPress={onClose}
               testID="close-version-history"
@@ -304,6 +403,49 @@ export function CoachVersionHistory({
               showsVerticalScrollIndicator={false}
               testID="version-list"
             >
+              {isComparing && (
+                <View
+                  className="rounded-lg mb-3 p-3 bg-background-secondary border border-border-subtle"
+                  testID="version-compare-panel"
+                >
+                  {isLoadingDiff ? (
+                    <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
+                  ) : diff ? (
+                    <>
+                      <Text className="text-sm font-semibold text-text-primary mb-2">
+                        v{diff.from_version} → v{diff.to_version}
+                      </Text>
+                      {diff.changes.length === 0 ? (
+                        <Text className="text-sm text-text-secondary" testID="version-diff-empty">
+                          No field changed between these versions.
+                        </Text>
+                      ) : (
+                        diff.changes.map((change) => (
+                          <View
+                            key={change.field}
+                            className="py-2 border-b border-border-subtle/30"
+                            testID={`diff-field-${change.field}`}
+                          >
+                            <Text className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-1">
+                              {change.field.replace(/_/g, ' ')}
+                            </Text>
+                            <Text className="text-sm text-error" numberOfLines={4}>
+                              − {diffValueText(change.old_value)}
+                            </Text>
+                            <Text className="text-sm text-success mt-1" numberOfLines={4}>
+                              + {diffValueText(change.new_value)}
+                            </Text>
+                          </View>
+                        ))
+                      )}
+                    </>
+                  ) : (
+                    <Text className="text-sm text-text-secondary" testID="version-compare-hint">
+                      Pick two versions to compare.
+                    </Text>
+                  )}
+                </View>
+              )}
               {versionsData.versions.map(renderVersionItem)}
               <View className="h-4" />
             </ScrollView>

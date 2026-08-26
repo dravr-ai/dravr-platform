@@ -50,7 +50,7 @@ pub mod status;
 /// Timezone command persisting the user's IANA timezone
 pub mod timezone;
 
-pub use group::CallerGroupStanding;
+pub use group::{caller_group_standing, CallerGroupStanding};
 pub use parser::{load_command_catalog, CommandCatalog};
 
 use std::collections::HashMap;

@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::constants::tool_execution::{MAX_MAX_TOOL_ITERATIONS, MIN_MAX_TOOL_ITERATIONS};
+use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::coaches::DataRequirements;
 use pierre_database::database::{
     coaches::{
@@ -14,8 +17,6 @@ use pierre_database::database::{
     store_listings::CoachWithListing,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 
 // ============================================
 // Core Coach Response Types
@@ -23,7 +24,6 @@ use utoipa::ToSchema;
 
 /// Response for a coach
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct CoachResponse {
     /// Unique identifier
     pub id: String,
@@ -97,11 +97,14 @@ pub struct CoachResponse {
     /// present when `personalize=true`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended: Option<bool>,
+    /// Per-coach tool-loop iteration budget for a chat turn. Absent when the
+    /// coach inherits the admin configuration value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tool_iterations: Option<i32>,
 }
 
 /// A missing prerequisite for a coach
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct MissingPrerequisite {
     /// Type of prerequisite (provider, `activity_count`, `activity_type`)
     pub prerequisite_type: String,
@@ -142,6 +145,7 @@ impl From<Coach> for CoachResponse {
             success_criteria: coach.success_criteria,
             match_score: None,
             recommended: None,
+            max_tool_iterations: coach.max_tool_iterations,
         }
     }
 }
@@ -177,13 +181,13 @@ impl From<CoachListItem> for CoachResponse {
             success_criteria: item.coach.success_criteria,
             match_score: None,
             recommended: None,
+            max_tool_iterations: item.coach.max_tool_iterations,
         }
     }
 }
 
 /// Response for listing coaches
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListCoachesResponse {
     /// List of coaches
     pub coaches: Vec<CoachResponse>,
@@ -195,7 +199,6 @@ pub struct ListCoachesResponse {
 
 /// Metadata for coaches response
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct CoachesMetadata {
     /// Response timestamp
     pub timestamp: String,
@@ -205,7 +208,6 @@ pub struct CoachesMetadata {
 
 /// Query parameters for listing coaches
 #[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListCoachesQuery {
     /// Filter by category
     pub category: Option<String>,
@@ -229,7 +231,6 @@ pub struct ListCoachesQuery {
 
 /// Query parameters for searching coaches
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SearchCoachesQuery {
     /// Search query string
     pub q: String,
@@ -241,7 +242,6 @@ pub struct SearchCoachesQuery {
 
 /// Response for toggle favorite
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ToggleFavoriteResponse {
     /// New favorite status
     pub is_favorite: bool,
@@ -249,7 +249,6 @@ pub struct ToggleFavoriteResponse {
 
 /// Response for record usage
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct RecordUsageResponse {
     /// Whether the usage was recorded
     pub success: bool,
@@ -257,7 +256,6 @@ pub struct RecordUsageResponse {
 
 /// Response for hide/show coach operations
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct HideCoachResponse {
     /// Whether the operation was successful
     pub success: bool,
@@ -267,7 +265,6 @@ pub struct HideCoachResponse {
 
 /// Response for forking a coach
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ForkCoachResponse {
     /// The newly created forked coach
     pub coach: CoachResponse,
@@ -277,7 +274,6 @@ pub struct ForkCoachResponse {
 
 /// Response for importing a coach from markdown
 #[derive(Debug, Serialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ImportCoachResponse {
     /// The created coach
     pub coach: CoachResponse,
@@ -292,7 +288,6 @@ pub struct ImportCoachResponse {
 
 /// Response for previewing a coach import without saving
 #[derive(Debug, Serialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ImportPreviewResponse {
     /// Whether the markdown parsed successfully
     pub valid: bool,
@@ -320,7 +315,6 @@ pub struct ImportPreviewResponse {
 
 /// Parsed coach fields extracted from markdown for preview
 #[derive(Debug, Serialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ParsedCoachFields {
     /// Coach name/slug from frontmatter
     pub name: String,
@@ -344,7 +338,6 @@ pub struct ParsedCoachFields {
 
 /// Request body for importing a coach from a URL
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ImportFromUrlBody {
     /// HTTPS URL pointing to a markdown coach definition
     pub url: String,
@@ -363,7 +356,6 @@ const fn default_save_true() -> bool {
 
 /// Request body for creating a coach (mirrors `CreateCoachRequest` with serde derives)
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct CreateCoachBody {
     /// Display title for the coach
     pub title: String,
@@ -395,6 +387,9 @@ pub struct CreateCoachBody {
     pub example_outputs: Option<String>,
     /// Success definition (from ## Success Criteria section)
     pub success_criteria: Option<String>,
+    /// Per-turn tool-loop iteration budget for this coach. Omitted leaves the
+    /// coach on the `tool_execution.max_iterations` admin configuration value.
+    pub max_tool_iterations: Option<i32>,
 }
 
 impl From<CreateCoachBody> for CreateCoachRequest {
@@ -417,13 +412,13 @@ impl From<CreateCoachBody> for CreateCoachRequest {
             example_inputs: body.example_inputs,
             example_outputs: body.example_outputs,
             success_criteria: body.success_criteria,
+            max_tool_iterations: body.max_tool_iterations,
         }
     }
 }
 
 /// Request body for updating a coach
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct UpdateCoachBody {
     /// New title (if provided)
     pub title: Option<String>,
@@ -453,6 +448,11 @@ pub struct UpdateCoachBody {
     pub example_outputs: Option<String>,
     /// New `success_criteria` (if provided)
     pub success_criteria: Option<String>,
+    /// New per-turn tool-loop iteration budget. An absent key leaves the
+    /// stored value untouched; an explicit `null` clears it so the coach
+    /// inherits the `tool_execution.max_iterations` admin value again.
+    #[serde(default)]
+    pub max_tool_iterations: FieldUpdate<i32>,
 }
 
 impl From<UpdateCoachBody> for UpdateCoachRequest {
@@ -472,8 +472,35 @@ impl From<UpdateCoachBody> for UpdateCoachRequest {
             example_inputs: body.example_inputs,
             example_outputs: body.example_outputs,
             success_criteria: body.success_criteria,
+            max_tool_iterations: body.max_tool_iterations,
         }
     }
+}
+
+/// Reject a tool-loop budget outside the platform band.
+///
+/// `None` — the key absent, or explicitly cleared back to inherit — always
+/// passes; a supplied value must land inside
+/// [`MIN_MAX_TOOL_ITERATIONS`] through [`MAX_MAX_TOOL_ITERATIONS`], the same band
+/// the chat pipeline reads back and the `tool_execution.max_iterations` admin
+/// parameter is bounded to.
+///
+/// # Errors
+///
+/// Returns [`ErrorCode::ValueOutOfRange`] naming the band and the value.
+pub fn validate_max_tool_iterations(value: Option<i32>) -> Result<(), AppError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let min = i32::from(MIN_MAX_TOOL_ITERATIONS);
+    let max = i32::from(MAX_MAX_TOOL_ITERATIONS);
+    if (min..=max).contains(&value) {
+        return Ok(());
+    }
+    Err(AppError::new(
+        ErrorCode::ValueOutOfRange,
+        format!("max_tool_iterations must be between {min} and {max}, got {value}"),
+    ))
 }
 
 // ============================================
@@ -482,7 +509,6 @@ impl From<UpdateCoachBody> for UpdateCoachRequest {
 
 /// Request to generate a coach from a conversation
 #[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GenerateCoachRequest {
     /// The conversation ID to analyze
     pub conversation_id: String,
@@ -497,7 +523,6 @@ const fn default_max_messages() -> usize {
 
 /// Response for coach generation
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GenerateCoachResponse {
     /// Generated title for the coach
     pub title: String,
@@ -531,7 +556,6 @@ pub(super) struct GeneratedCoachData {
 
 /// Response for a coach version
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct CoachVersionResponse {
     /// Version number
     pub version: i32,
@@ -562,7 +586,6 @@ impl From<CoachVersion> for CoachVersionResponse {
 
 /// Response for listing coach versions
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListVersionsResponse {
     /// List of versions
     pub versions: Vec<CoachVersionResponse>,
@@ -574,7 +597,6 @@ pub struct ListVersionsResponse {
 
 /// Response for reverting to a version
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct RevertVersionResponse {
     /// The coach after reversion
     pub coach: CoachResponse,
@@ -586,7 +608,6 @@ pub struct RevertVersionResponse {
 
 /// Response for comparing two versions
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct CoachDiffResponse {
     /// Source version number
     pub from_version: i32,
@@ -598,7 +619,6 @@ pub struct CoachDiffResponse {
 
 /// A single field change between versions
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct FieldChange {
     /// Name of the field that changed
     pub field: String,
@@ -610,7 +630,6 @@ pub struct FieldChange {
 
 /// Query parameters for listing versions
 #[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ListVersionsQuery {
     /// Maximum number of versions to return
     pub limit: Option<u32>,
@@ -881,7 +900,6 @@ pub struct RejectCoachBody {
 
 /// One sport's share of the user's recent activity mix.
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SportShare {
     /// Canonical `snake_case` sport label (e.g. `run`, `ride`).
     pub sport: String,
@@ -894,7 +912,6 @@ pub struct SportShare {
 /// The user's inferred sport profile, rendered on the onboarding
 /// "we analyzed your data" screen before coach suggestions.
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SportProfileSummary {
     /// `false` ⇒ cold start (no connected provider or no activities in the
     /// window); the proposal falls back to broadly-useful starter coaches.
@@ -914,7 +931,6 @@ pub struct SportProfileSummary {
 /// surfacing it. `reason` is LLM-authored when the re-ranking step runs, or a
 /// deterministic fallback string otherwise.
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ProposedCoach {
     /// The proposed coach.
     pub coach: CoachResponse,
@@ -926,7 +942,6 @@ pub struct ProposedCoach {
 
 /// Response for `GET /api/coaches/proposal`.
 #[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct CoachProposalResponse {
     /// The inferred sport profile shown before the coach list.
     pub profile: SportProfileSummary,

@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-import { groupsApi } from '../services/api';
+import { chatApi, groupsApi } from '../services/api';
 import type {
   CreateGroupRequest,
   JoinGroupRequest,
@@ -381,6 +381,10 @@ export function useUpdatePeerConsent(groupId: string) {
 
 /**
  * Fetches group creation permissions for the current user.
+ *
+ * `weeklyDigest` is the tenant's plan-tier flag, resolved server-side from the
+ * same read the digest scheduler sweeps on. Surfaces that render the weekly
+ * report or health flags gate on it rather than deriving a tier locally.
  */
 export function useGroupPermissions() {
   const query = useQuery({
@@ -392,8 +396,87 @@ export function useGroupPermissions() {
   return {
     canCreate: query.data?.can_create ?? true,
     policy: query.data?.policy ?? 'everyone',
+    weeklyDigest: query.data?.weekly_digest ?? false,
     isLoading: query.isLoading,
     isError: query.isError,
+  };
+}
+
+/**
+ * Fetches the group's weekly report. Admin/owner only server-side, and only
+ * worth asking for when the tenant's tier enables the weekly digest — pass
+ * both conditions through `enabled` so a member never fires a request the
+ * server will refuse.
+ */
+export function useGroupWeeklyReport(groupId: string, enabled: boolean) {
+  const query = useQuery({
+    queryKey: QUERY_KEYS.groups.report(groupId),
+    queryFn: () => groupsApi.getWeeklyReport(groupId),
+    enabled: !!groupId && enabled,
+    staleTime: 5 * 60_000,
+  });
+
+  return {
+    report: query.data?.report ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * Fetches the health flags raised for the group's members. Same admin + tier
+ * gate as {@link useGroupWeeklyReport}.
+ */
+export function useGroupHealthFlags(groupId: string, enabled: boolean) {
+  const query = useQuery({
+    queryKey: QUERY_KEYS.groups.health(groupId),
+    queryFn: () => groupsApi.getHealthFlags(groupId),
+    enabled: !!groupId && enabled,
+    staleTime: 5 * 60_000,
+  });
+
+  return {
+    flags: query.data?.flags ?? [],
+    total: query.data?.total ?? 0,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * Opens a chat conversation scoped to a coaching group.
+ *
+ * `group_id` is what makes the turn a group turn: it gates `resolve_group_context`
+ * and the peer-grounding fabrication stage server-side. A conversation started
+ * from a group without it is an ordinary 1:1 chat that happens to use the
+ * group's coach persona, which is what every in-app group chat used to be.
+ * The title carries the group's name so the athlete can see which room the
+ * conversation belongs to.
+ */
+export function useStartGroupConversation() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: ({ groupId, groupName, coachId }: { groupId: string; groupName: string; coachId: string }) =>
+      chatApi.createConversation({
+        title: groupName,
+        coach_id: coachId,
+        group_id: groupId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+    },
+  });
+
+  return {
+    startConversation: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    isError: mutation.isError,
+    error: mutation.error,
   };
 }
 
@@ -407,4 +490,28 @@ export function useInvalidateGroups() {
   return useCallback(() => {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.all });
   }, [queryClient]);
+}
+
+/**
+ * Reads the group's shared room transcript.
+ *
+ * Membership-gated server-side and consent-filtered in the same SQL the
+ * pipeline's ambient context uses, so what a member sees here is exactly what
+ * the coach reasons from -- one visibility rule for humans and model alike.
+ */
+export function useGroupTranscript(groupId: string, enabled: boolean) {
+  const query = useQuery({
+    queryKey: QUERY_KEYS.groups.transcript(groupId),
+    queryFn: () => groupsApi.getTranscript(groupId),
+    enabled: !!groupId && enabled,
+    staleTime: 30_000,
+  });
+
+  return {
+    transcript: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
 }

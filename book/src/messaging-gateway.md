@@ -95,8 +95,10 @@ curl -X PUT http://localhost:8081/api/messaging/channels/telegram \
 > `message` updates only — button taps (`callback_query`) are never delivered,
 > so every inline keyboard the bot sends looks broken while the server logs
 > stay clean, because the tap never arrives. The coach picker was dead this way
-> until 2026-08-18. Verify with `getWebhookInfo`: `allowed_updates` must list
-> `callback_query`.
+> until 2026-08-18. `message_reaction` is excluded from the default set the same
+> way: without it, an athlete's 👍 on a coach reply never reaches Pierre and no
+> feedback is recorded. Verify with `getWebhookInfo`: `allowed_updates` must
+> list `callback_query` and `message_reaction`.
 
 ```bash
 curl -X POST "https://api.telegram.org/bot7123456789:AAHk.../setWebhook" \
@@ -104,7 +106,7 @@ curl -X POST "https://api.telegram.org/bot7123456789:AAHk.../setWebhook" \
   -d '{
     "url": "https://your-domain.com/api/messaging/webhook/telegram",
     "secret_token": "my-random-secret-string",
-    "allowed_updates": ["message", "callback_query"]
+    "allowed_updates": ["message", "callback_query", "message_reaction"]
   }'
 ```
 
@@ -151,7 +153,7 @@ curl -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
   -d '{
     "url": "https://your-domain.com/api/messaging/webhook/telegram",
     "secret_token": "my-random-secret-string",
-    "allowed_updates": ["message", "callback_query"]
+    "allowed_updates": ["message", "callback_query", "message_reaction"]
   }'
 ```
 
@@ -175,7 +177,11 @@ curl -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
 3. Install the app to your workspace — copy the **Bot User OAuth Token** (`xoxb-...`)
 4. Under **Basic Information**, copy the **Signing Secret**
 5. Under **Event Subscriptions**, enable events and set the Request URL to your webhook URL
-6. Subscribe to bot events: `message.im`, `message.channels`
+6. Subscribe to bot events: `message.im`, `message.channels`, `reaction_added`,
+   `reaction_removed`. The two reaction events carry an athlete's emoji on a coach
+   reply; without them the reaction is invisible to Pierre and no feedback is
+   recorded. `reaction_added` / `reaction_removed` also need the `reactions:read`
+   bot token scope.
 
 **Required credentials:**
 
@@ -214,7 +220,7 @@ Pierre can receive Slack events over an outbound WebSocket instead of an inbound
 4. (Optional) Set `SLACK_ALLOWED_BOT_IDS=B0ABC123,B0DEF456` to allow specific bot accounts to post into the pipeline as user input. Leave unset in production unless you have a trusted QA driver bot or integration to authorise.
 5. Restart Pierre. Look for `Slack Socket Mode: hello received` in the logs to confirm the WSS handshake.
 
-When Socket Mode is on, Slack stops calling the webhook URL — events are pushed to Pierre over the persistent WebSocket. Same pipeline, same canot parser, same `allowed_bot_ids` semantics.
+When Socket Mode is on, Slack stops calling the webhook URL — events are pushed to Pierre over the persistent WebSocket. Same pipeline, same canot parser, same `allowed_bot_ids` semantics. Reaction events ride the socket too, and Pierre applies them as message feedback exactly as it does from the webhook — the `reaction_added` / `reaction_removed` subscriptions above are still what makes Slack send them.
 
 > **⚠️ Loop prevention:** Never add Pierre's own coach bot ID to `SLACK_ALLOWED_BOT_IDS`. Allow-listed bots are treated as real user input — listing yourself creates a feedback loop where every coach reply triggers a fresh chat turn. Only list trusted external bots (QA drivers, Zapier webhooks, etc.).
 
@@ -261,6 +267,12 @@ curl -X PUT http://localhost:8081/api/messaging/channels/discord \
 ```
 
 > **Note:** When you save the Interactions Endpoint URL, Discord sends a PING. Pierre responds automatically with a PONG.
+
+> **Reactions:** Discord delivers `MESSAGE_REACTION_ADD` / `MESSAGE_REACTION_REMOVE` only on
+> the Gateway, never on the interactions webhook. Pierre's Gateway client today forwards
+> `MESSAGE_CREATE` alone and requests neither reaction intent, so an emoji on a coach reply
+> records no feedback on Discord — unlike Telegram and Slack, where it does. Tracked as
+> carnet #106.
 
 ---
 

@@ -11,8 +11,8 @@ use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL,
-    KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
+    MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
+    KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
 };
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppResult;
@@ -28,7 +28,7 @@ use pierre_llm::ChatMessage;
 use pierre_services::prompt_leak;
 use tracing::error;
 
-use super::super::channel_profile::ChannelProfile;
+use super::super::surface_profile::{ProseFormat, SurfaceProfile};
 use super::super::turn::TurnInput;
 use super::commitments::inject_commitments;
 use super::followups::inject_pending_followups;
@@ -255,7 +255,7 @@ fn progression_guardrails(
 fn interpolate_prompt_placeholders(
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
     prompt_registry: &Arc<PromptRegistry>,
-    input: &TurnInput,
+    locale: &str,
     coach_ctx: Option<&CoachRuntimeContext>,
     persona: CoachingPersona,
     user_timezone: Option<&str>,
@@ -270,7 +270,6 @@ fn interpolate_prompt_placeholders(
         if !has_scope && !has_capability && !has_carve_out && !has_persona && !has_current_date {
             prompt.to_owned()
         } else {
-            let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
             let scope = messaging_strings_registry.get(KEY_SCOPE_REFUSAL, locale);
             let capability = messaging_strings_registry.get(KEY_CAPABILITY_REFUSAL, locale);
             let carve_out = coach_ctx
@@ -422,20 +421,18 @@ pub(crate) async fn resolve_user_persona_and_timezone(
 /// directly — those coaches are not git-managed and have no upstream
 /// source of truth.
 ///
-/// `locale` is the per-turn user locale (`input.locale`); the registry
-/// keys coach prompts by `(slug, locale)` per contremaitre manifest v5.
-/// `None` defaults to `DEFAULT_LOCALE` so the registry's English entry is
-/// consulted.
+/// `locale` is the turn's resolved locale, taken from
+/// [`crate::SurfaceProfile::locale`]; the registry keys coach prompts by
+/// `(slug, locale)` per contremaitre manifest v5.
 pub fn resolve_coach_base_prompt(
     prompt_registry: &Arc<PromptRegistry>,
     coach_ctx: &CoachRuntimeContext,
-    locale: Option<&str>,
+    locale: &str,
 ) -> String {
     if coach_ctx.source != "contremaitre" {
         return coach_ctx.system_prompt.clone();
     }
 
-    let locale = locale.unwrap_or(DEFAULT_LOCALE);
     if let Some(content) = prompt_registry.get_coach_prompt(&coach_ctx.slug, locale) {
         return content;
     }
@@ -486,7 +483,7 @@ pub(crate) type AssembledPrompt = (
     skip_all,
     fields(
         turn_id = %input.turn_id,
-        channel = profile.channel.as_str(),
+        channel = profile.surface.as_str(),
         coach_id = conv.coach_id.as_deref().unwrap_or("none"),
         history_len = history.len(),
         prompt_len = field::Empty,
@@ -496,7 +493,7 @@ pub(crate) type AssembledPrompt = (
 pub(crate) async fn assemble_prompt_and_messages(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
-    profile: &ChannelProfile,
+    profile: &SurfaceProfile,
     conv: &ConversationRecord,
     coach_ctx: Option<&CoachRuntimeContext>,
     history: &[MessageRecord],
@@ -513,7 +510,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // is why replacing this block is safe.
     let persona_prompt = coach_ctx.map_or_else(
         || ctx.pierre_system_prompt.clone(),
-        |c| resolve_coach_base_prompt(&ctx.prompt_registry, c, input.locale.as_deref()),
+        |c| resolve_coach_base_prompt(&ctx.prompt_registry, c, &profile.locale),
     );
 
     // The platform contract leads, unconditionally.
@@ -543,7 +540,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     let base_prompt = interpolate_prompt_placeholders(
         &ctx.messaging_strings_registry,
         &ctx.prompt_registry,
-        input,
+        &profile.locale,
         coach_ctx,
         persona,
         user_timezone.as_deref(),
@@ -601,24 +598,23 @@ pub(crate) async fn assemble_prompt_and_messages(
     let group_roster: Vec<MemberFitnessSnapshot> = Vec::new();
 
     // Stage 7d: Trigger background provider refresh and append freshness hint.
-    let base_prompt = if profile.emit_data_freshness_hint {
-        let auth_repos = ctx.repos.auth_repos();
-        inject_refresh_context(
-            super::refresh::RefreshDeps {
-                auth_repos: &auth_repos,
-                activity_cache: ctx.repos.activity_cache.clone(),
-                #[cfg(feature = "health-sync")]
-                sync_orchestrator: &ctx.sync_orchestrator,
-                sse_manager: &ctx.sse_manager,
-            },
-            &input.user_id,
-            input.tool_tenant_id,
-            base_prompt,
-        )
-        .await
-    } else {
-        base_prompt
-    };
+    // Unconditional: how stale the athlete's provider data is has the same
+    // bearing on the answer everywhere, so there was never a surface that
+    // wanted it suppressed.
+    let auth_repos = ctx.repos.auth_repos();
+    let base_prompt = inject_refresh_context(
+        super::refresh::RefreshDeps {
+            auth_repos: &auth_repos,
+            activity_cache: ctx.repos.activity_cache.clone(),
+            #[cfg(feature = "health-sync")]
+            sync_orchestrator: &ctx.sync_orchestrator,
+            sse_manager: &ctx.sse_manager,
+        },
+        &input.user_id,
+        input.tool_tenant_id,
+        base_prompt,
+    )
+    .await;
 
     // Stage 7e: Render the per-user OKF context bundle (North Star + pillar +
     // medical facts) from the read-time Dossier into the prompt. Single
@@ -727,8 +723,8 @@ pub(crate) async fn assemble_prompt_and_messages(
         None => base_prompt,
     };
 
-    // Stage 7g: Append the channel-profile response-constraints prompt.
-    let raw_system_prompt = match profile.response_constraints_prompt.as_deref() {
+    // Stage 7g: Append the surface's live prose contract.
+    let raw_system_prompt = match profile.prose_contract.as_deref() {
         Some(suffix) => format!("{base_prompt}\n\n{suffix}"),
         None => base_prompt,
     };
@@ -741,15 +737,15 @@ pub(crate) async fn assemble_prompt_and_messages(
     // constraints are the freshest instructions when the model starts
     // generating.
     //
-    // Messaging channels use a stricter prose variant that constrains the
-    // natural-language portion of the reply (no markdown headings, no
-    // bullet lists, no inline JSON) but still teaches the model the
-    // `<tool_call>` invocation syntax: tool-call blocks are required to
+    // A surface that does not parse markdown gets a stricter prose variant
+    // that constrains the natural-language portion of the reply (no markdown
+    // headings, no bullet lists, no inline JSON) but still teaches the model
+    // the `<tool_call>` invocation syntax: tool-call blocks are required to
     // actually execute tools and are stripped server-side via
     // `tool_simulation::strip_simulation_artifacts` before the reply reaches
     // the user, so they never violate the plain-text mandate from
     // `messaging_context.md`.
-    let tool_discipline_prompt = if profile.channel.is_messaging() {
+    let tool_discipline_prompt = if matches!(profile.render.prose, ProseFormat::PlainText) {
         ctx.tool_discipline_messaging_prompt.clone()
     } else {
         ctx.tool_discipline_prompt.clone()
@@ -759,10 +755,10 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7g.2: Builder coaches that declare an `output_schema` get the
     // structured-output contract appended last (recency priority alongside
     // tool-discipline): emit JSON-only for a plan, prose for a refusal, never
-    // narrate the data-gathering process. Only on card-capable channels
-    // (web/mobile) — messaging channels have no plan-card renderer, so the
-    // JSON directive (and the matching extraction) is skipped there and the
-    // coach falls back to the channel's plain-prose mandate.
+    // narrate the data-gathering process. Only where a plan card can actually
+    // be laid out — without one the JSON directive (and the matching
+    // extraction) is skipped and the coach falls back to the surface's
+    // plain-prose mandate.
     //
     // Suppressed while the guided pillar walk is active, for the same reason
     // Stage 7f.2 suppresses the plan block: a JSON-plan output contract has no
@@ -774,7 +770,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // JSON-only contract and a prose task directive, with the prose block
     // winning on recency. That is the 2026-07-24 derail exactly.
     let structured_contract_active = coach_ctx.is_some_and(|c| c.output_schema.is_some())
-        && !profile.channel.is_messaging()
+        && profile.render.blocks.workout_plan_card
         && onboarding.is_none();
     let raw_system_prompt = if structured_contract_active {
         format!("{raw_system_prompt}\n\n{}", ctx.structured_output_prompt)
@@ -787,8 +783,12 @@ pub(crate) async fn assemble_prompt_and_messages(
     // even told the syntax — the post-process gate refuses its fences anyway,
     // but not telling it is what keeps the two consistent.
     //
-    // Never on messaging: no block renderer there, so a coach that emitted one
-    // would have its fence stripped to a marker pointing at nothing.
+    // Withheld on a surface that can neither draw a Scene inline nor fetch a
+    // rasterised one, because a coach that emitted a fence there would have it
+    // stripped to a marker pointing at nothing. Every surface shipping today
+    // does one or the other — the app draws inline, the channels fetch pixels
+    // the egress presses — so the gate is what keeps a future text-only
+    // transport from being taught a syntax it cannot honour.
     //
     // Mutually exclusive with the structured-output contract above by
     // construction: that contract demands the ENTIRE reply be one JSON object,
@@ -802,6 +802,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // the contract entirely, leaving the model to report it had no way to draw.
     let visual_contract_active = !structured_contract_active
         && onboarding.is_none()
+        && (profile.render.blocks.scene_inline || profile.render.blocks.scene_raster)
         && !viz_blocks::granted_visuals(coach_ctx.map(|c| c.visuals.as_slice())).is_empty();
     let raw_system_prompt = if visual_contract_active {
         format!("{raw_system_prompt}\n\n{}", ctx.visual_blocks_prompt)

@@ -20,9 +20,16 @@ import { ThemeProvider } from './hooks/useTheme';
 import { useAuth } from './hooks/useAuth';
 import { QUERY_KEYS } from './constants/queryKeys';
 import { useOnboardingState } from './hooks/useOnboardingState';
+import { useIdleWatch } from './hooks/useIdleWatch';
+import { QUERY_FOCUS_POLICY } from '@pierre/shared-constants';
 import './App.css';
 
-const queryClient = new QueryClient();
+// The focus/idle contract, stated rather than inherited. `useIdleWatch`
+// (mounted below) drives it: an untouched tab stops polling instead of
+// renewing a Cloud Run instance forever.
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { ...QUERY_FOCUS_POLICY } },
+});
 
 /**
  * Check if the current URL has OAuth callback parameters
@@ -71,6 +78,10 @@ function AppContent() {
     isVerifyEmailPath() ? parseVerifyStatus(window.location.search) : null,
   );
   const localQueryClient = useQueryClient();
+
+  // Stop polling — and drop any open turn stream — once the tab has gone
+  // untouched for long enough that nobody is reading it.
+  useIdleWatch();
 
   // Onboarding flow state (server status + per-step flags + transitions). Kept
   // here — above the `oauthCallback` early return — so the status query stays

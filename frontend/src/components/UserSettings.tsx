@@ -8,16 +8,19 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
+import { useTheme } from '../hooks/useTheme';
+import { useTranslation } from '@pierre/i18n';
 import { userApi, pierreApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
-import type { OAuthGrant } from '@pierre/shared-types';
-import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select } from './ui';
+import type { OAuthGrant, ThemePreference } from '@pierre/shared-types';
+import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast } from './ui';
 import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import CoachingPersonaTab from './CoachingPersonaTab';
 import LlmSettingsTab from './LlmSettingsTab';
 import MessagingSettingsTab from './MessagingSettingsTab';
+import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { buildFitnessProviderCards } from '../utils/fitnessProviderCards';
@@ -25,6 +28,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
+import { LanguageSwitcher } from './LanguageSwitcher';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import type { LimitCheckResult } from '../services/api/usage';
 
@@ -94,7 +98,7 @@ function formatResetTime(isoString: string): string {
   }
 }
 
-type SettingsTab = 'profile' | 'connections' | 'tokens' | 'llm' | 'coaching' | 'messaging' | 'memory' | 'privacy' | 'about' | 'account';
+type SettingsTab = 'profile' | 'connections' | 'tokens' | 'llm' | 'coaching' | 'messaging' | 'notifications' | 'memory' | 'privacy' | 'about' | 'account';
 
 const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] = [
   {
@@ -146,6 +150,15 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
     ),
   },
   {
+    id: 'notifications',
+    name: 'Notifications',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+      </svg>
+    ),
+  },
+  {
     id: 'memory',
     name: 'Memory',
     icon: (
@@ -188,7 +201,22 @@ const ADMIN_HIDDEN_TABS: Set<SettingsTab> = new Set(['connections', 'about', 'me
 
 export default function UserSettings({ initialTab = 'profile', hideTabNav = false }: { initialTab?: SettingsTab; hideTabNav?: boolean }) {
   const { user, logout, isAuthenticated } = useAuth();
+  const { scheme, toggle: toggleTheme } = useTheme();
+  const { t } = useTranslation();
+  const showErrorToast = useErrorToast();
   const queryClient = useQueryClient();
+
+  // Flip the theme locally, then tell the server which scheme was pinned so
+  // the preference follows the athlete to their other devices. The write is
+  // fire-and-forget: the local flip has already happened and must never be
+  // undone or delayed by a failed request — failure only surfaces as a toast.
+  const handleThemeToggle = () => {
+    const next: ThemePreference = scheme === 'dark' ? 'light' : 'dark';
+    toggleTheme();
+    userApi.updateTheme(next).catch(() => {
+      showErrorToast(t('settings.theme'), t('settings.themeSyncFailed'));
+    });
+  };
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
   // Admin users don't need Data Providers, About, or Messaging tabs.
@@ -712,6 +740,51 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 >
                   Save Changes
                 </Button>
+              </div>
+            </Card>
+
+            {/* Appearance — the theme control's only reachable home once a
+                user is signed in; the Login screen's toggle is gone by then. */}
+            <Card variant="dark">
+              <h2 className="text-lg font-semibold text-on-surface mb-4">{t('settings.appearance')}</h2>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-medium text-on-surface">{t('settings.theme')}</p>
+                  <p className="text-sm text-on-surface-variant">
+                    {scheme === 'dark' ? t('settings.themeCurrentDark') : t('settings.themeCurrentLight')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleThemeToggle}
+                  aria-label={scheme === 'dark' ? t('settings.themeSwitchToLight') : t('settings.themeSwitchToDark')}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-on-surface bg-surface-container-low border ghost-border hover:bg-surface-container transition-colors min-h-[44px]"
+                >
+                  {scheme === 'dark' ? (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="12" cy="12" r="4" />
+                      <path strokeLinecap="round" d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />
+                    </svg>
+                  )}
+                  <span className="text-sm font-medium">
+                    {scheme === 'dark' ? t('settings.themeSwitchToLight') : t('settings.themeSwitchToDark')}
+                  </span>
+                </button>
+              </div>
+
+              {/* Language — the switcher's only reachable home. It sets the
+                  chrome language AND `users.locale`, so the coach answers in
+                  the language the athlete reads the app in. */}
+              <div className="mt-6 pt-6 border-t ghost-border flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-medium text-on-surface">{t('settings.language')}</p>
+                  <p className="text-sm text-on-surface-variant">{t('settings.languageDescription')}</p>
+                </div>
+                <LanguageSwitcher serverLocale={user?.locale} />
               </div>
             </Card>
 
@@ -1316,6 +1389,8 @@ Authorization: Bearer <your-token-here>`}
         {activeTab === 'coaching' && <CoachingPersonaTab />}
 
         {activeTab === 'messaging' && <MessagingSettingsTab />}
+
+        {activeTab === 'notifications' && <NotificationSettingsTab />}
 
         {activeTab === 'memory' && <MemoryPanel />}
 

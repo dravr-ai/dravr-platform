@@ -350,6 +350,70 @@ impl FromStr for CoachingPersona {
     }
 }
 
+/// A colour scheme pinned across every surface the athlete uses.
+///
+/// Stored in `users.theme` as `"light"` / `"dark"`, or SQL NULL when the
+/// athlete has pinned nothing and each client follows its operating system.
+/// A server-side render has no operating system to follow, so
+/// [`Self::resolve`] reads an absent pin as [`Self::Dark`] — the scheme
+/// messaging clients overwhelmingly draw media bubbles on.
+///
+/// This is the single allowed set: `PUT /api/user/theme` validates against it
+/// before writing, and the chart minter resolves against it before signing a
+/// render token.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorScheme {
+    /// Light surfaces, dark ink.
+    Light,
+    /// Dark surfaces, light ink. The default a render falls back to when the
+    /// athlete has pinned nothing.
+    #[default]
+    Dark,
+}
+
+impl ColorScheme {
+    /// Canonical string form, matching both the `users.theme` column values
+    /// and the JSON the clients send.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    /// Resolve a stored pin into the scheme a server-side render paints in.
+    ///
+    /// `None` — no pin, or a value the column's CHECK constraint should have
+    /// made impossible — resolves to [`Self::Dark`] rather than failing: a
+    /// chart is worth more in the wrong scheme than not at all.
+    #[must_use]
+    pub fn resolve(pinned: Option<&str>) -> Self {
+        pinned
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_default()
+    }
+}
+
+impl Display for ColorScheme {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for ColorScheme {
+    type Err = AppError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "light" => Ok(Self::Light),
+            "dark" => Ok(Self::Dark),
+            _ => Err(AppError::invalid_input(format!("Invalid theme: {s}"))),
+        }
+    }
+}
+
 /// Represents a user in the multi-tenant system
 ///
 /// Users are authenticated through `OAuth` providers and have encrypted tokens
@@ -433,6 +497,14 @@ pub struct User {
     /// correctly.
     #[serde(default)]
     pub timezone: Option<String>,
+    /// Colour-scheme preference pinned across the user's devices:
+    /// `"light"` or `"dark"`. `None` means no pin — clients follow the
+    /// operating system, and server-side renders that cannot see a client
+    /// (messaging chart PNGs) fall back to dark, the scheme messaging
+    /// clients overwhelmingly draw media bubbles on. Written via
+    /// `PUT /api/user/theme`.
+    #[serde(default)]
+    pub theme: Option<String>,
 }
 
 /// Default locale (`"fr"`) used when deserializing a pre-locale `User`.
@@ -476,6 +548,7 @@ impl User {
             coaching_persona: CoachingPersona::default(),
             manages_roster: false,
             timezone: None,
+            theme: None,
         }
     }
 

@@ -156,6 +156,17 @@ pub struct UpdateLocaleRequest {
     pub locale: String,
 }
 
+/// Theme preference update request.
+///
+/// `"light"` / `"dark"` pin a colour scheme across the user's devices;
+/// JSON `null` clears the pin so clients follow the operating system.
+/// Anything else is rejected with a 400.
+#[derive(Debug, Deserialize)]
+pub struct UpdateThemeRequest {
+    /// Desired theme pin, or `None` to follow the system.
+    pub theme: Option<String>,
+}
+
 /// Coaching persona update request.
 ///
 /// Accepts the `snake_case` enum variant — `"casual"`, `"enthusiast"`,

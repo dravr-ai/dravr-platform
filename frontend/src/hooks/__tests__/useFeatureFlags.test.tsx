@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for the useFeatureFlags hook
-// ABOUTME: Covers fallback defaults, server merge, and FEATURE_KEYS constants
+// ABOUTME: Covers shared-domain fallback defaults, server merge, and FEATURE_KEYS constants
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -10,13 +10,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useFeatureFlags, FEATURE_KEYS } from '../useFeatureFlags';
 
-vi.mock('../../services/api/featureFlags', () => ({
+vi.mock('../../services/api', () => ({
   featureFlagsApi: {
     getMyFeatures: vi.fn(),
   },
 }));
 
-import { featureFlagsApi } from '../../services/api/featureFlags';
+import { featureFlagsApi } from '../../services/api';
 const getMyFeaturesMock = vi.mocked(featureFlagsApi.getMyFeatures);
 
 function createWrapper() {

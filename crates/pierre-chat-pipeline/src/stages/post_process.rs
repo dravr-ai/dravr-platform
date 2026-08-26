@@ -10,11 +10,13 @@ use pierre_services::prompt_leak;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::envelope::VerdictChip;
 use crate::hooks::PipelineHooks;
+use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
-use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_EMPTY_REPLY, KEY_REPLY_WITHHELD};
+use pierre_contremaitre::messaging_strings::{KEY_EMPTY_REPLY, KEY_REPLY_WITHHELD};
 use pierre_contremaitre::persona_contracts::PersonaContractsSnapshot;
 use pierre_core::narration::{scrub_internal_narration, IdentityLeakMatch};
 
@@ -58,10 +60,15 @@ pub(crate) struct PostProcessedReply {
     pub leak_replaced: bool,
     /// `Some` when the reply was withheld specifically because it identified
     /// as the underlying model/provider (a persona break), as opposed to a
-    /// canary hit or an emptied scrub. Threaded onto `DispatchResult` so the
-    /// messaging path can emit the `messaging.identity_leak` notify event
-    /// with the matched pattern's class/locale labels.
+    /// canary hit or an emptied scrub. Threaded onto
+    /// [`crate::TurnTelemetry`] so the messaging surface can emit the
+    /// `messaging.identity_leak` notify event with the matched pattern's
+    /// class/locale labels.
     pub identity_leak: Option<IdentityLeakMatch>,
+    /// Flagged claims to attach to the reply as chips. Non-empty only when the
+    /// surface renders chips, which is exactly when the verification stage left
+    /// the caveat banner out of `content`.
+    pub verdict_chips: Vec<VerdictChip>,
 }
 
 /// Borrowed inputs to [`post_process_assistant_reply`], bundled to stay within
@@ -73,9 +80,11 @@ pub(crate) struct PostProcessInputs<'a> {
     pub conv: &'a ConversationRecord,
     pub coach_ctx: Option<&'a CoachRuntimeContext>,
     pub prompt_guard: &'a prompt_leak::PromptGuard,
-    /// Whether this turn is on a messaging channel (no plan-card renderer);
-    /// gates structured-output extraction.
-    pub is_messaging: bool,
+    /// What the turn's surface can render, plus its resolved locale. Read for
+    /// the plan-card capability that gates structured-output extraction, the
+    /// transport character ceiling the guardrails stage enforces, and the
+    /// locale every canned reply renders in.
+    pub profile: &'a SurfaceProfile,
     /// Names of the tools that actually ran this turn. A visual block claiming
     /// a `source_tool` outside this set is rejected, which is what makes the
     /// attribution verified rather than asserted.
@@ -204,7 +213,7 @@ pub(crate) async fn post_process_assistant_reply(
         conv,
         coach_ctx,
         prompt_guard,
-        is_messaging,
+        profile,
         tools_called,
     } = inputs;
     // Stage 15: Scan for verbatim system-prompt leaks / canary hits. A canary
@@ -213,7 +222,7 @@ pub(crate) async fn post_process_assistant_reply(
     // scan): the localized refusal templates live in the system prompt, so a
     // legitimate refusal reproduces prompt shingles by construction and
     // blocking on them would eat every refusal.
-    let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
+    let locale = profile.locale.as_str();
     let leak_report = prompt_leak::scan_assistant_reply(
         prompt_guard,
         &raw_content,
@@ -230,6 +239,7 @@ pub(crate) async fn post_process_assistant_reply(
             content_blocks: None,
             leak_replaced: true,
             identity_leak: None,
+            verdict_chips: Vec::new(),
         };
     }
 
@@ -255,6 +265,7 @@ pub(crate) async fn post_process_assistant_reply(
             content_blocks: None,
             leak_replaced: true,
             identity_leak: leak_report.identity_leak,
+            verdict_chips: Vec::new(),
         };
     }
 
@@ -274,7 +285,7 @@ pub(crate) async fn post_process_assistant_reply(
     if let Some(schema_id) = coach_ctx.and_then(|c| c.output_schema.as_deref()) {
         if let Some(extraction) = structured_output::extract_structured_plan(
             Some(schema_id),
-            is_messaging,
+            profile.render.blocks.workout_plan_card,
             &ctx.structured_output_schemas,
             &raw_content,
         ) {
@@ -288,6 +299,7 @@ pub(crate) async fn post_process_assistant_reply(
                 ),
                 leak_replaced: false,
                 identity_leak: None,
+                verdict_chips: Vec::new(),
             };
         }
     }
@@ -320,6 +332,7 @@ pub(crate) async fn post_process_assistant_reply(
             content_blocks: None,
             leak_replaced: true,
             identity_leak: None,
+            verdict_chips: Vec::new(),
         };
     }
     // An untouched reply passes through byte-identical; only a fired scrub
@@ -331,12 +344,11 @@ pub(crate) async fn post_process_assistant_reply(
     };
 
     // Stage 16: Tier 6 text guardrails.
-    let locale_opt = input.locale.as_deref();
     let mut content = apply_text_guardrails(
         &ctx.harness_config_registry,
         &ctx.messaging_strings_registry,
         &raw_content,
-        locale_opt,
+        locale,
     );
 
     // Stage 16a: Deterministic first-use acronym expansion. Runs before
@@ -344,11 +356,7 @@ pub(crate) async fn post_process_assistant_reply(
     // stage's unglossed-acronym violation. Sources the glossary from the
     // same contremaitre snapshot the conformance stage reads.
     let contracts_snapshot = ctx.persona_contract_registry.snapshot();
-    content = expand_acronyms_first_use(
-        &contracts_snapshot,
-        &content,
-        locale_opt.unwrap_or(DEFAULT_LOCALE),
-    );
+    content = expand_acronyms_first_use(&contracts_snapshot, &content, locale);
 
     // Stage 16b: Per-persona output-format conformance. In strict_mode the
     // reply is re-prompted into compliance before verification; otherwise the
@@ -376,25 +384,29 @@ pub(crate) async fn post_process_assistant_reply(
     .await;
 
     // Stage 17: claim verification (gated behind tools-verification).
+    #[cfg(not(feature = "tools-verification"))]
+    let verdict_chips: Vec<VerdictChip> = Vec::new();
     #[cfg(feature = "tools-verification")]
-    let pending_verdicts = {
+    let (pending_verdicts, verdict_chips) = {
         let verification_config = coach_ctx
             .map(|c| pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt))
             .unwrap_or_default();
         let ClaimVerificationOutcome {
             content: verified_content,
             pending_verdicts,
+            chips,
         } = apply_claim_verification(ClaimVerificationParams {
             ctx,
+            renders_chips: profile.render.blocks.verdict_chips,
             reply: &content,
             config: &verification_config,
-            locale: locale_opt,
+            locale,
             user_id: &input.user_id,
             tenant_id: input.conversation_tenant_id,
         })
         .await;
         content = verified_content;
-        pending_verdicts
+        (pending_verdicts, chips)
     };
 
     // Stage 18: ResponsePostProcess hook.
@@ -424,5 +436,6 @@ pub(crate) async fn post_process_assistant_reply(
         content_blocks,
         leak_replaced: false,
         identity_leak: None,
+        verdict_chips,
     }
 }

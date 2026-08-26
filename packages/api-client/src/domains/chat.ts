@@ -1,15 +1,35 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Chat domain API - conversations and messages
-// ABOUTME: Handles CRUD for chat conversations and sending/receiving messages
+// ABOUTME: Chat domain API - conversations, history, feedback, and the single turn send
+// ABOUTME: sendTurn is the ONE way any surface puts a message on the wire and reads the turn back
 
 import type { AxiosInstance } from 'axios';
-import type { Conversation, Message, MessageFeedbackEntry } from '@pierre/shared-types';
+import type {
+  ChatMessageAction,
+  ClaimVerdict,
+  CommandCatalogueResponse,
+  CommandEntry,
+  Conversation,
+  Message,
+  MessageFeedbackEntry,
+  TurnEnvelope,
+} from '@pierre/shared-types';
+import type { PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
+import { parseTurnBody, TurnRequestError, type TurnCallbacks } from '../core/turn-stream';
 
 // Re-export types for consumers
-export type { Conversation, Message, MessageFeedbackEntry };
+export type {
+  ChatMessageAction,
+  ClaimVerdict,
+  CommandCatalogueResponse,
+  CommandEntry,
+  Conversation,
+  Message,
+  MessageFeedbackEntry,
+  TurnEnvelope,
+};
 
 export interface ConversationsResponse {
   conversations: Conversation[];
@@ -29,110 +49,86 @@ export interface MessagesResponse {
 }
 
 /**
- * User-facing wire shape for a claim verdict attached to a
- * conversation message. Mirrors the admin row shape but stays inside the
- * chat domain so the dispatch UI can render chips without going through
- * the admin permission gate.
+ * The claim verdicts attached to one conversation's messages.
+ *
+ * The same `claim_verdicts` rows the admin read returns; this endpoint stays
+ * inside the chat domain so the chat UI can render chips and open a drawer
+ * without going through the admin permission gate.
  */
-export interface ChatVerdictRow {
-  id: string;
-  conversation_id: string | null;
-  message_id: string | null;
-  coach_id: string | null;
-  claim_text: string;
-  category:
-    | 'physiological'
-    | 'training_prescription'
-    | 'nutrition'
-    | 'recovery'
-    | 'supplement'
-    | 'injury_rehab';
-  status: 'supported' | 'unsupported' | 'contradicted' | 'rhetorical' | 'unverifiable';
-  evidence_strength: 'strong' | 'mixed' | 'weak' | 'none';
-  confidence: number;
-  layer_fired: 'rhetoric' | 'deterministic' | 'personalized' | 'evidence' | 'consistency' | 'judge';
-  explanation: string | null;
-  evidence_refs: string | null;
-  created_at: string;
-}
-
 export interface ChatVerdictsResponse {
-  verdicts: ChatVerdictRow[];
+  /** One row per flagged claim, newest first. */
+  verdicts: ClaimVerdict[];
+  /** How many rows the conversation has in total. */
   total: number;
 }
 
 /**
- * Interactive button attached to a command-response turn.
+ * The reply's resolved scenes, when the surface draws them inline.
  *
- * Returned by the server when a slash command like `/coach` produces a
- * card shape with selectable options. Frontends render each action as
- * a clickable button; clicking it re-POSTs `value` as the user's next
- * message, flowing back through the same dispatcher.
+ * The one block a client reads off the finished envelope rather than through
+ * `sendTurn`'s `onBlock` walk: it goes into the persisted transcript row the
+ * client builds from `onDone`, not into a panel keyed beside it.
  */
-export interface ChatMessageAction {
-  /** User-visible button label. */
-  label: string;
-  /**
-   * Action kind. `"postback"` means the frontend should send `value`
-   * as the next chat message. `"url"` means open `value` in a browser.
-   * Unknown types should be ignored.
-   */
-  action_type: string;
-  /**
-   * For `postback`: the text to POST as the next user message
-   * (e.g. `/coach select <uuid>`). For `url`: the absolute URL.
-   */
-  value: string;
-}
-
-export interface SendMessageResponse {
-  user_message: Message;
-  assistant_message: Message;
-  conversation_updated_at: string;
-  model: string;
-  execution_time_ms: number;
-  /** Activity list from get_activities tool, separate from message content */
-  activity_list?: string;
-  /**
-   * Optional card title for command responses (e.g. `/coach` returns
-   * "Choose a coach"). Absent for regular LLM turns.
-   */
-  card_title?: string;
-  /**
-   * Optional action buttons for command responses. Present when the
-   * command handler returned a card with selectable options (e.g. the
-   * per-coach picker on `/coach`). Not persisted — only live for the
-   * turn that produced them; historical messages show the rendered
-   * text body without buttons.
-   */
-  actions?: ChatMessageAction[];
-  /**
-   * `true` when the assistant response came from a local slash-command
-   * handler rather than the LLM. UI can skip LLM-specific treatments
-   * (disclaimers, token-cost chips) on these turns.
-   */
-  is_command_response?: boolean;
-  /**
-   * Server-echoed AG-UI run id. When the client passed `agui_run_id`
-   * in the request, the same UUID comes back here so the client can
-   * correlate its parallel `/api/agui/runs/{run_id}/stream` subscription
-   * with the response turn.
-   */
-  agui_run_id?: string;
+export function replySceneBlocks(turn: TurnEnvelope): string | undefined {
+  const block = turn.assistant.blocks.find(b => b.type === 'scene');
+  return block?.type === 'scene' ? block.scene_blocks : undefined;
 }
 
 /**
- * Optional extras accepted by {@link ChatApi.sendMessage}.
+ * Everything {@link ChatApi.sendTurn} accepts beyond the message itself.
  *
- * Passing `aguiRunId` turns on AG-UI progress events: the server
- * registers the run under that UUID and emits events while the
- * pipeline executes. Callers consume them by opening an SSE stream
- * to `/api/agui/runs/{aguiRunId}/stream`. Omit the option and the
- * pipeline runs without AG-UI overhead.
+ * The callbacks are the turn's only outcome channel — `sendTurn` resolves
+ * either way, having called exactly one of `onDone` / `onError`.
  */
-export interface SendMessageOptions {
-  /** UUID identifying the AG-UI run for this turn. */
-  aguiRunId?: string;
+export interface SendTurnOptions extends TurnCallbacks {
+  /**
+   * Aborts the turn's request and drops its open body.
+   *
+   * The client's idle contract owns one: a tab left open with a turn still
+   * streaming holds a server instance warm indefinitely, so the idle watch
+   * aborts it and the athlete re-sends on their next interaction. `onError`
+   * receives a sentence that says exactly that rather than the runtime's own
+   * abort text.
+   */
+  signal?: AbortSignal;
+}
+
+/** What {@link ChatApi.sendTurn} reports when the idle watch dropped a turn. */
+const ABORTED_MESSAGE =
+  'The turn was stopped because the app went idle. Send it again to pick up where you left off.';
+
+/**
+ * Build the headers one turn goes out with.
+ *
+ * `sendTurn` is the one request in the package that bypasses the axios
+ * instance — it needs the raw body to read frames from — so the interceptor's
+ * work is done here instead: the bearer token where the platform stores one
+ * (mobile), the CSRF token, and the client-platform header that decides which
+ * in-app `SurfaceId` the turn resolves to server-side.
+ */
+async function turnHeaders(adapter: PlatformAdapter): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    // Ask for frames. The server opens an event stream when the surface
+    // declares a delta channel and answers a slash command with a single
+    // JSON document regardless; one parser reads both.
+    Accept: 'text/event-stream, application/json',
+    'X-Client-Platform': adapter.platform,
+  };
+  const token = await adapter.authStorage.getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const csrf = await adapter.authStorage.getCsrfToken();
+  if (csrf) headers['X-CSRF-Token'] = csrf;
+  return headers;
+}
+
+/** Turn a refused request into the error a caller can both read and format. */
+async function requestFailure(response: Response): Promise<TurnRequestError> {
+  const body = (await response.json().catch(() => null)) as
+    | { message?: string; error?: string }
+    | null;
+  const message = body?.message ?? body?.error ?? `The server answered ${response.status}.`;
+  return new TurnRequestError(message, response.status, body);
 }
 
 export interface CreateConversationOptions {
@@ -151,8 +147,13 @@ export interface CreateConversationOptions {
 
 /**
  * Creates the chat API methods bound to an axios instance.
+ *
+ * The adapter comes along because one method — {@link ChatApi.sendTurn} —
+ * reads a response body frame by frame, which axios cannot do in a browser.
+ * It carries the platform's body reader and the auth material the axios
+ * interceptors would otherwise have attached.
  */
-export function createChatApi(axios: AxiosInstance) {
+export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
   return {
     /**
      * List all conversations for the current user.
@@ -162,6 +163,23 @@ export function createChatApi(axios: AxiosInstance) {
         `${ENDPOINTS.CHAT.CONVERSATIONS}?limit=${limit}&offset=${offset}`
       );
       return response.data;
+    },
+
+    /**
+     * List the slash commands this caller may actually run.
+     *
+     * The server resolves the listing per caller through the same availability
+     * predicates `/help` asks each handler, so the palette a client builds from
+     * this never offers a command the caller would be refused. Pass the open
+     * conversation so group-scoped commands answer for the group that
+     * conversation is bound to rather than the caller's first group.
+     */
+    async listCommands(conversationId?: string): Promise<CommandEntry[]> {
+      const url = conversationId
+        ? `${ENDPOINTS.COMMANDS}?conversation_id=${encodeURIComponent(conversationId)}`
+        : ENDPOINTS.COMMANDS;
+      const response = await axios.get<CommandCatalogueResponse>(url);
+      return response.data.commands;
     },
 
     /**
@@ -229,31 +247,63 @@ export function createChatApi(axios: AxiosInstance) {
     },
 
     /**
-     * Send a message in a conversation.
+     * Send one turn and read it back.
      *
-     * Pass `options.aguiRunId` (a freshly generated UUID) to enable
-     * AG-UI progress events for this turn; subscribe in parallel to
-     * `/api/agui/runs/{aguiRunId}/stream` with a Bearer JWT to render
-     * pipeline progress in-UI. Omit to run without progress feedback.
+     * The only way any surface puts a chat message on the wire. Web and
+     * mobile call this same method, over the same request, through the same
+     * frame parser — which is what makes a server-side capability reach both
+     * clients instead of whichever one its author happened to be editing.
+     *
+     * The callbacks describe the turn as it unfolds: `onProgress` for tool
+     * calls the pipeline observed, `onDelta` for assistant text arriving
+     * ahead of the reply (only the ACP provider branch produces any), then
+     * exactly one terminal callback — `onBlock` for each renderable piece of
+     * the finished reply followed by `onDone`, or `onError`. It resolves
+     * rather than rejecting, because the callbacks already carry the outcome.
+     *
+     * Everything the caller learns rides this one response body. There is no
+     * second stream to open and no run id to correlate.
      */
-    async sendMessage(
+    async sendTurn(
       conversationId: string,
       content: string,
-      options?: SendMessageOptions,
-    ): Promise<SendMessageResponse> {
-      const body: {
-        content: string;
-        stream: boolean;
-        agui_run_id?: string;
-      } = { content, stream: false };
-      if (options?.aguiRunId) {
-        body.agui_run_id = options.aguiRunId;
+      options?: SendTurnOptions,
+    ): Promise<void> {
+      let turn: TurnEnvelope;
+      try {
+        const response = await fetch(
+          `${axios.defaults.baseURL ?? ''}${ENDPOINTS.CHAT.MESSAGES(conversationId)}`,
+          {
+            method: 'POST',
+            headers: await turnHeaders(adapter),
+            body: JSON.stringify({ content }),
+            credentials: adapter.turnCredentials,
+            signal: options?.signal,
+          },
+        );
+        if (!response.ok) {
+          throw await requestFailure(response);
+        }
+        // `onBlock` is dispatched by the body reader, not here: a streamed
+        // turn fires each block as the server decides it, and a single-JSON
+        // answer walks the envelope's list. One place, both shapes.
+        turn = await parseTurnBody(adapter.readBody(response), {
+          onDelta: options?.onDelta,
+          onProgress: options?.onProgress,
+          onBlock: options?.onBlock,
+        });
+      } catch (error) {
+        if (options?.signal?.aborted) {
+          options.onError?.(new Error(ABORTED_MESSAGE));
+          return;
+        }
+        options?.onError?.(
+          error instanceof Error ? error : new Error('The turn could not be sent.'),
+        );
+        return;
       }
-      const response = await axios.post<SendMessageResponse>(
-        ENDPOINTS.CHAT.MESSAGES(conversationId),
-        body,
-      );
-      return response.data;
+
+      options?.onDone?.(turn);
     },
 
     /**

@@ -615,6 +615,7 @@ async fn create_active_user(database: &Database, user_id: Uuid, email: &str) {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     database.repositories().users.create(&user).await.unwrap();
 }
@@ -983,6 +984,7 @@ async fn test_connection_status_with_oauth_manager() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -1076,6 +1078,7 @@ async fn test_analyze_activity_token_refresh() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -1178,6 +1181,7 @@ async fn test_concurrent_token_operations() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -1276,6 +1280,7 @@ async fn test_oauth_provider_init_failure() {
         coaching_persona: CoachingPersona::Casual,
         manages_roster: false,
         timezone: None,
+        theme: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();

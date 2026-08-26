@@ -12,7 +12,8 @@ use pierre_core::models::coaches::{
     CreateSystemCoachRequest, ListCoachesFilter, StoreAdminStats, UpdateCoachRequest,
 };
 use pierre_core::models::groups::{
-    CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSummary, UpdateGroupRequest,
+    CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTranscriptEntry,
+    NewGroupTranscriptEntry, UpdateGroupRequest,
 };
 
 use pierre_core::models::CoachRuntimeContext;
@@ -402,6 +403,33 @@ pub trait CoachingGroupRepository: Send + Sync {
 
     /// Count groups owned by a user (for tier limit enforcement)
     async fn count_groups_for_owner(&self, owner_id: Uuid, tenant_id: TenantId) -> AppResult<i64>;
+
+    // -- Room transcript (surface-neutral read model) --
+
+    /// Append one utterance to the group's shared room transcript.
+    ///
+    /// Called by chat-pipeline persistence for every user/assistant row of a
+    /// group-bound conversation (whatever surface the turn arrived on), and
+    /// by the messaging ingress for ambient room chatter. The entry id and
+    /// timestamp are minted by the implementation.
+    async fn append_transcript_entry(&self, entry: &NewGroupTranscriptEntry<'_>) -> AppResult<()>;
+
+    /// Read the newest transcript entries the viewer may see, newest first.
+    ///
+    /// Consent-gated exactly like the peer-grounding fetch: another member's
+    /// content is visible only when the group's `peer_data_sharing`
+    /// kill-switch is on AND that member's own `peer_sharing_consent` is on
+    /// (and they have not left). The viewer's own entries — including the
+    /// coach replies attributed to them — are always visible to them.
+    /// No tenant filter — membership is cross-tenant, same as `list_members`;
+    /// callers gate access by verifying the viewer's membership first.
+    /// `limit` is clamped to `1..=500`.
+    async fn list_transcript_visible_to(
+        &self,
+        group_id: &str,
+        viewer_user_id: Uuid,
+        limit: i64,
+    ) -> AppResult<Vec<GroupTranscriptEntry>>;
 }
 
 /// Store listings for the coach marketplace (cross-tenant browsing, install/uninstall)

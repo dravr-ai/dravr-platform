@@ -16,9 +16,8 @@ module.exports = {
   transformIgnorePatterns: [
     // `uuid` v14 ships ESM-only; without this allowlist entry Jest
     // sees `export` syntax in `node_modules/uuid/dist/esm/*` and
-    // fails to parse it. `react-native-sse` is ESM-only for the
-    // same reason (and its EventSource is mocked below anyway).
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|@react-native-google-signin/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@pierre/.*|uuid|react-native-sse)',
+    // fails to parse it.
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|@react-native-google-signin/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@pierre/.*|uuid)',
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   testMatch: ['**/__tests__/**/*.(ts|tsx|js)', '**/?(*.)+(spec|test).(ts|tsx|js)'],
@@ -39,9 +38,17 @@ module.exports = {
   testEnvironment: 'node',
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
-    '^@pierre/api-client$': '<rootDir>/../packages/api-client/src/index.ts',
+    // The `react-native` export condition, spelled out: Metro resolves
+    // `index-mobile.ts` on device, and the web entry re-exports an adapter
+    // that uses `import.meta`, which Hermes cannot parse. Mapping jest at the
+    // web entry made the test module graph diverge from the runtime one, so a
+    // value import from this package failed to transform in tests while
+    // working perfectly on device.
+    '^@pierre/api-client$': '<rootDir>/../packages/api-client/src/index-mobile.ts',
     '^@pierre/chat-utils$': '<rootDir>/../packages/chat-utils/src/index.ts',
     '^@pierre/shared-types$': '<rootDir>/../packages/shared-types/src/index.ts',
+    '^@pierre/i18n$': '<rootDir>/../packages/i18n/src/index.ts',
+    '^@pierre/i18n/native$': '<rootDir>/../packages/i18n/src/native.ts',
     // Strip the `.js` suffix off relative imports.
     //
     // The @pierre/* packages are authored for NodeNext ESM, where a relative
@@ -57,6 +64,13 @@ module.exports = {
     // relative paths match, so the bare-specifier mappings above and the react
     // pins below are untouched.
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    // babel-preset-expo rewrites every `process.env.EXPO_PUBLIC_*` read into
+    // `require('expo/virtual/env').env.*`. Routing that to jest.setup.js — which
+    // exports nothing — made the read throw "Cannot read properties of
+    // undefined", so any module holding a build-time flag at module scope took
+    // its whole suite down. Serve the real process.env for `env`; other virtual
+    // modules keep the setup-file stand-in.
+    '^expo/virtual/env$': '<rootDir>/jest.env.js',
     // Mock expo virtual modules for packages outside node_modules
     '^expo/virtual/(.*)$': '<rootDir>/jest.setup.js',
     // Ensure a single React instance across components and test renderer
