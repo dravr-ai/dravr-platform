@@ -532,6 +532,38 @@ pub mod api_provider_limits {
         pub const MAX_ACTIVITIES_PER_REQUEST: usize = 200;
     }
 
+    /// WHOOP API limits
+    pub mod whoop {
+        /// Default workouts per page request
+        pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 25;
+        /// Maximum workouts per single API request
+        pub const MAX_ACTIVITIES_PER_REQUEST: usize = 25;
+    }
+
+    /// COROS API limits
+    pub mod coros {
+        /// Default workouts per page request
+        pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 25;
+        /// Maximum workouts per single API request
+        pub const MAX_ACTIVITIES_PER_REQUEST: usize = 50;
+    }
+
+    /// Fitbit API limits
+    pub mod fitbit {
+        /// Default activities per page request
+        pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 100;
+        /// Maximum activities per single API request
+        pub const MAX_ACTIVITIES_PER_REQUEST: usize = 100;
+    }
+
+    /// Intervals.icu API limits
+    pub mod intervals_icu {
+        /// Default activities per page request
+        pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 30;
+        /// Maximum activities per single API request
+        pub const MAX_ACTIVITIES_PER_REQUEST: usize = 200;
+    }
+
     /// Garmin Connect API limits
     ///
     /// **IMPORTANT**: These limits are based on community observations of unofficial API endpoints.

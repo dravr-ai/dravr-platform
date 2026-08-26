@@ -16,6 +16,8 @@ pub use pierre_core::models;
 pub use pierre_core::pagination;
 
 // Core provider infrastructure
+/// Shared page-count policy every provider's activity fetch clamps to.
+pub mod activity_paging;
 /// Backend resolver for routing user-facing provider names to OAuth vs sciotte mirror backends
 pub mod backend_resolver;
 /// Circuit breaker pattern for provider resilience

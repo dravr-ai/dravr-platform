@@ -521,3 +521,53 @@ pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the one
      run arbitrary code. When a request genuinely needs one of those, say so \
      plainly rather than inventing a plan. Call tools with the parameters \
      described in their schemas.";
+
+/// Render the names-only index of the tools the coach can call.
+///
+/// ## Why a list is back, and why this one cannot drift
+///
+/// A prose list used to live in prompt assembly: one line per tool, 11,763
+/// characters, built from `user_visible_schemas()` while the actual
+/// declarations were built from `chat_callable_schemas()`. Two lists from two
+/// sources, so it advertised coach CRUD and config writes the coach could not
+/// call. Deleting it was right.
+///
+/// This is not that list. It is generated from `chat_callable_schemas()` — the
+/// same set the tool layer serves — so there is one source and nothing to drift
+/// against. It carries names only: no descriptions, no schemas, no prose. Call
+/// a tool to learn its parameters.
+///
+/// ## Why the model needs it at all
+///
+/// Under `mcp_tool_calling` the catalogue reaches Copilot over MCP and is never
+/// rendered into the prompt, so the coach began a turn with no enumerable tool
+/// surface. On 2026-08-26 it told two athletes it had no tool to write to
+/// Intervals.icu, with zero tool calls, about a tool it had. It searches
+/// perfectly well when it decides to *act* — it found `save_training_plan`
+/// unprompted minutes earlier — but a question about what it can do was
+/// answered from a prompt that named nothing.
+///
+/// Anthropic's own tool-search API refuses this configuration outright: the
+/// search tool may not set `defer_loading`, and at least one tool must stay
+/// non-deferred, or the request is rejected with
+/// `All tools have defer_loading set`. A fully deferred catalogue is not a
+/// tuning choice, it is an invalid one. This index is the non-deferred floor.
+///
+/// Names are sorted so the block is byte-stable across turns: a prompt prefix
+/// that reorders cannot be cached, and this one sits ahead of the conversation.
+#[must_use]
+pub fn render_tool_index(names: &[String]) -> String {
+    if names.is_empty() {
+        return String::new();
+    }
+    let mut sorted: Vec<&str> = names.iter().map(String::as_str).collect();
+    sorted.sort_unstable();
+    sorted.dedup();
+    format!(
+        "\n\n## Your tools\n\n     These are the tools you can call, by name. Names only — call one to \
+         see its parameters. This list is generated from the same set your tool \
+         surface serves, so a name here is callable and a capability question is \
+         answered by reading it, never by guessing.\n\n     {}\n",
+        sorted.join(", ")
+    )
+}

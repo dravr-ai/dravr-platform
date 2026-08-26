@@ -51,6 +51,8 @@ use super::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
     TokenRefreshCallback,
 };
+use crate::activity_paging::pages_for;
+use crate::constants::api_provider_limits;
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, SharedRequestBuilder};
 use crate::models::{
@@ -70,8 +72,10 @@ pub const DEFAULT_API_BASE_URL: &str = "https://intervals.icu";
 /// Sending the athlete id as the username makes every call 401.
 pub const BASIC_AUTH_USERNAME: &str = "API_KEY";
 
-const DEFAULT_PAGE_LIMIT: usize = 30;
-const MAX_PAGE_LIMIT: usize = 200;
+/// Local aliases for the centralised page sizes — every provider's live in
+/// `api_provider_limits` so a walk's arithmetic reads one source.
+const DEFAULT_PAGE_LIMIT: usize = api_provider_limits::intervals_icu::DEFAULT_ACTIVITIES_PER_PAGE;
+const MAX_PAGE_LIMIT: usize = api_provider_limits::intervals_icu::MAX_ACTIVITIES_PER_REQUEST;
 
 /// `strftime` format for the `oldest` / `newest` bounds on a range query.
 ///
@@ -113,15 +117,6 @@ const DEFAULT_LOOKAHEAD_DAYS: i64 = 1;
 /// (`fetch_recent_activities_all_providers`, the fresh-head data path) pass a
 /// real lower bound and are exactly the callers that would lose it.
 const QUERY_LOCAL_OFFSET_SLACK_DAYS: i64 = 1;
-
-/// Hard ceiling on how many requests one activity fetch may issue.
-///
-/// The historical backfill asks for two thousand activities in a single call
-/// (`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`), which is ten full pages. The cap
-/// bounds a walk that would otherwise be driven by caller input, and keeps a
-/// pathological feed — every activity sharing one timestamp, so the window
-/// cannot advance — from issuing requests until the API rate-limits us.
-const MAX_ACTIVITY_PAGES: usize = 16;
 
 /// Resolve the `(oldest, newest)` bounds an activity list query runs with.
 ///
@@ -385,7 +380,7 @@ impl IntervalsIcuProvider {
     ///
     /// Terminates on any of: the limit reached, a short page (nothing older in
     /// the window), a page contributing no new id (the window stopped advancing),
-    /// an exhausted window, or [`MAX_ACTIVITY_PAGES`].
+    /// an exhausted window, or the shared ceiling from [`pages_for`].
     async fn list_activities_paged(
         &self,
         oldest: DateTime<Utc>,
@@ -395,10 +390,11 @@ impl IntervalsIcuProvider {
         let mut collected: Vec<Activity> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         let mut cursor = newest;
-        let pages = limit
-            .div_ceil(MAX_PAGE_LIMIT)
-            .saturating_add(1)
-            .min(MAX_ACTIVITY_PAGES);
+        // One page of slack over the caller's limit: the step is inclusive, so
+        // each boundary re-delivers a row the id filter then drops, and without
+        // it a walk can finish a page short of what was asked for. `pages_for`
+        // applies the ceiling every provider shares.
+        let pages = pages_for(limit.saturating_add(MAX_PAGE_LIMIT), MAX_PAGE_LIMIT);
 
         for _ in 0..pages {
             if collected.len() >= limit || cursor <= oldest {

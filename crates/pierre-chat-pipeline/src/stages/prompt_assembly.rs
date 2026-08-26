@@ -36,7 +36,7 @@ use super::memory::{inject_okf_bundle, inject_playbooks, inject_training_plan};
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{
-    build_llm_messages_with_blocks, build_provider_context, TOOL_BOUNDARY,
+    build_llm_messages_with_blocks, build_provider_context, render_tool_index, TOOL_BOUNDARY,
 };
 use super::refresh::inject_refresh_context;
 use super::viz_blocks;
@@ -629,7 +629,30 @@ pub(crate) async fn assemble_prompt_and_messages(
     //
     // What the list was carrying that nothing else says is the boundary itself,
     // so that stays.
-    let base_prompt = format!("{base_prompt}\n\n{TOOL_BOUNDARY}");
+    //
+    // The names — and only the names — come back with it, from
+    // `chat_callable_schemas()`. That is the source the declarations are built
+    // from, which is the half the deleted list got wrong: it read
+    // `user_visible_schemas()` and advertised tools the coach could not call.
+    // One source cannot drift against itself, and names-only is ~2 KB against
+    // the 11,763 characters that were removed.
+    //
+    // It is load-bearing on the `mcp_tool_calling` path, where the catalogue
+    // goes to Copilot over MCP and never reaches the prompt — the coach started
+    // those turns unable to enumerate a single tool, and answered capability
+    // questions from a prompt that named none. On the native path the full
+    // schemas already ship every turn (registre#103 covers that cost), so the
+    // index is a cheap, byte-stable restatement there rather than the only copy.
+    let tool_names: Vec<String> = ctx
+        .tool_registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    let base_prompt = format!(
+        "{base_prompt}\n\n{TOOL_BOUNDARY}{}",
+        render_tool_index(&tool_names)
+    );
 
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.

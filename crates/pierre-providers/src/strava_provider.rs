@@ -12,6 +12,7 @@ use super::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
+use crate::activity_paging::pages_for;
 use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
@@ -690,9 +691,12 @@ impl FitnessProvider for StravaProvider {
         &self,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<Activity>> {
+        // Floored at 1: `has_more` below is `len() == limit`, so a zero limit
+        // reports `has_more: true` with no `next_cursor` — a page the caller is
+        // told to continue from and cannot.
         let limit = params
             .limit
-            .min(api_provider_limits::strava::MAX_ACTIVITIES_PER_REQUEST);
+            .clamp(1, api_provider_limits::strava::MAX_ACTIVITIES_PER_REQUEST);
 
         // Build endpoint with cursor-based parameters
         let mut endpoint = format!("athlete/activities?per_page={limit}");
@@ -703,7 +707,21 @@ impl FitnessProvider for StravaProvider {
                 // Strava filters by before/after timestamp
                 match params.direction {
                     PaginationDirection::Backward => {
-                        let _ = write!(endpoint, "&after={}", timestamp.timestamp());
+                        // `after` ALONE makes Strava answer ASCENDING (see
+                        // get_activities_with_params, which backstops a missing
+                        // `before` for this reason). Unbounded above, a backward
+                        // page returned the oldest activities after the cursor
+                        // while `next_cursor` was minted from the last item —
+                        // so this direction paged in the opposite order from
+                        // Forward, through the same CursorPage type, with
+                        // nothing telling the caller which it got. Supplying
+                        // both bounds restores DESCENDING on both directions.
+                        let _ = write!(
+                            endpoint,
+                            "&after={}&before={}",
+                            timestamp.timestamp(),
+                            Utc::now().timestamp()
+                        );
                     }
                     // Forward and any future variants default to "before" (most recent first)
                     _ => {
@@ -896,7 +914,9 @@ impl StravaProvider {
     ) -> AppResult<Vec<Activity>> {
         let mut all_activities = Vec::with_capacity(total_limit);
         let activities_per_page = api_provider_limits::strava::MAX_ACTIVITIES_PER_REQUEST;
-        let pages_needed = total_limit.div_ceil(activities_per_page);
+        // Derived from the caller's limit, but clamped to the ceiling every
+        // provider shares — this walk was previously bounded only by caller input.
+        let pages_needed = pages_for(total_limit, activities_per_page);
 
         info!(
             "Multi-page request - total_limit: {}, pages_needed: {}, start_offset: {}, before: {:?}, after: {:?}",

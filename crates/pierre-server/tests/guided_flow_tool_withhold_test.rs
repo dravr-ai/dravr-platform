@@ -105,18 +105,20 @@ fn only_the_withheld_tools_are_dropped() {
     }
 }
 
-/// The prompt must not grow a second tool list.
+/// The boundary statement itself must name no tool.
 ///
-/// Stage 7a.2 generated one for months: a prose line per tool, 11,763
+/// Stage 7a.2 generated a prose list for months: a line per tool, 11,763
 /// characters beside embacle's 16,127-character catalogue of the same ~58
 /// tools. Worse than the size, it was built from `user_visible_schemas()` while
 /// the declarations came from `chat_callable_schemas()`, so it advertised
 /// categories the coach could not call on any path.
 ///
-/// A second list cannot be kept in lockstep by discipline — this file is the
-/// evidence, since keeping the two surfaces aligned is what it was written to
-/// do. The boundary statement that replaced it names no tools, which is the
-/// property that keeps it from becoming a list again.
+/// A names-only index generated from the declarations' own source is back
+/// alongside the boundary — see
+/// `the_tool_index_is_exactly_the_declared_set`, which asserts the property
+/// that makes that safe. This test guards the other half: the boundary PROSE
+/// stays tool-free. Prose is what cannot be regenerated, so prose is what must
+/// never name a tool.
 #[test]
 fn the_prompt_carries_no_second_tool_list() {
     use pierre_chat_pipeline::stages::prompt_builder::TOOL_BOUNDARY;
@@ -211,4 +213,77 @@ fn the_surviving_advertisement_surface_is_populated() {
              missing from the declarations is invisible to the coach"
         );
     }
+}
+
+/// The index and the declarations must be the same set, not two aligned sets.
+///
+/// The deleted list's defect was never that it existed — it was that it read
+/// `user_visible_schemas()` while the declarations read
+/// `chat_callable_schemas()`. Two sources drift, and discipline does not stop
+/// it; this file exists because it did not.
+///
+/// So the index is generated from the declarations' own source, and this
+/// asserts the consequence: every declared tool appears, and the block carries
+/// names only. A capability question is then answered by reading the prompt
+/// rather than guessing — which is what the coach failed to do on 2026-08-26,
+/// telling two athletes it had no tool to write to Intervals.icu, with zero
+/// tool calls, about a tool it had.
+///
+/// Anthropic's own tool-search API rejects a fully deferred catalogue outright
+/// (`All tools have defer_loading set`) — at least one tool must stay visible.
+/// This index is that floor.
+#[test]
+fn the_tool_index_is_exactly_the_declared_set() {
+    use pierre_chat_pipeline::stages::prompt_builder::render_tool_index;
+
+    let registry = full_registry();
+    let declared = declared_names(&registry, false);
+    assert!(
+        !declared.is_empty(),
+        "the registry declares no chat-callable tools — the index below would be \
+         empty and every capability question would resolve to a denial"
+    );
+
+    let index = render_tool_index(&declared);
+    assert!(
+        !index.is_empty(),
+        "a non-empty declaration set must render a non-empty index"
+    );
+
+    for name in &declared {
+        assert!(
+            index.contains(name.as_str()),
+            "{name} is declared to the model but missing from the index — the two \
+             have drifted, which is the exact defect that deleted the last list"
+        );
+    }
+
+    // Names only. A description leaking in would make this the prose list again,
+    // and put the schema text on a second maintenance path.
+    for decl in build_mcp_tools(&registry).function_declarations {
+        if decl.description.len() > 40 {
+            assert!(
+                !index.contains(decl.description.as_str()),
+                "the index carries {}'s description — it must carry names only",
+                decl.name
+            );
+        }
+    }
+
+    // Sorted, so the block is byte-stable turn to turn: this sits in the prompt
+    // prefix, and a prefix that reorders cannot be cached.
+    // The names line is the last non-empty one; the prose above it also contains
+    // commas, so match on position rather than punctuation.
+    let names_line = index
+        .lines()
+        .rfind(|l| !l.trim().is_empty())
+        .unwrap_or_default()
+        .trim();
+    let rendered: Vec<&str> = names_line.split(", ").collect();
+    let mut expected = rendered.clone();
+    expected.sort_unstable();
+    assert_eq!(
+        rendered, expected,
+        "the index must be sorted, or the prompt prefix changes between turns"
+    );
 }

@@ -45,7 +45,8 @@ use super::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
-use crate::constants::oauth_providers;
+use crate::activity_paging::pages_for;
+use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
@@ -760,39 +761,73 @@ impl FitnessProvider for CorosProvider {
         &self,
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
-        let page_limit = params.limit.unwrap_or(25).min(50);
+        let requested = params
+            .limit
+            .unwrap_or(api_provider_limits::coros::DEFAULT_ACTIVITIES_PER_PAGE);
+        let page_size = api_provider_limits::coros::MAX_ACTIVITIES_PER_REQUEST;
 
-        // Build endpoint with pagination and time filters
-        let mut endpoint = format!("workouts?limit={page_limit}");
+        // COROS answers at most 50 workouts per request. Clamping the caller's
+        // limit to that and returning quietly is what let the historical
+        // backfill record a season it never read: it asks for two thousand and
+        // reads a short answer as "the window was exhausted". Walk the
+        // `page_token` chain instead, bounded by the shared page ceiling.
+        let pages = pages_for(requested, page_size);
+        let mut activities = Vec::with_capacity(requested.min(page_size * pages));
+        let mut page_token: Option<String> = None;
 
-        if let Some(offset) = params.offset {
-            let _ = write!(endpoint, "&offset={offset}");
-        }
-
-        if let Some(after) = params.after {
-            if let Some(dt) = chrono::DateTime::from_timestamp(after, 0) {
-                let _ = write!(endpoint, "&start_date={}", dt.format("%Y-%m-%d"));
+        for page_index in 0..pages {
+            if activities.len() >= requested {
+                break;
             }
-        }
+            // Build endpoint with pagination and time filters
+            let mut endpoint = format!("workouts?limit={page_size}");
 
-        if let Some(before) = params.before {
-            if let Some(dt) = chrono::DateTime::from_timestamp(before, 0) {
-                let _ = write!(endpoint, "&end_date={}", dt.format("%Y-%m-%d"));
-            }
-        }
-
-        let response: CorosPaginatedResponse<CorosWorkout> = self.api_request(&endpoint).await?;
-
-        let mut activities = Vec::with_capacity(response.data.len());
-        for workout in &response.data {
-            match Self::convert_workout(workout) {
-                Ok(activity) => activities.push(activity),
-                Err(e) => {
-                    warn!("Failed to convert COROS workout: {e}");
+            // `offset` positions the FIRST page only; past that the token owns
+            // the cursor and an offset would re-skip from the new page's head.
+            if page_index == 0 {
+                if let Some(offset) = params.offset {
+                    let _ = write!(endpoint, "&offset={offset}");
                 }
             }
+
+            if let Some(after) = params.after {
+                if let Some(dt) = chrono::DateTime::from_timestamp(after, 0) {
+                    let _ = write!(endpoint, "&start_date={}", dt.format("%Y-%m-%d"));
+                }
+            }
+
+            if let Some(before) = params.before {
+                if let Some(dt) = chrono::DateTime::from_timestamp(before, 0) {
+                    let _ = write!(endpoint, "&end_date={}", dt.format("%Y-%m-%d"));
+                }
+            }
+
+            if let Some(token) = &page_token {
+                let _ = write!(endpoint, "&page_token={token}");
+            }
+
+            let response: CorosPaginatedResponse<CorosWorkout> =
+                self.api_request(&endpoint).await?;
+            let page_was_empty = response.data.is_empty();
+
+            for workout in &response.data {
+                match Self::convert_workout(workout) {
+                    Ok(activity) => activities.push(activity),
+                    Err(e) => {
+                        warn!("Failed to convert COROS workout: {e}");
+                    }
+                }
+            }
+
+            // No token means COROS has nothing further; an empty page carrying a
+            // token would otherwise walk to the ceiling for nothing.
+            page_token = response.pagination.and_then(|p| p.next_token);
+            if page_token.is_none() || page_was_empty {
+                break;
+            }
         }
 
+        activities.truncate(requested);
         Ok(activities)
     }
 

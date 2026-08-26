@@ -13,7 +13,8 @@ use super::core::{
     TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
-use crate::constants::oauth_providers;
+use crate::activity_paging::pages_for;
+use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
@@ -25,9 +26,10 @@ use crate::utils;
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::from_str;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
@@ -783,31 +785,67 @@ impl FitnessProvider for FitbitProvider {
             (end - chrono::Duration::days(30), end)
         };
 
-        let endpoint = format!(
-            "user/-/activities/list.json?beforeDate={}&afterDate={}&sort=desc&limit={}&offset={}",
-            end_date.format("%Y-%m-%d"),
-            start_date.format("%Y-%m-%d"),
-            params.limit.unwrap_or(100),
-            fitbit_offset
-        );
+        let requested = params
+            .limit
+            .unwrap_or(api_provider_limits::fitbit::DEFAULT_ACTIVITIES_PER_PAGE);
+        let page_size = api_provider_limits::fitbit::MAX_ACTIVITIES_PER_REQUEST;
 
-        let response: FitbitActivitiesResponse = self.api_request(&endpoint).await?;
+        // Fitbit caps `limit` at 100 server-side, so passing the caller's limit
+        // straight through returned one page and said nothing about it — the
+        // silent truncation that makes the historical backfill record a window
+        // it never read. Walk `beforeDate` backwards instead. Fitbit's own
+        // cursor is the `pagination.next` URL, which this client does not model,
+        // and its `offset` must be 0 on this endpoint; the date bound uses only
+        // parameters already in use here.
+        let pages = pages_for(requested, page_size);
+        let mut activities: Vec<Activity> = Vec::with_capacity(requested.min(page_size * pages));
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut before_cursor = end_date;
 
-        let mut activities = Vec::with_capacity(response.activities.len());
-        for fitbit_activity in response.activities {
-            match Self::convert_fitbit_activity(fitbit_activity) {
-                Ok(activity) => activities.push(activity),
-                Err(e) => {
-                    warn!("Failed to convert Fitbit activity: {e}");
+        for _ in 0..pages {
+            if activities.len() >= requested || before_cursor < start_date {
+                break;
+            }
+            let endpoint = format!(
+                "user/-/activities/list.json?beforeDate={}&afterDate={}&sort=desc&limit={page_size}&offset={fitbit_offset}",
+                before_cursor.format("%Y-%m-%d"),
+                start_date.format("%Y-%m-%d"),
+            );
+
+            let response: FitbitActivitiesResponse = self.api_request(&endpoint).await?;
+            let page_len = response.activities.len();
+            let mut oldest_in_page: Option<NaiveDate> = None;
+            let mut added = 0_usize;
+
+            for fitbit_activity in response.activities {
+                match Self::convert_fitbit_activity(fitbit_activity) {
+                    Ok(activity) => {
+                        let day = activity.start_date().date_naive();
+                        oldest_in_page = Some(oldest_in_page.map_or(day, |cur| cur.min(day)));
+                        if seen.insert(activity.id().to_owned()) {
+                            activities.push(activity);
+                            added += 1;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to convert Fitbit activity: {e}");
+                    }
                 }
             }
+
+            // Short page: nothing older in the window. No new id: `beforeDate` is
+            // day-granular, so a day holding more than one page cannot advance
+            // the cursor — stop rather than re-request it to the ceiling.
+            if page_len < page_size || added == 0 {
+                break;
+            }
+            let Some(oldest_in_page) = oldest_in_page else {
+                break;
+            };
+            before_cursor = oldest_in_page;
         }
 
-        // Apply limit if specified
-        if let Some(limit) = params.limit {
-            activities.truncate(limit);
-        }
-
+        activities.truncate(requested);
         Ok(activities)
     }
 

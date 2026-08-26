@@ -23,7 +23,8 @@ use super::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
-use crate::constants::oauth_providers;
+use crate::activity_paging::pages_for;
+use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
@@ -764,7 +765,10 @@ impl FitnessProvider for WhoopProvider {
         &self,
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
-        let page_limit = params.limit.unwrap_or(25).min(25);
+        let requested = params
+            .limit
+            .unwrap_or(api_provider_limits::whoop::DEFAULT_ACTIVITIES_PER_PAGE);
+        let page_size = api_provider_limits::whoop::MAX_ACTIVITIES_PER_REQUEST;
 
         // WHOOP uses token-based pagination, offset is not directly supported
         // For offset support, we'd need to paginate through until we reach the offset
@@ -773,40 +777,65 @@ impl FitnessProvider for WhoopProvider {
             warn!("WHOOP provider offset pagination is limited - fetching from beginning");
         }
 
-        // Build endpoint with optional time filter (WHOOP supports start/end parameters)
-        let mut endpoint = format!("activity/workout?limit={page_limit}");
-        if let Some(after) = params.after {
-            if let Some(dt) = chrono::DateTime::from_timestamp(after, 0) {
-                let _ = write!(endpoint, "&start={}", dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
-            }
-        }
-        if let Some(before) = params.before {
-            if let Some(dt) = chrono::DateTime::from_timestamp(before, 0) {
-                let _ = write!(endpoint, "&end={}", dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
-            }
-        }
+        // WHOOP answers at most 25 workouts per request. This used to clamp the
+        // caller's limit to that and return quietly, which is not a local
+        // truncation: the historical backfill asks for two thousand activities
+        // and reads `fetched_count < fetch_limit` as proof the window was
+        // exhausted, so a silent 25 made it record a season it never read. Walk
+        // the `next_token` chain instead, bounded by the shared page ceiling.
+        let pages = pages_for(requested, page_size);
+        let mut activities = Vec::with_capacity(requested.min(page_size * pages));
+        let mut next_token: Option<String> = None;
 
-        // WHOOP returns 404 for collection endpoints when no data exists in range
-        let response: WhoopPaginatedResponse<WhoopWorkout> = match self.api_request(&endpoint).await
-        {
-            Ok(resp) => resp,
-            Err(e) if e.to_string().contains("No data available from WHOOP") => {
-                info!("No WHOOP workout data in requested range, returning empty");
-                return Ok(vec![]);
+        for _ in 0..pages {
+            if activities.len() >= requested {
+                break;
             }
-            Err(e) => return Err(e),
-        };
-
-        let mut activities = Vec::with_capacity(response.records.len());
-        for workout in &response.records {
-            match Self::convert_workout(workout) {
-                Ok(activity) => activities.push(activity),
-                Err(e) => {
-                    warn!("Failed to convert WHOOP workout: {e}");
+            // Build endpoint with optional time filter (WHOOP supports start/end parameters)
+            let mut endpoint = format!("activity/workout?limit={page_size}");
+            if let Some(after) = params.after {
+                if let Some(dt) = chrono::DateTime::from_timestamp(after, 0) {
+                    let _ = write!(endpoint, "&start={}", dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
                 }
             }
+            if let Some(before) = params.before {
+                if let Some(dt) = chrono::DateTime::from_timestamp(before, 0) {
+                    let _ = write!(endpoint, "&end={}", dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
+                }
+            }
+            if let Some(token) = &next_token {
+                let _ = write!(endpoint, "&nextToken={token}");
+            }
+
+            // WHOOP returns 404 for collection endpoints when no data exists in range
+            let response: WhoopPaginatedResponse<WhoopWorkout> =
+                match self.api_request(&endpoint).await {
+                    Ok(resp) => resp,
+                    Err(e) if e.to_string().contains("No data available from WHOOP") => {
+                        info!("No WHOOP workout data in requested range, returning empty");
+                        break;
+                    }
+                    Err(e) => return Err(e),
+                };
+
+            for workout in &response.records {
+                match Self::convert_workout(workout) {
+                    Ok(activity) => activities.push(activity),
+                    Err(e) => {
+                        warn!("Failed to convert WHOOP workout: {e}");
+                    }
+                }
+            }
+
+            // No token means WHOOP has nothing further in this window; an empty
+            // page with a token would otherwise walk to the ceiling for nothing.
+            next_token = response.next_token;
+            if next_token.is_none() || response.records.is_empty() {
+                break;
+            }
         }
 
+        activities.truncate(requested);
         Ok(activities)
     }
 

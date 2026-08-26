@@ -10,6 +10,7 @@ use super::core::{
 };
 use super::errors::provider::ProviderError;
 use super::utils::{self, RetryConfig};
+use crate::activity_paging::pages_for;
 use crate::constants::oauth::GARMIN_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
@@ -937,7 +938,9 @@ impl GarminProvider {
     ) -> AppResult<Vec<Activity>> {
         let mut all_activities = Vec::with_capacity(total_limit);
         let activities_per_page = api_provider_limits::garmin::MAX_ACTIVITIES_PER_REQUEST;
-        let pages_needed = total_limit.div_ceil(activities_per_page);
+        // Clamped to the ceiling every provider shares; previously this walk was
+        // bounded only by whatever limit the caller passed in.
+        let pages_needed = pages_for(total_limit, activities_per_page);
 
         info!(
             "Multi-page request - total_limit: {}, pages_needed: {}, start_offset: {}",
