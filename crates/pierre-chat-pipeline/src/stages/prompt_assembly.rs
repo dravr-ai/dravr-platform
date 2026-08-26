@@ -202,13 +202,15 @@ pub fn close_with_identity_anchor(assembled_prompt: &str) -> String {
 /// that, and inverting the call site left all its assertions passing.
 #[must_use]
 pub fn close_with_anchors(assembled_prompt: &str, coach_slug: Option<&str>) -> String {
-    match coach_slug {
-        Some(slug) => close_with_identity_anchor(&format!(
-            "{assembled_prompt}\n\n{}",
-            coach_voice_anchor(slug)
-        )),
-        None => close_with_identity_anchor(assembled_prompt),
-    }
+    coach_slug.map_or_else(
+        || close_with_identity_anchor(assembled_prompt),
+        |slug| {
+            close_with_identity_anchor(&format!(
+                "{assembled_prompt}\n\n{}",
+                coach_voice_anchor(slug)
+            ))
+        },
+    )
 }
 
 /// Return the [`MessagingStringsRegistry`] key that holds the scope
