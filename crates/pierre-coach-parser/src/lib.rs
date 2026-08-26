@@ -27,12 +27,10 @@ use pierre_core::models::coaches::{
 };
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::tokens::CHARS_PER_TOKEN;
 
 /// Drift classification (pure functions + types) for the `pierre-cli check-drift coaches` binary.
 pub mod drift;
-
-/// Token estimation constant: average characters per token for system prompts
-const CHARS_PER_TOKEN: usize = 4;
 
 /// Startup configuration for coach conversations
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

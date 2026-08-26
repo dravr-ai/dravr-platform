@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 use crate::field_update::FieldUpdate;
+use crate::tokens::CHARS_PER_TOKEN;
 
 /// Activity data requirements for coach startup context assembly
 ///
@@ -554,9 +555,6 @@ impl CoachFieldOverlay {
         }
     }
 }
-
-/// Token estimation constant: average characters per token for system prompts
-const CHARS_PER_TOKEN: usize = 4;
 
 impl Coach {
     /// Tag marking a coach as a coach-facing builder persona.
