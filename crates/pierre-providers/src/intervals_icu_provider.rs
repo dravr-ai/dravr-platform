@@ -72,6 +72,45 @@ pub const BASIC_AUTH_USERNAME: &str = "API_KEY";
 const DEFAULT_PAGE_LIMIT: usize = 30;
 const MAX_PAGE_LIMIT: usize = 200;
 
+/// `strftime` format for the `oldest` / `newest` bounds on a range query.
+///
+/// Intervals.icu parses these as *local* date-times: no UTC offset, no
+/// fractional seconds. `to_rfc3339()` produces both, and the API answers a
+/// request carrying them with 422 — which is what every activity list call
+/// against the live service got (prod, 2026-08-26: `GET
+/// /api/v1/athlete/{id}/activities` → 422). The same file already speaks this
+/// dialect everywhere else: `/wellness` and `/events` send `%Y-%m-%d`, and
+/// [`parse_local_dt`] reads responses back with this exact pattern.
+const QUERY_DATETIME_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
+
+/// How far back an activity list reaches when the caller names no lower bound.
+///
+/// Intervals.icu requires a bounded range — an unbounded list is a 422, not a
+/// full-history dump — so every entry point defaults rather than passing the
+/// absence through.
+const DEFAULT_LOOKBACK_DAYS: i64 = 90;
+
+/// How far forward an activity list reaches when the caller names no upper
+/// bound. One day, so an activity uploaded earlier today is inside the window.
+const DEFAULT_LOOKAHEAD_DAYS: i64 = 1;
+
+/// Resolve the `(oldest, newest)` bounds an activity list query runs with.
+///
+/// One source of truth for the defaulting, because the two entry points
+/// disagreed: [`FitnessProvider::get_activities_with_params`] defaulted both
+/// bounds while `get_activities_cursor` passed `None, None` straight through
+/// and asked Intervals.icu for an unbounded range.
+fn activity_window(
+    after: Option<DateTime<Utc>>,
+    before: Option<DateTime<Utc>>,
+) -> (DateTime<Utc>, DateTime<Utc>) {
+    let now = Utc::now();
+    (
+        after.unwrap_or_else(|| now - Duration::days(DEFAULT_LOOKBACK_DAYS)),
+        before.unwrap_or_else(|| now + Duration::days(DEFAULT_LOOKAHEAD_DAYS)),
+    )
+}
+
 /// Wrap a `reqwest` request with structured before/after tracing so every
 /// Intervals.icu API call surfaces in Cloud Run logs with op + url +
 /// HTTP status. Credentials never enter the log line — `RequestBuilder`
@@ -236,25 +275,34 @@ impl IntervalsIcuProvider {
     /// `/api/v1/athlete/{id}/activities` endpoint with athlete-scoped Basic
     /// auth.
     ///
+    /// Both bounds are required and are serialised with
+    /// [`QUERY_DATETIME_FORMAT`]. Callers that hold an open-ended range resolve
+    /// it through [`activity_window`] first, so no request can reach the API
+    /// with an offset-bearing timestamp or an unbounded range — the two shapes
+    /// Intervals.icu answers with 422.
+    ///
     /// # Errors
     ///
     /// Returns [`AppError`] when credentials are missing, the upstream
     /// HTTP call fails, or the response cannot be deserialised.
     pub async fn list_activities(
         &self,
-        oldest: Option<DateTime<Utc>>,
-        newest: Option<DateTime<Utc>>,
+        oldest: DateTime<Utc>,
+        newest: DateTime<Utc>,
         limit: usize,
     ) -> AppResult<Vec<Activity>> {
         let (athlete_id, api_key) = self.require_credentials().await?;
-        let mut query: Vec<(String, String)> =
-            vec![("limit".to_owned(), limit.min(MAX_PAGE_LIMIT).to_string())];
-        if let Some(o) = oldest {
-            query.push(("oldest".to_owned(), o.to_rfc3339()));
-        }
-        if let Some(n) = newest {
-            query.push(("newest".to_owned(), n.to_rfc3339()));
-        }
+        let query: Vec<(String, String)> = vec![
+            ("limit".to_owned(), limit.min(MAX_PAGE_LIMIT).to_string()),
+            (
+                "oldest".to_owned(),
+                oldest.format(QUERY_DATETIME_FORMAT).to_string(),
+            ),
+            (
+                "newest".to_owned(),
+                newest.format(QUERY_DATETIME_FORMAT).to_string(),
+            ),
+        ];
         let url = self.athlete_url(&athlete_id, "/activities");
         let req = self
             .http
@@ -559,7 +607,7 @@ fn parse_local_dt(value: &str) -> Option<DateTime<Utc>> {
         .map(|dt| dt.with_timezone(&Utc))
         .ok()
         .or_else(|| {
-            chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S")
+            chrono::NaiveDateTime::parse_from_str(value, QUERY_DATETIME_FORMAT)
                 .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
                 .ok()
         })
@@ -710,16 +758,14 @@ impl FitnessProvider for IntervalsIcuProvider {
             .limit
             .unwrap_or(DEFAULT_PAGE_LIMIT)
             .min(MAX_PAGE_LIMIT);
-        let oldest = params
-            .after
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
-        let newest = params
-            .before
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
-        // Default newest to "now" + 1d so today's recently-uploaded activities surface.
-        let newest = newest.or_else(|| Some(Utc::now() + Duration::days(1)));
-        // Default oldest to 90 days back so list calls don't pull a full lifetime.
-        let oldest = oldest.or_else(|| Some(Utc::now() - Duration::days(90)));
+        let (oldest, newest) = activity_window(
+            params
+                .after
+                .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0)),
+            params
+                .before
+                .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0)),
+        );
         self.list_activities(oldest, newest, limit).await
     }
 
@@ -728,7 +774,8 @@ impl FitnessProvider for IntervalsIcuProvider {
         params: &PaginationParams,
     ) -> AppResult<CursorPage<Activity>> {
         let limit = params.limit;
-        let activities = self.list_activities(None, None, limit).await?;
+        let (oldest, newest) = activity_window(None, None);
+        let activities = self.list_activities(oldest, newest, limit).await?;
         let count = activities.len();
         Ok(CursorPage {
             items: activities,
@@ -767,13 +814,8 @@ impl FitnessProvider for IntervalsIcuProvider {
         // Intervals.icu doesn't expose an aggregate-stats endpoint; derive
         // a 90-day rollup from the activity list so the trait surface
         // returns real data instead of synthetic zeros.
-        let activities = self
-            .list_activities(
-                Some(Utc::now() - Duration::days(90)),
-                Some(Utc::now() + Duration::days(1)),
-                MAX_PAGE_LIMIT,
-            )
-            .await?;
+        let (oldest, newest) = activity_window(None, None);
+        let activities = self.list_activities(oldest, newest, MAX_PAGE_LIMIT).await?;
         let total_activities = activities.len() as u64;
         let total_distance: f64 = activities
             .iter()

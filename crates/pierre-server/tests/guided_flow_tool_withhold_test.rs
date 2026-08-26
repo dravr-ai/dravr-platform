@@ -137,11 +137,11 @@ fn the_prompt_carries_no_second_tool_list() {
 
 /// The surviving advertisement surface must be populated.
 ///
-/// `TOOL_BOUNDARY` says "the tools available to you are the ones described
-/// elsewhere in this prompt". Deleting the prose list made that sentence
-/// load-bearing: if the declarations ever come back empty, the prompt points at
-/// a list that is not there and the coach is told it has tools it cannot see.
-/// The duplication used to mask that; it does not any more.
+/// `TOOL_BOUNDARY` tells the coach to look its tools up before claiming it has
+/// none. Deleting the prose list made the declarations the only place there is
+/// to look: if they ever come back empty, the coach is told to check a surface
+/// that holds nothing, and every capability question resolves to a denial. The
+/// duplication used to mask that; it does not any more.
 ///
 /// The rendering and injection downstream of here are covered in
 /// `chat_tool_loop_test` (`test_generate_tool_catalog_has_tools`,
@@ -151,6 +151,45 @@ fn the_prompt_carries_no_second_tool_list() {
 ///
 /// Counterpart to `the_prompt_carries_no_second_tool_list`: that one says the
 /// platform must not list tools, this says something else must.
+/// The boundary must not put the athlete's own connected platforms outside it.
+///
+/// Live incident 2026-08-26 (Telegram, two athletes): the coach answered «je
+/// n'ai pas d'outil qui écrit vers intervals.icu» with zero tool calls, about
+/// `prescribe_workout` — shipped the day before, chat-callable, and doing
+/// exactly that. It was not hallucinating. `TOOL_BOUNDARY` said it could not
+/// "use third-party services", and Intervals.icu is one; it obeyed.
+///
+/// The same model searches out `save_training_plan` unprompted — that name
+/// appears in no prompt in dravr-contremaitre — so discovery was never the
+/// defect. Being told the athlete's connected accounts belong to someone else
+/// was. These two assertions pin the repair: no blanket ban that swallows a
+/// connected platform, and an explicit instruction to look before denying.
+#[test]
+fn the_boundary_does_not_disown_the_athletes_connected_platforms() {
+    use pierre_chat_pipeline::stages::prompt_builder::TOOL_BOUNDARY;
+
+    let lower = TOOL_BOUNDARY.to_lowercase();
+    assert!(
+        !lower.contains("use third-party services"),
+        "TOOL_BOUNDARY bans 'third-party services' outright. The athlete's \
+         connected provider IS a third-party service, so this sentence tells \
+         the coach its own calendar-write tool is off-limits — the 2026-08-26 \
+         denial. Scope the prohibition to services the athlete has NOT connected."
+    );
+    assert!(
+        lower.contains("connected"),
+        "TOOL_BOUNDARY must say the athlete's connected accounts are inside the \
+         boundary; without it, the open-internet prohibition reads as covering \
+         them"
+    );
+    assert!(
+        lower.contains("look") || lower.contains("check"),
+        "TOOL_BOUNDARY must tell the coach to look its tools up before claiming \
+         it has none — under MCP tool calling the catalogue is not in the \
+         prompt, so an unchecked denial is the default failure"
+    );
+}
+
 #[test]
 fn the_surviving_advertisement_surface_is_populated() {
     let registry = full_registry();

@@ -490,8 +490,34 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
 /// invented. It was written after the LLM offered to look up Uber Eats menus.
 /// No tool names appear here deliberately — a name would reintroduce a second
 /// list to drift.
-pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     The tools available to you are the ones described elsewhere in this prompt \
-     and nothing else. You cannot browse the web, scrape menus, look up prices, \
-     use third-party services, or run arbitrary code. If a request needs a \
-     capability you have not been given, say so honestly rather than inventing a \
-     plan. Call tools with the parameters described in their schemas.";
+///
+/// ## Why it no longer says "described elsewhere in this prompt"
+///
+/// Because that was false, and it cost an athlete a working feature. Under
+/// `mcp_tool_calling` the catalogue reaches Copilot over MCP and is never
+/// rendered into the prompt, so the sentence pointed at nothing — and the next
+/// clause, "you cannot ... use third-party services", told the coach that the
+/// athlete's own Intervals.icu calendar was off-limits. On 2026-08-26 it
+/// answered two athletes «je n'ai pas d'outil qui écrit vers intervals.icu»
+/// with zero tool calls, about `prescribe_workout`, which had shipped the day
+/// before and does exactly that.
+///
+/// The coach was obeying this constant, not hallucinating. It searches
+/// perfectly well for tools it believes are its business — `save_training_plan`
+/// is named in no prompt anywhere and it finds that one unprompted — so the
+/// defect was never discovery. It was being told the athlete's connected
+/// platforms were somebody else's.
+pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the ones your tool surface offers. They are NOT all listed in \
+     this prompt, so look them up before answering a question about what you can \
+     do. Never tell the athlete you have no tool for something without checking \
+     first — that is a claim about your tool surface, and you can only make it \
+     after looking.\n\n     \
+     The athlete's own connected accounts are inside that surface, not outside \
+     it. Reading from and writing to a platform they have connected — their \
+     training calendar, their activity log — is ordinary work, not an outside \
+     integration you have to decline.\n\n     \
+     What is outside is the open internet. You cannot browse the web, scrape \
+     menus, look up prices, reach a service the athlete has not connected, or \
+     run arbitrary code. When a request genuinely needs one of those, say so \
+     plainly rather than inventing a plan. Call tools with the parameters \
+     described in their schemas.";

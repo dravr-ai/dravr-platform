@@ -20,6 +20,7 @@ use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvi
 use pierre_providers::models::{
     IntensityDistribution, SportType, WorkoutTargetZones, WorkoutTemplate,
 };
+use pierre_providers::pagination::PaginationParams;
 use pierre_providers::ProviderRegistry;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -330,4 +331,108 @@ async fn every_athlete_scoped_call_uses_the_literal_api_key_username() {
 
     let head = stub.await.expect("stub task joins");
     assert_eq!(basic_credentials(&head), "API_KEY:test-api-key");
+}
+
+/// Pull the request target (`GET /path?query HTTP/1.1` → `/path?query`) out of
+/// a captured request head.
+fn request_target(head: &str) -> &str {
+    head.lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("request head carries a target")
+}
+
+#[tokio::test]
+async fn activity_list_sends_local_datetime_bounds_not_rfc3339() {
+    // Intervals.icu parses `oldest`/`newest` as LOCAL date-times. `to_rfc3339()`
+    // appends a UTC offset and fractional seconds, and the API answers that with
+    // 422 — which is what every activity read got against the live service
+    // (prod 2026-08-26: `GET /api/v1/athlete/i550405/activities` → 422, and the
+    // coach then told the athlete it could only "read" a provider it could not
+    // read either). The same file already sends `%Y-%m-%d` on /wellness and
+    // /events, so the dialect was never in doubt — only this call site.
+    let (base_url, stub) = stub_once("[]").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let activities = provider
+        .get_activities(Some(10), None)
+        .await
+        .expect("get_activities succeeds");
+    assert!(activities.is_empty(), "stub returns an empty activity list");
+
+    let head = stub.await.expect("stub task joins");
+    let target = request_target(&head);
+
+    assert!(
+        target.contains("oldest=") && target.contains("newest="),
+        "both range bounds must be sent — Intervals.icu rejects an unbounded \
+         activity range; got: {target}"
+    );
+    assert!(
+        !target.contains("%2B") && !target.contains('+'),
+        "a UTC offset in the bounds is what returns 422; got: {target}"
+    );
+    assert!(
+        !target.contains('Z') && !target.contains("%3A%3A"),
+        "bounds must be local date-times, with no zone designator; got: {target}"
+    );
+
+    // Pin the exact shape: YYYY-MM-DDTHH:MM:SS, colons percent-encoded by the
+    // query serialiser. Anything else is a format the API has already rejected.
+    let decoded = target.replace("%3A", ":");
+    let bounds: Vec<&str> = decoded
+        .split(['?', '&'])
+        .filter(|p| p.starts_with("oldest=") || p.starts_with("newest="))
+        .collect();
+    assert_eq!(bounds.len(), 2, "exactly two bounds; got: {decoded}");
+    for bound in bounds {
+        let value = bound.split_once('=').expect("bound is a pair").1;
+        let (date, time) = value.split_once('T').unwrap_or_else(|| {
+            panic!("bound must be a local date-time with a T separator; got: {value}")
+        });
+        assert_eq!(date.len(), 10, "date half must be YYYY-MM-DD; got: {value}");
+        assert_eq!(
+            time.len(),
+            8,
+            "time half must be HH:MM:SS with no fraction or offset; got: {value}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn activity_cursor_page_sends_a_bounded_window() {
+    // The cursor entry point passed `None, None` straight through, asking
+    // Intervals.icu for an unbounded range while the other entry point
+    // defaulted both bounds. One window helper now serves both, so a caller
+    // cannot reach the API with no range at all.
+    let (base_url, stub) = stub_once("[]").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let page = provider
+        .get_activities_cursor(&PaginationParams::forward(None, 5))
+        .await
+        .expect("cursor page succeeds");
+    assert_eq!(page.count, 0, "stub returns an empty page");
+
+    let head = stub.await.expect("stub task joins");
+    let target = request_target(&head);
+    assert!(
+        target.contains("oldest=") && target.contains("newest="),
+        "the cursor path must send the same bounded window as the params path; \
+         got: {target}"
+    );
 }
