@@ -211,11 +211,11 @@ test.describe('LLM Settings - Configuration Form', () => {
     await page.locator('button').filter({ has: page.locator('svg path[d*="M6 18L18 6"]') }).click();
     await page.waitForTimeout(300);
 
-    // Now configure Local LLM - find the specific provider card via its heading
-    // Use p-4 class to target only provider cards (not parent containers)
-    const localLlmCard = page.locator('div.p-4').filter({
-      has: page.locator('h3', { hasText: 'Local LLM (Ollama/vLLM)' })
-    });
+    // Now configure Local LLM. The card is addressed by its own testid, not by
+    // a layout utility class: `p-4` is a gutter, not an identity, and the
+    // content pane carries it too — so `div.p-4` also matches the pane, which
+    // holds every provider card and therefore every Configure button.
+    const localLlmCard = page.getByTestId('llm-provider-card-local');
     await localLlmCard.getByRole('button', { name: 'Configure' }).click();
     await page.waitForTimeout(300);
 
@@ -552,9 +552,7 @@ test.describe('LLM Settings - Provider Switching', () => {
     await page.waitForTimeout(300);
 
     // Configure Local LLM provider (has Base URL field)
-    const localLlmCard = page.locator('div.p-4').filter({
-      has: page.locator('h3', { hasText: 'Local LLM (Ollama/vLLM)' })
-    });
+    const localLlmCard = page.getByTestId('llm-provider-card-local');
     await localLlmCard.getByRole('button', { name: 'Configure' }).click();
     await page.waitForTimeout(300);
 

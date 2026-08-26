@@ -254,6 +254,7 @@ export default function LlmSettingsTab() {
           {providers.map((provider) => (
             <div
               key={provider.name}
+              data-testid={`llm-provider-card-${provider.name}`}
               className={clsx(
                 'p-4 rounded-lg border transition-all',
                 provider.has_credentials
