@@ -287,3 +287,53 @@ fn the_tool_index_is_exactly_the_declared_set() {
         "the index must be sorted, or the prompt prefix changes between turns"
     );
 }
+
+/// The wire `tools` array must be byte-stable across processes.
+///
+/// `build_mcp_tools` hands `chat_callable_schemas()` straight to the provider as
+/// the `tools` array, and `tools` renders BEFORE `system` in every provider's
+/// cache prefix — so its order decides whether anything downstream of it can be
+/// cached at all.
+///
+/// The registry stores tools in a `HashMap`, whose iteration order is seeded per
+/// instance: stable inside one process, different in the next. Two Cloud Run
+/// replicas therefore served the same catalogue in two different orders, and an
+/// athlete whose consecutive turns landed on different instances could never hit
+/// a prompt cache — the first bytes of the prefix disagreed.
+///
+/// This is provider-agnostic. It defeats implicit prefix caching (OpenAI-style,
+/// which needs only a stable prefix) and explicit `cache_control` breakpoints
+/// (Anthropic-style) equally, so it would follow us off ACP onto any provider.
+#[test]
+fn the_wire_tool_array_is_deterministically_ordered() {
+    let registry = full_registry();
+    let names: Vec<String> = build_mcp_tools(&registry)
+        .function_declarations
+        .into_iter()
+        .map(|d| d.name)
+        .collect();
+
+    assert!(
+        names.len() > 1,
+        "need more than one tool for ordering to mean anything; got {}",
+        names.len()
+    );
+
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        names, sorted,
+        "the tools array is not sorted, so its order comes from HashMap seeding \
+         and differs between replicas — every prompt cache misses on the first \
+         bytes of the prefix"
+    );
+
+    // Two reads of the same registry must agree, or nothing downstream is stable
+    // even within one process.
+    let again: Vec<String> = build_mcp_tools(&registry)
+        .function_declarations
+        .into_iter()
+        .map(|d| d.name)
+        .collect();
+    assert_eq!(names, again, "two reads of one registry disagreed");
+}

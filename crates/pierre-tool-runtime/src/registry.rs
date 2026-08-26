@@ -351,14 +351,26 @@ impl ToolRegistry {
             .flat_map(|cat| self.tools_in_category(cat))
             .collect();
 
-        self.tools
+        let mut schemas: Vec<ToolSchema> = self
+            .tools
             .iter()
             .filter(|(name, tool)| {
                 allowed_names.contains(name.as_str())
                     && !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
             })
             .map(|(_, tool)| self.build_schema(tool))
-            .collect()
+            .collect();
+        // Sorted because this Vec IS the `tools` array on the wire
+        // (`build_mcp_tools`), and `tools` renders BEFORE `system` in every
+        // provider's cache prefix. `self.tools` is a HashMap, whose iteration
+        // order is seeded per instance — stable within one process, different in
+        // the next. Two Cloud Run replicas therefore sent the same catalogue in
+        // two different orders, so an athlete whose consecutive turns landed on
+        // different instances could never hit a prompt cache: the very first
+        // bytes of the prefix disagreed. Provider-agnostic — it defeats implicit
+        // prefix caching and explicit `cache_control` breakpoints alike.
+        schemas.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+        schemas
     }
 
     /// List schemas for admin tools only
