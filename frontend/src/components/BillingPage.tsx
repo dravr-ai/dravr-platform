@@ -257,7 +257,7 @@ export default function BillingPage() {
               <div key={k} className="h-48 bg-surface-container-high rounded-xl" />
             ))}
           </div>
-        ) : plansQuery.data ? (
+        ) : plansQuery.data?.plans ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {plansQuery.data.plans.map((plan) => (
               <PlanCard
@@ -286,7 +286,7 @@ export default function BillingPage() {
               <div key={k} className="h-4 bg-surface-container-high rounded w-2/3" />
             ))}
           </div>
-        ) : quotaQuery.data ? (
+        ) : quotaQuery.data?.counters ? (
           <div className="space-y-3">
             {quotaQuery.data.counters.map((c) => {
               const pct = c.limit > 0 ? Math.min(100, (c.current / c.limit) * 100) : 0;
@@ -324,7 +324,7 @@ export default function BillingPage() {
         <h2 className="text-lg font-semibold text-on-surface mb-4">Invoices</h2>
         {invoicesQuery.isLoading ? (
           <div className="animate-pulse h-4 bg-surface-container-high rounded w-1/2" />
-        ) : invoicesQuery.data && invoicesQuery.data.invoices.length > 0 ? (
+        ) : invoicesQuery.data?.invoices?.length ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

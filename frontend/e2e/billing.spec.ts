@@ -398,3 +398,41 @@ test.describe('Billing - Payment problem (dunning)', () => {
     );
   });
 });
+
+test.describe('Billing - degraded payloads keep the app mounted', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'webtest@pierre.dev' });
+    // Every billing endpoint answers 200 with an envelope and no array — the
+    // shape the design sweep hit when it walked Usage. Each block guarded
+    // `query.data` and then read `.plans` / `.counters` / `.invoices` off it,
+    // so this payload took the "data present" branch and threw, unmounting the
+    // whole Dashboard into the ErrorBoundary. The fallback copy asserted below
+    // was already written; nothing could reach it.
+    for (const path of [
+      '**/api/billing/subscription',
+      '**/api/users/me/quota',
+      '**/api/billing/invoices',
+      '**/api/billing/plans',
+    ]) {
+      await page.route(path, async (route: Route) => {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+      });
+    }
+    await loginToDashboard(page);
+    await page.waitForSelector('nav', { timeout: 10000 });
+  });
+
+  test('shows the written fallbacks instead of crashing into the ErrorBoundary', async ({ page }) => {
+    await page.locator('button', { hasText: 'Usage' }).first().click();
+
+    await expect(page.getByRole('heading', { name: 'Plans' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Plan information unavailable.')).toBeVisible();
+    await expect(page.getByText('Quota information unavailable.')).toBeVisible();
+    await expect(page.getByText('No invoices yet.')).toBeVisible();
+
+    // The dashboard shell is still mounted — the ErrorBoundary replaces it
+    // outright, so its absence is the regression this pins.
+    await expect(page.locator('[data-page-shell]')).toBeVisible();
+    await expect(page.getByText('Something went wrong')).toHaveCount(0);
+  });
+});

@@ -84,6 +84,7 @@ const GroupDetail = lazy(() => import('./groups/GroupDetail'));
 import { Card } from './ui';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { BILLING_ENABLED } from '../constants/features';
+import { PAGE_GUTTER_CLASS, layoutForRoute } from '../constants/surfaceLayout';
 import { track } from '../services/analytics';
 
 // Tab definition type with optional badge for notification counts
@@ -474,6 +475,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
 
   // For admin users, use sidebar tabs
   const tabs = isSuperAdmin ? superAdminTabs : (isAdminUser ? adminTabs : regularTabs);
+  // Whether this surface takes the shell's gutter or paints to the pane edges.
+  const pageLayout = layoutForRoute(activeTab);
 
   // Mobile navigation state — bottom tab bar pins the high-traffic destinations
   // and the rest fall into the off-canvas drawer. Active <768px only.
@@ -762,11 +765,19 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           </header>
         )}
 
-        {/* Content Area - full height, no extra padding for user tabs that manage their own layout */}
+        {/* Content Area. The gutter is a property of the surface, declared in
+            constants/surfaceLayout.ts — never of the viewer's role. It used to
+            read `isAdminUser && activeTab !== 'chat'`, which padded every page
+            for an operator and left Groups, Settings and Data Providers flush
+            against the viewport for every regular user.
+            `data-page-shell` / `data-page-layout` are what the layout gate in
+            e2e/design-sweep.visual.spec.ts measures against. */}
         <div
+          data-page-shell=""
+          data-page-layout={pageLayout}
           className={clsx(
             'flex-1 overflow-auto',
-            isAdminUser && activeTab !== 'chat' ? 'p-4 md:p-6' : ''
+            pageLayout === 'padded' && PAGE_GUTTER_CLASS,
           )}
           style={{
             // Reserve space for the mobile bottom tab bar (56px) plus the
@@ -777,7 +788,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         >
 
           {/* Content */}
-          {activeTab === 'discover' && <ConnectProviderBanner />}
+          {activeTab === 'discover' && (
+            <div className="px-4 pt-4 md:px-6 md:pt-6 empty:hidden">
+              <ConnectProviderBanner />
+            </div>
+          )}
         {/* Overview tab removed — admin lands directly on Users */}
 
         {activeTab === 'connections' && (

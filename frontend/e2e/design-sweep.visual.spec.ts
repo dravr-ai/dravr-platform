@@ -7,11 +7,20 @@
 import { test, expect, type Page } from '@playwright/test';
 import { webNavLabels } from '@pierre/shared-constants';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 
 // A colour or primitive change touches dozens of files at once. Type-checks and
 // lint prove the classes exist; they cannot show that a status chip still reads
 // as a status chip. This sweep exists so that review has pixels to look at, and
 // so a reviewer can diff two runs instead of trusting a summary.
+//
+// Pixels for a reviewer were all it produced for a year, and its only assertion
+// was that at least one surface loaded. It therefore screenshotted a Groups
+// page welded to the viewport edge on every run and reported green. The walk
+// now also measures each surface against the gutter its layout declares, so the
+// one contract nobody restyles on purpose — content does not collide with the
+// edge of its pane — fails the push instead of waiting for someone to open the
+// artifact directory.
 //
 // The athlete-facing surfaces come from the shared registry, not from a list
 // kept here. This file used to declare its own — a third surface declaration
@@ -65,6 +74,7 @@ async function sweep(
   page.setDefaultTimeout(5_000);
 
   const missed: string[] = [];
+  const layoutFailures: string[] = [];
   for (const surface of surfaces) {
     try {
       await navigateToTab(page, surface);
@@ -82,6 +92,9 @@ async function sweep(
       path: `design-sweep/${theme}/${role}-${surface.replace(/\s+/g, '-').toLowerCase()}.png`,
       fullPage: true,
     });
+    // Measured after the same settle the capture uses, so the gate and the
+    // screenshot describe the same frame.
+    layoutFailures.push(...describeLayoutFailures(`${role}/${surface}`, await measurePageLayout(page)));
   }
 
   // Silence would let the sweep look complete while covering half the app.
@@ -89,6 +102,9 @@ async function sweep(
     console.log(`design-sweep(${role}/${theme}): could not reach ${missed.join(', ')}`);
   }
   expect(missed.length).toBeLessThan(surfaces.length);
+  // Reported together: a gate that stops at the first offender turns a
+  // one-pass fix into one push per page.
+  expect(layoutFailures, `layout contract broken on ${layoutFailures.length} surface(s):\n${layoutFailures.join('\n')}`).toEqual([]);
 }
 
 test.describe('design sweep', () => {

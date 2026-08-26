@@ -6,6 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 
 // ============================================================================
 // Mock Data
@@ -814,5 +815,30 @@ test.describe('Group Coaching - Creation Permissions', () => {
     await expect(page.getByRole('button', { name: /Create Group/ })).not.toBeVisible();
     // Join Group button should still be visible
     await expect(page.getByRole('button', { name: /Join Group/ })).toBeVisible();
+  });
+});
+
+// ============================================================================
+// Layout contract
+// ============================================================================
+
+test.describe('Group Coaching - Layout', () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAndGoToGroups(page);
+  });
+
+  // What these pin: the content pane's gutter used to read
+  // `isAdminUser && activeTab !== 'chat'`, so an athlete got a Groups page
+  // flush against the viewport — header clipped at the top, "Chat with Coach"
+  // welded to the right edge — while the identical page looked correct to any
+  // operator reviewing it. Both views are measured because the design sweep
+  // walks top-level nav only, and the detail sub-view is where it was caught.
+  test('the group list keeps its gutter for a regular user', async ({ page }) => {
+    expect(describeLayoutFailures('groups/list', await measurePageLayout(page))).toEqual([]);
+  });
+
+  test('the group detail keeps its gutter for a regular user', async ({ page }) => {
+    await goToGroupDetail(page);
+    expect(describeLayoutFailures('groups/detail', await measurePageLayout(page))).toEqual([]);
   });
 });
