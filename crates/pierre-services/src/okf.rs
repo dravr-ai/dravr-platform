@@ -19,7 +19,7 @@
 //! assembly (StruQ-style structured separation).
 
 use pierre_core::models::{Dossier, DossierFact, Pillar};
-use pierre_core::tokens::estimate_prompt_tokens;
+use pierre_core::tokens::estimate_context_tokens;
 
 /// Soft token budget for the rendered bundle. A little above the flat-recall
 /// budget because the bundle now spans North Star + up to six pillars + medical.
@@ -165,6 +165,12 @@ fn ordered_sections(dossier: &Dossier) -> Vec<(Section, &[DossierFact])> {
 /// Bounded by `token_budget`. North Star and Medical are always included;
 /// pillar sections are appended until the budget is reached. Returns `None`
 /// when the user has no pillar context yet (caller skips injection).
+///
+/// Sized with [`estimate_context_tokens`], not the flat usage heuristic: this
+/// is a budget, so under-counting overshoots it into the prompt. Rendered facts
+/// are attribute-heavy (`<user_fact kind="…" source="…" confidence="…">`) plus
+/// YAML frontmatter, which the flat 4-chars/token heuristic under-reads by
+/// 20-30% — enough for a 600-token budget to inject nearer 750.
 #[must_use]
 pub fn render_okf_bundle(dossier: &Dossier, token_budget: u32) -> Option<String> {
     let sections = ordered_sections(dossier);
@@ -173,7 +179,7 @@ pub fn render_okf_bundle(dossier: &Dossier, token_budget: u32) -> Option<String>
     }
 
     let mut out = String::from(BUNDLE_HEADER);
-    let mut used = estimate_prompt_tokens(&out);
+    let mut used = estimate_context_tokens(&out);
     let mut truncated = false;
     let mut rendered_any = false;
 
@@ -181,7 +187,7 @@ pub fn render_okf_bundle(dossier: &Dossier, token_budget: u32) -> Option<String>
         let Some(rendered) = render_section(section, facts) else {
             continue;
         };
-        let section_tokens = estimate_prompt_tokens(&rendered);
+        let section_tokens = estimate_context_tokens(&rendered);
         // North Star + Medical are safety/identity context — always included.
         let always_include = matches!(section, Section::NorthStar | Section::Medical);
         if !always_include && used + section_tokens > token_budget {
@@ -217,7 +223,7 @@ mod tests {
     use super::{render_okf_bundle, render_okf_bundle_default, DEFAULT_TOKEN_BUDGET};
     use chrono::{Duration, Utc};
     use pierre_core::models::{Dossier, DossierFact, Pillar};
-    use pierre_core::tokens::estimate_prompt_tokens;
+    use pierre_core::tokens::estimate_context_tokens;
     use uuid::Uuid;
 
     fn fact(object: &str) -> DossierFact {
@@ -353,6 +359,6 @@ mod tests {
         let bundle = render_okf_bundle(&d, DEFAULT_TOKEN_BUDGET).unwrap_or_default();
         // Allow headroom for the always-included sections + header/footer, but
         // the budget must actually bound the pillar body.
-        assert!(estimate_prompt_tokens(&bundle) < DEFAULT_TOKEN_BUDGET * 2);
+        assert!(estimate_context_tokens(&bundle) < DEFAULT_TOKEN_BUDGET * 2);
     }
 }

@@ -34,11 +34,17 @@ pub struct CompactionConfig {
     /// not re-trigger emergency on every subsequent turn.
     pub sliding_drop_n: usize,
     /// Hard cap on the number of non-system messages kept in the prompt,
-    /// enforced independently of the token estimate. The character-based token
-    /// heuristic under-counts dense content (JSON tool results, structured
-    /// data), so a genuinely oversized prompt can read below the token
-    /// threshold and slip through; this message cap is the estimate-independent
-    /// backstop that bounds the prompt regardless.
+    /// enforced independently of the token estimate.
+    ///
+    /// Budgeting reads [`crate::tokens::estimate_context_tokens`], which prices
+    /// dense JSON near two characters per token instead of four. That closes
+    /// the gap the flat heuristic left: through August 2026 it charged
+    /// JSON-heavy prompts half price, so prompts averaging 161k real tokens
+    /// estimated at ~80k, stayed under the 89.6k warn line, and never
+    /// summarized — leaving this cap as the only bound on the prompt, and forty
+    /// dense messages is roughly the 161k that was observed. The estimate is
+    /// still a character heuristic rather than a tokenizer, so the cap stays as
+    /// the estimate-independent backstop.
     pub max_messages: usize,
 }
 
