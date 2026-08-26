@@ -71,6 +71,13 @@ jobs:
       PIERRE_LLM_RUNTIME_FALLBACK: "true"
       PIERRE_LLM_FALLBACK_PROVIDER: "cohere"
       COHERE_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_COHERE_API_KEY }}
+      # The Copilot CLI runner reads COPILOT_GITHUB_TOKEN — see
+      # validate_copilot_token in pierre-mcp-server.rs, which logs "Copilot CLI
+      # will use on-disk credentials" when it is unset. A fresh runner has no
+      # on-disk credentials, so GH_TOKEN alone left copilot-acp answering every
+      # call with RPC -32000 "Authentication required" and the whole corpus ran
+      # on the Cohere fallback while reading as if it had tested the chain.
+      COPILOT_GITHUB_TOKEN: ${{ secrets.DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN }}
 
     steps:
