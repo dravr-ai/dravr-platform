@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 //! Unit-level coverage for `KEY_PROVIDER_REAUTH_REQUIRED`.
 //!
 //! The chat pipeline's `auth_recovery` stage short-circuits a turn with a
