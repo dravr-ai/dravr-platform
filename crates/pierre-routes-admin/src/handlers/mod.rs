@@ -43,13 +43,14 @@ pub mod strava_pool;
 /// Admin endpoints for issuing and revoking admin / service API tokens.
 pub mod tokens;
 pub mod types;
-/// Admin endpoints for listing tenant users and managing their access.
+/// Admin endpoints for listing tenant users and managing their access,
+/// including the standing pre-approval allow-list
+/// (`/admin/pre-approved-emails`) that `pierre-cli user allow / disallow /
+/// list-allowed` drives with its device-login token.
 ///
-/// LIMITATION(registre#43): no create or invite handler lives here, so the admin *web
-/// app* cannot pre-add a user from an email address. The operator path is `pierre-cli
-/// user allow --email X` — a standing pre-approval consumed at registration (the account
-/// lands active, `approved_by` attributed) — which, absent these endpoints, writes to a
-/// local database and so reaches no deployed environment (registre#110). Still missing
-/// from this surface: the HTTP endpoints + api-client methods, and the single-use invite
-/// email flow from the issue.
+/// LIMITATION(registre#43): pre-adding an address is a standing *allow*, not an
+/// invitation — the person still self-registers, choosing their own password, and the
+/// allow only spares them the approval queue (the account lands active, `approved_by`
+/// attributed). Still missing from this surface: the single-use invite table and
+/// redemption email from that issue.
 pub mod users;

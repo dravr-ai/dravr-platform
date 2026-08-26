@@ -30,6 +30,7 @@
 
 #![warn(missing_docs)]
 
+mod pre_approved_emails;
 mod settings;
 
 use std::fmt::Write as _;
@@ -474,6 +475,7 @@ impl WebAdminRoutes {
                 "/api/admin/tokens/{token_id}/rotate",
                 post(Self::handle_rotate_admin_token),
             )
+            .merge(pre_approved_emails::routes())
             .route(
                 "/api/admin/approve-user/{user_id}",
                 post(Self::handle_approve_user),
@@ -501,10 +503,7 @@ impl WebAdminRoutes {
                 "/api/admin/users/{user_id}/admin-profile",
                 get(Self::handle_get_user_admin_profile),
             )
-            .route(
-                "/api/admin/settings/auto-approval",
-                get(settings::handle_get_auto_approval).put(settings::handle_set_auto_approval),
-            )
+            .merge(settings::routes())
             // Tool selection routes (web admin versions with cookie auth)
             .route(
                 "/api/admin/tools/catalog",

@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use axum::{
     middleware,
-    routing::{get, patch, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use pierre_runtime_context::MiddlewareCtx;
@@ -296,6 +296,19 @@ impl AdminRoutes {
             .route(
                 "/admin/users/{user_id}/tier",
                 post(users::handle_set_user_tier).delete(users::handle_clear_user_tier_override),
+            )
+            // The standing pre-approval allow-list, which `pierre-cli user
+            // allow / disallow / list-allowed` drives with its device-login
+            // token. Bearer twins of the cookie mounts in
+            // `WebAdminRoutes::routes`, sharing one service so an allow means
+            // the same thing whichever surface records it.
+            .route(
+                "/admin/pre-approved-emails",
+                get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
+            )
+            .route(
+                "/admin/pre-approved-emails/{email}",
+                delete(users::handle_disallow_email),
             )
             .with_state(context)
     }

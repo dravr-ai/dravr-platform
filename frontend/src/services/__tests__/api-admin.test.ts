@@ -345,6 +345,86 @@ describe('API Service - Admin Functionality', () => {
     });
   });
 
+  describe('Pre-approved emails', () => {
+    it('should list pre-approved emails from the data envelope', async () => {
+      const entries = [
+        {
+          email: 'alpha@example.com',
+          note: 'alpha cohort',
+          created_at: '2026-08-26T12:00:00Z',
+          allowed_by: 'operator-1',
+          allowed_by_email: 'admin@example.com',
+          account_status: null,
+        },
+      ];
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { success: true, message: '1 pre-approved email(s)', data: { emails: entries, total: 1 } },
+      });
+
+      const result = await adminApi.getPreApprovedEmails();
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/admin/pre-approved-emails');
+      expect(result).toEqual(entries);
+    });
+
+    it('should allow an email with a note and surface the outcome', async () => {
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: {
+          success: true,
+          message: 'alpha@example.com pre-approved',
+          data: { email: 'alpha@example.com', outcome: 'recorded', approved_user_id: null },
+        },
+      });
+
+      const result = await adminApi.allowEmail('alpha@example.com', 'alpha cohort');
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/pre-approved-emails', {
+        email: 'alpha@example.com',
+        note: 'alpha cohort',
+      });
+      expect(result.outcome).toBe('recorded');
+      expect(result.message).toBe('alpha@example.com pre-approved');
+      expect(result.approved_user_id).toBeNull();
+    });
+
+    it('should report the promoted account when the allow approved a pending user', async () => {
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: {
+          success: true,
+          message: 'queued@example.com had a pending account — approved now (status: active)',
+          data: { email: 'queued@example.com', outcome: 'pending_approved', approved_user_id: 'user-9' },
+        },
+      });
+
+      const result = await adminApi.allowEmail('queued@example.com');
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/pre-approved-emails', {
+        email: 'queued@example.com',
+        note: null,
+      });
+      expect(result.outcome).toBe('pending_approved');
+      expect(result.approved_user_id).toBe('user-9');
+    });
+
+    it('should url-encode the address when removing a pre-approval', async () => {
+      mockAxiosInstance.delete.mockResolvedValueOnce({
+        data: {
+          success: true,
+          message: 'user+tag@example.com removed from the pre-approved list',
+          data: { email: 'user+tag@example.com', removed: true, account_status: null },
+        },
+      });
+
+      const result = await adminApi.disallowEmail('user+tag@example.com');
+
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith(
+        '/api/admin/pre-approved-emails/user%2Btag%40example.com'
+      );
+      expect(result.removed).toBe(true);
+    });
+  });
+
   describe('API Key Provisioning', () => {
     it('should provision API key for user', async () => {
       const provisionRequest = {

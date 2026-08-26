@@ -308,3 +308,81 @@ fn test_settings_harness_set_requires_the_json_argument() {
         "error should point at the missing document argument, got: {stderr}"
     );
 }
+
+// ===========================================================================
+// Pre-approval verbs — remote, like `user get` / `user set`
+//
+// `user allow / disallow / list-allowed` used to hold a repository handle, so
+// they opened DATABASE_URL and could only ever write the local database: an
+// operator with a valid device login could not pre-approve an address on a
+// deployed environment at all (registre#110). These pin the two things a
+// regression would break — the `--server` / `--token` arguments clap must
+// accept, and dispatch happening *before* the KeyManager/database bootstrap.
+// ===========================================================================
+
+#[test]
+fn test_cli_user_allow_help_offers_remote_arguments() {
+    let (exit_code, stdout, _stderr) = run_cli(&["user", "allow", "--help"]);
+
+    assert_eq!(exit_code, 0, "User allow help should exit with 0");
+    assert!(stdout.contains("--email"), "Should show --email option");
+    assert!(stdout.contains("--note"), "Should show --note option");
+    assert!(
+        stdout.contains("--server"),
+        "allow must take --server, or it cannot reach a deployed environment"
+    );
+    assert!(
+        stdout.contains("--token"),
+        "allow must take --token for a headless/CI operator"
+    );
+}
+
+#[test]
+fn test_cli_user_disallow_and_list_allowed_help_offer_remote_arguments() {
+    let (exit_code, stdout, _stderr) = run_cli(&["user", "disallow", "--help"]);
+    assert_eq!(exit_code, 0, "User disallow help should exit with 0");
+    assert!(stdout.contains("--email"), "Should show --email option");
+    assert!(stdout.contains("--server"), "disallow must take --server");
+    assert!(stdout.contains("--token"), "disallow must take --token");
+
+    let (exit_code, stdout, _stderr) = run_cli(&["user", "list-allowed", "--help"]);
+    assert_eq!(exit_code, 0, "User list-allowed help should exit with 0");
+    assert!(
+        stdout.contains("--server"),
+        "list-allowed must take --server"
+    );
+    assert!(stdout.contains("--token"), "list-allowed must take --token");
+    assert!(
+        stdout.contains("--format"),
+        "list-allowed must take --format, like the other remote listing"
+    );
+}
+
+#[test]
+fn test_cli_user_allow_never_touches_the_local_database() {
+    // A closed port: the command must fail trying to *reach the server*. If it
+    // ever dispatches through the database path again it announces
+    // "Connecting to database" and fails on the local SQLite file instead,
+    // which is exactly the bug that made this verb useless against dev.
+    let (exit_code, stdout, stderr) = run_cli(&[
+        "user",
+        "allow",
+        "--email",
+        "someone@example.com",
+        "--server",
+        "http://127.0.0.1:1",
+        "--token",
+        "not-a-real-token",
+    ]);
+
+    assert_ne!(exit_code, 0, "an unreachable server must fail the command");
+    let output = format!("{stdout}{stderr}");
+    assert!(
+        !output.contains("Connecting to database"),
+        "the remote verb must not open a database: {output}"
+    );
+    assert!(
+        !output.contains("key management"),
+        "the remote verb must dispatch before the KeyManager bootstrap: {output}"
+    );
+}

@@ -49,13 +49,14 @@
 //! ```
 
 mod commands;
+mod dispatch;
 mod helpers;
 
 use clap::{Parser, Subcommand};
 use pierre_auth::key_management::KeyManager;
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::AppResult;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 
@@ -404,6 +405,9 @@ enum UserCommand {
     },
 
     /// Pre-approve an email: registration lands active, and a pending account is approved now
+    ///
+    /// Speaks HTTP like `user get` / `user set`, so it works against a deployed
+    /// environment as well as a local one.
     Allow {
         /// Email address to allow
         #[arg(long)]
@@ -412,6 +416,14 @@ enum UserCommand {
         /// Operator note recorded on the allow (cohort, reason)
         #[arg(long)]
         note: Option<String>,
+
+        /// Server base URL (defaults to the cached login)
+        #[arg(long)]
+        server: Option<String>,
+
+        /// Admin token (defaults to the cached login)
+        #[arg(long)]
+        token: Option<String>,
     },
 
     /// Remove a pre-approved email (an existing account's status is not touched)
@@ -419,10 +431,30 @@ enum UserCommand {
         /// Email address to remove from the pre-approved list
         #[arg(long)]
         email: String,
+
+        /// Server base URL (defaults to the cached login)
+        #[arg(long)]
+        server: Option<String>,
+
+        /// Admin token (defaults to the cached login)
+        #[arg(long)]
+        token: Option<String>,
     },
 
     /// List pre-approved emails and whether each has registered
-    ListAllowed,
+    ListAllowed {
+        /// Output format: table | json | csv
+        #[arg(long, default_value = "table")]
+        format: String,
+
+        /// Server base URL (defaults to the cached login)
+        #[arg(long)]
+        server: Option<String>,
+
+        /// Admin token (defaults to the cached login)
+        #[arg(long)]
+        token: Option<String>,
+    },
 
     /// Suspend a user (status → suspended); they can no longer log in
     Suspend {
@@ -752,101 +784,6 @@ enum TokenCommand {
     },
 }
 
-/// Dispatch the two remote user commands, which never touch the local database.
-///
-/// LIMITATION(registre#110): `UserCommand::Allow`, `UserCommand::Disallow` and
-/// `UserCommand::ListAllowed` are not routed here, because the `pre_approved_emails`
-/// list has no admin HTTP endpoint to route them to. Those three verbs therefore reach
-/// only the local database, and cannot pre-approve an address on a deployed environment.
-///
-/// # Errors
-///
-/// Returns the command's own error; an unreachable arm would mean the caller
-/// routed a database-backed variant here, which the match at the call site
-/// prevents.
-async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
-    match action {
-        UserCommand::Get {
-            selector,
-            status,
-            tier,
-            limit,
-            all,
-            format,
-            server,
-            token,
-        } => {
-            let client = commands::auth::admin_client(server, token)?;
-            if let Some(sel) = selector {
-                let id = commands::user_admin::resolve_user_id(&client, &sel).await?;
-                commands::user_admin::get_user(&client, &id).await
-            } else {
-                let args = commands::user_admin::GetUsersArgs {
-                    status,
-                    tier,
-                    limit,
-                    all,
-                    format: commands::user_admin::OutputFormat::parse(&format)?,
-                };
-                commands::user_admin::get_users(&client, &args).await
-            }
-        }
-        UserCommand::Set {
-            selector,
-            tier,
-            note,
-            server,
-            token,
-        } => {
-            let client = commands::auth::admin_client(server, token)?;
-            let id = commands::user_admin::resolve_user_id(&client, &selector).await?;
-            commands::user_admin::set_user_tier(&client, &id, &tier, note.as_deref()).await
-        }
-        _ => Err(AppError::internal(
-            "dispatch_remote_user received a database-backed user command",
-        )),
-    }
-}
-
-async fn dispatch_auth(action: AuthCommand) -> Result<()> {
-    match action {
-        AuthCommand::Login { server, no_browser } => {
-            commands::auth::login(server, no_browser).await
-        }
-        AuthCommand::Logout => commands::auth::logout(),
-        AuthCommand::Status => commands::auth::status(),
-        AuthCommand::Approve {
-            user_code,
-            server,
-            token,
-        } => commands::auth::resolve(user_code, server, token, false).await,
-        AuthCommand::Deny {
-            user_code,
-            server,
-            token,
-        } => commands::auth::resolve(user_code, server, token, true).await,
-    }
-}
-
-async fn dispatch_strava_pool(action: StravaPoolCommand) -> Result<()> {
-    match action {
-        StravaPoolCommand::Add {
-            client_id,
-            client_secret,
-            seat_cap,
-            label,
-        } => commands::strava_pool::add(client_id, client_secret, seat_cap, label).await,
-        StravaPoolCommand::List => commands::strava_pool::list().await,
-        StravaPoolCommand::Enable { client_id } => {
-            commands::strava_pool::set_enabled(client_id, true).await
-        }
-        StravaPoolCommand::Disable { client_id } => {
-            commands::strava_pool::set_enabled(client_id, false).await
-        }
-        StravaPoolCommand::Delete { client_id } => commands::strava_pool::delete(client_id).await,
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut cli = Cli::parse();
@@ -886,10 +823,10 @@ async fn main() -> Result<()> {
     // pierre-server over HTTP with the cached device-login token and never touch
     // the local database, so they dispatch before the KeyManager/DB bootstrap.
     if let Command::Auth { action } = cli.command {
-        return dispatch_auth(action).await;
+        return dispatch::dispatch_auth(action).await;
     }
     if let Command::StravaPool { action } = cli.command {
-        return dispatch_strava_pool(action).await;
+        return dispatch::dispatch_strava_pool(action).await;
     }
     // Settings shares the remote posture: GET/PUT against the admin-token
     // twins of /admin/settings/{guardian,harness} with the cached login.
@@ -903,17 +840,25 @@ async fn main() -> Result<()> {
         return commands::config::dispatch(action).await;
     }
 
-    // `user get` / `user set` are remote too, and have to dispatch here for the
-    // reason they exist: every other user command holds a repository handle and
-    // therefore needs DATABASE_URL plus PIERRE_MASTER_ENCRYPTION_KEY. A deployed
-    // environment has neither reachable from a laptop — dev's Cloud SQL is on a
-    // private IP — so a command that bootstraps the KeyManager can only ever
-    // read the local database, which is the limitation these two were added to
-    // remove. Taken before the bootstrap, they work against any environment with
-    // nothing but --server and a token.
+    // `user get` / `user set` and the three pre-approval verbs are remote, and
+    // have to dispatch here for the reason they exist: every other user command
+    // holds a repository handle and therefore needs DATABASE_URL plus
+    // PIERRE_MASTER_ENCRYPTION_KEY. A deployed environment has neither reachable
+    // from a laptop — dev's Cloud SQL is on a private IP — so a command that
+    // bootstraps the KeyManager can only ever read the local database, which is
+    // the limitation these were moved across to remove. Taken before the
+    // bootstrap, they work against any environment with nothing but --server and
+    // a token.
     if let Command::User { action } = cli.command {
-        if matches!(action, UserCommand::Get { .. } | UserCommand::Set { .. }) {
-            return dispatch_remote_user(action).await;
+        if matches!(
+            action,
+            UserCommand::Get { .. }
+                | UserCommand::Set { .. }
+                | UserCommand::Allow { .. }
+                | UserCommand::Disallow { .. }
+                | UserCommand::ListAllowed { .. }
+        ) {
+            return dispatch::dispatch_remote_user(action).await;
         }
         cli.command = Command::User { action };
     }
@@ -985,7 +930,11 @@ async fn main() -> Result<()> {
                 commands::user::list_admins(&repos).await?;
             }
             // Handled before the KeyManager/DB bootstrap; see dispatch_remote_user.
-            UserCommand::Get { .. } | UserCommand::Set { .. } => {
+            UserCommand::Get { .. }
+            | UserCommand::Set { .. }
+            | UserCommand::Allow { .. }
+            | UserCommand::Disallow { .. }
+            | UserCommand::ListAllowed { .. } => {
                 unreachable!("remote user commands dispatch before the database bootstrap")
             }
             UserCommand::SetTier { email, tier, note } => {
@@ -996,15 +945,6 @@ async fn main() -> Result<()> {
             }
             UserCommand::Approve { email, reason } => {
                 commands::user::approve(&repos, email, reason).await?;
-            }
-            UserCommand::Allow { email, note } => {
-                commands::user::allow(&repos, email, note).await?;
-            }
-            UserCommand::Disallow { email } => {
-                commands::user::disallow(&repos, email).await?;
-            }
-            UserCommand::ListAllowed => {
-                commands::user::list_allowed(&repos).await?;
             }
             UserCommand::Suspend { email, reason } => {
                 commands::user::suspend(&repos, email, reason).await?;

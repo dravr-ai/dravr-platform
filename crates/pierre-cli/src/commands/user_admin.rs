@@ -104,19 +104,8 @@ fn print_page(users: &[Value], format: OutputFormat, header: bool) {
                 let _ = writeln!(out, "{}", COLUMNS.join(","));
             }
             for u in users {
-                let row: Vec<String> = COLUMNS
-                    .iter()
-                    .map(|c| {
-                        let v = field(u, c);
-                        // Quote whatever could break a cell. Display names are
-                        // user-supplied and do contain commas.
-                        if v.contains([',', '"', '\n']) {
-                            format!("\"{}\"", v.replace('"', "\"\""))
-                        } else {
-                            v
-                        }
-                    })
-                    .collect();
+                // Display names are user-supplied and do contain commas.
+                let row: Vec<String> = COLUMNS.iter().map(|c| csv_cell(&field(u, c))).collect();
                 let _ = writeln!(out, "{}", row.join(","));
             }
         }
@@ -294,4 +283,161 @@ pub async fn set_user_tier(
         serde_json::to_string_pretty(&body).unwrap_or_default()
     );
     Ok(())
+}
+
+/// Columns of the pre-approval listing, in order.
+const ALLOWED_COLUMNS: [&str; 5] = [
+    "email",
+    "account_status",
+    "created_at",
+    "allowed_by_email",
+    "note",
+];
+
+/// Pre-approve an email address over the admin API.
+///
+/// # Errors
+///
+/// Returns the client's error when the write fails, including the server's
+/// rejection of a malformed address.
+pub async fn allow_email(client: &RemoteClient, email: &str, note: Option<&str>) -> AppResult<()> {
+    let payload = json!({ "email": email, "note": note });
+    let body: Value = client
+        .post_json("/admin/pre-approved-emails", &payload)
+        .await?;
+    println!("{}", message_or_json(&body));
+    Ok(())
+}
+
+/// Remove a standing pre-approval over the admin API.
+///
+/// # Errors
+///
+/// Returns the client's error when the delete fails.
+pub async fn disallow_email(client: &RemoteClient, email: &str) -> AppResult<()> {
+    let encoded = urlencoding::encode(email);
+    let body: Value = client
+        .delete_json(&format!("/admin/pre-approved-emails/{encoded}"))
+        .await?;
+    println!("{}", message_or_json(&body));
+    Ok(())
+}
+
+/// List standing pre-approvals with each address's registration state.
+///
+/// # Errors
+///
+/// Returns the client's error when the listing fails.
+pub async fn list_allowed(client: &RemoteClient, format: OutputFormat) -> AppResult<()> {
+    let body: Value = client.get_json("/admin/pre-approved-emails").await?;
+    let entries = body
+        .get("data")
+        .and_then(|d| d.get("emails"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if entries.is_empty() && matches!(format, OutputFormat::Table) {
+        println!("No pre-approved emails");
+        return Ok(());
+    }
+
+    let mut out = io::stdout().lock();
+    match format {
+        OutputFormat::Table => {
+            let _ = writeln!(out, "Pre-approved emails ({} total):", entries.len());
+            let _ = writeln!(
+                out,
+                "{:<36}  {:<10}  {:<17}  {:<28}  NOTE",
+                "EMAIL", "ACCOUNT", "ALLOWED AT", "ALLOWED BY"
+            );
+            for entry in &entries {
+                let _ = writeln!(
+                    out,
+                    "{:<36}  {:<10}  {:<17}  {:<28}  {}",
+                    field(entry, "email"),
+                    account_label(entry),
+                    allowed_at(entry),
+                    operator_label(entry),
+                    note_label(entry)
+                );
+            }
+        }
+        OutputFormat::Json => {
+            for entry in &entries {
+                let _ = writeln!(out, "{entry}");
+            }
+        }
+        OutputFormat::Csv => {
+            let _ = writeln!(out, "{}", ALLOWED_COLUMNS.join(","));
+            for entry in &entries {
+                let row: Vec<String> = ALLOWED_COLUMNS
+                    .iter()
+                    .map(|c| csv_cell(&field(entry, c)))
+                    .collect();
+                let _ = writeln!(out, "{}", row.join(","));
+            }
+        }
+    }
+    let _ = out.flush();
+    Ok(())
+}
+
+/// The server's own sentence for a write, falling back to the whole body when
+/// a response arrives in a shape this build does not know — printing nothing
+/// would read as success.
+fn message_or_json(body: &Value) -> String {
+    body.get("message").and_then(Value::as_str).map_or_else(
+        || serde_json::to_string_pretty(body).unwrap_or_default(),
+        ToOwned::to_owned,
+    )
+}
+
+/// `not yet` reads better than an empty cell for an address nobody has
+/// registered against — the normal steady state of a standing allow.
+fn account_label(entry: &Value) -> String {
+    let status = field(entry, "account_status");
+    if status.is_empty() {
+        "not yet".to_owned()
+    } else {
+        status
+    }
+}
+
+/// Minute-precision timestamp; the RFC3339 the server sends is too wide for a
+/// column an operator scans.
+fn allowed_at(entry: &Value) -> String {
+    let raw = field(entry, "created_at");
+    raw.get(..16).map_or(raw.clone(), |s| s.replace('T', " "))
+}
+
+/// The operator who recorded the allow, or `-` when it was not attributable
+/// (a service token, or a pre-bootstrap allow).
+fn operator_label(entry: &Value) -> String {
+    let email = field(entry, "allowed_by_email");
+    if email.is_empty() {
+        "-".to_owned()
+    } else {
+        email
+    }
+}
+
+/// The operator note, or `-` when none was recorded.
+fn note_label(entry: &Value) -> String {
+    let note = field(entry, "note");
+    if note.is_empty() {
+        "-".to_owned()
+    } else {
+        note
+    }
+}
+
+/// Quote a cell that would otherwise break the CSV. Notes are operator-supplied
+/// prose and do contain commas.
+fn csv_cell(value: &str) -> String {
+    if value.contains([',', '"', '\n']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_owned()
+    }
 }

@@ -62,6 +62,15 @@ pub struct ApproveUserRequest {
     pub tenant_slug: Option<String>,
 }
 
+/// Pre-approval request — record a standing allow for one address.
+#[derive(Debug, Deserialize)]
+pub struct AllowEmailRequest {
+    /// Address to pre-approve; normalized (trimmed, lower-cased) server-side.
+    pub email: String,
+    /// Operator note recorded with the allow (cohort, reason).
+    pub note: Option<String>,
+}
+
 /// User suspension request
 #[derive(Debug, Deserialize)]
 pub struct SuspendUserRequest {

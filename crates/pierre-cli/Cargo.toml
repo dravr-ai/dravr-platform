@@ -46,6 +46,9 @@ serde_json = "1.0"
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std"], default-features = false }
+# Percent-encodes the email in `DELETE /admin/pre-approved-emails/{email}`; a
+# path segment carrying user-supplied text is escaped, never interpolated raw.
+urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [lints]

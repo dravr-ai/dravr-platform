@@ -7,6 +7,36 @@
 import { axios } from './client';
 import type { Coach, ClaimVerdict } from '@pierre/shared-types';
 
+/// One standing pre-approval: an address an operator allowed before the person
+/// registered, with the account state that allow is waiting on.
+export interface PreApprovedEmail {
+  email: string;
+  note: string | null;
+  created_at: string;
+  allowed_by: string | null;
+  allowed_by_email: string | null;
+  /// `null` until somebody registers against the address — the normal steady
+  /// state of a standing allow, not a missing value.
+  account_status: 'pending' | 'active' | 'suspended' | null;
+}
+
+/// What an allow did, as reported by the server.
+export type AllowEmailOutcome =
+  | 'recorded'
+  | 'already_allowed'
+  | 'pending_approved'
+  | 'already_active'
+  | 'suspended_unchanged';
+
+/// Result of allowing an address: the server's own sentence plus the outcome
+/// the UI branches on.
+export interface AllowEmailResult {
+  message: string;
+  outcome: AllowEmailOutcome;
+  email: string;
+  approved_user_id: string | null;
+}
+
 /// One stored feature-flag row at either tenant or user scope.
 export interface FeatureFlagRow {
   feature_key: string;
@@ -170,6 +200,34 @@ export const adminApi = {
   async suspendUser(userId: string, reason?: string) {
     const response = await axios.post(`/api/admin/suspend-user/${userId}`, { reason });
     return response.data;
+  },
+
+  // ==================== PRE-APPROVED EMAILS ====================
+  // The standing allow-list: an address allowed here registers straight to
+  // active with `approved_by` attributed, instead of landing in the pending
+  // queue. `pierre-cli user allow / disallow / list-allowed` drives the same
+  // endpoints with a device-login token.
+  async getPreApprovedEmails(): Promise<PreApprovedEmail[]> {
+    const response = await axios.get('/api/admin/pre-approved-emails');
+    return response.data.data?.emails || [];
+  },
+
+  async allowEmail(email: string, note?: string): Promise<AllowEmailResult> {
+    const response = await axios.post('/api/admin/pre-approved-emails', { email, note: note || null });
+    return {
+      message: response.data.message,
+      outcome: response.data.data?.outcome,
+      email: response.data.data?.email,
+      approved_user_id: response.data.data?.approved_user_id ?? null,
+    };
+  },
+
+  async disallowEmail(email: string): Promise<{ message: string; removed: boolean }> {
+    const response = await axios.delete(`/api/admin/pre-approved-emails/${encodeURIComponent(email)}`);
+    return {
+      message: response.data.message,
+      removed: response.data.data?.removed ?? false,
+    };
   },
 
   async getAllUsers(params?: {

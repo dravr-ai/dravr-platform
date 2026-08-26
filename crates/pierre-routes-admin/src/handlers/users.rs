@@ -25,12 +25,13 @@ use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
 use pierre_services::analytics::cache_user_email;
+use pierre_services::pre_approval;
 use pierre_services::tenant_admin as tenant_admin_service;
 
 use super::api_keys::json_response;
 use super::types::{
-    AdminResponse, ApproveUserRequest, DeleteUserRequest, ListUsersQuery, SuspendUserRequest,
-    TenantCreatedInfo, UserActivityQuery,
+    AdminResponse, AllowEmailRequest, ApproveUserRequest, DeleteUserRequest, ListUsersQuery,
+    SuspendUserRequest, TenantCreatedInfo, UserActivityQuery,
 };
 use crate::context::AdminApiContext;
 
@@ -917,4 +918,165 @@ pub(crate) async fn handle_clear_user_tier_override(
         },
         StatusCode::OK,
     ))
+}
+
+/// Resolve the acting operator's user id for the `allowed_by` audit column.
+///
+/// A device-login token names the approving super-admin in its service name
+/// (`device-cli:<email>`, minted by the RFC 8628 token endpoint), and that is
+/// the identity behind every `pierre-cli user allow`. Any other admin token is
+/// a service rather than a person, so `allowed_by` stays NULL — the column is
+/// nullable for exactly that case, and attributing a service's allow to some
+/// arbitrary admin account would fabricate an audit trail.
+async fn operator_user_id(repos: &RepositoryRegistry, token: &ValidatedAdminToken) -> Option<Uuid> {
+    let email = token.service_name.strip_prefix("device-cli:")?;
+    match repos.users.get_by_email(email).await {
+        Ok(user) => user.map(|u| u.id),
+        Err(e) => {
+            warn!(error = %e, "Operator lookup failed; allowed_by will be NULL");
+            None
+        }
+    }
+}
+
+/// Deny a request whose token lacks `ManageUsers`.
+fn deny_without_manage_users(token: &ValidatedAdminToken) -> Option<impl IntoResponse> {
+    (!token.permissions.has_permission(&AdminPerm::ManageUsers)).then(|| {
+        json_response(
+            AdminResponse {
+                success: false,
+                message: "Permission denied: ManageUsers required".to_owned(),
+                data: None,
+            },
+            StatusCode::FORBIDDEN,
+        )
+    })
+}
+
+/// `GET /admin/pre-approved-emails` — the standing allow-list.
+pub(crate) async fn handle_list_pre_approved_emails(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+) -> AppResult<impl IntoResponse> {
+    if let Some(denied) = deny_without_manage_users(&admin_token) {
+        return Ok(denied.into_response());
+    }
+
+    let entries = pre_approval::list(&context.repos).await?;
+
+    info!(
+        count = entries.len(),
+        admin_service = %admin_token.service_name,
+        "Pre-approved emails listed"
+    );
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: format!("{} pre-approved email(s)", entries.len()),
+            data: to_value(json!({
+                "emails": entries,
+                "total": entries.len(),
+            }))
+            .ok(),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// `POST /admin/pre-approved-emails` — pre-approve one address.
+///
+/// The address needs no account: that is what a standing allow is for. When an
+/// account does exist and is pending, the allow approves it now, and the user
+/// is notified through the same announcement path as `POST /admin/approve-user`.
+pub(crate) async fn handle_allow_email(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Json(request): Json<AllowEmailRequest>,
+) -> AppResult<impl IntoResponse> {
+    if let Some(denied) = deny_without_manage_users(&admin_token) {
+        return Ok(denied.into_response());
+    }
+
+    let ctx = context.as_ref();
+    let allowed_by = operator_user_id(&ctx.repos, &admin_token).await;
+    let result = pre_approval::allow(
+        &ctx.repos,
+        &request.email,
+        allowed_by,
+        request.note.as_deref(),
+    )
+    .await?;
+
+    if let Some(approved) = result.approved_user.as_ref() {
+        announce_approval(
+            ctx,
+            &approved.id.to_string(),
+            approved.id,
+            &approved.email,
+            approved.display_name.as_deref(),
+            &admin_token.service_name,
+        )
+        .await;
+    }
+
+    info!(
+        outcome = ?result.outcome,
+        admin_service = %admin_token.service_name,
+        "Pre-approval allow recorded"
+    );
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: result.message(),
+            data: to_value(json!({
+                "email": result.email,
+                "outcome": result.outcome,
+                "approved_user_id": result.approved_user.as_ref().map(|u| u.id.to_string()),
+            }))
+            .ok(),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// `DELETE /admin/pre-approved-emails/{email}` — drop a standing allow.
+///
+/// An account that already registered against the address keeps whatever
+/// status it holds; removing the allow only stops a *future* registration from
+/// skipping the queue.
+pub(crate) async fn handle_disallow_email(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(email): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    if let Some(denied) = deny_without_manage_users(&admin_token) {
+        return Ok(denied.into_response());
+    }
+
+    let result = pre_approval::disallow(&context.repos, &email).await?;
+
+    info!(
+        removed = result.removed,
+        admin_service = %admin_token.service_name,
+        "Pre-approval removal processed"
+    );
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: result.message(),
+            data: to_value(json!({
+                "email": result.email,
+                "removed": result.removed,
+                "account_status": result.account_status,
+            }))
+            .ok(),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
 }

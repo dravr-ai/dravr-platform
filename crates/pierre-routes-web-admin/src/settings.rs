@@ -18,13 +18,26 @@
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::routing::get;
+use axum::{Json, Router};
 use tracing::info;
 
 use pierre_core::errors::AppError;
 use pierre_services::admin_settings::{get_auto_approval_settings, set_auto_approval};
 
 use super::WebAdminContext;
+
+/// The settings surface's cookie-auth route table.
+///
+/// Owned here rather than in `WebAdminRoutes::routes` so a handler and the
+/// path that reaches it stay in one file.
+#[must_use]
+pub fn routes() -> Router<WebAdminContext> {
+    Router::new().route(
+        "/api/admin/settings/auto-approval",
+        get(handle_get_auto_approval).put(handle_set_auto_approval),
+    )
+}
 
 /// Handle getting auto-approval setting
 pub async fn handle_get_auto_approval(

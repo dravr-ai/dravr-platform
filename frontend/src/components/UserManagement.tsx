@@ -7,11 +7,12 @@ import { adminApi } from '../services/api';
 import type { User } from '../types/api';
 import { Button, Card, Badge, Input } from './ui';
 import PendingUsersList from './PendingUsersList';
+import PreApprovedEmails from './PreApprovedEmails';
 import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
-type UserTab = 'pending' | 'active' | 'suspended' | 'all';
+type UserTab = 'pending' | 'preapproved' | 'active' | 'suspended' | 'all';
 
 export default function UserManagement() {
   const [activeTab, setActiveTab] = useState<UserTab>('pending');
@@ -72,6 +73,18 @@ export default function UserManagement() {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      )
+    },
+    {
+      id: 'preapproved',
+      name: 'Pre-approved',
+      // The allow-list is not a user listing, so it carries no count here; the
+      // view owns its own query and shows the total in its own header.
+      count: 0,
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
         </svg>
       )
     },
@@ -148,38 +161,53 @@ export default function UserManagement() {
     }
   };
 
+  // One tab bar, shared by every view below: this markup used to exist twice,
+  // which is how a tab added to one view could go missing from the other.
+  const tabNav = (
+    <div className="border-b ghost-border">
+      <nav className="-mb-px flex space-x-8">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
+              activeTab === tab.id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline-variant'
+            }`}
+          >
+            {tab.icon}
+            <span>{tab.name}</span>
+            {tab.count > 0 && (
+              <Badge
+                variant={tab.id === 'pending' ? 'warning' : 'secondary'}
+                className="text-xs"
+              >
+                {tab.count}
+              </Badge>
+            )}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+
   // Show pending users component for pending tab
   if (activeTab === 'pending') {
     return (
       <div className="space-y-6">
-        <div className="border-b ghost-border">
-          <nav className="-mb-px flex space-x-8">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
-                  activeTab === tab.id
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline-variant'
-                }`}
-              >
-                {tab.icon}
-                <span>{tab.name}</span>
-                {tab.count > 0 && (
-                  <Badge
-                    variant={tab.id === 'pending' ? 'warning' : 'secondary'}
-                    className="text-xs"
-                  >
-                    {tab.count}
-                  </Badge>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
-
+        {tabNav}
         <PendingUsersList />
+      </div>
+    );
+  }
+
+  // The standing allow-list: addresses allowed before the person registers.
+  if (activeTab === 'preapproved') {
+    return (
+      <div className="space-y-6">
+        {tabNav}
+        <PreApprovedEmails />
       </div>
     );
   }
@@ -190,32 +218,7 @@ export default function UserManagement() {
   return (
     <div className="space-y-6">
       {/* Tabs - Dark Theme */}
-      <div className="border-b ghost-border">
-        <nav className="-mb-px flex space-x-8">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
-                activeTab === tab.id
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline-variant'
-              }`}
-            >
-              {tab.icon}
-              <span>{tab.name}</span>
-              {tab.count > 0 && (
-                <Badge
-                  variant={tab.id === 'pending' ? 'warning' : 'secondary'}
-                  className="text-xs"
-                >
-                  {tab.count}
-                </Badge>
-              )}
-            </button>
-          ))}
-        </nav>
-      </div>
+      {tabNav}
 
       {/* Search Bar - Dark Theme */}
       <div className="flex justify-between items-center">
