@@ -33,7 +33,9 @@
 //! Claude Sonnet 5 (model ID: …)". Only the tail placement suppressed that.
 //! These tests pin the tail contract and the no-product-names rule.
 
-use pierre_chat_pipeline::stages::prompt_assembly::close_with_identity_anchor;
+use pierre_chat_pipeline::stages::prompt_assembly::{
+    close_with_anchors, close_with_identity_anchor, coach_voice_anchor,
+};
 use pierre_core::narration::contains_identity_leak;
 
 #[test]
@@ -107,4 +109,102 @@ fn default_and_coach_paths_get_the_identical_anchor() {
         "anchor suffix must be identical on both paths"
     );
     assert!(suffix_a.contains("You are Dravr"));
+}
+
+// ---------------------------------------------------------------------------
+// Coach voice anchor — the specialisation half of the same recency argument.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_voice_anchor_names_the_coach_it_speaks_for() {
+    let out = coach_voice_anchor("strength");
+    assert!(
+        out.contains("strength"),
+        "the anchor must name the coach; a generic reminder is what already failed"
+    );
+    // Not a stub: it has to actually say something about staying in vocabulary,
+    // which is the whole reason it exists.
+    assert!(
+        out.to_lowercase().contains("vocabulary"),
+        "the anchor must instruct on vocabulary, not merely restate the coach name"
+    );
+    assert!(
+        out.len() > 200,
+        "a one-line reminder is arm B, which measured worse; got {} chars",
+        out.len()
+    );
+}
+
+#[test]
+fn the_voice_anchor_governs_voice_and_never_capability() {
+    // The platform contract leads the prompt precisely so a persona cannot
+    // take capability with it. This block sits after that contract, so it must
+    // not re-open the door the contract closed: no refusing, no scope.
+    let out = coach_voice_anchor("nutrition").to_lowercase();
+    for forbidden in ["refuse", "decline", "you may not answer", "out of scope"] {
+        assert!(
+            !out.contains(forbidden),
+            "voice anchor must not carry capability language, found {forbidden:?}"
+        );
+    }
+    assert!(
+        out.contains("never what you are allowed to say"),
+        "the anchor must state its own voice-only limit explicitly"
+    );
+}
+
+#[test]
+fn the_identity_anchor_still_comes_last() {
+    // Exercises close_with_anchors, the function the assembly stage actually
+    // calls — not a string this test built itself. Composing the tail in the
+    // test is what let an inverted call site pass.
+    let out = close_with_anchors("coach body", Some("strength"));
+
+    let voice_at = out
+        .find("Answer as the strength coach")
+        .expect("voice anchor present");
+    let identity_at = out.find("You are Dravr").expect("identity anchor present");
+    assert!(
+        voice_at < identity_at,
+        "voice anchor must precede the identity anchor (voice {voice_at}, identity {identity_at})"
+    );
+
+    let tail: String = out
+        .chars()
+        .rev()
+        .take(80)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    assert!(
+        tail.contains("not a competing identity"),
+        "the identity anchor must still be the last platform-controlled block, got tail: {tail:?}"
+    );
+}
+
+#[test]
+fn a_turn_with_no_coach_gets_no_voice_anchor() {
+    // The default Dravr path has no specialisation to hold, so it must not pay
+    // the tokens or gain a coach name it does not have.
+    let out = close_with_anchors("default pierre body", None);
+    assert!(
+        !out.contains("Answer as the"),
+        "an unbound turn must carry no voice anchor"
+    );
+    assert_eq!(
+        out,
+        close_with_identity_anchor("default pierre body"),
+        "the unbound path must stay byte-identical to the identity-only close"
+    );
+}
+
+#[test]
+fn the_voice_anchor_does_not_read_as_an_identity_leak() {
+    // Same trap the identity anchor documents: platform text that trips the
+    // response-boundary matcher would be withheld as if the model had leaked.
+    assert!(
+        !contains_identity_leak(&coach_voice_anchor("strength")),
+        "the voice anchor's own wording must not match identity_leak_match"
+    );
 }

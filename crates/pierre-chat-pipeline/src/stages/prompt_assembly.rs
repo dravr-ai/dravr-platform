@@ -145,6 +145,43 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
      If you need data you do not have, call one tool and then answer.\n\
      Do not restate the question, and do not list assumptions in place of an answer.";
 
+/// Voice anchor for a coach-bound turn, placed just ahead of the
+/// [`IDENTITY_ANCHOR`].
+///
+/// The platform contract leads the prompt unconditionally (Stage 7a) so a
+/// persona can shape the voice and never the capability — the ordering that
+/// closed the 2026-07-24 / 08-11 refusals. The cost is positional: the coach's
+/// own prompt moved from the head of the prompt to the middle of it, and the
+/// 48-run A/B documented on [`IDENTITY_ANCHOR`] measured exactly that placement
+/// as the weak one — mid-file scored 9/12 against 12/12 at the tail.
+///
+/// The identity got a tail anchor from that finding; the coach's *specialisation*
+/// never did. `Chat Eval` caught the consequence: the strength coach answered
+/// "How should I improve recovery this week?" correctly, in Dravr's voice, and
+/// in nobody's vocabulary — none of `strength`, `lift`, `deload`, `rir`, `set`,
+/// `volume`, `soreness`. That scenario's header calls itself a ~50% flake, and
+/// it was, until `c9dd838ef` moved the persona; it then failed 15 nightly runs
+/// in a row, which at p=0.5 is p ≈ 0.00003.
+///
+/// Voice only, deliberately. It restates *how* to answer, never *what* may be
+/// answered, so the contract above keeps sole authority over scope, refusals
+/// and capability — a coach that regains its vocabulary must not regain the
+/// ability to decline a question `get_activities` can answer.
+///
+/// Ahead of the identity anchor, not after it: that block's tail placement is
+/// the measured result and nothing may displace it.
+#[must_use]
+pub fn coach_voice_anchor(slug: &str) -> String {
+    format!(
+        "Answer as the {slug} coach throughout. Stay in that discipline's own \
+vocabulary and framing even when the athlete asks about something adjacent to \
+it — a recovery, sleep or nutrition question asked of a specialist is still \
+that specialist's question, and answering it in generic coaching language is \
+answering as the wrong coach. This governs how you say things, never what you \
+are allowed to say: scope, refusals and capability are settled above."
+    )
+}
+
 /// Append the [`IDENTITY_ANCHOR`] to an assembled system prompt.
 ///
 /// Applied unconditionally to both the default and coach-bound paths, so no
@@ -154,6 +191,24 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
 #[must_use]
 pub fn close_with_identity_anchor(assembled_prompt: &str) -> String {
     format!("{assembled_prompt}\n\n{IDENTITY_ANCHOR}")
+}
+
+/// Close an assembled prompt with every tail block, in the one order that is
+/// allowed: coach voice, then identity.
+///
+/// The ordering lives here rather than at the call site so a test can exercise
+/// the real composition. Building the same string inside a test proves only
+/// that `format!` concatenates — the first version of this change did exactly
+/// that, and inverting the call site left all its assertions passing.
+#[must_use]
+pub fn close_with_anchors(assembled_prompt: &str, coach_slug: Option<&str>) -> String {
+    match coach_slug {
+        Some(slug) => close_with_identity_anchor(&format!(
+            "{assembled_prompt}\n\n{}",
+            coach_voice_anchor(slug)
+        )),
+        None => close_with_identity_anchor(assembled_prompt),
+    }
 }
 
 /// Return the [`MessagingStringsRegistry`] key that holds the scope
@@ -881,7 +936,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     // ~16 KB text tool catalog to the system message AFTER this block
     // (`tool_simulation::inject_tool_catalog`), so "last" here means last
     // platform-controlled block, not last on the wire.
-    let raw_system_prompt = close_with_identity_anchor(&raw_system_prompt);
+    let raw_system_prompt =
+        close_with_anchors(&raw_system_prompt, coach_ctx.map(|c| c.slug.as_str()));
 
     // Stage 7h: Harden the prompt with a per-turn canary.
     let prompt_guard = prompt_leak::harden_system_prompt(
