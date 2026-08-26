@@ -34,7 +34,7 @@ use pierre_core::config::CompactionConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::narration::scrub_replayed_narration;
-use pierre_core::tokens::estimate_prompt_tokens;
+use pierre_core::tokens::estimate_context_tokens;
 use pierre_database::repositories::{HarnessMemoryRepository, InsertCompactionBlockParams};
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider, MessageRole};
 use pierre_memory::CompactionBlock;
@@ -292,7 +292,7 @@ impl ConversationCompactor {
         before: u32,
     ) -> AppResult<CompactionOutcome> {
         let _ = self;
-        let summary_tokens = i32::try_from(estimate_prompt_tokens(summary)).unwrap_or(i32::MAX);
+        let summary_tokens = i32::try_from(estimate_context_tokens(summary)).unwrap_or(i32::MAX);
         let original_tokens = i32::try_from(plan.original_tokens).unwrap_or(i32::MAX);
 
         let block = ctx
@@ -473,7 +473,7 @@ pub fn sliding_window_to_fit(
     let mut keep_start = total;
     for i in (system_count..total).rev() {
         let next_kept = kept + 1;
-        let next_tokens = tokens.saturating_add(estimate_prompt_tokens(&llm_messages[i].content));
+        let next_tokens = tokens.saturating_add(estimate_context_tokens(&llm_messages[i].content));
         if next_kept > min_keep && (next_kept > msg_cap || next_tokens > token_budget) {
             break;
         }
@@ -529,7 +529,7 @@ pub struct CompactionContext<'a, R: HarnessMemoryRepository + ?Sized> {
 pub fn estimate_messages_tokens(messages: &[ChatMessage]) -> u32 {
     messages
         .iter()
-        .map(|m| estimate_prompt_tokens(&m.content))
+        .map(|m| estimate_context_tokens(&m.content))
         .sum()
 }
 
@@ -575,7 +575,7 @@ fn history_range_for<'a>(
     let last_id = span.iter().flatten().next_back()?;
     let original_tokens: u32 = llm_messages[start..end]
         .iter()
-        .map(|m| estimate_prompt_tokens(&m.content))
+        .map(|m| estimate_context_tokens(&m.content))
         .sum();
     Some(HistoryRange {
         first_id: first_id.as_str(),
