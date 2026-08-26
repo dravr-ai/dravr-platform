@@ -39,8 +39,8 @@ use pierre_auth::config::oauth::default_provider;
 use pierre_config::social;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{
-    Activity, AdaptedInsight, InsightReaction, InsightType, ReactionType, ShareVisibility,
-    SharedInsight, TenantId, TrainingPhase,
+    AdaptedInsight, InsightReaction, InsightType, ReactionType, ShareVisibility, SharedInsight,
+    TenantId, TrainingPhase,
 };
 use pierre_database::repositories::SocialRepository;
 use pierre_fitness_compute::insight_validation::{validate_insight_with_policy, ValidationVerdict};
@@ -52,10 +52,7 @@ use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::MiddlewareCtx;
 use pierre_services::social_insights;
-use pierre_tool_runtime::protocol::auth::AuthService;
-use pierre_tool_runtime::protocol::provider_helpers::{
-    create_configured_provider_with_tenant, TenantCredentialContext,
-};
+use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::{SharedInsightResponse, SocialMetadata};
@@ -1118,73 +1115,6 @@ impl SocialRoutes {
         }
     }
 
-    /// Fetch activities from the user's connected provider
-    ///
-    /// Uses `AuthService` to get a valid OAuth token and creates a configured provider
-    /// with tenant-scoped credential resolution to fetch recent activities.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppError`] when:
-    /// - OAuth lookup fails or no valid token exists for the user/provider/tenant tuple
-    /// - The provider registry can't construct a configured provider client
-    /// - The provider's `get_activities` call fails (network, auth refresh, etc.)
-    pub async fn fetch_activities_from_provider(
-        resources: &Arc<dyn ToolRuntime>,
-        user_id: Uuid,
-        provider_name: &str,
-        tenant_id: Option<&str>,
-        limit: Option<usize>,
-    ) -> Result<Vec<Activity>, AppError> {
-        let auth_service = AuthService::new(resources.clone());
-
-        // Get valid OAuth token
-        let token_data = auth_service
-            .get_valid_token(user_id, provider_name, tenant_id)
-            .await
-            .map_err(|e| AppError::internal(format!("OAuth error: {e}")))?
-            .ok_or_else(|| {
-                AppError::auth_invalid(format!(
-                    "No valid token for provider '{provider_name}'. Please connect your account."
-                ))
-            })?;
-
-        // Build tenant credential context for tenant-scoped OAuth resolution
-        let tenant_ctx = tenant_id
-            .and_then(|tid| TenantId::parse_str(tid).ok())
-            .map(|tid| TenantCredentialContext {
-                tenant_oauth_client: resources.tenant_oauth_client(),
-                tenants: resources.repos().tenants.as_ref(),
-                oauth_tokens: resources.repos().oauth_tokens.as_ref(),
-                tenant_id: tid,
-                user_id,
-            });
-
-        // Create configured provider with tenant-scoped credentials
-        let provider = create_configured_provider_with_tenant(
-            provider_name,
-            resources.provider_registry(),
-            &token_data,
-            tenant_ctx,
-        )
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to configure provider: {e}")))?;
-
-        // Fetch activities. Preserve a `ProviderAuthRequired` error verbatim so it
-        // keeps its code (and provider slug in `details`) across the `?` boundary:
-        // the tool executor short-circuits on it and the chat-pipeline
-        // `auth_recovery` stage mints a hosted-login link and renders the
-        // reconnect copy. Wrapping it in `internal` here erased the code and the
-        // user got a generic "internal error" instead of a reconnect prompt.
-        provider.get_activities(limit, None).await.map_err(|e| {
-            if e.code == ErrorCode::ProviderAuthRequired {
-                e
-            } else {
-                AppError::internal(format!("Failed to fetch activities: {e}"))
-            }
-        })
-    }
-
     /// Build insight generation context from user's recent activities
     ///
     /// # Arguments
@@ -1204,7 +1134,7 @@ impl SocialRoutes {
             |client_limit| client_limit.min(config.activity_fetch_limits.max_client_limit),
         );
 
-        let activities = Self::fetch_activities_from_provider(
+        let activities = fetch_activities_from_provider(
             resources,
             user_id,
             provider_name,
@@ -1229,7 +1159,7 @@ impl SocialRoutes {
         tenant_id: Option<&str>,
     ) -> Result<UserTrainingContext, AppError> {
         let config = social::global();
-        let activities = Self::fetch_activities_from_provider(
+        let activities = fetch_activities_from_provider(
             resources,
             user_id,
             provider_name,

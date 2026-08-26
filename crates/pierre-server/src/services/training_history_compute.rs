@@ -15,8 +15,8 @@ use pierre_fitness_compute::training_history_compute::{
 use uuid::Uuid;
 
 use pierre_config::environment::default_provider;
-use pierre_routes_social::SocialRoutes;
 use pierre_runtime_context::DataContext;
+use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Default backfill window when the caller does not specify one.
@@ -67,7 +67,7 @@ pub async fn compute_and_persist_history(
         return Err(AppError::no_provider_connected());
     };
     let tenant_str = tenant_id.to_string();
-    let activities = SocialRoutes::fetch_activities_from_provider(
+    let activities = fetch_activities_from_provider(
         resources,
         user_id,
         &provider_name,

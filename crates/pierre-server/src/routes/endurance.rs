@@ -28,8 +28,8 @@ use crate::services::training_history_compute::{
 use crate::tools::runtime_adapter::into_runtime;
 use pierre_config::environment::default_provider;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_routes_social::SocialRoutes;
 use pierre_services::workout_library::cornerstone_templates;
+use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Lower bound on the analysis window — defended in addition to the
@@ -187,7 +187,7 @@ async fn fetch_activity_by_id(
         return Err(AppError::no_provider_connected());
     };
     let tenant_str = tenant_id.to_string();
-    let activities = SocialRoutes::fetch_activities_from_provider(
+    let activities = fetch_activities_from_provider(
         resources,
         user_id,
         &provider_name,
@@ -329,7 +329,7 @@ async fn fetch_window_activities(
         return Err(AppError::no_provider_connected());
     };
     let tenant_str = tenant_id.to_string();
-    SocialRoutes::fetch_activities_from_provider(
+    fetch_activities_from_provider(
         resources,
         user_id,
         &provider_name,

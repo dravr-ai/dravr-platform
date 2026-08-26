@@ -40,8 +40,8 @@
 //!   surface as methods on [`pierre_tool_runtime::runtime::ToolRuntime`],
 //!   so [`SocialRoutes`] is generic over
 //!   `C: ToolRuntime + MiddlewareCtx + SocialCtx` and lives in
-//!   [`mod@insights`] alongside the shared
-//!   `fetch_activities_from_provider` helper.
+//!   [`mod@insights`]. Provider activity fetching is not social: it
+//!   comes from `pierre_tool_runtime::protocol::provider_helpers`.
 
 #![warn(missing_docs)]
 
@@ -133,9 +133,8 @@ pub struct SocialMetadata {
 /// the LLM / provider / OAuth surface — friends, feed, and user social
 /// settings.
 ///
-/// Insights, reactions, and adapted-insight endpoints live alongside the
-/// shared `fetch_activities_from_provider` helper in [`mod@insights`];
-/// [`SocialRoutes::routes`] merges both routers so the public
+/// Insights, reactions, and adapted-insight endpoints live in
+/// [`mod@insights`]; [`SocialRoutes::routes`] merges both routers so the public
 /// `/api/social/*` surface stays whole.
 pub struct SocialRestRoutes;
 

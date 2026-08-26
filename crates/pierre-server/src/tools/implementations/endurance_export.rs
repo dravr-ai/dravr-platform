@@ -20,12 +20,12 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use pierre_routes_social::SocialRoutes;
 use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
     capabilities_to_tronc, tool_definition, tool_result_to_response,
 };
+use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
@@ -64,7 +64,7 @@ async fn fetch_window_activities(
 ) -> AppResult<Vec<Activity>> {
     let provider_name = resolve_provider_for_user(resources, user_id, tenant_id).await?;
     let tenant_str = tenant_id.to_string();
-    SocialRoutes::fetch_activities_from_provider(
+    fetch_activities_from_provider(
         resources,
         user_id,
         &provider_name,
