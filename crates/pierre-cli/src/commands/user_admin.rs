@@ -408,7 +408,8 @@ fn account_label(entry: &Value) -> String {
 /// column an operator scans.
 fn allowed_at(entry: &Value) -> String {
     let raw = field(entry, "created_at");
-    raw.get(..16).map_or(raw.clone(), |s| s.replace('T', " "))
+    raw.get(..16)
+        .map_or_else(|| raw.clone(), |s| s.replace('T', " "))
 }
 
 /// The operator who recorded the allow, or `-` when it was not attributable

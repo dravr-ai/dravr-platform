@@ -41,7 +41,6 @@ pub struct AllowEmailRequest {
 ///
 /// Owned here rather than in `WebAdminRoutes::routes` so the handlers and the
 /// paths that reach them stay in one file.
-#[must_use]
 pub fn routes() -> Router<WebAdminContext> {
     Router::new()
         .route(

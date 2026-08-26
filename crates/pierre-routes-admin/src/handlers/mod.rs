@@ -43,8 +43,9 @@ pub mod strava_pool;
 /// Admin endpoints for issuing and revoking admin / service API tokens.
 pub mod tokens;
 pub mod types;
-/// Admin endpoints for listing tenant users and managing their access,
-/// including the standing pre-approval allow-list
+/// Admin endpoints for listing tenant users and managing their access.
+///
+/// Includes the standing pre-approval allow-list
 /// (`/admin/pre-approved-emails`) that `pierre-cli user allow / disallow /
 /// list-allowed` drives with its device-login token.
 ///

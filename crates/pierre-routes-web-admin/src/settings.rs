@@ -31,7 +31,6 @@ use super::WebAdminContext;
 ///
 /// Owned here rather than in `WebAdminRoutes::routes` so a handler and the
 /// path that reaches it stay in one file.
-#[must_use]
 pub fn routes() -> Router<WebAdminContext> {
     Router::new().route(
         "/api/admin/settings/auto-approval",

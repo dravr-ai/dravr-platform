@@ -248,8 +248,7 @@ pub mod user_status_gate;
 /// User-approval notification seam (email + linked-channel messages).
 pub mod user_approval;
 
-/// Standing per-email pre-approval allow-list — the operator "allow" recorded
-/// before the person registers, shared by both admin HTTP surfaces.
+/// Standing per-email pre-approval allow-list.
 pub mod pre_approval;
 
 /// Lazy weather backfill — fills missing ambient temperature on activities
