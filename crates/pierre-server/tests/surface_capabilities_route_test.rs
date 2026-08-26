@@ -17,6 +17,7 @@
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request as HttpRequest, StatusCode};
+use pierre_core::models::notifications::NotificationScreen;
 use pierre_mcp_server::routes::surfaces::{SurfaceCapabilitiesResponse, SurfaceRoutes};
 use serde_json::Value;
 use std::error::Error;
@@ -161,7 +162,7 @@ async fn block_kinds_and_screens_are_published_whole() -> Result<(), Box<dyn Err
     let screens = body["notification_screens"]
         .as_array()
         .expect("notification_screens is an array");
-    assert_eq!(screens.len(), 8);
+    assert_eq!(screens.len(), NotificationScreen::all().len());
     let connections = screens
         .iter()
         .find(|row| row["screen"] == "connections")
@@ -185,7 +186,10 @@ async fn the_body_matches_the_response_type_field_for_field() -> Result<(), Box<
     let typed: SurfaceCapabilitiesResponse = serde_json::from_slice(&catalogue_bytes().await?)?;
     assert_eq!(typed.surfaces.len(), 7);
     assert_eq!(typed.block_kinds.len(), 9);
-    assert_eq!(typed.notification_screens.len(), 8);
+    assert_eq!(
+        typed.notification_screens.len(),
+        NotificationScreen::all().len()
+    );
 
     let web = typed
         .surfaces
