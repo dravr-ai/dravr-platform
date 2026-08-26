@@ -94,6 +94,25 @@ const DEFAULT_LOOKBACK_DAYS: i64 = 90;
 /// bound. One day, so an activity uploaded earlier today is inside the window.
 const DEFAULT_LOOKAHEAD_DAYS: i64 = 1;
 
+/// Slack subtracted from the lower bound before it goes on the wire, absorbing
+/// the local-vs-UTC reading of [`QUERY_DATETIME_FORMAT`].
+///
+/// What we hold is a UTC instant; what the format puts on the wire is a naive
+/// wall clock, and Intervals.icu reads that as *athlete-local*. For an athlete
+/// west of UTC our wall clock runs ahead of theirs, so an unpadded `oldest` is
+/// read as up to twelve hours later than the caller asked for and activities
+/// inside that gap never come back. The upper bound already carries
+/// [`DEFAULT_LOOKAHEAD_DAYS`] of slack for a different reason; this is its
+/// counterpart on the lower bound.
+///
+/// Widening is the safe direction. Callers dedupe by activity id on the way
+/// into the cache (`write_through_activity_cache`), so an extra day of overlap
+/// costs a few redundant rows, while a missing one costs an activity the
+/// athlete uploaded this morning — the incremental `after` fetches
+/// (`fetch_recent_activities_all_providers`, the fresh-head data path) pass a
+/// real lower bound and are exactly the callers that would lose it.
+const QUERY_LOCAL_OFFSET_SLACK_DAYS: i64 = 1;
+
 /// Resolve the `(oldest, newest)` bounds an activity list query runs with.
 ///
 /// One source of truth for the defaulting, because the two entry points
@@ -281,6 +300,11 @@ impl IntervalsIcuProvider {
     /// with an offset-bearing timestamp or an unbounded range — the two shapes
     /// Intervals.icu answers with 422.
     ///
+    /// `oldest` goes on the wire [`QUERY_LOCAL_OFFSET_SLACK_DAYS`] earlier than
+    /// asked: the format is read as athlete-local while the argument is a UTC
+    /// instant, and the compensation belongs here, at the boundary that owns
+    /// the format, rather than in the window the caller reasons about.
+    ///
     /// # Errors
     ///
     /// Returns [`AppError`] when credentials are missing, the upstream
@@ -296,7 +320,9 @@ impl IntervalsIcuProvider {
             ("limit".to_owned(), limit.min(MAX_PAGE_LIMIT).to_string()),
             (
                 "oldest".to_owned(),
-                oldest.format(QUERY_DATETIME_FORMAT).to_string(),
+                (oldest - Duration::days(QUERY_LOCAL_OFFSET_SLACK_DAYS))
+                    .format(QUERY_DATETIME_FORMAT)
+                    .to_string(),
             ),
             (
                 "newest".to_owned(),

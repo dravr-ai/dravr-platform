@@ -14,8 +14,8 @@
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{NaiveDate, Utc};
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials};
+use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
+use pierre_providers::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials};
 use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
 use pierre_providers::models::{
     IntensityDistribution, SportType, WorkoutTargetZones, WorkoutTemplate,
@@ -434,5 +434,65 @@ async fn activity_cursor_page_sends_a_bounded_window() {
         target.contains("oldest=") && target.contains("newest="),
         "the cursor path must send the same bounded window as the params path; \
          got: {target}"
+    );
+}
+
+/// The lower bound must reach the wire early enough to survive being read as
+/// athlete-local.
+///
+/// [`QUERY_DATETIME_FORMAT`] sends a naive wall clock and Intervals.icu reads it
+/// as the athlete's *local* time — that is the whole reason the format was
+/// changed off `to_rfc3339()`. But the argument is a UTC instant, and for an
+/// athlete west of UTC our wall clock runs ahead of theirs, so an unpadded
+/// `oldest` is read as up to twelve hours *later* than the caller asked for.
+///
+/// The callers that pass a real lower bound are the incremental ones —
+/// `fetch_recent_activities_all_providers` and the fresh-head data path — so
+/// the activity lost in that gap is the one the athlete uploaded this morning,
+/// which is the same complaint the 422 produced. Widening is safe: the cache
+/// dedupes by activity id.
+#[tokio::test]
+async fn activity_list_pads_the_lower_bound_against_a_local_reading() {
+    let (base_url, stub) = stub_once("[]").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let asked = NaiveDate::from_ymd_opt(2026, 6, 1)
+        .expect("valid date")
+        .and_hms_opt(12, 0, 0)
+        .expect("valid time")
+        .and_utc();
+
+    provider
+        .get_activities_with_params(&ActivityQueryParams::with_time_range(
+            None,
+            Some(asked.timestamp()),
+        ))
+        .await
+        .expect("get_activities_with_params succeeds");
+
+    let head = stub.await.expect("stub task joins");
+    let decoded = request_target(&head).replace("%3A", ":");
+    let oldest = decoded
+        .split(['?', '&'])
+        .find_map(|part| part.strip_prefix("oldest="))
+        .expect("oldest bound is present");
+    let sent = NaiveDateTime::parse_from_str(oldest, "%Y-%m-%dT%H:%M:%S")
+        .expect("oldest is a local date-time")
+        .and_utc();
+
+    let slack = asked - sent;
+    assert!(
+        slack >= Duration::hours(12),
+        "oldest must precede the requested bound by at least the widest western \
+         UTC offset, or a local reading of it silently drops activities: asked \
+         {asked}, sent {sent}, slack {}h",
+        slack.num_hours()
     );
 }
