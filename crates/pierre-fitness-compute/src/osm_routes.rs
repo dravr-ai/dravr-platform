@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::routes::haversine_meters_between;
 use pierre_core::constants::project::user_agent;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_client as shared_client;
@@ -12,6 +13,7 @@ use pierre_core::models::SportType;
 use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{LazyLock, RwLock};
 use std::time::{Duration, SystemTime};
 use tracing::{debug, warn};
 
@@ -21,8 +23,36 @@ const ROUTE_CACHE_DURATION_SECS: u64 = 86400;
 /// Maximum number of routes to return per query
 const MAX_ROUTES_PER_QUERY: usize = 20;
 
+/// How many raw OSM elements to pull from Overpass before ranking locally.
+///
+/// Overpass's `out <n>` limit truncates server-side in element-id order, not
+/// by relevance or proximity — so a budget the size of the caller-facing
+/// result set hands back whichever ways happen to carry the lowest ids. In a
+/// suburb that is a wall of sidewalks, and the named trail three kilometres
+/// out never enters the response at all. Fetch a wide slice and let
+/// [`rank_elements`] decide which [`MAX_ROUTES_PER_QUERY`] the athlete sees.
+const OVERPASS_ELEMENT_BUDGET: usize = 300;
+
+/// Upper bound on distinct cache keys held in [`ROUTE_CACHE`].
+///
+/// Keys are rounded to three decimal degrees (~110 m), so a busy tenant base
+/// spread across a country still lands in the low hundreds. The cap keeps a
+/// pathological caller from growing the map without bound.
+const MAX_CACHE_ENTRIES: usize = 512;
+
 /// Default search radius in meters for Overpass queries
 const DEFAULT_SEARCH_RADIUS_METERS: u32 = 10_000;
+
+/// Process-wide Overpass result cache.
+///
+/// OSM route data is public and identical for every tenant, so one cache
+/// serves them all. It lives outside [`RouteDiscoveryService`] because each
+/// `discover_routes` tool call constructs a fresh service — a cache owned by
+/// the service could never register a hit, and every coach turn would open a
+/// new round of requests against a shared free API that answers 502 under
+/// load.
+static ROUTE_CACHE: LazyLock<RwLock<HashMap<String, CachedRoutes>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Public Overpass API mirrors, tried in order until one answers successfully.
 ///
@@ -59,6 +89,10 @@ pub struct DiscoveredRoute {
     pub latitude: f64,
     /// Longitude of the route start or center
     pub longitude: f64,
+    /// Straight-line distance from the search center, in metres. The coach
+    /// quotes this to the athlete ("about 8 km from your door"), so it is
+    /// measured rather than inferred from the coordinates by the model.
+    pub distance_from_center_meters: f64,
 }
 
 /// Type of route
@@ -100,7 +134,6 @@ pub enum RouteSource {
 /// Service for discovering routes and trails near a location
 pub struct RouteDiscoveryService {
     client: &'static SharedHttpClient,
-    cache: HashMap<String, CachedRoutes>,
     overpass_mirrors: Vec<String>,
 }
 
@@ -116,202 +149,83 @@ impl RouteDiscoveryService {
     pub fn with_defaults() -> Self {
         Self {
             client: shared_client(),
-            cache: HashMap::new(),
             overpass_mirrors: OVERPASS_MIRRORS.iter().map(|s| (*s).to_owned()).collect(),
         }
     }
 
-    /// Discover cycling routes near a location using Overpass API
+    /// Discover named routes near a location for a given sport.
+    ///
+    /// Returns an empty list for sports with no land or snow route surface
+    /// (swim, gym work): there is nothing in OSM to ground them in, and an
+    /// empty list is the honest answer rather than an unrelated fallback.
     ///
     /// # Errors
     ///
-    /// Returns an error if the Overpass API request fails or returns an error status.
-    pub async fn discover_cycling_routes(
-        &mut self,
-        latitude: f64,
-        longitude: f64,
-        radius_meters: Option<u32>,
-    ) -> AppResult<Vec<DiscoveredRoute>> {
-        let radius = radius_meters.unwrap_or(DEFAULT_SEARCH_RADIUS_METERS);
-        let cache_key = format!("cycling_{latitude:.3}_{longitude:.3}_{radius}");
-
-        if let Some(cached) = self.get_cached(&cache_key) {
-            return Ok(cached);
-        }
-
-        let query = format!(
-            r#"[out:json][timeout:25];
-(
-  way["highway"="cycleway"](around:{radius},{latitude},{longitude});
-  way["bicycle"="designated"](around:{radius},{latitude},{longitude});
-  relation["route"="bicycle"](around:{radius},{latitude},{longitude});
-);
-out tags center {MAX_ROUTES_PER_QUERY};"#,
-        );
-
-        let routes = self.query_overpass(&query, RouteType::Cycling).await?;
-        self.set_cached(cache_key, routes.clone());
-        Ok(routes)
-    }
-
-    /// Discover running/jogging paths near a location using Overpass API
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the Overpass API request fails or returns an error status.
-    pub async fn discover_running_routes(
-        &mut self,
-        latitude: f64,
-        longitude: f64,
-        radius_meters: Option<u32>,
-    ) -> AppResult<Vec<DiscoveredRoute>> {
-        let radius = radius_meters.unwrap_or(DEFAULT_SEARCH_RADIUS_METERS);
-        let cache_key = format!("running_{latitude:.3}_{longitude:.3}_{radius}");
-
-        if let Some(cached) = self.get_cached(&cache_key) {
-            return Ok(cached);
-        }
-
-        let query = format!(
-            r#"[out:json][timeout:25];
-(
-  way["highway"="path"]["foot"="designated"](around:{radius},{latitude},{longitude});
-  way["highway"="footway"](around:{radius},{latitude},{longitude});
-  relation["route"="foot"](around:{radius},{latitude},{longitude});
-  relation["route"="running"](around:{radius},{latitude},{longitude});
-);
-out tags center {MAX_ROUTES_PER_QUERY};"#,
-        );
-
-        let routes = self.query_overpass(&query, RouteType::Running).await?;
-        self.set_cached(cache_key, routes.clone());
-        Ok(routes)
-    }
-
-    /// Discover hiking trails near a location using Overpass API
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the Overpass API request fails or returns an error status.
-    pub async fn discover_hiking_trails(
-        &mut self,
-        latitude: f64,
-        longitude: f64,
-        radius_meters: Option<u32>,
-    ) -> AppResult<Vec<DiscoveredRoute>> {
-        let radius = radius_meters.unwrap_or(DEFAULT_SEARCH_RADIUS_METERS);
-        let cache_key = format!("hiking_{latitude:.3}_{longitude:.3}_{radius}");
-
-        if let Some(cached) = self.get_cached(&cache_key) {
-            return Ok(cached);
-        }
-
-        let query = format!(
-            r#"[out:json][timeout:25];
-(
-  relation["route"="hiking"](around:{radius},{latitude},{longitude});
-  way["highway"="path"]["sac_scale"](around:{radius},{latitude},{longitude});
-);
-out tags center {MAX_ROUTES_PER_QUERY};"#,
-        );
-
-        let routes = self.query_overpass(&query, RouteType::Hiking).await?;
-        self.set_cached(cache_key, routes.clone());
-        Ok(routes)
-    }
-
-    /// Discover ski trails near a location using OSM piste data
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the Overpass API request fails or returns an error status.
-    pub async fn discover_ski_trails(
-        &mut self,
-        latitude: f64,
-        longitude: f64,
-        radius_meters: Option<u32>,
-    ) -> AppResult<Vec<DiscoveredRoute>> {
-        let radius = radius_meters.unwrap_or(DEFAULT_SEARCH_RADIUS_METERS);
-        let cache_key = format!("ski_{latitude:.3}_{longitude:.3}_{radius}");
-
-        if let Some(cached) = self.get_cached(&cache_key) {
-            return Ok(cached);
-        }
-
-        // Query OSM piste data directly (same data source as OpenSkiMap)
-        let query = format!(
-            r#"[out:json][timeout:25];
-(
-  way["piste:type"="downhill"](around:{radius},{latitude},{longitude});
-  way["piste:type"="nordic"](around:{radius},{latitude},{longitude});
-  way["piste:type"="skitour"](around:{radius},{latitude},{longitude});
-  relation["route"="ski"](around:{radius},{latitude},{longitude});
-  relation["route"="piste"](around:{radius},{latitude},{longitude});
-);
-out tags center {MAX_ROUTES_PER_QUERY};"#,
-        );
-
-        let routes = self.query_overpass_ski(&query).await?;
-        self.set_cached(cache_key, routes.clone());
-        Ok(routes)
-    }
-
-    /// Discover routes for any sport type
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the underlying Overpass API request fails.
+    /// Returns an error when every Overpass mirror fails to answer.
     pub async fn discover_routes_for_sport(
-        &mut self,
+        &self,
         sport: &SportType,
         latitude: f64,
         longitude: f64,
         radius_meters: Option<u32>,
     ) -> AppResult<Vec<DiscoveredRoute>> {
-        match sport {
-            SportType::Ride
-            | SportType::EbikeRide
-            | SportType::GravelRide
-            | SportType::MountainBike => {
-                self.discover_cycling_routes(latitude, longitude, radius_meters)
-                    .await
-            }
-            SportType::Run | SportType::TrailRunning => {
-                self.discover_running_routes(latitude, longitude, radius_meters)
-                    .await
-            }
-            SportType::Hike | SportType::Walk => {
-                self.discover_hiking_trails(latitude, longitude, radius_meters)
-                    .await
-            }
-            SportType::CrossCountrySkiing
-            | SportType::AlpineSkiing
-            | SportType::BackcountrySkiing
-            | SportType::Snowshoe => {
-                self.discover_ski_trails(latitude, longitude, radius_meters)
-                    .await
-            }
-            _ => Ok(vec![]),
+        let radius = radius_meters.unwrap_or(DEFAULT_SEARCH_RADIUS_METERS);
+        let Some(query) = build_overpass_query(sport, latitude, longitude, radius) else {
+            return Ok(Vec::new());
+        };
+
+        let cache_key = format!(
+            "{}_{latitude:.3}_{longitude:.3}_{radius}",
+            query_family(sport)
+        );
+        if let Some(cached) = get_cached(&cache_key) {
+            return Ok(cached);
         }
+
+        let routes = self
+            .fetch_ranked(&query, sport, latitude, longitude)
+            .await?;
+        set_cached(cache_key, routes.clone());
+        Ok(routes)
     }
 
     // ========================================================================
     // Overpass API integration
     // ========================================================================
 
-    /// Try each configured Overpass mirror in order until one answers with
-    /// a successful response, then parse the JSON and return the elements.
+    /// Try each configured Overpass mirror in order until one answers with a
+    /// payload that parses, then rank it into the caller-facing route list.
     ///
-    /// If every mirror fails (transient 5xx, network errors, parse errors),
-    /// returns the accumulated failure reasons so callers can surface a
-    /// single clear error instead of a cryptic "unknown server issue".
-    async fn fetch_elements(&self, query: &str) -> AppResult<Vec<OverpassElement>> {
+    /// A mirror that answers 200 with an HTML error page counts as a failure
+    /// and falls through to the next one — free Overpass instances do exactly
+    /// that under load. If every mirror fails, the accumulated reasons come
+    /// back as one error so the coach can say "retry" instead of fabricating.
+    async fn fetch_ranked(
+        &self,
+        query: &str,
+        sport: &SportType,
+        center_lat: f64,
+        center_lon: f64,
+    ) -> AppResult<Vec<DiscoveredRoute>> {
         let mut failures: Vec<String> = Vec::with_capacity(self.overpass_mirrors.len());
 
         for mirror in &self.overpass_mirrors {
-            match self.try_mirror(mirror, query).await {
-                Ok(elements) => return Ok(elements),
-                Err(reason) => failures.push(reason),
+            let body = match self.try_mirror(mirror, query).await {
+                Ok(body) => body,
+                Err(reason) => {
+                    failures.push(reason);
+                    continue;
+                }
+            };
+            match routes_from_overpass_json(&body, sport, center_lat, center_lon) {
+                Ok(routes) => {
+                    debug!(mirror, count = routes.len(), "Overpass mirror answered");
+                    return Ok(routes);
+                }
+                Err(e) => {
+                    warn!(mirror, error = %e, "Failed to parse Overpass response");
+                    failures.push(format!("{mirror}: parse error: {e}"));
+                }
             }
         }
 
@@ -321,12 +235,12 @@ out tags center {MAX_ROUTES_PER_QUERY};"#,
         )))
     }
 
-    /// Query a single Overpass mirror and return its parsed elements.
+    /// Query a single Overpass mirror and return its raw response body.
     ///
-    /// Returns `Ok(elements)` on success, or `Err(reason)` describing why
-    /// this mirror failed so the caller can accumulate a diagnostic across
+    /// Returns `Ok(body)` on a successful status, or `Err(reason)` describing
+    /// why this mirror failed so the caller can accumulate a diagnostic across
     /// the full mirror list before surfacing a single error to the LLM.
-    async fn try_mirror(&self, mirror: &str, query: &str) -> Result<Vec<OverpassElement>, String> {
+    async fn try_mirror(&self, mirror: &str, query: &str) -> Result<String, String> {
         debug!(mirror, "Querying Overpass mirror");
 
         let response = self
@@ -351,127 +265,352 @@ out tags center {MAX_ROUTES_PER_QUERY};"#,
             return Err(format!("{mirror}: HTTP {status}: {truncated}"));
         }
 
-        let data = response.json::<OverpassResponse>().await.map_err(|e| {
-            warn!(mirror, error = %e, "Failed to parse Overpass response");
-            format!("{mirror}: parse error: {e}")
-        })?;
-
-        debug!(
-            mirror,
-            element_count = data.elements.len(),
-            "Overpass mirror answered successfully"
-        );
-        Ok(data.elements)
-    }
-
-    async fn query_overpass(
-        &self,
-        query: &str,
-        route_type: RouteType,
-    ) -> AppResult<Vec<DiscoveredRoute>> {
-        let elements = self.fetch_elements(query).await?;
-
-        let routes = elements
-            .into_iter()
-            .filter_map(|el| {
-                let tags = el.tags?;
-                let name = tags
-                    .get("name")
-                    .or_else(|| tags.get("ref"))
-                    .cloned()
-                    .unwrap_or_else(|| format!("Unnamed {}", route_type_label(&route_type)));
-
-                let (lat, lon) = el
-                    .center
-                    .map(|c| (c.lat, c.lon))
-                    .or_else(|| Some((el.lat?, el.lon?)))?;
-
-                Some(DiscoveredRoute {
-                    name,
-                    route_type: route_type.clone(),
-                    distance_meters: tags.get("distance").and_then(|d| d.parse::<f64>().ok()),
-                    difficulty: tags.get("sac_scale").cloned(),
-                    source: RouteSource::Overpass,
-                    latitude: lat,
-                    longitude: lon,
-                })
-            })
-            .take(MAX_ROUTES_PER_QUERY)
-            .collect();
-
-        Ok(routes)
-    }
-
-    async fn query_overpass_ski(&self, query: &str) -> AppResult<Vec<DiscoveredRoute>> {
-        let elements = self.fetch_elements(query).await?;
-
-        let routes = elements
-            .into_iter()
-            .filter_map(|el| {
-                let tags = el.tags?;
-                let name = tags
-                    .get("name")
-                    .or_else(|| tags.get("ref"))
-                    .cloned()
-                    .unwrap_or_else(|| "Unnamed ski trail".to_owned());
-
-                let piste_type = tags.get("piste:type").cloned().unwrap_or_default();
-                let route_type = if piste_type == "downhill" {
-                    RouteType::DownhillSki
-                } else {
-                    RouteType::CrossCountrySki
-                };
-
-                let (lat, lon) = el
-                    .center
-                    .map(|c| (c.lat, c.lon))
-                    .or_else(|| Some((el.lat?, el.lon?)))?;
-
-                Some(DiscoveredRoute {
-                    name,
-                    route_type,
-                    distance_meters: tags.get("distance").and_then(|d| d.parse::<f64>().ok()),
-                    difficulty: tags.get("piste:difficulty").cloned(),
-                    source: RouteSource::OpenSkiMap,
-                    latitude: lat,
-                    longitude: lon,
-                })
-            })
-            .take(MAX_ROUTES_PER_QUERY)
-            .collect();
-
-        Ok(routes)
-    }
-
-    // ========================================================================
-    // Cache management
-    // ========================================================================
-
-    fn get_cached(&self, key: &str) -> Option<Vec<DiscoveredRoute>> {
-        self.cache.get(key).and_then(|entry| {
-            let elapsed = entry
-                .cached_at
-                .elapsed()
-                .unwrap_or(Duration::from_secs(ROUTE_CACHE_DURATION_SECS + 1));
-            if elapsed < Duration::from_secs(ROUTE_CACHE_DURATION_SECS) {
-                debug!(key, "Route cache hit");
-                // Clone is required — cached data is shared across multiple callers
-                Some(entry.routes.clone())
-            } else {
-                None
-            }
+        response.text().await.map_err(|e| {
+            warn!(mirror, error = %e, "Reading Overpass response body failed");
+            format!("{mirror}: body read error: {e}")
         })
     }
+}
 
-    fn set_cached(&mut self, key: String, routes: Vec<DiscoveredRoute>) {
-        self.cache.insert(
-            key,
-            CachedRoutes {
-                routes,
-                cached_at: SystemTime::now(),
-            },
-        );
+// ============================================================================
+// Overpass query construction
+// ============================================================================
+
+/// Build the Overpass query for a sport, or `None` when the sport has no
+/// land or snow route surface to search.
+///
+/// Public so an operator can paste the exact query the coach ran into
+/// overpass-turbo and see the same elements come back.
+#[must_use]
+pub fn build_overpass_query(
+    sport: &SportType,
+    latitude: f64,
+    longitude: f64,
+    radius: u32,
+) -> Option<String> {
+    match sport {
+        SportType::Ride
+        | SportType::EbikeRide
+        | SportType::GravelRide
+        | SportType::MountainBike => Some(build_cycling_query(latitude, longitude, radius)),
+        SportType::Run | SportType::TrailRunning => {
+            Some(build_running_query(latitude, longitude, radius))
+        }
+        SportType::Hike | SportType::Walk => Some(build_hiking_query(latitude, longitude, radius)),
+        SportType::CrossCountrySkiing
+        | SportType::AlpineSkiing
+        | SportType::BackcountrySkiing
+        | SportType::Snowshoe => Some(build_ski_query(latitude, longitude, radius)),
+        _ => None,
     }
+}
+
+/// Cache family for a sport — every sport sharing a query shares its cached
+/// results, so a trail run and a hike around the same point cost one lookup.
+fn query_family(sport: &SportType) -> &'static str {
+    match sport {
+        SportType::Ride
+        | SportType::EbikeRide
+        | SportType::GravelRide
+        | SportType::MountainBike => "cycling",
+        SportType::Hike | SportType::Walk => "hiking",
+        SportType::CrossCountrySkiing
+        | SportType::AlpineSkiing
+        | SportType::BackcountrySkiing
+        | SportType::Snowshoe => "ski",
+        _ => "running",
+    }
+}
+
+/// Render the `(around:...)` filter shared by every clause of a query.
+fn around(latitude: f64, longitude: f64, radius: u32) -> String {
+    format!("(around:{radius},{latitude},{longitude})")
+}
+
+/// Build the running/trail-running Overpass query.
+///
+/// Every clause carries `["name"]`. That is not cosmetic: the tool's contract
+/// is to hand the coach routes it can name to the athlete, and Overpass
+/// truncates in element-id order, so admitting unnamed ways lets a city's
+/// sidewalk mesh consume the whole response budget before a single named
+/// trail is reached. `footway=sidewalk` and `footway=crossing` are excluded
+/// for the same reason — they carry the abutting street's name and are not
+/// routes. `path`/`track`/`bridleway` cover the trails that Québec mapping
+/// puts outside `foot=designated`, and named `cycleway` picks up the linear
+/// riverside parks that are runnable but tagged for bikes.
+fn build_running_query(latitude: f64, longitude: f64, radius: u32) -> String {
+    let a = around(latitude, longitude, radius);
+    format!(
+        r#"[out:json][timeout:25];
+(
+  relation["route"~"^(foot|hiking|running)$"]["name"]{a};
+  way["highway"~"^(path|track|bridleway)$"]["name"]{a};
+  way["highway"~"^(footway|cycleway)$"]["name"]["footway"!~"^(sidewalk|crossing)$"]{a};
+);
+out tags center {OVERPASS_ELEMENT_BUDGET};"#
+    )
+}
+
+/// Build the cycling Overpass query (road, gravel, and mountain bike).
+///
+/// `highway=track` is what gravel rides are made of, and `mtb:scale` is where
+/// singletrack lives — neither is reachable through `cycleway`/`bicycle=designated`
+/// alone, which is why a gravel-heavy region used to come back as a list of
+/// downtown streets.
+fn build_cycling_query(latitude: f64, longitude: f64, radius: u32) -> String {
+    let a = around(latitude, longitude, radius);
+    format!(
+        r#"[out:json][timeout:25];
+(
+  relation["route"~"^(bicycle|mtb)$"]["name"]{a};
+  way["highway"~"^(cycleway|track)$"]["name"]{a};
+  way["mtb:scale"]["name"]{a};
+  way["highway"="path"]["bicycle"~"^(designated|yes)$"]["name"]{a};
+  way["bicycle"="designated"]["name"]{a};
+);
+out tags center {OVERPASS_ELEMENT_BUDGET};"#
+    )
+}
+
+/// Build the hiking/walking Overpass query.
+///
+/// `sac_scale` is an alpine difficulty tag that almost nothing in eastern
+/// North America sets, so requiring it returned nothing across whole regions.
+/// Named paths, tracks and non-sidewalk footways carry the trails instead.
+fn build_hiking_query(latitude: f64, longitude: f64, radius: u32) -> String {
+    let a = around(latitude, longitude, radius);
+    format!(
+        r#"[out:json][timeout:25];
+(
+  relation["route"~"^(hiking|foot)$"]["name"]{a};
+  way["highway"~"^(path|track|bridleway)$"]["name"]{a};
+  way["highway"="footway"]["name"]["footway"!~"^(sidewalk|crossing)$"]{a};
+);
+out tags center {OVERPASS_ELEMENT_BUDGET};"#
+    )
+}
+
+/// Build the ski/snowshoe Overpass query against OSM piste data — the same
+/// source `OpenSkiMap` renders.
+fn build_ski_query(latitude: f64, longitude: f64, radius: u32) -> String {
+    let a = around(latitude, longitude, radius);
+    format!(
+        r#"[out:json][timeout:25];
+(
+  relation["route"~"^(ski|piste)$"]["name"]{a};
+  way["piste:type"~"^(downhill|nordic|skitour)$"]["name"]{a};
+);
+out tags center {OVERPASS_ELEMENT_BUDGET};"#
+    )
+}
+
+// ============================================================================
+// Ranking
+// ============================================================================
+
+/// Rank class for an OSM element, lowest first.
+///
+/// A signed itinerary relation five kilometres out is a better answer than a
+/// named park connector across the street, so class outranks proximity;
+/// within a class the nearest wins.
+fn rank_class(element_type: &str, tags: &HashMap<String, String>) -> u8 {
+    if element_type == "relation" && tags.contains_key("route") {
+        return 0;
+    }
+    let is_trail = tags.contains_key("piste:type")
+        || tags.contains_key("mtb:scale")
+        || tags.contains_key("sac_scale")
+        || matches!(
+            tags.get("highway").map(String::as_str),
+            Some("path" | "track" | "bridleway")
+        );
+    if is_trail {
+        1
+    } else {
+        2
+    }
+}
+
+/// Label an element with the route type the athlete should picture.
+///
+/// Ski elements carry their own answer in `piste:type`. Land elements take
+/// the type implied by the sport, narrowed to [`RouteType::MultiUse`] when the
+/// way is explicitly shared between feet and wheels — a runner should know a
+/// "trail" is also a bike path before showing up on it.
+fn classify(sport: &SportType, tags: &HashMap<String, String>) -> RouteType {
+    match sport {
+        SportType::CrossCountrySkiing
+        | SportType::AlpineSkiing
+        | SportType::BackcountrySkiing
+        | SportType::Snowshoe => {
+            if tags.get("piste:type").map(String::as_str) == Some("downhill") {
+                RouteType::DownhillSki
+            } else {
+                RouteType::CrossCountrySki
+            }
+        }
+        _ => {
+            let shared = tags.get("foot").map(String::as_str) == Some("designated")
+                && tags.get("bicycle").map(String::as_str) == Some("designated");
+            if shared {
+                return RouteType::MultiUse;
+            }
+            match sport {
+                SportType::Ride
+                | SportType::EbikeRide
+                | SportType::GravelRide
+                | SportType::MountainBike => RouteType::Cycling,
+                SportType::Hike | SportType::Walk => RouteType::Hiking,
+                _ => RouteType::Running,
+            }
+        }
+    }
+}
+
+/// Where a sport's results come from — ski queries read OSM piste data, the
+/// same layer `OpenSkiMap` renders; everything else is a plain Overpass query.
+fn source_for(sport: &SportType) -> RouteSource {
+    match sport {
+        SportType::CrossCountrySkiing
+        | SportType::AlpineSkiing
+        | SportType::BackcountrySkiing
+        | SportType::Snowshoe => RouteSource::OpenSkiMap,
+        _ => RouteSource::Overpass,
+    }
+}
+
+/// Parse an Overpass JSON payload into the ranked, caller-facing route list.
+///
+/// Named elements only, deduplicated by name, ordered by rank class then
+/// distance from the search center, capped at 20. This is the whole of the
+/// selection logic — [`RouteDiscoveryService`] adds only the HTTP round trip
+/// around it, so a captured payload exercises exactly what production runs.
+///
+/// # Errors
+///
+/// Returns an error when the body is not a parseable Overpass JSON response —
+/// a free mirror answering 200 with an HTML error page lands here.
+pub fn routes_from_overpass_json(
+    body: &str,
+    sport: &SportType,
+    center_lat: f64,
+    center_lon: f64,
+) -> AppResult<Vec<DiscoveredRoute>> {
+    let parsed: OverpassResponse = serde_json::from_str(body)
+        .map_err(|e| AppError::internal(format!("Overpass response is not valid JSON: {e}")))?;
+    Ok(rank_elements(
+        parsed.elements,
+        sport,
+        center_lat,
+        center_lon,
+    ))
+}
+
+fn rank_elements(
+    elements: Vec<OverpassElement>,
+    sport: &SportType,
+    center_lat: f64,
+    center_lon: f64,
+) -> Vec<DiscoveredRoute> {
+    let source = source_for(sport);
+    let mut scored: Vec<(u8, f64, DiscoveredRoute)> = elements
+        .into_iter()
+        .filter_map(|el| {
+            let tags = el.tags?;
+            // `ref` carries the trail number when a route has no name — a
+            // usable label. An element with neither is not something the
+            // coach can point an athlete at, so it is dropped rather than
+            // padded out with an "Unnamed ..." placeholder.
+            let name = tags.get("name").or_else(|| tags.get("ref"))?.clone();
+            let (lat, lon) = el
+                .center
+                .map(|c| (c.lat, c.lon))
+                .or_else(|| Some((el.lat?, el.lon?)))?;
+            let distance = haversine_meters_between(center_lat, center_lon, lat, lon);
+            let class = rank_class(&el.element_type, &tags);
+
+            Some((
+                class,
+                distance,
+                DiscoveredRoute {
+                    name,
+                    route_type: classify(sport, &tags),
+                    distance_meters: tags.get("distance").and_then(|d| d.parse::<f64>().ok()),
+                    difficulty: tags
+                        .get("piste:difficulty")
+                        .or_else(|| tags.get("sac_scale"))
+                        .or_else(|| tags.get("mtb:scale"))
+                        .cloned(),
+                    source: source.clone(),
+                    latitude: lat,
+                    longitude: lon,
+                    distance_from_center_meters: distance,
+                },
+            ))
+        })
+        .collect();
+
+    scored.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+
+    // OSM splits a long trail into many ways that all share one name, so
+    // deduplicate after sorting — the surviving copy is the nearest segment.
+    let mut seen: Vec<String> = Vec::with_capacity(MAX_ROUTES_PER_QUERY);
+    let mut routes = Vec::with_capacity(MAX_ROUTES_PER_QUERY);
+    for (_, _, route) in scored {
+        let key = route.name.to_lowercase();
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.push(key);
+        routes.push(route);
+        if routes.len() == MAX_ROUTES_PER_QUERY {
+            break;
+        }
+    }
+    routes
+}
+
+// ============================================================================
+// Cache management
+// ============================================================================
+
+fn get_cached(key: &str) -> Option<Vec<DiscoveredRoute>> {
+    let cache = ROUTE_CACHE.read().ok()?;
+    let entry = cache.get(key)?;
+    let elapsed = entry
+        .cached_at
+        .elapsed()
+        .unwrap_or(Duration::from_secs(ROUTE_CACHE_DURATION_SECS + 1));
+    if elapsed < Duration::from_secs(ROUTE_CACHE_DURATION_SECS) {
+        debug!(key, "Route cache hit");
+        // Clone is required — cached data is shared across multiple callers
+        Some(entry.routes.clone())
+    } else {
+        None
+    }
+}
+
+fn set_cached(key: String, routes: Vec<DiscoveredRoute>) {
+    let Ok(mut cache) = ROUTE_CACHE.write() else {
+        return;
+    };
+    if cache.len() >= MAX_CACHE_ENTRIES {
+        let ttl = Duration::from_secs(ROUTE_CACHE_DURATION_SECS);
+        cache.retain(|_, entry| entry.cached_at.elapsed().is_ok_and(|elapsed| elapsed < ttl));
+        // Every entry is still live — drop the whole map rather than grow
+        // past the cap. Route lookups are cheap to rebuild; unbounded
+        // residency in a long-lived server process is not.
+        if cache.len() >= MAX_CACHE_ENTRIES {
+            cache.clear();
+        }
+    }
+    cache.insert(
+        key,
+        CachedRoutes {
+            routes,
+            cached_at: SystemTime::now(),
+        },
+    );
 }
 
 // ============================================================================
@@ -485,6 +624,10 @@ struct OverpassResponse {
 
 #[derive(Debug, Deserialize)]
 struct OverpassElement {
+    /// `"way"` or `"relation"` — drives the rank class, since a route
+    /// relation is a curated itinerary and a way is a single segment.
+    #[serde(rename = "type", default)]
+    element_type: String,
     #[serde(default)]
     lat: Option<f64>,
     #[serde(default)]
@@ -499,17 +642,4 @@ struct OverpassElement {
 struct OverpassCenter {
     lat: f64,
     lon: f64,
-}
-
-#[must_use]
-fn route_type_label(rt: &RouteType) -> &'static str {
-    match rt {
-        RouteType::Cycling => "cycling route",
-        RouteType::Running => "running path",
-        RouteType::Hiking => "hiking trail",
-        RouteType::CrossCountrySki => "XC ski trail",
-        RouteType::DownhillSki => "ski run",
-        RouteType::Snowshoe => "snowshoe trail",
-        RouteType::MultiUse => "trail",
-    }
 }

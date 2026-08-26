@@ -38,8 +38,8 @@ pub use intervals::{build_intervals, IntervalRow, IntervalsExport};
 /// Endurance Phase 3 GPX terrain analysis (`GET /api/v1/endurance/routes/{activity_id}`).
 pub mod routes;
 pub use routes::{
-    build_route_summary, build_route_summary_from_streams, Climb, ClimbCategory, RouteSummary,
-    TerrainSummary,
+    build_route_summary, build_route_summary_from_streams, haversine_meters_between, Climb,
+    ClimbCategory, RouteSummary, TerrainSummary,
 };
 
 /// Endurance Phase 3 LT1 / LT2 threshold estimators.
@@ -71,4 +71,7 @@ pub mod weather;
 // `clippy::too_long_first_doc_paragraph`.
 pub mod weather_cache_adapter;
 
-pub use osm_routes::{DiscoveredRoute, RouteDiscoveryService, RouteSource, RouteType};
+pub use osm_routes::{
+    build_overpass_query, routes_from_overpass_json, DiscoveredRoute, RouteDiscoveryService,
+    RouteSource, RouteType,
+};

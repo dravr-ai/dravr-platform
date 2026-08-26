@@ -315,16 +315,26 @@ fn parse_inner_tag(body: &str, tag: &str) -> Option<f64> {
     parsed.is_finite().then_some(parsed)
 }
 
-fn haversine_meters(a: TrackPoint, b: TrackPoint) -> f64 {
-    let lat1 = a.lat.to_radians();
-    let lat2 = b.lat.to_radians();
-    let dlat = (b.lat - a.lat).to_radians();
-    let dlon = (b.lon - a.lon).to_radians();
+/// Great-circle distance between two WGS84 coordinates, in metres.
+///
+/// The single haversine in the crate — GPX terrain analysis and OSM route
+/// discovery both measure distance through it so a "5.5 km away" in one
+/// surface means the same thing in the other.
+#[must_use]
+pub fn haversine_meters_between(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let phi1 = lat1.to_radians();
+    let phi2 = lat2.to_radians();
+    let dlat = (lat2 - lat1).to_radians();
+    let dlon = (lon2 - lon1).to_radians();
     let half_lat = (dlat / 2.0).sin();
     let half_lon = (dlon / 2.0).sin();
-    let h = (lat1.cos() * lat2.cos()).mul_add(half_lon.powi(2), half_lat.powi(2));
+    let h = (phi1.cos() * phi2.cos()).mul_add(half_lon.powi(2), half_lat.powi(2));
     let c = 2.0 * h.sqrt().asin();
     EARTH_RADIUS_METERS * c
+}
+
+fn haversine_meters(a: TrackPoint, b: TrackPoint) -> f64 {
+    haversine_meters_between(a.lat, a.lon, b.lat, b.lon)
 }
 
 fn compute_gradients(points: &[TrackPoint]) -> Vec<GradientSample> {

@@ -1,0 +1,484 @@
+{
+ "version": 0.6,
+ "generator": "Overpass API 0.7.62.11 87bfad18",
+ "elements": [
+  {
+   "type": "way",
+   "id": 101748071,
+   "center": {
+    "lat": 46.5788742,
+    "lon": -72.6444254
+   },
+   "tags": {
+    "highway": "footway",
+    "source": "NRCan-CanVec-7.0"
+   }
+  },
+  {
+   "type": "way",
+   "id": 101750151,
+   "center": {
+    "lat": 46.6150295,
+    "lon": -72.6442512
+   },
+   "tags": {
+    "highway": "footway",
+    "source": "NRCan-CanVec-7.0"
+   }
+  },
+  {
+   "type": "way",
+   "id": 244646065,
+   "center": {
+    "lat": 46.502154,
+    "lon": -72.7277642
+   },
+   "tags": {
+    "highway": "footway",
+    "source": "Geobase_Import_2009",
+    "surface": "unpaved"
+   }
+  },
+  {
+   "type": "way",
+   "id": 375635474,
+   "center": {
+    "lat": 46.5151872,
+    "lon": -72.7539673
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 375635476,
+   "center": {
+    "lat": 46.514348,
+    "lon": -72.753935
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 375635477,
+   "center": {
+    "lat": 46.522726,
+    "lon": -72.7573229
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 375635480,
+   "center": {
+    "lat": 46.529609,
+    "lon": -72.7561511
+   },
+   "tags": {
+    "footway": "sidewalk",
+    "highway": "footway",
+    "surface": "concrete"
+   }
+  },
+  {
+   "type": "way",
+   "id": 377081474,
+   "center": {
+    "lat": 46.5138502,
+    "lon": -72.7451906
+   },
+   "tags": {
+    "highway": "footway",
+    "surface": "asphalt"
+   }
+  },
+  {
+   "type": "way",
+   "id": 409326403,
+   "center": {
+    "lat": 46.6174716,
+    "lon": -72.6960688
+   },
+   "tags": {
+    "bicycle": "yes",
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 409326411,
+   "center": {
+    "lat": 46.5696082,
+    "lon": -72.7130835
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 409326412,
+   "center": {
+    "lat": 46.5707821,
+    "lon": -72.710552
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 421687723,
+   "center": {
+    "lat": 46.529362,
+    "lon": -72.7564486
+   },
+   "tags": {
+    "highway": "footway",
+    "note": "Ceci est le trajet indiqué par un panneau touristique pour rejoindre le point d'observation à partir du stationnement de l'Avenue d'Almaville.",
+    "surface": "grass"
+   }
+  },
+  {
+   "type": "way",
+   "id": 487421244,
+   "center": {
+    "lat": 46.5049868,
+    "lon": -72.7273004
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 487432084,
+   "center": {
+    "lat": 46.5421015,
+    "lon": -72.7514647
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 487450634,
+   "center": {
+    "lat": 46.5390278,
+    "lon": -72.7427486
+   },
+   "tags": {
+    "highway": "footway",
+    "surface": "fine_gravel"
+   }
+  },
+  {
+   "type": "way",
+   "id": 487450635,
+   "center": {
+    "lat": 46.5376445,
+    "lon": -72.7431414
+   },
+   "tags": {
+    "highway": "footway",
+    "surface": "fine_gravel"
+   }
+  },
+  {
+   "type": "way",
+   "id": 487450636,
+   "center": {
+    "lat": 46.5388786,
+    "lon": -72.742841
+   },
+   "tags": {
+    "highway": "footway",
+    "surface": "gravel"
+   }
+  },
+  {
+   "type": "way",
+   "id": 487456104,
+   "center": {
+    "lat": 46.537128,
+    "lon": -72.7567291
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 487456105,
+   "center": {
+    "lat": 46.5363781,
+    "lon": -72.7576473
+   },
+   "tags": {
+    "highway": "footway",
+    "layer": "-1",
+    "surface": "paved"
+   }
+  },
+  {
+   "type": "way",
+   "id": 487688959,
+   "center": {
+    "lat": 46.6001823,
+    "lon": -72.8143582
+   },
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 409326419,
+   "center": {
+    "lat": 46.551471,
+    "lon": -72.7583355
+   },
+   "tags": {
+    "highway": "path",
+    "name": "Sentier Thibaudeau-Ricard"
+   }
+  },
+  {
+   "type": "way",
+   "id": 616822838,
+   "center": {
+    "lat": 46.594307,
+    "lon": -72.5973713
+   },
+   "tags": {
+    "highway": "footway",
+    "name": "Sentier de la Tourbière de Saint-Narcisse",
+    "surface": "ground"
+   }
+  },
+  {
+   "type": "way",
+   "id": 616822839,
+   "center": {
+    "lat": 46.5953059,
+    "lon": -72.5950052
+   },
+   "tags": {
+    "bridge": "boardwalk",
+    "highway": "footway",
+    "layer": "1",
+    "name": "Sentier de la Tourbière de Saint-Narcisse",
+    "surface": "wood"
+   }
+  },
+  {
+   "type": "way",
+   "id": 616822840,
+   "center": {
+    "lat": 46.5958568,
+    "lon": -72.5940886
+   },
+   "tags": {
+    "highway": "footway",
+    "name": "Sentier de la Tourbière de Saint-Narcisse"
+   }
+  },
+  {
+   "type": "way",
+   "id": 616822841,
+   "center": {
+    "lat": 46.5963811,
+    "lon": -72.5934865
+   },
+   "tags": {
+    "bridge": "boardwalk",
+    "highway": "footway",
+    "layer": "1",
+    "name": "Sentier de la Tourbière de Saint-Narcisse",
+    "surface": "wood"
+   }
+  },
+  {
+   "type": "way",
+   "id": 616822842,
+   "center": {
+    "lat": 46.5971905,
+    "lon": -72.5966318
+   },
+   "tags": {
+    "highway": "footway",
+    "name": "Sentier de la tourbière de Saint-Narcisse",
+    "surface": "ground"
+   }
+  },
+  {
+   "type": "way",
+   "id": 616822845,
+   "center": {
+    "lat": 46.5977172,
+    "lon": -72.6012363
+   },
+   "tags": {
+    "highway": "footway",
+    "name": "Sentier de la Tourbière de Saint-Narcisse",
+    "surface": "ground"
+   }
+  },
+  {
+   "type": "way",
+   "id": 616822850,
+   "center": {
+    "lat": 46.5956257,
+    "lon": -72.6011026
+   },
+   "tags": {
+    "highway": "footway",
+    "name": "Sentier de la Tourbière de Saint-Narcisse",
+    "surface": "ground"
+   }
+  },
+  {
+   "type": "way",
+   "id": 772700919,
+   "center": {
+    "lat": 46.5913577,
+    "lon": -72.8360268
+   },
+   "tags": {
+    "highway": "path",
+    "mtb:scale:imba": "2",
+    "name": "T-Bar 2",
+    "oneway": "yes",
+    "ref": "5"
+   }
+  },
+  {
+   "type": "way",
+   "id": 772700920,
+   "center": {
+    "lat": 46.5917337,
+    "lon": -72.8361345
+   },
+   "tags": {
+    "highway": "path",
+    "mtb:scale:imba": "2",
+    "name": "Petit Castor",
+    "oneway": "yes",
+    "ref": "11"
+   }
+  },
+  {
+   "type": "way",
+   "id": 772700921,
+   "center": {
+    "lat": 46.5908711,
+    "lon": -72.8354679
+   },
+   "tags": {
+    "highway": "path",
+    "mtb:scale:imba": "4",
+    "name": "Castor All-Dressed",
+    "oneway": "yes",
+    "ref": "20"
+   }
+  },
+  {
+   "type": "way",
+   "id": 1174725798,
+   "center": {
+    "lat": 46.5308165,
+    "lon": -72.7573933
+   },
+   "tags": {
+    "bridge": "yes",
+    "highway": "footway",
+    "layer": "1",
+    "name": "Pont Marc-Trudel"
+   }
+  },
+  {
+   "type": "way",
+   "id": 1175606119,
+   "center": {
+    "lat": 46.5933384,
+    "lon": -72.8333205
+   },
+   "tags": {
+    "highway": "path",
+    "mtb:scale:imba": "2",
+    "name": "T-Bar 2",
+    "oneway": "yes",
+    "ref": "5"
+   }
+  },
+  {
+   "type": "way",
+   "id": 1175606120,
+   "center": {
+    "lat": 46.5917095,
+    "lon": -72.8356724
+   },
+   "tags": {
+    "highway": "path",
+    "mtb:scale:imba": "2",
+    "name": "T-Bar 2",
+    "oneway": "yes",
+    "ref": "5",
+    "surface": "dirt"
+   }
+  },
+  {
+   "type": "way",
+   "id": 1175606121,
+   "center": {
+    "lat": 46.593345,
+    "lon": -72.8331329
+   },
+   "tags": {
+    "highway": "path",
+    "mtb:scale:imba": "2",
+    "name": "T-Bar 2",
+    "oneway": "yes",
+    "ref": "5",
+    "surface": "dirt"
+   }
+  },
+  {
+   "type": "way",
+   "id": 1529163479,
+   "center": {
+    "lat": 46.6018347,
+    "lon": -72.7090109
+   },
+   "tags": {
+    "cycleway": "link",
+    "highway": "path",
+    "name": "26e Rue",
+    "surface": "asphalt"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 8530152,
+   "center": {
+    "lat": 46.5959522,
+    "lon": -72.5976297
+   },
+   "tags": {
+    "distance": "2.8",
+    "name": "Sentier de la Tourbière de Saint-Narcisse",
+    "name:fr": "Sentier de la Tourbière de Saint-Narcisse",
+    "network": "lwn",
+    "operator": "Municipalité de Saint-Narcisse",
+    "route": "hiking",
+    "type": "route"
+   }
+  }
+ ]
+}

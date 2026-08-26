@@ -152,8 +152,12 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
              coordinates. Use this whenever the user asks you to propose, suggest, or find \
              a route, trail, or outdoor session in a specific area. Never invent street \
              names, trail names, or terrain you have not verified via this tool. Returns up \
-             to 20 named routes with coordinates so you can share exact locations with the \
-             user. For ski queries this falls back to OSM piste:type data (same source as \
+             to 20 named routes, nearest first, each with coordinates and a measured \
+             `distance_from_center_meters` — quote that distance rather than estimating one \
+             from the coordinates. Signed itineraries and trails are listed ahead of paved \
+             connectors. An empty list means OSM has no named route in that radius: widen \
+             `radius_meters` or say so plainly, never substitute a name you did not read \
+             here. For ski queries this reads OSM piste:type data (same source as \
              OpenSkiMap).",
             schema,
             Some(discover_annotations()),
@@ -202,7 +206,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 "discover_routes: querying Overpass for real OSM routes"
             );
 
-            let mut service = RouteDiscoveryService::with_defaults();
+            let service = RouteDiscoveryService::with_defaults();
             let routes = service
                 .discover_routes_for_sport(
                     &sport,
@@ -333,6 +337,7 @@ fn discovered_route_to_json(route: &DiscoveredRoute) -> Value {
         "source": format!("{:?}", route.source).to_lowercase(),
         "latitude": route.latitude,
         "longitude": route.longitude,
+        "distance_from_center_meters": route.distance_from_center_meters.round(),
     })
 }
 
