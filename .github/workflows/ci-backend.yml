@@ -61,6 +61,7 @@ jobs:
   #   security-audit       — cargo deny + dravr-* duplicate check (~3 min)
   #   doc-tests            — cargo test --doc + telemetry-feature tests (~5 min)
   #   contremaitre-sync    — the 4 platform<->contremaitre coupling tests (~5 min)
+  #   feature-profiles     — cargo check of the 5 non-default server profiles (~5 min)
   #   backend-tests        — SQLite shards, cron / workflow_dispatch only
   # PHASE 1: release-binary (depends on clippy)
   # ============================================================================
@@ -439,6 +440,60 @@ jobs:
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
           USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
+
+  feature-profiles:
+    name: Feature Profile Check (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: fast-gate
+    # Every job above this one builds pierre_mcp_server with the default feature
+    # set or with --all-features, so a gate that only the non-default profiles
+    # cross went unbuilt: on 2026-08-26 all five below failed `cargo check` with
+    # 7-25 errors each (carnet#116), and had for long enough that nobody could
+    # date it. A feature gate naming the wrong feature, or a leaf crate turning
+    # a trait method on unconditionally, is invisible until something builds the
+    # profile that separates them — this is that something.
+    #
+    # `cargo check`, not clippy: the contract is that the profile compiles, and
+    # full-workspace clippy already runs under --all-features. RUSTFLAGS denies
+    # warnings for the workspace only — Cargo compiles registry and git
+    # dependencies with --cap-lints allow, so third-party code cannot fail this.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: no-default-features
+            features: ''
+          - name: server-mcp-stdio
+            features: 'sqlite,server-mcp-stdio'
+          - name: server-mcp-bridge
+            features: 'sqlite,server-mcp-bridge'
+          - name: server-mobile-backend
+            features: 'sqlite,server-mobile-backend'
+          - name: server-saas-full
+            features: 'sqlite,server-saas-full'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
+        with:
+          free-disk-space: 'true'
+
+      - name: Check ${{ matrix.name }}
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            cargo check --keep-going -p pierre_mcp_server \
+              --no-default-features --features "${{ matrix.features }}"
+          else
+            cargo check --keep-going -p pierre_mcp_server --no-default-features
+          fi
+        env:
+          RUSTFLAGS: "-D warnings"
 
   backend-tests:
     name: Backend Tests (SQLite ${{ matrix.shard }}/4)

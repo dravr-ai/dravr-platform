@@ -14,9 +14,10 @@ use pierre_database::database::MessageRecord;
 use pierre_llm::ChatMessage;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
+use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_execution::{
-    self as chat_tool_loop, build_mcp_tools, is_withheld_during_guided_flow, ToolLoopParams,
+    self as chat_tool_loop, build_mcp_tools, ToolLoopParams,
 };
 use tracing::{info, warn};
 

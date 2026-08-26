@@ -5,6 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::{HashMap, HashSet};
+// Both name the sync notifier handed to `RefreshService`, which only exists
+// under `health-sync`.
+#[cfg(feature = "health-sync")]
 use std::sync::Arc;
 
 use axum::{
@@ -27,7 +30,9 @@ use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, OAuthService,
 };
 use pierre_services::oauth_redirects;
-use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
+use pierre_services::provider_refresh::RefreshService;
+#[cfg(feature = "health-sync")]
+use pierre_services::provider_refresh::SyncNotifier;
 
 use pierre_auth::dto::auth::{OAuthStatus, ProviderStatus, ProvidersStatusResponse};
 use pierre_auth::strava_pool;

@@ -9,6 +9,7 @@ use crate::config::admin::AdminConfigService;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
+#[cfg(feature = "transport-sse")]
 use pierre_config::environment::SseBufferStrategy;
 use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allowlist;
 use pierre_core::billing::BillingProvider;

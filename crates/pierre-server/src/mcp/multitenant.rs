@@ -54,9 +54,9 @@ use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
-use crate::routes::endurance;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
-use crate::routes::user_profile::routes as user_profile_routes;
+#[cfg(feature = "client-settings")]
+use crate::routes::{endurance, user_profile::routes as user_profile_routes};
 use crate::routes::{onboarding::OnboardingRoutes, viz::VizRoutes};
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;

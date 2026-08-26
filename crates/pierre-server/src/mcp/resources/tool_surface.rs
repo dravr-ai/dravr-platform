@@ -41,9 +41,9 @@ use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::McpBridgeProvider;
 use pierre_core::models::TenantId;
 use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
+use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::tool_execution::GUIDED_FLOW_WITHHELD_TOOLS;
 use serde_json::Value;
 use tracing::{info, warn};
 

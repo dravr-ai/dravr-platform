@@ -676,6 +676,7 @@ pub(crate) async fn assemble_prompt_and_messages(
             activity_cache: ctx.repos.activity_cache.clone(),
             #[cfg(feature = "health-sync")]
             sync_orchestrator: &ctx.sync_orchestrator,
+            #[cfg(feature = "health-sync")]
             sse_manager: &ctx.sse_manager,
         },
         &input.user_id,

@@ -24,9 +24,7 @@
 //! and is gated by the same Cargo feature flag that gated the original
 //! inherent method.
 
-use std::sync::Arc;
-
-use tracing::{debug, info};
+use tracing::info;
 
 use pierre_tool_runtime::registry::ToolRegistry;
 
@@ -146,6 +144,8 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-memory")]
 fn register_memory_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::memory::create_memory_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering memory tools (registry has {} tools)",
@@ -170,6 +170,7 @@ fn register_memory_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-memory")]
 fn register_training_plan_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::training_plans::create_training_plan_tools;
+    use std::sync::Arc;
 
     for tool in create_training_plan_tools() {
         registry.register_with_category(Arc::from(tool), "memory");
@@ -191,6 +192,7 @@ fn register_playbook_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::playbooks::{
         ForgetPlaybookTool, ListCoachingPlaybooksTool,
     };
+    use std::sync::Arc;
     registry.register_with_category(Arc::new(ListCoachingPlaybooksTool), "memory");
     registry.register_with_category(Arc::new(ForgetPlaybookTool), "playbook");
 }
@@ -202,6 +204,7 @@ fn register_playbook_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-memory")]
 fn register_commitment_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::commitments::create_commitment_tools;
+    use std::sync::Arc;
 
     for tool in create_commitment_tools() {
         registry.register_with_category(Arc::from(tool), "memory");
@@ -217,6 +220,8 @@ fn register_commitment_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-verification")]
 fn register_verification_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::verification::create_verification_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering verification tools (registry has {} tools)",
@@ -237,6 +242,8 @@ fn register_verification_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-connection")]
 fn register_connection_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::connection::create_connection_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering connection tools (registry has {} tools)",
@@ -258,6 +265,8 @@ fn register_connection_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-data")]
 fn register_data_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::data::create_data_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering data tools (registry has {} tools)",
@@ -279,6 +288,8 @@ fn register_data_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-analytics")]
 fn register_analytics_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::analytics::create_analytics_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering analytics tools (registry has {} tools)",
@@ -300,6 +311,8 @@ fn register_analytics_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-goals")]
 fn register_goals_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::goals::create_goal_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering goals tools (registry has {} tools)",
@@ -321,6 +334,8 @@ fn register_goals_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-groups")]
 fn register_group_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::groups::create_group_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering group tools (registry has {} tools)",
@@ -342,6 +357,8 @@ fn register_group_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-config")]
 fn register_config_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::configuration::create_configuration_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering configuration tools (registry has {} tools)",
@@ -367,6 +384,7 @@ fn register_config_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-config")]
 fn register_physiology_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::physiology::create_physiology_tools;
+    use std::sync::Arc;
 
     for tool in create_physiology_tools() {
         registry.register_with_category(Arc::from(tool), "physiology");
@@ -382,6 +400,8 @@ fn register_physiology_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-config")]
 fn register_fitness_config_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::fitness_config::create_fitness_config_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering fitness config tools (registry has {} tools)",
@@ -402,6 +422,8 @@ fn register_fitness_config_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-nutrition")]
 fn register_nutrition_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::nutrition::create_nutrition_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering nutrition tools (registry has {} tools)",
@@ -423,6 +445,8 @@ fn register_nutrition_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-sleep")]
 fn register_sleep_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::sleep::create_sleep_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering sleep tools (registry has {} tools)",
@@ -444,6 +468,8 @@ fn register_sleep_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-recipes")]
 fn register_recipe_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::recipes::create_recipe_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering recipe tools (registry has {} tools)",
@@ -465,6 +491,8 @@ fn register_recipe_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-coaches")]
 fn register_coach_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::coaches::create_coach_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering coach tools (registry has {} tools)",
@@ -493,6 +521,8 @@ fn register_coach_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-coaches")]
 fn register_store_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::store::create_store_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering Coach Store tools (registry has {} tools)",
@@ -513,6 +543,8 @@ fn register_store_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-admin")]
 fn register_admin_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::admin::create_admin_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering admin tools (registry has {} tools)",
@@ -534,6 +566,8 @@ fn register_admin_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-mobility")]
 fn register_mobility_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::mobility::create_mobility_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering mobility tools (registry has {} tools)",
@@ -555,6 +589,8 @@ fn register_mobility_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-connection")]
 fn register_sync_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::sync::create_sync_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering sync tools (registry has {} tools)",
@@ -576,6 +612,8 @@ fn register_sync_tools(registry: &mut ToolRegistry) {
 fn register_route_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::routes::create_route_tools;
     use pierre_tool_runtime::implementations::weather_forecast::create_weather_forecast_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering route tools (registry has {} tools)",
@@ -604,6 +642,8 @@ fn register_route_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-data")]
 fn register_endurance_export_tools(registry: &mut ToolRegistry) {
     use super::implementations::endurance_export::create_endurance_export_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering Endurance export tools (registry has {} tools)",
@@ -625,6 +665,8 @@ fn register_endurance_export_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-data")]
 fn register_endurance_workout_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::endurance_workouts::create_endurance_workout_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering Endurance workout tools (registry has {} tools)",
@@ -650,6 +692,8 @@ fn register_endurance_workout_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-data")]
 fn register_endurance_intervals_tools(registry: &mut ToolRegistry) {
     use super::implementations::endurance_intervals::create_endurance_intervals_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering Endurance intervals tools (registry has {} tools)",
@@ -675,6 +719,8 @@ fn register_endurance_intervals_tools(registry: &mut ToolRegistry) {
 #[cfg(feature = "tools-data")]
 fn register_endurance_history_tools(registry: &mut ToolRegistry) {
     use super::implementations::endurance_history::create_endurance_history_tools;
+    use std::sync::Arc;
+    use tracing::debug;
 
     debug!(
         "Registering Endurance history tools (registry has {} tools)",

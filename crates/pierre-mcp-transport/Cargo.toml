@@ -15,7 +15,7 @@ pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
-pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", features = ["client-notifications"] }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 
 chrono = { version = "0.4", features = ["serde"] }
 http = "1.1"

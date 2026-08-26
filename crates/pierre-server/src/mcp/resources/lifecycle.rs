@@ -7,6 +7,7 @@
 use super::contremaitre::init_contremaitre_registries;
 use super::ServerContext;
 use super::ServerContextOptions;
+#[cfg(feature = "protocol-a2a")]
 use crate::a2a::client::A2AClientManager;
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::system_user::A2ASystemUserService;
@@ -14,7 +15,6 @@ use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_notifier::{ChatReentry, ServerBackfillNotifier};
-#[cfg(feature = "protocol-a2a")]
 use crate::services::photograveur_client::PhotograveurClient;
 use chrono::Utc;
 use pierre_auth::admin::jwks::JwksManager;
@@ -47,6 +47,7 @@ use pierre_commands::{
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
+#[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::ContremaitreConfig;
@@ -377,6 +378,7 @@ impl ServerContext {
         // Capture the public base URL before `config` moves into CommonSlice —
         // the backfill notifier needs it (with the admin JWT secret) to mint the
         // hosted-login link for a provider-reauth nudge.
+        #[cfg(feature = "client-messaging")]
         let base_url = config.base_url.clone();
         let common = super::slices::CommonSlice {
             repos,

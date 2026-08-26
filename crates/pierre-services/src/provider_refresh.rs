@@ -1027,7 +1027,7 @@ async fn send_sync_notification(
 ///
 /// Sends via the notification service (dravr-commere) when available.
 /// Silently skips if no service is configured or dispatch fails (best-effort).
-#[cfg(feature = "client-notifications")]
+#[cfg(all(feature = "client-notifications", feature = "health-sync"))]
 async fn dispatch_sync_push_notification(
     service: Option<&pierre_notifications::NotificationService>,
     user_id: Uuid,

@@ -18,7 +18,6 @@
 #[cfg(feature = "client-chat")]
 use std::env;
 
-#[cfg(feature = "client-chat")]
 use super::slices::{
     A2ASlice, AuthSlice, BillingSlice, CoachSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };
@@ -31,13 +30,16 @@ use crate::services::user_approval_notifier::ApprovalNotifier;
 // nothing was broken, but the gate named the wrong thing.
 #[cfg(feature = "client-chat")]
 use dravr_contremaitre::schemas::{DRAVR_VIZ_SCHEMA, STRUCTURED_WORKOUT_SCHEMA};
+#[cfg(feature = "client-chat")]
 use dravr_contremaitre::system::{
     STRUCTURED_OUTPUT as STRUCTURED_OUTPUT_DIRECTIVE, VISUAL_BLOCKS as VISUAL_BLOCKS_DIRECTIVE,
 };
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::structured_output::{self, SchemaTexts};
+#[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::McpBridgeProvider;
 
+#[cfg(feature = "client-chat")]
 use super::tool_surface::HostedToolBridge;
 use pierre_core::errors::AppResult;
 use pierre_database::backends::StoreListingsRepository;
@@ -46,6 +48,7 @@ use pierre_database::database::repositories::{
 };
 use pierre_mcp_schema::{OAuthCompletedNotification, ProgressNotification};
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
+#[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
 use pierre_tool_runtime::protocol::types::CancellationToken;
 use std::sync::Arc;

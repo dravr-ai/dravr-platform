@@ -11,7 +11,9 @@ use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{RefreshConfig, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use pierre_services::provider_refresh::{RefreshService, SyncMetrics, SyncNotifier};
+#[cfg(feature = "health-sync")]
+use pierre_services::provider_refresh::SyncNotifier;
+use pierre_services::provider_refresh::{RefreshService, SyncMetrics};
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value};
 use tracing::info;

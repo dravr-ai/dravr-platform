@@ -23,7 +23,10 @@ use pierre_database::repositories::ActivityCacheRepository;
 use pierre_database::AuthRepos;
 
 use pierre_core::models::TenantId;
-use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
+use pierre_services::provider_refresh::RefreshService;
+#[cfg(feature = "health-sync")]
+use pierre_services::provider_refresh::SyncNotifier;
+#[cfg(feature = "health-sync")]
 use pierre_sse::SseManager;
 
 /// Inputs to [`inject_refresh_context`].
@@ -45,7 +48,10 @@ pub struct RefreshDeps<'a> {
     /// Optional sync orchestrator used to schedule background refreshes.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: &'a Option<Arc<pierre_enforme::SyncOrchestrator>>,
-    /// SSE manager used to push refresh-status events to the client.
+    /// SSE manager used to push refresh-status events to the client. Present
+    /// only under `health-sync`, the feature that owns the background sync the
+    /// events describe.
+    #[cfg(feature = "health-sync")]
     pub sse_manager: &'a Arc<SseManager>,
 }
 
@@ -69,6 +75,7 @@ pub async fn inject_refresh_context(
         activity_cache,
         #[cfg(feature = "health-sync")]
         sync_orchestrator,
+        #[cfg(feature = "health-sync")]
         sse_manager,
     } = deps;
     let config = RefreshConfig::default();
