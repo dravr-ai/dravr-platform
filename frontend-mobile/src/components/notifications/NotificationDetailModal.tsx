@@ -19,6 +19,7 @@ import {
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationItem, NotificationAction } from '@pierre/shared-types';
 import { mobileNotificationTarget } from '@pierre/shared-constants';
+import { useTranslation } from '@pierre/i18n';
 
 interface NotificationDetailModalProps {
   visible: boolean;
@@ -35,6 +36,7 @@ export function NotificationDetailModal({
   onAction,
   onNavigate,
 }: NotificationDetailModalProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const modalShadow: ViewStyle = {
     shadowColor: colors.text.primary,
@@ -78,7 +80,7 @@ export function NotificationDetailModal({
                 style={{ backgroundColor: meta.color }}
               />
               <Text className="text-xs font-semibold" style={{ color: meta.color }}>
-                {meta.label.toUpperCase()}
+                {t(meta.labelKey).toUpperCase()}
               </Text>
             </View>
             <TouchableOpacity

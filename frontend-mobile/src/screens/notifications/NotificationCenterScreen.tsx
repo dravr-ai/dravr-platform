@@ -41,6 +41,7 @@ import {
   formatCollapsedCount,
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 /** Map Lucide-native icon components by category for rendering */
 const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
@@ -66,6 +67,7 @@ function NotificationRow({
   onDelete: (id: string) => void;
 }) {
   const colors = useThemeColors();
+  const { t } = useTranslation();
   const isUnread = !item.read_at;
   const meta = NOTIFICATION_CATEGORY_META[item.category];
   const collapsedLabel = formatCollapsedCount(item.collapsed_count);
@@ -104,7 +106,7 @@ function NotificationRow({
             className="text-xs font-medium mr-2"
             style={{ color: meta.color }}
           >
-            {meta.label.toUpperCase()}
+            {t(meta.labelKey).toUpperCase()}
           </Text>
           <Text className="text-xs text-outline">
             {formatNotificationTime(item.created_at)}
@@ -161,6 +163,7 @@ function NotificationRow({
 }
 
 export function NotificationCenterScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const colors = useThemeColors();
@@ -214,7 +217,7 @@ export function NotificationCenterScreen() {
     { key: 'all' as const, label: 'All' },
     ...NOTIFICATION_CATEGORIES.map((cat) => ({
       key: cat,
-      label: NOTIFICATION_CATEGORY_META[cat].label,
+      label: t(NOTIFICATION_CATEGORY_META[cat].labelKey),
     })),
   ];
 

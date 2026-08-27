@@ -39,6 +39,7 @@ jest.mock('../src/hooks/useFeatureFlags', () => ({
 }));
 
 import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
+import { i18n } from '@pierre/i18n';
 
 const baseUser: Partial<User> = {
   id: 'user-1',
@@ -50,7 +51,14 @@ const baseUser: Partial<User> = {
 };
 
 describe('SettingsScreen language section', () => {
-  beforeEach(() => {
+  // This asserts French is the preselected locale, which is the product
+  // default; the suite pins English, so it selects French explicitly.
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('fr');
     jest.clearAllMocks();
     mockUseAuth.mockReturnValue({
       user: baseUser as User,
@@ -71,7 +79,7 @@ describe('SettingsScreen language section', () => {
     }
     expect(screen.getByTestId('language-option-fr').props.accessibilityState.selected).toBe(true);
     expect(
-      screen.getByText("L'interface et les réponses de ton coach suivent toutes deux ce réglage."),
+      screen.getByText('L’interface et les réponses de ton coach suivent toutes deux ce réglage.'),
     ).toBeTruthy();
   });
 });

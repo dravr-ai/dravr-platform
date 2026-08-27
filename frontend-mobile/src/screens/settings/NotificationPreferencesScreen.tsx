@@ -23,6 +23,7 @@ import {
 } from '../../../../packages/shared-constants/src/notifications';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { useNotificationPreferences } from '../../hooks/useNotifications';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * What each category actually sends, in the athlete's words.
@@ -71,6 +72,7 @@ function capLabel(choice: number | null): string {
  * left out.
  */
 export function NotificationPreferencesScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const colors = useThemeColors();
   const { preferences, isLoading, isError, updatePreference, isUpdating } =
@@ -187,7 +189,7 @@ export function NotificationPreferencesScreen() {
                     />
                     <View style={{ flex: 1, marginRight: 12 }}>
                       <Text style={{ fontSize: 16, color: colors.text.primary }}>
-                        {meta?.label ?? pref.category}
+                        {meta ? t(meta.labelKey) : pref.category}
                       </Text>
                       <Text style={{ fontSize: 13, color: colors.text.tertiary, marginTop: 2 }}>
                         {CATEGORY_BLURB[pref.category] ?? 'Notifications in this category.'}

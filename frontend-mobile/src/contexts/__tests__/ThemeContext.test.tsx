@@ -7,6 +7,7 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import Toast from 'react-native-toast-message';
 import { ThemeProvider, useTheme } from '../ThemeContext';
 import { userApi } from '../../services/api';
+import { i18n } from '@pierre/i18n';
 
 jest.mock('nativewind', () => ({
   useColorScheme: () => ({ colorScheme: 'dark', setColorScheme: jest.fn() }),
@@ -76,6 +77,16 @@ describe('ThemeContext server sync', () => {
     expect(userApi.updateTheme).toHaveBeenCalledWith(null);
   });
 
+  // Asserts the French toast copy, so it selects French rather than relying on
+  // the suite-wide English pin.
+  beforeEach(async () => {
+    await i18n.changeLanguage('fr');
+  });
+
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
   it('keeps the local preference and toasts when the server write fails', async () => {
     jest.mocked(userApi.updateTheme).mockRejectedValueOnce(new Error('offline'));
     const screen = renderHarness();
@@ -91,7 +102,7 @@ describe('ThemeContext server sync', () => {
       expect(Toast.show).toHaveBeenCalledWith({
         type: 'error',
         text1: 'Thème',
-        text2: "Le thème a changé ici, mais la préférence n'a pas pu être enregistrée sur ton compte. Réessaie.",
+        text2: "Le thème a changé ici, mais la préférence n’a pas pu être enregistrée sur ton compte. Réessaie.",
       });
     });
   });
