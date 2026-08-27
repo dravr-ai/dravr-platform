@@ -564,6 +564,11 @@ jobs:
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
         with:
+          # The production entry lints rather than checks, so this job needs the
+          # clippy component the way the full-workspace job does. Without it the
+          # matrix fails with "'cargo-clippy' is not installed for the toolchain"
+          # — which is what it did on 18c54d9ec.
+          components: clippy
           free-disk-space: 'true'
 
       - name: Check ${{ matrix.name }}
