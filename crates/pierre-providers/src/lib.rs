@@ -46,6 +46,9 @@ pub mod fitbit_provider;
 /// Garmin Connect provider implementation
 #[cfg(feature = "provider-garmin")]
 pub mod garmin_provider;
+/// Intervals.icu calendar rendering: a `PlannedSession` into the event body and the workout text DSL.
+#[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_calendar;
 /// Intervals.icu pull-only provider (Endurance Phase 4)
 #[cfg(feature = "provider-intervals-icu")]
 pub mod intervals_icu_provider;

@@ -28,7 +28,8 @@ use pierre_database::repositories::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
-    parse_plan_date, GoalRace, PlanBlock, PlannedDay, RacePriority, MAX_DAYS_PER_WEEK,
+    parse_plan_date, GoalRace, PlanBlock, PlanWeek, PlannedDay, RacePriority, WeekStatus,
+    MAX_DAYS_PER_WEEK,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope};
 use pierre_services::ramp_check::assess_ramp;
@@ -38,8 +39,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::warn;
 
+use super::training_plan_push::{calendar_block, calendar_preview_after_save};
 use super::training_plan_telemetry::{
-    emit_coverage_check, emit_plan_saved, emit_ramp_verdict, ramp_baseline,
+    athlete_today, emit_coverage_check, emit_plan_saved, emit_ramp_verdict, ramp_baseline,
 };
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -594,7 +596,7 @@ fn goal_object(race: &GoalRace) -> String {
 /// instead would save a plan under a slug the injection never reads (a plan
 /// "saved but not showing"). Only MCP-direct / A2A calls with no conversation
 /// fall back to the argument.
-async fn load_conversation(
+pub(super) async fn load_conversation(
     repos: &RepositoryRegistry,
     conversation_id: Option<&str>,
     tenant: TenantId,
@@ -612,7 +614,7 @@ async fn load_conversation(
 /// injection agree on the slug; a conversation with no coach yields `None`
 /// rather than falling back. The LLM-supplied argument is used only when there
 /// is no conversation at all (a direct MCP call).
-fn resolve_coach_slug(
+pub(super) fn resolve_coach_slug(
     conv: Option<&ConversationRecord>,
     arg_coach: Option<String>,
 ) -> Option<String> {
@@ -775,7 +777,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         };
         tool_definition(
             "get_training_plan",
-            "Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth.",
+            "Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it.",
             schema,
             Some(read_annotations()),
         )
@@ -807,14 +809,20 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 load_conversation(repos, context.conversation_id.as_deref(), tenant, &user_id)
                     .await?;
             let coach = resolve_coach_slug(conv.as_ref(), arg_coach);
+            let today = athlete_today(repos, &user_id).await;
             let Some(plan) = repos
                 .training_plans
                 .get_active_plan(&tenant_id, &user_id, coach.as_deref())
                 .await?
             else {
+                // No plan, but the calendar may still hold single prescriptions
+                // — and plan entries of a plan since abandoned, which the
+                // block's `pending.remove` counts.
+                let calendar = calendar_block(repos, tenant, context.user_id, &[], today).await?;
                 return Ok(ToolResult::ok(json!({
                     "plan": Value::Null,
                     "message": "no active training plan — build one with the athlete and persist it via save_training_plan",
+                    "calendar": calendar,
                 })));
             };
             let weeks = repos
@@ -827,11 +835,19 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 Some(fid) => plan_goal_is_stale(repos, tenant, &user_id, fid).await?,
                 None => false,
             };
+            let active_weeks: Vec<PlanWeek> = weeks
+                .iter()
+                .filter(|week| week.status == WeekStatus::Active)
+                .cloned()
+                .collect();
+            let calendar =
+                calendar_block(repos, tenant, context.user_id, &active_weeks, today).await?;
 
             Ok(ToolResult::ok(json!({
                 "plan": plan,
                 "weeks": weeks,
                 "goal_stale": goal_stale,
+                "calendar": calendar,
             })))
         }
         .await;
@@ -872,7 +888,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         };
         tool_definition(
             "save_training_plan",
-            "Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable.",
+            "Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan.",
             schema,
             Some(write_annotations()),
         )
@@ -1066,6 +1082,14 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             )
             .await;
 
+            // The save is committed; if the calendar already carries this
+            // plan, say what a push would now change so the athlete learns
+            // the calendar is behind — without pushing on anyone's behalf.
+            let today = athlete_today(repos, &user_id).await;
+            let calendar =
+                calendar_preview_after_save(repos, tenant, context.user_id, &bundle.plan.id, today)
+                    .await;
+
             let race_summary = format!(
                 "{} on {}",
                 bundle.plan.goal_race.name, bundle.plan.goal_race.date
@@ -1089,6 +1113,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 "goal_fact_id": goal_fact_id,
                 "weeks_saved": week_ids.len(),
                 "weeks": week_ids,
+                "calendar": calendar,
             })))
         }
         .await;

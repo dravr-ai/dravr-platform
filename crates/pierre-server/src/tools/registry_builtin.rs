@@ -124,6 +124,8 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     register_memory_tools(registry);
     #[cfg(feature = "tools-memory")]
     register_training_plan_tools(registry);
+    #[cfg(feature = "tools-memory")]
+    register_training_plan_push_tools(registry);
 
     // Coaching playbook GDPR/transparency tools (list / forget)
     #[cfg(feature = "tools-memory")]
@@ -178,6 +180,26 @@ fn register_training_plan_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered training-plan tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register the plan-push tool (`push_training_plan`).
+///
+/// Chat-callable (category `memory`, next to the plan it pushes): the coach
+/// puts the stored plan on the athlete's provider calendar when asked, and
+/// brings the calendar back in line after the plan changed.
+#[cfg(feature = "tools-memory")]
+fn register_training_plan_push_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::training_plan_push::create_training_plan_push_tools;
+    use std::sync::Arc;
+
+    for tool in create_training_plan_push_tools() {
+        registry.register_with_category(Arc::from(tool), "memory");
+    }
+
+    info!(
+        "Registered plan-push tools (registry now has {} tools)",
         registry.len()
     );
 }

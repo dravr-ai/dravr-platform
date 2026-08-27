@@ -257,3 +257,6 @@ pub mod weather_backfill;
 
 /// Endurance Phase 5 workout library — loads compiled-in cornerstone TOML templates.
 pub mod workout_library;
+
+/// Push an athlete's active training plan to a provider calendar and reconcile the ledger.
+pub mod plan_calendar_push;

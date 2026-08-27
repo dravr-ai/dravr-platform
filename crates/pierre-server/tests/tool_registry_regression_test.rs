@@ -94,6 +94,8 @@ fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
         // Endurance workout templates / prescription
         "list_workout_templates",
         "prescribe_workout",
+        "withdraw_prescribed_workout",
+        "push_training_plan",
         // Endurance per-activity exports
         "export_intervals",
         "export_routes",

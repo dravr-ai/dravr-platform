@@ -125,8 +125,8 @@ use crate::errors::provider::ProviderError;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
 use crate::models::{
-    Activity, Athlete, HealthMetrics, PersonalRecord, RecoveryMetrics, SleepSession, Stats,
-    WorkoutTemplate,
+    Activity, Athlete, CalendarEventRef, HealthMetrics, PersonalRecord, PlannedSession,
+    RecoveryMetrics, SleepSession, Stats,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
@@ -515,21 +515,61 @@ pub trait FitnessProvider: Send + Sync {
         })
     }
 
-    /// Push a planned workout to the provider's training calendar.
-    ///
-    /// Returns the provider-side event id on success. Defaults to an
-    /// unsupported-capability error — only providers with a writable
-    /// calendar (e.g. Intervals.icu) override this. The generic read-side
-    /// providers (Strava/Garmin/Fitbit/Whoop) have no planned-workout
-    /// write surface and inherit the default.
-    async fn push_planned_workout(
+    // ── Training-calendar writes ─────────────────────────────────────────
+    //
+    // The four methods below are the whole write surface a provider with a
+    // training calendar offers. They default to an unsupported-capability
+    // error: the read-side providers (Strava/Garmin/Fitbit/Whoop) have no
+    // planned-workout write API and inherit the defaults; Intervals.icu
+    // overrides all four, and a future calendar provider (TrainingPeaks)
+    // implements the same four. The reconciler in
+    // `pierre_services::plan_calendar_push` is written against these alone.
+
+    /// Read the calendar events in `[from, to]` (inclusive) as
+    /// [`CalendarEventRef`]s — the identity and freshness a reconcile needs to
+    /// compare Dravr's ledger against what is actually on the calendar.
+    async fn list_calendar_events(
         &self,
-        workout: &WorkoutTemplate,
-        date: NaiveDate,
-    ) -> AppResult<String> {
-        let _ = (workout, date);
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> AppResult<Vec<CalendarEventRef>> {
+        let _ = (from, to);
+        Err(AppError::invalid_input(format!(
+            "{} does not expose a training calendar",
+            self.name()
+        )))
+    }
+
+    /// Create one calendar entry. Returns the provider-side event id.
+    async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
+        let _ = session;
         Err(AppError::invalid_input(format!(
             "{} does not support pushing planned workouts",
+            self.name()
+        )))
+    }
+
+    /// Replace the content of the calendar entry `provider_event_id` with
+    /// `session`, in place — the entry keeps its provider id.
+    async fn update_planned_session(
+        &self,
+        provider_event_id: &str,
+        session: &PlannedSession,
+    ) -> AppResult<()> {
+        let _ = (provider_event_id, session);
+        Err(AppError::invalid_input(format!(
+            "{} does not support updating planned workouts",
+            self.name()
+        )))
+    }
+
+    /// Delete the calendar entries named by provider id. Ids the provider no
+    /// longer knows are ignored; returns how many entries the provider
+    /// reports deleted.
+    async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
+        let _ = provider_event_ids;
+        Err(AppError::invalid_input(format!(
+            "{} does not support deleting planned workouts",
             self.name()
         )))
     }
@@ -642,5 +682,34 @@ impl FitnessProvider for TenantProvider {
 
     async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
         self.inner.get_personal_records().await
+    }
+
+    // The calendar write surface is forwarded like every read: a wrapped
+    // provider that answered "unsupported" here while the inner one could
+    // write would turn a tenant-scoped push into a silent refusal.
+    async fn list_calendar_events(
+        &self,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> AppResult<Vec<CalendarEventRef>> {
+        self.inner.list_calendar_events(from, to).await
+    }
+
+    async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
+        self.inner.push_planned_session(session).await
+    }
+
+    async fn update_planned_session(
+        &self,
+        provider_event_id: &str,
+        session: &PlannedSession,
+    ) -> AppResult<()> {
+        self.inner
+            .update_planned_session(provider_event_id, session)
+            .await
+    }
+
+    async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
+        self.inner.delete_planned_sessions(provider_event_ids).await
     }
 }

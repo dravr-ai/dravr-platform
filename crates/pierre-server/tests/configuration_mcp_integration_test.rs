@@ -243,8 +243,8 @@ async fn test_configuration_tools_count_in_total() {
     // search_coach_store and install_coach_from_store added (99→102, total
     // 105→108) — the marketplace had no chat-callable surface at all.
     assert_eq!(
-        fitness_tools, 102,
-        "Expected exactly 102 non-configuration tools"
+        fitness_tools, 104,
+        "Expected exactly 104 non-configuration tools"
     );
-    assert_eq!(tools.len(), 108, "Expected total of 108 tools"); // 102 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 110, "Expected total of 110 tools"); // 104 non-configuration + 6 configuration
 }

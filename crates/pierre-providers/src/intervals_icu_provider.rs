@@ -1,5 +1,5 @@
-// ABOUTME: Intervals.icu provider — FitnessProvider for athlete profile + activities + streams + wellness + planned-workout push
-// ABOUTME: Uses HTTP Basic auth (literal "API_KEY" : api_key) over reqwest; push writes planned workouts to the athlete's calendar
+// ABOUTME: Intervals.icu provider — FitnessProvider for athlete profile + activities + streams + wellness + the training-calendar write surface
+// ABOUTME: Uses HTTP Basic auth (literal "API_KEY" : api_key) over reqwest; calendar writes create, update, and delete events keyed by Dravr's external_id
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,9 +17,20 @@
 //! # Intervals.icu Provider Module
 //!
 //! [`FitnessProvider`] for Intervals.icu (athlete profile, activities, streams,
-//! wellness, and planned-workout push) authenticated via HTTP Basic auth with
-//! the literal username [`BASIC_AUTH_USERNAME`] and the athlete's API key as
-//! the password.
+//! wellness, and the training-calendar write surface) authenticated via HTTP
+//! Basic auth with the literal username [`BASIC_AUTH_USERNAME`] and the
+//! athlete's API key as the password.
+//!
+//! ## Calendar writes
+//!
+//! A [`PlannedSession`] becomes one calendar event: `POST /events` creates it,
+//! `PUT /events/{id}` replaces it in place, `PUT /events/bulk-delete` removes
+//! a batch by id, and `GET /events` reads the window back so the ledger can be
+//! reconciled against the calendar. Every event carries Dravr's `external_id`,
+//! and a session's steps go out in Intervals.icu's workout text DSL (see
+//! [`render_description`]) so the calendar parses them into targets and
+//! computes planned load. The DSL is parsed on every write and cannot be
+//! disabled, which is why coach prose is escaped before it is sent.
 //!
 //! ## Authentication
 //!
@@ -55,9 +66,12 @@ use crate::activity_paging::pages_for;
 use crate::constants::api_provider_limits;
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, SharedRequestBuilder};
+use crate::intervals_icu_calendar::{
+    event_body, event_id_segment, CreatedEvent, DeleteEventsResponse,
+};
 use crate::models::{
-    Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats, TimeSeriesData,
-    WorkoutTemplate,
+    Activity, ActivityBuilder, Athlete, CalendarEventRef, PersonalRecord, PlannedSession,
+    SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 
@@ -583,6 +597,40 @@ pub struct IntervalsIcuEvent {
     /// Sport label.
     #[serde(default)]
     pub category: Option<String>,
+    /// The writer's own key for the event, when one was set (Dravr sets
+    /// [`PlannedSession::external_id`] on every event it writes).
+    #[serde(default)]
+    pub external_id: Option<String>,
+    /// When the event last changed, as Intervals.icu reports it.
+    #[serde(default)]
+    pub updated: Option<String>,
+}
+
+impl IntervalsIcuEvent {
+    /// The identity-and-freshness view a reconcile needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `start_date_local` does not begin with a civil
+    /// date — an event the calendar cannot place on a day cannot be reconciled.
+    fn calendar_event_ref(self) -> AppResult<CalendarEventRef> {
+        let day = self.start_date_local.get(..10).unwrap_or_default();
+        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|e| {
+            AppError::external_service(
+                "intervals_icu",
+                format!(
+                    "event {} has no civil date in '{}': {e}",
+                    self.id, self.start_date_local
+                ),
+            )
+        })?;
+        Ok(CalendarEventRef {
+            provider_event_id: self.id.to_string(),
+            external_id: self.external_id,
+            date,
+            updated_at: self.updated.as_deref().and_then(parse_local_dt),
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -726,56 +774,6 @@ fn sport_for(label: Option<&str>) -> SportType {
         other if !other.is_empty() => SportType::Other(other.to_owned()),
         _ => SportType::Other("intervals_icu".to_owned()),
     }
-}
-
-/// Map a [`SportType`] to the Intervals.icu calendar event `type` string.
-/// Catch-all maps unknown/strength sports to the generic `Workout` type.
-fn intervals_event_type(sport: &SportType) -> &'static str {
-    match sport {
-        SportType::Ride => "Ride",
-        SportType::Run => "Run",
-        SportType::Swim => "Swim",
-        SportType::Walk => "Walk",
-        SportType::Yoga => "Yoga",
-        _ => "Workout",
-    }
-}
-
-/// Render a [`WorkoutTemplate`] into a human-readable description for the
-/// Intervals.icu calendar event body — a header line plus one line per step.
-///
-/// A step's `note` is the coach's cue for that step ("montées/descentes
-/// continues"), so it belongs on the line the athlete reads on their calendar;
-/// dropping it stripped the coaching out of a coached session.
-fn workout_description(workout: &WorkoutTemplate) -> String {
-    let mut lines = vec![format!(
-        "{} — {} min ({:?})",
-        workout.name, workout.duration_minutes, workout.intensity_distribution
-    )];
-    for step in &workout.structure {
-        let repeat = if step.repeat > 1 {
-            format!("{}× ", step.repeat)
-        } else {
-            String::new()
-        };
-        let note = step
-            .note
-            .as_deref()
-            .map(|note| format!(" — {note}"))
-            .unwrap_or_default();
-        lines.push(format!(
-            "- {repeat}{} @ {} for {}s{note}",
-            step.label, step.target_zone, step.duration_seconds
-        ));
-    }
-    lines.join("\n")
-}
-
-/// Minimal shape of the Intervals.icu calendar event create response — we
-/// only need the generated event id to record against the prescription.
-#[derive(Debug, Deserialize)]
-struct CreatedEvent {
-    id: i64,
 }
 
 #[async_trait]
@@ -943,44 +941,111 @@ impl FitnessProvider for IntervalsIcuProvider {
         Ok(Vec::new())
     }
 
-    async fn push_planned_workout(
+    async fn list_calendar_events(
         &self,
-        workout: &WorkoutTemplate,
-        date: NaiveDate,
-    ) -> AppResult<String> {
-        // LIMITATION(registre#48): `push_planned_workout` only creates events (`POST /events`);
-        // the returned event id is discarded and no `PUT` / `DELETE` path exists, so a prescribed
-        // workout cannot be modified afterwards and a re-prescription creates a duplicate.
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> AppResult<Vec<CalendarEventRef>> {
+        self.get_events(from, to)
+            .await?
+            .into_iter()
+            .map(IntervalsIcuEvent::calendar_event_ref)
+            .collect()
+    }
+
+    async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
         let (athlete_id, api_key) = self.require_credentials().await?;
         let url = self.athlete_url(&athlete_id, "/events");
-        let body = json!({
-            "category": "WORKOUT",
-            "start_date_local": format!("{}T00:00:00", date.format("%Y-%m-%d")),
-            "type": intervals_event_type(&workout.sport),
-            "name": workout.name,
-            "description": workout_description(workout),
-        });
         let req = self
             .http
             .post(&url)
             .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
             .header("Accept", "application/json")
-            .json(&body);
-        let response = send_traced(req, "push_planned_workout", &url)
+            .json(&event_body(session));
+        let response = send_traced(req, "push_planned_session", &url)
             .await
             .map_err(|e| {
-                AppError::external_service("intervals_icu", format!("push_planned_workout: {e}"))
+                AppError::external_service("intervals_icu", format!("push_planned_session: {e}"))
             })?;
         if !response.status().is_success() {
             return Err(AppError::external_service(
                 "intervals_icu",
-                format!("push_planned_workout returned {}", response.status()),
+                format!("push_planned_session returned {}", response.status()),
             ));
         }
         let created: CreatedEvent = response.json().await.map_err(|e| {
-            AppError::external_service("intervals_icu", format!("push_planned_workout decode: {e}"))
+            AppError::external_service("intervals_icu", format!("push_planned_session decode: {e}"))
         })?;
         Ok(created.id.to_string())
+    }
+
+    async fn update_planned_session(
+        &self,
+        provider_event_id: &str,
+        session: &PlannedSession,
+    ) -> AppResult<()> {
+        let event_id = event_id_segment(provider_event_id)?;
+        let (athlete_id, api_key) = self.require_credentials().await?;
+        let url = self.athlete_url(&athlete_id, &format!("/events/{event_id}"));
+        let req = self
+            .http
+            .put(&url)
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+            .header("Accept", "application/json")
+            .json(&event_body(session));
+        let response = send_traced(req, "update_planned_session", &url)
+            .await
+            .map_err(|e| {
+                AppError::external_service("intervals_icu", format!("update_planned_session: {e}"))
+            })?;
+        if !response.status().is_success() {
+            return Err(AppError::external_service(
+                "intervals_icu",
+                format!("update_planned_session returned {}", response.status()),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
+        if provider_event_ids.is_empty() {
+            return Ok(0);
+        }
+        // By id, never by `external_id`: id deletion is authentication-agnostic,
+        // whereas the `external_id` form only reaches events "created by the
+        // calling OAuth application", and this provider authenticates with the
+        // athlete's API key. Never the date-range delete either — it would take
+        // events Dravr did not write.
+        let doomed = provider_event_ids
+            .iter()
+            .map(|id| event_id_segment(id).map(|n| json!({ "id": n })))
+            .collect::<AppResult<Vec<_>>>()?;
+        let (athlete_id, api_key) = self.require_credentials().await?;
+        let url = self.athlete_url(&athlete_id, "/events/bulk-delete");
+        let req = self
+            .http
+            .put(&url)
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+            .header("Accept", "application/json")
+            .json(&doomed);
+        let response = send_traced(req, "delete_planned_sessions", &url)
+            .await
+            .map_err(|e| {
+                AppError::external_service("intervals_icu", format!("delete_planned_sessions: {e}"))
+            })?;
+        if !response.status().is_success() {
+            return Err(AppError::external_service(
+                "intervals_icu",
+                format!("delete_planned_sessions returned {}", response.status()),
+            ));
+        }
+        let deleted: DeleteEventsResponse = response.json().await.map_err(|e| {
+            AppError::external_service(
+                "intervals_icu",
+                format!("delete_planned_sessions decode: {e}"),
+            )
+        })?;
+        Ok(deleted.events_deleted)
     }
 }
 

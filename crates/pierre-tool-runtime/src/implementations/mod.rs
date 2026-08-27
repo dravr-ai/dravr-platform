@@ -106,6 +106,8 @@ pub mod goals;
 #[cfg(feature = "tools-groups")]
 pub mod groups;
 
+/// Shared helpers for every tool that writes to an athlete's provider calendar.
+pub mod calendar;
 /// Athlete commitment tools: `commitment_create`, `commitment_cancel` (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod commitments;
@@ -117,6 +119,8 @@ pub mod memory;
 /// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
 #[cfg(feature = "tools-memory")]
 pub mod playbooks;
+/// `push_training_plan` — the athlete's active plan onto their provider calendar, reconciled.
+pub mod training_plan_push;
 /// Notify telemetry for training-plan writes: what was saved, and what it leaves uncovered.
 pub mod training_plan_telemetry;
 pub mod training_plans;

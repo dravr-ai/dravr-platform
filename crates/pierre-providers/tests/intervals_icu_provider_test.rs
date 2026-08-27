@@ -20,7 +20,7 @@ use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials};
 use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
 use pierre_providers::models::{
-    IntensityDistribution, SportType, WorkoutTargetZones, WorkoutTemplate,
+    IntensityDistribution, PlannedSession, SportType, WorkoutTargetZones, WorkoutTemplate,
 };
 use pierre_providers::pagination::PaginationParams;
 use pierre_providers::ProviderRegistry;
@@ -206,11 +206,13 @@ async fn registry_registers_intervals_icu_as_non_oauth() {
 }
 
 #[tokio::test]
-async fn push_planned_workout_requires_credentials() {
+async fn push_planned_session_requires_credentials() {
     let provider = IntervalsIcuProvider::new();
     let date = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid date");
+    let session =
+        PlannedSession::from_template(&sample_template(), date, "dravr:rx:test".to_owned());
     let err = provider
-        .push_planned_workout(&sample_template(), date)
+        .push_planned_session(&session)
         .await
         .expect_err("push without credentials must fail");
     let msg = format!("{err}");

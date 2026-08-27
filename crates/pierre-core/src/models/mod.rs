@@ -128,7 +128,9 @@ pub use onboarding::{
 pub use pillar::Pillar;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};
 pub use workout_template::{
-    IntensityDistribution, PrescribedWorkout, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
+    CalendarEventRef, CalendarEventSource, CalendarKey, IntensityDistribution, PlannedSession,
+    PlannedSessionKind, PrescribedWorkout, RelativeIntensity, WorkoutStep, WorkoutTargetZones,
+    WorkoutTemplate,
 };
 pub use zones::{HrZoneSet, PowerZoneSet, ZoneDistribution};
 

@@ -199,6 +199,8 @@ async fn test_endurance_tools_registered() -> Result<()> {
         "extract_activity_streams",
         "list_workout_templates",
         "prescribe_workout",
+        "withdraw_prescribed_workout",
+        "push_training_plan",
     ] {
         assert!(
             names.iter().any(|n| n == expected),

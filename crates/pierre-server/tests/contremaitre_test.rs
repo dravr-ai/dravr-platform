@@ -695,6 +695,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "optimize_sleep_schedule",
     "predict_performance",
     "prescribe_workout",
+    "push_training_plan",
     "recall_user_memory",
     "refresh_provider_data",
     "remember_fact",
@@ -720,6 +721,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "validate_configuration",
     "validate_recipe",
     "verify_claim",
+    "withdraw_prescribed_workout",
 ];
 
 /// Recursively collect every file path under `dir`. Pulled out of the

@@ -13,6 +13,54 @@ use pierre_services::recent_load::recent_load_snapshot;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+/// Record that a calendar write to a provider landed.
+///
+/// A calendar write is a provider sync in the outbound direction, so it rides
+/// the catalogued `sync.completed` event: `trigger` names the tool that wrote
+/// (`prescribe_workout`, `withdraw_prescribed_workout`, `push_training_plan`)
+/// and `records` counts the entries the provider accepted.
+pub(super) fn emit_calendar_sync_completed(
+    tenant_id: TenantId,
+    user_id: Uuid,
+    provider: &str,
+    trigger: &str,
+    records: usize,
+) {
+    info!(
+        target: "notify",
+        event = "sync.completed",
+        tenant_id = %tenant_id,
+        user_id = %user_id,
+        provider = provider,
+        records = records,
+        trigger = trigger,
+        direction = "outbound",
+        "calendar write committed"
+    );
+}
+
+/// Record that a calendar write to a provider was refused, or landed only in
+/// part. `reason` is the provider's or the ledger's own words.
+pub(super) fn emit_calendar_sync_failed(
+    tenant_id: TenantId,
+    user_id: Uuid,
+    provider: &str,
+    trigger: &str,
+    reason: &str,
+) {
+    warn!(
+        target: "notify",
+        event = "sync.failed",
+        tenant_id = %tenant_id,
+        user_id = %user_id,
+        provider = provider,
+        trigger = trigger,
+        reason = reason,
+        direction = "outbound",
+        "calendar write refused"
+    );
+}
+
 /// Record that a plan write committed.
 ///
 /// Emitted for **every** successful save, outline or weeks-only. The ramp
@@ -63,7 +111,7 @@ impl CoverageGap {
 ///
 /// A plan is "covering today" from the athlete's calendar, not the server's —
 /// the same rule `/plan` applies when it picks which week to show.
-async fn athlete_today(repos: &RepositoryRegistry, user_id: &str) -> NaiveDate {
+pub(super) async fn athlete_today(repos: &RepositoryRegistry, user_id: &str) -> NaiveDate {
     let tz = match Uuid::parse_str(user_id) {
         Ok(uuid) => repos
             .users

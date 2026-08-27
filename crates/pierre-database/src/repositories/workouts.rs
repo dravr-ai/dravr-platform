@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::PrescribedWorkout;
@@ -12,24 +13,57 @@ use pierre_core::models::TenantId;
 use pierre_core::models::{DailyTrainingState, WorkoutTemplate};
 use uuid::Uuid;
 
-/// Audit-trail CRUD for the `prescribed_workouts` table.
+/// CRUD for the `prescribed_workouts` table — the ledger of every calendar
+/// entry Dravr wrote to a provider.
 ///
-/// Each row records a single prescription pushed to a provider calendar
-/// (Endurance Phase 5). The table is append-only from the API path; the
-/// repo exposes upsert by id (so retries can update the
-/// `provider_event_id`) plus a tenant-scoped recent-list read.
+/// Each row records one write attempt: a single prescription, or one entry of
+/// a plan push. Rows are never edited into a different entry; a re-push of the
+/// same key writes a new `pushed` row and moves the old one to `replaced`, so
+/// the partial unique index on (`tenant_id`, `user_id`, `provider`,
+/// `external_id`) `WHERE status = 'pushed'` holds one live row per key.
 #[async_trait]
 pub trait PrescribedWorkoutRepository: Send + Sync {
-    /// Insert or update a prescription audit row.
+    /// Insert a ledger row, or refresh an existing row's outcome fields
+    /// (`provider_event_id`, `status`, payload, hash, `updated_at`) by id.
     async fn upsert_prescribed_workout(&self, prescribed: &PrescribedWorkout) -> AppResult<()>;
 
-    /// List the most recent `limit` prescriptions for a (`tenant_id`, `user_id`).
+    /// List the most recent `limit` rows for a (`tenant_id`, `user_id`),
+    /// newest first.
     async fn list_prescribed_workouts(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
         limit: u32,
     ) -> AppResult<Vec<PrescribedWorkout>>;
+
+    /// Fetch one row by id. Returns `None` when no row matches the
+    /// (`tenant_id`, `user_id`, `id`) tuple — a row of another athlete is
+    /// indistinguishable from a missing one, by design.
+    async fn get_prescribed_workout(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> AppResult<Option<PrescribedWorkout>>;
+
+    /// List the rows whose entry is live on `provider` (`status = pushed`),
+    /// on or after `from` when given, in calendar order.
+    async fn list_live_calendar_events(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        provider: &str,
+        from: Option<NaiveDate>,
+    ) -> AppResult<Vec<PrescribedWorkout>>;
+
+    /// Move a row to `status` (`replaced` or `withdrawn`), stamping
+    /// `updated_at`. Errors when no row matches the (`tenant_id`, `id`) pair.
+    async fn set_prescribed_workout_status(
+        &self,
+        tenant_id: TenantId,
+        id: Uuid,
+        status: &str,
+    ) -> AppResult<()>;
 }
 
 /// CRUD for user-authored Endurance workout templates.

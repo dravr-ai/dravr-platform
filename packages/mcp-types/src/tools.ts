@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 108
+// Tool count: 110
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -956,7 +956,7 @@ export interface GetTrainingHistoryParams {
 
 
 /**
- * Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth.
+ * Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it.
  */
 export interface GetTrainingPlanParams {
 
@@ -1183,7 +1183,7 @@ export interface PredictPerformanceParams {
 
 
 /**
- * Write one workout onto the athlete's Intervals.icu calendar for a given date, and record it in the prescribed_workouts audit trail. Requires a connected Intervals.icu account. Pass EITHER template_slug — one of the cornerstones (long_run_z2, threshold_4x8, vo2_5x3, recovery_30min, tempo_progression, sweet_spot_2x20) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional coach_id. Creates a new calendar entry every call: it cannot edit or replace one already there.
+ * Write one workout onto the athlete's Intervals.icu calendar for a given date, and record it in the prescribed_workouts ledger. Requires a connected Intervals.icu account. Pass EITHER template_slug — one of the cornerstones (long_run_z2, threshold_4x8, vo2_5x3, recovery_30min, tempo_progression, sweet_spot_2x20) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional coach_id, optional replaces. Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place instead. withdraw_prescribed_workout removes one.
  */
 export interface PrescribeWorkoutParams {
 
@@ -1192,6 +1192,9 @@ export interface PrescribeWorkoutParams {
 
   /** Calendar date the workout is scheduled for (YYYY-MM-DD). */
   date: string;
+
+  /** prescription_id of an earlier prescription to change in place — the calendar entry keeps its slot and gets this workout. Omit to add a new entry. */
+  replaces?: string;
 
   /** A structured session you authored, for anything the cornerstones do not express. */
   session?: {
@@ -1230,6 +1233,19 @@ export interface PrescribeWorkoutParams {
 
   /** Slug of a stored template: one of the six cornerstones, or a session you prescribed this athlete before. Use `session` instead for anything new. */
   template_slug?: string;
+}
+
+
+/**
+ * Put the athlete's active training plan on their Intervals.icu calendar, or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on Intervals.icu. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected Intervals.icu account. Args: optional coach_id, optional from_date.
+ */
+export interface PushTrainingPlanParams {
+
+  /** Coach persona slug whose plan to push; falls back to the athlete's coach-agnostic plan. */
+  coach_id?: string;
+
+  /** First date to push (YYYY-MM-DD). Defaults to today in the athlete's calendar, and is never earlier than that: dates already past are not rewritten. */
+  from_date?: string;
 }
 
 
@@ -1329,7 +1345,7 @@ export interface SaveRecipeParams {
 
 
 /**
- * Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable.
+ * Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan.
  */
 export interface SaveTrainingPlanParams {
 
@@ -1797,6 +1813,16 @@ export interface VerifyClaimParams {
   minimum_strength?: string;
 }
 
+
+/**
+ * Remove a workout that prescribe_workout wrote to the athlete's Intervals.icu calendar: deletes the calendar entry and marks the prescription withdrawn. Only for single prescriptions — an entry the training plan put there is removed by adjusting the plan (save_training_plan) and pushing it (push_training_plan). Args: prescription_id.
+ */
+export interface WithdrawPrescribedWorkoutParams {
+
+  /** prescription_id of the entry to remove — from the prescribe_workout reply, or from get_training_plan's calendar block. */
+  prescription_id: string;
+}
+
 // ============================================================================
 // TOOL RESPONSE TYPES
 // ============================================================================
@@ -1831,7 +1857,7 @@ export interface McpErrorResponse {
 /**
  * Union type of all available tool names
  */
-export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "browse_coach_store" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "commitment_cancel" | "commitment_create" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "install_coach_from_store" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coach_store" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "set_physiology" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim";
+export type ToolName = "activate_coach" | "admin_assign_coach" | "admin_create_system_coach" | "admin_delete_system_coach" | "admin_get_system_coach" | "admin_list_coach_assignments" | "admin_list_system_coaches" | "admin_unassign_coach" | "admin_update_system_coach" | "analyze_activity" | "analyze_goal_feasibility" | "analyze_meal_nutrition" | "analyze_performance_trends" | "analyze_sleep_quality" | "analyze_training_load" | "analyze_weather_impact" | "browse_coach_store" | "calculate_daily_nutrition" | "calculate_fitness_score" | "calculate_metrics" | "calculate_personalized_zones" | "calculate_recovery_score" | "coach_followup_schedule" | "coach_note_add" | "commitment_cancel" | "commitment_create" | "compare_activities" | "compute_training_history" | "connect_provider" | "create_coach" | "deactivate_coach" | "delete_coach" | "delete_fitness_config" | "delete_recipe" | "detect_patterns" | "disconnect_provider" | "discover_routes" | "export_dossier" | "export_intervals" | "export_latest_snapshot" | "export_routes" | "extract_activity_streams" | "forget_playbook" | "generate_recommendations" | "get_active_coach" | "get_activities" | "get_activity_intelligence" | "get_athlete" | "get_coach" | "get_configuration_catalog" | "get_configuration_profiles" | "get_connection_status" | "get_data_freshness" | "get_fitness_config" | "get_food_details" | "get_group_member_activities" | "get_health_snapshots" | "get_nutrient_timing" | "get_recipe" | "get_recipe_constraints" | "get_recovery_metrics" | "get_sleep_sessions" | "get_stats" | "get_stretching_exercise" | "get_training_history" | "get_training_plan" | "get_user_configuration" | "get_weather_forecast" | "get_yoga_pose" | "hide_coach" | "install_coach_from_store" | "list_coaches" | "list_coaching_playbooks" | "list_data_sources" | "list_fitness_configs" | "list_hidden_coaches" | "list_recipes" | "list_stretching_exercises" | "list_workout_templates" | "list_yoga_poses" | "optimize_sleep_schedule" | "predict_performance" | "prescribe_workout" | "push_training_plan" | "recall_user_memory" | "refresh_provider_data" | "remember_fact" | "save_recipe" | "save_training_plan" | "search_coach_store" | "search_coaches" | "search_food" | "search_recipes" | "set_fitness_config" | "set_goal" | "set_physiology" | "show_coach" | "suggest_goals" | "suggest_rest_day" | "suggest_stretches_for_activity" | "suggest_yoga_sequence" | "toggle_coach_favorite" | "track_progress" | "track_sleep_trends" | "update_coach" | "update_user_configuration" | "validate_configuration" | "validate_recipe" | "verify_claim" | "withdraw_prescribed_workout";
 
 /**
  * Map of tool names to their parameter types
@@ -1920,6 +1946,7 @@ export interface ToolParamsMap {
   "optimize_sleep_schedule": OptimizeSleepScheduleParams;
   "predict_performance": PredictPerformanceParams;
   "prescribe_workout": PrescribeWorkoutParams;
+  "push_training_plan": PushTrainingPlanParams;
   "recall_user_memory": RecallUserMemoryParams;
   "refresh_provider_data": RefreshProviderDataParams;
   "remember_fact": RememberFactParams;
@@ -1945,4 +1972,5 @@ export interface ToolParamsMap {
   "validate_configuration": ValidateConfigurationParams;
   "validate_recipe": ValidateRecipeParams;
   "verify_claim": VerifyClaimParams;
+  "withdraw_prescribed_workout": WithdrawPrescribedWorkoutParams;
 }
