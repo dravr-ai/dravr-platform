@@ -27,6 +27,7 @@
 //! applying — the same shape as a filter that no-ops on the path nobody
 //! exercises.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -75,10 +76,23 @@ pub struct TurnToolSurface {
     executor: Arc<UniversalToolExecutor>,
     user_id: String,
     tenant_id: TenantId,
+    /// How many tool calls this turn may serve, resolved once by the pipeline
+    /// (`tool_budget::resolve_max_iterations`) and handed down. Resolving it
+    /// again here would be a second budget free to disagree with the first.
+    budget: usize,
+    /// Calls served so far. The agent runs its loop in its own subprocess, so
+    /// this is the only place the platform can spend a budget against it.
+    ///
+    /// Counts the same quantity as `ToolSession::calls_served`, from the other
+    /// side of the host: that one is what the pipeline logs per turn as
+    /// `loopback_calls_served`, this one is what enforces. They are two
+    /// counters because the surface cannot see the session that wraps it — not
+    /// because they measure different things, and they must agree.
+    calls: AtomicUsize,
 }
 
 impl TurnToolSurface {
-    /// Build the surface for one turn.
+    /// Build the surface for one turn, bounded to `budget` tool calls.
     #[must_use]
     pub const fn new(
         tool_registry: Arc<ToolRegistry>,
@@ -86,6 +100,7 @@ impl TurnToolSurface {
         executor: Arc<UniversalToolExecutor>,
         user_id: String,
         tenant_id: TenantId,
+        budget: usize,
     ) -> Self {
         Self {
             tool_registry,
@@ -93,6 +108,8 @@ impl TurnToolSurface {
             executor,
             user_id,
             tenant_id,
+            budget,
+            calls: AtomicUsize::new(0),
         }
     }
 
@@ -111,7 +128,11 @@ impl TurnToolSurface {
 
 #[async_trait]
 impl ToolSurface for TurnToolSurface {
-    /// LIMITATION(registre#103): `TurnToolSurface::list_tools` publishes every chat-callable tool on every turn and the host enforces no iteration budget on the agent's loop, so each native call carries the whole catalogue in its prefix.
+    /// LIMITATION(registre#103): `list_tools` publishes every chat-callable
+    /// tool on every turn, so each native call carries the whole catalogue in
+    /// its prefix. Deliberate: narrowing by message keyword was deleted in
+    /// c89da2396 for starving turns of tools they needed. The iteration budget
+    /// that this marker also used to cover is enforced now, in `call`.
     async fn list_tools(&self) -> Vec<McpToolDefinition> {
         let withhold = self.walk_is_active().await;
         self.tool_registry
@@ -127,6 +148,33 @@ impl ToolSurface for TurnToolSurface {
     }
 
     async fn call(&self, tool_name: &str, arguments: &Value) -> ToolOutcome {
+        // The agent's loop lives in its own subprocess and nothing bounded it:
+        // `max_iterations` stopped at the platform-run loop, so a native turn
+        // could iterate until the model chose to stop, re-sending the whole
+        // prefix each round. The budget is spent here because this is the only
+        // point in the process the agent's loop passes through.
+        //
+        // Refused, not dropped: a refusal is a result the model reads and
+        // adapts to, and it carries the same instruction the timeout refusal
+        // does -- answer from what you have, and say what you could not
+        // refresh. Ending the session instead would strand the turn with no
+        // reply, which is the failure this whole path already had once.
+        let served = self.calls.fetch_add(1, Ordering::Relaxed);
+        if served >= self.budget {
+            warn!(
+                tool_name,
+                budget = self.budget,
+                served,
+                "native tool-loop budget spent; refusing further calls this turn"
+            );
+            return ToolOutcome::refused(format!(
+                "This turn's tool budget of {} calls is spent. Do not call \
+                 another tool. Answer from the data you already have, and say \
+                 plainly which data you could not gather.",
+                self.budget
+            ));
+        }
+
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: arguments.clone(),
@@ -254,6 +302,7 @@ impl McpBridgeProvider for HostedToolBridge {
         user_id: &str,
         tenant_id: TenantId,
         conversation_id: &str,
+        budget: usize,
     ) -> Option<ToolSession> {
         if !self.enabled {
             return None;
@@ -273,6 +322,7 @@ impl McpBridgeProvider for HostedToolBridge {
             executor,
             user_id.to_owned(),
             tenant_id,
+            budget,
         ));
         Some(host.open_session(surface))
     }

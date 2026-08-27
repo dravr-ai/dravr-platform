@@ -37,7 +37,20 @@ use uuid::Uuid;
 const WITHHELD: &str = "save_training_plan";
 const ALWAYS_VISIBLE: &str = "get_activities";
 
+/// A budget high enough that the existing cases never reach it — they are
+/// about which tools are visible, not about spending the turn.
+const AMPLE_BUDGET: usize = 64;
+
 fn surface_for(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) -> TurnToolSurface {
+    surface_with_budget(resources, user_id, tenant, AMPLE_BUDGET)
+}
+
+fn surface_with_budget(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    budget: usize,
+) -> TurnToolSurface {
     let executor = Arc::new(
         UniversalToolExecutor::new(resources.clone())
             .with_conversation_id("conv-under-test".into()),
@@ -48,6 +61,7 @@ fn surface_for(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) 
         executor,
         user_id.to_string(),
         tenant,
+        budget,
     )
 }
 
@@ -174,5 +188,77 @@ async fn a_guided_walk_withholds_the_write_tool_on_a_later_listing() {
     assert!(
         during.iter().any(|t| t.name == ALWAYS_VISIBLE),
         "read tools stay available so the athlete can still be answered"
+    );
+}
+
+// ============================================================================
+// Per-turn tool budget (registre#103)
+// ============================================================================
+
+/// The agent's loop runs in its own subprocess, so the only place the platform
+/// can stop it is here. Past the budget a call must be refused rather than
+/// executed — and refused with `is_error`, because that is what the agent reads
+/// as "adapt" rather than as data.
+#[tokio::test]
+async fn a_turn_stops_serving_tools_once_its_budget_is_spent() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database)
+        .await
+        .expect("test user");
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+
+    let budget = 2;
+    let surface = surface_with_budget(&resources, user_id, tenant, budget);
+
+    // The budgeted calls are served: whatever the tool answers, the refusal is
+    // not the budget one.
+    for i in 0..budget {
+        let outcome = surface.call(ALWAYS_VISIBLE, &json!({})).await;
+        assert!(
+            !outcome.text.contains("tool budget"),
+            "call {i} is within budget and must not be refused for budget; got {}",
+            outcome.text
+        );
+    }
+
+    // The next one is refused, names the budget, and tells the model what to do
+    // instead of leaving it to guess.
+    let over = surface.call(ALWAYS_VISIBLE, &json!({})).await;
+    assert!(over.is_error, "an over-budget call must read as an error");
+    assert!(
+        over.text.contains("tool budget of 2 calls is spent"),
+        "the refusal must name the spent budget; got {}",
+        over.text
+    );
+    assert!(
+        over.text.contains("Answer from the data you already have"),
+        "the refusal must tell the model how to proceed; got {}",
+        over.text
+    );
+
+    // And it stays refused — the budget is a ceiling, not a one-shot warning.
+    let further = surface.call(ALWAYS_VISIBLE, &json!({})).await;
+    assert!(further.is_error, "the budget must keep holding");
+}
+
+/// A budget of zero admits nothing. Worth pinning separately: an off-by-one
+/// that served the first call anyway would leave the tightest budget the
+/// admin config can express silently ineffective.
+#[tokio::test]
+async fn a_zero_budget_serves_no_tool_call_at_all() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.coach.database)
+        .await
+        .expect("test user");
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+
+    let surface = surface_with_budget(&resources, user_id, tenant, 0);
+    let outcome = surface.call(ALWAYS_VISIBLE, &json!({})).await;
+
+    assert!(outcome.is_error, "a zero budget must refuse the first call");
+    assert!(
+        outcome.text.contains("tool budget of 0 calls is spent"),
+        "got {}",
+        outcome.text
     );
 }

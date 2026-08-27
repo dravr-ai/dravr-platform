@@ -33,10 +33,16 @@ pub trait McpBridgeProvider: Send + Sync {
     ///
     /// The caller holds the returned guard for exactly as long as the turn may
     /// legitimately call tools.
+    ///
+    /// `budget` is the turn's tool-call ceiling, already resolved by
+    /// `tool_budget::resolve_max_iterations`. It is passed rather than
+    /// re-derived so the agent's loop and the platform's own loop are bounded
+    /// by one number from one resolution.
     async fn open_tool_session(
         &self,
         user_id: &str,
         tenant_id: TenantId,
         conversation_id: &str,
+        budget: usize,
     ) -> Option<ToolSession>;
 }

@@ -261,7 +261,12 @@ pub(crate) async fn dispatch_llm_with_tools(
         match ctx.mcp_bridge.as_ref() {
             Some(bridge) => {
                 bridge
-                    .open_tool_session(&input.user_id, input.tool_tenant_id, &input.conversation_id)
+                    .open_tool_session(
+                        &input.user_id,
+                        input.tool_tenant_id,
+                        &input.conversation_id,
+                        max_iterations,
+                    )
                     .await
             }
             None => None,
@@ -277,7 +282,16 @@ pub(crate) async fn dispatch_llm_with_tools(
     // coach model routes natively over all coaching tools — no per-turn
     // narrowing that could starve a turn of a tool it needs.
     //
-    // LIMITATION(registre#103): `max_iterations` bounds only the platform-run loop and `build_mcp_tools` publishes the whole chat-callable set, so the ACP agent's native loop runs with no per-turn iteration budget and no tool narrowing.
+    // LIMITATION(registre#103): `build_mcp_tools` publishes the whole
+    // chat-callable set on every native call, so the catalogue is re-sent in
+    // each iteration's prefix. That width is deliberate, not an oversight --
+    // c89da2396 deleted the keyword prefilter after it dropped `search_recipes`
+    // from a meal question and the coach invented a dinner, and an LLM
+    // classifier in its place was rejected. What remains registered is the cost
+    // of that trade, not a missing narrowing step.
+    //
+    // The iteration half is no longer open: `max_iterations` now bounds the
+    // agent's own loop too, spent per call in `TurnToolSurface::call`.
     //
     // The one exception is a guided flow: a profile interview withholds the
     // plan-writing tool for its duration, in lockstep with the Stage 7a.2 prose
