@@ -45,7 +45,12 @@ use pierre_tool_runtime::guardian;
 type Result<T> = AppResult<T>;
 use std::{env, sync::Arc};
 use tokio::runtime::{Builder, Runtime};
-use tracing::{error, info, warn};
+use tracing::{error, info};
+// The binary's only `warn!` sits inside the SSE protocol-factory install; with
+// the transport off there is nothing left to warn about. Ungated, the
+// no-default-features profile fails on an unused import.
+#[cfg(feature = "transport-sse")]
+use tracing::warn;
 
 /// Command-line arguments for the Dravr MCP server
 #[derive(Parser)]

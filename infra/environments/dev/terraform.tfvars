@@ -27,11 +27,28 @@ frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 # scrape completes in time. cpu_idle stays false (ADR-019).
 backend_cpu    = "2"
 backend_memory = "2Gi"
-# Scale to zero when idle. A warm floor (min=1) combined with cpu_idle=false
-# bills 2 vCPU continuously (~$140/mo); the dev cost is not worth keeping the
-# contremaitre push webhook off a cold start — the webhook retries and prompts
-# also sync on container startup.
-backend_min_instances = 0
+# A warm floor of 1. This is a bought cost, not a default: combined with
+# cpu_idle=false it bills 2 vCPU continuously (~$140/mo against a 300 CAD/mo
+# budget). min=0 was the surviving saving from the 2026-06-03 cost cut
+# (2676ccfc7) and is being spent deliberately.
+#
+# What buys it is registre#109. A messaging turn is dispatched AFTER its webhook
+# has returned 200, so Cloud Run sees zero in-flight requests and reads the
+# instance as idle from the athlete's first second — an idle scaledown can
+# therefore land on a live coaching turn at any time, with no deploy involved.
+# On 2026-08-26 one took a group chart ask 40s from its answer. The in-flight
+# turn tracker (services::turn_lifecycle) makes that survivable and visible
+# rather than silent, but only a floor stops the scaledown happening at all.
+#
+# The cheaper alternative — leave min=0 and rely on the drain — was rejected
+# because the drain can only ever convert a lost answer into an apology. A
+# coaching turn the athlete waited two minutes for is worth more than the
+# instance-hour that would have finished it.
+#
+# NOTE: the idle-floor alert (instance_floor_monitoring.tf) keys off THIS value,
+# not off zero. Raising the floor without it would leave that alert firing
+# permanently, which is how the real one stops being read.
+backend_min_instances = 1
 # Capped at 3 by the DB connection budget (see the concurrency block below):
 # max_instances × POSTGRES_MAX_CONNECTIONS must stay ≤ 18 on db-f1-micro. With
 # concurrency=80 a single pod absorbs a whole user's ~13-request dashboard load

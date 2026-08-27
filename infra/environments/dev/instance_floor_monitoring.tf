@@ -15,18 +15,25 @@
 # idle waste — billing even overnight with zero users. Nothing alerted; we found it
 # only by reverse-engineering the billable_instance_time metric off the cost report.
 #
-# This alert encodes the failure signature directly: "the instance floor never
-# dropped to zero for N hours straight." Healthy traffic is bursty and returns to
-# zero between bursts, so each idle gap resets the duration window. A sustained
-# non-zero floor means something is holding an instance open — a new /ws-style pin,
-# a stuck streaming request, or an always-on subprocess that escaped its budget.
+# This alert encodes the failure signature directly: "the instance floor stayed
+# ABOVE THE CONFIGURED FLOOR for N hours straight." A sustained excess means
+# something is holding an extra instance open — a new /ws-style pin, a stuck
+# streaming request, or an always-on subprocess that escaped its budget.
+#
+# It compares against `backend_min_instances`, not against zero. The service now
+# runs a warm floor of 1 (registre#109: a detached messaging turn makes an idle
+# scaledown able to land on a live coaching turn), and an alert hard-coded to
+# zero would fire the moment that floor was raised and never stop — which is
+# precisely how an alert channel stops being read. At min=0 this is identical to
+# the original "never scaled to zero" test; at min=1 it asks the same question
+# one instance up.
 
 # -----------------------------------------------------------------------------
 # Tuning knobs
 # -----------------------------------------------------------------------------
 
 variable "instance_floor_alert_hours" {
-  description = "Fire the idle-floor alert when the backend api instance count stays above zero continuously for this many hours (i.e. it stopped scaling to zero). Real dev traffic is bursty and returns to zero between bursts, so this targets a stuck/pinned instance, not active use. Lower = more sensitive (and more likely to fire during a genuinely busy stretch)."
+  description = "Fire the idle-floor alert when the backend api instance count stays above backend_min_instances continuously for this many hours (i.e. an instance beyond the configured floor never went away). Real dev traffic is bursty and returns to the floor between bursts, so this targets a stuck/pinned instance, not active use. Lower = more sensitive (and more likely to fire during a genuinely busy stretch)."
   type        = number
   default     = 4
 }
@@ -39,19 +46,22 @@ variable "instance_floor_alert_hours" {
 
 resource "google_monitoring_alert_policy" "instance_never_idle" {
   project      = var.project_id
-  display_name = "dravr-mcp-server-api never scaled to zero"
+  display_name = "dravr-mcp-server-api held instances above its floor"
   combiner     = "OR"
 
   documentation {
     content   = <<-EOT
-      The backend `${var.service_name}-api` Cloud Run service kept at least one
-      instance running continuously for ${var.instance_floor_alert_hours}+ hours
-      without ever scaling to zero.
+      The backend `${var.service_name}-api` Cloud Run service kept more than
+      ${var.backend_min_instances} instance(s) running continuously for
+      ${var.instance_floor_alert_hours}+ hours without ever returning to its
+      configured floor.
 
       Because this service runs with CPU always-allocated (cpu_idle = false), a
       pinned instance bills a full 2 vCPU + 2Gi the entire time (~$137/mo per
-      instance) even with no users. A non-zero floor that never breaks almost
-      always means something is holding an instance open:
+      instance) even with no users. This alert is about instances ABOVE the
+      floor: the floor itself is bought deliberately (see terraform.tfvars) and
+      is not what fired this. A surplus that never drains almost always means
+      something is holding an extra instance open:
 
         * a long-lived inbound connection (a WebSocket / SSE / streaming request
           held by an idle browser tab — the June 2026 /ws incident)
@@ -77,22 +87,25 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
   }
 
   conditions {
-    display_name = "api instance floor stayed above zero for ${var.instance_floor_alert_hours}h"
+    display_name = "api instance count stayed above its floor for ${var.instance_floor_alert_hours}h"
 
     condition_threshold {
       # Per 30-minute bucket, take the MINIMUM instance count (ALIGN_MIN). If that
-      # minimum is > 0, the service never scaled to zero in that bucket. The
-      # condition must hold continuously for instance_floor_alert_hours, so a
-      # single idle gap (scaled to zero) breaks the streak and suppresses the alert.
+      # minimum exceeds the configured floor, the service never returned to the
+      # floor in that bucket. The condition must hold continuously for
+      # instance_floor_alert_hours, so a single gap back down to the floor breaks
+      # the streak and suppresses the alert.
       filter = <<-EOT
         resource.type = "cloud_run_revision"
         AND resource.labels.service_name = "${var.service_name}-api"
         AND metric.type = "run.googleapis.com/container/instance_count"
       EOT
 
-      duration        = "${var.instance_floor_alert_hours * 3600}s"
-      comparison      = "COMPARISON_GT"
-      threshold_value = 0
+      duration   = "${var.instance_floor_alert_hours * 3600}s"
+      comparison = "COMPARISON_GT"
+      # The configured warm floor, not zero. Hard-coding zero here would make
+      # this alert fire forever the moment a floor was bought (registre#109).
+      threshold_value = var.backend_min_instances
 
       aggregations {
         alignment_period     = "1800s"
@@ -109,9 +122,9 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
   notification_channels = [google_monitoring_notification_channel.slack_alerts.id]
 
   alert_strategy {
-    # Auto-close once the floor finally breaks (instance scales to zero) and the
-    # metric stops satisfying the condition. Generous window so a brief blip
-    # doesn't prematurely resolve a genuinely-stuck instance.
+    # Auto-close once the count finally returns to the floor and the metric
+    # stops satisfying the condition. Generous window so a brief blip doesn't
+    # prematurely resolve a genuinely-stuck instance.
     auto_close = "3600s"
   }
 }
