@@ -18,7 +18,8 @@ use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{AddMessageParams, ConversationTurnId, TenantId};
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::repositories::ChatRepository;
-use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
+use pierre_llm::pricing::{TokenCounts, GLOBAL_PRICING_REGISTRY};
+use pierre_tool_runtime::llm_call_record::{LlmCallRecord, LlmCallRecorder};
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::{info, warn};
 
@@ -53,8 +54,8 @@ impl UsageRepoCallRecorder {
     }
 }
 
-impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
-    fn record(&self, record: chat_tool_loop::LlmCallRecord) {
+impl LlmCallRecorder for UsageRepoCallRecorder {
+    fn record(&self, record: LlmCallRecord) {
         let llm_usage = Arc::clone(&self.llm_usage);
         let tenant_id = self.tenant_id.clone();
         let user_id = self.user_id.clone();
@@ -65,13 +66,14 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
         let tenant_id_for_cost = self.tenant_id.clone();
         tokio::spawn(async move {
             let total_tokens = record.prompt_tokens + record.completion_tokens;
+            let counts = TokenCounts::new(record.prompt_tokens, record.completion_tokens)
+                .with_cache(record.cached_tokens, record.cached_write_tokens)
+                .with_reasoning(record.reasoning_tokens);
             let cost_usd = GLOBAL_PRICING_REGISTRY.calculate_cost(
                 Some(tenant_id_for_cost.as_str()),
                 &record.provider,
                 &record.model,
-                record.prompt_tokens,
-                record.cached_tokens,
-                record.completion_tokens,
+                &counts,
             );
             info!(
                 target: "notify",
@@ -101,6 +103,8 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
                 completion_tokens: record.completion_tokens,
                 total_tokens,
                 cached_tokens: record.cached_tokens,
+                cached_write_tokens: record.cached_write_tokens,
+                reasoning_tokens: record.reasoning_tokens,
                 call_type: &call_type_owned,
                 tool_calls_count,
                 tools_called: &tools_called_json,

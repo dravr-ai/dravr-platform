@@ -231,6 +231,21 @@ struct OpenRouterUsage {
     /// struct never declared — so it deserialized away on every response.
     #[serde(default)]
     prompt_tokens_details: Option<OpenRouterUsageDetails>,
+    /// Breakdown of `completion_tokens`. Carries the reasoning-token share,
+    /// which reasoning models bill as output but exclude from the completion
+    /// count — so dropping it charged nothing for that output.
+    #[serde(default)]
+    completion_tokens_details: Option<OpenRouterCompletionDetails>,
+}
+
+/// The `completion_tokens_details` sub-object of an `OpenAI`-compatible usage
+/// block, present on reasoning models.
+#[derive(Debug, Deserialize)]
+struct OpenRouterCompletionDetails {
+    /// Tokens spent reasoning, billed at the output rate and excluded from
+    /// the headline completion count.
+    #[serde(default)]
+    reasoning_tokens: Option<u32>,
 }
 
 /// The `prompt_tokens_details` sub-object of an OpenAI-compatible usage block.
@@ -627,6 +642,7 @@ impl OpenRouterProvider {
                 // implicit and unbilled, so None is accurate, not unknown.
                 TokenUsage::new(u.prompt, u.completion, u.total)
                     .with_cache(u.prompt_tokens_details.and_then(|d| d.cached_tokens), None)
+                    .with_reasoning(u.completion_tokens_details.and_then(|d| d.reasoning_tokens))
             }),
             finish_reason: choice.finish_reason,
         })
@@ -763,6 +779,9 @@ impl LlmProvider for OpenRouterProvider {
                     // implicit and unbilled, so None is accurate, not unknown.
                     TokenUsage::new(u.prompt, u.completion, u.total)
                         .with_cache(u.prompt_tokens_details.and_then(|d| d.cached_tokens), None)
+                        .with_reasoning(
+                            u.completion_tokens_details.and_then(|d| d.reasoning_tokens),
+                        )
                 }),
                 finish_reason: choice.finish_reason,
                 warnings: None,

@@ -9,13 +9,19 @@
 //! Provides compile-time pricing data for supported LLM providers and models.
 //! Used by the usage tracking pipeline to calculate per-request costs.
 //!
-//! ## Cached-token discount
+//! ## Cache accounting
 //!
-//! Prompt tokens that hit the provider's context cache bill at 25% of
-//! the full input rate. Gemini and OpenAI both report cached-token
-//! counts in their usage payloads; the value is carried end-to-end
-//! through [`pierre_core::llm::TokenUsage`] and applied here
-//! via [`calculate_cost_with_cache`].
+//! A prompt token can bill at three rates, so the pricing entry carries the
+//! multipliers rather than a single global discount: fresh input at 1.0×, a
+//! cache *read* at [`ModelPricing::cache_read_multiplier`] (Anthropic 0.10×,
+//! `OpenAI` 0.50×, `Gemini` 0.25×), and a cache *write* at
+//! [`ModelPricing::cache_write_multiplier`] — which is a **premium** on
+//! Anthropic (1.25×), not a discount. Reasoning tokens bill at the output
+//! rate and are additive to the completion count, because every provider that
+//! reports them separately excludes them from it.
+//!
+//! Counts arrive on [`embacle::TokenUsage`], are carried through
+//! [`TokenCounts`], and are priced by [`calculate_cost_for`].
 //!
 //! ## Admin-editable overrides
 //!
@@ -40,22 +46,74 @@ use tracing::{debug, info, warn};
 /// so overrides take effect without restart.
 pub static GLOBAL_PRICING_REGISTRY: LazyLock<PricingRegistry> = LazyLock::new(PricingRegistry::new);
 
-/// Fraction of the full input rate at which context-cache hits are billed.
+/// Default fraction of the input rate at which a context-cache *read* bills.
 ///
-/// Matches `Gemini`'s advertised 25% cache-read discount and `OpenAI`'s
-/// 50% discount on `cached_tokens` (taking the more conservative 25%
-/// for billing parity across providers).
-///
-/// LIMITATION(registre#102): `CACHED_TOKEN_RATE` is one flat read discount for every provider — Anthropic bills cache reads at 0.10× and cache writes at 1.25×, and the ACP path reports no cache reads at all, so a native turn's 40–55K-token prefix is always imputed at the full input rate.
-pub const CACHED_TOKEN_RATE: f64 = 0.25;
+/// Matches `Gemini`'s advertised 25% cache-read discount, and applies to any
+/// model that does not override it via [`ModelPricing::with_cache_rates`].
+/// A provider with no cache at all never reports a read, so the multiplier
+/// is inert rather than wrong for those entries.
+pub const DEFAULT_CACHE_READ_RATE: f64 = 0.25;
 
-/// Per-model pricing rates in USD per million tokens
+/// Default fraction of the input rate at which a context-cache *write* bills.
+///
+/// `1.0` — a provider that does not price cache creation separately bills
+/// those tokens as ordinary input. Anthropic is the exception and overrides
+/// it; see [`ModelPricing::with_cache_rates`].
+pub const DEFAULT_CACHE_WRITE_RATE: f64 = 1.0;
+
+/// Per-model pricing rates in USD per million tokens, plus the two
+/// cache multipliers that turn a raw token count into a billed one.
+///
+/// Cache economics are per-provider, not universal: Anthropic reads at
+/// 0.10× and *charges a premium* to write at 1.25×, `OpenAI` reads at 0.50×
+/// and does not bill writes separately, `Gemini` reads at 0.25×. A single
+/// flat discount mispriced all three, so the rates travel with the model.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ModelPricing {
     /// USD per 1 million input (prompt) tokens
     pub input_per_million: f64,
     /// USD per 1 million output (completion) tokens
     pub output_per_million: f64,
+    /// Fraction of `input_per_million` at which cache-read tokens bill.
+    #[serde(default = "default_cache_read_rate")]
+    pub cache_read_multiplier: f64,
+    /// Fraction of `input_per_million` at which cache-write tokens bill.
+    #[serde(default = "default_cache_write_rate")]
+    pub cache_write_multiplier: f64,
+}
+
+/// Serde default for [`ModelPricing::cache_read_multiplier`], so an operator
+/// override stored before the multipliers existed still deserializes.
+fn default_cache_read_rate() -> f64 {
+    DEFAULT_CACHE_READ_RATE
+}
+
+/// Serde default for [`ModelPricing::cache_write_multiplier`], so an operator
+/// override stored before the multipliers existed still deserializes.
+fn default_cache_write_rate() -> f64 {
+    DEFAULT_CACHE_WRITE_RATE
+}
+
+impl ModelPricing {
+    /// Rates for a model that uses the default cache multipliers.
+    #[must_use]
+    pub const fn new(input_per_million: f64, output_per_million: f64) -> Self {
+        Self {
+            input_per_million,
+            output_per_million,
+            cache_read_multiplier: DEFAULT_CACHE_READ_RATE,
+            cache_write_multiplier: DEFAULT_CACHE_WRITE_RATE,
+        }
+    }
+
+    /// Override the cache read/write multipliers for a provider that prices
+    /// them differently — Anthropic at `(0.10, 1.25)`, `OpenAI` at `(0.50, 1.0)`.
+    #[must_use]
+    pub const fn with_cache_rates(mut self, read: f64, write: f64) -> Self {
+        self.cache_read_multiplier = read;
+        self.cache_write_multiplier = write;
+        self
+    }
 }
 
 /// Providers whose per-token cost is genuinely \$0 by design, so a \$0 billed
@@ -116,76 +174,25 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     (
         "gemini",
         "gemini-flash-lite-latest",
-        ModelPricing {
-            input_per_million: 0.10,
-            output_per_million: 0.40,
-        },
+        ModelPricing::new(0.10, 0.40),
     ),
     (
         "gemini",
         "gemini-2.5-flash-lite",
-        ModelPricing {
-            input_per_million: 0.10,
-            output_per_million: 0.40,
-        },
+        ModelPricing::new(0.10, 0.40),
     ),
-    (
-        "gemini",
-        "gemini-2.5-pro",
-        ModelPricing {
-            input_per_million: 1.25,
-            output_per_million: 10.0,
-        },
-    ),
-    (
-        "gemini",
-        "gemini-2.5-flash",
-        ModelPricing {
-            input_per_million: 0.15,
-            output_per_million: 0.60,
-        },
-    ),
-    (
-        "gemini",
-        "gemini-2.0-flash",
-        ModelPricing {
-            input_per_million: 0.075,
-            output_per_million: 0.30,
-        },
-    ),
+    ("gemini", "gemini-2.5-pro", ModelPricing::new(1.25, 10.0)),
+    ("gemini", "gemini-2.5-flash", ModelPricing::new(0.15, 0.60)),
+    ("gemini", "gemini-2.0-flash", ModelPricing::new(0.075, 0.30)),
     // Groq models
-    (
-        "groq",
-        "llama-3.3-70b",
-        ModelPricing {
-            input_per_million: 0.59,
-            output_per_million: 0.79,
-        },
-    ),
-    (
-        "groq",
-        "mixtral",
-        ModelPricing {
-            input_per_million: 0.24,
-            output_per_million: 0.24,
-        },
-    ),
-    (
-        "groq",
-        "llama-3.1-8b",
-        ModelPricing {
-            input_per_million: 0.05,
-            output_per_million: 0.08,
-        },
-    ),
+    ("groq", "llama-3.3-70b", ModelPricing::new(0.59, 0.79)),
+    ("groq", "mixtral", ModelPricing::new(0.24, 0.24)),
+    ("groq", "llama-3.1-8b", ModelPricing::new(0.05, 0.08)),
     // Copilot headless (embacle) — proxies to Anthropic Claude models
     (
         "copilot_headless",
         "claude-opus-4",
-        ModelPricing {
-            input_per_million: 15.0,
-            output_per_million: 75.0,
-        },
+        ModelPricing::new(15.0, 75.0).with_cache_rates(0.10, 1.25),
     ),
     (
         "copilot_headless",
@@ -193,27 +200,18 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
         // all bill at the same $3/$15 Sonnet rate, so a version-agnostic prefix
         // keeps shadow-COGS attributed instead of falling through to $0 on a bump.
         "claude-sonnet",
-        ModelPricing {
-            input_per_million: 3.0,
-            output_per_million: 15.0,
-        },
+        ModelPricing::new(3.0, 15.0).with_cache_rates(0.10, 1.25),
     ),
     (
         "copilot_headless",
         "claude-haiku-4",
-        ModelPricing {
-            input_per_million: 0.80,
-            output_per_million: 4.0,
-        },
+        ModelPricing::new(0.80, 4.0).with_cache_rates(0.10, 1.25),
     ),
     // Claude Code CLI — same models as copilot_headless
     (
         "claude_code",
         "claude-opus-4",
-        ModelPricing {
-            input_per_million: 15.0,
-            output_per_million: 75.0,
-        },
+        ModelPricing::new(15.0, 75.0).with_cache_rates(0.10, 1.25),
     ),
     (
         "claude_code",
@@ -221,18 +219,12 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
         // mirroring the copilot_headless entry so a model bump keeps shadow-COGS
         // attributed instead of falling through to $0.
         "claude-sonnet",
-        ModelPricing {
-            input_per_million: 3.0,
-            output_per_million: 15.0,
-        },
+        ModelPricing::new(3.0, 15.0).with_cache_rates(0.10, 1.25),
     ),
     (
         "claude_code",
         "claude-haiku-4",
-        ModelPricing {
-            input_per_million: 0.80,
-            output_per_million: 4.0,
-        },
+        ModelPricing::new(0.80, 4.0).with_cache_rates(0.10, 1.25),
     ),
     // Cohere — Command A and Command R family.
     // Entries are ordered longest-prefix-first so `command-a-reasoning` and
@@ -241,67 +233,23 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     (
         "cohere",
         "command-a-reasoning",
-        ModelPricing {
-            input_per_million: 2.50,
-            output_per_million: 10.0,
-        },
+        ModelPricing::new(2.50, 10.0),
     ),
-    (
-        "cohere",
-        "command-a-vision",
-        ModelPricing {
-            input_per_million: 2.50,
-            output_per_million: 10.0,
-        },
-    ),
-    (
-        "cohere",
-        "command-a",
-        ModelPricing {
-            input_per_million: 2.50,
-            output_per_million: 10.0,
-        },
-    ),
-    (
-        "cohere",
-        "command-r-plus",
-        ModelPricing {
-            input_per_million: 2.50,
-            output_per_million: 10.0,
-        },
-    ),
-    (
-        "cohere",
-        "command-r7b",
-        ModelPricing {
-            input_per_million: 0.0375,
-            output_per_million: 0.15,
-        },
-    ),
-    (
-        "cohere",
-        "command-r",
-        ModelPricing {
-            input_per_million: 0.15,
-            output_per_million: 0.60,
-        },
-    ),
+    ("cohere", "command-a-vision", ModelPricing::new(2.50, 10.0)),
+    ("cohere", "command-a", ModelPricing::new(2.50, 10.0)),
+    ("cohere", "command-r-plus", ModelPricing::new(2.50, 10.0)),
+    ("cohere", "command-r7b", ModelPricing::new(0.0375, 0.15)),
+    ("cohere", "command-r", ModelPricing::new(0.15, 0.60)),
     // OpenAI API models
     (
         "openai_api",
         "gpt-4o",
-        ModelPricing {
-            input_per_million: 2.50,
-            output_per_million: 10.0,
-        },
+        ModelPricing::new(2.50, 10.0).with_cache_rates(0.50, 1.00),
     ),
     (
         "openai_api",
         "gpt-4o-mini",
-        ModelPricing {
-            input_per_million: 0.15,
-            output_per_million: 0.60,
-        },
+        ModelPricing::new(0.15, 0.60).with_cache_rates(0.50, 1.00),
     ),
     // OpenRouter — the gateway passes through the underlying model's published
     // price. These cover the curated default slugs the platform ships
@@ -312,90 +260,57 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     (
         "openrouter",
         "meta-llama/llama-3.3-70b-instruct",
-        ModelPricing {
-            input_per_million: 0.12,
-            output_per_million: 0.30,
-        },
+        ModelPricing::new(0.12, 0.30),
     ),
     (
         "openrouter",
         "meta-llama/llama-3.1-8b-instruct",
-        ModelPricing {
-            input_per_million: 0.02,
-            output_per_million: 0.03,
-        },
+        ModelPricing::new(0.02, 0.03),
     ),
     (
         "openrouter",
         "anthropic/claude-3.5-sonnet",
-        ModelPricing {
-            input_per_million: 3.0,
-            output_per_million: 15.0,
-        },
+        ModelPricing::new(3.0, 15.0).with_cache_rates(0.10, 1.25),
     ),
     (
         "openrouter",
         "anthropic/claude-3.5-haiku",
-        ModelPricing {
-            input_per_million: 0.80,
-            output_per_million: 4.0,
-        },
+        ModelPricing::new(0.80, 4.0).with_cache_rates(0.10, 1.25),
     ),
     (
         "openrouter",
         "openai/gpt-4o-mini",
-        ModelPricing {
-            input_per_million: 0.15,
-            output_per_million: 0.60,
-        },
+        ModelPricing::new(0.15, 0.60).with_cache_rates(0.50, 1.00),
     ),
     (
         "openrouter",
         "openai/gpt-4o",
-        ModelPricing {
-            input_per_million: 2.50,
-            output_per_million: 10.0,
-        },
+        ModelPricing::new(2.50, 10.0).with_cache_rates(0.50, 1.00),
     ),
     (
         "openrouter",
         "google/gemini-2.0-flash-001",
-        ModelPricing {
-            input_per_million: 0.10,
-            output_per_million: 0.40,
-        },
+        ModelPricing::new(0.10, 0.40),
     ),
     (
         "openrouter",
         "google/gemini-pro-1.5",
-        ModelPricing {
-            input_per_million: 1.25,
-            output_per_million: 5.0,
-        },
+        ModelPricing::new(1.25, 5.0),
     ),
     (
         "openrouter",
         "mistralai/mistral-large",
-        ModelPricing {
-            input_per_million: 2.0,
-            output_per_million: 6.0,
-        },
+        ModelPricing::new(2.0, 6.0),
     ),
     (
         "openrouter",
         "mistralai/mistral-nemo",
-        ModelPricing {
-            input_per_million: 0.03,
-            output_per_million: 0.07,
-        },
+        ModelPricing::new(0.03, 0.07),
     ),
     (
         "openrouter",
         "qwen/qwen-2.5-72b-instruct",
-        ModelPricing {
-            input_per_million: 0.13,
-            output_per_million: 0.40,
-        },
+        ModelPricing::new(0.13, 0.40),
     ),
 ];
 
@@ -448,11 +363,63 @@ fn zero_cost_for_unpriced(provider: &str, model: &str, tenant_id: Option<&str>) 
     0.0
 }
 
+/// The token counts a single LLM call reports, in the shape they bill.
+///
+/// `cached_read` and `cached_write` are both subsets of `prompt`: a provider
+/// reports the gross prompt count and then breaks out how much of it was
+/// served from cache and how much was written into it. `reasoning` is the
+/// exception — providers that report it exclude it from `completion`, so it
+/// is additive on the output side.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenCounts {
+    /// Gross prompt tokens, cached portions included.
+    pub prompt: i64,
+    /// Prompt tokens served from the provider's context cache.
+    pub cached_read: i64,
+    /// Prompt tokens written into the provider's context cache this call.
+    pub cached_write: i64,
+    /// Completion tokens, excluding separately-reported reasoning tokens.
+    pub completion: i64,
+    /// Reasoning / "thought" tokens, when the provider reports them apart
+    /// from `completion`. Billed at the output rate.
+    pub reasoning: i64,
+}
+
+impl TokenCounts {
+    /// The two counts every provider reports.
+    #[must_use]
+    pub const fn new(prompt: i64, completion: i64) -> Self {
+        Self {
+            prompt,
+            cached_read: 0,
+            cached_write: 0,
+            completion,
+            reasoning: 0,
+        }
+    }
+
+    /// Attach the cache read/write split of `prompt`.
+    #[must_use]
+    pub const fn with_cache(mut self, read: i64, write: i64) -> Self {
+        self.cached_read = read;
+        self.cached_write = write;
+        self
+    }
+
+    /// Attach a separately-reported reasoning-token count.
+    #[must_use]
+    pub const fn with_reasoning(mut self, reasoning: i64) -> Self {
+        self.reasoning = reasoning;
+        self
+    }
+}
+
 /// Calculate the cost of an LLM request using compile-time pricing.
 ///
 /// Returns the cost in USD. Returns 0.0 for unknown provider/model combinations
-/// (with a warning log). Does not account for cached tokens — callers that
-/// have a cache hit count must use [`calculate_cost_with_cache`].
+/// (with a warning log). Treats the whole prompt as uncached and assumes no
+/// separately-reported reasoning tokens — callers holding either count must
+/// use [`calculate_cost_with_cache`] or [`calculate_cost_for`].
 #[must_use]
 pub fn calculate_cost(
     provider: &str,
@@ -460,14 +427,34 @@ pub fn calculate_cost(
     prompt_tokens: i64,
     completion_tokens: i64,
 ) -> f64 {
-    calculate_cost_with_cache(provider, model, prompt_tokens, 0, completion_tokens)
+    calculate_cost_for(
+        provider,
+        model,
+        &TokenCounts::new(prompt_tokens, completion_tokens),
+    )
+}
+
+/// Calculate the cost of an LLM request from a full [`TokenCounts`].
+///
+/// The complete entry point: every count the provider reported, priced with
+/// that model's own cache multipliers. Returns 0.0 for unpriced pairs on the
+/// same terms as [`calculate_cost_with_cache`].
+#[must_use]
+pub fn calculate_cost_for(provider: &str, model: &str, counts: &TokenCounts) -> f64 {
+    let Some(pricing) = lookup_pricing(provider, model) else {
+        return zero_cost_for_unpriced(provider, model, None);
+    };
+
+    cost_from_pricing(&pricing, counts)
 }
 
 /// Calculate the cost of an LLM request, breaking the prompt into cached + fresh tokens.
 ///
-/// Cached tokens bill at [`CACHED_TOKEN_RATE`] of the model's input rate;
-/// the remaining `(prompt_tokens - cached_tokens)` bill at the full input
-/// rate. Completion tokens always bill at the full output rate. Returns
+/// Cache-read tokens bill at the model's [`ModelPricing::cache_read_multiplier`]
+/// of its input rate; the remaining `(prompt_tokens - cached_tokens)` bill at
+/// the full input rate. Completion tokens always bill at the full output rate.
+/// Reports no cache *writes* — use [`calculate_cost_for`] when the provider
+/// broke those out. Returns
 /// 0.0 for unpriced (provider, model) pairs — the $0 fallback is deliberate
 /// so a missing pricing entry never blocks a chat turn. The log severity of
 /// that fallback depends on *why* the pair is unpriced (see
@@ -482,33 +469,40 @@ pub fn calculate_cost_with_cache(
     cached_tokens: i64,
     completion_tokens: i64,
 ) -> f64 {
-    let Some(pricing) = lookup_pricing(provider, model) else {
-        return zero_cost_for_unpriced(provider, model, None);
-    };
-
-    cost_from_pricing(&pricing, prompt_tokens, cached_tokens, completion_tokens)
+    calculate_cost_for(
+        provider,
+        model,
+        &TokenCounts::new(prompt_tokens, completion_tokens).with_cache(cached_tokens, 0),
+    )
 }
 
 /// Compute the USD cost from a resolved [`ModelPricing`] + token counts.
 /// Shared by the compile-time lookup above and the [`PricingRegistry`]
-/// override path so both sources apply the cached-token discount
-/// identically.
-fn cost_from_pricing(
-    pricing: &ModelPricing,
-    prompt_tokens: i64,
-    cached_tokens: i64,
-    completion_tokens: i64,
-) -> f64 {
+/// override path so both sources price a call identically.
+///
+/// Four terms, because a prompt token can bill at three different rates:
+/// fresh input, a cache read at a discount, and a cache write at a premium.
+/// Reasoning tokens join completion on the output side.
+fn cost_from_pricing(pricing: &ModelPricing, counts: &TokenCounts) -> f64 {
     let divisor = 1_000_000.0;
-    let cached = cached_tokens.min(prompt_tokens).max(0);
-    let fresh_prompt = (prompt_tokens - cached).max(0);
+    let prompt = counts.prompt.max(0);
+    // Reads and writes are carved out of the gross prompt in that order, so a
+    // provider that over-reports one can never push the fresh remainder below
+    // zero or bill a token twice.
+    let cached_read = counts.cached_read.clamp(0, prompt);
+    let cached_write = counts.cached_write.clamp(0, prompt - cached_read);
+    let fresh_prompt = prompt - cached_read - cached_write;
 
-    let fresh_prompt_cost = fresh_prompt as f64 * pricing.input_per_million / divisor;
-    let cached_prompt_cost =
-        cached as f64 * pricing.input_per_million * CACHED_TOKEN_RATE / divisor;
-    let completion_cost = completion_tokens as f64 * pricing.output_per_million / divisor;
+    let input = pricing.input_per_million;
+    let fresh_prompt_cost = fresh_prompt as f64 * input / divisor;
+    let cached_read_cost = cached_read as f64 * input * pricing.cache_read_multiplier / divisor;
+    let cached_write_cost = cached_write as f64 * input * pricing.cache_write_multiplier / divisor;
+    // Providers that report reasoning tokens exclude them from the completion
+    // count, so they are added rather than carved out.
+    let output_tokens = counts.completion.max(0) + counts.reasoning.max(0);
+    let output_cost = output_tokens as f64 * pricing.output_per_million / divisor;
 
-    fresh_prompt_cost + cached_prompt_cost + completion_cost
+    fresh_prompt_cost + cached_read_cost + cached_write_cost + output_cost
 }
 
 /// Map keyed by `(provider, model_prefix)` to a single pricing entry.
@@ -592,14 +586,12 @@ impl PricingRegistry {
         tenant_id: Option<&str>,
         provider: &str,
         model: &str,
-        prompt_tokens: i64,
-        cached_tokens: i64,
-        completion_tokens: i64,
+        counts: &TokenCounts,
     ) -> f64 {
         let Some(pricing) = self.resolve(tenant_id, provider, model) else {
             return zero_cost_for_unpriced(provider, model, tenant_id);
         };
-        cost_from_pricing(&pricing, prompt_tokens, cached_tokens, completion_tokens)
+        cost_from_pricing(&pricing, counts)
     }
 }
 
@@ -624,25 +616,26 @@ fn longest_prefix_match(
 /// opportunity.
 #[must_use]
 pub fn cost_for_record(record: &LlmUsageRecord) -> f64 {
-    calculate_cost_with_cache(
+    calculate_cost_for(
         &record.provider,
         &record.model,
-        record.prompt_tokens,
-        record.cached_tokens,
-        record.completion_tokens,
+        &TokenCounts::new(record.prompt_tokens, record.completion_tokens)
+            .with_cache(record.cached_tokens, record.cached_write_tokens)
+            .with_reasoning(record.reasoning_tokens),
     )
 }
 
-/// Cost of a grouped usage row, crediting its summed cache reads.
+/// Cost of a grouped usage row, crediting its summed cache reads and
+/// charging its summed cache writes and reasoning tokens.
 ///
 /// Counterpart to [`cost_for_record`] for the aggregate and daily series.
 #[must_use]
 pub fn cost_for_aggregate(row: &LlmUsageAggregateRow) -> f64 {
-    calculate_cost_with_cache(
+    calculate_cost_for(
         &row.provider,
         &row.model,
-        row.prompt_tokens,
-        row.cached_tokens,
-        row.completion_tokens,
+        &TokenCounts::new(row.prompt_tokens, row.completion_tokens)
+            .with_cache(row.cached_tokens, row.cached_write_tokens)
+            .with_reasoning(row.reasoning_tokens),
     )
 }

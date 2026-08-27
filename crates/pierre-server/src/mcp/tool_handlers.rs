@@ -699,29 +699,14 @@ impl ToolHandlers {
             .common
             .repos
             .llm_usage
-            .insert_llm_usage(&InsertLlmUsage {
+            .insert_llm_usage(&InsertLlmUsage::for_direct_tool_call(
                 tenant_id,
                 user_id,
-                conversation_id: None,
                 turn_id,
-                provider: "direct",
-                // model column stores the tool name for mcp_tool call_type
-                // (no LLM model involved in direct tool execution)
-                model: tool_name,
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: 0,
-                cached_tokens: 0,
-                call_type: "mcp_tool",
-                tool_calls_count: 1,
-                tools_called: &tools_called_json,
-                execution_time_ms: Some(exec_time_ms),
-                // Data-only MCP tool calls (Strava fetch, etc.) are not
-                // LLM requests, so no USD cost applies. They still count
-                // toward `daily_tool_calls` at the counter layer.
-                cost_usd: 0.0,
-                call_sequence: None,
-            })
+                tool_name,
+                &tools_called_json,
+                exec_time_ms,
+            ))
             .await
         {
             warn!(

@@ -410,9 +410,12 @@ pub fn format_current_date(user_timezone: Option<&str>) -> String {
     // everything after it, and the render order is tools, then system, then
     // messages. Carrying `now = <unix seconds>` here changed the front of the
     // prefix on every single request, so no provider could reuse any of the
-    // prompt behind it. That is a cause of the zero cache reads observed across
-    // August 2026 that is entirely ours, independent of whether the transport
-    // reports cache hits at all (registre#102 covers the reporting half).
+    // prompt behind it. That is a cause of poor cache reuse that is entirely
+    // ours, independent of what the transport reports. The flat zero cache
+    // reads recorded across August 2026 turned out to be a measurement
+    // artifact -- embacle parsed past the counts until 0.22.0 -- so they are
+    // not evidence about this block either way; the churn was real and this
+    // quantization is the fix for it.
     //
     // Floored, never rounded up: rounding up crosses midnight and would move
     // "today" a day early at 23:58. Floor costs an upper bound up to one

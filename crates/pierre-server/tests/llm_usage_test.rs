@@ -20,7 +20,7 @@ use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::test_utils::{create_sqlite_test_db, create_test_db};
 use pierre_llm::pricing::{
     calculate_cost_with_cache, is_not_per_token_metered, ModelPricing, PricingOverrideMap,
-    PricingRegistry,
+    PricingRegistry, TokenCounts,
 };
 use sqlx::Row;
 
@@ -41,6 +41,8 @@ async fn test_insert_llm_usage() {
         completion_tokens: 50,
         total_tokens: 200,
         cached_tokens: 0,
+        cached_write_tokens: 0,
+        reasoning_tokens: 0,
         call_type: "chat",
         tool_calls_count: 2,
         tools_called: "[\"get_activities\"]",
@@ -84,6 +86,8 @@ async fn test_insert_llm_usage_without_conversation() {
         completion_tokens: 100,
         total_tokens: 400,
         cached_tokens: 0,
+        cached_write_tokens: 0,
+        reasoning_tokens: 0,
         call_type: "insight",
         tool_calls_count: 0,
         tools_called: "[]",
@@ -118,6 +122,8 @@ async fn test_insert_multiple_llm_usage_records() {
             completion_tokens: 50 + i,
             total_tokens: 150 + (2 * i),
             cached_tokens: 0,
+            cached_write_tokens: 0,
+            reasoning_tokens: 0,
             call_type: "chat",
             tool_calls_count: 0,
             tools_called: "[]",
@@ -140,6 +146,8 @@ async fn test_insert_multiple_llm_usage_records() {
         completion_tokens: 1,
         total_tokens: 1000,
         cached_tokens: 0,
+        cached_write_tokens: 0,
+        reasoning_tokens: 0,
         call_type: "chat",
         tool_calls_count: 0,
         tools_called: "[]",
@@ -183,6 +191,8 @@ async fn test_find_llm_usage_by_turn_id_returns_all_matching_rows_in_order() {
             completion_tokens: 10 + i,
             total_tokens: 110 + (2 * i),
             cached_tokens: 0,
+            cached_write_tokens: 0,
+            reasoning_tokens: 0,
             call_type: "chat",
             tool_calls_count: 1,
             tools_called: "[\"get_activities\"]",
@@ -205,6 +215,8 @@ async fn test_find_llm_usage_by_turn_id_returns_all_matching_rows_in_order() {
         completion_tokens: 1,
         total_tokens: 2,
         cached_tokens: 0,
+        cached_write_tokens: 0,
+        reasoning_tokens: 0,
         call_type: "chat",
         tool_calls_count: 0,
         tools_called: "[]",
@@ -253,6 +265,8 @@ async fn test_llm_usage_cost_and_cache() {
         completion_tokens: completion,
         total_tokens: prompt + completion,
         cached_tokens: cached,
+        cached_write_tokens: 0,
+        reasoning_tokens: 0,
         call_type: "chat",
         tool_calls_count: 0,
         tools_called: "[]",
@@ -307,7 +321,12 @@ async fn test_subscription_and_self_hosted_providers_zero_cost_without_undercoun
         );
         // A real model under each provider resolves to $0 — the correct cost,
         // not a missing-price fallback.
-        let cost = registry.calculate_cost(None, provider, "some-model-x", 10_000, 0, 10_000);
+        let cost = registry.calculate_cost(
+            None,
+            provider,
+            "some-model-x",
+            &TokenCounts::new(10_000, 10_000),
+        );
         assert!(
             cost.abs() < f64::EPSILON,
             "{provider} should bill $0 per token by design; got {cost}"
@@ -337,9 +356,7 @@ async fn test_known_priced_provider_resolves_to_its_price() {
         None,
         "openrouter",
         "meta-llama/llama-3.3-70b-instruct",
-        1_000_000,
-        0,
-        1_000_000,
+        &TokenCounts::new(1_000_000, 1_000_000),
     );
     let expected = 0.12 + 0.30;
     assert!(
@@ -352,7 +369,12 @@ async fn test_known_priced_provider_resolves_to_its_price() {
     );
 
     // A direct-API priced provider still resolves to its price.
-    let gemini = registry.calculate_cost(None, "gemini", "gemini-2.0-flash", 1_000_000, 0, 0);
+    let gemini = registry.calculate_cost(
+        None,
+        "gemini",
+        "gemini-2.0-flash",
+        &TokenCounts::new(1_000_000, 0),
+    );
     assert!(
         (gemini - 0.075).abs() < 1e-9,
         "Gemini flash input price should resolve; got {gemini}"
@@ -396,21 +418,27 @@ async fn test_admin_pricing_override() {
 
     // Without overrides the registry falls through to the compile-time
     // table — Gemini flash @ ~$0.075/M input, $0.30/M output.
-    let baseline = registry.calculate_cost(None, "gemini", "gemini-2.0-flash", 1_000, 0, 1_000);
+    let baseline = registry.calculate_cost(
+        None,
+        "gemini",
+        "gemini-2.0-flash",
+        &TokenCounts::new(1_000, 1_000),
+    );
     assert!(baseline > 0.0);
 
     // Install a global override that triples both rates.
     let mut overrides: PricingOverrideMap = HashMap::new();
     overrides.insert(
         ("gemini".to_owned(), "gemini-2.0-flash".to_owned()),
-        ModelPricing {
-            input_per_million: 0.225,
-            output_per_million: 0.9,
-        },
+        ModelPricing::new(0.225, 0.9),
     );
     registry.replace_global(overrides);
-    let after_override =
-        registry.calculate_cost(None, "gemini", "gemini-2.0-flash", 1_000, 0, 1_000);
+    let after_override = registry.calculate_cost(
+        None,
+        "gemini",
+        "gemini-2.0-flash",
+        &TokenCounts::new(1_000, 1_000),
+    );
     assert!(
         3.0_f64.mul_add(-baseline, after_override).abs() < 1e-6,
         "override should triple the cost; baseline={baseline} after={after_override}"
@@ -459,8 +487,12 @@ async fn test_admin_pricing_loader_round_trip() {
 
     // Compute under the registry: with our override the input rate is 0.999/M,
     // so 1_000 prompt tokens at full rate ≈ 0.999/1000 = 0.000999.
-    let cost =
-        GLOBAL_PRICING_REGISTRY.calculate_cost(None, "gemini", "gemini-2.0-flash", 1_000, 0, 0);
+    let cost = GLOBAL_PRICING_REGISTRY.calculate_cost(
+        None,
+        "gemini",
+        "gemini-2.0-flash",
+        &TokenCounts::new(1_000, 0),
+    );
     assert!(
         (cost - 0.000_999).abs() < 1e-9,
         "expected override to apply; got cost={cost}"
@@ -528,3 +560,106 @@ async fn test_embedding_sink_injection_records_via_instrumented_provider() {
 // `messaging_repository_test.rs::test_enqueue_outbound_round_trips_user_id`
 // — it reuses that file's existing FK-chain fixture (tenant + user +
 // session + message) instead of hand-rolling another one here.
+
+/// The two counts embacle 0.22.0 added must survive a write and a read.
+///
+/// `insert_llm_usage` builds its return value from the params it was handed,
+/// so asserting on that record proves nothing about persistence — it would
+/// pass with the columns missing entirely. This reads the row back out of the
+/// database through the admin query path instead.
+#[tokio::test]
+async fn cache_write_and_reasoning_counts_survive_a_round_trip() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+
+    let turn = ConversationTurnId::new();
+    let params = InsertLlmUsage {
+        tenant_id: "tenant-rt",
+        user_id: "user-rt",
+        conversation_id: Some("conv-rt"),
+        turn_id: turn,
+        provider: "copilot_headless",
+        model: "claude-opus-4",
+        prompt_tokens: 27_862,
+        completion_tokens: 4,
+        total_tokens: 27_866,
+        // The real ACP payload captured 2026-08-27.
+        cached_tokens: 15_320,
+        cached_write_tokens: 12_540,
+        reasoning_tokens: 640,
+        call_type: "chat",
+        tool_calls_count: 1,
+        tools_called: "[\"get_activities\"]",
+        execution_time_ms: Some(13_500),
+        cost_usd: 0.0,
+        call_sequence: Some(1),
+    };
+    repos.llm_usage.insert_llm_usage(&params).await.unwrap();
+
+    let rows = repos
+        .llm_usage
+        .get_recent_llm_calls_admin(10)
+        .await
+        .unwrap();
+    let row = rows
+        .iter()
+        .find(|r| r.user_id == "user-rt")
+        .expect("inserted row should come back from the admin query");
+
+    assert_eq!(
+        row.cached_tokens, 15_320,
+        "cache-read count did not persist"
+    );
+    assert_eq!(
+        row.cached_write_tokens, 12_540,
+        "cache-write count did not persist"
+    );
+    assert_eq!(row.reasoning_tokens, 640, "reasoning count did not persist");
+}
+
+/// The aggregate query sums the new columns rather than dropping them, so the
+/// "is the prefix churning?" question is answerable from the usage tables.
+#[tokio::test]
+async fn aggregates_sum_cache_write_and_reasoning_counts() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+
+    for _ in 0..3 {
+        let params = InsertLlmUsage {
+            tenant_id: "tenant-agg-cw",
+            user_id: "user-agg-cw",
+            conversation_id: None,
+            turn_id: ConversationTurnId::new(),
+            provider: "copilot_headless",
+            model: "claude-opus-4",
+            prompt_tokens: 1_000,
+            completion_tokens: 10,
+            total_tokens: 1_010,
+            cached_tokens: 100,
+            cached_write_tokens: 200,
+            reasoning_tokens: 30,
+            call_type: "chat",
+            tool_calls_count: 0,
+            tools_called: "[]",
+            execution_time_ms: Some(10),
+            cost_usd: 0.0,
+            call_sequence: None,
+        };
+        repos.llm_usage.insert_llm_usage(&params).await.unwrap();
+    }
+
+    let aggregates = repos
+        .llm_usage
+        .get_llm_usage_aggregates("tenant-agg-cw", "1970-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    let row = aggregates
+        .iter()
+        .find(|r| r.model == "claude-opus-4")
+        .expect("aggregate row for the inserted model");
+
+    assert_eq!(row.calls, 3);
+    assert_eq!(row.cached_tokens, 300, "3 x 100 cache reads");
+    assert_eq!(row.cached_write_tokens, 600, "3 x 200 cache writes");
+    assert_eq!(row.reasoning_tokens, 90, "3 x 30 reasoning tokens");
+}

@@ -41,6 +41,8 @@ async fn insert_test_usage(db: &dyn LlmUsageRepository, params: &TestUsageParams
         completion_tokens: params.completion_tokens,
         total_tokens: params.prompt_tokens + params.completion_tokens,
         cached_tokens: params.cached_tokens,
+        cached_write_tokens: 0,
+        reasoning_tokens: 0,
         call_type: params.call_type,
         tool_calls_count: 0,
         tools_called: "[]",

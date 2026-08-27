@@ -129,6 +129,8 @@ mod tool_called_happy_path {
             completion_tokens: 11,
             total_tokens: 53,
             cached_tokens: 0,
+            cached_write_tokens: 0,
+            reasoning_tokens: 0,
             call_type: TURN_SUMMARY_CALL_TYPE,
             tool_calls_count: 1,
             tools_called: tools_called_json,

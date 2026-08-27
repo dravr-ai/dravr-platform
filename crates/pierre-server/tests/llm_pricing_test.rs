@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_core::tokens::estimate_chat_tokens;
-use pierre_llm::pricing::calculate_cost;
+use pierre_llm::pricing::{calculate_cost, calculate_cost_for, TokenCounts};
 
 #[test]
 fn test_known_model_cost() {
@@ -163,4 +163,135 @@ fn test_estimate_tokens_realistic_conversation() {
     // 70 chars / 4 = 17, 55 chars / 4 = 13
     assert_eq!(prompt_tokens, 17);
     assert_eq!(completion_tokens, 13);
+}
+
+// ============================================================================
+// Cache and reasoning accounting (embacle 0.22.0 counts)
+// ============================================================================
+
+/// A cache *read* on an Anthropic-backed model bills at 0.10x input, not the
+/// flat 0.25x the pricing table used to apply to every provider.
+#[test]
+fn anthropic_cache_read_bills_at_ten_percent() {
+    // 1M prompt tokens, all served from cache, no output.
+    let counts = TokenCounts::new(1_000_000, 0).with_cache(1_000_000, 0);
+    let cost = calculate_cost_for("copilot_headless", "claude-opus-4", &counts);
+
+    // $15/M input x 0.10 = $1.50, NOT the $3.75 a flat 0.25x would charge.
+    assert!(
+        (cost - 1.50).abs() < 1e-9,
+        "expected $1.50 for 1M Anthropic cache-read tokens, got {cost}"
+    );
+}
+
+/// A cache *write* is a premium on Anthropic (1.25x), so it must cost MORE
+/// than the same tokens billed as fresh input. Folding writes into the fresh
+/// count — what the code did before these counts were carried — understated
+/// the bill, which is the failure this asserts against.
+#[test]
+fn anthropic_cache_write_bills_above_fresh_input() {
+    let written = TokenCounts::new(1_000_000, 0).with_cache(0, 1_000_000);
+    let fresh = TokenCounts::new(1_000_000, 0);
+
+    let write_cost = calculate_cost_for("copilot_headless", "claude-opus-4", &written);
+    let fresh_cost = calculate_cost_for("copilot_headless", "claude-opus-4", &fresh);
+
+    // $15/M x 1.25 = $18.75 against $15.00 fresh.
+    assert!(
+        (write_cost - 18.75).abs() < 1e-9,
+        "expected $18.75 for 1M Anthropic cache-write tokens, got {write_cost}"
+    );
+    assert!(
+        write_cost > fresh_cost,
+        "a cache write is a premium, not a discount: write={write_cost} fresh={fresh_cost}"
+    );
+}
+
+/// Reasoning tokens are excluded from `completion` by every provider that
+/// reports them, so they are additive on the output side. Dropping them
+/// charged nothing at all for that output.
+#[test]
+fn reasoning_tokens_bill_at_the_output_rate() {
+    let without = TokenCounts::new(0, 1_000_000);
+    let with = TokenCounts::new(0, 1_000_000).with_reasoning(1_000_000);
+
+    let cost_without = calculate_cost_for("copilot_headless", "claude-opus-4", &without);
+    let cost_with = calculate_cost_for("copilot_headless", "claude-opus-4", &with);
+
+    // $75/M output: 1M completion = $75, plus 1M reasoning = $150 total.
+    assert!(
+        (cost_without - 75.0).abs() < 1e-9,
+        "expected $75 for 1M completion tokens, got {cost_without}"
+    );
+    assert!(
+        (cost_with - 150.0).abs() < 1e-9,
+        "reasoning tokens must bill at the output rate; got {cost_with}"
+    );
+}
+
+/// The three providers price cache reads differently, and the table now
+/// carries each rate rather than averaging them into one constant.
+#[test]
+fn cache_read_rate_is_per_provider() {
+    let counts = TokenCounts::new(1_000_000, 0).with_cache(1_000_000, 0);
+
+    // Anthropic 0.10x of $15/M = $1.50
+    let anthropic = calculate_cost_for("copilot_headless", "claude-opus-4", &counts);
+    // OpenAI 0.50x of $2.50/M = $1.25
+    let openai = calculate_cost_for("openai_api", "gpt-4o", &counts);
+    // Gemini 0.25x of $0.075/M = $0.01875
+    let gemini = calculate_cost_for("gemini", "gemini-2.0-flash", &counts);
+
+    assert!((anthropic - 1.50).abs() < 1e-9, "anthropic={anthropic}");
+    assert!((openai - 1.25).abs() < 1e-9, "openai={openai}");
+    assert!((gemini - 0.018_75).abs() < 1e-9, "gemini={gemini}");
+}
+
+/// A turn reporting reads AND writes bills three prompt segments at three
+/// different rates. Shaped on the real Copilot ACP payload captured
+/// 2026-08-27: 15,320 read + 12,540 written out of 27,862 prompt tokens.
+#[test]
+fn real_acp_turn_splits_prompt_across_three_rates() {
+    let counts = TokenCounts::new(27_862, 4).with_cache(15_320, 12_540);
+    let cost = calculate_cost_for("copilot_headless", "claude-opus-4", &counts);
+
+    let input = 15.0 / 1_000_000.0;
+    let fresh = f64::from(27_862 - 15_320 - 12_540) * input;
+    let read = 15_320.0 * input * 0.10;
+    let write = 12_540.0 * input * 1.25;
+    let output = 4.0 * 75.0 / 1_000_000.0;
+    let expected = fresh + read + write + output;
+
+    assert!(
+        (cost - expected).abs() < 1e-12,
+        "expected {expected}, got {cost}"
+    );
+
+    // The naive all-fresh imputation the platform used before is a different
+    // number — this is the whole point of carrying the counts.
+    let naive = calculate_cost_for(
+        "copilot_headless",
+        "claude-opus-4",
+        &TokenCounts::new(27_862, 4),
+    );
+    assert!(
+        (cost - naive).abs() > 1e-9,
+        "cache-aware and all-fresh imputation must differ; both were {cost}"
+    );
+}
+
+/// Over-reported cache counts can never bill a prompt token twice or push the
+/// fresh remainder negative.
+#[test]
+fn cache_counts_are_clamped_to_the_prompt() {
+    let counts = TokenCounts::new(1_000, 0).with_cache(900, 900);
+    let cost = calculate_cost_for("copilot_headless", "claude-opus-4", &counts);
+
+    let input = 15.0 / 1_000_000.0;
+    // 900 read, then only 100 left to count as written, then 0 fresh.
+    let expected = 900.0f64.mul_add(input * 0.10, 100.0 * input * 1.25);
+    assert!(
+        (cost - expected).abs() < 1e-12,
+        "expected {expected}, got {cost}"
+    );
 }

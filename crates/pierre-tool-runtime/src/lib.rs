@@ -101,6 +101,9 @@ pub mod security;
 /// - `run_cli_tool_loop`: text-based `<tool_call>` blocks (CLI providers)
 #[cfg(feature = "client-chat")]
 pub mod function_dispatch;
+/// What one recorded LLM call is: the per-call metric and its sink trait.
+#[cfg(feature = "client-chat")]
+pub mod llm_call_record;
 #[cfg(feature = "client-chat")]
 pub mod tool_execution;
 #[cfg(feature = "client-chat")]

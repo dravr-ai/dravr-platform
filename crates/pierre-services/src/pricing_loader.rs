@@ -23,14 +23,24 @@ struct PricingOverridePayload {
     input_per_million: f64,
     /// USD per 1 million output (completion) tokens.
     output_per_million: f64,
+    /// Fraction of the input rate at which a cache *read* bills. Omitted by
+    /// every override written before the multipliers existed, so it falls
+    /// back to the compile-time default rather than repricing to zero.
+    cache_read_multiplier: Option<f64>,
+    /// Fraction of the input rate at which a cache *write* bills. On
+    /// Anthropic this is a premium (1.25), not a discount.
+    cache_write_multiplier: Option<f64>,
 }
 
 impl From<PricingOverridePayload> for ModelPricing {
     fn from(p: PricingOverridePayload) -> Self {
-        Self {
-            input_per_million: p.input_per_million,
-            output_per_million: p.output_per_million,
-        }
+        let base = Self::new(p.input_per_million, p.output_per_million);
+        base.with_cache_rates(
+            p.cache_read_multiplier
+                .unwrap_or(base.cache_read_multiplier),
+            p.cache_write_multiplier
+                .unwrap_or(base.cache_write_multiplier),
+        )
     }
 }
 

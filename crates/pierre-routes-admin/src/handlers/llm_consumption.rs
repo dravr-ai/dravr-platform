@@ -599,6 +599,8 @@ fn build_turn_summary(
             completion_tokens: row.completion_tokens,
             total_tokens: row.total_tokens,
             cached_tokens: row.cached_tokens,
+            cached_write_tokens: row.cached_write_tokens,
+            reasoning_tokens: row.reasoning_tokens,
             latency_ms: row.execution_time_ms,
             created_at: row.created_at.clone(),
         })
@@ -739,6 +741,8 @@ mod tool_usage_tests {
             completion_tokens: 0,
             total_tokens: 0,
             cached_tokens: 0,
+            cached_write_tokens: 0,
+            reasoning_tokens: 0,
             call_type: "chat".to_owned(),
             tool_calls_count: i64::try_from(tools.len()).unwrap_or(0),
             tools_called: serde_json::to_string(tools).unwrap_or_else(|_| "[]".to_owned()),

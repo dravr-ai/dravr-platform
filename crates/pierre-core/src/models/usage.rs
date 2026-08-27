@@ -51,10 +51,17 @@ pub struct LlmUsageRecord {
     pub completion_tokens: i64,
     /// Total tokens (prompt + completion)
     pub total_tokens: i64,
-    /// Prompt tokens served from the provider's context cache. Billed
-    /// at 25% of the model's input rate per Gemini/OpenAI convention.
-    /// Zero when the provider does not report cache metrics.
+    /// Prompt tokens served from the provider's context cache. Billed at
+    /// the model's cache-read multiplier of its input rate. Zero when the
+    /// provider does not report cache metrics.
     pub cached_tokens: i64,
+    /// Prompt tokens written into the provider's context cache by this
+    /// call. Billed at the model's cache-write multiplier — a premium on
+    /// Anthropic, not a discount. Zero when unreported.
+    pub cached_write_tokens: i64,
+    /// Reasoning tokens reported apart from the completion count, billed
+    /// at the output rate. Zero when unreported.
+    pub reasoning_tokens: i64,
     /// Type of call (e.g. "chat", "insight", "embedding")
     pub call_type: String,
     /// Number of tool calls in this interaction
@@ -141,6 +148,12 @@ pub struct ConversationTurnLlmCall {
     /// re-reading a six-figure prompt and not, and this endpoint is where a
     /// turn is inspected. Aggregates hide exactly the turn you are looking at.
     pub cached_tokens: i64,
+    /// Prompt tokens written into the provider's context cache. Billed at
+    /// the model's cache-write multiplier — a premium on Anthropic.
+    pub cached_write_tokens: i64,
+    /// Reasoning tokens reported apart from the completion count, billed
+    /// at the output rate.
+    pub reasoning_tokens: i64,
     /// Execution time in milliseconds
     pub latency_ms: Option<i64>,
     /// When the call was recorded (ISO 8601)
@@ -253,9 +266,16 @@ pub struct InsertLlmUsage<'a> {
     /// Total tokens (prompt + completion)
     pub total_tokens: i64,
     /// Prompt tokens served from the provider's context cache. Zero
-    /// when the provider did not report cache hits. Cached tokens are
-    /// billed at 25% of the model's input rate.
+    /// when the provider did not report cache hits. Billed at the
+    /// model's cache-read multiplier of its input rate.
     pub cached_tokens: i64,
+    /// Prompt tokens written into the provider's context cache by this
+    /// call. Billed at the model's cache-write multiplier, which is a
+    /// premium (1.25x) on Anthropic rather than a discount.
+    pub cached_write_tokens: i64,
+    /// Reasoning tokens reported apart from the completion count, billed
+    /// at the output rate. Zero when the provider does not report them.
+    pub reasoning_tokens: i64,
     /// Type of call (e.g. "chat", "insight", "embedding")
     pub call_type: &'a str,
     /// Number of tool calls in this interaction
@@ -273,6 +293,47 @@ pub struct InsertLlmUsage<'a> {
     /// `Some(1)` for the first call, `Some(2)` for the second, etc.
     /// `None` is permitted only during backfill of pre-Phase-1 rows.
     pub call_sequence: Option<i64>,
+}
+
+impl<'a> InsertLlmUsage<'a> {
+    /// A direct MCP tool call: real work, but no LLM request behind it.
+    ///
+    /// `POST /mcp` can execute a tool without any model in the loop, and those
+    /// executions still belong in `llm_usage` because that is where per-tool
+    /// volume is counted. Every token and cost field is therefore zero as a
+    /// *correct* measurement, not a missing one, and the `model` column carries
+    /// the tool name because there is no model to name. Naming the shape here
+    /// keeps that reasoning attached to it rather than to one call site.
+    #[must_use]
+    pub const fn for_direct_tool_call(
+        tenant_id: &'a str,
+        user_id: &'a str,
+        turn_id: ConversationTurnId,
+        tool_name: &'a str,
+        tools_called: &'a str,
+        execution_time_ms: i64,
+    ) -> Self {
+        Self {
+            tenant_id,
+            user_id,
+            conversation_id: None,
+            turn_id,
+            provider: "direct",
+            model: tool_name,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            cached_tokens: 0,
+            cached_write_tokens: 0,
+            reasoning_tokens: 0,
+            call_type: "mcp_tool",
+            tool_calls_count: 1,
+            tools_called,
+            execution_time_ms: Some(execution_time_ms),
+            cost_usd: 0.0,
+            call_sequence: None,
+        }
+    }
 }
 
 /// Record of a single embedding API call, persisted in the
@@ -337,6 +398,12 @@ pub struct LlmUsageAggregateRow {
     /// recomputed cost with a hardcoded zero before, ignoring the discount
     /// even on rows that stored a real count.
     pub cached_tokens: i64,
+    /// Prompt tokens written into the provider's context cache. Billed at
+    /// the model's cache-write multiplier — a premium on Anthropic.
+    pub cached_write_tokens: i64,
+    /// Reasoning tokens reported apart from the completion count, billed
+    /// at the output rate.
+    pub reasoning_tokens: i64,
 }
 
 /// Daily LLM usage summary
@@ -360,4 +427,10 @@ pub struct LlmUsageDailyRow {
     /// recomputed cost with a hardcoded zero before, ignoring the discount
     /// even on rows that stored a real count.
     pub cached_tokens: i64,
+    /// Prompt tokens written into the provider's context cache. Billed at
+    /// the model's cache-write multiplier — a premium on Anthropic.
+    pub cached_write_tokens: i64,
+    /// Reasoning tokens reported apart from the completion count, billed
+    /// at the output rate.
+    pub reasoning_tokens: i64,
 }

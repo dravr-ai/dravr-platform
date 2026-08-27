@@ -55,8 +55,8 @@ impl Database {
 
         sqlx::query(
             r"
-            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, turn_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cached_tokens, call_type, tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, turn_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cached_tokens, cached_write_tokens, reasoning_tokens, call_type, tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             ",
         )
         .bind(&id)
@@ -70,6 +70,8 @@ impl Database {
         .bind(params.completion_tokens)
         .bind(params.total_tokens)
         .bind(params.cached_tokens)
+        .bind(params.cached_write_tokens)
+        .bind(params.reasoning_tokens)
         .bind(params.call_type)
         .bind(params.tool_calls_count)
         .bind(params.tools_called)
@@ -93,6 +95,8 @@ impl Database {
             completion_tokens: params.completion_tokens,
             total_tokens: params.total_tokens,
             cached_tokens: params.cached_tokens,
+            cached_write_tokens: params.cached_write_tokens,
+            reasoning_tokens: params.reasoning_tokens,
             call_type: params.call_type.to_owned(),
             tool_calls_count: params.tool_calls_count,
             tools_called: params.tools_called.to_owned(),
@@ -150,26 +154,31 @@ impl Database {
         tenant_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageAggregateRow>> {
-        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, i64)>(
-            r"
+        let rows =
+            sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, i64, i64, i64)>(
+                r"
             SELECT provider, model, call_type,
                    SUM(total_tokens) as total_tokens,
                    SUM(prompt_tokens) as prompt_tokens,
                    SUM(completion_tokens) as completion_tokens,
                    SUM(cached_tokens) as cached_tokens,
+                   SUM(cached_write_tokens) as cached_write_tokens,
+                   SUM(reasoning_tokens) as reasoning_tokens,
                    COUNT(*) as calls
             FROM llm_usage
             WHERE tenant_id = $1 AND created_at >= $2 AND call_type != $3
             GROUP BY provider, model, call_type
             ORDER BY total_tokens DESC
             ",
-        )
-        .bind(tenant_id)
-        .bind(since)
-        .bind(TURN_SUMMARY_CALL_TYPE)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to query LLM usage aggregates: {e}")))?;
+            )
+            .bind(tenant_id)
+            .bind(since)
+            .bind(TURN_SUMMARY_CALL_TYPE)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to query LLM usage aggregates: {e}"))
+            })?;
 
         Ok(rows
             .into_iter()
@@ -182,6 +191,8 @@ impl Database {
                     prompt_tokens,
                     completion_tokens,
                     cached_tokens,
+                    cached_write_tokens,
+                    reasoning_tokens,
                     calls,
                 )| {
                     LlmUsageAggregateRow {
@@ -192,6 +203,8 @@ impl Database {
                         prompt_tokens,
                         completion_tokens,
                         cached_tokens,
+                        cached_write_tokens,
+                        reasoning_tokens,
                         calls,
                     }
                 },
@@ -210,13 +223,15 @@ impl Database {
         tenant_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>> {
-        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, Option<f64>)>(
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64, Option<f64>)>(
             r"
             SELECT DATE(created_at) as date,
                    SUM(total_tokens) as tokens,
                    SUM(prompt_tokens) as prompt_tokens,
                    SUM(completion_tokens) as completion_tokens,
                    SUM(cached_tokens) as cached_tokens,
+                   SUM(cached_write_tokens) as cached_write_tokens,
+                   SUM(reasoning_tokens) as reasoning_tokens,
                    COUNT(*) as calls,
                    AVG(CAST(execution_time_ms AS REAL)) as avg_exec_ms
             FROM llm_usage
@@ -241,6 +256,8 @@ impl Database {
                     prompt_tokens,
                     completion_tokens,
                     cached_tokens,
+                    cached_write_tokens,
+                    reasoning_tokens,
                     calls,
                     avg_exec_ms,
                 )| {
@@ -250,6 +267,8 @@ impl Database {
                         prompt_tokens,
                         completion_tokens,
                         cached_tokens,
+                        cached_write_tokens,
+                        reasoning_tokens,
                         calls,
                         avg_execution_time_ms: avg_exec_ms.unwrap_or(0.0),
                     }
@@ -296,28 +315,31 @@ impl LlmUsageRepository for Database {
         user_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageAggregateRow>> {
-        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, i64)>(
-            r"
+        let rows =
+            sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, i64, i64, i64)>(
+                r"
             SELECT provider, model, call_type,
                    SUM(total_tokens) as total_tokens,
                    SUM(prompt_tokens) as prompt_tokens,
                    SUM(completion_tokens) as completion_tokens,
                    SUM(cached_tokens) as cached_tokens,
+                   SUM(cached_write_tokens) as cached_write_tokens,
+                   SUM(reasoning_tokens) as reasoning_tokens,
                    COUNT(*) as calls
             FROM llm_usage
             WHERE user_id = $1 AND created_at >= $2 AND call_type != $3
             GROUP BY provider, model, call_type
             ORDER BY total_tokens DESC
             ",
-        )
-        .bind(user_id)
-        .bind(since)
-        .bind(TURN_SUMMARY_CALL_TYPE)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            AppError::database(format!("Failed to query LLM usage aggregates by user: {e}"))
-        })?;
+            )
+            .bind(user_id)
+            .bind(since)
+            .bind(TURN_SUMMARY_CALL_TYPE)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to query LLM usage aggregates by user: {e}"))
+            })?;
 
         Ok(rows
             .into_iter()
@@ -330,6 +352,8 @@ impl LlmUsageRepository for Database {
                     prompt_tokens,
                     completion_tokens,
                     cached_tokens,
+                    cached_write_tokens,
+                    reasoning_tokens,
                     calls,
                 )| LlmUsageAggregateRow {
                     provider,
@@ -339,6 +363,8 @@ impl LlmUsageRepository for Database {
                     prompt_tokens,
                     completion_tokens,
                     cached_tokens,
+                    cached_write_tokens,
+                    reasoning_tokens,
                     calls,
                 },
             )
@@ -350,13 +376,15 @@ impl LlmUsageRepository for Database {
         user_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>> {
-        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, Option<f64>)>(
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64, Option<f64>)>(
             r"
             SELECT DATE(created_at) as date,
                    SUM(total_tokens) as tokens,
                    SUM(prompt_tokens) as prompt_tokens,
                    SUM(completion_tokens) as completion_tokens,
                    SUM(cached_tokens) as cached_tokens,
+                   SUM(cached_write_tokens) as cached_write_tokens,
+                   SUM(reasoning_tokens) as reasoning_tokens,
                    COUNT(*) as calls,
                    AVG(CAST(execution_time_ms AS REAL)) as avg_exec_ms
             FROM llm_usage
@@ -385,6 +413,8 @@ impl LlmUsageRepository for Database {
                     prompt_tokens,
                     completion_tokens,
                     cached_tokens,
+                    cached_write_tokens,
+                    reasoning_tokens,
                     calls,
                     avg_exec_ms,
                 )| {
@@ -394,6 +424,8 @@ impl LlmUsageRepository for Database {
                         prompt_tokens,
                         completion_tokens,
                         cached_tokens,
+                        cached_write_tokens,
+                        reasoning_tokens,
                         calls,
                         avg_execution_time_ms: avg_exec_ms.unwrap_or(0.0),
                     }
@@ -407,7 +439,7 @@ impl LlmUsageRepository for Database {
             &self.pool,
             r"
             SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model,
-                   prompt_tokens, completion_tokens, total_tokens, cached_tokens, call_type,
+                   prompt_tokens, completion_tokens, total_tokens, cached_tokens, cached_write_tokens, reasoning_tokens, call_type,
                    tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, created_at
             FROM llm_usage
             ORDER BY created_at DESC
@@ -429,7 +461,7 @@ impl LlmUsageRepository for Database {
             &self.pool,
             r"
             SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model,
-                   prompt_tokens, completion_tokens, total_tokens, cached_tokens, call_type,
+                   prompt_tokens, completion_tokens, total_tokens, cached_tokens, cached_write_tokens, reasoning_tokens, call_type,
                    tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, created_at
             FROM llm_usage
             WHERE tenant_id = $1 AND created_at >= $2 AND tools_called <> '[]'
@@ -478,7 +510,7 @@ impl LlmUsageRepository for Database {
             &self.pool,
             r"
             SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model,
-                   prompt_tokens, completion_tokens, total_tokens, cached_tokens, call_type,
+                   prompt_tokens, completion_tokens, total_tokens, cached_tokens, cached_write_tokens, reasoning_tokens, call_type,
                    tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, created_at
             FROM llm_usage
             WHERE turn_id = $1
@@ -551,6 +583,8 @@ struct LlmUsageRow {
     completion_tokens: i64,
     total_tokens: i64,
     cached_tokens: i64,
+    cached_write_tokens: i64,
+    reasoning_tokens: i64,
     call_type: String,
     tool_calls_count: i64,
     tools_called: String,
@@ -576,6 +610,8 @@ impl LlmUsageRow {
             completion_tokens: self.completion_tokens,
             total_tokens: self.total_tokens,
             cached_tokens: self.cached_tokens,
+            cached_write_tokens: self.cached_write_tokens,
+            reasoning_tokens: self.reasoning_tokens,
             call_type: self.call_type,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,

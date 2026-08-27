@@ -120,9 +120,11 @@ fn anchor_instructs_to_copy_not_compute_epochs() {
 /// any of the prompt behind it — including providers that cache implicitly on a
 /// stable prefix, with no `cache_control` needed.
 ///
-/// That is a cause of the zero cache reads measured across August 2026 that is
-/// entirely ours. registre#102 covers the other half, the transport not
-/// reporting cache hits at all; this half is fixable here and was.
+/// That is a cause of poor cache reuse that is entirely ours, and it is fixed
+/// here. The flat zero cache reads recorded across August 2026 were a
+/// measurement artifact rather than a finding — embacle parsed past the counts
+/// the providers were already sending until 0.22.0 — so they neither confirm
+/// nor refute this block's effect.
 ///
 /// Flooring, not rounding up: rounding up crosses midnight and would move
 /// "today" a day early at 23:58. The cost is an upper bound up to one quantum

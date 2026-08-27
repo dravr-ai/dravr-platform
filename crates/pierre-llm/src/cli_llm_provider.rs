@@ -517,7 +517,13 @@ const fn runner_display_name(runner_type: CliRunnerType) -> &'static str {
 /// This allows the headless runner to be stored both as a trait object (for the
 /// unified `runner` field) and as a typed `Arc` (for `converse()` access).
 ///
-/// LIMITATION(registre#102): `HeadlessRunnerAdapter` forwards ACP usage that carries no cache-read count, so `cached_tokens` is 0 on every native call and nothing on this path marks the system-prompt + tool-surface prefix cacheable.
+/// LIMITATION(registre#102): nothing on this path marks the system-prompt +
+/// tool-surface prefix cacheable, because the platform does not own the upstream
+/// request the ACP agent makes — `cache_control` can only be set on a path we
+/// build ourselves. Copilot caches the prefix on its own regardless (a live
+/// claude-opus-4.8 turn read 15,320 of 27,862 prompt tokens from cache), and
+/// since embacle 0.22.0 that count is reported and billed; what remains absent
+/// is any ability to *ask* for it.
 struct HeadlessRunnerAdapter(Arc<CopilotHeadlessRunner>);
 
 #[async_trait]
