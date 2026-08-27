@@ -367,19 +367,17 @@ async fn test_discovery_endpoint_unauthenticated_returns_401() -> Result<()> {
 #[tokio::test]
 async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let (mut user, token) =
-        common::create_test_tenant(&resources, "parity-admin@example.com").await?;
+    let (user, token) = common::create_test_tenant(&resources, "parity-admin@example.com").await?;
     // Both surfaces return the unfiltered registry only for a genuine GLOBAL admin
     // (`User.is_admin`) — not just a tenant owner — so parity is asserted at that tier.
-    // The wire gate resolves the flag from the DB at request time, and create() upserts the
-    // existing user, so flipping it here makes the already-issued token an admin caller.
-    user.is_admin = true;
+    // The wire gate resolves the flag from the DB at request time, so flipping it here
+    // makes the already-issued token an admin caller.
     resources
         .coach
         .database
         .repositories()
         .users
-        .create(&user)
+        .set_admin_status(user.id, true)
         .await
         .map_err(|e| anyhow::anyhow!("promote parity user to global admin failed: {e}"))?;
     let server = common::spawn_http_mcp_server(&resources).await?;
@@ -433,18 +431,17 @@ async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<(
 #[tokio::test]
 async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let (mut user, token) =
+    let (user, token) =
         common::create_test_tenant(&resources, "wire-parity-admin@example.com").await?;
     // The wire response must match the FULL in-process registry, which only a global admin
-    // (`User.is_admin`) sees; a tenant owner gets the filtered non-admin subset. create()
-    // upserts the existing user, so the already-issued token authenticates as an admin.
-    user.is_admin = true;
+    // (`User.is_admin`) sees; a tenant owner gets the filtered non-admin subset. Flipping
+    // the flag in the DB makes the already-issued token authenticate as an admin.
     resources
         .coach
         .database
         .repositories()
         .users
-        .create(&user)
+        .set_admin_status(user.id, true)
         .await
         .map_err(|e| anyhow::anyhow!("promote wire-parity user to global admin failed: {e}"))?;
     let server = common::spawn_http_mcp_server(&resources).await?;
