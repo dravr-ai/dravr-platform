@@ -240,7 +240,7 @@ variable "backend_memory" {
 }
 
 variable "backend_min_instances" {
-  description = "Minimum backend instances. 1, not scale-to-zero: a messaging turn runs detached after its webhook returned 200, so Cloud Run reads the instance as idle while it is working and a scaledown can land on a live coaching turn (registre#109). Costs ~$140/mo under cpu_idle=false — see terraform.tfvars for the tradeoff. The idle-floor alert keys off this value, not off zero."
+  description = "Minimum backend instances (0 for scale-to-zero)"
   type        = number
   default     = 0
 }
