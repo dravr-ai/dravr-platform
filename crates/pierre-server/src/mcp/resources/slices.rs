@@ -58,6 +58,7 @@ use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 use crate::services::photograveur_client::PhotograveurClient;
+use crate::services::turn_lifecycle::InFlightTurns;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -132,6 +133,14 @@ pub struct CommonSlice {
     pub repos: Arc<RepositoryRegistry>,
     /// Cache layer for performance optimization.
     pub cache: Arc<Cache>,
+    /// The detached background turns this process still owes an answer for.
+    ///
+    /// A messaging webhook returns 200 before its LLM turn runs, so nothing
+    /// in the request layer knows the turn exists. Every turn is spawned
+    /// through this tracker instead, which is what lets shutdown await them
+    /// and what lets a turn learn the instance is going away in time to
+    /// close its status placeholder (registre#109).
+    pub turns: Arc<InFlightTurns>,
     /// Client for the photograveur press service.
     ///
     /// Disabled when `PHOTOGRAVEUR_URL` is unset, so a stack without the

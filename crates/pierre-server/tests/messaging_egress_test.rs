@@ -492,6 +492,9 @@ async fn a_panicking_pipeline_stage_becomes_a_reportable_failure() {
         }
         TurnOutcome::Delivered(_) => panic!("a panicking turn must not report a reply"),
         TurnOutcome::QuotaDenied(_) => panic!("a panic is not a budget refusal"),
+        // `run_guarded` alone cannot interrupt a turn — only `run_bounded`,
+        // which wraps it, holds the watchdog and the drain signal.
+        TurnOutcome::Interrupted(_) => panic!("the panic boundary does not interrupt turns"),
     }
 }
 
@@ -536,6 +539,7 @@ async fn a_clean_turn_is_delivered_unchanged() {
         }
         TurnOutcome::Failed(err) => panic!("a clean turn must not fail: {err}"),
         TurnOutcome::QuotaDenied(err) => panic!("a clean turn is not refused: {err}"),
+        TurnOutcome::Interrupted(_) => panic!("the panic boundary does not interrupt turns"),
     }
 }
 

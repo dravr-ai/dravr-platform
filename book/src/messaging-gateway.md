@@ -529,6 +529,49 @@ All HTML templates use `html_escape::encode_text()` on template variables before
 - 10-minute expiry enforced at the database level
 - Cross-channel guard: link code's channel type must match the URL channel
 
+## Turn Lifecycle
+
+A webhook answers `200 OK` as soon as the inbound message is persisted; the LLM
+turn keeps running behind it. That is deliberate — Telegram retries a webhook
+that takes seconds to answer — but it means the turn is invisible to anything
+reasoning about the process being busy. Cloud Run counts in-flight *requests*,
+so from its side the instance goes idle in the same second the athlete asks
+their question, and any rollout or scaledown is free to terminate it.
+
+Every turn is therefore spawned through `InFlightTurns`
+(`services::turn_lifecycle`), which the server context holds, and which all
+three ingress paths use — webhook, Discord Gateway, and Slack socket mode.
+Three things follow from that:
+
+**Shutdown drains.** On SIGTERM the server awaits in-flight turns for 5s. Most
+of a turn's wall clock is one LLM call, so a turn that started seconds earlier
+usually lands its reply inside that window and the athlete never learns the
+instance changed. Whatever is still running is then signalled and given 2s to
+close (below). The whole budget fits inside Cloud Run's ~10s default
+termination grace — a drain that overran it would be killed partway.
+
+**Turns are bounded.** `MESSAGING_TURN_WATCHDOG_SECS` (default 960) caps one
+turn's wall clock. This is not a latency target: it sits above every bound the
+turn runs under — a loopback tool call at 90s, an ACP message gap at 120s, a
+whole ACP prompt at 300s, and a turn legitimately opens more than one ACP
+session. Reaching it means the turn found something with no bound of its own,
+and an unbounded turn also holds its conversation's dispatch lock, so the
+athlete's next question queues behind it.
+
+**A turn that cannot finish says so.** On a channel with status streaming
+(Telegram, Slack, Discord) the athlete is looking at a "thinking…" placeholder,
+and that text is only ever *replaced*, at the end of a turn that reaches its
+end. A turn ended by the watchdog or the drain writes the localized
+`messaging.turn_interrupted` notice into the placeholder instead, so it stops
+reading like a slow answer that is still coming. Channels that cannot edit a
+sent message (WhatsApp, Messenger) receive it as a plain reply.
+
+Both causes are distinguishable in the logs — `messaging.error` carries
+`error_type=turn_watchdog` or `error_type=shutdown_drain` — because a hung turn
+is a bug and a drained one is a deploy. Shutdown logs a drain report; a turn
+abandoned past both windows is an ERROR, since it is an athlete who will never
+be told anything.
+
 ## Outbound Retry Queue
 
 Failed outbound message deliveries are automatically retried with exponential backoff:
@@ -554,6 +597,7 @@ The background worker polls every 5 seconds, processing up to 20 entries per cyc
 | Messages received but no AI reply | LLM pipeline not configured | Set `PIERRE_LLM_PROVIDER` and credentials (see [LLM Providers](llm-providers.md)) |
 | Outbound messages stuck in `retrying:N` | Platform API rejecting requests | Check channel credentials; inspect `messaging_outbound_queue` table |
 | Messages going to `dlq` | 3 delivery attempts exhausted | Check platform API status; verify bot token/API key is valid |
+| Reply is the "interrupted" notice, not an answer | The turn hit `MESSAGING_TURN_WATCHDOG_SECS` or the instance drained mid-turn | Grep `messaging.error` for `error_type=turn_watchdog` (something below the pipeline is unbounded) vs `shutdown_drain` (a deploy or scaledown landed on a live turn) |
 | Cross-tenant link code rejected | Link code belongs to a different tenant | Link codes are tenant-scoped by design; generate a new one in the correct tenant |
 
 ## Test Automation Strategy

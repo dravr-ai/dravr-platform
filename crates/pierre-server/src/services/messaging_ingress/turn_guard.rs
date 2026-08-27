@@ -6,8 +6,8 @@
 
 //! What holds a messaging turn together.
 //!
-//! Two guards wrap every dispatch, and neither shows up in a reply when it is
-//! doing its job:
+//! Three guards wrap every dispatch, and none of them shows up in a reply
+//! when it is doing its job:
 //!
 //! 1. **Ordering.** A webhook returns HTTP 200 before the turn runs, so two
 //!    messages sent a second apart in the same conversation start two
@@ -21,10 +21,20 @@
 //!    error, nothing to report. [`run_guarded`] catches it, turns it into a
 //!    structured failure for *this* turn, and lets the caller answer with a
 //!    correlation id an operator can grep.
+//!
+//! 3. **Termination.** A turn runs detached from the request that started it,
+//!    so nothing else ever ends it: not the HTTP layer, which answered 200
+//!    before the turn began, and not the process, which is free to exit while
+//!    the turn is mid-call. [`run_bounded`] gives it both missing endings — a
+//!    wall-clock ceiling, and the shutdown drain signal — so a turn that
+//!    cannot finish still gets to say so. Without it a dead turn leaves the
+//!    athlete's "thinking…" placeholder open permanently, which reads exactly
+//!    like a slow answer that is still coming (registre#109).
 
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
 use dashmap::DashMap;
 use futures_util::FutureExt;
@@ -32,6 +42,8 @@ use pierre_chat_pipeline::ServedTurn;
 use pierre_core::error_helpers::panic_payload_str;
 use pierre_core::errors::{AppError, ErrorCode};
 use tokio::sync::Mutex as TokioMutex;
+use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 /// Per-conversation dispatch locks ensuring sequential LLM processing.
@@ -86,6 +98,36 @@ pub enum TurnOutcome {
     QuotaDenied(AppError),
     /// The turn failed, including by panicking inside a pipeline stage.
     Failed(AppError),
+    /// The turn was still running when something outside it ran out of
+    /// patience. It produced no answer and never will.
+    Interrupted(TurnInterruption),
+}
+
+/// Why a turn was cut short before it produced anything.
+///
+/// The athlete gets the same sentence either way — the answer is not coming,
+/// ask again — but an operator reading the log needs to tell a hung turn from
+/// a deploy that landed on a healthy one, because only the first is a bug.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnInterruption {
+    /// The turn exceeded its wall-clock ceiling. Everything below it is
+    /// individually bounded, so reaching this means something under the
+    /// pipeline has no timeout of its own.
+    Watchdog,
+    /// The process is shutting down and spent its grace window without this
+    /// turn finishing. Not a fault of the turn.
+    Drain,
+}
+
+impl TurnInterruption {
+    /// Stable label for logs and the `messaging.error` notify event.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Watchdog => "turn_watchdog",
+            Self::Drain => "shutdown_drain",
+        }
+    }
 }
 
 /// Run one turn behind the panic boundary and classify how it ended.
@@ -117,6 +159,45 @@ where
             "chat pipeline panicked: {}",
             panic_payload_str(panic.as_ref())
         ))),
+    }
+}
+
+/// Run one guarded turn under both of its missing endings.
+///
+/// `run` is the already-guarded turn (so a panic inside it still classifies as
+/// [`TurnOutcome::Failed`], not as an interruption). This adds the two ways a
+/// turn ends without the pipeline having any say:
+///
+/// - `budget` elapses. Every stage under the pipeline is separately bounded —
+///   a loopback tool call at 90s, an ACP message gap at 120s, a whole ACP
+///   prompt at 300s — so this ceiling is not there to cut a slow turn short.
+///   It exists because a turn that outlives all of those has found something
+///   with no bound at all, and an unbounded turn holds its conversation's
+///   dispatch lock, so the athlete's *next* question queues behind it too.
+/// - `drain` fires. The process is going away; see
+///   `services::turn_lifecycle::InFlightTurns`.
+///
+/// Whichever arrives first wins, and the turn future is dropped at that point
+/// — cancellation, not abortion, so every stage unwinds through its own
+/// `Drop`. The caller is expected to answer an [`TurnOutcome::Interrupted`]
+/// with a closing message rather than silence.
+///
+/// The turn is pinned to the heap for the same reason [`run_guarded`] pins its
+/// own: a `select!` holds every branch inline, so an unboxed turn would put
+/// the whole chat state machine on the stack of the task awaiting it.
+pub async fn run_bounded<F>(run: F, budget: Duration, drain: &CancellationToken) -> TurnOutcome
+where
+    F: Future<Output = TurnOutcome>,
+{
+    let run = Box::pin(run);
+    tokio::select! {
+        // Biased: when a turn completes in the same poll as the deadline, the
+        // completed turn is the truthful answer. Left to chance, a turn that
+        // finished would sometimes be reported to the athlete as interrupted.
+        biased;
+        outcome = run => outcome,
+        () = drain.cancelled() => TurnOutcome::Interrupted(TurnInterruption::Drain),
+        () = sleep(budget) => TurnOutcome::Interrupted(TurnInterruption::Watchdog),
     }
 }
 

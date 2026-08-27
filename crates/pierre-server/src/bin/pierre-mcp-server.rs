@@ -26,6 +26,8 @@ use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
 use pierre_mcp_server::cache::cache_from_env;
+#[cfg(unix)]
+use pierre_mcp_server::services::turn_lifecycle::spawn_sigterm_drain;
 use pierre_mcp_server::{
     constants::init_server_config,
     features::FeatureConfig,
@@ -43,16 +45,6 @@ use pierre_tool_runtime::guardian;
 type Result<T> = AppResult<T>;
 use std::{env, sync::Arc};
 use tokio::runtime::{Builder, Runtime};
-// SIGTERM-based shutdown notification is Unix-only: Cloud Run (Linux) delivers
-// SIGTERM on scale-down/redeploy, and `tokio::signal::unix` does not exist on
-// Windows. The cross-platform build compiles this binary on Windows too, so the
-// handler and its supporting imports are gated to Unix.
-#[cfg(unix)]
-use std::time::Duration;
-#[cfg(unix)]
-use tokio::signal::unix::{signal, SignalKind};
-#[cfg(unix)]
-use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 /// Command-line arguments for the Dravr MCP server
@@ -795,21 +787,8 @@ async fn create_server(
 
     server_lifecycle::notify_started();
 
-    // The shutdown notice races Cloud Run's ~10s SIGTERM grace window; the short
-    // flush sleep gives it a chance to send before the process is killed.
     #[cfg(unix)]
-    tokio::spawn(async {
-        match signal(SignalKind::terminate()) {
-            Ok(mut sigterm) => {
-                sigterm.recv().await;
-                server_lifecycle::notify_stopping();
-                sleep(Duration::from_secs(3)).await;
-            }
-            Err(e) => {
-                warn!(error = %e, "Failed to install SIGTERM handler for shutdown notification");
-            }
-        }
-    });
+    spawn_sigterm_drain(Arc::clone(&resources.common.turns));
 
     // Initialize product analytics (PostHog or noop)
     pierre_mcp_server::init_analytics();

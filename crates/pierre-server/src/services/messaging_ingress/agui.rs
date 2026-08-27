@@ -76,11 +76,17 @@ impl MessagingAgUiWiring {
     /// status the reply never travels the normal send path, so without this
     /// the athlete's main reply bubble would be the one message the platform
     /// holds no record of — and an emoji on it would resolve to nothing.
+    ///
+    /// `assistant_message_id` is `None` when what collapses the placeholder is
+    /// not an answer — the notice closing an interrupted turn, say. There is
+    /// no assistant row to point an emoji reaction at in that case, and
+    /// stamping a fabricated one would make an unrated notice look like a
+    /// rated reply.
     pub(super) async fn finalize_reply(
         &self,
         reply: &str,
         dispatch: &PendingDispatch,
-        assistant_message_id: &str,
+        assistant_message_id: Option<&str>,
     ) -> bool {
         let Some(adapter) = self.status_adapter.as_ref() else {
             return false;
@@ -102,6 +108,20 @@ impl MessagingAgUiWiring {
         }
     }
 
+    /// Stop mirroring pipeline progress into the placeholder.
+    ///
+    /// Called before writing a terminal notice into it. The consumer renders
+    /// whatever AG-UI events are still queued, so left running it can follow
+    /// the notice with a stale "assembling the prompt…" — putting the athlete
+    /// back to waiting on the answer they were just told is not coming. The
+    /// happy path does not need this: the pipeline's own events are what it
+    /// is rendering, and they stop when the reply is ready.
+    pub(super) fn stop_status_updates(&self) {
+        if let Some(handle) = self.status_consumer.as_ref() {
+            handle.abort();
+        }
+    }
+
     /// Persist the outbound row for a reply the status adapter delivered by
     /// collapsing its placeholder, stamped with the assistant message it
     /// carried so a reaction can resolve back to it.
@@ -109,7 +129,7 @@ impl MessagingAgUiWiring {
         &self,
         reply: &str,
         dispatch: &PendingDispatch,
-        assistant_message_id: &str,
+        assistant_message_id: Option<&str>,
     ) {
         let Some(channel_message_id) = self.status_message_id.as_deref() else {
             return;
@@ -126,7 +146,7 @@ impl MessagingAgUiWiring {
             dispatch,
             channel_message_id,
             &outgoing,
-            Some(assistant_message_id),
+            assistant_message_id,
         )
         .await;
     }

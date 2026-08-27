@@ -87,6 +87,12 @@ pub const KEY_GUARDIAN_CONFIRM_EXPIRED: &str = "messaging.guardian.confirm_expir
 pub const KEY_GUARDIAN_CONFIRM_NOT_FOUND: &str = "messaging.guardian.confirm_not_found";
 /// Key: LLM returned an empty reply, reformulation request.
 pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
+/// Key: the turn was cut short before producing anything.
+///
+/// Its wall-clock ceiling elapsed, or the instance running it shut down.
+/// Closes the status placeholder that would otherwise stay open forever.
+/// No format placeholders.
+pub const KEY_TURN_INTERRUPTED: &str = "messaging.turn_interrupted";
 /// Key: reply withheld at the response boundary — the canary scan proved it
 /// exposed system-prompt content, or the narration scrub emptied it.
 pub const KEY_REPLY_WITHHELD: &str = "messaging.reply_withheld";
@@ -840,6 +846,8 @@ pub const FR_GUARDIAN_CONFIRM_NOT_FOUND: &str =
 /// French default for [`KEY_EMPTY_REPLY`].
 pub const FR_EMPTY_REPLY: &str =
     "Hmm, je n'ai pas réussi à formuler une réponse. Peux-tu reformuler ta question?";
+/// French default for [`KEY_TURN_INTERRUPTED`]. No format placeholders.
+pub const FR_TURN_INTERRUPTED: &str = "Ma réponse a été interrompue avant de t'arriver — je n'ai rien à te donner sur ce coup-là. Renvoie ta question et je reprends.";
 /// French default for [`KEY_REPLY_WITHHELD`].
 pub const FR_REPLY_WITHHELD: &str = "Ma réponse n'est pas passée — elle mélangeait des détails techniques qui n'ont pas leur place ici. Renvoie ton dernier message et on reprend là où on en était.";
 /// French default for [`KEY_GUARDRAIL_TOO_LONG`].
@@ -1177,6 +1185,8 @@ pub const EN_GUARDIAN_CONFIRM_NOT_FOUND: &str =
 /// English default for [`KEY_EMPTY_REPLY`].
 pub const EN_EMPTY_REPLY: &str =
     "Hmm, I couldn't put a reply together. Can you rephrase your question?";
+/// English default for [`KEY_TURN_INTERRUPTED`]. No format placeholders.
+pub const EN_TURN_INTERRUPTED: &str = "My reply was cut off before it reached you — I have nothing to give you on this one. Send your question again and I'll pick it back up.";
 /// English default for [`KEY_REPLY_WITHHELD`].
 pub const EN_REPLY_WITHHELD: &str = "My reply didn't go through — it mixed in technical details that don't belong here. Send your last message again and we'll pick up where we left off.";
 /// English default for [`KEY_GUARDRAIL_TOO_LONG`].
@@ -1493,6 +1503,7 @@ pub(crate) const ES_GUARDIAN_CONFIRM_NOT_FOUND: &str =
     "Ninguna acción pendiente coincide con ese código. Puede que ya se haya resuelto.";
 pub(crate) const ES_EMPTY_REPLY: &str =
     "Hmm, no pude armar una respuesta. ¿Puedes reformular tu pregunta?";
+pub(crate) const ES_TURN_INTERRUPTED: &str = "Mi respuesta se cortó antes de llegarte — no tengo nada que darte esta vez. Vuelve a enviarme tu pregunta y la retomo.";
 pub(crate) const ES_REPLY_WITHHELD: &str = "Mi respuesta no salió — mezclaba detalles técnicos que no tienen lugar aquí. Envíame de nuevo tu último mensaje y retomamos donde estábamos.";
 pub(crate) const ES_GUARDRAIL_TOO_LONG: &str = "Tengo una respuesta más larga lista, pero supera el límite configurado. ¿Quieres que te la resuma más brevemente?";
 pub(crate) const ES_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiero no tratar ese tema aquí. Concentrémonos en tu entrenamiento y recuperación. ¿Hay algo concreto en lo que pueda ayudarte?";
@@ -1799,6 +1810,7 @@ pub(crate) const DE_GUARDIAN_CONFIRM_NOT_FOUND: &str =
     "Keine ausstehende Aktion passt zu diesem Code. Möglicherweise wurde sie bereits bearbeitet.";
 pub(crate) const DE_EMPTY_REPLY: &str =
     "Hmm, ich konnte keine Antwort formulieren. Kannst du deine Frage umformulieren?";
+pub(crate) const DE_TURN_INTERRUPTED: &str = "Meine Antwort wurde abgebrochen, bevor sie bei dir ankam — ich habe diesmal nichts für dich. Schick deine Frage noch einmal und ich mache weiter.";
 pub(crate) const DE_REPLY_WITHHELD: &str = "Meine Antwort ging nicht raus — sie enthielt technische Details, die hier nicht hingehören. Schick mir deine letzte Nachricht noch einmal und wir machen dort weiter, wo wir waren.";
 pub(crate) const DE_GUARDRAIL_TOO_LONG: &str = "Ich habe eine längere Antwort bereit, aber sie überschreitet das konfigurierte Längenlimit. Soll ich sie dir kürzer zusammenfassen?";
 pub(crate) const DE_GUARDRAIL_BLOCKED_TOPIC: &str = "Dieses Thema möchte ich hier lieber nicht ansprechen. Bleiben wir bei deinem Training und deiner Erholung. Gibt es etwas Konkretes, womit ich dir helfen kann?";
@@ -2103,6 +2115,7 @@ pub(crate) const PT_GUARDIAN_CONFIRM_NOT_FOUND: &str =
     "Nenhuma ação pendente corresponde a esse código. Talvez já tenha sido resolvida.";
 pub(crate) const PT_EMPTY_REPLY: &str =
     "Hmm, não consegui formular uma resposta. Podes reformular a tua pergunta?";
+pub(crate) const PT_TURN_INTERRUPTED: &str = "A minha resposta foi interrompida antes de te chegar — não tenho nada para te dar desta vez. Envia de novo a tua pergunta e retomo.";
 pub(crate) const PT_REPLY_WITHHELD: &str = "A minha resposta não seguiu — misturava detalhes técnicos que não têm lugar aqui. Envia de novo a tua última mensagem e retomamos onde estávamos.";
 pub(crate) const PT_GUARDRAIL_TOO_LONG: &str = "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?";
 pub(crate) const PT_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiro não abordar esse tema aqui. Vamos manter o foco no teu treino e recuperação. Há algo específico em que possa ajudar?";
@@ -2415,6 +2428,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GUARDIAN_CONFIRM_EXPIRED, "fr", FR_GUARDIAN_CONFIRM_EXPIRED),
     (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "fr", FR_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "fr", FR_EMPTY_REPLY),
+    (KEY_TURN_INTERRUPTED, "fr", FR_TURN_INTERRUPTED),
     (KEY_REPLY_WITHHELD, "fr", FR_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "fr", FR_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "fr", FR_GUARDRAIL_BLOCKED_TOPIC),
@@ -2676,6 +2690,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GUARDIAN_CONFIRM_EXPIRED, "en", EN_GUARDIAN_CONFIRM_EXPIRED),
     (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "en", EN_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
+    (KEY_TURN_INTERRUPTED, "en", EN_TURN_INTERRUPTED),
     (KEY_REPLY_WITHHELD, "en", EN_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "en", EN_GUARDRAIL_BLOCKED_TOPIC),
@@ -2908,6 +2923,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GUARDIAN_CONFIRM_EXPIRED, "es", ES_GUARDIAN_CONFIRM_EXPIRED),
     (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "es", ES_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
+    (KEY_TURN_INTERRUPTED, "es", ES_TURN_INTERRUPTED),
     (KEY_REPLY_WITHHELD, "es", ES_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "es", ES_GUARDRAIL_BLOCKED_TOPIC),
@@ -3140,6 +3156,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GUARDIAN_CONFIRM_EXPIRED, "de", DE_GUARDIAN_CONFIRM_EXPIRED),
     (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "de", DE_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
+    (KEY_TURN_INTERRUPTED, "de", DE_TURN_INTERRUPTED),
     (KEY_REPLY_WITHHELD, "de", DE_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "de", DE_GUARDRAIL_BLOCKED_TOPIC),
@@ -3372,6 +3389,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GUARDIAN_CONFIRM_EXPIRED, "pt", PT_GUARDIAN_CONFIRM_EXPIRED),
     (KEY_GUARDIAN_CONFIRM_NOT_FOUND, "pt", PT_GUARDIAN_CONFIRM_NOT_FOUND),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
+    (KEY_TURN_INTERRUPTED, "pt", PT_TURN_INTERRUPTED),
     (KEY_REPLY_WITHHELD, "pt", PT_REPLY_WITHHELD),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "pt", PT_GUARDRAIL_BLOCKED_TOPIC),

@@ -234,14 +234,21 @@ pub async fn handle_webhook(
     // and `tenant_id` fields. Without this, the spawned future starts with
     // an empty span and the message-flow trace fragments.
     //
-    // LIMITATION(registre#109): `dispatch_and_respond` is spawned detached and its
-    // `JoinHandle` dropped, so nothing tracks or drains an in-flight turn. Because the
-    // 200 above lands first, Cloud Run reads the instance as idle and may terminate it
-    // mid-turn on a rollout or scaledown; the athlete keeps an open status placeholder.
+    // Spawned through `common.turns`, not bare `tokio::spawn`. The 200 below
+    // lands before any of this runs, so Cloud Run reads the instance as idle
+    // from the athlete's first second and any rollout or scaledown is free to
+    // take a live turn with it. The tracker is what makes those turns
+    // countable: shutdown awaits them, and a turn that outlives the grace
+    // window is told, in time to close its status placeholder instead of
+    // leaving the athlete waiting on an answer that died with the instance.
+    let turns = Arc::clone(&resources.common.turns);
     for dispatch in pending_dispatches {
-        tokio::spawn(
+        turns.spawn(
             async move {
-                messaging_ingress::dispatch_and_respond(dispatch).await;
+                // Boxed so the turn's state machine — tens of kilobytes of
+                // pipeline locals — lives on the heap rather than on the
+                // spawned task's stack for the turn's whole duration.
+                Box::pin(messaging_ingress::dispatch_and_respond(dispatch)).await;
             }
             .in_current_span(),
         );

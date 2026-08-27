@@ -14,6 +14,9 @@
 //! resources (Discord/Slack gateways, messaging ingress, endurance
 //! training history compute, chat verdict materialization).
 
+/// Tracks the detached turns a webhook starts, so shutdown can drain them.
+pub mod turn_lifecycle;
+
 /// Chat verdict service: maps ClaimVerdict rows into chat-facing wire shapes
 pub mod chat_verdicts;
 /// Client for the photograveur press service (Scene -> PNG).

@@ -16,6 +16,7 @@ use crate::config::admin::AdminConfigService;
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_notifier::{ChatReentry, ServerBackfillNotifier};
 use crate::services::photograveur_client::PhotograveurClient;
+use crate::services::turn_lifecycle::InFlightTurns;
 use chrono::Utc;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
@@ -389,6 +390,7 @@ impl ServerContext {
         let common = super::slices::CommonSlice {
             repos,
             cache: cache_arc,
+            turns: Arc::new(InFlightTurns::new()),
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env(reqwest::Client::new())),
             config,

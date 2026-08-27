@@ -5,9 +5,10 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::env;
 use std::fmt::Write as _;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ColorScheme, ConversationTurnId, TenantId, TranscriptSpeaker};
@@ -21,7 +22,7 @@ use pierre_chat_pipeline::{self, CommandPersistence, PipelineHooks, ServedTurn, 
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_COACH_PROPOSAL_FOOTER,
     KEY_COACH_PROPOSAL_WELCOME, KEY_COACH_PROPOSAL_WELCOME_GENERIC, KEY_EMPTY_REPLY,
-    KEY_ERROR_GENERIC, KEY_QUOTA_EXCEEDED,
+    KEY_ERROR_GENERIC, KEY_QUOTA_EXCEEDED, KEY_TURN_INTERRUPTED,
 };
 use pierre_core::errors::AppError;
 use pierre_routes_coaches::coaches::{build_coach_proposal, ProposedCoach, SportProfileSummary};
@@ -34,7 +35,8 @@ use super::connect;
 use super::identity_leak_notify::{emit_identity_leak, LeakContext};
 use super::intake;
 use super::turn_guard::{
-    acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_guarded, TurnOutcome,
+    acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_bounded, run_guarded,
+    TurnInterruption, TurnOutcome,
 };
 use super::{build_messaging_profile, content_body_text, outbound_retry, PendingDispatch};
 use pierre_services::onboarding_gate::user_has_connected_provider;
@@ -322,7 +324,7 @@ async fn deliver_reply(
     let first_sent_by_agui = match messaging_agui {
         Some(wiring) => {
             wiring
-                .finalize_reply(&first, dispatch, assistant_message_id)
+                .finalize_reply(&first, dispatch, Some(assistant_message_id))
                 .await
         }
         None => false,
@@ -396,6 +398,40 @@ pub(super) fn reply_message(
     }
 }
 
+/// Default wall-clock ceiling on one messaging turn.
+///
+/// Not a latency target — it is the ceiling above every bound the turn runs
+/// under, so that reaching it means the turn found something with no bound of
+/// its own. The deepest of those is the whole-turn ACP prompt cap
+/// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, 300s on dev), and a turn legitimately
+/// opens more than one ACP session: the tool loop runs in one, the final
+/// answer in another, and embacle retries an empty answer on a third. Three
+/// full-length prompts plus delivery is the honest worst case a healthy turn
+/// can reach, so the ceiling sits just above it.
+///
+/// The cost of setting it too low is worse than setting it too high: too low
+/// replaces an answer that was still coming with a notice saying it is not,
+/// while too high only delays a placeholder that was already going to close.
+const DEFAULT_TURN_WATCHDOG_SECS: u64 = 960;
+
+/// Resolve the per-turn watchdog from `MESSAGING_TURN_WATCHDOG_SECS`, falling
+/// back to [`DEFAULT_TURN_WATCHDOG_SECS`].
+///
+/// Env-driven for the same reason its siblings under it are
+/// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, `EMBACLE_ACP_MESSAGE_TIMEOUT_SECS`):
+/// the number that is right depends on the deployed provider chain, and
+/// re-tuning it should not need a binary. Zero or unparseable falls back
+/// rather than disarming the watchdog — an unbounded turn is the defect this
+/// exists to end.
+fn turn_watchdog() -> Duration {
+    let secs = env::var("MESSAGING_TURN_WATCHDOG_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_TURN_WATCHDOG_SECS);
+    Duration::from_secs(secs)
+}
+
 /// Log the pipeline failure, track analytics, and send a localized
 /// generic-error reply with a short correlation id.
 ///
@@ -431,6 +467,68 @@ async fn report_dispatch_failure(
         .get(KEY_ERROR_GENERIC, &dispatch.locale);
     let user_message = format_template(&template, &[&short_id]);
     send_plain_reply(dispatch, channel_config, &user_message).await;
+}
+
+/// Close a turn that was cut short before it produced anything.
+///
+/// The placeholder is the whole point. On a channel with status streaming the
+/// athlete is looking at "génération de la réponse…", and that text is only
+/// ever *replaced* — by the finished reply, at the end of a turn that reaches
+/// its end. A turn that does not reach its end leaves it standing, and a
+/// standing placeholder is indistinguishable from a slow answer, so the
+/// athlete waits for something that is never coming. That is what the
+/// 2026-08-26 group chart ask still shows (registre#109).
+///
+/// So the notice goes *into* the placeholder when there is one, which both
+/// tells the athlete and retires the lie. Where there is no placeholder
+/// (`WhatsApp`, Messenger — neither can edit a sent message) it is a plain
+/// reply, which is the same thing those channels do for every other notice.
+async fn close_interrupted_turn(
+    dispatch: &PendingDispatch,
+    messaging_agui: Option<&MessagingAgUiWiring>,
+    channel_config: &ChannelConfig,
+    cause: TurnInterruption,
+    elapsed_ms: u64,
+) {
+    warn!(
+        cause = cause.as_str(),
+        elapsed_ms = elapsed_ms,
+        channel = %dispatch.channel,
+        conversation_id = %dispatch.session.conversation,
+        turn_id = %dispatch.turn_id,
+        "messaging turn interrupted before it produced a reply"
+    );
+    info!(
+        target: "notify",
+        event = "messaging.error",
+        tenant_id = %dispatch.channel_tenant_id,
+        channel = %dispatch.channel,
+        error_type = cause.as_str(),
+        "messaging error"
+    );
+
+    let notice = dispatch
+        .resources
+        .mcp
+        .messaging_strings_registry
+        .get(KEY_TURN_INTERRUPTED, &dispatch.locale);
+
+    // `None` for the assistant message id: no assistant row exists — the turn
+    // never got far enough to write one — so an emoji on this notice resolves
+    // to nothing to rate, exactly as for every other non-coaching reply.
+    let closed_placeholder = match messaging_agui {
+        Some(wiring) => {
+            // Silence progress first: this notice is terminal, and a queued
+            // status event rendered after it would put the athlete back to
+            // waiting on an answer that is not coming.
+            wiring.stop_status_updates();
+            wiring.finalize_reply(&notice, dispatch, None).await
+        }
+        None => false,
+    };
+    if !closed_placeholder {
+        send_plain_reply(dispatch, channel_config, &notice).await;
+    }
 }
 
 /// Send the localized denial for a quota or rate-limit refusal.
@@ -750,24 +848,52 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // Panic boundary: a bug in any pipeline stage must unwind into a structured
     // failure for *this* turn (graceful user reply + correlation-id log), never
     // escape the spawned task.
-    let dispatch_result =
-        match run_guarded(pierre_chat_pipeline::execute(&ctx, request, &profile)).await {
-            TurnOutcome::Delivered(served) => served,
-            // A quota or rate-limit refusal is the user's plan speaking, not a
-            // fault: send the localized denial instead of the generic apology,
-            // and log at WARN — paging on-call for a budget working as designed
-            // is how real faults get tuned out.
-            TurnOutcome::QuotaDenied(e) => {
-                send_quota_denial_reply(&dispatch, &channel_config, &e).await;
-                return;
-            }
-            // Includes a panic caught inside any pipeline stage: the athlete gets
-            // an apology carrying a correlation id instead of silence.
-            TurnOutcome::Failed(e) => {
-                report_dispatch_failure(&dispatch, &channel_config, &e).await;
-                return;
-            }
-        };
+    //
+    // `run_bounded` adds the two endings the turn has no other source for: a
+    // wall-clock ceiling, and the shutdown drain. Both leave the athlete with
+    // a closed placeholder instead of an open one.
+    let drain = dispatch.resources.common.turns.drain_token();
+    let dispatch_result = match run_bounded(
+        run_guarded(pierre_chat_pipeline::execute(&ctx, request, &profile)),
+        turn_watchdog(),
+        &drain,
+    )
+    .await
+    {
+        TurnOutcome::Delivered(served) => served,
+        // A quota or rate-limit refusal is the user's plan speaking, not a
+        // fault: send the localized denial instead of the generic apology,
+        // and log at WARN — paging on-call for a budget working as designed
+        // is how real faults get tuned out.
+        TurnOutcome::QuotaDenied(e) => {
+            send_quota_denial_reply(&dispatch, &channel_config, &e).await;
+            return;
+        }
+        // Includes a panic caught inside any pipeline stage: the athlete gets
+        // an apology carrying a correlation id instead of silence.
+        TurnOutcome::Failed(e) => {
+            report_dispatch_failure(&dispatch, &channel_config, &e).await;
+            return;
+        }
+        // Cut short with nothing to deliver. Unlike every arm above it,
+        // this one has a placeholder still open on the channel, so the
+        // wiring goes with it — the notice replaces the placeholder
+        // rather than arriving underneath it.
+        //
+        // Safe cast: a turn's elapsed milliseconds cannot approach u64::MAX.
+        #[allow(clippy::cast_possible_truncation)]
+        TurnOutcome::Interrupted(cause) => {
+            close_interrupted_turn(
+                &dispatch,
+                messaging_agui.as_ref(),
+                &channel_config,
+                cause,
+                start.elapsed().as_millis() as u64,
+            )
+            .await;
+            return;
+        }
+    };
 
     // A slash command reaches the turn service only when the ingress did not
     // already answer it — the catalog was unavailable when the message

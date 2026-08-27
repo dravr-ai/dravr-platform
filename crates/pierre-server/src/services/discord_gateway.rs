@@ -107,9 +107,15 @@ async fn dispatch_message(
     )
     .await;
 
+    // Tracked, not bare `tokio::spawn`: Discord Gateway turns are detached from
+    // the event that started them exactly like webhook turns are, so they
+    // vanish the same way on a scaledown. `Box::pin` keeps a turn's state
+    // machine off the spawned task's stack — it is tens of kilobytes, and the
+    // task holds it for the whole turn.
+    let turns = Arc::clone(&resources.common.turns);
     for dispatch in pending_dispatches {
-        tokio::spawn(async move {
-            messaging_ingress::dispatch_and_respond(dispatch).await;
+        turns.spawn(async move {
+            Box::pin(messaging_ingress::dispatch_and_respond(dispatch)).await;
         });
     }
 }
