@@ -1,5 +1,5 @@
-// ABOUTME: Discover screen — the athlete's installed coaches pinned on top, then the catalogue to install from
-// ABOUTME: Lists published coaches with category filters, search, and install actions
+// ABOUTME: Discover screen — the Coach Store catalogue to install coaches from
+// ABOUTME: Lists published coaches with category filters, search, and the detail screen's install actions
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
@@ -30,7 +30,6 @@ const coachCardShadow: ViewStyle = {
 };
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { InstalledCoachesStrip } from './InstalledCoachesStrip';
 import type { StoreCoach, CoachCategory } from '../../types';
 // Category filter options
 const CATEGORY_FILTERS: Array<{ key: CoachCategory | 'all'; label: string }> = [
@@ -331,9 +330,6 @@ export function StoreScreen() {
         <Text className="flex-1 text-xl font-semibold text-text-primary text-center">Discover</Text>
         <View className="w-10" />
       </View>
-
-      {/* The athlete's own coaches — their own query, pinned above the catalogue */}
-      <InstalledCoachesStrip />
 
       {/* Category Filters */}
       <View className="border-b border-border-default">

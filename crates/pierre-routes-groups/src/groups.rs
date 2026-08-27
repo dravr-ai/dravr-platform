@@ -15,7 +15,7 @@
 //! live in the sibling [`crate::group_analytics`] module and are merged
 //! into the same `/api/groups` mount by the composition root.
 
-use tracing::{field, warn, Span};
+use tracing::{field, Span};
 
 use axum::{
     extract::{Path, State},
@@ -37,6 +37,10 @@ use pierre_core::models::groups::{
     JoinGroupRequest, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
+use pierre_groups::creation_policy::{
+    check_create_group_permission, is_tenant_group_admin, policy_permits_group_creation,
+    DEFAULT_GROUP_CREATION_POLICY, GROUP_CREATION_POLICY_KEY,
+};
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
@@ -419,66 +423,6 @@ impl GroupRoutes {
         }
     }
 
-    /// Check if the user has permission to create groups.
-    ///
-    /// Tenant admins/owners always have permission. Regular users are checked
-    /// against the tenant's `group_creation_policy` config.
-    ///
-    /// # Errors
-    ///
-    /// Returns `PermissionDenied` if the user lacks group creation permission.
-    async fn check_create_group_permission<C: GroupsCtx + MiddlewareCtx>(
-        resources: &Arc<C>,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> Result<(), AppError> {
-        // Check tenant role — admins/owners always allowed
-        let user_role = match resources
-            .repos()
-            .tenants
-            .get_user_role(user_id, tenant_id)
-            .await
-        {
-            Ok(role) => role,
-            Err(e) => {
-                warn!(
-                    %user_id, %tenant_id, error = %e,
-                    "Failed to read tenant role during group-creation permission check; \
-                     proceeding without admin shortcut and falling back to policy evaluation"
-                );
-                None
-            }
-        };
-
-        let is_tenant_admin = user_role
-            .as_deref()
-            .is_some_and(|r| r == "owner" || r == "admin");
-
-        if is_tenant_admin {
-            return Ok(());
-        }
-
-        // For regular users, check group_creation_policy via admin config
-        // Default policy: admins_only (most restrictive)
-        let policy = resources
-            .admin_config_get("group_creation_policy", Some(&tenant_id.to_string()))
-            .await
-            .and_then(|v| v.as_str().map(ToOwned::to_owned))
-            .unwrap_or_else(|| "admins_only".to_owned());
-
-        match policy.as_str() {
-            "everyone" => Ok(()),
-            "admins_only" => Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Group creation requires admin privileges. Contact your tenant administrator.",
-            )),
-            _ => Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Group creation is not enabled for your account.",
-            )),
-        }
-    }
-
     /// Verify the caller is an admin or owner of the given group.
     ///
     /// Returns the caller's membership record on success.
@@ -569,10 +513,16 @@ impl GroupRoutes {
         span.record("user_id", field::display(&auth.user_id));
         span.record("tenant_id", field::display(&tenant_id));
 
-        // Check group creation permission:
-        // 1. Tenant admins/owners always allowed
-        // 2. Regular users need group_creation_policy = "everyone"
-        Self::check_create_group_permission(&resources, auth.user_id, tenant_id).await?;
+        // Check group creation permission — the decision `/group create`
+        // and GET /api/groups/permissions share: tenant admins/owners always
+        // allowed, everyone else per the tenant's group_creation_policy.
+        check_create_group_permission(
+            resources.repos().tenants.as_ref(),
+            auth.user_id,
+            tenant_id,
+            Self::group_creation_policy(&resources, tenant_id),
+        )
+        .await?;
 
         if body.name.trim().is_empty() {
             return Err(AppError::invalid_input("Group name must not be empty"));
@@ -594,7 +544,7 @@ impl GroupRoutes {
             .await?;
 
         // The `group.created` notify event is emitted by GroupService, which
-        // every creation surface (REST, `/coach` slash command, messaging
+        // every creation surface (REST, the slash commands, messaging
         // auto-bind) funnels through — emitting here too would double-count
         // the REST path and still miss the others. Record the id on the span
         // so future child spans inherit it.
@@ -602,6 +552,17 @@ impl GroupRoutes {
 
         let response: GroupResponse = created.into();
         Ok((StatusCode::CREATED, Json(response)).into_response())
+    }
+
+    /// The tenant's configured group-creation policy, when it has set one.
+    async fn group_creation_policy<C: GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+        tenant_id: TenantId,
+    ) -> Option<String> {
+        resources
+            .admin_config_get(GROUP_CREATION_POLICY_KEY, Some(&tenant_id.to_string()))
+            .await
+            .and_then(|v| v.as_str().map(ToOwned::to_owned))
     }
 
     /// GET /api/groups/permissions — Check if the current user can create groups
@@ -612,36 +573,16 @@ impl GroupRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        // Check tenant role — admins/owners always allowed
-        let user_role = match resources
-            .repos()
-            .tenants
-            .get_user_role(auth.user_id, tenant_id)
+        // The policy is reported back whether or not it decides, so it is
+        // read eagerly here rather than through the lazy create-path check.
+        let is_tenant_admin =
+            is_tenant_group_admin(resources.repos().tenants.as_ref(), auth.user_id, tenant_id)
+                .await;
+        let policy = Self::group_creation_policy(&resources, tenant_id)
             .await
-        {
-            Ok(role) => role,
-            Err(e) => {
-                warn!(
-                    user_id = %auth.user_id, %tenant_id, error = %e,
-                    "Failed to read tenant role while computing group permissions; \
-                     reporting non-admin and applying configured policy"
-                );
-                None
-            }
-        };
+            .unwrap_or_else(|| DEFAULT_GROUP_CREATION_POLICY.to_owned());
 
-        let is_tenant_admin = user_role
-            .as_deref()
-            .is_some_and(|r| r == "owner" || r == "admin");
-
-        // Retrieve the group_creation_policy from admin config
-        let policy = resources
-            .admin_config_get("group_creation_policy", Some(&tenant_id.to_string()))
-            .await
-            .and_then(|v| v.as_str().map(ToOwned::to_owned))
-            .unwrap_or_else(|| "admins_only".to_owned());
-
-        let can_create = is_tenant_admin || policy == "everyone";
+        let can_create = is_tenant_admin || policy_permits_group_creation(&policy).is_ok();
 
         // The tier flag the digest scheduler gates on, resolved from the
         // tenant's own plan so the clients paint the server's decision.

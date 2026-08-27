@@ -507,6 +507,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -564,6 +565,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -586,15 +588,11 @@ mod command_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // /coach DM vs group regression coverage
+    // /coach DM coverage
     //
-    // These tests pin down the DM fix:
-    //   - DM: /coach select writes tenant_users.selected_coach_id, never creates a
-    //     group, and the confirmation copy omits "group"/"groupe" wording.
-    //   - Group (`is_direct_message = false`) with zero owned groups: old
-    //     auto-create path still fires (covered indirectly by the DM path
-    //     being distinct — we assert the DM path specifically does NOT
-    //     touch groups).
+    // These tests pin the personal-thread branch of `/coach add`:
+    //   - DM: /coach add <id> writes tenant_users.selected_coach_id, never
+    //     touches a group, and the confirmation copy omits "group"/"groupe".
     //   - /coach rendering: card body is plain text with no literal
     //     asterisks, even when the coach description contains CommonMark
     //     emphasis (`*not*`).
@@ -637,8 +635,8 @@ mod command_tests {
     }
 
     #[tokio::test]
-    async fn coach_select_in_dm_sets_users_default_coach() {
-        use pierre_commands::coach::CoachSelectHandler;
+    async fn coach_add_in_dm_sets_users_default_coach() {
+        use pierre_commands::coach::CoachAddHandler;
         use pierre_commands::{CommandHandler, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
@@ -667,17 +665,18 @@ mod command_tests {
             tenant_id,
             channel_type: "telegram".to_owned(),
             args: vec![coach_id.clone()],
-            raw_text: format!("/coach select {coach_id}"),
+            raw_text: format!("/coach add {coach_id}"),
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "fr".to_owned(),
             is_direct_message: true,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
-        let response = CoachSelectHandler.execute(&ctx).await.unwrap();
+        let response = CoachAddHandler.execute(&ctx).await.unwrap();
 
         // Confirmation mentions coach title but NEVER "groupe"/"group".
         assert!(
@@ -709,8 +708,8 @@ mod command_tests {
     }
 
     #[tokio::test]
-    async fn coach_select_in_dm_clearing_and_reselecting_swaps_coach() {
-        use pierre_commands::coach::CoachSelectHandler;
+    async fn coach_add_in_dm_twice_swaps_the_selected_coach() {
+        use pierre_commands::coach::CoachAddHandler;
         use pierre_commands::{CommandHandler, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
@@ -723,17 +722,18 @@ mod command_tests {
             tenant_id,
             channel_type: "telegram".to_owned(),
             args: vec![coach.to_owned()],
-            raw_text: format!("/coach select {coach}"),
+            raw_text: format!("/coach add {coach}"),
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: true,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
-        CoachSelectHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
+        CoachAddHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
         // Reselecting must SWAP, not accumulate — the property the old
         // clear-all-then-set pair maintained non-atomically and a single pointer
         // gets structurally.
@@ -746,7 +746,7 @@ mod command_tests {
             .unwrap();
         assert_eq!(after_a.as_deref(), Some(coach_a.as_str()));
 
-        CoachSelectHandler.execute(&mk_ctx(&coach_b)).await.unwrap();
+        CoachAddHandler.execute(&mk_ctx(&coach_b)).await.unwrap();
         let after_b = resources
             .common
             .repos
@@ -784,6 +784,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: true,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -953,6 +954,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            ambient_group_fallback: true,
             conversation_id: Some(conversation.id.clone()),
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -1031,6 +1033,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            ambient_group_fallback: true,
             conversation_id: Some(fixture.conversation.clone()),
             sender_id: None,
             tool_runtime: Arc::<ServerContext>::clone(&resources),
@@ -1076,6 +1079,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            ambient_group_fallback: true,
             // No such conversation anywhere.
             conversation_id: Some(Uuid::new_v4().to_string()),
             sender_id: None,
@@ -1374,6 +1378,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -1525,6 +1530,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -1572,6 +1578,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: false,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -1626,6 +1633,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: true,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -1799,6 +1807,7 @@ mod command_tests {
             ctx: Arc::<ServerContext>::clone(resources),
             locale: "en".to_owned(),
             is_direct_message: true,
+            ambient_group_fallback: true,
             conversation_id,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -2367,11 +2376,15 @@ mod command_tests {
         registry
     }
 
-    /// `commands/coach/coach.md` aliases `/coach` as `/coaches`. The matcher
-    /// used to greedy-match over commands and aliases alike, so `/coaches
-    /// invite` matched the shorter `/coaches`, ran the list handler and
-    /// silently dropped `invite`. Every `/coach` subcommand must be reachable
-    /// through the alias, with its arguments intact.
+    /// `commands/coach/coach-list.md` aliases `/coach` as `/coaches` and
+    /// `/coach list`. The matcher used to greedy-match over commands and
+    /// aliases alike, so `/coaches invite` matched the shorter `/coaches`, ran
+    /// the list handler and silently dropped `invite`. Every `/coach`
+    /// subcommand must be reachable through the alias, with its arguments
+    /// intact — which is also why the bare `/coach` is the canonical spelling
+    /// and `/coach list` the alias: canot canonicalises an alias by rewriting
+    /// it to the definition's command string, and a spaced canonical would
+    /// turn `/coaches add @tempo` into `/coach list add @tempo`.
     #[test]
     fn coaches_alias_reaches_every_coach_subcommand() {
         use pierre_messaging::commands::CommandMatcher;
@@ -2381,9 +2394,15 @@ mod command_tests {
 
         for (text, expected_name, expected_args) in [
             ("/coaches invite", "coach-invite", vec![]),
-            ("/coaches select 11111111-2222-3333-4444-555555555555", "coach-select", vec![
-                "11111111-2222-3333-4444-555555555555",
-            ]),
+            ("/coaches add @tempo", "coach-add", vec!["@tempo"]),
+            ("/coach add @tempo", "coach-add", vec!["@tempo"]),
+            ("/coaches remove", "coach-remove", vec![]),
+            ("/coaches create", "coach-create", vec![]),
+            (
+                "/coach create confirm 0123456789abcdef0123456789abcdef",
+                "coach-create",
+                vec!["confirm", "0123456789abcdef0123456789abcdef"],
+            ),
             (
                 "/coaches assign 11111111-2222-3333-4444-555555555555 66666666-7777-8888-9999-000000000000",
                 "coach-assign",
@@ -2393,7 +2412,9 @@ mod command_tests {
                 ],
             ),
             ("/coach invite", "coach-invite", vec![]),
-            ("/coaches", "coach", vec![]),
+            ("/coaches", "coach-list", vec![]),
+            ("/coach", "coach-list", vec![]),
+            ("/coach list", "coach-list", vec![]),
         ] {
             let parsed = matcher
                 .try_match(text, &registry)
@@ -2634,7 +2655,7 @@ mod command_tests {
 
         let command_registry = Arc::new(real_command_registry());
         let mut handlers = CommandHandlerRegistry::new();
-        handlers.register("coach", Arc::new(CoachListHandler));
+        handlers.register("coach-list", Arc::new(CoachListHandler));
         handlers.register("coach-invite", Arc::new(CoachInviteHandler));
         let handlers = Arc::new(handlers);
         let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
@@ -2649,6 +2670,7 @@ mod command_tests {
             channel_type: "telegram",
             locale: "en",
             is_direct_message: false,
+            ambient_group_fallback: true,
             conversation_id: None,
             conversation_tenant_id: tenant_id,
             sender_id: None,
@@ -2684,7 +2706,7 @@ mod command_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // /coach invite @handle — the targeted invite
+    // /coach add @handle — the installed coach, by its catalogue handle
     // ════════════════════════════════════════════════════════════════
 
     /// Publish a catalogue coach under a fresh author and install it for
@@ -2750,13 +2772,12 @@ mod command_tests {
             .coach_id
     }
 
-    /// `/coach invite @handle` resolves the caller's installed coach and
-    /// attaches it exactly as `/coach select <id>` does: the selection pointer
-    /// moves and the conversation the command was typed in is rebound. No
-    /// invite code is minted.
+    /// `/coach add @handle` resolves the caller's installed coach and
+    /// attaches it exactly as `/coach add <id>` does: the selection pointer
+    /// moves and the conversation the command was typed in is rebound.
     #[tokio::test]
-    async fn coach_invite_handle_selects_the_installed_coach_and_binds_the_conversation() {
-        use pierre_commands::coach::CoachInviteHandler;
+    async fn coach_add_handle_selects_the_installed_coach_and_binds_the_conversation() {
+        use pierre_commands::coach::CoachAddHandler;
 
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "coachinvitehandle@test.com").await;
@@ -2775,17 +2796,12 @@ mod command_tests {
             user_id,
             tenant_id,
             vec!["@recovery-coach".to_owned()],
-            "/coach invite @recovery-coach",
+            "/coach add @recovery-coach",
             Some(conversation_id.clone()),
         );
-        let response = CoachInviteHandler.execute(&ctx).await.unwrap();
+        let response = CoachAddHandler.execute(&ctx).await.unwrap();
 
         assert_eq!(response.text, "Coach selected: Recovery Coach.");
-        assert!(
-            !response.text.contains("Code:"),
-            "the targeted form never mints an invite code: {}",
-            response.text
-        );
         assert_eq!(
             conversation_coach(&resources, &conversation_id, user_id, tenant_id)
                 .await
@@ -2803,18 +2819,18 @@ mod command_tests {
                 .unwrap()
                 .as_deref(),
             Some(installed_id.as_str()),
-            "the selection pointer moves, as /coach select moves it"
+            "the selection pointer moves, as /coach add <id> moves it"
         );
     }
 
     /// A handle that names no installed coach — unknown, or a catalogue coach
     /// the caller never installed, with or without its `@` — is refused by
-    /// name in the caller's locale, and nothing else happens: no code, no
-    /// pointer, no rebind.
+    /// name in the caller's locale, and nothing else happens: no pointer, no
+    /// rebind. A bare `/coach add` gets the usage line.
     #[tokio::test]
-    async fn coach_invite_unknown_handle_is_refused_by_name_and_mints_nothing() {
+    async fn coach_add_unknown_handle_is_refused_by_name_and_binds_nothing() {
         use crate::helpers::coach_fixtures::publish_catalogue_coach;
-        use pierre_commands::coach::CoachInviteHandler;
+        use pierre_commands::coach::CoachAddHandler;
 
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) =
@@ -2836,15 +2852,15 @@ mod command_tests {
         for (typed, expected) in [
             (
                 "@nobody-here",
-                "No installed coach answers to @nobody-here. Type /coach to see your coach list.",
+                "No installed coach answers to @nobody-here. Type /coach to see your list, or /discover to install one.",
             ),
             (
                 "@strength-coach",
-                "No installed coach answers to @strength-coach. Type /coach to see your coach list.",
+                "No installed coach answers to @strength-coach. Type /coach to see your list, or /discover to install one.",
             ),
             (
                 "strength-coach",
-                "No installed coach answers to @strength-coach. Type /coach to see your coach list.",
+                "No installed coach answers to @strength-coach. Type /coach to see your list, or /discover to install one.",
             ),
         ] {
             let ctx = group_ctx(
@@ -2852,13 +2868,26 @@ mod command_tests {
                 user_id,
                 tenant_id,
                 vec![typed.to_owned()],
-                &format!("/coach invite {typed}"),
+                &format!("/coach add {typed}"),
                 Some(conversation_id.clone()),
             );
-            let response = CoachInviteHandler.execute(&ctx).await.unwrap();
+            let response = CoachAddHandler.execute(&ctx).await.unwrap();
             assert_eq!(response.text, expected, "typed {typed}");
-            assert!(!response.text.contains("Code:"), "no code for {typed}");
         }
+
+        let bare = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/coach add",
+            Some(conversation_id.clone()),
+        );
+        let response = CoachAddHandler.execute(&bare).await.unwrap();
+        assert_eq!(
+            response.text,
+            "Say which coach to add: /coach add @handle. Type /coach to see your list."
+        );
 
         // French, the platform default locale.
         let mut ctx = group_ctx(
@@ -2866,14 +2895,14 @@ mod command_tests {
             user_id,
             tenant_id,
             vec!["@nobody-here".to_owned()],
-            "/coach invite @nobody-here",
+            "/coach add @nobody-here",
             Some(conversation_id.clone()),
         );
         ctx.locale = "fr".to_owned();
-        let response = CoachInviteHandler.execute(&ctx).await.unwrap();
+        let response = CoachAddHandler.execute(&ctx).await.unwrap();
         assert_eq!(
             response.text,
-            "Aucun coach installé ne répond à @nobody-here. Tape /coach pour voir ta liste de coachs."
+            "Aucun coach installé ne répond à @nobody-here. Tape /coach pour voir ta liste, ou /discover pour l'installer."
         );
 
         assert_eq!(
@@ -2894,12 +2923,12 @@ mod command_tests {
         );
     }
 
-    /// `/coaches invite @handle` — the alias, with the argument — reaches the
-    /// invite handler with the handle intact, through the dispatcher every
-    /// chat surface uses.
+    /// `/coaches add @handle` — the alias, with the argument — reaches the
+    /// add handler with the handle intact, through the dispatcher every chat
+    /// surface uses.
     #[tokio::test]
-    async fn dispatching_coaches_invite_with_a_handle_selects_the_coach() {
-        use pierre_commands::coach::{CoachInviteHandler, CoachListHandler};
+    async fn dispatching_coaches_add_with_a_handle_selects_the_coach() {
+        use pierre_commands::coach::{CoachAddHandler, CoachListHandler};
         use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
         use pierre_commands::CommandHandlerRegistry;
         use pierre_runtime_context::CommandCtx;
@@ -2913,8 +2942,8 @@ mod command_tests {
 
         let command_registry = Arc::new(real_command_registry());
         let mut handlers = CommandHandlerRegistry::new();
-        handlers.register("coach", Arc::new(CoachListHandler));
-        handlers.register("coach-invite", Arc::new(CoachInviteHandler));
+        handlers.register("coach-list", Arc::new(CoachListHandler));
+        handlers.register("coach-add", Arc::new(CoachAddHandler));
         let handlers = Arc::new(handlers);
         let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
         let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
@@ -2928,10 +2957,11 @@ mod command_tests {
             channel_type: "telegram",
             locale: "en",
             is_direct_message: true,
+            ambient_group_fallback: true,
             conversation_id: Some(&conversation_id),
             conversation_tenant_id: tenant_id,
             sender_id: None,
-            text: "/coaches invite @recovery-coach",
+            text: "/coaches add @recovery-coach",
             tool_runtime: &tool_runtime,
         })
         .await
@@ -2942,9 +2972,9 @@ mod command_tests {
             response,
         } = outcome
         else {
-            panic!("/coaches invite @recovery-coach must execute a registered command");
+            panic!("/coaches add @recovery-coach must execute a registered command");
         };
-        assert_eq!(command_name, "coach-invite");
+        assert_eq!(command_name, "coach-add");
         assert_eq!(response.text, "Coach selected: Recovery Coach.");
         assert_eq!(
             conversation_coach(&resources, &conversation_id, user_id, tenant_id)

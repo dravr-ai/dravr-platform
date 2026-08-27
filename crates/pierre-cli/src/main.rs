@@ -293,6 +293,11 @@ enum UserCommand {
         /// Create super admin user (can impersonate other users)
         #[arg(long)]
         super_admin: bool,
+
+        /// BCP-47 short locale for the account ("en", "fr", "es", "de", "pt").
+        /// Omitted: a new account takes the platform default, an existing one keeps its own.
+        #[arg(long)]
+        locale: Option<String>,
     },
 
     /// Promote an existing user to admin
@@ -917,8 +922,20 @@ async fn main() -> Result<()> {
                 name,
                 force,
                 super_admin,
+                locale,
             } => {
-                commands::user::create(&repos, email, password, name, force, super_admin).await?;
+                commands::user::create(
+                    &repos,
+                    email,
+                    password,
+                    name,
+                    commands::user::AdminUserOptions {
+                        force,
+                        super_admin,
+                        locale,
+                    },
+                )
+                .await?;
             }
             UserCommand::Promote { email } => {
                 commands::user::promote(&repos, email).await?;

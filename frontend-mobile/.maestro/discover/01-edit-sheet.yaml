@@ -1,0 +1,71 @@
+# ABOUTME: Test the edit sheet reached from an installed listing on Discover — the only coach editor in the app
+# ABOUTME: Edit-only: a title, Save, Delete coach, and no version history or create mode
+
+appId: ai.dravr.app
+
+---
+# Launch and login
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# Navigate to Discover
+- runFlow:
+    file: ../helpers/navigate-to-discover.yaml
+
+# Open a coach detail
+- runFlow:
+    when:
+      visible:
+        id: "coach-card-0"
+    commands:
+      - tapOn:
+          id: "coach-card-0"
+      - extendedWaitUntil:
+          visible:
+            id: "store-coach-detail-screen"
+          timeout: 5000
+
+      # Wait for the install state to resolve (install or installed)
+      - extendedWaitUntil:
+          visible: "Install.*"
+          timeout: 15000
+
+      # An installed listing is the athlete's own copy, so it offers Edit coach
+      - runFlow:
+          when:
+            visible:
+              id: "edit-coach-button"
+          commands:
+            - tapOn:
+                id: "edit-coach-button"
+
+            # The edit sheet: one screen, no create mode, no version history
+            - extendedWaitUntil:
+                visible:
+                  id: "coach-editor-screen"
+                timeout: 10000
+            - assertVisible: "Edit Coach"
+            - assertNotVisible: "Create Coach"
+            - assertNotVisible:
+                id: "version-history-button"
+            - assertNotVisible: "Forked from a system coach"
+            - assertVisible:
+                id: "coach-title-input"
+            - assertVisible:
+                id: "save-button"
+            - assertVisible:
+                id: "delete-coach-button"
+
+            # Leave without saving
+            - tapOn:
+                id: "back-button"
+            - extendedWaitUntil:
+                visible:
+                  id: "store-coach-detail-screen"
+                timeout: 5000
+
+      # Navigate back
+      - tapOn:
+          id: "back-button"

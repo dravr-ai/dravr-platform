@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Chat input bar with text input, slash-command and @handle palettes, voice and send buttons
+// ABOUTME: Chat input bar — the "/" button, the slash-command and @handle palettes, voice and send
 // ABOUTME: Keyboard-aware positioning — animates above keyboard or tab bar
 
 import React, { useEffect, useRef, useState } from 'react';
 import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, Keyboard, Platform, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { COMMAND_PREFIX, isCommandDraft } from '@pierre/shared-constants';
 import { spacing, useThemeColors, useTheme } from '../../constants/theme';
 import { VoiceButton, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
 import { CommandPalette } from '../../components/CommandPalette';
 import { MentionPalette } from '../../components/MentionPalette';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { useMentionPalette } from '../../hooks/useMentionPalette';
-import type { MentionCandidate } from '@pierre/shared-constants';
+import { COMPOSER_KEYS, composerKey, type ComposerKeyEvent } from '../../hooks/composerKeys';
 
 interface ChatInputBarProps {
   inputText: string;
@@ -44,9 +45,10 @@ export function ChatInputBar({
   const colors = useThemeColors();
   const { scheme } = useTheme();
   const displayText = isListening ? partialTranscript : inputText;
-  // Dictation is prose, never a command, so the palette reads the typed text
+  // Dictation is prose, never a command, so the palettes read the typed text
   // rather than what is on screen mid-transcription.
-  const palette = useCommandPalette(isListening ? '' : inputText);
+  const paletteValue = isListening ? '' : inputText;
+  const palette = useCommandPalette({ value: paletteValue, onChange: onChangeText });
   // Where the athlete is typing. The mention grammar reads the token that
   // ends at the caret, so a `@` in the middle of a message opens the palette
   // where it was typed rather than at the end of the text. Until the input
@@ -59,14 +61,35 @@ export function ChatInputBar({
   };
   // An "@" offers the athlete's installed coaches by handle; the pick is
   // inserted lowercase and verbatim, whatever case the keyboard typed.
-  const mentions = useMentionPalette({ value: isListening ? '' : inputText, caret });
-  const handleMentionSelect = (candidate: MentionCandidate) => {
-    const next = mentions.insert(candidate);
-    if (next === null) return;
-    onChangeText(next.value);
-    setSelectionEnd(next.caret);
-  };
+  const mentions = useMentionPalette({
+    value: paletteValue,
+    caret,
+    onChange: (value, nextCaret) => {
+      onChangeText(value);
+      setSelectionEnd(nextCaret);
+    },
+  });
   const canSend = inputText.trim() && !isSending && !isListening && !disabled;
+
+  /**
+   * Hardware-keyboard keys, offered to the command palette first and the
+   * mention palette second — only one of the two is ever open. What neither
+   * takes falls through to the field, except Enter on a finished command:
+   * the athlete typed the whole thing and means to send it.
+   */
+  const handleKeyPress = (event: ComposerKeyEvent) => {
+    if (palette.handleKeyPress(event)) return;
+    if (mentions.handleKeyPress(event)) return;
+    if (composerKey(event) === COMPOSER_KEYS.enter && canSend && isCommandDraft(inputText)) {
+      onSendMessage();
+    }
+  };
+
+  /** The visible way in to the palette, the way Telegram's bot menu button is. */
+  const openCommandPalette = () => {
+    onChangeText(COMMAND_PREFIX);
+    inputRef.current?.focus();
+  };
   const isDark = scheme === 'dark';
 
   // Composer pill matches the surrounding canvas — elevated lowest tier with
@@ -116,9 +139,14 @@ export function ChatInputBar({
     >
       <CommandPalette
         matches={palette.matches}
-        onSelect={(entry) => onChangeText(palette.draftFor(entry))}
+        highlightedIndex={palette.highlightedIndex}
+        onSelect={palette.select}
       />
-      <MentionPalette matches={mentions.matches} onSelect={handleMentionSelect} />
+      <MentionPalette
+        matches={mentions.matches}
+        highlightedIndex={mentions.highlightedIndex}
+        onSelect={mentions.select}
+      />
       <View
         className="flex-row items-center rounded-full px-3 min-h-[44px] max-h-[100px]"
         style={{
@@ -133,6 +161,19 @@ export function ChatInputBar({
           elevation: 4,
         }}
       >
+        <TouchableOpacity
+          className="w-9 h-9 rounded-full items-center justify-center mr-1"
+          style={{ backgroundColor: `${colors.pierre.violet}1F` }}
+          onPress={openCommandPalette}
+          disabled={isListening || disabled}
+          accessibilityRole="button"
+          accessibilityLabel="Commands"
+          testID="slash-command-button"
+        >
+          <Text className="text-lg font-bold" style={{ color: colors.pierre.violet }}>
+            {COMMAND_PREFIX}
+          </Text>
+        </TouchableOpacity>
         <TextInput
           ref={inputRef}
           className="flex-1 text-base text-text-primary py-2 max-h-[100px]"
@@ -141,6 +182,7 @@ export function ChatInputBar({
           value={displayText}
           onChangeText={onChangeText}
           onSelectionChange={handleSelectionChange}
+          onKeyPress={handleKeyPress}
           multiline
           maxLength={4000}
           returnKeyType="default"

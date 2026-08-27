@@ -84,6 +84,29 @@ pub fn marker(index: usize) -> String {
     format!("{MARKER_OPEN}{index}{MARKER_CLOSE}")
 }
 
+/// Remove every positional marker from prose.
+///
+/// The marker's job ends once a client that can interleave has interleaved:
+/// in a Telegram message or a list-row preview, `⟦viz:0⟧` is noise at best and
+/// looks like a bug at worst. An unterminated marker is not a marker and is
+/// kept, rather than swallowing the rest of the text after it.
+#[must_use]
+pub fn strip_markers(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(MARKER_OPEN) {
+        out.push_str(&rest[..start]);
+        if let Some(end) = rest[start..].find(MARKER_CLOSE) {
+            rest = &rest[start + end + MARKER_CLOSE.len()..];
+        } else {
+            out.push_str(&rest[start..]);
+            rest = "";
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The result of lifting visual blocks out of a reply.
 pub struct VizExtraction {
     /// Reply text with each block replaced by its positional marker.

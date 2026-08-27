@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: @handle mention palette state for the mobile composer — the installed coaches and the matches
+// ABOUTME: @handle mention palette state for the mobile composer — installed coaches, matches, keyboard
 // ABOUTME: Sibling of useCommandPalette: the composer renders what this decides and inserts what it drafts
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   QUERY_KEYS,
@@ -14,6 +14,7 @@ import {
 } from '@pierre/shared-constants';
 import type { MentionCandidate } from '@pierre/shared-constants';
 import { coachesApi } from '../services/api';
+import { COMPOSER_KEYS, composerKey, type ComposerKeyEvent } from './composerKeys';
 
 /** Inputs the composer hands the mention palette. */
 export interface UseMentionPaletteOptions {
@@ -21,23 +22,25 @@ export interface UseMentionPaletteOptions {
   value: string;
   /** Caret offset into `value`; the palette opens on the token ending here. */
   caret: number;
-}
-
-/** The composer text and caret that inserting a handle produces. */
-export interface MentionInsertion {
-  value: string;
-  caret: number;
+  /** Called with the text the composer should now hold and where its caret goes. */
+  onChange: (value: string, caret: number) => void;
 }
 
 /** What the composer needs to render and drive the mention palette. */
 export interface UseMentionPaletteResult {
+  /** True when there is at least one installed coach to offer for the draft. */
+  isOpen: boolean;
   /** The matching installed coaches, one per handle, in handle order. */
   matches: MentionCandidate[];
+  /** Index into `matches` of the highlighted row. */
+  highlightedIndex: number;
+  /** Replace the draft with this coach's handle and close the palette. */
+  select: (candidate: MentionCandidate) => void;
   /**
-   * Replace the open draft with this coach's handle — lowercase, verbatim,
-   * followed by a space — or null when no draft is open at the caret.
+   * Handle a composer keystroke from a hardware keyboard. Returns true when
+   * the palette consumed it, in which case the composer must not also act on it.
    */
-  insert: (candidate: MentionCandidate) => MentionInsertion | null;
+  handleKeyPress: (event: ComposerKeyEvent) => boolean;
 }
 
 /**
@@ -53,7 +56,13 @@ export interface UseMentionPaletteResult {
  * The coach list is only fetched once the athlete has typed a `@`; a palette
  * nobody opens costs no request.
  */
-export function useMentionPalette({ value, caret }: UseMentionPaletteOptions): UseMentionPaletteResult {
+export function useMentionPalette({
+  value,
+  caret,
+  onChange,
+}: UseMentionPaletteOptions): UseMentionPaletteResult {
+  const [dismissed, setDismissed] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const draft = useMemo(() => mentionDraftAt(value, caret), [value, caret]);
 
   const { data } = useQuery({
@@ -64,16 +73,71 @@ export function useMentionPalette({ value, caret }: UseMentionPaletteOptions): U
     staleTime: 5 * 60_000,
   });
 
+  // Only a coach the athlete has actually installed answers a mention:
+  // `find_installed_by_handle` joins `coach_assignments` for this user, so a
+  // catalogue coach nobody installed would be offered here and then silently
+  // not route. `is_assigned` is that same join surfaced on the list row — and
+  // it is the discriminator, not `is_system`: the resolver admits a system
+  // coach (`OR c.is_system = 1`) once the athlete has been assigned it.
+  const mentionable = useMemo(
+    () => (data?.coaches ?? []).filter(coach => coach.is_assigned === true),
+    [data],
+  );
+
   const matches = useMemo(
-    () => (draft === null ? [] : matchMentionCoaches(data?.coaches ?? [], draft.query)),
-    [data, draft],
+    () => (dismissed || draft === null ? [] : matchMentionCoaches(mentionable, draft.query)),
+    [mentionable, draft, dismissed],
   );
 
-  const insert = useCallback(
-    (candidate: MentionCandidate): MentionInsertion | null =>
-      draft === null ? null : insertMention(value, draft, candidate.handle),
-    [draft, value],
+  // Escape dismisses the palette for the current draft only. The next
+  // keystroke re-opens it, so the athlete is never locked out of a mention.
+  useEffect(() => {
+    setDismissed(false);
+  }, [value]);
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [matches.length]);
+
+  const select = useCallback(
+    (candidate: MentionCandidate) => {
+      if (draft === null) return;
+      const next = insertMention(value, draft, candidate.handle);
+      onChange(next.value, next.caret);
+    },
+    [draft, value, onChange],
   );
 
-  return { matches, insert };
+  const handleKeyPress = useCallback(
+    (event: ComposerKeyEvent): boolean => {
+      if (matches.length === 0 || draft === null) return false;
+      const key = composerKey(event);
+      if (key === COMPOSER_KEYS.down) {
+        setHighlightedIndex((i) => (i + 1) % matches.length);
+        return true;
+      }
+      if (key === COMPOSER_KEYS.up) {
+        setHighlightedIndex((i) => (i - 1 + matches.length) % matches.length);
+        return true;
+      }
+      if (key === COMPOSER_KEYS.enter || key === COMPOSER_KEYS.tab) {
+        const candidate = matches[highlightedIndex];
+        // Enter on a handle already typed in full belongs to the composer:
+        // the athlete addressed the coach and means to send the message.
+        if (key === COMPOSER_KEYS.enter && draft.query === candidate.handle) {
+          return false;
+        }
+        select(candidate);
+        return true;
+      }
+      if (key === COMPOSER_KEYS.escape) {
+        setDismissed(true);
+        return true;
+      }
+      return false;
+    },
+    [matches, draft, highlightedIndex, select],
+  );
+
+  return { isOpen: matches.length > 0, matches, highlightedIndex, select, handleKeyPress };
 }

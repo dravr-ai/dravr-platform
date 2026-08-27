@@ -71,9 +71,20 @@ export function useMentionPalette({
     staleTime: 5 * 60_000,
   });
 
+  // Only a coach the athlete has actually installed answers a mention:
+  // `find_installed_by_handle` joins `coach_assignments` for this user, so a
+  // catalogue coach nobody installed would be offered here and then silently
+  // not route. `is_assigned` is that same join surfaced on the list row — and
+  // it is the discriminator, not `is_system`: the resolver admits a system
+  // coach (`OR c.is_system = 1`) once the athlete has been assigned it.
+  const mentionable = useMemo(
+    () => (data?.coaches ?? []).filter(coach => coach.is_assigned === true),
+    [data],
+  );
+
   const matches = useMemo(
-    () => (dismissed || draft === null ? [] : matchMentionCoaches(data?.coaches ?? [], draft.query)),
-    [data, draft, dismissed],
+    () => (dismissed || draft === null ? [] : matchMentionCoaches(mentionable, draft.query)),
+    [mentionable, draft, dismissed],
   );
 
   // Escape dismisses the palette for the current draft only. The next

@@ -1,11 +1,10 @@
-// ABOUTME: Coach Store detail screen showing full coach info with install/uninstall actions
-// ABOUTME: Displays system prompt preview, sample prompts, tags, and install count
+// ABOUTME: Coach Store detail screen showing full coach info with install/uninstall/edit actions
+// ABOUTME: Installing ends with the hint that teaches /coach add @handle; an installed copy can be edited from here
 
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
-
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
@@ -19,9 +18,27 @@ import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
-import { COACH_LIBRARY_ROUTE } from '../../navigation/routes';
+import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
-import type { StoreCoachDetail } from '../../types';
+import { PostInstallHint } from './PostInstallHint';
+import type { StoreCoach, StoreCoachDetail } from '../../types';
+
+/**
+ * The athlete's installed copy of a listing, if any. An install mints a copy
+ * with its own id that carries the listing's handle, and the installations
+ * endpoint returns those copies — so the handle is what maps a listing back
+ * to the copy that uninstall and edit address.
+ */
+function findInstalledCopy(listing: StoreCoachDetail, copies: StoreCoach[]): StoreCoach | null {
+  if (!listing.handle) return null;
+  return copies.find((copy) => copy.handle === listing.handle) ?? null;
+}
+
+/** What the post-install hint teaches: the copy the install minted, by title and handle. */
+interface InstalledCopy {
+  title: string;
+  handle: string | undefined;
+}
 // Coach category colors
 const COACH_CATEGORY_COLORS: Record<string, string> = {
   training: '#3c6658',
@@ -40,7 +57,9 @@ export function StoreCoachDetailScreen() {
   const [coach, setCoach] = useState<StoreCoachDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isInstalling, setIsInstalling] = useState(false);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [installedCopy, setInstalledCopy] = useState<StoreCoach | null>(null);
+  const [postInstall, setPostInstall] = useState<InstalledCopy | null>(null);
+  const isInstalled = installedCopy !== null;
 
   const loadCoachDetail = useCallback(async () => {
     if (!isAuthenticated || !coachId) return;
@@ -50,12 +69,9 @@ export function StoreCoachDetailScreen() {
       const response = await storeApi.get(coachId);
       setCoach(response);
 
-      // Check if already installed
+      // Already installed? The copy is what uninstall and edit address.
       const installations = await storeApi.getInstallations();
-      const installed = installations.coaches.some(
-        (c: { id: string }) => c.id === coachId
-      );
-      setIsInstalled(installed);
+      setInstalledCopy(findInstalledCopy(response, installations.coaches));
     } catch (error) {
       console.error('Failed to load coach detail:', error);
       Alert.alert('Error', 'Failed to load coach details');
@@ -73,23 +89,10 @@ export function StoreCoachDetailScreen() {
 
     try {
       setIsInstalling(true);
-      await storeApi.install(coach.id);
-      setIsInstalled(true);
+      const response = await storeApi.install(coach.id);
+      setInstalledCopy(response.coach);
+      setPostInstall({ title: coach.title, handle: response.coach.handle });
       trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
-      Alert.alert(
-        'Installed!',
-        `"${coach.title}" has been added to your coaches.`,
-        [
-          {
-            text: 'View My Coaches',
-            onPress: () => {
-              // The coach library lives under Discover since the Coaches tab folded into it.
-              router.push(COACH_LIBRARY_ROUTE);
-            },
-          },
-          { text: 'Stay Here', style: 'cancel' },
-        ]
-      );
     } catch (error) {
       console.error('Failed to install coach:', error);
       Alert.alert('Error', 'Failed to install coach. Please try again.');
@@ -98,8 +101,21 @@ export function StoreCoachDetailScreen() {
     }
   };
 
+  // "Open chat" on the post-install hint: a fresh thread. The hint hands over
+  // the `/coach add @handle` draft the athlete types there.
+  const handleOpenChat = () => {
+    setPostInstall(null);
+    router.push(threadHref());
+  };
+
+  const handleEdit = () => {
+    if (!installedCopy) return;
+    router.push({ pathname: COACH_EDIT_ROUTE, params: { coachId: installedCopy.id } });
+  };
+
   const handleUninstall = async () => {
-    if (!coach) return;
+    if (!coach || !installedCopy) return;
+    const copyId = installedCopy.id;
 
     Alert.alert(
       'Uninstall Coach?',
@@ -112,8 +128,10 @@ export function StoreCoachDetailScreen() {
           onPress: async () => {
             try {
               setIsInstalling(true);
-              await storeApi.uninstall(coach.id);
-              setIsInstalled(false);
+              // The copy, never the listing: the listing is not the athlete's to delete.
+              await storeApi.uninstall(copyId);
+              setInstalledCopy(null);
+              setPostInstall(null);
               Alert.alert('Uninstalled', 'Coach has been removed from your library.');
             } catch (error) {
               console.error('Failed to uninstall coach:', error);
@@ -300,31 +318,61 @@ export function StoreCoachDetailScreen() {
         <View style={{ height: TAB_BAR_BOTTOM_OFFSET + 80 }} />
       </ScrollView>
 
-      {/* Install/Uninstall Button - Fixed above floating tab bar */}
+      {/* Post-install hint + Install/Uninstall/Edit actions - Fixed above floating tab bar */}
       <View
         className="absolute left-0 right-0 bg-background-primary border-t border-border-subtle p-3"
         style={{ bottom: TAB_BAR_BOTTOM_OFFSET }}
       >
+        {postInstall && (
+          <View className="mb-3">
+            <PostInstallHint
+              coachTitle={postInstall.title}
+              handle={postInstall.handle}
+              onOpenChat={handleOpenChat}
+              onDismiss={() => setPostInstall(null)}
+            />
+          </View>
+        )}
         {isInstalled ? (
-          <TouchableOpacity
-            className="flex-row items-center justify-center py-3.5 rounded-xl"
-            style={{
-              ...glassCard,
-              borderRadius: 12,
-              borderColor: colors.border.strong,
-            }}
-            onPress={handleUninstall}
-            disabled={isInstalling}
-          >
-            {isInstalling ? (
-              <ActivityIndicator size="small" color={colors.text.primary} />
-            ) : (
-              <>
-                <Feather name="check" size={18} color={colors.pierre.activity} />
-                <Text className="text-text-primary text-base font-medium ml-2">Installed</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          <View className="flex-row gap-3">
+            {/* An installed listing is the athlete's own copy: editable from here. */}
+            <TouchableOpacity
+              className="flex-1 flex-row items-center justify-center py-3.5 rounded-xl"
+              style={{
+                ...glassCard,
+                borderRadius: 12,
+                borderColor: colors.border.strong,
+              }}
+              onPress={handleEdit}
+              disabled={isInstalling}
+              accessibilityRole="button"
+              accessibilityLabel="Edit coach"
+              testID="edit-coach-button"
+            >
+              <Feather name="edit-2" size={18} color={colors.pierre.violet} />
+              <Text className="text-text-primary text-base font-medium ml-2">Edit coach</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="flex-1 flex-row items-center justify-center py-3.5 rounded-xl"
+              style={{
+                ...glassCard,
+                borderRadius: 12,
+                borderColor: colors.border.strong,
+              }}
+              onPress={handleUninstall}
+              disabled={isInstalling}
+              testID="installed-button"
+            >
+              {isInstalling ? (
+                <ActivityIndicator size="small" color={colors.text.primary} />
+              ) : (
+                <>
+                  <Feather name="check" size={18} color={colors.pierre.activity} />
+                  <Text className="text-text-primary text-base font-medium ml-2">Installed</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
         ) : (
           <TouchableOpacity
             className="flex-row items-center justify-center py-3.5 rounded-xl"

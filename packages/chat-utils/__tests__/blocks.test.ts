@@ -108,6 +108,41 @@ describe('transcriptBlocks', () => {
     expect(prose.text).toContain('Keep going.');
   });
 
+  it('re-emits the controls a persisted command reply carried, after the prose', () => {
+    const actions = [
+      { label: 'Marathon Coach', action_type: 'postback', value: '/coach add @marathon-coach' },
+      { label: 'Trail Coach', action_type: 'postback', value: '/coach add @trail-coach' },
+    ];
+    const blocks = transcriptBlocks(
+      assistantRow({
+        content: 'Your installed coaches:',
+        finish_reason: 'command',
+        actions: { title: 'Pick a coach', actions },
+      }),
+    );
+
+    expect(blocks).toEqual([
+      { type: 'prose', text: 'Your installed coaches:' },
+      { type: 'actions', title: 'Pick a coach', actions },
+    ]);
+  });
+
+  it('emits the actions block without a title key when the reply had none', () => {
+    const actions = [{ label: 'Yes', action_type: 'postback', value: '/coach create confirm abc' }];
+    const blocks = transcriptBlocks(
+      assistantRow({ content: 'Create this coach?', actions: { actions } }),
+    );
+
+    expect(blocks[1]).toEqual({ type: 'actions', actions });
+    expect(blocks[1]).not.toHaveProperty('title');
+  });
+
+  it('draws no controls for a persisted reply whose action list is empty', () => {
+    expect(transcriptBlocks(assistantRow({ actions: { title: 'Nothing', actions: [] } }))).toEqual([
+      { type: 'prose', text: 'Your load is climbing.' },
+    ]);
+  });
+
   it('gives a user row a single prose block and nothing else', () => {
     expect(
       transcriptBlocks({

@@ -363,5 +363,5 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
   });
 
   // Admin users navigate the operator console; the athlete tabs (Chat,
-  // Coaches, Discover, Groups) are covered by user-mode.visual.spec.ts.
+  // Coaches, Discover) are covered by user-mode.visual.spec.ts.
 });

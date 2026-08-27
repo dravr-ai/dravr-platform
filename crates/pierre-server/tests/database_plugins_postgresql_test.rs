@@ -458,7 +458,8 @@ async fn test_pg_chat_list_conversations() {
         .chat
         .list_conversations(&user_id_str, tenant_id, 3, 0)
         .await
-        .expect("Failed to list conversations");
+        .expect("Failed to list conversations")
+        .items;
 
     assert_eq!(list.len(), 3, "Should return 3 conversations with limit");
 
@@ -467,7 +468,8 @@ async fn test_pg_chat_list_conversations() {
         .chat
         .list_conversations(&user_id_str, tenant_id, 3, 3)
         .await
-        .expect("Failed to list page 2");
+        .expect("Failed to list page 2")
+        .items;
 
     assert_eq!(page2.len(), 2, "Should return remaining 2 conversations");
 }
@@ -714,7 +716,8 @@ async fn test_pg_chat_delete_all_user_conversations() {
         .chat
         .list_conversations(&user_id_str, tenant_id, 100, 0)
         .await
-        .expect("Failed to list conversations");
+        .expect("Failed to list conversations")
+        .items;
 
     assert!(remaining.is_empty(), "No conversations should remain");
 }

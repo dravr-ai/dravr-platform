@@ -53,9 +53,12 @@ export {
 
 export type { NotificationCategoryMeta } from './notifications';
 
-// Slash-command palette matching (one rule for both composers)
+// Slash-command palette matching (one rule for both composers), and the
+// command drafts every client affordance hands to the composer
 export {
   COMMAND_PREFIX,
+  COMMAND_DRAFTS,
+  SLASH_HINT,
   isCommandDraft,
   matchCommands,
   commandDraftFor,

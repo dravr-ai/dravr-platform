@@ -25,6 +25,22 @@ export {
 } from './conversation';
 export type { MessageChannelOrigin } from './conversation';
 
+// The unified conversation-list row: one model, one preview rule, one
+// timestamp rule, one avatar colour — derived identically on web and mobile.
+export {
+  AVATAR_SLOTS,
+  UNTITLED_CONVERSATION,
+  deriveKind,
+  initialsFor,
+  avatarSlot,
+  previewFor,
+  formatListTimestamp,
+  buildConversationRow,
+  sortRowsByActivity,
+  filterRows,
+} from './conversation-row';
+export type { ConversationKind, ConversationRowModel } from './conversation-row';
+
 // Turn-progress event → status text mapping (shared by web + mobile)
 export { statusTextForProgress, THINKING_PLACEHOLDER } from './progress';
 

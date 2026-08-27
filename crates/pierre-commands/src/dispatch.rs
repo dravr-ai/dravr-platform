@@ -49,9 +49,13 @@ pub struct DispatchRequest<'a> {
     /// BCP-47 short locale resolved up-front by the caller.
     pub locale: &'a str,
     /// `true` when the sender is in a 1:1 DM with the bot. Web and mobile
-    /// chat are always `true` (each conversation is per-user); messaging
-    /// channels set this from their native chat-kind signal.
+    /// chat sets it from the conversation — `true` unless a coaching group
+    /// is bound to it; messaging channels set this from their native
+    /// chat-kind signal.
     pub is_direct_message: bool,
+    /// See [`PlatformCommandContext::ambient_group_fallback`]. Messaging
+    /// surfaces pass `true`; the in-app chat and the catalogue pass `false`.
+    pub ambient_group_fallback: bool,
     /// Pierre `chat_conversations.id` carrying this turn, when known.
     ///
     /// Set by every chat surface that has a resolved conversation: web/
@@ -179,6 +183,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         ctx: Arc::clone(req.ctx),
         locale: req.locale.to_owned(),
         is_direct_message: req.is_direct_message,
+        ambient_group_fallback: req.ambient_group_fallback,
         conversation_id: req.conversation_id.map(ToOwned::to_owned),
         conversation_tenant_id: req.conversation_tenant_id,
         sender_id: req.sender_id.map(ToOwned::to_owned),

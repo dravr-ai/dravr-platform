@@ -1,5 +1,5 @@
-# ABOUTME: Test coach install flow from the store
-# ABOUTME: Converted from store.test.js "install/uninstall flow" tests
+# ABOUTME: Test coach install flow from the store — install ends with the hint, and Open chat lands in a thread
+# ABOUTME: The hint teaches /coach add @handle; there is no coach library to send the athlete to
 
 appId: ai.dravr.app
 
@@ -35,21 +35,25 @@ appId: ai.dravr.app
             # Tap install
             - tapOn: "Install Coach"
 
-            # Should show success alert
+            # The post-install hint replaces the old alert: it names the
+            # command that binds the coach to any chat
             - extendedWaitUntil:
                 visible:
-                  text: "Installed!"
+                  id: "post-install-hint"
                 timeout: 5000
+            - assertVisible: "Use it in any chat: /coach add @.*"
+            - assertNotVisible: "Installed!"
+            - assertNotVisible: "View My Coaches"
 
-            # Dismiss alert by staying
-            - tapOn: "Stay Here"
+            # The listing is now an installed copy: editable, uninstallable
+            - assertVisible:
+                id: "edit-coach-button"
+            - assertVisible: "Installed"
 
-            # Should now show Uninstall button
+            # Open chat leaves the store for a fresh thread
+            - tapOn:
+                id: "post-install-open-chat"
             - extendedWaitUntil:
                 visible:
-                  text: "Uninstall"
-                timeout: 5000
-
-      # Navigate back
-      - tapOn:
-          id: "back-button"
+                  id: "chat-screen"
+                timeout: 10000

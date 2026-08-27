@@ -1,5 +1,5 @@
-// ABOUTME: Coach editor screen for creating and editing AI coaches
-// ABOUTME: Single scrollable page with collapsible accordion sections for system prompt and tags
+// ABOUTME: The edit sheet for one of the athlete's own coaches — the only coach editor in the app
+// ABOUTME: Single scrollable page with collapsible sections; saves through update, deletes the coach
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -17,15 +17,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Ionicons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeColors } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
-import { CoachVersionHistory } from '../../components/coaches/CoachVersionHistory';
-import { COACH_LIBRARY_ROUTE } from '../../navigation/routes';
-import type { CreateCoachRequest, UpdateCoachRequest } from '../../types';
+import type { UpdateCoachRequest } from '../../types';
 
 // Category options with colors matching Stitch UX spec
 const CATEGORY_OPTIONS: Array<{ key: string; label: string; color: string }> = [
@@ -46,8 +43,7 @@ const CONTEXT_WINDOW_SIZE = 128000;
 export function CoachEditorScreen() {
   const colors = useThemeColors();
   const router = useRouter();
-  const { coachId } = useLocalSearchParams<{ coachId?: string }>();
-  const isEditMode = Boolean(coachId);
+  const { coachId } = useLocalSearchParams<{ coachId: string }>();
 
   // Form state
   const [title, setTitle] = useState('');
@@ -56,7 +52,6 @@ export function CoachEditorScreen() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
-  const [forkedFrom, setForkedFrom] = useState<string | null>(null);
 
   // Data context state
   const [startupQuery, setStartupQuery] = useState('');
@@ -68,23 +63,14 @@ export function CoachEditorScreen() {
   const [athleteProfile, setAthleteProfile] = useState(false);
 
   // UI state
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [expandedTextArea, setExpandedTextArea] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
 
-  // Load coach data for edit mode
-  useEffect(() => {
-    if (isEditMode && coachId) {
-      loadCoach(coachId);
-    }
-    // loadCoach intentionally omitted - including it would cause infinite loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditMode, coachId]);
-
-  const loadCoach = async (id: string) => {
+  const loadCoach = useCallback(async (id: string) => {
     try {
       setIsLoading(true);
       const coach = await coachesApi.get(id);
@@ -93,7 +79,6 @@ export function CoachEditorScreen() {
       setDescription(coach.description || '');
       setSystemPrompt(coach.system_prompt);
       setTags(coach.tags || []);
-      setForkedFrom(coach.forked_from || null);
       setStartupQuery(coach.startup_query || '');
       if (coach.data_requirements?.activities) {
         setPrefetchEnabled(true);
@@ -110,10 +95,16 @@ export function CoachEditorScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [router]);
+
+  useEffect(() => {
+    if (coachId) {
+      loadCoach(coachId);
+    }
+  }, [coachId, loadCoach]);
 
   // Derived save-readiness for dynamic testID (Maestro sync point)
-  const canSave = title.trim().length > 0 && systemPrompt.trim().length > 0 && !isSaving;
+  const canSave = title.trim().length > 0 && systemPrompt.trim().length > 0 && !isSaving && !isDeleting;
 
   // Calculate token count (same formula as web)
   const tokenCount = Math.ceil(systemPrompt.length / 4);
@@ -168,7 +159,7 @@ export function CoachEditorScreen() {
 
   // Save handler
   const handleSave = async () => {
-    if (!validate()) return;
+    if (!coachId || !validate()) return;
 
     try {
       setIsSaving(true);
@@ -189,51 +180,75 @@ export function CoachEditorScreen() {
           }
         : undefined;
 
-      if (isEditMode && coachId) {
-        const updateData: UpdateCoachRequest = {
-          title: title.trim(),
-          category,
-          description: description.trim() || undefined,
-          system_prompt: systemPrompt.trim(),
-          tags,
-          startup_query: startupQuery.trim() || undefined,
-          data_requirements: dataRequirements,
-        };
-        await coachesApi.update(coachId, updateData);
-      } else {
-        const createData: CreateCoachRequest = {
-          title: title.trim(),
-          category,
-          description: description.trim() || undefined,
-          system_prompt: systemPrompt.trim(),
-          tags,
-          startup_query: startupQuery.trim() || undefined,
-          data_requirements: dataRequirements,
-        };
-        await coachesApi.create(createData);
-      }
+      const updateData: UpdateCoachRequest = {
+        title: title.trim(),
+        category,
+        description: description.trim() || undefined,
+        system_prompt: systemPrompt.trim(),
+        tags,
+        startup_query: startupQuery.trim() || undefined,
+        data_requirements: dataRequirements,
+      };
+      await coachesApi.update(coachId, updateData);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // In create mode, replace the current screen with the library index.
-      // router.back() and router.dismissAll() are both unreliable on iOS
-      // Expo Go for stack entries created via router.push().
-      // router.replace navigates to the target route and removes the current
-      // screen from the stack history, guaranteeing the library appears.
-      if (isEditMode) {
-        router.back();
-      } else {
-        router.replace(COACH_LIBRARY_ROUTE);
-      }
+      router.back();
     } catch (error) {
       console.error('Failed to save coach:', error);
-      Alert.alert('Error', `Failed to ${isEditMode ? 'update' : 'create'} coach`);
+      Alert.alert('Error', 'Failed to update coach');
     } finally {
       setIsSaving(false);
     }
   };
 
+  // Delete handler: confirmation, then the coach is gone and so is this screen.
+  const handleDelete = () => {
+    if (!coachId) return;
+    Alert.alert(
+      'Delete Coach?',
+      `Delete coach "${title}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsDeleting(true);
+              await coachesApi.delete(coachId);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              router.back();
+            } catch (error) {
+              console.error('Failed to delete coach:', error);
+              Alert.alert('Error', 'Failed to delete coach');
+            } finally {
+              setIsDeleting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // Get current category info
   const currentCategory = CATEGORY_OPTIONS.find((c) => c.key === category);
+
+  if (!coachId) {
+    return (
+      <SafeAreaView className="flex-1 bg-background-primary" testID="coach-editor-missing">
+        <View className="flex-1 justify-center items-center p-6">
+          <Text className="text-lg text-text-secondary mb-3">Coach not found</Text>
+          <TouchableOpacity
+            className="px-5 py-2 bg-primary-500 rounded-lg"
+            onPress={() => router.back()}
+            testID="back-button"
+          >
+            <Text className="text-text-primary text-base font-medium">Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -259,21 +274,11 @@ export function CoachEditorScreen() {
             onPress={() => router.back()}
             testID="back-button"
           >
-            <Text className="text-2xl text-text-primary">{'\u2190'}</Text>
+            <Text className="text-2xl text-text-primary">{'←'}</Text>
           </TouchableOpacity>
           <Text className="flex-1 text-lg font-semibold text-text-primary text-center">
-            {isEditMode ? 'Edit Coach' : 'Create Coach'}
+            Edit Coach
           </Text>
-          {/* Version History Button (edit mode only) */}
-          {isEditMode && (
-            <TouchableOpacity
-              className="w-10 h-10 items-center justify-center mr-1"
-              onPress={() => setShowVersionHistory(true)}
-              testID="version-history-button"
-            >
-              <Ionicons name="git-branch-outline" size={22} color={colors.text.primary} />
-            </TouchableOpacity>
-          )}
           <TouchableOpacity
             className={`px-4 py-1.5 rounded-xl min-w-[60px] items-center ${isSaving ? 'opacity-60' : ''}`}
             style={{
@@ -281,7 +286,7 @@ export function CoachEditorScreen() {
               ...buttonGlow,
             }}
             onPress={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || isDeleting}
             testID={canSave ? 'save-button' : 'save-button-disabled'}
           >
             {isSaving ? (
@@ -297,25 +302,6 @@ export function CoachEditorScreen() {
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Forked From Banner */}
-          {forkedFrom && (
-            <View
-              className="flex-row items-center mb-5 p-3 rounded-xl"
-              style={{
-                backgroundColor: colors.background.tertiary,
-                borderWidth: 1,
-                borderColor: colors.border.default,
-                borderRadius: 12,
-              }}
-              testID="forked-from-banner"
-            >
-              <Feather name="git-branch" size={16} color={colors.pierre.violet} />
-              <Text className="text-sm ml-2" style={{ color: colors.pierre.violet }}>
-                Forked from a system coach
-              </Text>
-            </View>
-          )}
-
           {/* Title Field */}
           <View className="mb-5">
             <Text className="text-text-primary text-sm font-semibold mb-2">Title *</Text>
@@ -364,7 +350,7 @@ export function CoachEditorScreen() {
                   {currentCategory?.label}
                 </Text>
               </View>
-              <Text className="text-text-secondary text-sm">{'\u25BC'}</Text>
+              <Text className="text-text-secondary text-sm">{'▼'}</Text>
             </TouchableOpacity>
           </View>
 
@@ -410,7 +396,7 @@ export function CoachEditorScreen() {
                 testID="expand-prompt-button"
               >
                 <Text style={{ color: colors.pierre.violet }} className="text-sm">
-                  Expand {'\u2197'}
+                  Expand {'↗'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -512,7 +498,7 @@ export function CoachEditorScreen() {
                     testID={`remove-tag-${tag}`}
                   >
                     <Text style={{ color: colors.pierre.violet }} className="text-lg font-bold">
-                      {'\u00D7'}
+                      {'×'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -559,7 +545,7 @@ export function CoachEditorScreen() {
                 }}
               >
                 {prefetchEnabled && (
-                  <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimary }}>{'\u2713'}</Text>
+                  <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimary }}>{'✓'}</Text>
                 )}
               </View>
               <Text className="text-text-primary text-sm">Pre-fetch activity data</Text>
@@ -594,7 +580,7 @@ export function CoachEditorScreen() {
                       <Text className="text-text-primary text-sm">
                         {timeFrame === '3w' ? '3 weeks' : timeFrame === '8w' ? '8 weeks' : timeFrame === '12w' ? '12 weeks' : timeFrame === '16w' ? '16 weeks' : '6 months'}
                       </Text>
-                      <Text className="text-text-tertiary text-xs">{'\u25BC'}</Text>
+                      <Text className="text-text-tertiary text-xs">{'▼'}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -674,7 +660,7 @@ export function CoachEditorScreen() {
                     }}
                   >
                     {athleteProfile && (
-                      <Text className="text-[10px] font-bold" style={{ color: colors.tokens.onPrimary }}>{'\u2713'}</Text>
+                      <Text className="text-[10px] font-bold" style={{ color: colors.tokens.onPrimary }}>{'✓'}</Text>
                     )}
                   </View>
                   <Text className="text-text-secondary text-xs">Also fetch athlete profile</Text>
@@ -682,6 +668,21 @@ export function CoachEditorScreen() {
               </View>
             )}
           </CollapsibleSection>
+
+          {/* Delete: the coach leaves the athlete's list, and this sheet closes with it */}
+          <TouchableOpacity
+            className="mt-6 py-3.5 rounded-xl items-center border"
+            style={{ borderColor: colors.error }}
+            onPress={handleDelete}
+            disabled={isSaving || isDeleting}
+            testID="delete-coach-button"
+          >
+            {isDeleting ? (
+              <ActivityIndicator size="small" color={colors.error} />
+            ) : (
+              <Text className="text-base font-semibold" style={{ color: colors.error }}>Delete coach</Text>
+            )}
+          </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -771,20 +772,6 @@ export function CoachEditorScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-
-      {/* Version History Modal */}
-      {isEditMode && coachId && (
-        <CoachVersionHistory
-          coachId={coachId}
-          coachTitle={title || 'Coach'}
-          isOpen={showVersionHistory}
-          onClose={() => setShowVersionHistory(false)}
-          onReverted={() => {
-            // Reload the coach data after revert
-            loadCoach(coachId);
-          }}
-        />
-      )}
     </SafeAreaView>
   );
 }

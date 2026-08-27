@@ -60,7 +60,7 @@ pub trait GroupTierStrategy: Send + Sync {
 /// Whether a group-creation path spends one of the owner's tier group
 /// allowance ([`GroupTierStrategy::max_groups`]).
 ///
-/// REST and `/coach select` are a user asking for a new group, so they spend
+/// A REST group creation is a user asking for a new group, so it spends
 /// it. A messaging auto-bind is not a request — the group materializes because
 /// somebody added the bot to a chat — and refusing it would leave that chat
 /// with no group context and only a log line to say why, so the per-group

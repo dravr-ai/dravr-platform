@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Playwright E2E tests for Coach Store functionality.
-// ABOUTME: Tests browsing, searching, filtering, viewing details, and install/uninstall actions.
+// ABOUTME: Tests browsing, searching, filtering, viewing details, install → hint → Open chat, uninstall, and the edit sheet.
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
@@ -92,6 +92,9 @@ async function setupStoreMocks(
   options: { emptyStore?: boolean; installed?: string[]; failStore?: boolean } = {}
 ) {
   const { emptyStore = false, installed = [], failStore = false } = options;
+  // The athlete's copies, as the server holds them: an install adds one and
+  // an uninstall removes it, so the coach list and the installations
+  // endpoint answer the next fetch the way the real server does.
   const installedCopies = mockStoreCoaches
     .filter((c) => installed.includes(c.id))
     .map(personalCopyOf);
@@ -99,10 +102,34 @@ async function setupStoreMocks(
   // Set up base dashboard mocks for regular user
   await setupDashboardMocks(page, { role: 'user' });
 
+  // "Open chat" on the post-install hint creates a conversation; the base
+  // mocks answer every method with the list shape, so the POST needs its own.
+  await page.route('**/api/chat/conversations', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'conv-from-hint',
+        title: 'Chat Aug 26 9:00 PM',
+        model: null,
+        total_tokens: 0,
+        coach_id: null,
+        channel_type: null,
+        created_at: '2026-08-26T21:00:00Z',
+        updated_at: '2026-08-26T21:00:00Z',
+        message_count: 0,
+      }),
+    });
+  });
+
   // Mock user coaches endpoint (required for sidebar, and the source of the
   // `forked_from` mapping the store uses to recognize an installed coach).
   // The regex also matches the `?include_hidden=true&personalize=true` variant
-  // while leaving sub-paths like /api/coaches/hidden to the dashboard mocks.
+  // while leaving sub-paths like /api/coaches/<id> to the mocks below.
   await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
@@ -127,17 +154,6 @@ async function setupStoreMocks(
     });
   });
 
-  // Mock store categories endpoint
-  await page.route('**/api/store/categories', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        categories: ['training', 'nutrition', 'recovery', 'recipes', 'mobility', 'custom'],
-        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
-      }),
-    });
-  });
 
   // Mock store search endpoint
   await page.route('**/api/store/search**', async (route) => {
@@ -172,7 +188,7 @@ async function setupStoreMocks(
 
     // Install takes the store listing id and rejects a second install
     if (url.includes('/install') && route.request().method() === 'POST') {
-      if (installed.includes(pathId)) {
+      if (installedCopies.some((c) => c.forked_from === pathId)) {
         await route.fulfill({
           status: 400,
           contentType: 'application/json',
@@ -184,12 +200,16 @@ async function setupStoreMocks(
         return;
       }
       const source = mockStoreCoaches.find((c) => c.id === pathId);
+      const copy = source ? personalCopyOf(source) : null;
+      if (copy) {
+        installedCopies.push(copy);
+      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           message: 'Coach installed successfully',
-          coach: source ? personalCopyOf(source) : null,
+          coach: copy,
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
       });
@@ -210,6 +230,7 @@ async function setupStoreMocks(
         });
         return;
       }
+      installedCopies.splice(installedCopies.indexOf(copy), 1);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -401,8 +422,17 @@ test.describe('Coach Store Browse', () => {
 
 test.describe('Coach Store Pagination', () => {
   test('loads more coaches on scroll with cursor pagination', async ({ page }) => {
-    // Mock coaches for pagination - first page and second page
-    const page1Coaches = mockStoreCoaches.slice(0, 2);
+    // Mock coaches for pagination - first page and second page. Discover has
+    // no pinned coaches above the grid, so the first page has to be tall
+    // enough on its own to keep the sentinel below the fold: a page that fits
+    // the viewport is paged in the moment it renders, and the scroll this
+    // test exercises never happens.
+    const fillerCoaches = Array.from({ length: 16 }, (slot, index) => ({
+      ...mockStoreCoaches[1],
+      id: `store-coach-filler-${index}`,
+      title: `Catalogue Coach ${index + 1}`,
+    }));
+    const page1Coaches = [...mockStoreCoaches.slice(0, 2), ...fillerCoaches];
     const page2Coach = mockStoreCoaches[2];
 
     // Set up base dashboard mocks
@@ -429,17 +459,6 @@ test.describe('Coach Store Pagination', () => {
       });
     });
 
-    // Mock store categories endpoint
-    await page.route('**/api/store/categories', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          categories: ['training', 'nutrition', 'recovery'],
-          metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
-        }),
-      });
-    });
 
     // Track requests to verify cursor is sent
     let requestCount = 0;
@@ -489,8 +508,8 @@ test.describe('Coach Store Pagination', () => {
     await expect(page.getByText('Nutrition Expert')).toBeVisible();
 
     // Bring the sentinel into view to trigger infinite scroll. Discover scrolls
-    // inside its own pane — the pinned coaches, filters and grid share one
-    // scroll container — so the window itself never moves.
+    // inside its own pane — the filters and grid share one scroll container —
+    // so the window itself never moves.
     await page.getByText('Scroll for more').scrollIntoViewIfNeeded();
 
     // Wait for second page to load
@@ -740,11 +759,11 @@ test.describe('Coach Store Add/Remove', () => {
     await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: 'Add Coach' }).click();
 
-    // Should show success message
-    await expect(page.getByText(/has been added to your coaches/)).toBeVisible({ timeout: 5000 });
+    // Installing ends with the hint, not a banner
+    await expect(page.getByTestId('post-install-hint')).toBeVisible({ timeout: 5000 });
   });
 
-  test('shows success message after install', async ({ page }) => {
+  test('shows the post-install hint that teaches /coach add @handle', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -755,8 +774,18 @@ test.describe('Coach Store Add/Remove', () => {
     await page.getByText('Marathon Training Coach').click();
     await page.getByRole('button', { name: 'Add Coach' }).click();
 
-    // Should show success message
-    await expect(page.getByText(/has been added to your coaches/)).toBeVisible({ timeout: 5000 });
+    // The hint names the command and the mention, with the copy's own handle
+    const hint = page.getByTestId('post-install-hint');
+    await expect(hint).toBeVisible({ timeout: 5000 });
+    await expect(hint).toContainText('Use it in any chat: /coach add @marathon-training-coach');
+    await expect(hint).toContainText('or mention @marathon-training-coach for one turn');
+    await expect(page.getByText(/has been added to your coaches/)).toHaveCount(0);
+
+    // Dismiss hides it and leaves the coach installed. By test id: the
+    // connect-provider banner above the pane carries its own "Dismiss".
+    await page.getByTestId('post-install-dismiss').click();
+    await expect(hint).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
   });
 
   test('shows Remove button for coach in library', async ({ page }) => {
@@ -910,13 +939,13 @@ test.describe('Coach Store Failures', () => {
     // The banner carries the rejected request's message (axios reports the
     // status), so the failure is visible rather than a spinner that stops
     await expect(page.getByText(/status code 400/)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/has been added to your coaches/)).toHaveCount(0);
+    await expect(page.getByTestId('post-install-hint')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible();
   });
 });
 
 test.describe('Coach Store Navigation', () => {
-  test('success message appears after adding coach', async ({ page }) => {
+  test('Open chat on the hint starts a conversation and lands on it', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -927,31 +956,52 @@ test.describe('Coach Store Navigation', () => {
     await page.getByText('Marathon Training Coach').click();
     await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
     await page.getByRole('button', { name: 'Add Coach' }).click();
+    await expect(page.getByTestId('post-install-hint')).toBeVisible({ timeout: 5000 });
 
-    // Should show success message
-    await expect(page.getByText(/has been added to your coaches/)).toBeVisible({ timeout: 5000 });
+    const created = page.waitForRequest(
+      (request) => request.method() === 'POST' && request.url().includes('/api/chat/conversations'),
+    );
+    await page.getByTestId('post-install-open-chat').click();
+    await created;
+
+    // The new conversation is the route: Discover has no coach list to return to.
+    await expect(page).toHaveURL(/#chat\/conv-from-hint$/, { timeout: 10000 });
+    await expect(page.getByTestId('post-install-hint')).toHaveCount(0);
   });
 
-  test('an installed coach is pinned above the store with its handle, and Remove works from the listing', async ({ page }) => {
+  test('an installed listing offers Edit coach on the copy, and Remove works from the listing', async ({ page }) => {
     // Start with coach already installed
     await setupStoreMocks(page, { installed: ['store-coach-1'] });
+    const copy = personalCopyOf(mockStoreCoaches[0]);
+    await page.route(`**/api/coaches/${copy.id}`, async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(copy) });
+        return;
+      }
+      await route.fallback();
+    });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
-    // The copy the install minted sits in "Your coaches" above the store,
-    // carrying the handle the athlete types to bring it into a chat. There
-    // is no "View My Coaches" link any more: this is where the coach lives.
-    const pinned = page.getByRole('region', { name: /Your coaches/ });
-    await expect(pinned.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
-    await expect(pinned.getByTestId('coach-handle')).toHaveText('@marathon-training-coach');
+    // Discover keeps no coach list of its own: no pinned section, no
+    // "View My Coaches", only the catalogue.
+    await expect(page.getByRole('region', { name: /Your coaches/ })).toHaveCount(0);
     await expect(page.getByText('View My Coaches')).toHaveCount(0);
 
-    // Open the store listing (not the pinned card) and remove from there.
+    // The listing the athlete installed is their own copy, so it can be edited from here.
     await page.getByTestId('store-coach-grid').getByText('Marathon Training Coach').click();
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Edit coach' })).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Edit coach' }).click();
+    await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByPlaceholder('e.g., Marathon Training Coach')).toHaveValue('Marathon Training Coach');
+    await expect(page.getByRole('button', { name: 'Delete this coach' })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeHidden();
 
+    // And Remove still uninstalls the copy from the listing.
+    await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
     page.on('dialog', async (dialog) => {
       await dialog.accept();
     });

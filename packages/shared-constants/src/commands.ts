@@ -2,9 +2,38 @@
 // ABOUTME: Shared by web and mobile so a "/" means the same thing on both composers
 
 import type { CommandEntry } from '@pierre/shared-types';
+import { MENTION_PREFIX } from './mentions';
 
 /** The character that opens the palette. */
 export const COMMAND_PREFIX = '/';
+
+/**
+ * The composer text each client-side affordance hands to the composer.
+ *
+ * Every entry names a command the catalogue serves, spelled exactly as the
+ * parser expects it, so a hint card, a "New group chat" prompt, an invite deep
+ * link and a swipe action all produce the same line an athlete would type.
+ * One spelling here, on both clients, is what keeps a renamed command from
+ * silently stranding one of them.
+ */
+export const COMMAND_DRAFTS = {
+  /** Binds an installed coach to the open conversation. */
+  coachAdd: (handle: string): string => `${COMMAND_PREFIX}coach add ${MENTION_PREFIX}${handle}`,
+  /** Detaches the conversation's coach. */
+  coachRemove: `${COMMAND_PREFIX}coach remove`,
+  /** Creates a coaching group and binds the thread to it. */
+  groupCreate: (name: string): string => `${COMMAND_PREFIX}group create ${name}`,
+  /** Joins a coaching group by invite code. */
+  groupJoin: (code: string): string => `${COMMAND_PREFIX}group join ${code}`,
+  /** Brings a coach in for one turn; the trailing space lets the athlete keep typing. */
+  mention: (handle: string): string => `${MENTION_PREFIX}${handle} `,
+} as const;
+
+/**
+ * The one line an empty thread shows beside the composer — the discoverable
+ * path to the command palette and the mention grammar, on every client.
+ */
+export const SLASH_HINT = 'Type / for commands · @handle brings a coach in for one turn';
 
 /**
  * Whether this composer text is a command draft at all.

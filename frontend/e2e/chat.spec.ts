@@ -205,7 +205,7 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
     });
   });
 
-  // Coaches (needed by PromptSuggestions in welcome view)
+  // Coaches (the chat header and the @handle palette read this list)
   await page.route('**/api/coaches**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -269,37 +269,25 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
 
 }
 
-test.describe('Chat - Welcome and Prompt Suggestions', () => {
+test.describe('Chat - Empty pane', () => {
   test.beforeEach(async ({ page }) => {
     await setupChatMocks(page, { emptyConversations: true });
     await loginToDashboard(page);
   });
 
-  test('displays welcome heading on chat tab', async ({ page }) => {
-    // User defaults to Chat tab, welcome view shows when no conversation selected
-    await expect(page.getByText('Ready to analyze your fitness')).toBeVisible({ timeout: 10000 });
+  test('shows one line, the "+" and the Commands button', async ({ page }) => {
+    const empty = page.getByTestId('chat-empty-state');
+    await expect(empty).toBeVisible({ timeout: 10000 });
+    await expect(empty.getByText('Pick a chat, or start one')).toBeVisible();
+    await expect(empty.getByRole('button', { name: 'New', exact: true })).toBeVisible();
+    await expect(page.getByTestId('chat-empty-commands')).toBeVisible();
   });
 
-  test('displays message input with placeholder', async ({ page }) => {
-    // ChatTab uses <input> not <textarea> for the welcome form
-    await expect(page.getByPlaceholder('Message Dravr...')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('displays Send button', async ({ page }) => {
-    await expect(page.getByText('Send')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('displays coaches section with category badges', async ({ page }) => {
-    // PromptSuggestions renders coaches from /api/coaches below the welcome form
-    // Each coach card shows a category emoji badge — use h3 to avoid matching sidebar button
-    await expect(page.locator('h3', { hasText: 'Coaches' })).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('h4', { hasText: 'System Coaches' })).toBeVisible();
-  });
-
-  test('displays coach titles and descriptions', async ({ page }) => {
-    // Coach cards show title and description from mock data
-    await expect(page.getByText('Training Coach')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Nutrition Coach')).toBeVisible();
+  test('offers no coach grid and no coach creation', async ({ page }) => {
+    await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('h4', { hasText: 'System Coaches' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Create Coach/i })).toHaveCount(0);
+    await expect(page.getByText('Training Coach')).toHaveCount(0);
   });
 });
 
@@ -309,56 +297,62 @@ test.describe('Chat - Conversation Sidebar', () => {
     await loginToDashboard(page);
   });
 
-  test('displays Coaching sessions heading in sidebar', async ({ page }) => {
-    // Sprint C15 renamed the ConversationsPanel heading from "Recent Chats"
-    // to "Coaching sessions" so the sidebar matches the Tier 4 session-
-    // hierarchy backend model (conversations are grouped per coach).
-    await expect(page.getByText('Coaching sessions')).toBeVisible({ timeout: 10000 });
+  test('pins a search box above one flat list of every conversation', async ({ page }) => {
+    await expect(page.getByLabel('Search conversations')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('list', { name: 'Conversations' })).toBeVisible();
   });
 
   test('displays existing conversations in sidebar', async ({ page }) => {
-    // Conversations appear in sidebar ConversationsPanel
+    // Conversations appear as flat rows in the sidebar list
     await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Nutrition Strategy')).toBeVisible();
     await expect(page.getByText('Recovery Protocol')).toBeVisible();
   });
 
-  test('shows rename and delete buttons on conversation hover', async ({ page }) => {
+  test('shows the row actions menu on conversation hover', async ({ page }) => {
     await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
 
     // Hover over conversation item (button with conversation title text)
-    const conversationItem = page.locator('button:has-text("Marathon Training Plan")');
+    const conversationItem = page.locator('[data-testid="conversation-row"]', {
+      hasText: 'Marathon Training Plan',
+    });
     await conversationItem.hover();
 
-    // Action buttons scoped to the hovered conversation item to avoid strict mode violations
-    // (each conversation has its own Rename/Delete buttons)
-    await expect(conversationItem.getByLabel('Rename conversation')).toBeVisible();
-    await expect(conversationItem.getByLabel('Delete conversation')).toBeVisible();
+    // The three actions live behind one trigger per row, so the row itself
+    // stays clickable while the pointer is on it.
+    await conversationItem.getByTestId('conversation-actions-trigger').click();
+    const menu = conversationItem.getByRole('menu', { name: 'Conversation actions' });
+    await expect(menu.getByRole('menuitem', { name: 'Rename conversation' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Delete conversation' })).toBeVisible();
   });
 
-  test('rename button enables edit mode with current title', async ({ page }) => {
+  test('the menu rename enables edit mode with the current title', async ({ page }) => {
     await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
 
-    const conversationItem = page.locator('button:has-text("Marathon Training Plan")');
+    const conversationItem = page.locator('[data-testid="conversation-row"]', {
+      hasText: 'Marathon Training Plan',
+    });
     await conversationItem.hover();
-
-    await conversationItem.getByLabel('Rename conversation').click();
+    await conversationItem.getByTestId('conversation-actions-trigger').click();
+    await conversationItem.getByRole('menuitem', { name: 'Rename conversation' }).click();
 
     // Input field should appear with current title
-    const input = page.locator('input[type="text"]').first();
+    const input = page.getByLabel('Conversation title');
     await expect(input).toBeVisible({ timeout: 5000 });
     await expect(input).toHaveValue('Marathon Training Plan');
   });
 
-  test('delete button opens confirmation dialog', async ({ page }) => {
+  test('the menu delete opens a confirmation dialog', async ({ page }) => {
     await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
 
-    const conversationItem = page.locator('button:has-text("Marathon Training Plan")');
+    const conversationItem = page.locator('[data-testid="conversation-row"]', {
+      hasText: 'Marathon Training Plan',
+    });
     await conversationItem.hover();
+    await conversationItem.getByTestId('conversation-actions-trigger').click();
+    await conversationItem.getByRole('menuitem', { name: 'Delete conversation' }).click();
 
-    await conversationItem.getByLabel('Delete conversation').click();
-
-    // ConfirmDialog from ConversationsPanel shows "Delete Conversation" title
+    // The list's ConfirmDialog shows a "Delete Conversation" title
     const dialog = page.locator('[role="dialog"], .fixed.inset-0').last();
     await expect(page.getByText('Delete Conversation')).toBeVisible({ timeout: 5000 });
     await expect(dialog.getByRole('button', { name: 'Delete' })).toBeVisible();
@@ -382,9 +376,12 @@ test.describe('Chat - Conversation Sidebar', () => {
 
     await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
 
-    const conversationItem = page.locator('button:has-text("Marathon Training Plan")');
+    const conversationItem = page.locator('[data-testid="conversation-row"]', {
+      hasText: 'Marathon Training Plan',
+    });
     await conversationItem.hover();
-    await conversationItem.getByLabel('Delete conversation').click();
+    await conversationItem.getByTestId('conversation-actions-trigger').click();
+    await conversationItem.getByRole('menuitem', { name: 'Delete conversation' }).click();
 
     // Click Delete in confirmation dialog
     const confirmDialog = page.locator('[role="dialog"], .fixed.inset-0').last();
@@ -441,10 +438,10 @@ test.describe('Chat - Empty State', () => {
     await setupChatMocks(page, { emptyConversations: true });
     await loginToDashboard(page);
 
-    // Welcome heading visible
-    await expect(page.getByText('Ready to analyze your fitness')).toBeVisible({ timeout: 10000 });
-    // No conversations in sidebar
-    await expect(page.getByText('No conversations yet')).toBeVisible();
+    // The empty pane names what to do next
+    await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
+    // No conversations in the sidebar list either
+    await expect(page.getByTestId('conversation-list-empty')).toContainText('No chats yet');
   });
 });
 
@@ -503,7 +500,7 @@ test.describe('Chat - Provider Connection', () => {
     await loginToDashboard(page);
 
     // ChatTab shows "No provider connected" when no provider is connected
-    await expect(page.getByText('Ready to analyze your fitness')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('No provider connected')).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -545,6 +542,10 @@ test.describe('Chat - No provider connected', () => {
     });
 
     await loginToDashboard(page);
+    // The composer belongs to an open thread — the chat pane with none open
+    // shows the empty state, not a message box.
+    await page.goto('/#chat/conv-1');
+    await page.waitForSelector('aside', { timeout: 10000 });
 
     const input = page.getByPlaceholder('Message Dravr...');
     await expect(input).toBeVisible({ timeout: 10000 });
@@ -556,9 +557,12 @@ test.describe('Chat - No provider connected', () => {
     await expect(sendBtn).toBeEnabled({ timeout: 5000 });
     await sendBtn.click();
 
-    // Friendly nudge appears; raw error banner does not.
-    await expect(page.getByText('Connect a fitness provider')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    // Friendly nudge appears; raw error banner does not. Both the banner and
+    // the 403's own copy say "Connect a fitness provider", so the nudge is
+    // addressed by its testid rather than by a string the error strip shares.
+    const banner = page.getByTestId('connect-provider-banner');
+    await expect(banner.getByText('Connect a fitness provider')).toBeVisible({ timeout: 10000 });
+    await expect(banner.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
     await expect(page.getByText(/HTTP error/i)).toHaveCount(0);
   });
 });

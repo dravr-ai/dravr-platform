@@ -2,15 +2,33 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Playwright E2E tests for coach data requirements (startup_query + data_requirements)
-// ABOUTME: Tests create flow with structured pre-fetch configuration from Discover's pinned coaches
+// ABOUTME: Drives Discover's edit sheet on an installed coach and pins the PUT payload it sends
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, navigateToTab, APP_SHELL_TIMEOUT_MS } from './test-helpers';
 
-// Coach with data_requirements configured
+const STORE_ID = 'store-running';
+const COACH_TITLE = 'Test Running Coach';
+
+const storeListing = {
+  id: STORE_ID,
+  title: COACH_TITLE,
+  description: 'Coach with data requirements configured',
+  category: 'training',
+  tags: ['running'],
+  sample_prompts: [],
+  token_count: 100,
+  install_count: 12,
+  icon_url: null,
+  published_at: '2026-01-01T00:00:00Z',
+  author_id: 'author-1',
+  handle: 'test-running-coach',
+};
+
+// The athlete's installed copy, with data_requirements configured
 const coachWithDataReqs = {
   id: 'coach-dr-1',
-  title: 'Test Running Coach',
+  title: COACH_TITLE,
   description: 'Coach with data requirements configured',
   system_prompt: 'You are a running coach...',
   category: 'Training',
@@ -24,6 +42,8 @@ const coachWithDataReqs = {
   is_system: false,
   visibility: 'private',
   is_assigned: true,
+  forked_from: STORE_ID,
+  handle: 'test-running-coach',
   startup_query: 'Analyze my weekly mileage and long run progression.',
   data_requirements: {
     activities: {
@@ -38,7 +58,7 @@ const coachWithDataReqs = {
   },
 };
 
-// Track POST/PUT requests for verification
+// Track PUT requests for verification
 interface CapturedRequest {
   method: string;
   body: Record<string, unknown>;
@@ -48,51 +68,46 @@ async function setupCoachMocks(page: Page) {
   await setupDashboardMocks(page, { role: 'user' });
 
   const capturedRequests: CapturedRequest[] = [];
+  const metadata = () => ({ timestamp: new Date().toISOString(), api_version: '1.0' });
+
+  // The catalogue: the one listing the athlete installed.
+  await page.route(/\/api\/store\/coaches(\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ coaches: [storeListing], has_more: false, next_cursor: null, metadata: metadata() }),
+    });
+  });
+  await page.route(`**/api/store/coaches/${STORE_ID}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...storeListing,
+        system_prompt: 'You are a running coach...',
+        created_at: '2026-01-01T00:00:00Z',
+        publish_status: 'published',
+      }),
+    });
+  });
 
   // Mock user coaches list (matches /api/coaches and /api/coaches?...)
   await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
-    const method = route.request().method();
-    if (method === 'GET') {
+    if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           coaches: [coachWithDataReqs],
           total: 1,
-          metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
+          metadata: metadata(),
         }),
       });
-    } else if (method === 'POST') {
-      const body = route.request().postDataJSON();
-      capturedRequests.push({ method: 'POST', body });
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ...body,
-          id: 'new-coach-id',
-          token_count: 50,
-          is_favorite: false,
-          use_count: 0,
-          last_used_at: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          is_system: false,
-          visibility: 'private',
-          is_assigned: true,
-        }),
-      });
+      return;
     }
+    await route.fallback();
   });
 
-  // Mock hidden coaches
-  await page.route('**/api/coaches/hidden', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ coaches: [] }),
-    });
-  });
 
   // Mock individual coach endpoints (GET/PUT/DELETE)
   await page.route(/\/api\/coaches\/[^/]+$/, async (route) => {
@@ -121,48 +136,57 @@ async function setupCoachMocks(page: Page) {
   return capturedRequests;
 }
 
+/** Discover → the installed listing → its edit sheet. */
+async function openEditSheet(page: Page) {
+  await navigateToTab(page, 'Discover');
+  const listing = page.getByTestId('store-coach-grid').getByText(COACH_TITLE);
+  await expect(listing).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
+  await listing.click();
+  await page.getByRole('button', { name: 'Edit coach' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeVisible({ timeout: 5000 });
+}
+
+async function saveCoach(page: Page) {
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeHidden({ timeout: 10000 });
+}
+
 test.describe('Coach Data Requirements', () => {
-  test('create form shows Data Context section with startup query and pre-fetch toggle', async ({ page }) => {
+  test('edit sheet shows Data Context hydrated from the stored coach', async ({ page }) => {
     await setupCoachMocks(page);
     await loginToDashboard(page);
-    await navigateToTab(page, 'Discover');
-    await page.waitForTimeout(500);
-
-    // Click Create Coach button
-    const createBtn = page.getByRole('button', { name: /Create Coach/i });
-    await expect(createBtn.first()).toBeVisible();
-    await createBtn.first().click();
-    await page.waitForTimeout(300);
+    await openEditSheet(page);
 
     // Should see Data Context section
     await expect(page.getByText('Data Context')).toBeVisible();
 
-    // Should see startup query label
-    await expect(page.getByText('Startup Query')).toBeVisible();
+    // The stored startup query is what the box holds.
+    await expect(page.getByPlaceholder(/What should the coach analyze on first message/)).toHaveValue(
+      'Analyze my weekly mileage and long run progression.',
+    );
 
-    // Should see pre-fetch toggle text
+    // Pre-fetch is on for this coach, so its structured fields are open.
     await expect(page.getByText('Pre-fetch activity data')).toBeVisible();
+    await expect(page.getByText('Activity count')).toBeVisible();
+    await expect(page.locator('input[type="number"]').first()).toHaveValue('25');
+    await expect(page.getByText('Time frame')).toBeVisible();
+    await expect(page.getByText('Sport types')).toBeVisible();
   });
 
-  test('pre-fetch toggle reveals activity count, time frame, sport types, and mode fields', async ({ page }) => {
+  test('pre-fetch toggle hides and reveals activity count, time frame, sport types, and mode fields', async ({ page }) => {
     await setupCoachMocks(page);
     await loginToDashboard(page);
-    await navigateToTab(page, 'Discover');
-    await page.waitForTimeout(500);
+    await openEditSheet(page);
 
-    const createBtn = page.getByRole('button', { name: /Create Coach/i });
-    await createBtn.first().click();
-    await page.waitForTimeout(300);
+    await expect(page.getByText('Activity count')).toBeVisible();
 
-    // Activity count should NOT be visible before toggle
-    await expect(page.getByText('Activity count')).not.toBeVisible();
-
-    // Enable pre-fetch by clicking the checkbox next to "Pre-fetch activity data"
+    // Turn pre-fetch off: the structured fields go with it.
     const prefetchLabel = page.getByText('Pre-fetch activity data');
     await prefetchLabel.click();
-    await page.waitForTimeout(200);
+    await expect(page.getByText('Activity count')).not.toBeVisible();
 
-    // Now structured fields should appear
+    // And back on.
+    await prefetchLabel.click();
     await expect(page.getByText('Activity count')).toBeVisible();
     await expect(page.getByText('Time frame')).toBeVisible();
     await expect(page.getByText('Sport types')).toBeVisible();
@@ -170,85 +194,51 @@ test.describe('Coach Data Requirements', () => {
     await expect(page.getByText('Detailed')).toBeVisible();
   });
 
-  test('creating coach with data_requirements sends correct API payload', async ({ page }) => {
+  test('saving with data_requirements sends the structured pre-fetch payload', async ({ page }) => {
     const capturedRequests = await setupCoachMocks(page);
     await loginToDashboard(page);
-    await navigateToTab(page, 'Discover');
-    await page.waitForTimeout(500);
+    await openEditSheet(page);
 
-    const createBtn = page.getByRole('button', { name: /Create Coach/i });
-    await createBtn.first().click();
-    await page.waitForTimeout(300);
-
-    // Fill title (required) — the shared modal's title input
-    const titleInput = page.getByPlaceholder('e.g., Marathon Training Coach');
-    await titleInput.fill('My Training Coach');
-
-    // Fill system prompt (required)
-    const systemPromptField = page.getByPlaceholder(
-      "Define your coach's personality, expertise, and communication style..."
-    );
-    await systemPromptField.fill('You are a training coach specialized in endurance.');
-
-    // Fill startup query
+    // Change the startup query and the activity count
     const startupField = page.getByPlaceholder(/What should the coach analyze on first message/);
     await startupField.fill('Analyze my recent training trends');
-
-    // Enable pre-fetch
-    const prefetchLabel = page.getByText('Pre-fetch activity data');
-    await prefetchLabel.click();
-    await page.waitForTimeout(200);
-
-    // Set activity count to 30
     const activityInput = page.locator('input[type="number"]').first();
     await activityInput.fill('30');
 
-    // Submit the form (the modal's submit button, not the header one)
-    const submitBtn = page.locator('button[type="submit"]', { hasText: 'Create Coach' });
-    await submitBtn.click();
-    await page.waitForTimeout(500);
+    await saveCoach(page);
 
     // Verify API request
-    const createReq = capturedRequests.find(r => r.method === 'POST');
-    expect(createReq).toBeDefined();
-    expect(createReq!.body.title).toBe('My Training Coach');
-    expect(createReq!.body.startup_query).toBe('Analyze my recent training trends');
-    expect(createReq!.body.data_requirements).toBeDefined();
+    const updateReq = capturedRequests.find((r) => r.method === 'PUT');
+    expect(updateReq).toBeDefined();
+    expect(updateReq!.body.title).toBe(COACH_TITLE);
+    expect(updateReq!.body.startup_query).toBe('Analyze my recent training trends');
+    expect(updateReq!.body.data_requirements).toBeDefined();
 
-    const dr = createReq!.body.data_requirements as Record<string, unknown>;
-    expect(dr.activities).toBeDefined();
-
+    const dr = updateReq!.body.data_requirements as Record<string, unknown>;
     const activities = dr.activities as Record<string, unknown>;
     expect(activities.count).toBe(30);
+    expect(activities.sport_types).toEqual(['Run']);
+    expect(activities.time_frame).toBe('16w');
     expect(activities.format).toBe('toon');
     expect(activities.mode).toBe('summary');
+    expect(dr.athlete_profile).toBe(true);
   });
 
-  test('creating coach without pre-fetch sends no data_requirements', async ({ page }) => {
+  test('saving with pre-fetch off sends no data_requirements', async ({ page }) => {
     const capturedRequests = await setupCoachMocks(page);
     await loginToDashboard(page);
-    await navigateToTab(page, 'Discover');
-    await page.waitForTimeout(500);
+    await openEditSheet(page);
 
-    const createBtn = page.getByRole('button', { name: /Create Coach/i });
-    await createBtn.first().click();
-    await page.waitForTimeout(300);
+    // Turn pre-fetch off, then save
+    await page.getByText('Pre-fetch activity data').click();
+    await expect(page.getByText('Activity count')).not.toBeVisible();
+    await saveCoach(page);
 
-    // Fill only required fields
-    const titleInput = page.getByPlaceholder('e.g., Marathon Training Coach');
-    await titleInput.fill('Simple Coach');
-    const systemPromptField = page.getByPlaceholder(
-      "Define your coach's personality, expertise, and communication style..."
-    );
-    await systemPromptField.fill('You are a simple coach.');
-
-    // Submit without enabling pre-fetch (the modal's submit button)
-    const submitBtn = page.locator('button[type="submit"]', { hasText: 'Create Coach' });
-    await submitBtn.click();
-    await page.waitForTimeout(500);
-
-    const createReq = capturedRequests.find(r => r.method === 'POST');
-    expect(createReq).toBeDefined();
-    expect(createReq!.body.data_requirements).toBeUndefined();
+    const updateReq = capturedRequests.find((r) => r.method === 'PUT');
+    expect(updateReq).toBeDefined();
+    expect(updateReq!.body.data_requirements).toBeUndefined();
+    // The rest of the coach still rides along.
+    expect(updateReq!.body.title).toBe(COACH_TITLE);
+    expect(updateReq!.body.startup_query).toBe('Analyze my weekly mileage and long run progression.');
   });
 });

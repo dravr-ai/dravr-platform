@@ -40,11 +40,13 @@ describe('client locale corpus', () => {
     expect(defaultI18nConfig.fallbackLng).toBe('fr');
   });
 
-  it('carries the same 178 keys in every locale', () => {
+  it('carries the same 154 keys in every locale', () => {
     // 201 before the Chat-First Cutover retired the 23-key `social`
-    // namespace with the feature it named.
+    // namespace with the feature it named; 178 until coach UI left chat and
+    // took the 24-key `coaches` namespace with it — `/coach` and `/discover`
+    // speak through the server's own five-locale corpus now.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(178);
+    expect(reference).toHaveLength(154);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

@@ -88,14 +88,6 @@ export interface GroupInvite {
 
 // ========== REQUEST TYPES ==========
 
-/** Request to create a new coaching group */
-export interface CreateGroupRequest {
-  name: string;
-  description?: string;
-  coach_id: string;
-  max_members?: number;
-}
-
 /** Request to update a coaching group */
 export interface UpdateGroupRequest {
   name?: string;
@@ -105,11 +97,6 @@ export interface UpdateGroupRequest {
   peer_data_sharing?: boolean;
   respond_mode?: GroupRespondMode;
   is_active?: boolean;
-}
-
-/** Request to join a group via invite code */
-export interface JoinGroupRequest {
-  invite_code: string;
 }
 
 /** Request to update a member's role */
@@ -131,19 +118,6 @@ export interface CreateInviteRequest {
 }
 
 // ========== RESPONSE TYPES ==========
-
-/** Lightweight group summary for list views */
-export interface GroupSummary {
-  id: string;
-  name: string;
-  description: string | null;
-  coach_id: string;
-  member_count: number;
-  is_active: boolean;
-  peer_data_sharing: boolean;
-  my_role: GroupRole;
-  created_at: string;
-}
 
 /** Aggregate statistics for a coaching group */
 export interface GroupAggregateStats {
@@ -174,17 +148,6 @@ export interface GroupWeeklyReport {
 }
 
 // ========== LIST RESPONSES ==========
-
-/** Response for listing groups */
-export interface ListGroupsResponse {
-  groups: GroupSummary[];
-}
-
-/** Response for listing the groups a user is the human coach of */
-export interface CoachedGroupsResponse {
-  groups: CoachingGroup[];
-  total: number;
-}
 
 /** Response for listing group members */
 export interface GroupMembersResponse {

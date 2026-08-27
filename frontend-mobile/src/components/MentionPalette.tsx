@@ -12,6 +12,8 @@ import { useThemeColors } from '../constants/theme';
 export interface MentionPaletteProps {
   /** The installed coaches whose handle matches what is being typed. */
   matches: MentionCandidate[];
+  /** Index into `matches` of the row the keyboard is on. */
+  highlightedIndex: number;
   /** Fill the composer with this coach's handle, lowercase and verbatim. */
   onSelect: (candidate: MentionCandidate) => void;
 }
@@ -23,7 +25,7 @@ export interface MentionPaletteProps {
  * routes to for one turn. Renders nothing when there is nothing to offer,
  * which is what closes it, the same way the slash palette closes.
  */
-export function MentionPalette({ matches, onSelect }: MentionPaletteProps) {
+export function MentionPalette({ matches, highlightedIndex, onSelect }: MentionPaletteProps) {
   const colors = useThemeColors();
 
   if (matches.length === 0) return null;
@@ -48,12 +50,15 @@ export function MentionPalette({ matches, onSelect }: MentionPaletteProps) {
             testID={`mention-palette-option-${coach.handle}`}
             accessibilityRole="button"
             accessibilityLabel={`Mention @${coach.handle}`}
+            accessibilityState={index === highlightedIndex ? { selected: true } : {}}
             onPress={() => onSelect(coach)}
             style={{
               paddingHorizontal: 16,
               paddingVertical: 10,
               borderBottomWidth: index < matches.length - 1 ? 1 : 0,
               borderBottomColor: colors.border.subtle,
+              backgroundColor:
+                index === highlightedIndex ? colors.background.elevated : 'transparent',
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>

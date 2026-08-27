@@ -460,6 +460,8 @@ pub const KEY_HELP_DOMAIN_PROVIDER: &str = "commands.help.domain.provider";
 pub const KEY_HELP_DOMAIN_ACCOUNT: &str = "commands.help.domain.account";
 /// Key: `/help` domain heading — training plan and calibration commands.
 pub const KEY_HELP_DOMAIN_TRAINING: &str = "commands.help.domain.training";
+/// Key: `/help` domain heading for the coach catalogue (`/discover`).
+pub const KEY_HELP_DOMAIN_DISCOVER: &str = "commands.help.domain.discover";
 /// Key: `/help` closing line inviting the user to chat.
 pub const KEY_HELP_FOOTER: &str = "commands.help.footer";
 
@@ -681,6 +683,61 @@ pub const KEY_GROUP_RESPOND_STATUS_MENTIONS: &str = "commands.group.respond_stat
 /// Key: `/group coach detach` confirmation — the group's human coach was
 /// cleared. `{0}` = group name.
 pub const KEY_GROUP_COACH_DETACHED: &str = "commands.group.coach_detached";
+/// Key: `/group create` usage hint when no name was typed.
+pub const KEY_GROUP_CREATE_USAGE: &str = "commands.group.create_usage";
+/// Key: `/group create` refusal when neither the conversation nor the
+/// selection pointer names a coach for the new group.
+pub const KEY_GROUP_CREATE_NO_COACH: &str = "commands.group.create_no_coach";
+/// Key: `/group create` refusal when the tenant plan has no group coaching.
+pub const KEY_GROUP_CREATE_UNAVAILABLE: &str = "commands.group.create_unavailable";
+/// Key: `/group create` refusal when the tenant's `group_creation_policy`
+/// reserves creation to its admins.
+pub const KEY_GROUP_CREATE_FORBIDDEN: &str = "commands.group.create_forbidden";
+/// Key: `/group create` success body. `{0}` = group name, `{1}` = coach title.
+pub const KEY_GROUP_CREATED: &str = "commands.group.created";
+/// Key: label of the `/group invite` button under a `/group create` reply.
+pub const KEY_GROUP_INVITE_LABEL: &str = "commands.group.invite_label";
+/// Key: `/group join` refusal for a missing, unknown, expired, exhausted or
+/// ineligible invite code. Carries no placeholder: the typed code is never
+/// echoed back.
+pub const KEY_GROUP_JOIN_INVALID_CODE: &str = "commands.group.join_invalid_code";
+/// Key: `/group join` when the caller already belongs to the group. `{0}` = group name.
+pub const KEY_GROUP_JOIN_ALREADY_MEMBER: &str = "commands.group.join_already_member";
+/// Key: `/group join` when the group is at its member cap. `{0}` = group name.
+pub const KEY_GROUP_JOIN_FULL: &str = "commands.group.join_full";
+/// Key: `/group join` member success. `{0}` = group name.
+pub const KEY_GROUP_JOINED: &str = "commands.group.joined";
+/// Key: `/group join` success for a coach-kind invite. `{0}` = group name.
+pub const KEY_GROUP_JOINED_AS_COACH: &str = "commands.group.joined_as_coach";
+
+// ── /discover command keys ────────────────────────────────────────────────
+
+/// Key: `/discover` list card title.
+pub const KEY_DISCOVER_CARD_TITLE: &str = "commands.discover.card_title";
+/// Key: `/discover` list item. `{0}` = title, `{1}` = handle (no `@`),
+/// `{2}` = category, `{3}` = description.
+pub const KEY_DISCOVER_ITEM: &str = "commands.discover.item";
+/// Key: `/discover` when a category or search matches nothing. `{0}` = what
+/// was asked, as typed.
+pub const KEY_DISCOVER_EMPTY: &str = "commands.discover.empty";
+/// Key: bare `/discover` when nothing is published at all.
+pub const KEY_DISCOVER_CATALOGUE_EMPTY: &str = "commands.discover.catalogue_empty";
+/// Key: label of the next-page button under a `/discover` card.
+pub const KEY_DISCOVER_MORE_LABEL: &str = "commands.discover.more_label";
+/// Key: `/discover install` usage hint when no handle was typed.
+pub const KEY_DISCOVER_INSTALL_USAGE: &str = "commands.discover.install_usage";
+/// Key: `/discover install @handle` when no published coach answers to the
+/// handle. `{0}` = the handle as typed, with its `@`.
+pub const KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE: &str = "commands.discover.install_unknown_handle";
+/// Key: `/discover install` success — the post-install hint that teaches
+/// `/coach add @handle` and the `@handle` mention. `{0}` = coach title,
+/// `{1}` = handle (no `@`).
+pub const KEY_DISCOVER_INSTALLED: &str = "commands.discover.installed";
+/// Key: `/discover install` for a coach already on the caller's list — the
+/// same hint, no second copy. `{0}` = coach title, `{1}` = handle (no `@`).
+pub const KEY_DISCOVER_INSTALL_ALREADY: &str = "commands.discover.install_already";
+/// Key: label of the `/coach add @handle` button under a `/discover install` reply.
+pub const KEY_DISCOVER_ADD_LABEL: &str = "commands.discover.add_label";
 
 // ── Notification messaging-sink keys ────────────────────────────
 
@@ -691,37 +748,68 @@ pub const KEY_NOTIFICATION_CHANNEL_BODY: &str = "notifications.channel_body";
 
 // ── /coach command keys ───────────────────────────────────────────────────
 
-/// Key: `/coach` empty list.
+/// Key: `/coach` when the caller's list holds no coach.
 pub const KEY_COACH_LIST_EMPTY: &str = "commands.coach.list_empty";
 /// Key: `/coach` list card title.
 pub const KEY_COACH_LIST_CARD_TITLE: &str = "commands.coach.list_card_title";
-/// Key: `/coach` list item. `{0}` = title, `{1}` = category, `{2}` = description.
+/// Key: `/coach` list item for a coach with a catalogue handle.
+/// `{0}` = title, `{1}` = handle (without `@`), `{2}` = description.
 pub const KEY_COACH_LIST_ITEM: &str = "commands.coach.list_item";
+/// Key: `/coach` list item for a coach that owns no catalogue handle yet.
+/// `{0}` = title, `{1}` = description.
+pub const KEY_COACH_LIST_ITEM_NO_HANDLE: &str = "commands.coach.list_item_no_handle";
+/// Key: `/coach` list footer teaching the mention and the `/coach add` forms.
+pub const KEY_COACH_LIST_FOOTER: &str = "commands.coach.list_footer";
 /// Key: `/coach` description fallback when the coach has no description set.
 pub const KEY_COACH_NO_DESCRIPTION: &str = "commands.coach.no_description";
-/// Key: `/coach select` auto-created a new group. `{0}` = group name, `{1}` = coach.
-pub const KEY_COACH_GROUP_CREATED: &str = "commands.coach.group_created";
-/// Key: `/coach select` result when group creation is unavailable. `{0}` = coach.
-pub const KEY_COACH_GROUP_CREATION_UNAVAILABLE: &str = "commands.coach.group_creation_unavailable";
-/// Key: `/coach select` / `/coach assign` success. `{0}` = coach, `{1}` = group.
+/// Key: `/coach add` in a group conversation / `/coach assign` success.
+/// `{0}` = coach, `{1}` = group.
 pub const KEY_COACH_GROUP_UPDATED: &str = "commands.coach.group_updated";
-/// Key: `/coach select` success in a DM (user-scoped coach). `{0}` = coach title.
-/// Distinct from [`KEY_COACH_GROUP_UPDATED`] so DM replies don't mention any "group".
+/// Key: `/coach add` success in a personal conversation. `{0}` = coach title.
+/// Distinct from [`KEY_COACH_GROUP_UPDATED`] so personal replies don't mention any "group".
 pub const KEY_COACH_USER_UPDATED: &str = "commands.coach.user_updated";
-/// Key: `/coach select` prompt when the user manages multiple groups.
-/// `{0}` = group count, `{1}` = coach title.
-pub const KEY_COACH_MULTI_GROUP_PROMPT: &str = "commands.coach.multi_group_prompt";
-/// Key: `/coach select` multi-group card title.
-pub const KEY_COACH_MULTI_GROUP_CARD_TITLE: &str = "commands.coach.multi_group_card_title";
-/// Key: `/coach select` multi-group card item. `{0}` = name, `{1}` = members.
-pub const KEY_COACH_MULTI_GROUP_ITEM: &str = "commands.coach.multi_group_item";
 /// Key: `/coach assign` rejection when the user is not a group member.
 pub const KEY_COACH_ASSIGN_NOT_A_MEMBER: &str = "commands.coach.assign_not_a_member";
-/// Key: `/coach assign` rejection when the user lacks admin rights.
+/// Key: `/coach assign` and `/coach add` (group conversation) rejection when the
+/// caller lacks admin rights in the group.
 pub const KEY_COACH_ASSIGN_FORBIDDEN: &str = "commands.coach.assign_forbidden";
-/// Key: `/coach invite @handle` when no installed coach answers to the
-/// handle. `{0}` = the handle as typed, with its `@`.
-pub const KEY_COACH_INVITE_UNKNOWN_HANDLE: &str = "commands.coach.invite_unknown_handle";
+/// Key: `/coach add` typed without a coach.
+pub const KEY_COACH_ADD_USAGE: &str = "commands.coach.add_usage";
+/// Key: `/coach add` when no installed coach answers to the argument.
+/// `{0}` = the handle as typed, with its `@`.
+pub const KEY_COACH_ADD_UNKNOWN: &str = "commands.coach.add_unknown";
+/// Key: `/coach remove` refused in a group conversation, where the coach is the group's.
+pub const KEY_COACH_REMOVE_GROUP_THREAD: &str = "commands.coach.remove_group_thread";
+/// Key: `/coach remove` when the conversation has no coach attached.
+pub const KEY_COACH_REMOVE_NOTHING: &str = "commands.coach.remove_nothing";
+/// Key: `/coach remove` success. `{0}` = coach title.
+pub const KEY_COACH_REMOVED: &str = "commands.coach.removed";
+/// Key: `/coach create` dispatched with no conversation to read.
+pub const KEY_COACH_CREATE_NO_CONVERSATION: &str = "commands.coach.create_no_conversation";
+/// Key: `/coach create` on a conversation with no message to draft from.
+pub const KEY_COACH_CREATE_EMPTY: &str = "commands.coach.create_empty";
+/// Key: `/coach create` with arguments that are neither empty nor `confirm token`.
+pub const KEY_COACH_CREATE_USAGE: &str = "commands.coach.create_usage";
+/// Key: `/coach create` proposal card title.
+pub const KEY_COACH_CREATE_CARD_TITLE: &str = "commands.coach.create_card_title";
+/// Key: `/coach create` proposal card body.
+/// `{0}` = title, `{1}` = description, `{2}` = category, `{3}` = tags, `{4}` = claim token.
+pub const KEY_COACH_CREATE_PROPOSAL_BODY: &str = "commands.coach.create_proposal_body";
+/// Key: `/coach create` proposal card — the button that creates the coach.
+pub const KEY_COACH_CREATE_CONFIRM_LABEL: &str = "commands.coach.create_confirm_label";
+/// Key: `/coach create` proposal card — the button that discards the draft.
+pub const KEY_COACH_CREATE_DISCARD_LABEL: &str = "commands.coach.create_discard_label";
+/// Key: `/coach create confirm` refused by the per-user coach quota.
+/// `{0}` = coaches the caller already has, `{1}` = the plan's maximum.
+pub const KEY_COACH_CREATE_QUOTA: &str = "commands.coach.create_quota";
+/// Key: `/coach create confirm` success, coach bound to the conversation.
+/// `{0}` = title, `{1}` = handle (without `@`).
+pub const KEY_COACH_CREATE_DONE: &str = "commands.coach.create_done";
+/// Key: `/coach create confirm` success when the conversation could not take the
+/// coach (a group whose settings the caller may not change). `{0}` = title, `{1}` = handle.
+pub const KEY_COACH_CREATE_DONE_UNBOUND: &str = "commands.coach.create_done_unbound";
+/// Key: `/deny` on a coach draft — the draft is dropped, nothing was created.
+pub const KEY_COACH_CREATE_DISCARDED: &str = "commands.coach.create_discarded";
 
 // ── Compiled-in defaults: French (DEFAULT_LOCALE) ────────────────────────
 
@@ -880,6 +968,7 @@ pub(crate) const FR_HELP_DOMAIN_DATA: &str = "Données d'activité";
 pub(crate) const FR_HELP_DOMAIN_PROVIDER: &str = "Fournisseurs";
 pub(crate) const FR_HELP_DOMAIN_ACCOUNT: &str = "Compte";
 pub(crate) const FR_HELP_DOMAIN_TRAINING: &str = "Entraînement";
+pub(crate) const FR_HELP_DOMAIN_DISCOVER: &str = "Catalogue de coachs";
 pub(crate) const FR_HELP_FOOTER: &str = "\nOu écris-moi simplement pour discuter avec ton coach.";
 
 pub(crate) const FR_LOGOUT_CONFIRM_PROMPT: &str = "Ceci va délier ton compte {0} de Dravr.\nIl faudra le relier pour réutiliser la messagerie.\n\nTape « logout » pour confirmer.";
@@ -983,27 +1072,80 @@ pub(crate) const FR_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const FR_GROUP_RESPOND_STATUS_MENTIONS: &str = "Le coach ne répond que lorsqu'on l'interpelle. Pour revenir à tous les messages : /group respond all";
 pub(crate) const FR_GROUP_CONSENT_UPDATED: &str =
     "Le partage de tes données avec les autres membres de {1} est maintenant {0}.";
+pub(crate) const FR_GROUP_CREATE_USAGE: &str =
+    "Usage : /group create nom-du-groupe — par exemple /group create Coureurs du dimanche";
+pub(crate) const FR_GROUP_CREATE_NO_COACH: &str =
+    "Choisis d'abord le coach du groupe : /coach add @handle dans cette discussion, puis relance /group create.";
+pub(crate) const FR_GROUP_CREATE_UNAVAILABLE: &str =
+    "Le coaching de groupe n'est pas inclus dans ton forfait.";
+pub(crate) const FR_GROUP_CREATE_FORBIDDEN: &str =
+    "La création de groupes est réservée aux admins de ton espace.";
+pub(crate) const FR_GROUP_CREATED: &str =
+    "Groupe « {0} » créé avec le coach {1}. Invite des membres avec /group invite.";
+pub(crate) const FR_GROUP_INVITE_LABEL: &str = "Inviter des membres";
+pub(crate) const FR_GROUP_JOIN_INVALID_CODE: &str =
+    "Ce code d'invitation n'est pas valide ou a expiré. Demande un nouveau lien à un admin du groupe (/group invite).";
+pub(crate) const FR_GROUP_JOIN_ALREADY_MEMBER: &str = "Tu fais déjà partie de {0}.";
+pub(crate) const FR_GROUP_JOIN_FULL: &str = "{0} est complet.";
+pub(crate) const FR_GROUP_JOINED: &str =
+    "Bienvenue dans {0} ! La discussion de groupe est maintenant dans ta liste de conversations.";
+pub(crate) const FR_GROUP_JOINED_AS_COACH: &str = "Tu es maintenant le coach humain de {0}.";
+pub(crate) const FR_DISCOVER_CARD_TITLE: &str = "Catalogue de coachs";
+pub(crate) const FR_DISCOVER_ITEM: &str = "• {0} — @{1} [{2}]\n  {3}\n";
+pub(crate) const FR_DISCOVER_EMPTY: &str =
+    "Aucun coach du catalogue ne correspond à « {0} ». Tape /discover pour voir les nouveautés.";
+pub(crate) const FR_DISCOVER_CATALOGUE_EMPTY: &str = "Le catalogue de coachs est vide.";
+pub(crate) const FR_DISCOVER_MORE_LABEL: &str = "Suivants";
+pub(crate) const FR_DISCOVER_INSTALL_USAGE: &str =
+    "Usage : /discover install @handle — le @handle s'affiche dans /discover.";
+pub(crate) const FR_DISCOVER_INSTALL_UNKNOWN_HANDLE: &str =
+    "Aucun coach publié ne répond à {0}. Tape /discover pour parcourir le catalogue.";
+pub(crate) const FR_DISCOVER_INSTALLED: &str =
+    "{0} est installé. Utilise-le dans n'importe quelle discussion : /coach add @{1}, ou mentionne @{1} dans un message pour un seul tour.";
+pub(crate) const FR_DISCOVER_INSTALL_ALREADY: &str =
+    "{0} est déjà installé. Utilise-le dans n'importe quelle discussion : /coach add @{1}, ou mentionne @{1} dans un message pour un seul tour.";
+pub(crate) const FR_DISCOVER_ADD_LABEL: &str = "Utiliser ici";
 
 pub(crate) const FR_COACH_LIST_EMPTY: &str =
-    "Aucun coach disponible. Demande à ton admin d'ajouter des coachs à ton espace.";
-pub(crate) const FR_COACH_LIST_CARD_TITLE: &str = "Choisis un coach";
-pub(crate) const FR_COACH_LIST_ITEM: &str = "• {0} [{1}]\n  {2}\n";
+    "Aucun coach sur ta liste. Tape /discover pour parcourir le catalogue, ou /coach create pour en créer un à partir de cette conversation.";
+pub(crate) const FR_COACH_LIST_CARD_TITLE: &str = "Tes coachs";
+pub(crate) const FR_COACH_LIST_ITEM: &str = "• {0} — @{1}\n  {2}\n";
+pub(crate) const FR_COACH_LIST_ITEM_NO_HANDLE: &str = "• {0}\n  {1}\n";
+pub(crate) const FR_COACH_LIST_FOOTER: &str =
+    "Mentionne @handle dans un message pour lui confier ce seul message, ou tape /coach add @handle pour qu'il réponde ici à partir de maintenant.";
 pub(crate) const FR_COACH_NO_DESCRIPTION: &str = "Sans description";
-pub(crate) const FR_COACH_GROUP_CREATED: &str =
-    "Groupe « {0} » créé avec le coach {1}. Les membres peuvent rejoindre via /group invite.";
-pub(crate) const FR_COACH_GROUP_CREATION_UNAVAILABLE: &str =
-    "Coach sélectionné : {0}. La création de groupe n'est pas disponible.";
 pub(crate) const FR_COACH_GROUP_UPDATED: &str = "Coach mis à jour sur {0} pour le groupe {1}.";
 pub(crate) const FR_COACH_USER_UPDATED: &str = "Coach sélectionné : {0}.";
-pub(crate) const FR_COACH_MULTI_GROUP_PROMPT: &str =
-    "Tu gères {0} groupes. Lequel doit utiliser {1} ?\n";
-pub(crate) const FR_COACH_MULTI_GROUP_CARD_TITLE: &str = "Choisis un groupe";
-pub(crate) const FR_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} membres)";
 pub(crate) const FR_COACH_ASSIGN_NOT_A_MEMBER: &str = "Tu n'es pas membre de ce groupe";
 pub(crate) const FR_COACH_ASSIGN_FORBIDDEN: &str =
     "Seuls les admins et propriétaires du groupe peuvent changer le coach.";
-pub(crate) const FR_COACH_INVITE_UNKNOWN_HANDLE: &str =
-    "Aucun coach installé ne répond à {0}. Tape /coach pour voir ta liste de coachs.";
+pub(crate) const FR_COACH_ADD_USAGE: &str =
+    "Indique quel coach ajouter : /coach add @handle. Tape /coach pour voir ta liste.";
+pub(crate) const FR_COACH_ADD_UNKNOWN: &str =
+    "Aucun coach installé ne répond à {0}. Tape /coach pour voir ta liste, ou /discover pour l'installer.";
+pub(crate) const FR_COACH_REMOVE_GROUP_THREAD: &str =
+    "Dans un groupe, le coach appartient au groupe — utilise /group coach pour le changer.";
+pub(crate) const FR_COACH_REMOVE_NOTHING: &str = "Aucun coach n'est attaché à cette conversation.";
+pub(crate) const FR_COACH_REMOVED: &str = "{0} ne répond plus dans cette conversation.";
+pub(crate) const FR_COACH_CREATE_NO_CONVERSATION: &str =
+    "Ouvre d'abord une conversation : /coach create rédige un coach à partir de ce qui s'y est dit.";
+pub(crate) const FR_COACH_CREATE_EMPTY: &str =
+    "Cette conversation est encore vide. Échange d'abord quelques messages avec ton coach, puis relance /coach create.";
+pub(crate) const FR_COACH_CREATE_USAGE: &str =
+    "Utilisation : /coach create pour proposer un coach à partir de cette conversation, puis /coach create confirm token pour le créer.";
+pub(crate) const FR_COACH_CREATE_CARD_TITLE: &str = "Brouillon de coach";
+pub(crate) const FR_COACH_CREATE_PROPOSAL_BODY: &str =
+    "{0}\n{1}\n\nCatégorie : {2}\nTags : {3}\n\nRéponds /coach create confirm {4} pour le créer, ou /deny {4} pour l'abandonner. Le brouillon expire dans 10 minutes.";
+pub(crate) const FR_COACH_CREATE_CONFIRM_LABEL: &str = "Créer";
+pub(crate) const FR_COACH_CREATE_DISCARD_LABEL: &str = "Abandonner";
+pub(crate) const FR_COACH_CREATE_QUOTA: &str =
+    "Tu as déjà {0} coachs, le maximum de ton forfait ({1}). Supprime-en un depuis Discover avant d'en créer un autre.";
+pub(crate) const FR_COACH_CREATE_DONE: &str =
+    "Coach {0} créé — @{1}. Il répond ici à partir de ton prochain message. Tape /coach add @{1} dans n'importe quelle autre conversation, ou modifie-le depuis sa fiche Discover.";
+pub(crate) const FR_COACH_CREATE_DONE_UNBOUND: &str =
+    "Coach {0} créé — @{1}. Tape /coach add @{1} dans une de tes conversations pour l'utiliser, ou modifie-le depuis sa fiche Discover.";
+pub(crate) const FR_COACH_CREATE_DISCARDED: &str =
+    "Brouillon abandonné. Relance /coach create quand tu veux.";
 
 // ── Compiled-in defaults: English ─────────────────────────────────────────
 
@@ -1153,6 +1295,7 @@ pub(crate) const EN_HELP_DOMAIN_DATA: &str = "Fitness data";
 pub(crate) const EN_HELP_DOMAIN_PROVIDER: &str = "Providers";
 pub(crate) const EN_HELP_DOMAIN_ACCOUNT: &str = "Account";
 pub(crate) const EN_HELP_DOMAIN_TRAINING: &str = "Training";
+pub(crate) const EN_HELP_DOMAIN_DISCOVER: &str = "Coach catalogue";
 pub(crate) const EN_HELP_FOOTER: &str = "\nOr just send a message to chat with your coach.";
 
 pub(crate) const EN_LOGOUT_CONFIRM_PROMPT: &str = "This will unlink your {0} account from Dravr.\nYou will need to re-link to use messaging again.\n\nType \"logout\" to confirm.";
@@ -1262,27 +1405,79 @@ pub(crate) const EN_GROUP_RESPOND_STATUS_MENTIONS: &str =
     "The coach replies only when addressed. To go back to every message: /group respond all";
 pub(crate) const EN_GROUP_CONSENT_UPDATED: &str =
     "Sharing your data with the other members of {1} is now {0}.";
+pub(crate) const EN_GROUP_CREATE_USAGE: &str =
+    "Usage: /group create group-name — for example /group create Sunday Runners";
+pub(crate) const EN_GROUP_CREATE_NO_COACH: &str =
+    "Pick the group's coach first: /coach add @handle in this chat, then run /group create again.";
+pub(crate) const EN_GROUP_CREATE_UNAVAILABLE: &str = "Group coaching is not included in your plan.";
+pub(crate) const EN_GROUP_CREATE_FORBIDDEN: &str =
+    "Group creation is reserved to your workspace's admins.";
+pub(crate) const EN_GROUP_CREATED: &str =
+    "Group \"{0}\" created with coach {1}. Invite members with /group invite.";
+pub(crate) const EN_GROUP_INVITE_LABEL: &str = "Invite members";
+pub(crate) const EN_GROUP_JOIN_INVALID_CODE: &str =
+    "That invite code is not valid or has expired. Ask a group admin for a fresh link (/group invite).";
+pub(crate) const EN_GROUP_JOIN_ALREADY_MEMBER: &str = "You are already a member of {0}.";
+pub(crate) const EN_GROUP_JOIN_FULL: &str = "{0} is full.";
+pub(crate) const EN_GROUP_JOINED: &str =
+    "Welcome to {0}! The group chat is now in your conversation list.";
+pub(crate) const EN_GROUP_JOINED_AS_COACH: &str = "You are now the human coach of {0}.";
+pub(crate) const EN_DISCOVER_CARD_TITLE: &str = "Coach catalogue";
+pub(crate) const EN_DISCOVER_ITEM: &str = "• {0} — @{1} [{2}]\n  {3}\n";
+pub(crate) const EN_DISCOVER_EMPTY: &str =
+    "No catalogue coach matches \"{0}\". Type /discover to see the newest ones.";
+pub(crate) const EN_DISCOVER_CATALOGUE_EMPTY: &str = "The coach catalogue is empty.";
+pub(crate) const EN_DISCOVER_MORE_LABEL: &str = "More";
+pub(crate) const EN_DISCOVER_INSTALL_USAGE: &str =
+    "Usage: /discover install @handle — the @handle is shown in /discover.";
+pub(crate) const EN_DISCOVER_INSTALL_UNKNOWN_HANDLE: &str =
+    "No published coach answers to {0}. Type /discover to browse the catalogue.";
+pub(crate) const EN_DISCOVER_INSTALLED: &str =
+    "{0} is installed. Use it in any chat: /coach add @{1}, or mention @{1} in a message for one turn.";
+pub(crate) const EN_DISCOVER_INSTALL_ALREADY: &str =
+    "{0} is already installed. Use it in any chat: /coach add @{1}, or mention @{1} in a message for one turn.";
+pub(crate) const EN_DISCOVER_ADD_LABEL: &str = "Use in this chat";
 
 pub(crate) const EN_COACH_LIST_EMPTY: &str =
-    "No coaches available. Ask your admin to add coaches to your workspace.";
-pub(crate) const EN_COACH_LIST_CARD_TITLE: &str = "Choose a coach";
-pub(crate) const EN_COACH_LIST_ITEM: &str = "• {0} [{1}]\n  {2}\n";
+    "No coach on your list yet. Type /discover to browse the catalogue, or /coach create to draft one from this conversation.";
+pub(crate) const EN_COACH_LIST_CARD_TITLE: &str = "Your coaches";
+pub(crate) const EN_COACH_LIST_ITEM: &str = "• {0} — @{1}\n  {2}\n";
+pub(crate) const EN_COACH_LIST_ITEM_NO_HANDLE: &str = "• {0}\n  {1}\n";
+pub(crate) const EN_COACH_LIST_FOOTER: &str =
+    "Mention @handle in a message to hand it that one message, or type /coach add @handle so it answers here from now on.";
 pub(crate) const EN_COACH_NO_DESCRIPTION: &str = "No description";
-pub(crate) const EN_COACH_GROUP_CREATED: &str =
-    "Created group \"{0}\" with coach {1}. Members can join via /group invite.";
-pub(crate) const EN_COACH_GROUP_CREATION_UNAVAILABLE: &str =
-    "Selected coach: {0}. Group creation is not available.";
 pub(crate) const EN_COACH_GROUP_UPDATED: &str = "Coach updated to {0} for group {1}.";
 pub(crate) const EN_COACH_USER_UPDATED: &str = "Coach selected: {0}.";
-pub(crate) const EN_COACH_MULTI_GROUP_PROMPT: &str =
-    "You manage {0} groups. Which one should use {1}?\n";
-pub(crate) const EN_COACH_MULTI_GROUP_CARD_TITLE: &str = "Choose a group";
-pub(crate) const EN_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} members)";
 pub(crate) const EN_COACH_ASSIGN_NOT_A_MEMBER: &str = "You are not a member of this group";
 pub(crate) const EN_COACH_ASSIGN_FORBIDDEN: &str =
     "Only group admins and owners can change the coach.";
-pub(crate) const EN_COACH_INVITE_UNKNOWN_HANDLE: &str =
-    "No installed coach answers to {0}. Type /coach to see your coach list.";
+pub(crate) const EN_COACH_ADD_USAGE: &str =
+    "Say which coach to add: /coach add @handle. Type /coach to see your list.";
+pub(crate) const EN_COACH_ADD_UNKNOWN: &str =
+    "No installed coach answers to {0}. Type /coach to see your list, or /discover to install one.";
+pub(crate) const EN_COACH_REMOVE_GROUP_THREAD: &str =
+    "In a group chat the coach belongs to the group — use /group coach to change it.";
+pub(crate) const EN_COACH_REMOVE_NOTHING: &str = "No coach is attached to this conversation.";
+pub(crate) const EN_COACH_REMOVED: &str = "{0} no longer answers in this conversation.";
+pub(crate) const EN_COACH_CREATE_NO_CONVERSATION: &str =
+    "Open a conversation first: /coach create drafts a coach from what was said in it.";
+pub(crate) const EN_COACH_CREATE_EMPTY: &str =
+    "This conversation is still empty. Exchange a few messages with your coach first, then run /coach create again.";
+pub(crate) const EN_COACH_CREATE_USAGE: &str =
+    "Usage: /coach create to draft a coach from this conversation, then /coach create confirm token to create it.";
+pub(crate) const EN_COACH_CREATE_CARD_TITLE: &str = "Coach draft";
+pub(crate) const EN_COACH_CREATE_PROPOSAL_BODY: &str =
+    "{0}\n{1}\n\nCategory: {2}\nTags: {3}\n\nReply /coach create confirm {4} to create it, or /deny {4} to discard it. The draft expires in 10 minutes.";
+pub(crate) const EN_COACH_CREATE_CONFIRM_LABEL: &str = "Create it";
+pub(crate) const EN_COACH_CREATE_DISCARD_LABEL: &str = "Discard";
+pub(crate) const EN_COACH_CREATE_QUOTA: &str =
+    "You already have {0} coaches, the maximum for your plan ({1}). Delete one from Discover before creating another.";
+pub(crate) const EN_COACH_CREATE_DONE: &str =
+    "Coach {0} created — @{1}. It answers here from your next message on. Type /coach add @{1} in any other conversation, or edit it from its Discover page.";
+pub(crate) const EN_COACH_CREATE_DONE_UNBOUND: &str =
+    "Coach {0} created — @{1}. Type /coach add @{1} in one of your conversations to use it, or edit it from its Discover page.";
+pub(crate) const EN_COACH_CREATE_DISCARDED: &str =
+    "Draft discarded. Run /coach create again whenever you like.";
 
 // ── Compiled-in defaults: Spanish ─────────────────────────────────────────
 
@@ -1408,6 +1603,7 @@ pub(crate) const ES_HELP_DOMAIN_DATA: &str = "Datos de actividad";
 pub(crate) const ES_HELP_DOMAIN_PROVIDER: &str = "Proveedores";
 pub(crate) const ES_HELP_DOMAIN_ACCOUNT: &str = "Cuenta";
 pub(crate) const ES_HELP_DOMAIN_TRAINING: &str = "Entrenamiento";
+pub(crate) const ES_HELP_DOMAIN_DISCOVER: &str = "Catálogo de coaches";
 pub(crate) const ES_HELP_FOOTER: &str = "\nO simplemente escríbeme para conversar con tu coach.";
 
 pub(crate) const ES_LOGOUT_CONFIRM_PROMPT: &str = "Esto desvinculará tu cuenta de {0} de Dravr.\nTendrás que volver a vincularla para usar la mensajería.\n\nEscribe «logout» para confirmar.";
@@ -1515,27 +1711,80 @@ pub(crate) const ES_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const ES_GROUP_RESPOND_STATUS_MENTIONS: &str = "El entrenador solo responde cuando se le menciona. Para volver a todos los mensajes: /group respond all";
 pub(crate) const ES_GROUP_CONSENT_UPDATED: &str =
     "Compartir tus datos con los demás miembros de {1} está ahora {0}.";
+pub(crate) const ES_GROUP_CREATE_USAGE: &str =
+    "Uso: /group create nombre-del-grupo — por ejemplo /group create Corredores del domingo";
+pub(crate) const ES_GROUP_CREATE_NO_COACH: &str =
+    "Elige primero el coach del grupo: /coach add @handle en este chat y vuelve a ejecutar /group create.";
+pub(crate) const ES_GROUP_CREATE_UNAVAILABLE: &str =
+    "El coaching en grupo no está incluido en tu plan.";
+pub(crate) const ES_GROUP_CREATE_FORBIDDEN: &str =
+    "La creación de grupos está reservada a los administradores de tu espacio.";
+pub(crate) const ES_GROUP_CREATED: &str =
+    "Grupo «{0}» creado con el coach {1}. Invita a miembros con /group invite.";
+pub(crate) const ES_GROUP_INVITE_LABEL: &str = "Invitar miembros";
+pub(crate) const ES_GROUP_JOIN_INVALID_CODE: &str =
+    "Ese código de invitación no es válido o ha caducado. Pide un enlace nuevo a un admin del grupo (/group invite).";
+pub(crate) const ES_GROUP_JOIN_ALREADY_MEMBER: &str = "Ya eres miembro de {0}.";
+pub(crate) const ES_GROUP_JOIN_FULL: &str = "{0} está completo.";
+pub(crate) const ES_GROUP_JOINED: &str =
+    "¡Bienvenido a {0}! El chat del grupo ya está en tu lista de conversaciones.";
+pub(crate) const ES_GROUP_JOINED_AS_COACH: &str = "Ahora eres el coach humano de {0}.";
+pub(crate) const ES_DISCOVER_CARD_TITLE: &str = "Catálogo de coaches";
+pub(crate) const ES_DISCOVER_ITEM: &str = "• {0} — @{1} [{2}]\n  {3}\n";
+pub(crate) const ES_DISCOVER_EMPTY: &str =
+    "Ningún coach del catálogo coincide con «{0}». Escribe /discover para ver los más recientes.";
+pub(crate) const ES_DISCOVER_CATALOGUE_EMPTY: &str = "El catálogo de coaches está vacío.";
+pub(crate) const ES_DISCOVER_MORE_LABEL: &str = "Más";
+pub(crate) const ES_DISCOVER_INSTALL_USAGE: &str =
+    "Uso: /discover install @handle — el @handle aparece en /discover.";
+pub(crate) const ES_DISCOVER_INSTALL_UNKNOWN_HANDLE: &str =
+    "Ningún coach publicado responde a {0}. Escribe /discover para explorar el catálogo.";
+pub(crate) const ES_DISCOVER_INSTALLED: &str =
+    "{0} está instalado. Úsalo en cualquier chat: /coach add @{1}, o menciona @{1} en un mensaje para un solo turno.";
+pub(crate) const ES_DISCOVER_INSTALL_ALREADY: &str =
+    "{0} ya está instalado. Úsalo en cualquier chat: /coach add @{1}, o menciona @{1} en un mensaje para un solo turno.";
+pub(crate) const ES_DISCOVER_ADD_LABEL: &str = "Usar aquí";
 
 pub(crate) const ES_COACH_LIST_EMPTY: &str =
-    "No hay coaches disponibles. Pide a tu admin que añada coaches a tu espacio.";
-pub(crate) const ES_COACH_LIST_CARD_TITLE: &str = "Elige un coach";
-pub(crate) const ES_COACH_LIST_ITEM: &str = "• {0} [{1}]\n  {2}\n";
+    "Ningún coach en tu lista. Escribe /discover para explorar el catálogo, o /coach create para crear uno a partir de esta conversación.";
+pub(crate) const ES_COACH_LIST_CARD_TITLE: &str = "Tus coaches";
+pub(crate) const ES_COACH_LIST_ITEM: &str = "• {0} — @{1}\n  {2}\n";
+pub(crate) const ES_COACH_LIST_ITEM_NO_HANDLE: &str = "• {0}\n  {1}\n";
+pub(crate) const ES_COACH_LIST_FOOTER: &str =
+    "Menciona @handle en un mensaje para confiarle solo ese mensaje, o escribe /coach add @handle para que responda aquí a partir de ahora.";
 pub(crate) const ES_COACH_NO_DESCRIPTION: &str = "Sin descripción";
-pub(crate) const ES_COACH_GROUP_CREATED: &str =
-    "Grupo «{0}» creado con el coach {1}. Los miembros pueden unirse con /group invite.";
-pub(crate) const ES_COACH_GROUP_CREATION_UNAVAILABLE: &str =
-    "Coach seleccionado: {0}. La creación de grupos no está disponible.";
 pub(crate) const ES_COACH_GROUP_UPDATED: &str = "Coach actualizado a {0} para el grupo {1}.";
 pub(crate) const ES_COACH_USER_UPDATED: &str = "Coach seleccionado: {0}.";
-pub(crate) const ES_COACH_MULTI_GROUP_PROMPT: &str =
-    "Gestionas {0} grupos. ¿Cuál debería usar {1}?\n";
-pub(crate) const ES_COACH_MULTI_GROUP_CARD_TITLE: &str = "Elige un grupo";
-pub(crate) const ES_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} miembros)";
 pub(crate) const ES_COACH_ASSIGN_NOT_A_MEMBER: &str = "No eres miembro de este grupo";
 pub(crate) const ES_COACH_ASSIGN_FORBIDDEN: &str =
     "Solo los administradores y propietarios del grupo pueden cambiar el coach.";
-pub(crate) const ES_COACH_INVITE_UNKNOWN_HANDLE: &str =
-    "Ningún coach instalado responde a {0}. Escribe /coach para ver tu lista de coaches.";
+pub(crate) const ES_COACH_ADD_USAGE: &str =
+    "Indica qué coach añadir: /coach add @handle. Escribe /coach para ver tu lista.";
+pub(crate) const ES_COACH_ADD_UNKNOWN: &str =
+    "Ningún coach instalado responde a {0}. Escribe /coach para ver tu lista, o /discover para instalarlo.";
+pub(crate) const ES_COACH_REMOVE_GROUP_THREAD: &str =
+    "En un grupo, el coach pertenece al grupo — usa /group coach para cambiarlo.";
+pub(crate) const ES_COACH_REMOVE_NOTHING: &str = "Ningún coach está asociado a esta conversación.";
+pub(crate) const ES_COACH_REMOVED: &str = "{0} ya no responde en esta conversación.";
+pub(crate) const ES_COACH_CREATE_NO_CONVERSATION: &str =
+    "Abre primero una conversación: /coach create redacta un coach a partir de lo que se dijo en ella.";
+pub(crate) const ES_COACH_CREATE_EMPTY: &str =
+    "Esta conversación aún está vacía. Intercambia primero algunos mensajes con tu coach y vuelve a lanzar /coach create.";
+pub(crate) const ES_COACH_CREATE_USAGE: &str =
+    "Uso: /coach create para proponer un coach a partir de esta conversación, luego /coach create confirm token para crearlo.";
+pub(crate) const ES_COACH_CREATE_CARD_TITLE: &str = "Borrador de coach";
+pub(crate) const ES_COACH_CREATE_PROPOSAL_BODY: &str =
+    "{0}\n{1}\n\nCategoría: {2}\nEtiquetas: {3}\n\nResponde /coach create confirm {4} para crearlo, o /deny {4} para descartarlo. El borrador caduca en 10 minutos.";
+pub(crate) const ES_COACH_CREATE_CONFIRM_LABEL: &str = "Crearlo";
+pub(crate) const ES_COACH_CREATE_DISCARD_LABEL: &str = "Descartar";
+pub(crate) const ES_COACH_CREATE_QUOTA: &str =
+    "Ya tienes {0} coaches, el máximo de tu plan ({1}). Elimina uno desde Discover antes de crear otro.";
+pub(crate) const ES_COACH_CREATE_DONE: &str =
+    "Coach {0} creado — @{1}. Responde aquí a partir de tu próximo mensaje. Escribe /coach add @{1} en cualquier otra conversación, o edítalo desde su ficha de Discover.";
+pub(crate) const ES_COACH_CREATE_DONE_UNBOUND: &str =
+    "Coach {0} creado — @{1}. Escribe /coach add @{1} en una de tus conversaciones para usarlo, o edítalo desde su ficha de Discover.";
+pub(crate) const ES_COACH_CREATE_DISCARDED: &str =
+    "Borrador descartado. Vuelve a lanzar /coach create cuando quieras.";
 
 // ── Compiled-in defaults: German ──────────────────────────────────────────
 
@@ -1657,6 +1906,7 @@ pub(crate) const DE_HELP_DOMAIN_DATA: &str = "Trainingsdaten";
 pub(crate) const DE_HELP_DOMAIN_PROVIDER: &str = "Anbieter";
 pub(crate) const DE_HELP_DOMAIN_ACCOUNT: &str = "Konto";
 pub(crate) const DE_HELP_DOMAIN_TRAINING: &str = "Training";
+pub(crate) const DE_HELP_DOMAIN_DISCOVER: &str = "Coach-Katalog";
 pub(crate) const DE_HELP_FOOTER: &str =
     "\nOder schreib mir einfach, um mit deinem Coach zu chatten.";
 
@@ -1763,27 +2013,80 @@ pub(crate) const DE_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const DE_GROUP_RESPOND_STATUS_MENTIONS: &str = "Der Coach antwortet nur, wenn er angesprochen wird. Zurück zu jeder Nachricht: /group respond all";
 pub(crate) const DE_GROUP_CONSENT_UPDATED: &str =
     "Das Teilen deiner Daten mit den anderen Mitgliedern von {1} ist jetzt {0}.";
+pub(crate) const DE_GROUP_CREATE_USAGE: &str =
+    "Verwendung: /group create Gruppenname — zum Beispiel /group create Sonntagsläufer";
+pub(crate) const DE_GROUP_CREATE_NO_COACH: &str =
+    "Wähle zuerst den Coach der Gruppe: /coach add @handle in diesem Chat, dann /group create erneut.";
+pub(crate) const DE_GROUP_CREATE_UNAVAILABLE: &str =
+    "Gruppencoaching ist in deinem Tarif nicht enthalten.";
+pub(crate) const DE_GROUP_CREATE_FORBIDDEN: &str =
+    "Gruppen anlegen ist den Admins deines Workspace vorbehalten.";
+pub(crate) const DE_GROUP_CREATED: &str =
+    "Gruppe „{0}\" mit Coach {1} erstellt. Lade Mitglieder mit /group invite ein.";
+pub(crate) const DE_GROUP_INVITE_LABEL: &str = "Mitglieder einladen";
+pub(crate) const DE_GROUP_JOIN_INVALID_CODE: &str =
+    "Dieser Einladungscode ist ungültig oder abgelaufen. Bitte einen Gruppen-Admin um einen neuen Link (/group invite).";
+pub(crate) const DE_GROUP_JOIN_ALREADY_MEMBER: &str = "Du bist bereits Mitglied von {0}.";
+pub(crate) const DE_GROUP_JOIN_FULL: &str = "{0} ist voll.";
+pub(crate) const DE_GROUP_JOINED: &str =
+    "Willkommen bei {0}! Der Gruppenchat ist jetzt in deiner Unterhaltungsliste.";
+pub(crate) const DE_GROUP_JOINED_AS_COACH: &str = "Du bist jetzt der menschliche Coach von {0}.";
+pub(crate) const DE_DISCOVER_CARD_TITLE: &str = "Coach-Katalog";
+pub(crate) const DE_DISCOVER_ITEM: &str = "• {0} — @{1} [{2}]\n  {3}\n";
+pub(crate) const DE_DISCOVER_EMPTY: &str =
+    "Kein Coach im Katalog passt zu „{0}\". Tippe /discover für die neuesten.";
+pub(crate) const DE_DISCOVER_CATALOGUE_EMPTY: &str = "Der Coach-Katalog ist leer.";
+pub(crate) const DE_DISCOVER_MORE_LABEL: &str = "Mehr";
+pub(crate) const DE_DISCOVER_INSTALL_USAGE: &str =
+    "Verwendung: /discover install @handle — das @handle steht in /discover.";
+pub(crate) const DE_DISCOVER_INSTALL_UNKNOWN_HANDLE: &str =
+    "Kein veröffentlichter Coach hört auf {0}. Tippe /discover, um den Katalog zu durchsuchen.";
+pub(crate) const DE_DISCOVER_INSTALLED: &str =
+    "{0} ist installiert. Nutze ihn in jedem Chat: /coach add @{1}, oder erwähne @{1} in einer Nachricht für eine einzelne Antwort.";
+pub(crate) const DE_DISCOVER_INSTALL_ALREADY: &str =
+    "{0} ist bereits installiert. Nutze ihn in jedem Chat: /coach add @{1}, oder erwähne @{1} in einer Nachricht für eine einzelne Antwort.";
+pub(crate) const DE_DISCOVER_ADD_LABEL: &str = "Hier nutzen";
 
 pub(crate) const DE_COACH_LIST_EMPTY: &str =
-    "Keine Coaches verfügbar. Bitte deinen Admin, Coaches zu deinem Workspace hinzuzufügen.";
-pub(crate) const DE_COACH_LIST_CARD_TITLE: &str = "Coach wählen";
-pub(crate) const DE_COACH_LIST_ITEM: &str = "• {0} [{1}]\n  {2}\n";
+    "Noch kein Coach auf deiner Liste. Tippe /discover, um den Katalog zu durchsuchen, oder /coach create, um einen aus diesem Gespräch zu entwerfen.";
+pub(crate) const DE_COACH_LIST_CARD_TITLE: &str = "Deine Coaches";
+pub(crate) const DE_COACH_LIST_ITEM: &str = "• {0} — @{1}\n  {2}\n";
+pub(crate) const DE_COACH_LIST_ITEM_NO_HANDLE: &str = "• {0}\n  {1}\n";
+pub(crate) const DE_COACH_LIST_FOOTER: &str =
+    "Erwähne @handle in einer Nachricht, um ihm nur diese Nachricht zu geben, oder tippe /coach add @handle, damit er hier ab jetzt antwortet.";
 pub(crate) const DE_COACH_NO_DESCRIPTION: &str = "Keine Beschreibung";
-pub(crate) const DE_COACH_GROUP_CREATED: &str =
-    "Gruppe „{0}\" mit Coach {1} erstellt. Mitglieder können über /group invite beitreten.";
-pub(crate) const DE_COACH_GROUP_CREATION_UNAVAILABLE: &str =
-    "Ausgewählter Coach: {0}. Gruppenerstellung ist nicht verfügbar.";
 pub(crate) const DE_COACH_GROUP_UPDATED: &str = "Coach auf {0} für Gruppe {1} aktualisiert.";
 pub(crate) const DE_COACH_USER_UPDATED: &str = "Coach gewählt: {0}.";
-pub(crate) const DE_COACH_MULTI_GROUP_PROMPT: &str =
-    "Du verwaltest {0} Gruppen. Welche soll {1} nutzen?\n";
-pub(crate) const DE_COACH_MULTI_GROUP_CARD_TITLE: &str = "Gruppe wählen";
-pub(crate) const DE_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} Mitglieder)";
 pub(crate) const DE_COACH_ASSIGN_NOT_A_MEMBER: &str = "Du bist kein Mitglied dieser Gruppe";
 pub(crate) const DE_COACH_ASSIGN_FORBIDDEN: &str =
     "Nur Gruppen-Admins und Eigentümer können den Coach wechseln.";
-pub(crate) const DE_COACH_INVITE_UNKNOWN_HANDLE: &str =
-    "Kein installierter Coach hört auf {0}. Tippe /coach, um deine Coach-Liste zu sehen.";
+pub(crate) const DE_COACH_ADD_USAGE: &str =
+    "Sag, welcher Coach hinzukommen soll: /coach add @handle. Tippe /coach für deine Liste.";
+pub(crate) const DE_COACH_ADD_UNKNOWN: &str =
+    "Kein installierter Coach hört auf {0}. Tippe /coach für deine Liste oder /discover, um ihn zu installieren.";
+pub(crate) const DE_COACH_REMOVE_GROUP_THREAD: &str =
+    "In einem Gruppenchat gehört der Coach der Gruppe — nutze /group coach, um ihn zu wechseln.";
+pub(crate) const DE_COACH_REMOVE_NOTHING: &str = "Dieser Unterhaltung ist kein Coach zugeordnet.";
+pub(crate) const DE_COACH_REMOVED: &str = "{0} antwortet in dieser Unterhaltung nicht mehr.";
+pub(crate) const DE_COACH_CREATE_NO_CONVERSATION: &str =
+    "Öffne zuerst eine Unterhaltung: /coach create entwirft einen Coach aus dem, was darin gesagt wurde.";
+pub(crate) const DE_COACH_CREATE_EMPTY: &str =
+    "Diese Unterhaltung ist noch leer. Tausch dich zuerst ein paar Nachrichten lang mit deinem Coach aus und starte /coach create dann erneut.";
+pub(crate) const DE_COACH_CREATE_USAGE: &str =
+    "Verwendung: /coach create entwirft einen Coach aus dieser Unterhaltung, danach erstellt /coach create confirm token ihn.";
+pub(crate) const DE_COACH_CREATE_CARD_TITLE: &str = "Coach-Entwurf";
+pub(crate) const DE_COACH_CREATE_PROPOSAL_BODY: &str =
+    "{0}\n{1}\n\nKategorie: {2}\nTags: {3}\n\nAntworte /coach create confirm {4}, um ihn zu erstellen, oder /deny {4}, um ihn zu verwerfen. Der Entwurf läuft in 10 Minuten ab.";
+pub(crate) const DE_COACH_CREATE_CONFIRM_LABEL: &str = "Erstellen";
+pub(crate) const DE_COACH_CREATE_DISCARD_LABEL: &str = "Verwerfen";
+pub(crate) const DE_COACH_CREATE_QUOTA: &str =
+    "Du hast bereits {0} Coaches, das Maximum deines Plans ({1}). Lösche einen in Discover, bevor du einen weiteren erstellst.";
+pub(crate) const DE_COACH_CREATE_DONE: &str =
+    "Coach {0} erstellt — @{1}. Er antwortet hier ab deiner nächsten Nachricht. Tippe /coach add @{1} in jeder anderen Unterhaltung oder bearbeite ihn auf seiner Discover-Seite.";
+pub(crate) const DE_COACH_CREATE_DONE_UNBOUND: &str =
+    "Coach {0} erstellt — @{1}. Tippe /coach add @{1} in einer deiner Unterhaltungen, um ihn zu nutzen, oder bearbeite ihn auf seiner Discover-Seite.";
+pub(crate) const DE_COACH_CREATE_DISCARDED: &str =
+    "Entwurf verworfen. Starte /coach create, wann immer du willst.";
 
 // ── Compiled-in defaults: Portuguese ──────────────────────────────────────
 
@@ -1911,6 +2214,7 @@ pub(crate) const PT_HELP_DOMAIN_DATA: &str = "Dados de atividade";
 pub(crate) const PT_HELP_DOMAIN_PROVIDER: &str = "Fornecedores";
 pub(crate) const PT_HELP_DOMAIN_ACCOUNT: &str = "Conta";
 pub(crate) const PT_HELP_DOMAIN_TRAINING: &str = "Treino";
+pub(crate) const PT_HELP_DOMAIN_DISCOVER: &str = "Catálogo de coaches";
 pub(crate) const PT_HELP_FOOTER: &str = "\nOu escreve-me para conversar com o teu coach.";
 
 pub(crate) const PT_LOGOUT_CONFIRM_PROMPT: &str = "Isto vai desvincular a tua conta {0} do Dravr.\nVais precisar de voltar a ligá-la para usar o messaging.\n\nEscreve «logout» para confirmar.";
@@ -2016,26 +2320,80 @@ pub(crate) const PT_NOTIFICATION_CHANNEL_BODY: &str = "🔔 {0}\n\n{1}";
 pub(crate) const PT_GROUP_RESPOND_STATUS_MENTIONS: &str = "O treinador só responde quando é chamado. Para voltar a todas as mensagens: /group respond all";
 pub(crate) const PT_GROUP_CONSENT_UPDATED: &str =
     "Partilhar os teus dados com os outros membros de {1} está agora {0}.";
+pub(crate) const PT_GROUP_CREATE_USAGE: &str =
+    "Uso: /group create nome-do-grupo — por exemplo /group create Corredores de domingo";
+pub(crate) const PT_GROUP_CREATE_NO_COACH: &str =
+    "Escolhe primeiro o coach do grupo: /coach add @handle nesta conversa e volta a correr /group create.";
+pub(crate) const PT_GROUP_CREATE_UNAVAILABLE: &str =
+    "O coaching em grupo não está incluído no teu plano.";
+pub(crate) const PT_GROUP_CREATE_FORBIDDEN: &str =
+    "A criação de grupos está reservada aos administradores do teu espaço.";
+pub(crate) const PT_GROUP_CREATED: &str =
+    "Grupo «{0}» criado com o coach {1}. Convida membros com /group invite.";
+pub(crate) const PT_GROUP_INVITE_LABEL: &str = "Convidar membros";
+pub(crate) const PT_GROUP_JOIN_INVALID_CODE: &str =
+    "Esse código de convite não é válido ou expirou. Pede um novo link a um admin do grupo (/group invite).";
+pub(crate) const PT_GROUP_JOIN_ALREADY_MEMBER: &str = "Já és membro de {0}.";
+pub(crate) const PT_GROUP_JOIN_FULL: &str = "{0} está cheio.";
+pub(crate) const PT_GROUP_JOINED: &str =
+    "Bem-vindo a {0}! A conversa do grupo já está na tua lista de conversas.";
+pub(crate) const PT_GROUP_JOINED_AS_COACH: &str = "És agora o coach humano de {0}.";
+pub(crate) const PT_DISCOVER_CARD_TITLE: &str = "Catálogo de coaches";
+pub(crate) const PT_DISCOVER_ITEM: &str = "• {0} — @{1} [{2}]\n  {3}\n";
+pub(crate) const PT_DISCOVER_EMPTY: &str =
+    "Nenhum coach do catálogo corresponde a «{0}». Escreve /discover para veres os mais recentes.";
+pub(crate) const PT_DISCOVER_CATALOGUE_EMPTY: &str = "O catálogo de coaches está vazio.";
+pub(crate) const PT_DISCOVER_MORE_LABEL: &str = "Mais";
+pub(crate) const PT_DISCOVER_INSTALL_USAGE: &str =
+    "Uso: /discover install @handle — o @handle aparece em /discover.";
+pub(crate) const PT_DISCOVER_INSTALL_UNKNOWN_HANDLE: &str =
+    "Nenhum coach publicado responde a {0}. Escreve /discover para explorares o catálogo.";
+pub(crate) const PT_DISCOVER_INSTALLED: &str =
+    "{0} está instalado. Usa-o em qualquer conversa: /coach add @{1}, ou menciona @{1} numa mensagem para uma única resposta.";
+pub(crate) const PT_DISCOVER_INSTALL_ALREADY: &str =
+    "{0} já está instalado. Usa-o em qualquer conversa: /coach add @{1}, ou menciona @{1} numa mensagem para uma única resposta.";
+pub(crate) const PT_DISCOVER_ADD_LABEL: &str = "Usar aqui";
 
 pub(crate) const PT_COACH_LIST_EMPTY: &str =
-    "Nenhum coach disponível. Pede ao teu admin para adicionar coaches ao teu espaço.";
-pub(crate) const PT_COACH_LIST_CARD_TITLE: &str = "Escolhe um coach";
-pub(crate) const PT_COACH_LIST_ITEM: &str = "• {0} [{1}]\n  {2}\n";
+    "Nenhum treinador na tua lista. Escreve /discover para explorares o catálogo, ou /coach create para criares um a partir desta conversa.";
+pub(crate) const PT_COACH_LIST_CARD_TITLE: &str = "Os teus treinadores";
+pub(crate) const PT_COACH_LIST_ITEM: &str = "• {0} — @{1}\n  {2}\n";
+pub(crate) const PT_COACH_LIST_ITEM_NO_HANDLE: &str = "• {0}\n  {1}\n";
+pub(crate) const PT_COACH_LIST_FOOTER: &str =
+    "Menciona @handle numa mensagem para lhe confiares só essa mensagem, ou escreve /coach add @handle para que responda aqui a partir de agora.";
 pub(crate) const PT_COACH_NO_DESCRIPTION: &str = "Sem descrição";
-pub(crate) const PT_COACH_GROUP_CREATED: &str =
-    "Grupo «{0}» criado com o coach {1}. Os membros podem juntar-se via /group invite.";
-pub(crate) const PT_COACH_GROUP_CREATION_UNAVAILABLE: &str =
-    "Coach selecionado: {0}. A criação de grupos não está disponível.";
 pub(crate) const PT_COACH_GROUP_UPDATED: &str = "Coach atualizado para {0} no grupo {1}.";
 pub(crate) const PT_COACH_USER_UPDATED: &str = "Treinador selecionado: {0}.";
-pub(crate) const PT_COACH_MULTI_GROUP_PROMPT: &str = "Geres {0} grupos. Qual deve usar {1}?\n";
-pub(crate) const PT_COACH_MULTI_GROUP_CARD_TITLE: &str = "Escolhe um grupo";
-pub(crate) const PT_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} membros)";
 pub(crate) const PT_COACH_ASSIGN_NOT_A_MEMBER: &str = "Não és membro deste grupo";
 pub(crate) const PT_COACH_ASSIGN_FORBIDDEN: &str =
     "Apenas administradores e proprietários do grupo podem mudar o coach.";
-pub(crate) const PT_COACH_INVITE_UNKNOWN_HANDLE: &str =
-    "Nenhum treinador instalado responde a {0}. Escreve /coach para veres a tua lista de treinadores.";
+pub(crate) const PT_COACH_ADD_USAGE: &str =
+    "Indica que treinador adicionar: /coach add @handle. Escreve /coach para veres a tua lista.";
+pub(crate) const PT_COACH_ADD_UNKNOWN: &str =
+    "Nenhum treinador instalado responde a {0}. Escreve /coach para veres a tua lista, ou /discover para o instalares.";
+pub(crate) const PT_COACH_REMOVE_GROUP_THREAD: &str =
+    "Num grupo, o treinador pertence ao grupo — usa /group coach para o mudares.";
+pub(crate) const PT_COACH_REMOVE_NOTHING: &str = "Nenhum treinador está associado a esta conversa.";
+pub(crate) const PT_COACH_REMOVED: &str = "{0} já não responde nesta conversa.";
+pub(crate) const PT_COACH_CREATE_NO_CONVERSATION: &str =
+    "Abre primeiro uma conversa: /coach create redige um treinador a partir do que lá foi dito.";
+pub(crate) const PT_COACH_CREATE_EMPTY: &str =
+    "Esta conversa ainda está vazia. Troca primeiro algumas mensagens com o teu treinador e volta a lançar /coach create.";
+pub(crate) const PT_COACH_CREATE_USAGE: &str =
+    "Utilização: /coach create para propor um treinador a partir desta conversa, depois /coach create confirm token para o criares.";
+pub(crate) const PT_COACH_CREATE_CARD_TITLE: &str = "Rascunho de treinador";
+pub(crate) const PT_COACH_CREATE_PROPOSAL_BODY: &str =
+    "{0}\n{1}\n\nCategoria: {2}\nEtiquetas: {3}\n\nResponde /coach create confirm {4} para o criares, ou /deny {4} para o descartares. O rascunho expira em 10 minutos.";
+pub(crate) const PT_COACH_CREATE_CONFIRM_LABEL: &str = "Criar";
+pub(crate) const PT_COACH_CREATE_DISCARD_LABEL: &str = "Descartar";
+pub(crate) const PT_COACH_CREATE_QUOTA: &str =
+    "Já tens {0} treinadores, o máximo do teu plano ({1}). Elimina um a partir do Discover antes de criares outro.";
+pub(crate) const PT_COACH_CREATE_DONE: &str =
+    "Treinador {0} criado — @{1}. Responde aqui a partir da tua próxima mensagem. Escreve /coach add @{1} em qualquer outra conversa, ou edita-o a partir da sua página no Discover.";
+pub(crate) const PT_COACH_CREATE_DONE_UNBOUND: &str =
+    "Treinador {0} criado — @{1}. Escreve /coach add @{1} numa das tuas conversas para o usares, ou edita-o a partir da sua página no Discover.";
+pub(crate) const PT_COACH_CREATE_DISCARDED: &str =
+    "Rascunho descartado. Volta a lançar /coach create quando quiseres.";
 
 /// Compiled-in `(key, locale, content)` triples loaded into the registry
 /// at construction. Any new locale added here automatically becomes
@@ -2150,6 +2508,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_PROVIDER, "fr", FR_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "fr", FR_HELP_DOMAIN_ACCOUNT),
     (KEY_HELP_DOMAIN_TRAINING, "fr", FR_HELP_DOMAIN_TRAINING),
+    (KEY_HELP_DOMAIN_DISCOVER, "fr", FR_HELP_DOMAIN_DISCOVER),
     (KEY_HELP_FOOTER, "fr", FR_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "fr", FR_LOGOUT_CONFIRM_PROMPT),
     (KEY_RESET_CONFIRM, "fr", FR_RESET_CONFIRM),
@@ -2225,20 +2584,53 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_COACH_DETACHED, "fr", FR_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "fr", FR_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "fr", FR_GROUP_CONSENT_UPDATED),
+    (KEY_GROUP_CREATE_USAGE, "fr", FR_GROUP_CREATE_USAGE),
+    (KEY_GROUP_CREATE_NO_COACH, "fr", FR_GROUP_CREATE_NO_COACH),
+    (KEY_GROUP_CREATE_UNAVAILABLE, "fr", FR_GROUP_CREATE_UNAVAILABLE),
+    (KEY_GROUP_CREATE_FORBIDDEN, "fr", FR_GROUP_CREATE_FORBIDDEN),
+    (KEY_GROUP_CREATED, "fr", FR_GROUP_CREATED),
+    (KEY_GROUP_INVITE_LABEL, "fr", FR_GROUP_INVITE_LABEL),
+    (KEY_GROUP_JOIN_INVALID_CODE, "fr", FR_GROUP_JOIN_INVALID_CODE),
+    (KEY_GROUP_JOIN_ALREADY_MEMBER, "fr", FR_GROUP_JOIN_ALREADY_MEMBER),
+    (KEY_GROUP_JOIN_FULL, "fr", FR_GROUP_JOIN_FULL),
+    (KEY_GROUP_JOINED, "fr", FR_GROUP_JOINED),
+    (KEY_GROUP_JOINED_AS_COACH, "fr", FR_GROUP_JOINED_AS_COACH),
+    (KEY_DISCOVER_CARD_TITLE, "fr", FR_DISCOVER_CARD_TITLE),
+    (KEY_DISCOVER_ITEM, "fr", FR_DISCOVER_ITEM),
+    (KEY_DISCOVER_EMPTY, "fr", FR_DISCOVER_EMPTY),
+    (KEY_DISCOVER_CATALOGUE_EMPTY, "fr", FR_DISCOVER_CATALOGUE_EMPTY),
+    (KEY_DISCOVER_MORE_LABEL, "fr", FR_DISCOVER_MORE_LABEL),
+    (KEY_DISCOVER_INSTALL_USAGE, "fr", FR_DISCOVER_INSTALL_USAGE),
+    (KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE, "fr", FR_DISCOVER_INSTALL_UNKNOWN_HANDLE),
+    (KEY_DISCOVER_INSTALLED, "fr", FR_DISCOVER_INSTALLED),
+    (KEY_DISCOVER_INSTALL_ALREADY, "fr", FR_DISCOVER_INSTALL_ALREADY),
+    (KEY_DISCOVER_ADD_LABEL, "fr", FR_DISCOVER_ADD_LABEL),
     (KEY_COACH_LIST_EMPTY, "fr", FR_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "fr", FR_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "fr", FR_COACH_LIST_ITEM),
+    (KEY_COACH_LIST_ITEM_NO_HANDLE, "fr", FR_COACH_LIST_ITEM_NO_HANDLE),
+    (KEY_COACH_LIST_FOOTER, "fr", FR_COACH_LIST_FOOTER),
     (KEY_COACH_NO_DESCRIPTION, "fr", FR_COACH_NO_DESCRIPTION),
-    (KEY_COACH_GROUP_CREATED, "fr", FR_COACH_GROUP_CREATED),
-    (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "fr", FR_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "fr", FR_COACH_GROUP_UPDATED),
     (KEY_COACH_USER_UPDATED, "fr", FR_COACH_USER_UPDATED),
-    (KEY_COACH_MULTI_GROUP_PROMPT, "fr", FR_COACH_MULTI_GROUP_PROMPT),
-    (KEY_COACH_MULTI_GROUP_CARD_TITLE, "fr", FR_COACH_MULTI_GROUP_CARD_TITLE),
-    (KEY_COACH_MULTI_GROUP_ITEM, "fr", FR_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "fr", FR_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "fr", FR_COACH_ASSIGN_FORBIDDEN),
-    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "fr", FR_COACH_INVITE_UNKNOWN_HANDLE),
+    (KEY_COACH_ADD_USAGE, "fr", FR_COACH_ADD_USAGE),
+    (KEY_COACH_ADD_UNKNOWN, "fr", FR_COACH_ADD_UNKNOWN),
+    (KEY_COACH_REMOVE_GROUP_THREAD, "fr", FR_COACH_REMOVE_GROUP_THREAD),
+    (KEY_COACH_REMOVE_NOTHING, "fr", FR_COACH_REMOVE_NOTHING),
+    (KEY_COACH_REMOVED, "fr", FR_COACH_REMOVED),
+    (KEY_COACH_CREATE_NO_CONVERSATION, "fr", FR_COACH_CREATE_NO_CONVERSATION),
+    (KEY_COACH_CREATE_EMPTY, "fr", FR_COACH_CREATE_EMPTY),
+    (KEY_COACH_CREATE_USAGE, "fr", FR_COACH_CREATE_USAGE),
+    (KEY_COACH_CREATE_CARD_TITLE, "fr", FR_COACH_CREATE_CARD_TITLE),
+    (KEY_COACH_CREATE_PROPOSAL_BODY, "fr", FR_COACH_CREATE_PROPOSAL_BODY),
+    (KEY_COACH_CREATE_CONFIRM_LABEL, "fr", FR_COACH_CREATE_CONFIRM_LABEL),
+    (KEY_COACH_CREATE_DISCARD_LABEL, "fr", FR_COACH_CREATE_DISCARD_LABEL),
+    (KEY_COACH_CREATE_QUOTA, "fr", FR_COACH_CREATE_QUOTA),
+    (KEY_COACH_CREATE_DONE, "fr", FR_COACH_CREATE_DONE),
+    (KEY_COACH_CREATE_DONE_UNBOUND, "fr", FR_COACH_CREATE_DONE_UNBOUND),
+    (KEY_COACH_CREATE_DISCARDED, "fr", FR_COACH_CREATE_DISCARDED),
 
     // ── English ─────────────────────────────────────────────────────────
     (KEY_COMMITMENT_MET, "en", EN_COMMITMENT_MET),
@@ -2348,6 +2740,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_PROVIDER, "en", EN_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "en", EN_HELP_DOMAIN_ACCOUNT),
     (KEY_HELP_DOMAIN_TRAINING, "en", EN_HELP_DOMAIN_TRAINING),
+    (KEY_HELP_DOMAIN_DISCOVER, "en", EN_HELP_DOMAIN_DISCOVER),
     (KEY_HELP_FOOTER, "en", EN_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "en", EN_LOGOUT_CONFIRM_PROMPT),
     (KEY_RESET_CONFIRM, "en", EN_RESET_CONFIRM),
@@ -2423,20 +2816,53 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_COACH_DETACHED, "en", EN_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "en", EN_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "en", EN_GROUP_CONSENT_UPDATED),
+    (KEY_GROUP_CREATE_USAGE, "en", EN_GROUP_CREATE_USAGE),
+    (KEY_GROUP_CREATE_NO_COACH, "en", EN_GROUP_CREATE_NO_COACH),
+    (KEY_GROUP_CREATE_UNAVAILABLE, "en", EN_GROUP_CREATE_UNAVAILABLE),
+    (KEY_GROUP_CREATE_FORBIDDEN, "en", EN_GROUP_CREATE_FORBIDDEN),
+    (KEY_GROUP_CREATED, "en", EN_GROUP_CREATED),
+    (KEY_GROUP_INVITE_LABEL, "en", EN_GROUP_INVITE_LABEL),
+    (KEY_GROUP_JOIN_INVALID_CODE, "en", EN_GROUP_JOIN_INVALID_CODE),
+    (KEY_GROUP_JOIN_ALREADY_MEMBER, "en", EN_GROUP_JOIN_ALREADY_MEMBER),
+    (KEY_GROUP_JOIN_FULL, "en", EN_GROUP_JOIN_FULL),
+    (KEY_GROUP_JOINED, "en", EN_GROUP_JOINED),
+    (KEY_GROUP_JOINED_AS_COACH, "en", EN_GROUP_JOINED_AS_COACH),
+    (KEY_DISCOVER_CARD_TITLE, "en", EN_DISCOVER_CARD_TITLE),
+    (KEY_DISCOVER_ITEM, "en", EN_DISCOVER_ITEM),
+    (KEY_DISCOVER_EMPTY, "en", EN_DISCOVER_EMPTY),
+    (KEY_DISCOVER_CATALOGUE_EMPTY, "en", EN_DISCOVER_CATALOGUE_EMPTY),
+    (KEY_DISCOVER_MORE_LABEL, "en", EN_DISCOVER_MORE_LABEL),
+    (KEY_DISCOVER_INSTALL_USAGE, "en", EN_DISCOVER_INSTALL_USAGE),
+    (KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE, "en", EN_DISCOVER_INSTALL_UNKNOWN_HANDLE),
+    (KEY_DISCOVER_INSTALLED, "en", EN_DISCOVER_INSTALLED),
+    (KEY_DISCOVER_INSTALL_ALREADY, "en", EN_DISCOVER_INSTALL_ALREADY),
+    (KEY_DISCOVER_ADD_LABEL, "en", EN_DISCOVER_ADD_LABEL),
     (KEY_COACH_LIST_EMPTY, "en", EN_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "en", EN_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "en", EN_COACH_LIST_ITEM),
+    (KEY_COACH_LIST_ITEM_NO_HANDLE, "en", EN_COACH_LIST_ITEM_NO_HANDLE),
+    (KEY_COACH_LIST_FOOTER, "en", EN_COACH_LIST_FOOTER),
     (KEY_COACH_NO_DESCRIPTION, "en", EN_COACH_NO_DESCRIPTION),
-    (KEY_COACH_GROUP_CREATED, "en", EN_COACH_GROUP_CREATED),
-    (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "en", EN_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "en", EN_COACH_GROUP_UPDATED),
     (KEY_COACH_USER_UPDATED, "en", EN_COACH_USER_UPDATED),
-    (KEY_COACH_MULTI_GROUP_PROMPT, "en", EN_COACH_MULTI_GROUP_PROMPT),
-    (KEY_COACH_MULTI_GROUP_CARD_TITLE, "en", EN_COACH_MULTI_GROUP_CARD_TITLE),
-    (KEY_COACH_MULTI_GROUP_ITEM, "en", EN_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "en", EN_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "en", EN_COACH_ASSIGN_FORBIDDEN),
-    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "en", EN_COACH_INVITE_UNKNOWN_HANDLE),
+    (KEY_COACH_ADD_USAGE, "en", EN_COACH_ADD_USAGE),
+    (KEY_COACH_ADD_UNKNOWN, "en", EN_COACH_ADD_UNKNOWN),
+    (KEY_COACH_REMOVE_GROUP_THREAD, "en", EN_COACH_REMOVE_GROUP_THREAD),
+    (KEY_COACH_REMOVE_NOTHING, "en", EN_COACH_REMOVE_NOTHING),
+    (KEY_COACH_REMOVED, "en", EN_COACH_REMOVED),
+    (KEY_COACH_CREATE_NO_CONVERSATION, "en", EN_COACH_CREATE_NO_CONVERSATION),
+    (KEY_COACH_CREATE_EMPTY, "en", EN_COACH_CREATE_EMPTY),
+    (KEY_COACH_CREATE_USAGE, "en", EN_COACH_CREATE_USAGE),
+    (KEY_COACH_CREATE_CARD_TITLE, "en", EN_COACH_CREATE_CARD_TITLE),
+    (KEY_COACH_CREATE_PROPOSAL_BODY, "en", EN_COACH_CREATE_PROPOSAL_BODY),
+    (KEY_COACH_CREATE_CONFIRM_LABEL, "en", EN_COACH_CREATE_CONFIRM_LABEL),
+    (KEY_COACH_CREATE_DISCARD_LABEL, "en", EN_COACH_CREATE_DISCARD_LABEL),
+    (KEY_COACH_CREATE_QUOTA, "en", EN_COACH_CREATE_QUOTA),
+    (KEY_COACH_CREATE_DONE, "en", EN_COACH_CREATE_DONE),
+    (KEY_COACH_CREATE_DONE_UNBOUND, "en", EN_COACH_CREATE_DONE_UNBOUND),
+    (KEY_COACH_CREATE_DISCARDED, "en", EN_COACH_CREATE_DISCARDED),
 
     // ── Spanish ─────────────────────────────────────────────────────────
     (KEY_COMMITMENT_MET, "es", ES_COMMITMENT_MET),
@@ -2546,6 +2972,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_PROVIDER, "es", ES_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "es", ES_HELP_DOMAIN_ACCOUNT),
     (KEY_HELP_DOMAIN_TRAINING, "es", ES_HELP_DOMAIN_TRAINING),
+    (KEY_HELP_DOMAIN_DISCOVER, "es", ES_HELP_DOMAIN_DISCOVER),
     (KEY_HELP_FOOTER, "es", ES_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "es", ES_LOGOUT_CONFIRM_PROMPT),
     (KEY_PRIVACY_STATUS_LINE, "es", ES_PRIVACY_STATUS_LINE),
@@ -2620,20 +3047,53 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_COACH_DETACHED, "es", ES_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "es", ES_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "es", ES_GROUP_CONSENT_UPDATED),
+    (KEY_GROUP_CREATE_USAGE, "es", ES_GROUP_CREATE_USAGE),
+    (KEY_GROUP_CREATE_NO_COACH, "es", ES_GROUP_CREATE_NO_COACH),
+    (KEY_GROUP_CREATE_UNAVAILABLE, "es", ES_GROUP_CREATE_UNAVAILABLE),
+    (KEY_GROUP_CREATE_FORBIDDEN, "es", ES_GROUP_CREATE_FORBIDDEN),
+    (KEY_GROUP_CREATED, "es", ES_GROUP_CREATED),
+    (KEY_GROUP_INVITE_LABEL, "es", ES_GROUP_INVITE_LABEL),
+    (KEY_GROUP_JOIN_INVALID_CODE, "es", ES_GROUP_JOIN_INVALID_CODE),
+    (KEY_GROUP_JOIN_ALREADY_MEMBER, "es", ES_GROUP_JOIN_ALREADY_MEMBER),
+    (KEY_GROUP_JOIN_FULL, "es", ES_GROUP_JOIN_FULL),
+    (KEY_GROUP_JOINED, "es", ES_GROUP_JOINED),
+    (KEY_GROUP_JOINED_AS_COACH, "es", ES_GROUP_JOINED_AS_COACH),
+    (KEY_DISCOVER_CARD_TITLE, "es", ES_DISCOVER_CARD_TITLE),
+    (KEY_DISCOVER_ITEM, "es", ES_DISCOVER_ITEM),
+    (KEY_DISCOVER_EMPTY, "es", ES_DISCOVER_EMPTY),
+    (KEY_DISCOVER_CATALOGUE_EMPTY, "es", ES_DISCOVER_CATALOGUE_EMPTY),
+    (KEY_DISCOVER_MORE_LABEL, "es", ES_DISCOVER_MORE_LABEL),
+    (KEY_DISCOVER_INSTALL_USAGE, "es", ES_DISCOVER_INSTALL_USAGE),
+    (KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE, "es", ES_DISCOVER_INSTALL_UNKNOWN_HANDLE),
+    (KEY_DISCOVER_INSTALLED, "es", ES_DISCOVER_INSTALLED),
+    (KEY_DISCOVER_INSTALL_ALREADY, "es", ES_DISCOVER_INSTALL_ALREADY),
+    (KEY_DISCOVER_ADD_LABEL, "es", ES_DISCOVER_ADD_LABEL),
     (KEY_COACH_LIST_EMPTY, "es", ES_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "es", ES_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "es", ES_COACH_LIST_ITEM),
+    (KEY_COACH_LIST_ITEM_NO_HANDLE, "es", ES_COACH_LIST_ITEM_NO_HANDLE),
+    (KEY_COACH_LIST_FOOTER, "es", ES_COACH_LIST_FOOTER),
     (KEY_COACH_NO_DESCRIPTION, "es", ES_COACH_NO_DESCRIPTION),
-    (KEY_COACH_GROUP_CREATED, "es", ES_COACH_GROUP_CREATED),
-    (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "es", ES_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "es", ES_COACH_GROUP_UPDATED),
     (KEY_COACH_USER_UPDATED, "es", ES_COACH_USER_UPDATED),
-    (KEY_COACH_MULTI_GROUP_PROMPT, "es", ES_COACH_MULTI_GROUP_PROMPT),
-    (KEY_COACH_MULTI_GROUP_CARD_TITLE, "es", ES_COACH_MULTI_GROUP_CARD_TITLE),
-    (KEY_COACH_MULTI_GROUP_ITEM, "es", ES_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "es", ES_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "es", ES_COACH_ASSIGN_FORBIDDEN),
-    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "es", ES_COACH_INVITE_UNKNOWN_HANDLE),
+    (KEY_COACH_ADD_USAGE, "es", ES_COACH_ADD_USAGE),
+    (KEY_COACH_ADD_UNKNOWN, "es", ES_COACH_ADD_UNKNOWN),
+    (KEY_COACH_REMOVE_GROUP_THREAD, "es", ES_COACH_REMOVE_GROUP_THREAD),
+    (KEY_COACH_REMOVE_NOTHING, "es", ES_COACH_REMOVE_NOTHING),
+    (KEY_COACH_REMOVED, "es", ES_COACH_REMOVED),
+    (KEY_COACH_CREATE_NO_CONVERSATION, "es", ES_COACH_CREATE_NO_CONVERSATION),
+    (KEY_COACH_CREATE_EMPTY, "es", ES_COACH_CREATE_EMPTY),
+    (KEY_COACH_CREATE_USAGE, "es", ES_COACH_CREATE_USAGE),
+    (KEY_COACH_CREATE_CARD_TITLE, "es", ES_COACH_CREATE_CARD_TITLE),
+    (KEY_COACH_CREATE_PROPOSAL_BODY, "es", ES_COACH_CREATE_PROPOSAL_BODY),
+    (KEY_COACH_CREATE_CONFIRM_LABEL, "es", ES_COACH_CREATE_CONFIRM_LABEL),
+    (KEY_COACH_CREATE_DISCARD_LABEL, "es", ES_COACH_CREATE_DISCARD_LABEL),
+    (KEY_COACH_CREATE_QUOTA, "es", ES_COACH_CREATE_QUOTA),
+    (KEY_COACH_CREATE_DONE, "es", ES_COACH_CREATE_DONE),
+    (KEY_COACH_CREATE_DONE_UNBOUND, "es", ES_COACH_CREATE_DONE_UNBOUND),
+    (KEY_COACH_CREATE_DISCARDED, "es", ES_COACH_CREATE_DISCARDED),
     (KEY_RESET_CONFIRM, "es", ES_RESET_CONFIRM),
 
     // ── German ──────────────────────────────────────────────────────────
@@ -2744,6 +3204,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_PROVIDER, "de", DE_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "de", DE_HELP_DOMAIN_ACCOUNT),
     (KEY_HELP_DOMAIN_TRAINING, "de", DE_HELP_DOMAIN_TRAINING),
+    (KEY_HELP_DOMAIN_DISCOVER, "de", DE_HELP_DOMAIN_DISCOVER),
     (KEY_HELP_FOOTER, "de", DE_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "de", DE_LOGOUT_CONFIRM_PROMPT),
     (KEY_PRIVACY_STATUS_LINE, "de", DE_PRIVACY_STATUS_LINE),
@@ -2818,20 +3279,53 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_COACH_DETACHED, "de", DE_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "de", DE_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "de", DE_GROUP_CONSENT_UPDATED),
+    (KEY_GROUP_CREATE_USAGE, "de", DE_GROUP_CREATE_USAGE),
+    (KEY_GROUP_CREATE_NO_COACH, "de", DE_GROUP_CREATE_NO_COACH),
+    (KEY_GROUP_CREATE_UNAVAILABLE, "de", DE_GROUP_CREATE_UNAVAILABLE),
+    (KEY_GROUP_CREATE_FORBIDDEN, "de", DE_GROUP_CREATE_FORBIDDEN),
+    (KEY_GROUP_CREATED, "de", DE_GROUP_CREATED),
+    (KEY_GROUP_INVITE_LABEL, "de", DE_GROUP_INVITE_LABEL),
+    (KEY_GROUP_JOIN_INVALID_CODE, "de", DE_GROUP_JOIN_INVALID_CODE),
+    (KEY_GROUP_JOIN_ALREADY_MEMBER, "de", DE_GROUP_JOIN_ALREADY_MEMBER),
+    (KEY_GROUP_JOIN_FULL, "de", DE_GROUP_JOIN_FULL),
+    (KEY_GROUP_JOINED, "de", DE_GROUP_JOINED),
+    (KEY_GROUP_JOINED_AS_COACH, "de", DE_GROUP_JOINED_AS_COACH),
+    (KEY_DISCOVER_CARD_TITLE, "de", DE_DISCOVER_CARD_TITLE),
+    (KEY_DISCOVER_ITEM, "de", DE_DISCOVER_ITEM),
+    (KEY_DISCOVER_EMPTY, "de", DE_DISCOVER_EMPTY),
+    (KEY_DISCOVER_CATALOGUE_EMPTY, "de", DE_DISCOVER_CATALOGUE_EMPTY),
+    (KEY_DISCOVER_MORE_LABEL, "de", DE_DISCOVER_MORE_LABEL),
+    (KEY_DISCOVER_INSTALL_USAGE, "de", DE_DISCOVER_INSTALL_USAGE),
+    (KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE, "de", DE_DISCOVER_INSTALL_UNKNOWN_HANDLE),
+    (KEY_DISCOVER_INSTALLED, "de", DE_DISCOVER_INSTALLED),
+    (KEY_DISCOVER_INSTALL_ALREADY, "de", DE_DISCOVER_INSTALL_ALREADY),
+    (KEY_DISCOVER_ADD_LABEL, "de", DE_DISCOVER_ADD_LABEL),
     (KEY_COACH_LIST_EMPTY, "de", DE_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "de", DE_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "de", DE_COACH_LIST_ITEM),
+    (KEY_COACH_LIST_ITEM_NO_HANDLE, "de", DE_COACH_LIST_ITEM_NO_HANDLE),
+    (KEY_COACH_LIST_FOOTER, "de", DE_COACH_LIST_FOOTER),
     (KEY_COACH_NO_DESCRIPTION, "de", DE_COACH_NO_DESCRIPTION),
-    (KEY_COACH_GROUP_CREATED, "de", DE_COACH_GROUP_CREATED),
-    (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "de", DE_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "de", DE_COACH_GROUP_UPDATED),
     (KEY_COACH_USER_UPDATED, "de", DE_COACH_USER_UPDATED),
-    (KEY_COACH_MULTI_GROUP_PROMPT, "de", DE_COACH_MULTI_GROUP_PROMPT),
-    (KEY_COACH_MULTI_GROUP_CARD_TITLE, "de", DE_COACH_MULTI_GROUP_CARD_TITLE),
-    (KEY_COACH_MULTI_GROUP_ITEM, "de", DE_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "de", DE_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "de", DE_COACH_ASSIGN_FORBIDDEN),
-    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "de", DE_COACH_INVITE_UNKNOWN_HANDLE),
+    (KEY_COACH_ADD_USAGE, "de", DE_COACH_ADD_USAGE),
+    (KEY_COACH_ADD_UNKNOWN, "de", DE_COACH_ADD_UNKNOWN),
+    (KEY_COACH_REMOVE_GROUP_THREAD, "de", DE_COACH_REMOVE_GROUP_THREAD),
+    (KEY_COACH_REMOVE_NOTHING, "de", DE_COACH_REMOVE_NOTHING),
+    (KEY_COACH_REMOVED, "de", DE_COACH_REMOVED),
+    (KEY_COACH_CREATE_NO_CONVERSATION, "de", DE_COACH_CREATE_NO_CONVERSATION),
+    (KEY_COACH_CREATE_EMPTY, "de", DE_COACH_CREATE_EMPTY),
+    (KEY_COACH_CREATE_USAGE, "de", DE_COACH_CREATE_USAGE),
+    (KEY_COACH_CREATE_CARD_TITLE, "de", DE_COACH_CREATE_CARD_TITLE),
+    (KEY_COACH_CREATE_PROPOSAL_BODY, "de", DE_COACH_CREATE_PROPOSAL_BODY),
+    (KEY_COACH_CREATE_CONFIRM_LABEL, "de", DE_COACH_CREATE_CONFIRM_LABEL),
+    (KEY_COACH_CREATE_DISCARD_LABEL, "de", DE_COACH_CREATE_DISCARD_LABEL),
+    (KEY_COACH_CREATE_QUOTA, "de", DE_COACH_CREATE_QUOTA),
+    (KEY_COACH_CREATE_DONE, "de", DE_COACH_CREATE_DONE),
+    (KEY_COACH_CREATE_DONE_UNBOUND, "de", DE_COACH_CREATE_DONE_UNBOUND),
+    (KEY_COACH_CREATE_DISCARDED, "de", DE_COACH_CREATE_DISCARDED),
     (KEY_RESET_CONFIRM, "de", DE_RESET_CONFIRM),
 
     // ── Portuguese ──────────────────────────────────────────────────────
@@ -2942,6 +3436,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_HELP_DOMAIN_PROVIDER, "pt", PT_HELP_DOMAIN_PROVIDER),
     (KEY_HELP_DOMAIN_ACCOUNT, "pt", PT_HELP_DOMAIN_ACCOUNT),
     (KEY_HELP_DOMAIN_TRAINING, "pt", PT_HELP_DOMAIN_TRAINING),
+    (KEY_HELP_DOMAIN_DISCOVER, "pt", PT_HELP_DOMAIN_DISCOVER),
     (KEY_HELP_FOOTER, "pt", PT_HELP_FOOTER),
     (KEY_LOGOUT_CONFIRM_PROMPT, "pt", PT_LOGOUT_CONFIRM_PROMPT),
     (KEY_PRIVACY_STATUS_LINE, "pt", PT_PRIVACY_STATUS_LINE),
@@ -3016,20 +3511,53 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GROUP_COACH_DETACHED, "pt", PT_GROUP_COACH_DETACHED),
     (KEY_NOTIFICATION_CHANNEL_BODY, "pt", PT_NOTIFICATION_CHANNEL_BODY),
     (KEY_GROUP_CONSENT_UPDATED, "pt", PT_GROUP_CONSENT_UPDATED),
+    (KEY_GROUP_CREATE_USAGE, "pt", PT_GROUP_CREATE_USAGE),
+    (KEY_GROUP_CREATE_NO_COACH, "pt", PT_GROUP_CREATE_NO_COACH),
+    (KEY_GROUP_CREATE_UNAVAILABLE, "pt", PT_GROUP_CREATE_UNAVAILABLE),
+    (KEY_GROUP_CREATE_FORBIDDEN, "pt", PT_GROUP_CREATE_FORBIDDEN),
+    (KEY_GROUP_CREATED, "pt", PT_GROUP_CREATED),
+    (KEY_GROUP_INVITE_LABEL, "pt", PT_GROUP_INVITE_LABEL),
+    (KEY_GROUP_JOIN_INVALID_CODE, "pt", PT_GROUP_JOIN_INVALID_CODE),
+    (KEY_GROUP_JOIN_ALREADY_MEMBER, "pt", PT_GROUP_JOIN_ALREADY_MEMBER),
+    (KEY_GROUP_JOIN_FULL, "pt", PT_GROUP_JOIN_FULL),
+    (KEY_GROUP_JOINED, "pt", PT_GROUP_JOINED),
+    (KEY_GROUP_JOINED_AS_COACH, "pt", PT_GROUP_JOINED_AS_COACH),
+    (KEY_DISCOVER_CARD_TITLE, "pt", PT_DISCOVER_CARD_TITLE),
+    (KEY_DISCOVER_ITEM, "pt", PT_DISCOVER_ITEM),
+    (KEY_DISCOVER_EMPTY, "pt", PT_DISCOVER_EMPTY),
+    (KEY_DISCOVER_CATALOGUE_EMPTY, "pt", PT_DISCOVER_CATALOGUE_EMPTY),
+    (KEY_DISCOVER_MORE_LABEL, "pt", PT_DISCOVER_MORE_LABEL),
+    (KEY_DISCOVER_INSTALL_USAGE, "pt", PT_DISCOVER_INSTALL_USAGE),
+    (KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE, "pt", PT_DISCOVER_INSTALL_UNKNOWN_HANDLE),
+    (KEY_DISCOVER_INSTALLED, "pt", PT_DISCOVER_INSTALLED),
+    (KEY_DISCOVER_INSTALL_ALREADY, "pt", PT_DISCOVER_INSTALL_ALREADY),
+    (KEY_DISCOVER_ADD_LABEL, "pt", PT_DISCOVER_ADD_LABEL),
     (KEY_COACH_LIST_EMPTY, "pt", PT_COACH_LIST_EMPTY),
     (KEY_COACH_LIST_CARD_TITLE, "pt", PT_COACH_LIST_CARD_TITLE),
     (KEY_COACH_LIST_ITEM, "pt", PT_COACH_LIST_ITEM),
+    (KEY_COACH_LIST_ITEM_NO_HANDLE, "pt", PT_COACH_LIST_ITEM_NO_HANDLE),
+    (KEY_COACH_LIST_FOOTER, "pt", PT_COACH_LIST_FOOTER),
     (KEY_COACH_NO_DESCRIPTION, "pt", PT_COACH_NO_DESCRIPTION),
-    (KEY_COACH_GROUP_CREATED, "pt", PT_COACH_GROUP_CREATED),
-    (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "pt", PT_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "pt", PT_COACH_GROUP_UPDATED),
     (KEY_COACH_USER_UPDATED, "pt", PT_COACH_USER_UPDATED),
-    (KEY_COACH_MULTI_GROUP_PROMPT, "pt", PT_COACH_MULTI_GROUP_PROMPT),
-    (KEY_COACH_MULTI_GROUP_CARD_TITLE, "pt", PT_COACH_MULTI_GROUP_CARD_TITLE),
-    (KEY_COACH_MULTI_GROUP_ITEM, "pt", PT_COACH_MULTI_GROUP_ITEM),
     (KEY_COACH_ASSIGN_NOT_A_MEMBER, "pt", PT_COACH_ASSIGN_NOT_A_MEMBER),
     (KEY_COACH_ASSIGN_FORBIDDEN, "pt", PT_COACH_ASSIGN_FORBIDDEN),
-    (KEY_COACH_INVITE_UNKNOWN_HANDLE, "pt", PT_COACH_INVITE_UNKNOWN_HANDLE),
+    (KEY_COACH_ADD_USAGE, "pt", PT_COACH_ADD_USAGE),
+    (KEY_COACH_ADD_UNKNOWN, "pt", PT_COACH_ADD_UNKNOWN),
+    (KEY_COACH_REMOVE_GROUP_THREAD, "pt", PT_COACH_REMOVE_GROUP_THREAD),
+    (KEY_COACH_REMOVE_NOTHING, "pt", PT_COACH_REMOVE_NOTHING),
+    (KEY_COACH_REMOVED, "pt", PT_COACH_REMOVED),
+    (KEY_COACH_CREATE_NO_CONVERSATION, "pt", PT_COACH_CREATE_NO_CONVERSATION),
+    (KEY_COACH_CREATE_EMPTY, "pt", PT_COACH_CREATE_EMPTY),
+    (KEY_COACH_CREATE_USAGE, "pt", PT_COACH_CREATE_USAGE),
+    (KEY_COACH_CREATE_CARD_TITLE, "pt", PT_COACH_CREATE_CARD_TITLE),
+    (KEY_COACH_CREATE_PROPOSAL_BODY, "pt", PT_COACH_CREATE_PROPOSAL_BODY),
+    (KEY_COACH_CREATE_CONFIRM_LABEL, "pt", PT_COACH_CREATE_CONFIRM_LABEL),
+    (KEY_COACH_CREATE_DISCARD_LABEL, "pt", PT_COACH_CREATE_DISCARD_LABEL),
+    (KEY_COACH_CREATE_QUOTA, "pt", PT_COACH_CREATE_QUOTA),
+    (KEY_COACH_CREATE_DONE, "pt", PT_COACH_CREATE_DONE),
+    (KEY_COACH_CREATE_DONE_UNBOUND, "pt", PT_COACH_CREATE_DONE_UNBOUND),
+    (KEY_COACH_CREATE_DISCARDED, "pt", PT_COACH_CREATE_DISCARDED),
     (KEY_RESET_CONFIRM, "pt", PT_RESET_CONFIRM),
 ];
 

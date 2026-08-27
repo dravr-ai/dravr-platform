@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Playwright E2E tests for the coach tool-iteration budget (WAVE 0) and the deleted wizard (PHASE 0).
+// ABOUTME: Playwright E2E tests for the coach tool-iteration budget, driven through Discover's edit sheet.
 // ABOUTME: Pins the three-state write contract — absent inherits, a number pins, an explicit null clears.
 
 import { test, expect, type Page } from '@playwright/test';
@@ -10,10 +10,13 @@ import {
   MAX_MAX_TOOL_ITERATIONS,
   DEFAULT_MAX_TOOL_ITERATIONS,
 } from '@pierre/shared-constants';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, navigateToTab, APP_SHELL_TIMEOUT_MS } from './test-helpers';
 
+/** The store listing the athlete installed; its copy is what the edit sheet opens. */
+const STORE_ID = 'store-tempo';
 const COACH_ID = 'coach-tempo';
 const COACH_TITLE = 'Tempo Coach';
+const COACH_HANDLE = 'tempo-coach';
 
 /**
  * The three states the coach editor can put on the wire, as the server sees
@@ -39,10 +42,26 @@ interface CoachMocks {
   storedBudget: () => number | null;
 }
 
+const storeListing = {
+  id: STORE_ID,
+  title: COACH_TITLE,
+  description: 'Threshold work and race-week sharpening',
+  category: 'training',
+  tags: ['tempo'],
+  sample_prompts: ['How should I pace a tempo run?'],
+  token_count: 40,
+  install_count: 3,
+  icon_url: null,
+  published_at: '2026-07-01T00:00:00Z',
+  author_id: 'author-1',
+  handle: COACH_HANDLE,
+};
+
 /**
- * Serve one editable user coach and apply the server's own three-state update
- * rule to it, so a saved budget genuinely round-trips through the list the
- * editor re-reads rather than being echoed back by the mock.
+ * Serve one store listing the athlete has installed, plus its personal copy,
+ * and apply the server's own three-state update rule to the copy so a saved
+ * budget genuinely round-trips through the re-read rather than being echoed
+ * back by the mock.
  */
 async function setupCoachMocks(
   page: Page,
@@ -70,7 +89,10 @@ async function setupCoachMocks(
       updated_at: '2026-08-01T10:00:00Z',
       is_system: false,
       visibility: 'private',
-      is_assigned: false,
+      is_assigned: true,
+      // The copy an install minted: the listing is what maps back to it.
+      forked_from: STORE_ID,
+      handle: COACH_HANDLE,
     };
     // A coach with no pin carries no key at all — exactly how the API answers,
     // and what hydrates the editor's empty box.
@@ -79,6 +101,29 @@ async function setupCoachMocks(
     }
     return coach;
   };
+
+  const metadata = () => ({ timestamp: new Date().toISOString(), api_version: '1.0' });
+
+  // The catalogue: one listing, no next page.
+  await page.route(/\/api\/store\/coaches(\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ coaches: [storeListing], has_more: false, next_cursor: null, metadata: metadata() }),
+    });
+  });
+  await page.route(`**/api/store/coaches/${STORE_ID}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...storeListing,
+        system_prompt: 'You are a tempo coach.',
+        created_at: '2026-07-01T00:00:00Z',
+        publish_status: 'published',
+      }),
+    });
+  });
 
   // List (with or without query string) — never the /api/coaches/<id> sub-path.
   await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
@@ -93,7 +138,8 @@ async function setupCoachMocks(
     });
   });
 
-  // Single coach: the PUT the editor sends, plus the hidden-coaches sibling.
+  // Single coach: the GET the sheet loads with, the PUT it sends, plus the
+  // hidden-coaches sibling.
   await page.route(/\/api\/coaches\/[^/?]+(\?.*)?$/, async (route) => {
     const request = route.request();
     if (request.url().includes('/coaches/hidden')) {
@@ -130,11 +176,20 @@ async function setupCoachMocks(
   return { updates, storedBudget: () => stored };
 }
 
-/** Open the surviving coach editor from the chat welcome view's coach card. */
-async function openCoachEditor(page: Page) {
-  await expect(page.getByText(COACH_TITLE).first()).toBeVisible({ timeout: 10000 });
-  await page.getByText(COACH_TITLE).first().hover();
-  await page.getByLabel('Edit coach').click();
+/** Discover → the installed listing's detail, where "Edit coach" lives. */
+async function openInstalledListing(page: Page) {
+  await navigateToTab(page, 'Discover');
+  // Discover is a lazy chunk: the first worker to open it waits on Vite's
+  // cold transform, the same wait the app shell gets.
+  const listing = page.getByTestId('store-coach-grid').getByText(COACH_TITLE);
+  await expect(listing).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
+  await listing.click();
+  await expect(page.getByRole('button', { name: 'Edit coach' })).toBeVisible({ timeout: 10000 });
+}
+
+/** Open the edit sheet from the listing detail already on screen. */
+async function openEditSheet(page: Page) {
+  await page.getByRole('button', { name: 'Edit coach' }).click();
   await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeVisible({ timeout: 5000 });
 }
 
@@ -153,7 +208,7 @@ async function saveCoach(page: Page) {
     { timeout: 10000 },
   );
   await page.getByRole('button', { name: 'Save Changes' }).click();
-  // The modal closes only on a successful mutation, so its disappearance is
+  // The sheet closes only on a successful mutation, so its disappearance is
   // the signal that the PUT completed rather than an arbitrary sleep.
   await expect(page.getByRole('heading', { name: 'Edit Coach' })).toBeHidden({ timeout: 10000 });
   await listRefetched;
@@ -164,7 +219,8 @@ test.describe('Coach tool budget - explicit value', () => {
   test('saving an explicit budget sends the number and it round-trips on reopen', async ({ page }) => {
     const mocks = await setupCoachMocks(page, { initialBudget: null });
     await loginToDashboard(page);
-    await openCoachEditor(page);
+    await openInstalledListing(page);
+    await openEditSheet(page);
 
     // A coach with no pin hydrates an empty box that advertises the workspace
     // limit as its placeholder.
@@ -181,15 +237,16 @@ test.describe('Coach tool budget - explicit value', () => {
     expect(readBudget(mocks.updates[0])).toEqual({ kind: 'number', value: 30 });
     expect(mocks.storedBudget()).toBe(30);
 
-    // Reopen: the value came back from the refetched list, not from local state.
-    await openCoachEditor(page);
+    // Reopen: the value came back from the re-read coach, not from local state.
+    await openEditSheet(page);
     await expect(budgetInput(page)).toHaveValue('30');
   });
 
   test('the budget box holds the 1..=50 bounds the server enforces', async ({ page }) => {
     await setupCoachMocks(page, { initialBudget: 10 });
     await loginToDashboard(page);
-    await openCoachEditor(page);
+    await openInstalledListing(page);
+    await openEditSheet(page);
 
     await expect(budgetInput(page)).toHaveValue('10');
 
@@ -205,7 +262,8 @@ test.describe('Coach tool budget - inherit guarantee', () => {
   test('an edit that never touches the budget omits the key entirely', async ({ page }) => {
     const mocks = await setupCoachMocks(page, { initialBudget: null });
     await loginToDashboard(page);
-    await openCoachEditor(page);
+    await openInstalledListing(page);
+    await openEditSheet(page);
 
     await expect(budgetInput(page)).toHaveValue('');
 
@@ -229,7 +287,8 @@ test.describe('Coach tool budget - inherit guarantee', () => {
   test('an edit that never touches an EXISTING pin re-sends that pin, never the default', async ({ page }) => {
     const mocks = await setupCoachMocks(page, { initialBudget: 25 });
     await loginToDashboard(page);
-    await openCoachEditor(page);
+    await openInstalledListing(page);
+    await openEditSheet(page);
 
     // The box hydrates from the stored pin, so the value the editor carries is
     // the coach's own — not the workspace default the placeholder advertises.
@@ -245,7 +304,7 @@ test.describe('Coach tool budget - inherit guarantee', () => {
     expect(mocks.updates[0].max_tool_iterations).not.toBe(DEFAULT_MAX_TOOL_ITERATIONS);
     expect(mocks.storedBudget()).toBe(25);
 
-    await openCoachEditor(page);
+    await openEditSheet(page);
     await expect(budgetInput(page)).toHaveValue('25');
   });
 });
@@ -254,7 +313,8 @@ test.describe('Coach tool budget - clearing', () => {
   test('clearing a pinned budget sends an explicit null and returns the coach to inherit', async ({ page }) => {
     const mocks = await setupCoachMocks(page, { initialBudget: 12 });
     await loginToDashboard(page);
-    await openCoachEditor(page);
+    await openInstalledListing(page);
+    await openEditSheet(page);
 
     await expect(budgetInput(page)).toHaveValue('12');
     await budgetInput(page).fill('');
@@ -268,7 +328,7 @@ test.describe('Coach tool budget - clearing', () => {
     expect(readBudget(body)).toEqual({ kind: 'null' });
     expect(mocks.storedBudget()).toBeNull();
 
-    await openCoachEditor(page);
+    await openEditSheet(page);
     await expect(budgetInput(page)).toHaveValue('');
     await expect(budgetInput(page)).toHaveAttribute(
       'placeholder',
@@ -277,7 +337,7 @@ test.describe('Coach tool budget - clearing', () => {
   });
 });
 
-test.describe('Coach authoring surface - the wizard is gone', () => {
+test.describe('Coach authoring surface - the edit sheet is the only coach editor', () => {
   /** Step chrome that only the deleted seven-step CoachWizard ever rendered. */
   const WIZARD_ONLY_CHROME = [
     'Basic Info',
@@ -287,13 +347,16 @@ test.describe('Coach authoring surface - the wizard is gone', () => {
     'Minimum Activities',
   ];
 
-  test('the coach editor is the single-screen modal, with no wizard step chrome', async ({ page }) => {
+  test('the edit sheet is a single screen with no wizard step chrome and no version history', async ({ page }) => {
     await setupCoachMocks(page, { initialBudget: null });
     await loginToDashboard(page);
-    await openCoachEditor(page);
+    await openInstalledListing(page);
+    await openEditSheet(page);
 
-    // The surviving editor: one screen, submitted in one action.
+    // The surviving editor: one screen, submitted in one action, with the
+    // coach's deletion under it.
     await expect(page.getByRole('button', { name: 'Save Changes' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete this coach' })).toBeVisible();
     await expect(budgetInput(page)).toBeVisible();
 
     for (const chrome of WIZARD_ONLY_CHROME) {
@@ -301,9 +364,10 @@ test.describe('Coach authoring surface - the wizard is gone', () => {
     }
     await expect(page.getByPlaceholder('Enter coach title')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Next' })).toHaveCount(0);
+    await expect(page.getByText(/Version History/i)).toHaveCount(0);
   });
 
-  test('no route or affordance reaches a coach wizard or a version history', async ({ page }) => {
+  test('Discover offers no coach creation: coaches are created with /coach create', async ({ page }) => {
     await setupCoachMocks(page, { initialBudget: null });
     await loginToDashboard(page);
 
@@ -314,15 +378,11 @@ test.describe('Coach authoring surface - the wizard is gone', () => {
       await expect(page.getByText(chrome, { exact: true })).toHaveCount(0);
     }
 
-    // Discover's "Your coaches" create form is likewise a single screen, and
-    // the coach detail offers no version-history drawer.
-    await page.getByRole('list').getByRole('button', { name: 'Discover', exact: true }).click();
-    await expect(page.getByRole('region', { name: /Your coaches/ })).toBeVisible({ timeout: 10000 });
-    await page.getByRole('button', { name: 'Create Coach' }).click();
-    await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeVisible({ timeout: 5000 });
-    for (const chrome of WIZARD_ONLY_CHROME) {
-      await expect(page.getByText(chrome, { exact: true })).toHaveCount(0);
-    }
-    await expect(page.getByText(/Version History/i)).toHaveCount(0);
+    await navigateToTab(page, 'Discover');
+    await expect(page.getByTestId('store-coach-grid')).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
+    await expect(page.getByRole('region', { name: /Your coaches/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Create Coach' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Import Coach' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toHaveCount(0);
   });
 });

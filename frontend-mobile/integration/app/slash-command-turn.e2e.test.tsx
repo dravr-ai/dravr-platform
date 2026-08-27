@@ -2,9 +2,11 @@
 // ABOUTME: The command turn's actions block becomes buttons whose postback value re-enters the same send path
 
 import React from 'react';
-import { render, renderHook, act, fireEvent } from '@testing-library/react-native';
+import { render, act, fireEvent } from '@testing-library/react-native';
+import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import type { Message, TurnEnvelope } from '@pierre/shared-types';
 
+import { renderHook } from './helpers/queryHook';
 import { installHttpStub, type HttpStub } from './helpers/httpStub';
 import { CONVERSATION_ID, assistantTurn } from './helpers/chatFixtures';
 
@@ -39,9 +41,12 @@ async function takeTurn(content: string): Promise<TurnEnvelope> {
 }
 
 const COACH_PICKER_PROSE = 'Choisis ton coach :';
-const SELECT_TEMPO = '/coach select coach-tempo';
+// The postback is the command an athlete could type, spelled by the shared
+// drafts — `/coach select <uuid>` is gone from the tree.
+const ADD_TEMPO = COMMAND_DRAFTS.coachAdd('coach-tempo');
+const ADD_RECUP = COMMAND_DRAFTS.coachAdd('coach-recup');
 
-/** What `/coach` answers with: prose plus one button per coach. */
+/** What `/coach list` answers with: prose plus one button per coach. */
 const commandTurn = () =>
   assistantTurn({
     content: COACH_PICKER_PROSE,
@@ -52,8 +57,8 @@ const commandTurn = () =>
         type: 'actions',
         title: 'Tes coachs',
         actions: [
-          { label: 'Coach Tempo', action_type: 'postback', value: SELECT_TEMPO },
-          { label: 'Coach Recup', action_type: 'postback', value: '/coach select coach-recup' },
+          { label: 'Coach Tempo', action_type: 'postback', value: ADD_TEMPO },
+          { label: 'Coach Recup', action_type: 'postback', value: ADD_RECUP },
         ],
       },
     ],
@@ -67,16 +72,13 @@ function renderList(
   return render(
     <MessageList
       messages={messages}
-      coaches={[]}
       isLoading={false}
       isSending={false}
-      isCoachConversation
       messageFeedback={{}}
       messageFeedbackComment={{}}
       messageBlocks={messageBlocks}
       flatListRef={React.createRef()}
       onScrollToBottom={jest.fn()}
-      onCoachSelect={jest.fn()}
       onThumbsUp={jest.fn()}
       onThumbsDown={jest.fn()}
       onSubmitFeedbackReason={jest.fn()}
@@ -98,13 +100,13 @@ describe('PHASE 2 — slash-command turns', () => {
     stub = installHttpStub({
       [`POST ${MESSAGES_URL}`]: (request) => ({
         data:
-          (request.body as { content: string }).content === '/coach'
+          (request.body as { content: string }).content === '/coach list'
             ? commandTurn()
             : assistantTurn(),
       }),
     });
 
-    const command = await takeTurn('/coach');
+    const command = await takeTurn('/coach list');
     const llm = await takeTurn('Comment se presente ma semaine ?');
 
     expect(command.assistant.finish_reason).toBe('command');
@@ -122,8 +124,8 @@ describe('PHASE 2 — slash-command turns', () => {
       type: 'actions',
       title: 'Tes coachs',
       actions: [
-        { label: 'Coach Tempo', action_type: 'postback', value: SELECT_TEMPO },
-        { label: 'Coach Recup', action_type: 'postback', value: '/coach select coach-recup' },
+        { label: 'Coach Tempo', action_type: 'postback', value: ADD_TEMPO },
+        { label: 'Coach Recup', action_type: 'postback', value: ADD_RECUP },
       ],
     });
     // The LLM turn carries no controls at all.
@@ -134,7 +136,7 @@ describe('PHASE 2 — slash-command turns', () => {
     stub = installHttpStub({
       [`POST ${MESSAGES_URL}`]: (request) => ({
         data:
-          (request.body as { content: string }).content === '/coach'
+          (request.body as { content: string }).content === '/coach list'
             ? commandTurn()
             : assistantTurn({ content: 'Coach Tempo est actif.' }),
       }),
@@ -142,7 +144,7 @@ describe('PHASE 2 — slash-command turns', () => {
 
     const { result } = renderHook(() => useMessages());
     await act(async () => {
-      await result.current.sendTurn(CONVERSATION_ID, '/coach');
+      await result.current.sendTurn(CONVERSATION_ID, '/coach list');
     });
 
     // The actions block reached the renderer as one of the turn's own blocks.
@@ -153,8 +155,8 @@ describe('PHASE 2 — slash-command turns', () => {
       type: 'actions',
       title: 'Tes coachs',
       actions: [
-        { label: 'Coach Tempo', action_type: 'postback', value: SELECT_TEMPO },
-        { label: 'Coach Recup', action_type: 'postback', value: '/coach select coach-recup' },
+        { label: 'Coach Tempo', action_type: 'postback', value: ADD_TEMPO },
+        { label: 'Coach Recup', action_type: 'postback', value: ADD_RECUP },
       ],
     });
 
@@ -171,7 +173,7 @@ describe('PHASE 2 — slash-command turns', () => {
     });
 
     const posted = stub.requestsFor('POST').map((request) => (request.body as { content: string }).content);
-    expect(posted).toEqual(['/coach', SELECT_TEMPO]);
+    expect(posted).toEqual(['/coach list', ADD_TEMPO]);
   });
 
   it('leaves an LLM turn without any action buttons', async () => {

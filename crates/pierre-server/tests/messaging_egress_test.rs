@@ -745,7 +745,7 @@ fn attached_controls_render_as_a_card_where_they_are_supported() {
         TurnAction {
             label: "Marc".to_owned(),
             kind: ActionKind::Postback,
-            value: "/coach select marc".to_owned(),
+            value: "/coach add @marc".to_owned(),
         },
         TurnAction {
             label: "En savoir plus".to_owned(),
@@ -768,7 +768,7 @@ fn attached_controls_render_as_a_card_where_they_are_supported() {
             assert_eq!(title, "Coachs");
             assert_eq!(actions.len(), 2);
             assert_eq!(actions[0].action_type, "postback");
-            assert_eq!(actions[0].value, "/coach select marc");
+            assert_eq!(actions[0].value, "/coach add @marc");
             assert_eq!(actions[1].action_type, "url");
         }
         other => panic!("controls must render as a card: {other:?}"),

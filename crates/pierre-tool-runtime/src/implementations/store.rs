@@ -362,20 +362,13 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
             let repos = context.resources.data().repos().coach_repos();
             let installed = install_store_coach(&repos, coach_id, user_id, tenant_id).await?;
 
+            // `coach.installed` is emitted by `install_store_coach`, the one
+            // install path this tool shares with the REST route and
+            // `/discover install`, so it fires once per install on every surface.
             info!(
                 user_id = %user_id,
                 coach_id = %coach_id,
                 "install_coach_from_store: coach installed from the store"
-            );
-            // notify: coach was successfully installed. Fields are emitted
-            // inline because a tool call has no route span to carry them.
-            info!(
-                target: "notify",
-                event = "coach.installed",
-                user_id = %user_id,
-                tenant_id = %tenant_id,
-                coach_slug = %coach_id,
-                "coach installed from store"
             );
 
             let payload = json!({

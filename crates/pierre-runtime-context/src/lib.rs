@@ -208,10 +208,12 @@ pub trait BillingCtx: Send + Sync + 'static {
 /// Covers what `pierre-commands` handlers actually pull from
 /// pierre-server's `ServerContext`: the repository registry (for coach /
 /// group / user / chat / provider-connection lookups), the
-/// [`pierre_groups::GroupService`] (for `/coach select` group creation
-/// and `/group invite` code minting), and the
+/// [`pierre_groups::GroupService`] (for `/group invite` code minting and
+/// the group settings `/coach add` changes in a group conversation), the
 /// [`pierre_contremaitre::MessagingStringsRegistry`] (for the localized
-/// reply rendering every handler performs).
+/// reply rendering every handler performs), and the coach-generation
+/// slice `/coach create` needs — the chat provider, the generation prompt
+/// and the admin-config quota lookup.
 ///
 /// Deliberately omitted from this trait (to keep `pierre-runtime-context`
 /// free of the `pierre-commands` → `pierre-runtime-context` cycle):
@@ -226,14 +228,38 @@ pub trait CommandCtx: Send + Sync + 'static {
     /// provider-connection lookup the handlers perform.
     fn repos(&self) -> &Arc<RepositoryRegistry>;
 
-    /// Group coaching service — used by `/coach select` to create a new
-    /// coaching group when the user has none, and by `/group invite` to
-    /// mint a fresh invite code.
+    /// Group coaching service — used by `/group invite` to mint a fresh
+    /// invite code and by the group-settings writes `/coach add` and
+    /// `/group coach` perform in a group conversation.
     fn group_service(&self) -> &Arc<pierre_groups::GroupService>;
 
     /// Messaging strings registry — every handler renders user-facing
     /// reply text through this registry, keyed by `(template_key, locale)`.
     fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry>;
+
+    /// Admin config lookup — `/coach create confirm` enforces
+    /// `usage_quotas.max_coaches_per_user` through it and `/group create`
+    /// reads the tenant's `group_creation_policy`, the same reads
+    /// `POST /api/coaches` and the REST group-create route perform.
+    ///
+    /// `None` when admin config is not wired into the running server; both
+    /// then degrade to their documented defaults rather than being skipped.
+    /// Returns an owned `Arc` because the concrete service in `pierre-server`
+    /// is not stored as a trait object; the upcast happens here.
+    fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>>;
+
+    /// Primary chat-completion provider — `/coach create` drafts the
+    /// persona through it, on the shared singleton every chat turn uses.
+    fn chat_provider(&self) -> Option<&Arc<ChatProvider>>;
+
+    /// Lower-level LLM provider — the fallback `/coach create` wraps when no
+    /// dedicated [`ChatProvider`] is configured.
+    fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;
+
+    /// Coach generation system prompt. Resolves from the contremaitre
+    /// hot-reload registry when enabled, else the compiled-in fallback in
+    /// `pierre-llm`.
+    fn coach_generation_prompt(&self) -> String;
 }
 
 /// The identity a config read resolves against.
@@ -368,9 +394,8 @@ pub fn default_admin_config() -> &'static dyn AdminConfigLookup {
 /// Covers `/api/coaches/*`, `/api/admin/coaches/*`, `/api/admin/store/*`,
 /// `/api/roster/*`, and `/api/store/*`. Pulls the repository registry
 /// (coaches + store-listings + roster + tenants + users repos), the
-/// platform's `Database` handle (for `ChatManager` access in the
-/// coach-from-conversation generator), the hot-reloadable coach
-/// generation prompt, and provider handles for LLM-driven generation.
+/// platform's `Database` handle (for the version-history author lookup),
+/// and provider handles for the LLM re-rank of coach proposals.
 ///
 /// `admin_config()` is optional because the service is wired only when
 /// SQLite-backed quota config is enabled; routes degrade to defaults
@@ -380,14 +405,9 @@ pub fn default_admin_config() -> &'static dyn AdminConfigLookup {
 /// feature so leaf builds without push notifications don't pay the
 /// `dravr-commere` dependency cost.
 pub trait CoachesCtx: MiddlewareCtx {
-    /// Database handle — used by `handle_generate` to construct a
-    /// `ChatManager` against the underlying `SQLite` pool.
+    /// Database handle — the version-history routes reach the users
+    /// repository through it to name a version's author.
     fn database(&self) -> &Arc<Database>;
-
-    /// Coach generation system prompt. Resolves from the contremaitre
-    /// hot-reload registry when enabled, else the compiled-in fallback
-    /// in `pierre-llm`.
-    fn coach_generation_prompt(&self) -> String;
 
     /// Admin config lookup — used by `handle_create` to enforce
     /// `usage_quotas.max_coaches_per_user` per tenant. `None` when
@@ -402,13 +422,13 @@ pub trait CoachesCtx: MiddlewareCtx {
     #[cfg(feature = "client-notifications")]
     fn notification_service(&self) -> Option<&Arc<pierre_notifications::NotificationService>>;
 
-    /// Primary chat-completion provider — used by `handle_generate` to
-    /// summarize a conversation into a generated coach profile. Falls
-    /// back to wrapping `llm_provider()` when this is `None`.
+    /// Primary chat-completion provider — the LLM re-rank of coach
+    /// proposals runs on it. Falls back to wrapping `llm_provider()` when
+    /// this is `None`.
     fn chat_provider(&self) -> Option<&Arc<ChatProvider>>;
 
-    /// Lower-level LLM provider — used as a fallback for
-    /// `handle_generate` when no dedicated `ChatProvider` is configured.
+    /// Lower-level LLM provider — the fallback the proposal re-rank wraps
+    /// when no dedicated `ChatProvider` is configured.
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;
 }
 

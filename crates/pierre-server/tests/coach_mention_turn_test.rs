@@ -30,7 +30,8 @@ use futures_util::stream;
 use helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
 use pierre_chat_pipeline::stages::coach_mention::{mention_candidates, strip_mention};
 use pierre_chat_pipeline::{
-    PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest, TurnRequest,
+    CommandPersistence, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest,
+    TurnRequest,
 };
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -327,6 +328,8 @@ async fn web_turn(
             ambient_context: None,
             channel_type: "web",
             is_direct_message: true,
+            ambient_group_fallback: false,
+            command_persistence: CommandPersistence::Always,
             sender_id: None,
             hooks: PipelineHooks::none(),
         },
@@ -704,8 +707,8 @@ mod messaging {
         let installed = install_catalogue_coach(repos, origin, athlete_id, tenant_id).await;
         assert_eq!(installed.handle.as_deref(), Some("recovery-coach"));
 
-        // The conversation's own coach, selected the way a `/coach select`
-        // selects it, so the messaging session binds it when it opens.
+        // The conversation's own coach, selected the way `/coach add` selects
+        // it, so the messaging session binds it when it opens.
         let tempo_id = create_custom_coach(
             &resources,
             athlete_id,

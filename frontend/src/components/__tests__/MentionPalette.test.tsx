@@ -19,15 +19,20 @@ vi.mock('../../services/api', () => ({
   coachesApi: { list: (...args: unknown[]) => listCoaches(...args) },
 }));
 
-vi.mock('../PromptSuggestions', () => ({
-  default: () => <div data-testid="prompt-suggestions" />,
-}));
-
-/** The athlete's coach list: two addressable coaches and one personal coach with no handle. */
+/**
+ * What `GET /api/coaches` hands the composer: the athlete's two installed
+ * coaches, a personal coach with no handle (never addressable), and a
+ * catalogue coach they never installed — which the server would refuse to
+ * resolve, so the palette must not offer it either.
+ */
 const COACHES = [
-  { id: 'c-1', title: 'Recovery Coach', handle: 'recovery-coach', is_system: true },
-  { id: 'c-2', title: 'Marathon Coach', handle: 'marathon-coach', is_system: false, forked_from: 'listing-1' },
-  { id: 'c-3', title: 'My Custom Coach', is_system: false },
+  { id: 'c-1', title: 'Recovery Coach', handle: 'recovery-coach', is_system: false, is_assigned: true },
+  { id: 'c-2', title: 'Marathon Coach', handle: 'marathon-coach', is_system: false, is_assigned: true },
+  { id: 'c-3', title: 'My Custom Coach', is_system: false, is_assigned: true },
+  // Assigned AND system: `find_installed_by_handle` admits it, so the palette must too.
+  { id: 'c-4', title: 'Sleep Coach', handle: 'sleep-coach', is_system: true, is_assigned: true },
+  // Listed but never installed — no assignment row, so a mention would not route.
+  { id: 'c-5', title: 'Marathon Catalogue', handle: 'marathon-catalogue', is_system: true, is_assigned: false },
 ];
 
 const onSend = vi.fn();
@@ -40,9 +45,6 @@ function Composer() {
       onChange={setValue}
       onSend={onSend}
       isStreaming={false}
-      showIdeas={false}
-      onToggleIdeas={() => {}}
-      onSelectPrompt={() => {}}
       conversationId="conv-1"
     />
   );
@@ -77,9 +79,16 @@ describe('@handle mention palette (web composer)', () => {
 
     await waitFor(() => expect(screen.getByTestId('mention-palette')).toBeTruthy());
     const options = screen.getAllByRole('option').map((o) => o.textContent);
-    // Handle order, one row per handle; the handle-less personal coach is not addressable.
-    expect(options).toEqual(['@marathon-coachMarathon Coach', '@recovery-coachRecovery Coach']);
+    // Handle order, one row per handle. The handle-less personal coach is not
+    // addressable, and neither is the catalogue coach with no assignment row —
+    // while the assigned system coach is, exactly as the resolver treats them.
+    expect(options).toEqual([
+      '@marathon-coachMarathon Coach',
+      '@recovery-coachRecovery Coach',
+      '@sleep-coachSleep Coach',
+    ]);
     expect(screen.queryByText('My Custom Coach')).toBeNull();
+    expect(screen.queryByText('@marathon-catalogue')).toBeNull();
     expect(listCoaches).toHaveBeenCalledTimes(1);
   });
 

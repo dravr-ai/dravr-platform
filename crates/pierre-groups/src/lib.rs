@@ -28,6 +28,9 @@ mod context_alerts;
 /// Central group coaching service and context injection
 pub mod service;
 
+/// Who may create a group: the tenant-role shortcut and the creation policy
+pub mod creation_policy;
+
 /// System prompt context builders for LLM injection
 pub mod context;
 

@@ -1,4 +1,4 @@
-# ABOUTME: Visual test that the tab bar carries neither an Insights nor a Coaches tab (Chat-First Cutover)
+# ABOUTME: Visual test that the tab bar carries no Insights, Coaches or Groups tab — Chat, Discover, Settings only
 # ABOUTME: Replaces the social-feed, friends-screen and share-insight flows that drove the old Insights tab
 
 appId: ai.dravr.app
@@ -18,8 +18,6 @@ appId: ai.dravr.app
 - assertVisible:
     id: "tab-discover"
 - assertVisible:
-    id: "tab-groups"
-- assertVisible:
     id: "tab-settings"
 
 # Test: no Insights tab, no feed, no Coaches tab. Unconditional — the retired
@@ -29,6 +27,9 @@ appId: ai.dravr.app
     id: "tab-insights"
 - assertNotVisible:
     id: "tab-coaches"
+# Group management lives in the group's own chat header now; the tab is gone.
+- assertNotVisible:
+    id: "tab-groups"
 - assertNotVisible:
     id: "social-feed-screen"
 - assertNotVisible: "Insights"

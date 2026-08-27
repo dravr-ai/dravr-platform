@@ -10,7 +10,8 @@ import Dashboard from '../Dashboard';
 // Mock dashboard barrel via explicit /index path to avoid macOS case-insensitive
 // collision between ../dashboard (resolves to Dashboard.tsx) and dashboard/ directory
 vi.mock('../dashboard/index', () => ({
-  ConversationsPanel: () => null,
+  ConversationList: () => null,
+  useUnreadConversationsCount: () => 0,
   usePendingUsersCount: () => 1,
   useStoreStatsPendingCount: () => 0,
 }));

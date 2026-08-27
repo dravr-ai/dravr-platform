@@ -510,53 +510,6 @@ pub fn validate_max_tool_iterations(value: Option<i32>) -> Result<(), AppError> 
 }
 
 // ============================================
-// Coach Generation Types
-// ============================================
-
-/// Request to generate a coach from a conversation
-#[derive(Debug, Deserialize)]
-pub struct GenerateCoachRequest {
-    /// The conversation ID to analyze
-    pub conversation_id: String,
-    /// Maximum number of messages to analyze (default: 10)
-    #[serde(default = "default_max_messages")]
-    pub max_messages: usize,
-}
-
-const fn default_max_messages() -> usize {
-    10
-}
-
-/// Response for coach generation
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GenerateCoachResponse {
-    /// Generated title for the coach
-    pub title: String,
-    /// Generated description
-    pub description: String,
-    /// Generated system prompt
-    pub system_prompt: String,
-    /// Suggested category
-    pub category: String,
-    /// Suggested tags
-    pub tags: Vec<String>,
-    /// Number of messages analyzed
-    pub messages_analyzed: usize,
-    /// Total messages in the conversation
-    pub total_messages: usize,
-}
-
-/// Internal struct for parsing LLM JSON response
-#[derive(Debug, Deserialize)]
-pub(super) struct GeneratedCoachData {
-    pub title: String,
-    pub description: String,
-    pub system_prompt: String,
-    pub category: String,
-    pub tags: Vec<String>,
-}
-
-// ============================================
 // Version History Response Types
 // ============================================
 

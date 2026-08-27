@@ -10,6 +10,7 @@ export { ScrollFadeContainer } from './ScrollFadeContainer';
 export { FloatingSearchBar } from './FloatingSearchBar';
 export { SwipeableRow } from './SwipeableRow';
 export type { SwipeAction } from './SwipeableRow';
+export { InitialsAvatar, avatarSlotColors } from './InitialsAvatar';
 
 export { DragIndicator } from './DragIndicator';
 export { CollapsibleSection } from './CollapsibleSection';

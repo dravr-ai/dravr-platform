@@ -1,0 +1,44 @@
+# ABOUTME: The unified conversation list — one flat row per thread, search, and the "+" empty state
+# ABOUTME: Replaces the coach-grouped list: no coach headers, no "Without a coach" section, one row each
+
+appId: ai.dravr.app
+
+---
+# Launch and login
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# The chat tab lands on the list itself
+- extendedWaitUntil:
+    visible:
+      id: "conversations-screen"
+    timeout: 15000
+- assertVisible:
+    id: "conversations-title"
+- assertVisible:
+    id: "chat-plus-button"
+- assertVisible:
+    id: "conversations-list"
+
+# The grouping is gone: no coach header and no "Without a coach" bucket.
+- assertNotVisible: "Without a coach"
+- assertNotVisible: "Your Coaches"
+
+# The search field is pinned above the list and filters the rows.
+- assertVisible:
+    id: "conversation-search-input"
+- tapOn:
+    id: "conversation-search-input"
+- inputText: "zzz-no-such-conversation"
+- extendedWaitUntil:
+    visible:
+      id: "conversations-empty"
+    timeout: 5000
+
+# Clearing the search brings the list back.
+- eraseText
+- hideKeyboard
+- assertVisible:
+    id: "conversations-list"

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for StoreScreen component
-// ABOUTME: Tests browsing, filtering, searching, navigation, and the pinned "Your coaches" section
+// ABOUTME: Tests browsing, filtering, searching, install → hint → Open chat, and the edit sheet on an installed coach
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -107,6 +107,7 @@ vi.mock('../../services/api', () => ({
         icon_url: null,
         published_at: null,
         author_id: null,
+        handle: 'marathon-training-coach',
       },
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     }),
@@ -122,14 +123,16 @@ vi.mock('../../services/api', () => ({
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     }),
-    getHidden: vi.fn().mockResolvedValue({ coaches: [] }),
+    get: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
   },
   chatApi: {
-    createConversation: vi.fn(),
+    createConversation: vi.fn().mockResolvedValue({ id: 'conv-new', title: 'Chat' }),
   },
 }));
 
-import { storeApi, coachesApi } from '../../services/api';
+import { storeApi, coachesApi, chatApi } from '../../services/api';
 
 // A coach installed from the store is a personal copy: fresh id, `forked_from`
 // pointing at the store listing. Mirrors GET /api/coaches on a live server.
@@ -155,7 +158,7 @@ const installedCopyOfCoach1 = {
 
 const mockOnNavigate = vi.fn();
 
-function renderStoreScreen() {
+function renderStoreScreen(props: { ownCoachId?: string | null } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -165,9 +168,15 @@ function renderStoreScreen() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <StoreScreen onNavigate={mockOnNavigate} />
+      <StoreScreen onNavigate={mockOnNavigate} ownCoachId={props.ownCoachId} />
     </QueryClientProvider>
   );
+}
+
+/** Open the Marathon listing's detail view from the store grid. */
+async function openMarathonListing(user: ReturnType<typeof userEvent.setup>) {
+  const grid = await screen.findByTestId('store-coach-grid');
+  await user.click(within(grid).getByText('Marathon Training Coach'));
 }
 
 describe('StoreScreen', () => {
@@ -180,6 +189,7 @@ describe('StoreScreen', () => {
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });
+    vi.mocked(coachesApi.get).mockResolvedValue(installedCopyOfCoach1);
   });
 
   describe('rendering', () => {
@@ -434,8 +444,8 @@ describe('StoreScreen', () => {
     });
   });
 
-  describe('pinned "Your coaches" section', () => {
-    it('pins the installed coach above the store from the coach list, with its @handle', async () => {
+  describe('no coach list of its own', () => {
+    it('renders the catalogue straight under the search box, with no pinned coaches', async () => {
       vi.mocked(coachesApi.list).mockResolvedValue({
         coaches: [installedCopyOfCoach1],
         total: 1,
@@ -444,28 +454,101 @@ describe('StoreScreen', () => {
 
       renderStoreScreen();
 
-      const section = await screen.findByRole('region', { name: 'Your coaches (1)' });
-      expect(within(section).getByText('Marathon Training Coach')).toBeInTheDocument();
-      expect(within(section).getByTestId('coach-handle')).toHaveTextContent('@marathon-training-coach');
-      // The pinned list is the athlete's own coach list, never a store page.
-      expect(coachesApi.list).toHaveBeenCalledWith({ include_hidden: true, personalize: true });
-      // And the store grid still renders below it.
       expect(await screen.findByText('Nutrition Expert')).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: /Your coaches/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Create Coach' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Import Coach' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('post-install hint', () => {
+    it('replaces the success banner with the hint that teaches /coach add @handle', async () => {
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+      await user.click(await screen.findByRole('button', { name: 'Add Coach' }));
+
+      const hint = await screen.findByTestId('post-install-hint');
+      expect(hint).toHaveTextContent(
+        'Use it in any chat: /coach add @marathon-training-coach — or mention @marathon-training-coach for one turn',
+      );
+      expect(storeApi.install).toHaveBeenCalledWith('coach-1');
+      expect(screen.queryByText(/has been added to your coaches/)).not.toBeInTheDocument();
     });
 
-    it('renders the section above the category filters', async () => {
+    it('Open chat starts a conversation and routes to it', async () => {
+      const user = userEvent.setup();
       renderStoreScreen();
+      await openMarathonListing(user);
+      await user.click(await screen.findByRole('button', { name: 'Add Coach' }));
+      await screen.findByTestId('post-install-hint');
 
-      const section = await screen.findByRole('region', { name: /Your coaches/ });
-      const trainingChip = screen.getByRole('button', { name: 'Training' });
-      expect(section.compareDocumentPosition(trainingChip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: 'Open chat' }));
+
+      await waitFor(() => {
+        expect(chatApi.createConversation).toHaveBeenCalledWith(
+          expect.objectContaining({ title: expect.stringMatching(/^Chat /) }),
+        );
+      });
+      await waitFor(() => {
+        expect(mockOnNavigate).toHaveBeenCalledWith('chat/conv-new');
+      });
+      expect(screen.queryByTestId('post-install-hint')).not.toBeInTheDocument();
     });
 
-    it('shows the section empty state when the athlete has no coaches', async () => {
+    it('Dismiss hides the hint and leaves the coach installed', async () => {
+      const user = userEvent.setup();
       renderStoreScreen();
+      await openMarathonListing(user);
+      await user.click(await screen.findByRole('button', { name: 'Add Coach' }));
+      await screen.findByTestId('post-install-hint');
 
-      expect(await screen.findByText('No coaches yet')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Create Your First Coach' })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+      expect(screen.queryByTestId('post-install-hint')).not.toBeInTheDocument();
+      expect(chatApi.createConversation).not.toHaveBeenCalled();
+      expect(storeApi.uninstall).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('edit sheet', () => {
+    it('opens the edit sheet on the installed copy from the listing detail', async () => {
+      vi.mocked(coachesApi.list).mockResolvedValue({
+        coaches: [installedCopyOfCoach1],
+        total: 1,
+        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
+      });
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit coach' }));
+
+      expect(await screen.findByRole('heading', { name: 'Edit Coach' })).toBeInTheDocument();
+      // The copy, never the store listing: the listing is not the athlete's to edit.
+      expect(coachesApi.get).toHaveBeenCalledWith('installed-copy-1');
+      expect(screen.getByRole('button', { name: 'Delete this coach' })).toBeInTheDocument();
+    });
+
+    it('offers no Edit coach on a listing the athlete has not installed', async () => {
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+
+      await screen.findByRole('button', { name: 'Add Coach' });
+      expect(screen.queryByRole('button', { name: 'Edit coach' })).not.toBeInTheDocument();
+    });
+
+    it('mounts the sheet for the ownCoachId route and hands the route back on close', async () => {
+      const user = userEvent.setup();
+      renderStoreScreen({ ownCoachId: 'installed-copy-1' });
+
+      expect(await screen.findByRole('heading', { name: 'Edit Coach' })).toBeInTheDocument();
+      expect(coachesApi.get).toHaveBeenCalledWith('installed-copy-1');
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(mockOnNavigate).toHaveBeenCalledWith('discover');
     });
   });
 
@@ -480,9 +563,7 @@ describe('StoreScreen', () => {
       const user = userEvent.setup();
       renderStoreScreen();
 
-      // The installed coach is also pinned above the store; open the store listing.
-      const grid = await screen.findByTestId('store-coach-grid');
-      await user.click(within(grid).getByText('Marathon Training Coach'));
+      await openMarathonListing(user);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();

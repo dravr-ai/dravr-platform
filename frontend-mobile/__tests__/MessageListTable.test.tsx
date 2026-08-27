@@ -38,15 +38,12 @@ function renderList(messages: Message[]) {
   return render(
     <MessageList
       messages={messages}
-      coaches={[]}
       isLoading={false}
       isSending={false}
-      isCoachConversation
       messageFeedback={{}}
       messageFeedbackComment={{}}
       flatListRef={React.createRef()}
       onScrollToBottom={jest.fn()}
-      onCoachSelect={jest.fn()}
       onThumbsUp={jest.fn()}
       onThumbsDown={jest.fn()}
       onSubmitFeedbackReason={jest.fn()}

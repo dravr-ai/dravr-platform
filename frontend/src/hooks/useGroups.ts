@@ -1,41 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: React Query hooks for group coaching management on the web frontend
-// ABOUTME: Provides queries for groups, members, stats, invites and mutations for CRUD operations
+// ABOUTME: React Query hooks for the group surfaces that live inside chat — Group info and admin settings
+// ABOUTME: Creating and joining a group are `/group create|join` commands, so no hook here writes a group
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-import { chatApi, groupsApi } from '../services/api';
+import { groupsApi } from '../services/api';
 import type {
-  CreateGroupRequest,
-  JoinGroupRequest,
   CreateInviteRequest,
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
   GroupRole,
 } from '@pierre/shared-types';
-
-/**
- * Fetches the list of groups the current user belongs to.
- */
-export function useMyGroups() {
-  const query = useQuery({
-    queryKey: QUERY_KEYS.groups.list(),
-    queryFn: () => groupsApi.listMyGroups(),
-    staleTime: 30_000,
-  });
-
-  return {
-    groups: query.data?.groups ?? [],
-    isLoading: query.isLoading,
-    isError: query.isError,
-    error: query.error,
-    refetch: query.refetch,
-  };
-}
 
 /**
  * Fetches a single group by ID.
@@ -118,70 +96,6 @@ export function useGroupInvites(groupId: string) {
 }
 
 /**
- * Mutation hook for creating a new coaching group.
- */
-export function useCreateGroup() {
-  const queryClient = useQueryClient();
-
-  const mutation = useMutation({
-    mutationFn: (request: CreateGroupRequest) => groupsApi.createGroup(request),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.all });
-    },
-  });
-
-  return {
-    createGroup: mutation.mutateAsync,
-    isPending: mutation.isPending,
-    isError: mutation.isError,
-    error: mutation.error,
-    reset: mutation.reset,
-  };
-}
-
-/**
- * Mutation hook for joining a group via invite code.
- */
-export function useJoinGroup() {
-  const queryClient = useQueryClient();
-
-  const mutation = useMutation({
-    mutationFn: (request: JoinGroupRequest) => groupsApi.joinGroup(request),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.all });
-    },
-  });
-
-  return {
-    joinGroup: mutation.mutateAsync,
-    isPending: mutation.isPending,
-    isError: mutation.isError,
-    error: mutation.error,
-    reset: mutation.reset,
-  };
-}
-
-/**
- * Fetches the groups the current user is the human coach of.
- */
-export function useCoachedGroups() {
-  const query = useQuery({
-    queryKey: QUERY_KEYS.groups.coached(),
-    queryFn: () => groupsApi.listCoachedGroups(),
-    staleTime: 30_000,
-  });
-
-  return {
-    groups: query.data?.groups ?? [],
-    total: query.data?.total ?? 0,
-    isLoading: query.isLoading,
-    isError: query.isError,
-    error: query.error,
-    refetch: query.refetch,
-  };
-}
-
-/**
  * Mutation hook for detaching a group's human coach (admin/owner only).
  */
 export function useRemoveCoach(groupId: string) {
@@ -191,7 +105,6 @@ export function useRemoveCoach(groupId: string) {
     mutationFn: () => groupsApi.removeCoach(groupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.detail(groupId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.coached() });
     },
   });
 
@@ -213,6 +126,9 @@ export function useLeaveGroup() {
     mutationFn: (groupId: string) => groupsApi.leaveGroup(groupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.all });
+      // Leaving strands the member's group-scoped thread, so the list is the
+      // other half of the answer: it is refetched, not patched.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
     },
   });
 
@@ -234,7 +150,8 @@ export function useUpdateGroup(groupId: string) {
     mutationFn: (request: UpdateGroupRequest) => groupsApi.updateGroup(groupId, request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.detail(groupId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.list() });
+      // A renamed group renames the row that names it in the list.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
     },
   });
 
@@ -256,6 +173,7 @@ export function useDeleteGroup() {
     mutationFn: (groupId: string) => groupsApi.deleteGroup(groupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.all });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
     },
   });
 
@@ -445,51 +363,6 @@ export function useGroupHealthFlags(groupId: string, enabled: boolean) {
     error: query.error,
     refetch: query.refetch,
   };
-}
-
-/**
- * Opens a chat conversation scoped to a coaching group.
- *
- * `group_id` is what makes the turn a group turn: it gates `resolve_group_context`
- * and the peer-grounding fabrication stage server-side. A conversation started
- * from a group without it is an ordinary 1:1 chat that happens to use the
- * group's coach persona, which is what every in-app group chat used to be.
- * The title carries the group's name so the athlete can see which room the
- * conversation belongs to.
- */
-export function useStartGroupConversation() {
-  const queryClient = useQueryClient();
-
-  const mutation = useMutation({
-    mutationFn: ({ groupId, groupName, coachId }: { groupId: string; groupName: string; coachId: string }) =>
-      chatApi.createConversation({
-        title: groupName,
-        coach_id: coachId,
-        group_id: groupId,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
-    },
-  });
-
-  return {
-    startConversation: mutation.mutateAsync,
-    isPending: mutation.isPending,
-    isError: mutation.isError,
-    error: mutation.error,
-  };
-}
-
-/**
- * Invalidates all group-related queries.
- * Useful after bulk operations or navigation changes.
- */
-export function useInvalidateGroups() {
-  const queryClient = useQueryClient();
-
-  return useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.all });
-  }, [queryClient]);
 }
 
 /**

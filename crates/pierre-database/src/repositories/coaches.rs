@@ -522,6 +522,16 @@ pub trait StoreListingsRepository: Send + Sync {
     ) -> AppResult<Vec<CoachWithListing>>;
     /// Get a single published coach by ID (cross-tenant)
     async fn get_published_coach(&self, coach_id: &str) -> AppResult<Option<CoachWithListing>>;
+    /// Resolve a published catalogue coach by its `@handle` (cross-tenant).
+    ///
+    /// The origin coach only — the row that owns the handle, never an
+    /// athlete's installed copy (which carries the handle as a reference) —
+    /// and only while its listing is published, so a coach that left the
+    /// Store is no longer installable by name.
+    async fn find_published_by_handle(
+        &self,
+        handle: &CoachHandle,
+    ) -> AppResult<Option<CoachWithListing>>;
     /// Get category counts for published coaches
     async fn get_category_counts(&self) -> AppResult<HashMap<CoachCategory, i64>>;
     /// Increment install count for a coach's store listing
@@ -550,4 +560,16 @@ pub trait StoreListingsRepository: Send + Sync {
     ) -> AppResult<Vec<Coach>>;
     /// Create or ensure a store listing exists for a coach
     async fn ensure_listing(&self, coach_id: &str, tenant_id: TenantId) -> AppResult<StoreListing>;
+    /// Give a coach its catalogue `@handle` if it owns none yet, and return it.
+    ///
+    /// The same assignment Store approval performs, exposed for a coach
+    /// created outside the Store (`/coach create`) so `@handle` and
+    /// `/coach add @handle` reach it from the moment it exists. An origin
+    /// coach already carrying a handle keeps it; otherwise the first free
+    /// candidate derived from the title is taken at catalogue scope.
+    async fn assign_catalogue_handle(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<String>;
 }

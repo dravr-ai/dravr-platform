@@ -15,7 +15,7 @@
 
 use chrono::Utc;
 use pierre_core::models::coaches::{
-    CoachCategory, CoachHandle, CoachVisibility, CreateSystemCoachRequest,
+    CoachCategory, CoachHandle, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest,
 };
 use pierre_core::models::{CoachingPersona, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -185,4 +185,167 @@ async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
         .await
         .unwrap()
         .is_none());
+}
+
+/// `/discover install @handle` resolves the handle against the catalogue on
+/// PG exactly as on `SQLite`: the origin coach that owns it, only while its
+/// listing is published — never an athlete's installed copy.
+#[tokio::test]
+async fn test_pg_find_published_by_handle_resolves_the_origin_while_published() {
+    let isolated = match common::IsolatedPostgresDb::new().await {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("Skipping test: PostgreSQL not available: {e}");
+            return;
+        }
+    };
+    let db = isolated.get_database().await.unwrap();
+    let repos = db.repositories();
+
+    let author_id = seed_pg_user(&db).await;
+    let author_tenant = TenantId::generate();
+    let athlete_id = seed_pg_user(&db).await;
+    let athlete_tenant = TenantId::generate();
+
+    let origin = publish_coach(&db, author_id, author_tenant, "Fuel Coach").await;
+    let handle = CoachHandle::parse("fuel-coach").unwrap();
+
+    let listed = repos
+        .store_listings
+        .find_published_by_handle(&handle)
+        .await
+        .unwrap()
+        .expect("a published coach resolves by handle on PG");
+    assert_eq!(listed.coach.id, origin);
+    assert_eq!(listed.coach.handle.as_deref(), Some("fuel-coach"));
+    assert_eq!(listed.coach.title, "Fuel Coach");
+
+    // The athlete's copy carries the handle as a reference; the catalogue
+    // entry stays the origin.
+    let installed = repos
+        .store_listings
+        .install_from_store(&origin.to_string(), athlete_id, athlete_tenant)
+        .await
+        .unwrap();
+    assert_eq!(installed.handle.as_deref(), Some("fuel-coach"));
+    let still_origin = repos
+        .store_listings
+        .find_published_by_handle(&handle)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        still_origin.coach.id, origin,
+        "an installed copy never resolves"
+    );
+
+    let unknown = CoachHandle::parse("nobody-here").unwrap();
+    assert!(repos
+        .store_listings
+        .find_published_by_handle(&unknown)
+        .await
+        .unwrap()
+        .is_none());
+
+    // A coach that leaves the Store is no longer installable by name.
+    repos
+        .store_listings
+        .unpublish_coach(&origin.to_string(), author_tenant)
+        .await
+        .unwrap();
+    assert!(
+        repos
+            .store_listings
+            .find_published_by_handle(&handle)
+            .await
+            .unwrap()
+            .is_none(),
+        "only a published listing answers to its handle"
+    );
+}
+
+/// `/coach create` gives a coach its catalogue handle the moment it exists,
+/// outside any Store approval: the assignment runs on a plain connection on
+/// the PG lane, takes the first free candidate from the title, is idempotent
+/// for a coach that already owns one, and the creator's self-assignment row
+/// is what lets `find_installed_by_handle` resolve it for them alone.
+#[tokio::test]
+async fn test_pg_created_coach_takes_its_handle_at_creation_and_resolves() {
+    let isolated = match common::IsolatedPostgresDb::new().await {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("Skipping test: PostgreSQL not available: {e}");
+            return;
+        }
+    };
+    let db = isolated.get_database().await.unwrap();
+    let repos = db.repositories();
+
+    let athlete_id = seed_pg_user(&db).await;
+    let athlete_tenant = TenantId::generate();
+    let bystander_id = seed_pg_user(&db).await;
+
+    let created = repos
+        .coaches
+        .create(
+            athlete_id,
+            athlete_tenant,
+            &CreateCoachRequest {
+                title: "Fartlek Coach".to_owned(),
+                description: Some("Unstructured speed play.".to_owned()),
+                system_prompt: "You are the fartlek coach.".to_owned(),
+                category: CoachCategory::Training,
+                tags: vec!["speed".to_owned()],
+                sample_prompts: vec![],
+                startup_query: None,
+                data_requirements: None,
+                purpose: None,
+                when_to_use: None,
+                instructions: None,
+                example_inputs: None,
+                example_outputs: None,
+                success_criteria: None,
+                max_tool_iterations: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.handle, None, "the editor assigns no handle");
+
+    let id = created.id.to_string();
+    let handle = repos
+        .store_listings
+        .assign_catalogue_handle(&id, athlete_tenant)
+        .await
+        .unwrap();
+    assert_eq!(handle, "fartlek-coach");
+    let again = repos
+        .store_listings
+        .assign_catalogue_handle(&id, athlete_tenant)
+        .await
+        .unwrap();
+    assert_eq!(
+        again, "fartlek-coach",
+        "a coach that owns a handle keeps it"
+    );
+
+    let parsed = CoachHandle::parse("fartlek-coach").unwrap();
+    let resolved = repos
+        .coaches
+        .find_installed_by_handle(&parsed, athlete_id, athlete_tenant)
+        .await
+        .unwrap()
+        .expect("the creator's own coach resolves by its new handle on PG");
+    assert_eq!(resolved.id, created.id);
+    assert_eq!(resolved.handle.as_deref(), Some("fartlek-coach"));
+
+    let none = repos
+        .coaches
+        .find_installed_by_handle(&parsed, bystander_id, TenantId::generate())
+        .await
+        .unwrap();
+    assert!(
+        none.is_none(),
+        "another athlete never sees a private coach by handle"
+    );
 }

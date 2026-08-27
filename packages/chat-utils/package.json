@@ -18,6 +18,10 @@
       "types": "./src/conversation.ts",
       "import": "./src/conversation.ts"
     },
+    "./conversation-row": {
+      "types": "./src/conversation-row.ts",
+      "import": "./src/conversation-row.ts"
+    },
     "./progress": {
       "types": "./src/progress.ts",
       "import": "./src/progress.ts"

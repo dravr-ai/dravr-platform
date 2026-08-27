@@ -116,6 +116,16 @@ pub struct SeedProviderConnection {
 // Demo Data Seeder
 // ================================
 
+/// Locale stamped on every seeded account.
+///
+/// The `users.locale` column defaults to
+/// the platform default (`fr`), which is wrong for seeded accounts: the demo and
+/// visual-test users drive English screenshots, Playwright and Maestro assertions,
+/// and the operator bootstrap. Seeding is an assert-this-state operation — the
+/// upsert rewrites the locale the same way it rewrites the password hash — so a
+/// re-run flips an already-seeded database to English without a reset.
+pub const SEED_LOCALE: &str = "en";
+
 /// Demo user for seeding test data
 pub struct SeedDemoUser {
     /// User ID
@@ -132,6 +142,10 @@ pub struct SeedDemoUser {
     pub status: String,
     /// Whether this user has admin privileges
     pub is_admin: bool,
+    /// BCP-47 short locale for the account's user-facing messaging. Seeded
+    /// demo accounts are English; the column's own default is the platform
+    /// default (`fr`), which is not what a demo or a test account wants.
+    pub locale: String,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
 }

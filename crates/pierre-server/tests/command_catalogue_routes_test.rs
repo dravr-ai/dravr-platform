@@ -240,6 +240,100 @@ async fn catalogue_entries_carry_the_frontmatter_verbatim() {
         .find(|e| e.command == "/help")
         .expect("/help has no precondition and must always be listed");
     assert_eq!(help.args, None);
+
+    // The palette shows the argument hint the standard calls for: the athlete
+    // learns `/coach add @handle` from the entry itself.
+    let coach_add = entries
+        .iter()
+        .find(|e| e.command == "/coach add")
+        .expect("/coach add has no precondition and must always be listed");
+    assert_eq!(coach_add.name, "coach-add");
+    assert_eq!(coach_add.domain, "coach");
+    assert_eq!(coach_add.args.as_deref(), Some("@handle"));
+    let coach_list = entries
+        .iter()
+        .find(|e| e.command == "/coach")
+        .expect("/coach is the list and must always be listed");
+    assert_eq!(coach_list.name, "coach-list");
+}
+
+/// Turns red if the catalogue answers for the caller's memberships instead
+/// of the conversation: an owner typing alone must not be offered the
+/// commands that act on "the group", because a solo thread names none and the
+/// messaging DM's first-group fallback is off in the app.
+#[tokio::test]
+async fn owner_in_a_solo_thread_is_not_offered_group_management() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "catalogue-solo-owner@test.com").await;
+    let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+
+    let router = ChatRoutes::routes(Arc::clone(&resources))
+        .merge(CommandRoutes::routes(Arc::clone(&resources)));
+    let conversation_id = create_conversation(router.clone(), &auth).await;
+
+    let entries = fetch_catalogue(router, &auth, Some(&conversation_id)).await;
+    let listed = commands_of(&entries);
+
+    for hidden in [
+        "/group invite",
+        "/group coach",
+        "/group respond",
+        "/group consent",
+        "/coach invite",
+    ] {
+        assert!(
+            !listed.contains(&hidden),
+            "{hidden} acts on the thread's group, and a solo thread has none, got {listed:?}"
+        );
+    }
+    assert!(
+        listed.contains(&ANY_GROUP_COMMAND),
+        "an owner belongs to a group, so {ANY_GROUP_COMMAND} stays listed, got {listed:?}"
+    );
+}
+
+/// Turns red if a bound conversation stops answering per role: a plain member
+/// in the group thread keeps the membership commands and is still not offered
+/// the manage ones, exactly as a group room answers on messaging.
+#[tokio::test]
+async fn member_in_a_bound_conversation_is_listed_per_role() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "catalogue-bound-member@test.com").await;
+    let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+    let group_id =
+        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+
+    let router = ChatRoutes::routes(Arc::clone(&resources))
+        .merge(CommandRoutes::routes(Arc::clone(&resources)));
+    let conversation_id = create_conversation(router.clone(), &auth).await;
+    resources
+        .common
+        .repos
+        .chat
+        .set_conversation_group_id(&conversation_id, Some(&group_id.to_string()), tenant_id)
+        .await
+        .unwrap();
+
+    let entries = fetch_catalogue(router, &auth, Some(&conversation_id)).await;
+    let listed = commands_of(&entries);
+
+    assert!(
+        listed.contains(&"/group consent"),
+        "a member of the thread's group may set their consent there, got {listed:?}"
+    );
+    assert!(
+        listed.contains(&ANY_GROUP_COMMAND),
+        "a member belongs to a group, so {ANY_GROUP_COMMAND} must be listed, got {listed:?}"
+    );
+    for hidden in [MANAGE_MEMBERS_COMMAND, "/group coach", "/coach invite"] {
+        assert!(
+            !listed.contains(&hidden),
+            "{hidden} needs manage standing in the thread's group, got {listed:?}"
+        );
+    }
 }
 
 /// Turns red if the catalogue stops filtering on group standing — the palette

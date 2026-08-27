@@ -56,7 +56,9 @@ mod telegram_menu_tests {
             .map(|c| c["command"].as_str().unwrap().to_owned())
             .collect();
 
-        for expected in ["help", "status", "group", "coach", "plan", "privacy"] {
+        for expected in [
+            "help", "status", "group", "coach", "plan", "privacy", "discover",
+        ] {
             assert!(
                 names.iter().any(|n| n == expected),
                 "/{expected} is a real slash command and must appear in the Telegram menu; \

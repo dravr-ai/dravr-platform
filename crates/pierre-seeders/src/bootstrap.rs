@@ -24,7 +24,7 @@
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::seed_models::{SeedDemoUser, SeedTenant};
+use pierre_database::seed_models::{SeedDemoUser, SeedTenant, SEED_LOCALE};
 use pierre_database::RepositoryRegistry;
 use tracing::info;
 use uuid::Uuid;
@@ -110,6 +110,7 @@ async fn upsert_user_credentials(
         status: "active".to_owned(),
         is_admin,
         created_at: now,
+        locale: SEED_LOCALE.to_owned(),
     };
     repos.seeder.seed_insert_demo_user(&seed_user).await?;
     Ok(())
@@ -139,6 +140,7 @@ async fn create_user(
         status: "active".to_owned(),
         is_admin,
         created_at: now,
+        locale: SEED_LOCALE.to_owned(),
     };
     repos.seeder.seed_insert_demo_user(&seed_user).await?;
 

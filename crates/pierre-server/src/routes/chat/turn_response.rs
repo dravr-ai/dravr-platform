@@ -203,17 +203,19 @@ impl TurnResponse {
     }
 }
 
-/// Serialize a persisted message row without its stored scenes.
+/// Serialize a persisted message row without its stored scenes or controls.
 ///
-/// The turn's charts ride the block list; repeating them here would draw every
-/// chart twice on a client that renders both.
-fn message_response(record: MessageRecord) -> MessageResponse {
+/// The turn's charts and buttons ride the block list; repeating them here
+/// would draw every one twice on a client that renders both.
+pub(super) fn message_response(record: MessageRecord) -> MessageResponse {
     MessageResponse {
         id: record.id,
         role: record.role,
         content: record.content,
         token_count: record.token_count,
         scene_blocks: None,
+        finish_reason: record.finish_reason,
+        actions: None,
         created_at: record.created_at,
     }
 }

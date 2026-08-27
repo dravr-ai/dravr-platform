@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 //
-// ABOUTME: Discover — the athlete's own coaches pinned above the Coach Store browse grid
-// ABOUTME: Lists published coaches with category filters, search, and detail view with install/uninstall
+// ABOUTME: Discover — the Coach Store: browse, search, install, and the edit sheet for the athlete's own coaches
+// ABOUTME: Installing ends with a hint that teaches /coach add @handle; editing is the one coach UI outside chat
 
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { Compass, ArrowLeft, Plus, Trash2 } from 'lucide-react';
-import { storeApi, coachesApi } from '../services/api';
+import { Compass, ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
+import { chatApi, storeApi, coachesApi } from '../services/api';
 import { track } from '../services/analytics';
 import { TabHeader } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import InstalledCoaches from './discover/InstalledCoaches';
+import CoachEditSheet from './discover/CoachEditSheet';
+import PostInstallHint from './discover/PostInstallHint';
 
 // Category filter options
 const CATEGORY_FILTERS = [
@@ -66,15 +67,36 @@ interface StoreCoachDetail extends StoreCoach {
   publish_status: string;
 }
 
-interface StoreScreenProps {
-  /**
-   * Dashboard route navigator, `tab[/subview]`. Chatting with one of the
-   * pinned coaches opens a conversation and routes to `chat/<conversationId>`.
-   */
-  onNavigate?: (route: string) => void;
+/** What the post-install hint teaches: the copy the install minted, by title and handle. */
+interface InstalledCopy {
+  title: string;
+  handle: string | undefined;
 }
 
-export default function StoreScreen({ onNavigate }: StoreScreenProps) {
+interface StoreScreenProps {
+  /**
+   * Dashboard route navigator, `tab[/subview]`. "Open chat" on the post-install
+   * hint starts a conversation and routes to `chat/<conversationId>`; closing
+   * the edit sheet opened by route returns to `discover`.
+   */
+  onNavigate?: (route: string) => void;
+  /**
+   * One of the athlete's own coaches to open the edit sheet on, as the
+   * `discover/<coachId>` route carries it. The sheet also opens from the
+   * store detail of a listing the athlete has installed.
+   */
+  ownCoachId?: string | null;
+}
+
+/** The default title a fresh conversation gets, matching the chat tab's own. */
+function defaultConversationTitle(): string {
+  const now = new Date();
+  const day = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `Chat ${day} ${time}`;
+}
+
+export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps) {
   const queryClient = useQueryClient();
   const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
@@ -82,7 +104,10 @@ export default function StoreScreen({ onNavigate }: StoreScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [installedCopy, setInstalledCopy] = useState<InstalledCopy | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The edit sheet opened from a store detail; the route-driven one arrives as `ownCoachId`.
+  const [detailEditCoachId, setDetailEditCoachId] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Debounce search query
@@ -149,14 +174,11 @@ export default function StoreScreen({ onNavigate }: StoreScreenProps) {
 
   // Installing a store coach mints a personal copy with a fresh id and
   // `forked_from` set to the store listing's id, so the user's own coach list
-  // is what maps a listing back to the copy. Query options mirror
-  // InstalledCoaches so both components share the `listWithHidden` cache slot.
+  // is what maps a listing back to the copy. Same cache slot as the chat tab's
+  // coach list, so an install here is visible there without a second fetch.
   const { data: myCoaches } = useQuery({
-    queryKey: QUERY_KEYS.coaches.listWithHidden(),
-    queryFn: () => coachesApi.list({
-      include_hidden: true,
-      personalize: true,
-    }),
+    queryKey: QUERY_KEYS.coaches.list(),
+    queryFn: () => coachesApi.list(),
   });
 
   // Store listing id -> id of the personal copy that installing it created.
@@ -170,24 +192,26 @@ export default function StoreScreen({ onNavigate }: StoreScreenProps) {
     return bySource;
   }, [myCoaches]);
 
-  // Uninstall addresses the personal copy, not the store listing.
+  // Uninstall and edit address the personal copy, not the store listing.
   const installedCopyId = selectedCoachId
     ? installedCopyBySource.get(selectedCoachId)
     : undefined;
   const isInstalled = installedCopyId !== undefined;
 
-  // Install mutation
+  // Install mutation. The response is the minted copy, carrying the handle
+  // the listing was approved with — the name the hint teaches.
   const installMutation = useMutation({
     mutationFn: (coachId: string) => storeApi.install(coachId),
-    onSuccess: () => {
+    onSuccess: (installed) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
-      setSuccessMessage(`"${coachDetail?.title}" has been added to your coaches.`);
+      setSuccessMessage(null);
+      setInstalledCopy({ title: installed.coach.title, handle: installed.coach.handle });
       track({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     },
     onError: (error: Error) => {
-      setSuccessMessage(null);
+      setInstalledCopy(null);
       setActionError(error.message || 'Failed to add coach');
     },
   });
@@ -199,6 +223,7 @@ export default function StoreScreen({ onNavigate }: StoreScreenProps) {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
+      setInstalledCopy(null);
       setSuccessMessage(`Coach has been removed from your library.`);
     },
     onError: (error: Error) => {
@@ -206,6 +231,47 @@ export default function StoreScreen({ onNavigate }: StoreScreenProps) {
       setActionError(error.message || 'Failed to remove coach');
     },
   });
+
+  // "Open chat" on the post-install hint: a fresh conversation, then the chat
+  // tab. The hint hands over the `/coach add @handle` draft the athlete types
+  // there.
+  const openChat = useMutation({
+    mutationFn: () => chatApi.createConversation({ title: defaultConversationTitle() }),
+    onSuccess: (conversation) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      setActionError(null);
+      setInstalledCopy(null);
+      onNavigate?.(`chat/${encodeURIComponent(conversation.id)}`);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || 'Could not open a chat');
+    },
+  });
+
+  const handleOpenChat = useCallback(() => {
+    openChat.mutate();
+  }, [openChat]);
+
+  const handleDismissHint = useCallback(() => {
+    setInstalledCopy(null);
+  }, []);
+
+  // The edit sheet: opened by the `discover/<coachId>` route or from the
+  // store detail of an installed listing. Closing a route-opened sheet hands
+  // the route back to Discover.
+  const editingCoachId = ownCoachId ?? detailEditCoachId;
+  const handleCloseEditSheet = useCallback(() => {
+    setDetailEditCoachId(null);
+    if (ownCoachId) {
+      onNavigate?.('discover');
+    }
+  }, [ownCoachId, onNavigate]);
+
+  const handleEditInstalledCopy = useCallback(() => {
+    if (installedCopyId) {
+      setDetailEditCoachId(installedCopyId);
+    }
+  }, [installedCopyId]);
 
   // Flatten pages for rendering
   const coaches = useMemo(() => {
@@ -259,6 +325,7 @@ export default function StoreScreen({ onNavigate }: StoreScreenProps) {
   const handleBackToStore = useCallback(() => {
     setSelectedCoachId(null);
     setSuccessMessage(null);
+    setInstalledCopy(null);
     setActionError(null);
   }, []);
 
@@ -276,25 +343,38 @@ export default function StoreScreen({ onNavigate }: StoreScreenProps) {
     }
   }, [installedCopyId, coachDetail, uninstallMutation]);
 
+  const editSheet = editingCoachId ? (
+    <CoachEditSheet coachId={editingCoachId} onClose={handleCloseEditSheet} />
+  ) : null;
+
   // Render detail view if a coach is selected
   if (selectedCoachId) {
     return (
-      <CoachDetailView
-        coach={coachDetail as StoreCoachDetail | undefined}
-        isLoading={isLoadingDetail}
-        isInstalled={isInstalled}
-        isInstalling={installMutation.isPending || uninstallMutation.isPending}
-        successMessage={successMessage}
-        actionError={actionError}
-        onBack={handleBackToStore}
-        onInstall={handleInstall}
-        onRemove={handleRemove}
-      />
+      <>
+        <CoachDetailView
+          coach={coachDetail as StoreCoachDetail | undefined}
+          isLoading={isLoadingDetail}
+          isInstalled={isInstalled}
+          isInstalling={installMutation.isPending || uninstallMutation.isPending}
+          successMessage={successMessage}
+          installedCopy={installedCopy}
+          isOpeningChat={openChat.isPending}
+          actionError={actionError}
+          onBack={handleBackToStore}
+          onInstall={handleInstall}
+          onRemove={handleRemove}
+          onEdit={handleEditInstalledCopy}
+          onOpenChat={handleOpenChat}
+          onDismissHint={handleDismissHint}
+        />
+        {editSheet}
+      </>
     );
   }
 
   return (
     <div className="h-full flex flex-col bg-surface">
+      {editSheet}
       <TabHeader
         icon={<Compass className="w-5 h-5" />}
         gradient="from-activity to-activity"
@@ -341,10 +421,6 @@ export default function StoreScreen({ onNavigate }: StoreScreenProps) {
           )}
         </div>
       </div>
-
-      {/* The athlete's own coaches, pinned above the store. Its own query —
-          never a re-rank of the browse page, which is ranked per cursor page. */}
-      <InstalledCoaches searchQuery={debouncedSearch} onNavigate={onNavigate} />
 
       {/* Category Filters */}
       <div className="px-6 py-3 border-b ghost-border overflow-x-auto">
@@ -532,10 +608,17 @@ interface CoachDetailViewProps {
   isInstalled: boolean;
   isInstalling: boolean;
   successMessage: string | null;
+  /** Set right after an install; the hint that teaches the coach's handle. */
+  installedCopy: InstalledCopy | null;
+  isOpeningChat: boolean;
   actionError: string | null;
   onBack: () => void;
   onInstall: () => void;
   onRemove: () => void;
+  /** Open the edit sheet on the athlete's installed copy. */
+  onEdit: () => void;
+  onOpenChat: (draft: string) => void;
+  onDismissHint: () => void;
 }
 
 function CoachDetailView({
@@ -544,10 +627,15 @@ function CoachDetailView({
   isInstalled,
   isInstalling,
   successMessage,
+  installedCopy,
+  isOpeningChat,
   actionError,
   onBack,
   onInstall,
   onRemove,
+  onEdit,
+  onOpenChat,
+  onDismissHint,
 }: CoachDetailViewProps) {
   if (isLoading) {
     return (
@@ -690,8 +778,18 @@ function CoachDetailView({
             </div>
           )}
 
-          {/* Success message. The coach now sits in "Your coaches" at the top
-              of this same surface, so there is nowhere else to send the athlete. */}
+          {/* After an install: the hint that teaches how to use the coach from
+              any chat. Discover keeps no coach list of its own. */}
+          {installedCopy && (
+            <PostInstallHint
+              coachTitle={installedCopy.title}
+              handle={installedCopy.handle}
+              onOpenChat={onOpenChat}
+              onDismiss={onDismissHint}
+            />
+          )}
+
+          {/* Removal confirmation */}
           {successMessage && (
             <div className="p-4 bg-success/20 border border-success/30 rounded-lg">
               <p className="text-sm text-success">{successMessage}</p>
@@ -703,23 +801,34 @@ function CoachDetailView({
         </div>
       </div>
 
-      {/* Fixed action button at bottom */}
-      <div className="p-4 border-t ghost-border bg-surface">
+      {/* Fixed action bar at bottom. An installed listing is the athlete's own
+          copy, so it can be edited from here — the one coach editor outside chat. */}
+      <div className="p-4 border-t ghost-border bg-surface flex gap-3">
         {isInstalled ? (
-          <button
-            onClick={onRemove}
-            disabled={isInstalling}
-            className="w-full py-3 px-4 bg-surface-container-high border ghost-border rounded-lg text-on-surface font-medium hover:bg-surface-container-highest transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isInstalling ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <>
-                <Trash2 className="w-4 h-4" />
-                Remove
-              </>
-            )}
-          </button>
+          <>
+            <button
+              onClick={onEdit}
+              disabled={isInstalling || isOpeningChat}
+              className="flex-1 py-3 px-4 bg-primary/10 text-primary font-medium rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <Pencil className="w-4 h-4" />
+              Edit coach
+            </button>
+            <button
+              onClick={onRemove}
+              disabled={isInstalling}
+              className="flex-1 py-3 px-4 bg-surface-container-high border ghost-border rounded-lg text-on-surface font-medium hover:bg-surface-container-highest transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isInstalling ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  Remove
+                </>
+              )}
+            </button>
+          </>
         ) : (
           <button
             onClick={onInstall}

@@ -1,0 +1,61 @@
+# ABOUTME: The thread header opens the conversation info sheet — the only way group and coach info are reached
+# ABOUTME: Replaces the header popover: rename, participants and delete now live inside the sheet
+
+appId: ai.dravr.app
+
+---
+# Launch and login
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# Open a thread and send one message so the conversation exists
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- extendedWaitUntil:
+    visible:
+      id: "message-input"
+    timeout: 10000
+- runFlow:
+    file: ../helpers/send-chat-message.yaml
+    env:
+      MESSAGE: "Comment se presente ma semaine ?"
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+
+# The header title is a button, and it opens the info sheet
+- assertVisible:
+    id: "chat-title-button"
+- tapOn:
+    id: "chat-title-button"
+- extendedWaitUntil:
+    visible:
+      id: "conversation-info-sheet"
+    timeout: 10000
+
+# A plain thread offers rename, participants and delete
+- assertVisible:
+    id: "conversation-info-rename"
+- assertVisible:
+    id: "conversation-info-participants"
+- assertVisible:
+    id: "conversation-info-delete"
+
+# Close it and confirm the composer is back
+- tapOn:
+    id: "conversation-info-close"
+- extendedWaitUntil:
+    visible:
+      id: "message-input"
+    timeout: 10000
+
+# The visible way into the command palette sits beside the composer
+- assertVisible:
+    id: "slash-command-button"
+- tapOn:
+    id: "slash-command-button"
+- extendedWaitUntil:
+    visible:
+      id: "command-palette"
+    timeout: 10000

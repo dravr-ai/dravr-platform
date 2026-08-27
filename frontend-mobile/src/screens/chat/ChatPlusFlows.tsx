@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The modals the chat "+" actions open — the group picker and the participants sheet
+// ABOUTME: The modals the chat "+" actions open — the group-name prompt and the participants sheet
 // ABOUTME: Rendered by whoever hosts useChatPlusActions, so the tab bar and the chat screens share one flow
 
 import React from 'react';
-import { GroupPickerSheet } from './GroupPickerSheet';
+import { PromptDialog } from '../../components/ui';
 import { ConversationParticipantsModal } from './ConversationParticipantsModal';
 import type { ChatPlusFlowState } from './useChatPlusActions';
 
@@ -23,11 +23,16 @@ interface ChatPlusFlowsProps {
 export function ChatPlusFlows({ flows }: ChatPlusFlowsProps) {
   return (
     <>
-      <GroupPickerSheet
-        visible={flows.groupPickerVisible}
-        onClose={flows.closeGroupPicker}
-        onPick={flows.pickGroup}
-        isStarting={flows.isStartingGroupChat}
+      <PromptDialog
+        visible={flows.groupNamePromptVisible}
+        title="New group chat"
+        message="What is this group called?"
+        placeholder="Harricana 2026"
+        submitText="Create"
+        cancelText="Cancel"
+        onSubmit={flows.submitGroupName}
+        onCancel={flows.closeGroupNamePrompt}
+        testID="new-group-name-dialog"
       />
       <ConversationParticipantsModal
         visible={flows.participantsVisible}

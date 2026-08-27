@@ -41,7 +41,8 @@ mod turn_service_quota_tests {
     use chrono::Utc;
     use futures_util::stream;
     use pierre_chat_pipeline::{
-        PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest, TurnRequest,
+        CommandPersistence, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest,
+        TurnRequest,
     };
     use pierre_core::errors::AppError;
     use pierre_core::llm::{
@@ -368,6 +369,8 @@ mod turn_service_quota_tests {
                 ambient_context: None,
                 channel_type: "web",
                 is_direct_message: true,
+                ambient_group_fallback: false,
+                command_persistence: CommandPersistence::Always,
                 sender_id: None,
                 hooks: PipelineHooks::none(),
             },

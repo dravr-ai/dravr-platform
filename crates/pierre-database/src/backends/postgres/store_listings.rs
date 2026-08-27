@@ -90,14 +90,15 @@ fn row_to_store_listing_pg(row: &PgRow) -> AppResult<StoreListing> {
 /// Upper bound on numbered candidates tried before giving up on a title.
 const MAX_HANDLE_ATTEMPTS: u32 = 100;
 
-/// `PostgreSQL` twin of `database::store_listings::ensure_catalogue_handle`:
-/// give the coach being approved its catalogue handle if it does not own one.
+/// `PostgreSQL` twin of `database::coach_handle::ensure_catalogue_handle`:
+/// give a coach its catalogue handle if it does not own one — on Store
+/// approval, and on creation from a conversation.
 ///
 /// An origin coach already carrying a handle keeps it; any other coach gets
 /// the first free candidate derived from its title, judged at catalogue
 /// scope (no origin coach, no published coach). Origin rows are additionally
 /// guarded by the `idx_coaches_handle` unique index. Runs inside the
-/// approval transaction.
+/// approval transaction, or on a plain connection for a created coach.
 ///
 /// # Errors
 ///
@@ -382,6 +383,19 @@ impl PostgresDatabase {
 
 #[async_trait]
 impl StoreListingsRepository for PostgresDatabase {
+    async fn assign_catalogue_handle(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<String> {
+        let mut conn = self.pool().acquire().await.map_err(|e| {
+            AppError::database(format!(
+                "Failed to acquire connection for coach handle: {e}"
+            ))
+        })?;
+        ensure_catalogue_handle_pg(&mut conn, coach_id, tenant_id).await
+    }
+
     async fn submit_for_review(
         &self,
         coach_id: &str,
@@ -892,6 +906,31 @@ impl StoreListingsRepository for PostgresDatabase {
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get published coach: {e}")))?;
+
+        row.map(|r| row_to_coach_with_listing_pg(&r)).transpose()
+    }
+
+    async fn find_published_by_handle(
+        &self,
+        handle: &CoachHandle,
+    ) -> AppResult<Option<CoachWithListing>> {
+        // `forked_from IS NULL` keeps installed copies out: they carry the
+        // origin's handle as a reference and never own a listing of their own.
+        let row = sqlx::query(&format!(
+            r"
+            SELECT {COACH_COLUMNS_ALIASED}, {LISTING_COLUMNS_ALIASED}
+            FROM coaches c
+            JOIN store_listings sl ON c.id = sl.coach_id
+            WHERE c.slug = $1 AND c.forked_from IS NULL AND sl.publish_status = 'published'
+            LIMIT 1
+            "
+        ))
+        .bind(handle.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to resolve published coach by handle: {e}"))
+        })?;
 
         row.map(|r| row_to_coach_with_listing_pg(&r)).transpose()
     }

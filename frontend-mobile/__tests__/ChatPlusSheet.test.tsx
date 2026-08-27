@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the chat "+" — new chat, new group chat through the group picker, add someone to the open thread
+// ABOUTME: Tests the chat "+" — new chat, new group chat by name, add someone to the open thread
 // ABOUTME: Covers the conversation list's sheet, the thread header's sheet, and the flows each action opens
 
 import React from 'react';
@@ -31,7 +31,6 @@ jest.mock('../src/contexts/AuthContext', () => ({
 
 const mockGetConversations = jest.fn();
 const mockCreateConversation = jest.fn();
-const mockListMyGroups = jest.fn();
 const mockListParticipants = jest.fn();
 jest.mock('../src/services/api', () => ({
   chatApi: {
@@ -44,7 +43,6 @@ jest.mock('../src/services/api', () => ({
     deleteConversation: jest.fn(),
   },
   coachesApi: { list: jest.fn().mockResolvedValue({ coaches: [] }) },
-  groupsApi: { listMyGroups: (...args: unknown[]) => mockListMyGroups(...args) },
   notificationsApi: { getUnreadCount: jest.fn().mockResolvedValue({ unread_count: 0 }) },
 }));
 
@@ -53,19 +51,8 @@ import { ChatHeader } from '../src/screens/chat/ChatHeader';
 import { ChatPlusSheet } from '../src/screens/chat/ChatPlusSheet';
 import { ChatPlusFlows } from '../src/screens/chat/ChatPlusFlows';
 import { useChatPlusActions } from '../src/screens/chat/useChatPlusActions';
-import { CHAT_THREAD_ROUTE, GROUPS_ROUTE } from '../src/navigation/routes';
-
-const MARATHON_SQUAD = {
-  id: 'group-1',
-  name: 'Marathon Squad',
-  description: null,
-  coach_id: 'coach-1',
-  member_count: 3,
-  is_active: true,
-  peer_data_sharing: true,
-  my_role: 'member',
-  created_at: '2026-08-01T00:00:00Z',
-};
+import { CHAT_THREAD_ROUTE } from '../src/navigation/routes';
+import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 
 function withClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -87,8 +74,7 @@ function ThreadPlus({ conversationId }: { conversationId: string }) {
 describe('the chat "+"', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetConversations.mockResolvedValue({ conversations: [] });
-    mockListMyGroups.mockResolvedValue({ groups: [MARATHON_SQUAD] });
+    mockGetConversations.mockResolvedValue({ conversations: [], total: 0, limit: 50, offset: 0 });
     mockListParticipants.mockResolvedValue([]);
   });
 
@@ -118,49 +104,39 @@ describe('the chat "+"', () => {
     });
   });
 
-  // Turns red if the picker stops offering the athlete's groups, or if the
-  // pick stops carrying group_id — the field that turns on group context and
-  // peer grounding server-side.
-  it('new group chat picks one of the athlete groups and opens its room', async () => {
-    mockCreateConversation.mockResolvedValue({ id: 'conv-9', title: 'Marathon Squad', group_id: 'group-1' });
+  // Turns red if "New group chat" regrows a picker or a createGroup call:
+  // the group is created by the command, in a fresh thread, exactly as it is
+  // on web and in messaging.
+  it('new group chat asks for a name and sends /group create in a fresh thread', async () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
     fireEvent.press(await findByTestId('chat-plus-button'));
     fireEvent.press(getByTestId('chat-plus-action-new-group-chat'));
 
-    fireEvent.press(await findByTestId('group-picker-option-group-1'));
+    const dialog = await findByTestId('new-group-name-dialog-input');
+    fireEvent.changeText(dialog, 'Marathon Squad');
+    fireEvent.press(getByTestId('new-group-name-dialog-submit'));
 
-    await waitFor(() => {
-      expect(mockCreateConversation).toHaveBeenCalledWith({
-        title: 'Marathon Squad',
-        coach_id: 'coach-1',
-        group_id: 'group-1',
-      });
-    });
     await waitFor(() => {
       expect(mockRouter.push).toHaveBeenCalledWith({
         pathname: CHAT_THREAD_ROUTE,
-        params: { conversationId: 'conv-9' },
+        params: { conversationId: 'new', send: COMMAND_DRAFTS.groupCreate('Marathon Squad') },
       });
     });
+    // Nothing is created client-side: the command is the one implementation.
+    expect(mockCreateConversation).not.toHaveBeenCalled();
   });
 
-  it('sends an athlete in no group to the Groups tab instead of an empty picker', async () => {
-    mockListMyGroups.mockResolvedValue({ groups: [] });
+  it('an empty name creates nothing', async () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
     fireEvent.press(await findByTestId('chat-plus-button'));
     fireEvent.press(getByTestId('chat-plus-action-new-group-chat'));
 
-    fireEvent.press(await findByTestId('group-picker-go-to-groups'));
-    expect(mockRouter.navigate).toHaveBeenCalledWith(GROUPS_ROUTE);
-    expect(mockCreateConversation).not.toHaveBeenCalled();
-  });
+    fireEvent.changeText(await findByTestId('new-group-name-dialog-input'), '   ');
+    fireEvent.press(getByTestId('new-group-name-dialog-submit'));
 
-  it('does not ask the server for groups until the picker opens', async () => {
-    const { findByTestId } = render(withClient(<ConversationsScreen />));
-    await findByTestId('chat-plus-button');
-    expect(mockListMyGroups).not.toHaveBeenCalled();
+    expect(mockRouter.push).not.toHaveBeenCalled();
   });
 
   // Turns red if "add someone" stops opening the participants control from
@@ -187,15 +163,10 @@ describe('the chat "+"', () => {
       withClient(
         <ChatHeader
           currentConversation={null}
-          actionMenuVisible={false}
           insetTop={0}
           onBackPress={onBackPress}
           onPlusPress={onPlusPress}
           onTitlePress={jest.fn()}
-          onMenuClose={jest.fn()}
-          onMenuRename={jest.fn()}
-          onMenuParticipants={jest.fn()}
-          onMenuDelete={jest.fn()}
         />,
       ),
     );

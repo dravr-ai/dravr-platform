@@ -14,9 +14,9 @@ use pierre_messaging::commands::{CommandRegistry, CommandResponse};
 use tracing::warn;
 
 use pierre_contremaitre::messaging_strings::{
-    KEY_HELP_DOMAIN_ACCOUNT, KEY_HELP_DOMAIN_COACH, KEY_HELP_DOMAIN_DATA, KEY_HELP_DOMAIN_GENERAL,
-    KEY_HELP_DOMAIN_GROUP, KEY_HELP_DOMAIN_PROVIDER, KEY_HELP_DOMAIN_TRAINING, KEY_HELP_FOOTER,
-    KEY_HELP_HEADER,
+    KEY_HELP_DOMAIN_ACCOUNT, KEY_HELP_DOMAIN_COACH, KEY_HELP_DOMAIN_DATA, KEY_HELP_DOMAIN_DISCOVER,
+    KEY_HELP_DOMAIN_GENERAL, KEY_HELP_DOMAIN_GROUP, KEY_HELP_DOMAIN_PROVIDER,
+    KEY_HELP_DOMAIN_TRAINING, KEY_HELP_FOOTER, KEY_HELP_HEADER,
 };
 
 use crate::group::caller_group_standing;
@@ -119,6 +119,7 @@ impl CommandHandler for HelpHandler {
                 "provider" => Some(KEY_HELP_DOMAIN_PROVIDER),
                 "account" => Some(KEY_HELP_DOMAIN_ACCOUNT),
                 "training" => Some(KEY_HELP_DOMAIN_TRAINING),
+                "discover" => Some(KEY_HELP_DOMAIN_DISCOVER),
                 _ => None,
             };
             let domain_label =

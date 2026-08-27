@@ -26,6 +26,7 @@
 
 use std::fmt::Write as _;
 
+use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_chat_pipeline::RenderCapabilities;
 use pierre_core::models::messaging::{CardAction, MessageContent};
 use pierre_core::models::{ColorScheme, TenantId};
@@ -128,25 +129,13 @@ pub fn plan_media(delivery: &VizDelivery<'_>, secret: &str) -> Vec<VizMedia> {
 /// Every channel path calls this, whether or not it sends media: `⟦viz:0⟧` in
 /// a Telegram message is noise at best and looks like a bug at worst. The
 /// marker's job ends once the client that can interleave has interleaved.
+/// The strip itself lives beside the marker's definition
+/// ([`strip_markers`]); this adds the blank-run collapse a message body wants.
 #[must_use]
 pub fn strip_viz_markers(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(start) = rest.find("⟦viz:") {
-        out.push_str(&rest[..start]);
-        if let Some(end) = rest[start..].find('⟧') {
-            rest = &rest[start + end + '⟧'.len_utf8()..];
-        } else {
-            // An unterminated marker is not a marker; keep it rather than
-            // swallowing the rest of the reply.
-            out.push_str(&rest[start..]);
-            rest = "";
-        }
-    }
-    out.push_str(rest);
     // Markers usually sit alone between blank lines, so removing one leaves a
     // triple newline behind.
-    collapse_blank_runs(&out)
+    collapse_blank_runs(&strip_markers(text))
 }
 
 /// Collapse three or more consecutive newlines into two.

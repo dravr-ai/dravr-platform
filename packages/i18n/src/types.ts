@@ -63,7 +63,6 @@ export interface TranslationKeys {
     pendingApprovalMessage: string;
   };
   chat: Record<string, string>;
-  coaches: Record<string, string>;
   settings: Record<string, string>;
   insights: Record<string, string>;
   providers: Record<string, string>;

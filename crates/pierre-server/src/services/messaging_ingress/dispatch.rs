@@ -17,7 +17,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::scene_publisher::MessagingScenePublisher;
-use pierre_chat_pipeline::{self, PipelineHooks, ServedTurn, TurnRequest};
+use pierre_chat_pipeline::{self, CommandPersistence, PipelineHooks, ServedTurn, TurnRequest};
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_COACH_PROPOSAL_FOOTER,
     KEY_COACH_PROPOSAL_WELCOME, KEY_COACH_PROPOSAL_WELCOME_GENERIC, KEY_EMPTY_REPLY,
@@ -732,6 +732,16 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         ambient_context,
         channel_type: &dispatch.channel,
         is_direct_message: !dispatch.is_group_chat,
+        // The ingress answered any slash command before this turn was queued,
+        // so these only say what the messaging surface's answer is: the
+        // ambient group stands in for an unbound DM, and a room keeps only the
+        // replies it saw.
+        ambient_group_fallback: true,
+        command_persistence: if dispatch.is_group_chat {
+            CommandPersistence::RoomVisibleOnly
+        } else {
+            CommandPersistence::Always
+        },
         sender_id: Some(&dispatch.sender_id),
         hooks,
     };

@@ -289,6 +289,16 @@ fn push_history_row(
         return;
     }
 
+    // A slash-command turn is the platform talking, on both rows: the `/…`
+    // line the athlete typed and the listing or picker that answered it. Both
+    // are transcript the UI shows after a reload and neither is coaching, so
+    // neither re-enters a prompt — replayed, a `/status` reply would teach the
+    // model to answer in the platform's voice. Same mechanism as the two stamps
+    // above: recognised by marker, not by prose.
+    if msg.is_command_turn() {
+        return;
+    }
+
     let stripped = strip_simulation_artifacts(&msg.content);
     if stripped.is_empty() {
         return;

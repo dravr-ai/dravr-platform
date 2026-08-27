@@ -534,13 +534,15 @@ async fn test_parity_chat_list_conversations() {
         .chat
         .list_conversations(&sqlite_user_id.to_string(), sqlite_tenant_id, 3, 0)
         .await
-        .expect("SQLite: Failed to list");
+        .expect("SQLite: Failed to list")
+        .items;
 
     let pg_list = pg_repos
         .chat
         .list_conversations(&pg_user_id.to_string(), pg_tenant_id, 3, 0)
         .await
-        .expect("PostgreSQL: Failed to list");
+        .expect("PostgreSQL: Failed to list")
+        .items;
 
     assert_eq!(
         sqlite_list.len(),

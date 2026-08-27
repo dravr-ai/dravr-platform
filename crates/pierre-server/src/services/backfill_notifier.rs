@@ -41,7 +41,7 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use async_trait::async_trait;
 use chrono::{Duration, TimeZone, Utc};
-use pierre_chat_pipeline::{PipelineHooks, ServedTurn, TurnRequest};
+use pierre_chat_pipeline::{CommandPersistence, PipelineHooks, ServedTurn, TurnRequest};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
     KEY_BACKFILL_READY, KEY_PROVIDER_REAUTH_REQUIRED,
@@ -271,6 +271,11 @@ impl ChatReentry for PipelineChatReentry {
             ambient_context: None,
             channel_type: &channel_slug,
             is_direct_message: true,
+            // The messaging DM's answers; the re-asked prompt is never a
+            // command (command rows are skipped when it is chosen), so these
+            // only keep the surface's contract intact.
+            ambient_group_fallback: true,
+            command_persistence: CommandPersistence::Always,
             sender_id: None,
             // No AG-UI wiring: this is a detached background turn, not a live
             // request with a status placeholder to edit.
@@ -638,8 +643,10 @@ impl ServerBackfillNotifier {
     /// the coach must query against the now-warm cache.
     ///
     /// The chat repo returns newest-first, so the latest non-empty `user`-role
-    /// message is the question that triggered the backfill. `None` when the read
-    /// fails or there is no user turn — the caller falls back to the list.
+    /// message is the question that triggered the backfill. A slash-command
+    /// line is not a question — re-asking `/status` would answer a command
+    /// nobody typed — so command rows are skipped. `None` when the read fails
+    /// or there is no user turn — the caller falls back to the list.
     async fn recent_user_question(
         &self,
         user_id: Uuid,
@@ -662,7 +669,7 @@ impl ServerBackfillNotifier {
             .ok()?;
         messages
             .into_iter()
-            .find(|m| m.role == "user" && !m.content.trim().is_empty())
+            .find(|m| m.role == "user" && !m.is_command_turn() && !m.content.trim().is_empty())
             .map(|m| m.content)
     }
 

@@ -120,55 +120,15 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       }
     });
 
-    test('chat - prompt suggestions visible', async ({ page }) => {
+    test('chat - the unified conversation list', async ({ page }) => {
       await navigateToTab(page, 'Chat');
       await waitForNetworkIdle(page);
 
-      // Look for prompt suggestion buttons/chips
-      await page.locator('[data-testid="prompt-suggestion"], button:has-text("workout"), button:has-text("training")').first().isVisible().catch(() => false);
+      // The one list every thread lands in, whatever surface created it.
+      await expect(page.getByTestId('conversation-list')).toBeVisible();
+      await expect(page.getByLabel('Search conversations')).toBeVisible();
 
-      await takeVisualScreenshot(page, 'user-chat', 'prompt-suggestions');
-    });
-  });
-
-  // ========================================
-  // Your coaches — pinned at the top of Discover
-  // ========================================
-  test.describe('Your coaches (pinned on Discover)', () => {
-    test.beforeEach(async ({ page }) => {
-      await loginAsUser(page, 'webtest');
-    });
-
-    test('discover - pins the athlete coaches above the store', async ({ page }) => {
-      await navigateToTab(page, 'Discover');
-      await waitForNetworkIdle(page);
-
-      await expect(page.getByRole('region', { name: /Your coaches/ })).toBeVisible();
-
-      await takeVisualScreenshot(page, 'user-library', 'coach-list');
-    });
-
-    test('discover - one search narrows both the pinned coaches and the store', async ({ page }) => {
-      await navigateToTab(page, 'Discover');
-      await waitForNetworkIdle(page);
-
-      await page.getByPlaceholder('Search coaches...').fill('training');
-      await page.waitForTimeout(500);
-
-      await takeVisualScreenshot(page, 'user-library', 'search-results');
-    });
-
-    test('discover - create coach button opens the coach editor modal', async ({ page }) => {
-      await navigateToTab(page, 'Discover');
-      await waitForNetworkIdle(page);
-
-      await page.getByRole('button', { name: 'Create Coach' }).click();
-      await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeVisible();
-
-      await takeVisualScreenshot(page, 'user-library', 'editor-modal-open');
-
-      await page.getByRole('button', { name: 'Close' }).click();
-      await expect(page.getByRole('heading', { name: 'Create Custom Coach' })).toBeHidden();
+      await takeVisualScreenshot(page, 'user-chat', 'conversation-list');
     });
   });
 
@@ -269,7 +229,8 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       // pointing at a feed.
       const aside = page.locator('aside');
       await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
-      await expect(aside.getByRole('button', { name: 'Groups' })).toBeVisible();
+      await expect(aside.getByRole('button', { name: 'Discover', exact: true })).toBeVisible();
+      await expect(aside.getByRole('button', { name: 'Groups' })).toHaveCount(0);
       await expect(aside.getByRole('button', { name: 'Insights' })).toHaveCount(0);
       await expect(aside.getByRole('button', { name: 'Friends' })).toHaveCount(0);
 
@@ -280,7 +241,7 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       await page.goto('/#insights');
       await waitForNetworkIdle(page);
 
-      await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('conversation-list')).toBeVisible({ timeout: 10000 });
       await expect(page.getByText('No Insights Yet')).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Find Friends' })).toHaveCount(0);
 
@@ -380,8 +341,8 @@ test.describe('Role routing — admin tabs are not reachable by hash', () => {
     // mounts and its endpoints are never called.
     await expect(page.getByRole('button', { name: 'All Users' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Pending' })).toHaveCount(0);
-    // The chat composer proves we landed on the role's own default surface.
-    await expect(page.getByPlaceholder(/Message Dravr/i)).toBeVisible();
+    // The conversation list proves we landed on the role's own default surface.
+    await expect(page.getByTestId('conversation-list')).toBeVisible();
     // And nothing should have hammered an endpoint this role cannot use.
     expect(adminCalls, `regular user issued ${adminCalls.length} admin API calls`).toHaveLength(0);
   });

@@ -118,7 +118,6 @@ jest.mock('../src/services/api', () => ({
     removeParticipant: jest.fn(),
   },
   coachesApi: { list: jest.fn().mockResolvedValue({ coaches: [] }) },
-  groupsApi: { listMyGroups: jest.fn().mockResolvedValue({ groups: [] }) },
   notificationsApi: { getUnreadCount: jest.fn().mockResolvedValue({ unread_count: 0 }) },
 }));
 
@@ -163,10 +162,15 @@ describe('chat-first landing', () => {
           id: 'conv-1',
           title: 'Tempo Tuesday',
           coach_id: null,
+          message_count: 3,
+          unread_count: 0,
           created_at: '2026-08-20T10:00:00Z',
           updated_at: '2026-08-25T10:00:00Z',
         },
       ],
+      total: 1,
+      limit: 50,
+      offset: 0,
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 

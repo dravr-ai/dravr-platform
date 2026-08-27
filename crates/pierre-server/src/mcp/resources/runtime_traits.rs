@@ -169,10 +169,6 @@ impl pierre_runtime_context::CoachesCtx for ServerContext {
         &self.coach.database
     }
 
-    fn coach_generation_prompt(&self) -> String {
-        Self::coach_generation_prompt(self)
-    }
-
     fn admin_config(&self) -> Option<Arc<dyn pierre_runtime_context::AdminConfigLookup>> {
         self.coach
             .admin_config
@@ -238,7 +234,8 @@ mod command_ctx_impl {
     use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
     use pierre_database::RepositoryRegistry;
     use pierre_groups::GroupService;
-    use pierre_runtime_context::CommandCtx;
+    use pierre_llm::{ChatProvider, LlmProvider};
+    use pierre_runtime_context::{AdminConfigLookup, CommandCtx};
     use std::sync::Arc;
 
     impl CommandCtx for ServerContext {
@@ -252,6 +249,25 @@ mod command_ctx_impl {
 
         fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry> {
             &self.mcp.messaging_strings_registry
+        }
+
+        fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>> {
+            self.coach
+                .admin_config
+                .as_ref()
+                .map(|svc| Arc::clone(svc) as Arc<dyn AdminConfigLookup>)
+        }
+
+        fn chat_provider(&self) -> Option<&Arc<ChatProvider>> {
+            self.common.chat_provider.as_ref()
+        }
+
+        fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>> {
+            self.common.llm_provider.as_ref()
+        }
+
+        fn coach_generation_prompt(&self) -> String {
+            Self::coach_generation_prompt(self)
         }
     }
 }

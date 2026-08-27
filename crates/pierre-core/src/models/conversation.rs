@@ -240,9 +240,9 @@ pub fn split_visuals(raw: Option<&str>) -> Vec<String> {
 /// holds platform-synthesized values (`guardian_denied`, `max_iterations`,
 /// `provider_auth_required`), so this is not a new use of it.
 ///
-/// Not a complete guarantee: `handle_generate` (coach-profile synthesis) reads
-/// persisted rows directly and does not route through `build_llm_messages`, so
-/// a withheld row still reaches that one-shot prompt.
+/// The one other reader of persisted rows that builds a prompt — the
+/// coach-generation excerpt behind `/coach create` — drops rows carrying this
+/// marker by the same stamp, so a withheld reply seeds no persona either.
 pub const WITHHELD_REPLY_FINISH_REASON: &str = "reply_withheld";
 
 /// `finish_reason` stamped on an assistant row whose data-access claim the
@@ -258,6 +258,61 @@ pub const WITHHELD_REPLY_FINISH_REASON: &str = "reply_withheld";
 /// around: the row is dropped by [`build_llm_messages`] on its marker, in any
 /// language, whatever the sentence says.
 pub const UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON: &str = "capability_claim_unverified";
+
+/// `finish_reason` stamped on both rows of a persisted slash-command turn: the
+/// athlete's `/…` line and the platform's answer to it.
+///
+/// A command reply is real conversation history — Telegram keeps a bot's
+/// answer in the thread, and so does the in-app transcript from the moment it
+/// reloads — but it is *account state*, not coaching: a provider list, a group
+/// count, a coach picker. Replaying it into a later prompt would hand the model
+/// the platform's own output as if the coach had said it. The stamp is what
+/// keeps the row in the database and the UI while `push_history_row` drops it
+/// from every prompt, the same mechanism that keeps a withheld reply out.
+///
+/// The same string rides the wire as the turn's `finish_reason`, so a client
+/// tells a command turn from an LLM turn by the field it already reads for
+/// every other outcome.
+pub const COMMAND_FINISH_REASON: &str = "command";
+
+/// The `type` discriminator a persisted command reply's controls carry inside
+/// `chat_messages.content_blocks`, beside the visual specs (`chart`, `table`).
+pub const ACTIONS_BLOCK_TYPE: &str = "actions";
+
+/// One control persisted with a command reply.
+///
+/// Same wire vocabulary as a messaging card action and the in-app
+/// `ChatMessageAction`: `action_type` is `"postback"` (send `value` as the next
+/// message) or `"url"` (open `value`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedAction {
+    /// User-visible button label.
+    pub label: String,
+    /// `"postback"` or `"url"`.
+    pub action_type: String,
+    /// The text to send, or the URL to open.
+    pub value: String,
+}
+
+/// A non-visual entry of `chat_messages.content_blocks`.
+///
+/// The column holds one JSON array. Visual specs (`{"type":"chart",…}`,
+/// `{"type":"table",…}`) are resolved by photograveur on every read; this entry
+/// is the one shape in that array photograveur must never see, so the read
+/// path partitions on [`ACTIONS_BLOCK_TYPE`] before resolving the rest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PersistedReplyBlock {
+    /// The controls a command reply carried, so a reload shows the same
+    /// buttons the live turn did.
+    Actions {
+        /// Label for the group, e.g. a picker's card title.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// The controls, in order.
+        actions: Vec<PersistedAction>,
+    },
+}
 
 /// Database representation of a chat message
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,6 +345,38 @@ pub struct MessageRecord {
     pub created_at: String,
 }
 
+impl MessageRecord {
+    /// `true` when this row belongs to a slash-command turn — the athlete's
+    /// `/…` line or the platform's answer — which stays in the transcript but
+    /// never re-enters a prompt. See [`COMMAND_FINISH_REASON`].
+    #[must_use]
+    pub fn is_command_turn(&self) -> bool {
+        self.finish_reason.as_deref() == Some(COMMAND_FINISH_REASON)
+    }
+}
+
+/// The newest `user`/`assistant` row of a conversation, as the list row shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConversationLastMessage {
+    /// The opening characters of the row's content, unshaped: the route strips
+    /// visual markers and collapses whitespace before it reaches a client.
+    pub content_head: String,
+    /// `user` or `assistant`.
+    pub role: String,
+    /// When the row was written (ISO 8601).
+    pub created_at: String,
+}
+
+/// One page of a participant's conversation list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationPage {
+    /// The page, newest activity first.
+    pub items: Vec<ConversationSummary>,
+    /// How many conversations the participant is in altogether — the number
+    /// the client pages against, not the page length.
+    pub total: i64,
+}
+
 /// Summary of a conversation for listing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSummary {
@@ -299,18 +386,34 @@ pub struct ConversationSummary {
     pub title: String,
     /// LLM model used
     pub model: String,
-    /// Number of messages in the conversation
+    /// Number of `user` and `assistant` rows in the conversation. Tool rows are
+    /// machine scaffolding and are not counted: a list row says how many turns
+    /// the thread holds, not how many database rows.
     pub message_count: i64,
     /// Total tokens used
     pub total_tokens: i64,
-    /// Coach attached to the conversation, if any. Lets the listing group
-    /// sessions by coach and label them with the coach's name.
+    /// Coach attached to the conversation, if any. Lets the listing label the
+    /// row with the coach's name and handle.
     pub coach_id: Option<String>,
+    /// The attached coach's catalogue `@handle`, when it has one.
+    pub coach_handle: Option<String>,
+    /// The attached coach's title, when the coach still exists.
+    pub coach_title: Option<String>,
+    /// Coaching group the conversation is scoped to, if any.
+    pub group_id: Option<String>,
+    /// That group's name, when the group still exists.
+    pub group_name: Option<String>,
     /// Channel of origin from `chat_conversations.channel_type`: `web`/`mobile`
     /// for an in-app chat, or a messaging channel (`telegram`/`whatsapp`/…) for
     /// a conversation that came in over a messaging app. Durable badge signal
     /// that survives a title rename (unlike parsing the title prefix).
     pub channel_type: Option<String>,
+    /// The newest `user`/`assistant` row, for the row preview; `None` for an
+    /// empty conversation.
+    pub last_message: Option<ConversationLastMessage>,
+    /// `user`/`assistant` rows written after the participant's read marker —
+    /// every row when they have never opened the thread.
+    pub unread_count: i64,
     /// When the conversation was created
     pub created_at: String,
     /// When the conversation was last updated

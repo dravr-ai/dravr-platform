@@ -59,9 +59,6 @@ export type {
   CoachesApi,
   Coach,
   ListCoachesOptions,
-  ForkCoachResponse,
-  GenerateCoachRequest,
-  GenerateCoachResponse,
 } from './domains/coaches';
 
 export { createOAuthApi } from './domains/oauth';
@@ -134,13 +131,11 @@ export { createGroupsApi } from './domains/groups';
 export type {
   GroupsApi,
   CoachingGroup,
-  GroupSummary,
   GroupMember,
   GroupInvite,
   GroupAggregateStats,
   GroupWeeklyReport,
   GroupHealthFlag,
-  ListGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,

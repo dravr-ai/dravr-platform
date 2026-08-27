@@ -2,10 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Floating expandable tab bar with glassmorphism inspired by Linear
-// ABOUTME: Collapsed pill with icons + "+" button that expands into the tabs and the chat quick actions
+// ABOUTME: Collapsed pill with Chat/Discover/Settings + "+" that expands into the tabs and the chat quick actions
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { Pressable, useWindowDimensions, View } from 'react-native';
+import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -16,17 +16,18 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useGlobalSearchParams, useRouter, useSegments } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { MessageCircle, Compass, Users, Settings, Plus } from 'lucide-react-native';
+import { MessageCircle, Compass, Settings, Plus } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { useThemeColors } from '../../constants/theme';
 import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID } from '../../navigation/routes';
 import { useChatPlusActions, type ChatPlusAction } from '../../screens/chat/useChatPlusActions';
 import { ChatPlusFlows } from '../../screens/chat/ChatPlusFlows';
+import { useConversationRows } from '../../screens/conversations/useConversationList';
 import { GlassContainer } from './GlassContainer';
 import { TabMenuItem } from './TabMenuItem';
 
 /** The route group a tab opens. */
-export type TabBarRoute = '(chat)' | '(discover)' | '(groups)' | '(settings)';
+export type TabBarRoute = '(chat)' | '(discover)' | '(settings)';
 
 /** One tab of the bar: the route group it opens, its label, icon and test id. */
 export interface TabBarTab {
@@ -34,6 +35,13 @@ export interface TabBarTab {
   label: string;
   icon: LucideIcon;
   testID: string;
+  /** A count drawn over the icon; the chat tab carries the unread total. */
+  badge?: number;
+}
+
+/** What the badge prints for a count; three digits is where it stops growing. */
+function badgeLabel(count: number): string {
+  return count > 99 ? '99+' : String(count);
 }
 
 /**
@@ -46,7 +54,6 @@ export interface TabBarTab {
 export const TAB_BAR_TABS: readonly TabBarTab[] = [
   { route: '(chat)', label: 'Chat', icon: MessageCircle, testID: 'tab-chat' },
   { route: '(discover)', label: 'Discover', icon: Compass, testID: 'tab-discover' },
-  { route: '(groups)', label: 'Groups', icon: Users, testID: 'tab-groups' },
   { route: '(settings)', label: 'Settings', icon: Settings, testID: 'tab-settings' },
 ];
 const TAB_COUNT = TAB_BAR_TABS.length;
@@ -92,6 +99,14 @@ export function ExpandableTabBar() {
   }, [segments, globalParams.conversationId]);
 
   const chatPlus = useChatPlusActions(openConversationId);
+
+  // The chat tab wears the unread total of the same list the chat tab shows,
+  // so the badge and the rows can never disagree about what is unread.
+  const { unreadTotal } = useConversationRows();
+  const tabs = useMemo<TabBarTab[]>(
+    () => TAB_BAR_TABS.map((tab) => (tab.route === '(chat)' ? { ...tab, badge: unreadTotal } : tab)),
+    [unreadTotal],
+  );
 
   // Pill width = screen - outer padding (32) - gap (10) - plus button (48)
   const pillWidth = screenWidth - 32 - 10 - PLUS_BUTTON_SIZE;
@@ -269,17 +284,18 @@ export function ExpandableTabBar() {
                 collapsedIconsStyle,
               ]}
             >
-              {TAB_BAR_TABS.map((tab, index) => {
+              {tabs.map((tab, index) => {
                 const isFocused = activeIndex === index;
                 const IconComponent = tab.icon;
                 const iconColor = isFocused ? colors.pierre.violet : colors.text.secondary;
+                const badge = tab.badge ?? 0;
 
                 return (
                   <Pressable
                     key={tab.route}
                     accessibilityRole="button"
                     accessibilityState={isFocused ? { selected: true } : {}}
-                    accessibilityLabel={tab.label}
+                    accessibilityLabel={badge > 0 ? `${tab.label}, ${badge} unread` : tab.label}
                     onPress={() => handleTabPress(index)}
                     style={{
                       flex: 1,
@@ -289,7 +305,30 @@ export function ExpandableTabBar() {
                     }}
                     testID={tab.testID}
                   >
-                    <IconComponent size={ICON_SIZE} color={iconColor} />
+                    <View>
+                      <IconComponent size={ICON_SIZE} color={iconColor} />
+                      {badge > 0 && (
+                        <View
+                          style={{
+                            position: 'absolute',
+                            top: -6,
+                            right: -12,
+                            minWidth: 18,
+                            height: 18,
+                            borderRadius: 9,
+                            paddingHorizontal: 4,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: colors.pierre.violet,
+                          }}
+                          testID={`${tab.testID}-badge`}
+                        >
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: colors.tokens.onPrimary }}>
+                            {badgeLabel(badge)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </Pressable>
                 );
               })}

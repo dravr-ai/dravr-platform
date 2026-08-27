@@ -115,7 +115,70 @@ async fn test_list_conversations() {
     let list: ConversationListResponse = list_response.json();
     assert_eq!(list.total, 1);
     assert_eq!(list.conversations.len(), 1);
-    assert_eq!(list.conversations[0].title, "Test Conversation");
+    let row = &list.conversations[0];
+    assert_eq!(row.title, "Test Conversation");
+    // A fresh thread: no turns, nothing unread, nothing to preview, no kind facts.
+    assert_eq!(row.message_count, 0);
+    assert_eq!(row.unread_count, 0);
+    assert!(row.last_message.is_none());
+    assert!(row.coach_handle.is_none() && row.coach_title.is_none());
+    assert!(row.group_id.is_none() && row.group_name.is_none());
+    assert_eq!(row.channel_type.as_deref(), Some("web"));
+}
+
+#[tokio::test]
+async fn test_list_conversations_clamps_page_bounds_and_reports_the_real_total() {
+    let (router, auth_token) = setup_test_environment().await;
+
+    for i in 1..=3 {
+        let created = AxumTestRequest::post("/api/chat/conversations")
+            .header("authorization", &auth_token)
+            .json(&json!({ "title": format!("Conv {i}"), "model": "gemini-1.5-flash" }))
+            .send(router.clone())
+            .await;
+        assert_eq!(created.status_code(), StatusCode::CREATED);
+    }
+
+    // `total` is the caller's count, whatever the page size.
+    let page: ConversationListResponse = AxumTestRequest::get("/api/chat/conversations?limit=2")
+        .header("authorization", &auth_token)
+        .send(router.clone())
+        .await
+        .json();
+    assert_eq!(page.conversations.len(), 2);
+    assert_eq!(page.total, 3);
+
+    // A zero or negative limit is the smallest page, not an empty one; an
+    // oversized limit is capped rather than refused.
+    let page: ConversationListResponse = AxumTestRequest::get("/api/chat/conversations?limit=0")
+        .header("authorization", &auth_token)
+        .send(router.clone())
+        .await
+        .json();
+    assert_eq!(page.conversations.len(), 1);
+    assert_eq!(page.total, 3);
+    let page: ConversationListResponse =
+        AxumTestRequest::get("/api/chat/conversations?limit=100000&offset=-7")
+            .header("authorization", &auth_token)
+            .send(router.clone())
+            .await
+            .json();
+    assert_eq!(
+        page.conversations.len(),
+        3,
+        "a negative offset reads as the first page"
+    );
+    assert_eq!(page.total, 3);
+
+    // The last page is short, and still reports the whole.
+    let page: ConversationListResponse =
+        AxumTestRequest::get("/api/chat/conversations?limit=2&offset=2")
+            .header("authorization", &auth_token)
+            .send(router)
+            .await
+            .json();
+    assert_eq!(page.conversations.len(), 1);
+    assert_eq!(page.total, 3);
 }
 
 #[tokio::test]

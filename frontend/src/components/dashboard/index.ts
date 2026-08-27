@@ -4,5 +4,9 @@
 // ABOUTME: Barrel export for dashboard panel components
 // ABOUTME: Provides clean imports for decomposed Dashboard panels
 
-export { default as ConversationsPanel } from './ConversationsPanel';
-export { usePendingUsersCount, useStoreStatsPendingCount } from './useDashboardBadges';
+export { default as ConversationList } from './ConversationList';
+export {
+  usePendingUsersCount,
+  useStoreStatsPendingCount,
+  useUnreadConversationsCount,
+} from './useDashboardBadges';

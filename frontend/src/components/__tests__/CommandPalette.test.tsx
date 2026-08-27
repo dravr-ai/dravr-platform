@@ -20,10 +20,6 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
-vi.mock('../PromptSuggestions', () => ({
-  default: () => <div data-testid="prompt-suggestions" />,
-}));
-
 /** The catalogue rows the server returns, in its domain-then-command order. */
 const CATALOGUE: CommandEntry[] = [
   {
@@ -58,9 +54,6 @@ function Composer({ conversationId }: { conversationId?: string | null }) {
       onChange={setValue}
       onSend={onSend}
       isStreaming={false}
-      showIdeas={false}
-      onToggleIdeas={() => {}}
-      onSelectPrompt={() => {}}
       conversationId={conversationId}
     />
   );

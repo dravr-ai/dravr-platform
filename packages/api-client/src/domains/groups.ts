@@ -1,26 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Groups domain API - CRUD, membership, invites, analytics
-// ABOUTME: Manages coaching groups with multi-person AI coaching support
+// ABOUTME: Groups domain API - read, manage, invite and leave a coaching group
+// ABOUTME: Creating and joining a group are the /group create and /group join commands
 
 import type { AxiosInstance } from 'axios';
 import type {
   CoachingGroup,
-  CreateGroupRequest,
   UpdateGroupRequest,
-  JoinGroupRequest,
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
   CreateInviteRequest,
-  GroupSummary,
   GroupMember,
   GroupInvite,
   GroupAggregateStats,
   GroupWeeklyReport,
   GroupHealthFlag,
-  ListGroupsResponse,
-  CoachedGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
@@ -34,17 +29,12 @@ import { ENDPOINTS } from '../core/endpoints';
 // Re-export types for consumers
 export type {
   CoachingGroup,
-  CreateGroupRequest,
   UpdateGroupRequest,
-  JoinGroupRequest,
-  GroupSummary,
   GroupMember,
   GroupInvite,
   GroupAggregateStats,
   GroupWeeklyReport,
   GroupHealthFlag,
-  ListGroupsResponse,
-  CoachedGroupsResponse,
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
@@ -59,18 +49,6 @@ export type {
 export function createGroupsApi(axios: AxiosInstance) {
   return {
     // ==================== GROUP CRUD ====================
-
-    /** Create a new coaching group */
-    async createGroup(request: CreateGroupRequest): Promise<CoachingGroup> {
-      const response = await axios.post<CoachingGroup>(ENDPOINTS.GROUPS.LIST, request);
-      return response.data;
-    },
-
-    /** List groups the current user belongs to */
-    async listMyGroups(): Promise<ListGroupsResponse> {
-      const response = await axios.get<ListGroupsResponse>(ENDPOINTS.GROUPS.LIST);
-      return response.data;
-    },
 
     /** Get a specific group by ID */
     async getGroup(groupId: string): Promise<CoachingGroup> {
@@ -91,12 +69,6 @@ export function createGroupsApi(axios: AxiosInstance) {
 
     // ==================== MEMBERSHIP ====================
 
-    /** Join a group via invite code */
-    async joinGroup(request: JoinGroupRequest): Promise<GroupMember> {
-      const response = await axios.post<GroupMember>(ENDPOINTS.GROUPS.JOIN, request);
-      return response.data;
-    },
-
     /** Leave a group */
     async leaveGroup(groupId: string): Promise<void> {
       await axios.post(ENDPOINTS.GROUPS.LEAVE(groupId));
@@ -107,16 +79,10 @@ export function createGroupsApi(axios: AxiosInstance) {
     /**
      * Detach the group's human coach (admin/owner only). The coach is invited
      * by issuing a `kind: 'coach'` invite via {@link createInvite}; redemption
-     * goes through {@link joinGroup} like any other invite code.
+     * goes through the `/group join <code>` command like any other invite code.
      */
     async removeCoach(groupId: string): Promise<void> {
       await axios.delete(ENDPOINTS.GROUPS.COACH(groupId));
-    },
-
-    /** List the groups the current user is the human coach of */
-    async listCoachedGroups(): Promise<CoachedGroupsResponse> {
-      const response = await axios.get<CoachedGroupsResponse>(ENDPOINTS.GROUPS.COACHED);
-      return response.data;
     },
 
     /** List members of a group */

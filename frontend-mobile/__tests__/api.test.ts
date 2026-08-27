@@ -18,13 +18,9 @@ jest.mock('../src/services/api', () => ({
   coachesApi: {
     list: jest.fn(),
     get: jest.fn(),
-    create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
-    toggleFavorite: jest.fn(),
-    hide: jest.fn(),
-    show: jest.fn(),
-    getHidden: jest.fn(),
+    recordUsage: jest.fn(),
   },
   oauthApi: {
     getStatus: jest.fn(),
@@ -91,10 +87,6 @@ describe('API Service', () => {
       expect(typeof coachesApi.get).toBe('function');
     });
 
-    it('should have create method', () => {
-      expect(typeof coachesApi.create).toBe('function');
-    });
-
     it('should have update method', () => {
       expect(typeof coachesApi.update).toBe('function');
     });
@@ -103,20 +95,8 @@ describe('API Service', () => {
       expect(typeof coachesApi.delete).toBe('function');
     });
 
-    it('should have toggleFavorite method', () => {
-      expect(typeof coachesApi.toggleFavorite).toBe('function');
-    });
-
-    it('should have hide method', () => {
-      expect(typeof coachesApi.hide).toBe('function');
-    });
-
-    it('should have show method', () => {
-      expect(typeof coachesApi.show).toBe('function');
-    });
-
-    it('should have getHidden method', () => {
-      expect(typeof coachesApi.getHidden).toBe('function');
+    it('should have recordUsage method', () => {
+      expect(typeof coachesApi.recordUsage).toBe('function');
     });
   });
 

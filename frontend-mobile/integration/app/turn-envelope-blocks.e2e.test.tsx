@@ -2,10 +2,11 @@
 // ABOUTME: Prose and the activity panel come off a live turn; the scene is drawn with react-native-svg
 
 import React from 'react';
-import { render, renderHook, act, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, act, fireEvent, waitFor } from '@testing-library/react-native';
 import Svg, { Path, Line, Text as SvgText } from 'react-native-svg';
 import type { Message, ReplyBlock } from '@pierre/shared-types';
 
+import { renderHook } from './helpers/queryHook';
 import { installHttpStub, type HttpStub } from './helpers/httpStub';
 import {
   ACTIVITY_LIST_TEXT,
@@ -29,16 +30,13 @@ function renderList(messages: Message[], messageBlocks: Record<string, ReplyBloc
   return render(
     <MessageList
       messages={messages}
-      coaches={[]}
       isLoading={false}
       isSending={false}
-      isCoachConversation
       messageFeedback={{}}
       messageFeedbackComment={{}}
       messageBlocks={messageBlocks}
       flatListRef={React.createRef()}
       onScrollToBottom={jest.fn()}
-      onCoachSelect={jest.fn()}
       onThumbsUp={jest.fn()}
       onThumbsDown={jest.fn()}
       onSubmitFeedbackReason={jest.fn()}
@@ -245,16 +243,13 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
     const view = render(
       <MessageList
         messages={result.current.messages}
-        coaches={[]}
         isLoading={false}
         isSending={false}
-        isCoachConversation
         messageFeedback={{}}
         messageFeedbackComment={{}}
         messageBlocks={result.current.messageBlocks}
         flatListRef={React.createRef()}
         onScrollToBottom={jest.fn()}
-        onCoachSelect={jest.fn()}
         onThumbsUp={jest.fn()}
         onThumbsDown={jest.fn()}
         onSubmitFeedbackReason={jest.fn()}
@@ -310,17 +305,14 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
     const view = render(
       <MessageList
         messages={result.current.messages}
-        coaches={[]}
         isLoading={false}
         isSending={false}
-        isCoachConversation
         messageFeedback={{}}
         messageFeedbackComment={{}}
         messageBlocks={result.current.messageBlocks}
         verdicts={result.current.verdicts}
         flatListRef={React.createRef()}
         onScrollToBottom={jest.fn()}
-        onCoachSelect={jest.fn()}
         onThumbsUp={jest.fn()}
         onThumbsDown={jest.fn()}
         onSubmitFeedbackReason={jest.fn()}

@@ -7,12 +7,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import { MessageSquarePlus, Plus, UserPlus, Users } from 'lucide-react';
+import { COMMAND_DRAFTS } from '@pierre/shared-constants';
+import { Button, Input, Modal, ModalActions } from '../ui';
 
 export interface ChatComposeMenuProps {
   /** Start a fresh one-to-one conversation. */
   onNewChat: () => void;
-  /** Open the group picker for a group-scoped conversation. */
-  onNewGroupChat: () => void;
+  /**
+   * Start a fresh conversation that sends this `/group create <name>` command.
+   * The command creates the group and binds the thread to it, so there is one
+   * implementation of "new group chat" across web, mobile and messaging.
+   */
+  onNewGroupChat: (command: string) => void;
   /**
    * Open the participants control of the open conversation. Undefined when no
    * conversation is open, in which case the item is not offered at all — there
@@ -26,10 +32,10 @@ export interface ChatComposeMenuProps {
 /**
  * The chat "+" as a menu rather than a bare "new chat" button.
  *
- * Coaches are invited with `/coach invite @handle` from the composer's slash
- * palette, so the menu names people and rooms only: a new chat, a new chat
- * inside one of the athlete's coaching groups, and — once a thread is open —
- * adding someone to it through the conversation's participants control.
+ * Coaches are invited with `/coach add @handle` from the composer's slash
+ * palette, so the menu names people and rooms only: a new chat, a new group
+ * chat — which asks for the group's name and then issues `/group create` —
+ * and, once a thread is open, adding someone to it.
  */
 export default function ChatComposeMenu({
   onNewChat,
@@ -38,6 +44,8 @@ export default function ChatComposeMenu({
   disabled = false,
 }: ChatComposeMenuProps) {
   const [open, setOpen] = useState(false);
+  const [namingGroup, setNamingGroup] = useState(false);
+  const [groupName, setGroupName] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,6 +69,18 @@ export default function ChatComposeMenu({
   const choose = (action: () => void) => {
     setOpen(false);
     action();
+  };
+
+  const closeNaming = () => {
+    setNamingGroup(false);
+    setGroupName('');
+  };
+
+  const submitGroupName = () => {
+    const trimmed = groupName.trim();
+    if (!trimmed) return;
+    closeNaming();
+    onNewGroupChat(COMMAND_DRAFTS.groupCreate(trimmed));
   };
 
   const itemClass =
@@ -92,7 +112,12 @@ export default function ChatComposeMenu({
             <MessageSquarePlus className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
             <span>New chat</span>
           </button>
-          <button type="button" role="menuitem" onClick={() => choose(onNewGroupChat)} className={itemClass}>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => choose(() => setNamingGroup(true))}
+            className={itemClass}
+          >
             <Users className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
             <span>New group chat</span>
           </button>
@@ -109,6 +134,44 @@ export default function ChatComposeMenu({
           )}
         </div>
       )}
+
+      <Modal
+        isOpen={namingGroup}
+        onClose={closeNaming}
+        title="New group chat"
+        size="sm"
+        footer={
+          <ModalActions>
+            <Button variant="secondary" onClick={closeNaming}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={submitGroupName}
+              disabled={!groupName.trim()}
+              data-testid="group-name-submit"
+            >
+              Create
+            </Button>
+          </ModalActions>
+        }
+      >
+        <Input
+          label="Group name"
+          value={groupName}
+          onChange={(e) => setGroupName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submitGroupName();
+            }
+          }}
+          placeholder="Marathon Squad"
+          maxLength={100}
+          autoFocus
+          data-testid="group-name-input"
+        />
+      </Modal>
     </div>
   );
 }

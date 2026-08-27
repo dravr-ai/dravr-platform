@@ -12,14 +12,14 @@ test.describe('Mobile admin layout', () => {
     await setupAndLoginAsAdmin(page);
   });
 
-  test('admin bottom tab bar pins Users / Coaches / Coach Store / Groups', async ({ page }) => {
+  test('admin bottom tab bar pins Users / Coaches / Coach Store', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await expect(nav).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Users' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Coaches' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Coach Store' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Groups' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Open menu' })).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Groups' })).toHaveCount(0);
   });
 
   test('admin drawer exposes Configuration tabs and Settings', async ({ page }) => {

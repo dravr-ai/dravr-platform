@@ -12,5 +12,6 @@ pub mod coach_fixtures;
 pub mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_webhooks;
+pub mod notify_capture;
 pub mod sciotte_mock;
 pub mod synthetic_data;

@@ -42,7 +42,8 @@ test.describe('Insights and Friends are retired', () => {
 
     const aside = page.locator('aside');
     await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
-    await expect(aside.getByRole('button', { name: 'Groups' })).toBeVisible();
+    await expect(aside.getByRole('button', { name: 'Discover', exact: true })).toBeVisible();
+    await expect(aside.getByRole('button', { name: 'Groups' })).toHaveCount(0);
     await expect(aside.getByRole('button', { name: 'Insights' })).toHaveCount(0);
     await expect(aside.getByRole('button', { name: 'Friends' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Find Friends' })).toHaveCount(0);
@@ -56,8 +57,10 @@ test.describe('Insights and Friends are retired', () => {
     await page.waitForSelector('aside', { timeout: 10000 });
 
     // Nothing serves the tab any more, so the shell renders the chat surface
-    // and the retired names appear nowhere on the page.
-    await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible({ timeout: 10000 });
+    // and the retired names appear nowhere on the page. The conversation list
+    // is the chat surface's own pane — it is there whether or not a thread is
+    // open, which the composer is not.
+    await expect(page.getByTestId('conversation-list')).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('heading', { name: /friends/i })).toHaveCount(0);
     await expect(page.getByText('No Insights Yet')).toHaveCount(0);
   });

@@ -97,6 +97,7 @@ fn command_ctx(
         ctx: Arc::<ServerContext>::clone(resources) as Arc<dyn CommandCtx>,
         locale: "en".to_owned(),
         is_direct_message: true,
+        ambient_group_fallback: false,
         conversation_id: None,
         conversation_tenant_id: tenant,
         sender_id: None,

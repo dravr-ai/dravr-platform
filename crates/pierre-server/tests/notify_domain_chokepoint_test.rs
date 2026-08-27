@@ -23,13 +23,13 @@
 #![allow(missing_docs)]
 
 mod common;
+mod helpers;
 
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
-use pierre_commands::coach::CoachSelectHandler;
+use helpers::notify_capture::{capture_notify, named, only};
+use pierre_commands::coach::CoachAddHandler;
 use pierre_commands::{CommandHandler, PlatformCommandContext};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::coaches::CreateCoachRequest;
@@ -40,131 +40,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
 use serde_json::json;
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
 use uuid::Uuid;
-
-// ============================================================================
-// Notify-event capture
-// ============================================================================
-
-/// One `target: "notify"` event, with every field rendered as a string.
-#[derive(Clone, Debug)]
-struct NotifyEvent {
-    event: String,
-    fields: HashMap<String, String>,
-}
-
-impl NotifyEvent {
-    fn field(&self, name: &str) -> &str {
-        self.fields
-            .get(name)
-            .unwrap_or_else(|| panic!("event {} has no field {name}", self.event))
-    }
-}
-
-#[derive(Clone, Default)]
-struct NotifyCapture {
-    events: Arc<Mutex<Vec<NotifyEvent>>>,
-}
-
-#[derive(Debug, Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-
-    fn record_i64(&mut self, field: &Field, value: i64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-
-    fn record_bool(&mut self, field: &Field, value: bool) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-}
-
-impl<S> Layer<S> for NotifyCapture
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        if event.metadata().target() != "notify" {
-            return;
-        }
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        let name = visitor
-            .fields
-            .get("event")
-            .cloned()
-            .unwrap_or_else(|| panic!("notify event with no `event` field: {visitor:?}"));
-        self.events.lock().unwrap().push(NotifyEvent {
-            event: name,
-            fields: visitor.fields,
-        });
-    }
-}
-
-/// Install a capture subscriber for the current thread.
-///
-/// The guard must stay alive for the duration of the code under test — the
-/// subscriber is uninstalled when it drops.
-fn capture_notify() -> (Arc<Mutex<Vec<NotifyEvent>>>, DefaultGuard) {
-    let capture = NotifyCapture::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
-}
-
-/// Every captured event with this name.
-fn named(events: &Arc<Mutex<Vec<NotifyEvent>>>, name: &str) -> Vec<NotifyEvent> {
-    events
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|e| e.event == name)
-        .cloned()
-        .collect()
-}
-
-/// Exactly one event with this name, or a panic naming what was seen instead.
-fn only(events: &Arc<Mutex<Vec<NotifyEvent>>>, name: &str) -> NotifyEvent {
-    let matching = named(events, name);
-    assert_eq!(
-        matching.len(),
-        1,
-        "expected exactly one `{name}`, saw {:?}",
-        events
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|e| e.event.clone())
-            .collect::<Vec<_>>()
-    );
-    matching.into_iter().next().unwrap()
-}
 
 // ============================================================================
 // Fixtures
@@ -615,23 +491,25 @@ async fn an_invisible_coach_records_nothing_and_emits_nothing() {
     );
 }
 
-/// `/coach select` in a DM is the messaging equivalent of the web Coaches UI,
-/// and it was the one selection surface still emitting nothing after the
-/// events moved off the REST route — the surface most Dravr users have.
+/// `/coach add` in a personal thread is the chat equivalent of picking a coach
+/// on Discover, and it was the one selection surface still emitting nothing
+/// after the events moved off the REST route — the surface most Dravr users
+/// have.
 #[tokio::test]
-async fn slash_coach_select_emits_coach_selected() {
+async fn slash_coach_add_emits_coach_selected() {
     let (res, user_id, tenant_id, coach_id) =
-        chat_fixture("coach-slash-select@test.com", "professional").await;
+        chat_fixture("coach-slash-add@test.com", "professional").await;
 
     let ctx = PlatformCommandContext {
         user_id,
         tenant_id,
         channel_type: "telegram".to_owned(),
         args: vec![coach_id.clone()],
-        raw_text: format!("/coach select {coach_id}"),
+        raw_text: format!("/coach add {coach_id}"),
         ctx: Arc::<ServerContext>::clone(&res),
         locale: "en".to_owned(),
         is_direct_message: true,
+        ambient_group_fallback: true,
         conversation_id: None,
         conversation_tenant_id: tenant_id,
         sender_id: None,
@@ -639,7 +517,7 @@ async fn slash_coach_select_emits_coach_selected() {
     };
 
     let (events, _guard) = capture_notify();
-    CoachSelectHandler.execute(&ctx).await.unwrap();
+    CoachAddHandler.execute(&ctx).await.unwrap();
 
     let selected = only(&events, "coach.selected");
     assert_eq!(selected.field("coach_slug"), coach_id);

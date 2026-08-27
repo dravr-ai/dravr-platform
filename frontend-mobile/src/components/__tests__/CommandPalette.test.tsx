@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile slash-command palette over the composer
-// ABOUTME: Asserts "/" surfaces a real server command name and selecting it fills the composer
+// ABOUTME: Unit tests for the mobile slash-command palette over the composer, including its keyboard
+// ABOUTME: Asserts the "/" button and key open it, arrows move the highlight, Enter takes it and Escape dismisses
 
 import React, { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -151,5 +151,83 @@ describe('slash-command palette (mobile composer)', () => {
 
     expect(screen.queryByTestId('command-palette')).toBeNull();
     expect(listCommands).not.toHaveBeenCalled();
+  });
+
+  // The visible affordance: new athletes do not know "/" exists until
+  // something tells them, which is why Telegram gives its bots a menu button.
+  it('the "/" button opens the palette', async () => {
+    renderComposer();
+
+    fireEvent.press(screen.getByTestId('slash-command-button'));
+
+    await waitFor(() => expect(screen.getByTestId('command-palette')).toBeTruthy());
+    expect(screen.getByTestId('message-input').props.value).toBe('/');
+  });
+
+  it('walks the list with the arrows and takes the highlighted row on Enter', async () => {
+    renderComposer();
+    const input = screen.getByTestId('message-input');
+
+    fireEvent.changeText(input, '/group');
+    await waitFor(() =>
+      expect(screen.getByTestId('command-palette-option-group-invite')).toBeTruthy(),
+    );
+    // The first row is highlighted before a key is pressed.
+    expect(screen.getByTestId('command-palette-option-group-invite').props.accessibilityState)
+      .toEqual({ selected: true });
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'ArrowDown' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('command-palette-option-group-status').props.accessibilityState)
+        .toEqual({ selected: true }),
+    );
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'Enter' } });
+    await waitFor(() => expect(screen.getByTestId('message-input').props.value).toBe('/group status'));
+  });
+
+  it('wraps the highlight upward past the first row', async () => {
+    renderComposer();
+    const input = screen.getByTestId('message-input');
+
+    fireEvent.changeText(input, '/group');
+    await waitFor(() =>
+      expect(screen.getByTestId('command-palette-option-group-invite')).toBeTruthy(),
+    );
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'ArrowUp' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('command-palette-option-group-status').props.accessibilityState)
+        .toEqual({ selected: true }),
+    );
+  });
+
+  it('Escape dismisses the palette until the next edit', async () => {
+    renderComposer();
+    const input = screen.getByTestId('message-input');
+
+    fireEvent.changeText(input, '/gro');
+    await waitFor(() => expect(screen.getByTestId('command-palette')).toBeTruthy());
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'Escape' } });
+    await waitFor(() => expect(screen.queryByTestId('command-palette')).toBeNull());
+
+    fireEvent.changeText(input, '/grou');
+    await waitFor(() => expect(screen.getByTestId('command-palette')).toBeTruthy());
+  });
+
+  // A finished command belongs to the composer: the athlete typed the whole
+  // thing and Enter must send it, not re-fill it.
+  it('leaves Enter to the composer once the command is complete', async () => {
+    renderComposer();
+    const input = screen.getByTestId('message-input');
+
+    fireEvent.changeText(input, '/group status');
+    await waitFor(() =>
+      expect(screen.getByTestId('command-palette-option-group-status')).toBeTruthy(),
+    );
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'Enter' } });
+    expect(onSendMessage).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,8 +6,9 @@
 
 use super::super::ChatRepository;
 use super::PostgresDatabase;
+use super::{chat_listing, chat_read_markers};
 use crate::database::{
-    ConversationParticipant, ConversationRecord, ConversationSummary, MessageFeedbackRecord,
+    ConversationPage, ConversationParticipant, ConversationRecord, MessageFeedbackRecord,
     MessageRecord,
 };
 use async_trait::async_trait;
@@ -206,49 +207,48 @@ impl ChatRepository for PostgresDatabase {
         tenant_id: TenantId,
         limit: i64,
         offset: i64,
-    ) -> AppResult<Vec<ConversationSummary>> {
-        let rows = sqlx::query(
-            r"
-            SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.channel_type, c.created_at, c.updated_at,
-                   COUNT(m.id) as message_count
-            FROM chat_conversations c
-            JOIN conversation_participants p ON p.conversation_id = c.id
-            LEFT JOIN chat_messages m ON m.conversation_id = c.id
-            WHERE p.user_id = $1 AND p.tenant_id = $2 AND c.tenant_id = $2
-            GROUP BY c.id
-            ORDER BY c.updated_at DESC
-            LIMIT $3 OFFSET $4
-            ",
+    ) -> AppResult<ConversationPage> {
+        chat_listing::list_conversations(&self.pool, user_id, tenant_id, limit, offset).await
+    }
+
+    async fn count_participating_conversations(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<i64> {
+        chat_listing::count_participating_conversations(&self.pool, user_id, tenant_id).await
+    }
+
+    async fn mark_conversation_read(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        up_to_message_id: Option<&str>,
+    ) -> AppResult<bool> {
+        chat_read_markers::mark_conversation_read(
+            &self.pool,
+            conversation_id,
+            user_id,
+            tenant_id,
+            up_to_message_id,
         )
-        .bind(parse_uuid(user_id)?)
-        .bind(tenant_id.to_string())
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to list conversations: {e}")))?;
+    }
 
-        let summaries = rows
-            .into_iter()
-            .map(|r| {
-                let created_at: DateTime<Utc> = r.get("created_at");
-                let updated_at: DateTime<Utc> = r.get("updated_at");
-
-                ConversationSummary {
-                    id: r.get("id"),
-                    title: r.get("title"),
-                    model: r.get("model"),
-                    message_count: r.get("message_count"),
-                    total_tokens: r.get("total_tokens"),
-                    coach_id: r.get("coach_id"),
-                    channel_type: r.get("channel_type"),
-                    created_at: created_at.to_rfc3339(),
-                    updated_at: updated_at.to_rfc3339(),
-                }
-            })
-            .collect();
-
-        Ok(summaries)
+    async fn clear_conversation_read_marker(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        chat_read_markers::clear_conversation_read_marker(
+            &self.pool,
+            conversation_id,
+            user_id,
+            tenant_id,
+        )
+        .await
     }
 
     async fn update_conversation_title(

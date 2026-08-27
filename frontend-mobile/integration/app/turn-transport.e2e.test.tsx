@@ -1,9 +1,10 @@
 // ABOUTME: PHASE 4 e2e — the mobile app reads a chat turn off the ONE sendTurn transport, frames and all
 // ABOUTME: Covers the SSE body it actually receives, the deltas it declines, and the real retry
 
-import { renderHook, act } from '@testing-library/react-native';
+import { act } from '@testing-library/react-native';
 import type { Message } from '@pierre/shared-types';
 
+import { renderHook } from './helpers/queryHook';
 import { installHttpStub, sseTurn, type HttpStub } from './helpers/httpStub';
 import { CONVERSATION_ID, PROSE_OPENING, assistantTurn } from './helpers/chatFixtures';
 

@@ -71,11 +71,6 @@ export const QUERY_KEYS = {
     lists: () => ['coaches', 'user-coaches'] as const,
     list: (category?: string, favoritesOnly?: boolean, personalize?: boolean) =>
       ['coaches', 'user-coaches', category, favoritesOnly, personalize] as const,
-    listWithHidden: () => ['coaches', 'user-coaches', 'include-hidden'] as const,
-    hidden: () => ['coaches', 'hidden-coaches'] as const,
-    versions: (coachId: string) => ['coaches', 'coach-versions', coachId] as const,
-    versionDiff: (coachId: string, fromVersion?: number, toVersion?: number) =>
-      ['coaches', 'coach-version-diff', coachId, fromVersion, toVersion] as const,
     assignments: (coachId?: string) => ['coaches', 'coach-assignments', coachId] as const,
   },
 
@@ -195,7 +190,6 @@ export const QUERY_KEYS = {
   // ==================== GROUPS ====================
   groups: {
     all: ['groups'] as const,
-    list: () => ['groups'] as const,
     detail: (groupId: string) => ['groups', groupId] as const,
     members: (groupId: string) => ['groups', groupId, 'members'] as const,
     stats: (groupId: string) => ['groups', groupId, 'stats'] as const,
@@ -204,7 +198,6 @@ export const QUERY_KEYS = {
     invites: (groupId: string) => ['groups', groupId, 'invites'] as const,
     transcript: (groupId: string) => ['groups', groupId, 'transcript'] as const,
     permissions: () => ['groups', 'permissions'] as const,
-    coached: () => ['groups', 'coached'] as const,
   },
 
   // ==================== MESSAGING ====================

@@ -10,6 +10,7 @@
 //!
 //! - [`chat::conversations`] — CRUD on `chat_conversations` + message listing
 //! - [`chat::participants`] — who is in a conversation: list / add / remove
+//! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
 //! - [`chat::send_message`] — web-chat POST → unified pipeline (optional AG-UI)
 //! - [`chat::turn_response`] — the wire shape of one turn's envelope
@@ -22,6 +23,7 @@ mod dto;
 mod feedback;
 mod group_transcript;
 mod participants;
+mod read_marker;
 mod send_message;
 mod turn_response;
 
@@ -34,11 +36,13 @@ use crate::mcp::resources::ServerContext;
 use crate::services::chat_verdicts;
 
 pub use dto::{
-    AddParticipantRequest, ChatMessageAction, ConversationListResponse, ConversationResponse,
-    ConversationSummaryResponse, CreateConversationRequest, FeedbackRating, ListConversationsQuery,
-    MessageFeedbackEntry, MessageResponse, MessagesListResponse, ParticipantListResponse,
-    ParticipantResponse, SendMessageRequest, UpdateConversationRequest, UpsertFeedbackRequest,
+    preview_text, AddParticipantRequest, ChatMessageAction, ConversationListResponse,
+    ConversationResponse, ConversationSummaryResponse, CreateConversationRequest, FeedbackRating,
+    LastMessageResponse, ListConversationsQuery, MessageActionsResponse, MessageFeedbackEntry,
+    MessageResponse, MessagesListResponse, ParticipantListResponse, ParticipantResponse,
+    SendMessageRequest, UpdateConversationRequest, UpsertFeedbackRequest, MAX_LIST_LIMIT,
 };
+pub use read_marker::MarkReadRequest;
 pub use turn_response::{
     AssistantResponse, NoticeResponse, ReplyBlockResponse, TurnResponse, TurnTelemetryResponse,
     VerdictChipResponse,
@@ -80,6 +84,11 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}/participants/{user_id}",
                 delete(participants::remove_participant),
+            )
+            // The caller's read marker: mark read (advance) / mark unread (clear)
+            .route(
+                "/api/chat/conversations/{conversation_id}/read",
+                post(read_marker::mark_read).delete(read_marker::mark_unread),
             )
             // Messages
             .route(

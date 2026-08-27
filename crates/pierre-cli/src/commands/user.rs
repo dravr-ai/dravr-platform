@@ -11,7 +11,9 @@ use chrono::Utc;
 use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
-use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::models::{
+    default_locale, CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier,
+};
 use pierre_core::permissions::UserRole;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::RepositoryRegistry;
@@ -23,15 +25,30 @@ use uuid::Uuid;
 
 use crate::helpers::display::display_admin_user_success;
 
+/// Non-identity attributes of the account `create` establishes.
+pub struct AdminUserOptions {
+    /// Update the account instead of refusing when the email already exists
+    pub force: bool,
+    /// Grant the `super_admin` role rather than plain `admin`
+    pub super_admin: bool,
+    /// BCP-47 short locale for the account. `None` keeps the platform default
+    /// on a new account and leaves an existing account's own locale untouched.
+    pub locale: Option<String>,
+}
+
 /// Create or update admin user for frontend login
 pub async fn create(
     repos: &RepositoryRegistry,
     email: String,
     password: String,
     name: Option<String>,
-    force: bool,
-    super_admin: bool,
+    options: AdminUserOptions,
 ) -> Result<()> {
+    let AdminUserOptions {
+        force,
+        super_admin,
+        locale,
+    } = options;
     // Derive display name from email prefix if not provided
     let display_name =
         name.unwrap_or_else(|| email.split('@').next().unwrap_or("Admin").to_owned());
@@ -47,12 +64,15 @@ pub async fn create(
             &email,
             &password,
             &display_name,
-            force,
-            super_admin,
+            UpdateOptions {
+                force,
+                super_admin,
+                locale,
+            },
         )
         .await?;
     } else {
-        create_new_admin_user(repos, &email, &password, &display_name, super_admin).await?;
+        create_new_admin_user(repos, &email, &password, &display_name, super_admin, locale).await?;
     }
 
     display_admin_user_success(&email, &display_name, super_admin);
@@ -63,15 +83,27 @@ pub async fn create(
     Ok(())
 }
 
+/// The subset of [`AdminUserOptions`] the update path needs, kept as a struct so the
+/// function stays under the argument threshold.
+struct UpdateOptions {
+    force: bool,
+    super_admin: bool,
+    locale: Option<String>,
+}
+
 async fn update_existing_admin_user(
     repos: &RepositoryRegistry,
     existing_user: User,
     email: &str,
     password: &str,
     name: &str,
-    force: bool,
-    super_admin: bool,
+    options: UpdateOptions,
 ) -> Result<()> {
+    let UpdateOptions {
+        force,
+        super_admin,
+        locale,
+    } = options;
     if !force {
         display_existing_user_error(&existing_user);
         return Err(AppError::invalid_input(
@@ -110,7 +142,7 @@ async fn update_existing_admin_user(
         auth_provider: existing_user.auth_provider,
         analytics_consent: existing_user.analytics_consent,
         analytics_consent_at: existing_user.analytics_consent_at,
-        locale: existing_user.locale,
+        locale: locale.unwrap_or(existing_user.locale),
         coaching_persona: existing_user.coaching_persona,
         manages_roster: existing_user.manages_roster,
         timezone: existing_user.timezone.clone(),
@@ -203,6 +235,7 @@ fn build_admin_user(
     password_hash: String,
     name: &str,
     role: UserRole,
+    locale: Option<String>,
 ) -> User {
     // NOTE: tenant_id is managed via tenant_users junction table, not on User struct
     User {
@@ -225,7 +258,7 @@ fn build_admin_user(
         auth_provider: "email".to_owned(),
         analytics_consent: false,
         analytics_consent_at: None,
-        locale: "fr".to_owned(),
+        locale: locale.unwrap_or_else(default_locale),
         coaching_persona: CoachingPersona::default(),
         manages_roster: false,
         timezone: None,
@@ -239,6 +272,7 @@ async fn create_new_admin_user(
     password: &str,
     name: &str,
     super_admin: bool,
+    locale: Option<String>,
 ) -> Result<()> {
     let role_str = if super_admin { "super admin" } else { "admin" };
     info!("Creating new {} user...", role_str);
@@ -252,7 +286,7 @@ async fn create_new_admin_user(
     let user_id = Uuid::new_v4();
     let password_hash = hash(password, DEFAULT_COST)
         .map_err(|e| AppError::internal(format!("bcrypt error: {e}")))?;
-    let new_user = build_admin_user(user_id, email, password_hash, name, role);
+    let new_user = build_admin_user(user_id, email, password_hash, name, role, locale);
 
     repos.users.create(&new_user).await?;
     info!("Created {} user: {}", role_str, email);

@@ -26,7 +26,7 @@ use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::SeedTable;
 use pierre_database::seed_models::{
-    SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant,
+    SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant, SEED_LOCALE,
 };
 use pierre_database::RepositoryRegistry;
 use rand::rngs::StdRng;
@@ -680,6 +680,7 @@ async fn create_demo_user(repos: &RepositoryRegistry, user: &DemoUser) -> AppRes
         status: user.status.to_owned(),
         is_admin: false,
         created_at: now,
+        locale: SEED_LOCALE.to_owned(),
     };
     repos.seeder.seed_insert_demo_user(&seed_user).await?;
 

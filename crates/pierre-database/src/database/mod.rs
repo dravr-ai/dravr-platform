@@ -126,7 +126,7 @@ pub mod workout_templates;
 pub mod test_utils;
 
 pub use chat::{
-    AddMessageParams, ChatManager, ConversationParticipant, ConversationRecord,
+    AddMessageParams, ChatManager, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
 };
 pub use coach_authors::{
@@ -2498,23 +2498,6 @@ impl Database {
         let chat_manager = ChatManager::new(self.pool.clone());
         chat_manager
             .get_conversation(conversation_id, user_id, tenant_id)
-            .await
-    }
-
-    /// List conversations (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
-    pub async fn chat_list_conversations_impl(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-        limit: i64,
-        offset: i64,
-    ) -> AppResult<Vec<ConversationSummary>> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .list_conversations(user_id, tenant_id, limit, offset)
             .await
     }
 

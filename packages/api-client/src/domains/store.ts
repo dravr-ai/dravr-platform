@@ -8,7 +8,6 @@ import type { AxiosInstance } from 'axios';
 import type {
   BrowseCoachesResponse,
   SearchCoachesResponse,
-  CategoriesResponse,
   InstallCoachResponse,
   UninstallCoachResponse,
   InstallationsResponse,
@@ -64,14 +63,6 @@ export function createStoreApi(axios: AxiosInstance) {
      */
     async get(coachId: string): Promise<StoreCoachDetail> {
       const response = await axios.get<StoreCoachDetail>(ENDPOINTS.STORE.COACH(coachId));
-      return response.data;
-    },
-
-    /**
-     * Get store categories with counts.
-     */
-    async getCategories(): Promise<CategoriesResponse> {
-      const response = await axios.get<CategoriesResponse>(ENDPOINTS.STORE.CATEGORIES);
       return response.data;
     },
 

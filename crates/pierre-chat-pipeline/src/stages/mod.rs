@@ -18,7 +18,7 @@
 //!   [`followups`]
 //! - Pre-LLM preparation: [`prefetch`], [`compaction`]
 //! - Post-LLM processing: [`guardrails`], [`verification`]
-//! - Lifecycle I/O: [`persistence`]
+//! - Lifecycle I/O: [`persistence`], [`command_persistence`]
 
 /// First-use acronym expansion: gloss catalogued acronyms deterministically.
 pub mod acronym_expansion;
@@ -32,6 +32,8 @@ pub mod capability_recovery;
 /// Per-turn `@handle` routing: an installed coach named in the message
 /// answers that turn only.
 pub mod coach_mention;
+/// Slash-command turns written to the transcript — and kept out of prompts.
+pub mod command_persistence;
 /// Open athlete commitments rendered into the coach's system prompt.
 pub mod commitments;
 pub mod compaction;

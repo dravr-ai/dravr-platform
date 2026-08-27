@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Locks the chat-first shell of the Chat-First Cutover (2026-08-26) on web
-// ABOUTME: Landing on chat, the retired Coach tab, the "+" menu, and the @handle mention autocomplete
+// ABOUTME: Locks the chat shell on web — one list, the "+" menu, the "/" button and the header drawer
+// ABOUTME: Landing on chat, the retired Coach and Groups tabs, and the @handle mention autocomplete
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
@@ -14,6 +14,12 @@ const CONVERSATION = {
   created_at: '2026-08-20T10:00:00Z',
   updated_at: '2026-08-20T10:00:00Z',
   message_count: 0,
+  unread_count: 3,
+  last_message: {
+    preview: 'How did the long run feel?',
+    role: 'assistant',
+    created_at: '2026-08-20T10:00:00Z',
+  },
 };
 
 /** Every conversation POST the shell made, in order. */
@@ -21,8 +27,15 @@ interface CreatedConversation {
   body: Record<string, unknown>;
 }
 
-async function setupShellMocks(page: Page): Promise<CreatedConversation[]> {
+/** Everything the shell put on the wire: conversations created, turns sent. */
+interface ShellTraffic {
+  created: CreatedConversation[];
+  sent: string[];
+}
+
+async function setupShellMocks(page: Page): Promise<ShellTraffic> {
   const created: CreatedConversation[] = [];
+  const sent: string[] = [];
 
   // Base dashboard mocks first: later routes take priority (LIFO).
   await setupDashboardMocks(page, { role: 'user' });
@@ -39,7 +52,42 @@ async function setupShellMocks(page: Page): Promise<CreatedConversation[]> {
     });
   });
 
-  await page.route('**/api/chat/conversations/conv-1/messages', async (route) => {
+  await page.route('**/api/chat/conversations/conv-1/messages', async (route, request) => {
+    if (request.method() === 'POST') {
+      sent.push((request.postDataJSON() as { content: string }).content);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          turn_id: 'turn-1',
+          user_message: {
+            id: 'm1',
+            role: 'user',
+            content: '',
+            created_at: '2026-08-20T10:01:00Z',
+          },
+          assistant: {
+            message: {
+              id: 'm2',
+              role: 'assistant',
+              content: 'Done.',
+              created_at: '2026-08-20T10:01:01Z',
+            },
+            blocks: [],
+            finish_reason: 'command',
+          },
+          conversation_updated_at: '2026-08-20T10:01:01Z',
+          telemetry: {
+            model: 'command',
+            provider_name: 'command',
+            tool_calls_count: 0,
+            tools_called: [],
+            execution_time_ms: 2,
+          },
+        }),
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -76,37 +124,35 @@ async function setupShellMocks(page: Page): Promise<CreatedConversation[]> {
     });
   });
 
+  // The server's own catalogue: the palette renders whatever this returns.
   await page.route('**/api/commands**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ commands: [] }),
-    });
-  });
-
-  await page.route(/\/api\/groups(\?.*)?$/, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
       body: JSON.stringify({
-        groups: [
+        commands: [
           {
-            id: 'group-1',
-            name: 'Sunday Riders',
-            description: null,
-            coach_id: 'coach-tempo',
-            member_count: 4,
-            is_active: true,
-            peer_data_sharing: true,
-            my_role: 'member',
-            created_at: '2026-08-01T00:00:00Z',
+            name: 'coach-list',
+            command: '/coach list',
+            args: null,
+            description: 'List the coaches you can add to a chat',
+            domain: 'coach',
+          },
+          {
+            name: 'group-create',
+            command: '/group create',
+            args: '<name>',
+            description: 'Create a coaching group',
+            domain: 'group',
           },
         ],
       }),
     });
   });
 
-  // The athlete's coach list: one addressable coach, one personal coach with no handle.
+  // The athlete's coach list: one installed coach (a system coach with an assignment
+  // row — the resolver admits those), one personal coach with no handle, and one
+  // catalogue coach that is listed but never installed, so `@` must not offer it.
   await page.route(/\/api\/coaches(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
@@ -127,6 +173,7 @@ async function setupShellMocks(page: Page): Promise<CreatedConversation[]> {
             created_at: '2026-01-01T00:00:00Z',
             updated_at: '2026-01-01T00:00:00Z',
             is_system: true,
+            is_assigned: true,
             handle: 'recovery-coach',
           },
           {
@@ -143,14 +190,32 @@ async function setupShellMocks(page: Page): Promise<CreatedConversation[]> {
             created_at: '2026-01-01T00:00:00Z',
             updated_at: '2026-01-01T00:00:00Z',
             is_system: false,
+            is_assigned: true,
+          },
+          {
+            id: 'coach-catalogue',
+            title: 'Recovery Catalogue',
+            description: 'Never installed',
+            system_prompt: 'You are a catalogue coach.',
+            category: 'recovery',
+            tags: [],
+            token_count: 100,
+            is_favorite: false,
+            use_count: 0,
+            last_used_at: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+            is_system: true,
+            is_assigned: false,
+            handle: 'recovery-catalogue',
           },
         ],
-        total: 2,
+        total: 3,
       }),
     });
   });
 
-  return created;
+  return { created, sent };
 }
 
 test.describe('Chat-first shell', () => {
@@ -160,13 +225,81 @@ test.describe('Chat-first shell', () => {
     await page.waitForSelector('aside', { timeout: 10000 });
 
     await expect(page).toHaveURL(/#chat$/);
-    await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
 
     const aside = page.locator('aside');
     await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
     await expect(aside.getByRole('button', { name: 'Discover', exact: true })).toBeVisible();
-    await expect(aside.getByRole('button', { name: 'Groups' })).toBeVisible();
+    await expect(aside.getByRole('button', { name: 'Groups' })).toHaveCount(0);
     await expect(aside.getByRole('button', { name: 'Coaches' })).toHaveCount(0);
+  });
+
+  test('a stale #groups deep link lands on chat', async ({ page }) => {
+    await setupShellMocks(page);
+    await loginToDashboard(page);
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    await page.goto('/#groups/group-1');
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    await expect(page).toHaveURL(/#chat$/);
+    await expect(page.getByTestId('conversation-list')).toBeVisible();
+  });
+
+  test('the empty pane names what to do and offers the "+" and Commands', async ({ page }) => {
+    await setupShellMocks(page);
+    await loginToDashboard(page);
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    const empty = page.getByTestId('chat-empty-state');
+    await expect(empty).toBeVisible({ timeout: 10000 });
+    await expect(empty.getByText('Pick a chat, or start one')).toBeVisible();
+    await expect(page.getByTestId('chat-empty-commands')).toBeVisible();
+  });
+
+  test('the list row carries its unread count, preview and time', async ({ page }) => {
+    await setupShellMocks(page);
+    await loginToDashboard(page);
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    const row = page.locator('[data-testid="conversation-row"]', { hasText: 'Sunday long run' });
+    await expect(row.getByTestId('conversation-unread-count')).toHaveText('3', { timeout: 10000 });
+    await expect(row.getByTestId('conversation-preview')).toHaveText('How did the long run feel?');
+    await expect(row.getByTestId('conversation-timestamp')).not.toBeEmpty();
+  });
+
+  test('the "/" button beside the composer opens the server catalogue', async ({ page }) => {
+    await setupShellMocks(page);
+    await loginToDashboard(page);
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    await page.goto('/#chat/conv-1');
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    await page.getByTestId('slash-command-button').click();
+
+    await expect(page.getByPlaceholder('Message Dravr...')).toHaveValue('/');
+    const palette = page.getByTestId('command-palette');
+    await expect(palette).toBeVisible();
+    await expect(palette.getByText('/coach list')).toBeVisible();
+    await expect(palette.getByText('/group create')).toBeVisible();
+  });
+
+  test('the thread header is a button that opens the info drawer', async ({ page }) => {
+    await setupShellMocks(page);
+    await loginToDashboard(page);
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    await page.goto('/#chat/conv-1');
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    const header = page.getByTestId('conversation-header-title');
+    await expect(header).toHaveAttribute('aria-haspopup', 'dialog');
+    await header.click();
+
+    await expect(page.getByTestId('conversation-info-panel')).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Chat info' })).toBeVisible();
+    await expect(page.getByTestId('plain-info-panel')).toBeVisible();
   });
 
   test('a stale #my-coaches deep link lands on chat', async ({ page }) => {
@@ -177,17 +310,17 @@ test.describe('Chat-first shell', () => {
     await page.goto('/#my-coaches');
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
     await expect(page).toHaveURL(/#chat$/);
     await expect(page.getByText('custom AI personas')).toHaveCount(0);
   });
 
   test('the "+" offers a new chat and a new group chat, and starts a plain chat', async ({ page }) => {
-    const created = await setupShellMocks(page);
+    const { created } = await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('button', { name: 'New', exact: true }).first().click();
     const menu = page.getByRole('menu', { name: 'Start a conversation' });
     await expect(menu.getByRole('menuitem')).toHaveText(['New chat', 'New group chat']);
 
@@ -198,28 +331,27 @@ test.describe('Chat-first shell', () => {
     await expect(page).toHaveURL(/#chat\/conv-new$/);
   });
 
-  test('"New group chat" lists the coaching groups and opens a group-scoped conversation', async ({ page }) => {
-    const created = await setupShellMocks(page);
+  test('"New group chat" asks for a name and sends /group create, creating no group itself', async ({ page }) => {
+    const { created, sent } = await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.goto('/#chat/conv-1');
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    await page.getByRole('button', { name: 'New', exact: true }).first().click();
     await page.getByRole('menuitem', { name: 'New group chat' }).click();
 
-    const picker = page.getByRole('dialog');
-    await expect(picker.getByText('New group chat')).toBeVisible();
-    await picker.getByRole('button', { name: /Sunday Riders/ }).click();
+    await page.getByTestId('group-name-input').fill('Sunday Riders');
+    await page.getByTestId('group-name-submit').click();
 
-    await expect.poll(() => created.length).toBe(1);
-    expect(created[0].body).toMatchObject({
-      title: 'Sunday Riders',
-      coach_id: 'coach-tempo',
-      group_id: 'group-1',
-    });
-    await expect(page).toHaveURL(/#chat\/conv-new$/);
+    await expect.poll(() => sent.length, { timeout: 10000 }).toBe(1);
+    expect(sent[0]).toBe('/group create Sunday Riders');
+    // Nothing POSTed a group, and no second conversation was created either.
+    expect(created).toHaveLength(0);
   });
 
-  test('with a conversation open, "+" also offers adding someone, which opens the participants control', async ({ page }) => {
+  test('with a conversation open, "+" also offers adding someone, which opens the info drawer on Participants', async ({ page }) => {
     await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
@@ -228,7 +360,7 @@ test.describe('Chat-first shell', () => {
     await page.waitForSelector('aside', { timeout: 10000 });
     await expect(page.getByTestId('conversation-header-title')).toHaveText('Sunday long run');
 
-    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('button', { name: 'New', exact: true }).first().click();
     const menu = page.getByRole('menu', { name: 'Start a conversation' });
     await expect(menu.getByRole('menuitem')).toHaveText([
       'New chat',
@@ -258,10 +390,12 @@ test.describe('Chat-first shell', () => {
 
     const palette = page.getByTestId('mention-palette');
     await expect(palette).toBeVisible();
-    // Only the addressable coach is offered; the handle-less personal coach is not.
+    // Only the installed coach is offered: the handle-less personal coach cannot be
+    // mentioned, and the catalogue coach has no assignment row so it would not route.
     await expect(palette.getByRole('option')).toHaveCount(1);
     await expect(palette.getByText('@recovery-coach')).toBeVisible();
     await expect(palette.getByText('My Custom Coach')).toHaveCount(0);
+    await expect(palette.getByText('@recovery-catalogue')).toHaveCount(0);
 
     await page.getByTestId('mention-palette-option-recovery-coach').click();
 

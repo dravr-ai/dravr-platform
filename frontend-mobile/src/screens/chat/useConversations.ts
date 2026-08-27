@@ -3,6 +3,8 @@
 
 import React, { useState, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { chatApi } from '../../services/api';
 import { extractErrorMessage } from '../../utils/errorMessages';
 import type { Conversation } from '../../types';
@@ -41,11 +43,20 @@ export interface ConversationsActions {
 }
 
 export function useConversations(): ConversationsState & ConversationsActions {
+  const queryClient = useQueryClient();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const justCreatedConversationRef = useRef<string | null>(null);
+
+  // The unified list is a React Query cache the conversation screen and the
+  // chat tab's badge both read. A thread created, renamed or deleted from the
+  // open transcript changes that list, so it is re-read rather than left to
+  // drift until the next focus.
+  const invalidateConversationList = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+  }, [queryClient]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -83,6 +94,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
       setConversations(prev => [conversation, ...prev]);
       justCreatedConversationRef.current = conversation.id;
       setCurrentConversation(conversation);
+      invalidateConversationList();
       return conversation;
     } catch (err) {
       const errorMessage = extractErrorMessage(err, 'Failed to create conversation');
@@ -90,7 +102,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
       console.error('Failed to create conversation:', err);
       throw err;
     }
-  }, []);
+  }, [invalidateConversationList]);
 
   const deleteConversation = useCallback(async (conversationId: string) => {
     try {
@@ -100,12 +112,13 @@ export function useConversations(): ConversationsState & ConversationsActions {
       if (currentConversation?.id === conversationId) {
         setCurrentConversation(null);
       }
+      invalidateConversationList();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete conversation';
       setError(errorMessage);
       Alert.alert('Error', 'Failed to delete conversation');
     }
-  }, [currentConversation?.id]);
+  }, [currentConversation?.id, invalidateConversationList]);
 
   const renameConversation = useCallback(async (conversationId: string, newTitle: string) => {
     try {
@@ -126,13 +139,14 @@ export function useConversations(): ConversationsState & ConversationsActions {
         }
         return prev;
       });
+      invalidateConversationList();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to rename conversation';
       setError(errorMessage);
       console.error('Failed to rename conversation:', err);
       Alert.alert('Error', 'Failed to rename conversation');
     }
-  }, []);
+  }, [invalidateConversationList]);
 
   const handleNewChat = useCallback(() => {
     setCurrentConversation(null);

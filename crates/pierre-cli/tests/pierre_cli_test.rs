@@ -80,6 +80,9 @@ fn test_cli_user_create_help() {
         "Should show --super-admin option"
     );
     assert!(stdout.contains("--force"), "Should show --force option");
+    // The dev-setup script creates jf_test / phil_test / the operator through this
+    // command and passes `--locale en`; a dropped flag would silently seed them French.
+    assert!(stdout.contains("--locale"), "Should show --locale option");
 }
 
 #[test]

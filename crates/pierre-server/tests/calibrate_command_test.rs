@@ -91,6 +91,7 @@ fn ctx(
         ctx: Arc::<ServerContext>::clone(resources) as Arc<dyn pierre_runtime_context::CommandCtx>,
         locale: "en".to_owned(),
         is_direct_message: true,
+        ambient_group_fallback: true,
         conversation_id,
         conversation_tenant_id: tenant_id,
         sender_id: None,

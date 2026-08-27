@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Main chat screen orchestrator importing decomposed hooks and components
-// ABOUTME: Coordinates conversation, message, provider, coach, and voice input state
+// ABOUTME: Coordinates conversation, message, provider and voice state, and the thread's info sheet
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, Alert } from 'react-native';
@@ -15,24 +15,24 @@ import { PromptDialog } from '../../components/ui';
 import { trackMobile } from '../../services/analytics';
 import { trustedActionUrl } from '@pierre/chat-utils';
 import type { ChatMessageAction } from '@pierre/shared-types';
-import type { Coach } from '../../types';
 
 import { ChatHeader } from './ChatHeader';
 import { ChatPlusSheet } from './ChatPlusSheet';
 import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
-import { CHAT_LIST_ROUTE } from '../../navigation/routes';
+import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID } from '../../navigation/routes';
 import { ChatInputBar } from './ChatInputBar';
 import { ChatProgressStrip } from './ChatProgressStrip';
+import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { MessageList } from './MessageList';
 import { ProviderModal } from './ProviderModal';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { useConversations } from './useConversations';
+import { useMarkConversationRead } from './useMarkConversationRead';
 import { useMessages } from './useMessages';
 import { useProviderStatus } from './useProviderStatus';
-import { useCoachSelection } from './useCoachSelection';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import { useUsageStatus } from './useUsageStatus';
 import { UsageWarningBanner } from './UsageWarningBanner';
@@ -41,17 +41,16 @@ export function ChatScreen() {
   const { isAuthenticated } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams<{ conversationId?: string }>();
+  const params = useLocalSearchParams<{ conversationId?: string; draft?: string; send?: string }>();
   const inputRef = useRef<TextInput>(null);
 
   // UI State
   const [inputText, setInputText] = useState('');
-  const [actionMenuVisible, setActionMenuVisible] = useState(false);
+  const [infoVisible, setInfoVisible] = useState(false);
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
   const [renameDefaultTitle, setRenameDefaultTitle] = useState('');
   const [plusVisible, setPlusVisible] = useState(false);
-  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
   const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
 
@@ -59,11 +58,19 @@ export function ChatScreen() {
   const conversations = useConversations();
   const messagesHook = useMessages();
   const providerStatus = useProviderStatus();
-  const coachSelection = useCoachSelection();
   const usageStatus = useUsageStatus();
-  // The "+" and the title menu's "Participants" share one flow state, so
+  // The "+" and the info sheet's "Participants" share one flow state, so
   // "add someone to this discussion" and "Participants" open the same sheet.
   const chatPlus = useChatPlusActions(conversations.currentConversation?.id ?? null);
+
+  const { messages } = messagesHook;
+  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
+  // Reading is looking: the marker advances only while this screen is focused
+  // and the app is awake, and again on every new last message.
+  useMarkConversationRead({
+    conversationId: conversations.currentConversation?.id ?? null,
+    lastMessageId,
+  });
 
   // The thread is pushed over the conversation list; a deep link or a cold
   // start can land here with nothing beneath, so fall back to the list.
@@ -86,22 +93,20 @@ export function ChatScreen() {
     if (isAuthenticated) {
       conversations.loadConversations();
       providerStatus.loadProviderStatus();
-      coachSelection.loadCoaches();
     }
     // These functions are stable from hooks, intentionally omit to avoid loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  // Refresh coaches and provider status on focus so newly created coaches appear
+  // Refresh provider status on focus, and re-read the open thread
   useFocusEffect(
     useCallback(() => {
       if (isAuthenticated) {
-        coachSelection.loadCoaches();
         providerStatus.loadProviderStatus();
-        // Conversations can be opened from outside this screen — the group
-        // detail screen creates a group-scoped one and routes here by id. The
-        // id resolves against this list, so a stale list lands the athlete on
-        // an empty composer instead of the conversation they just opened.
+        // Conversations can be opened from outside this screen — an invite
+        // deep link and the "+" both route here by id. The id resolves against
+        // this list, so a stale list lands the athlete on an empty composer
+        // instead of the conversation they just opened.
         void conversations.loadConversations();
         // Messaging turns arrive async via inbound webhook with no push to the
         // app. Reload the open conversation on focus so a reply sent from
@@ -135,7 +140,10 @@ export function ChatScreen() {
   // Clear conversation when navigating to chat without a conversationId (or with 'new')
   useEffect(() => {
     const conversationId = params?.conversationId;
-    if ((conversationId === undefined || conversationId === 'new') && conversations.currentConversation !== null) {
+    if (
+      (conversationId === undefined || conversationId === NEW_CONVERSATION_ID) &&
+      conversations.currentConversation !== null
+    ) {
       conversations.setCurrentConversation(null);
       messagesHook.clearMessages();
     }
@@ -194,17 +202,22 @@ export function ChatScreen() {
     if (quotaNotice) applyNotice(quotaNotice);
   }, [quotaNotice, applyNotice]);
 
-  // Message sending
-  const handleSendMessage = useCallback(async () => {
-    if (!inputText.trim() || messagesHook.isSending) return;
-
-    const messageText = inputText.trim();
-    setInputText('');
+  /**
+   * Send one line as the next turn, creating the thread when there is none.
+   *
+   * Everything that produces a turn goes through here — the composer, a
+   * reply's postback button, a command an info sheet issues, and the `send`
+   * param an invite link or a "New group chat" prompt arrives with — so quota
+   * accounting and thread creation have exactly one implementation.
+   */
+  const sendText = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || messagesHook.isSending) return;
 
     let conversationId = conversations.currentConversation?.id;
     if (!conversationId) {
       const newConversation = await conversations.createConversation({
-        title: messageText.slice(0, 50),
+        title: trimmed.slice(0, 50),
       });
       if (!newConversation) return;
       conversationId = newConversation.id;
@@ -212,11 +225,38 @@ export function ChatScreen() {
 
     try {
       trackMobile({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
-      await messagesHook.sendTurn(conversationId, messageText);
+      await messagesHook.sendTurn(conversationId, trimmed);
     } finally {
       usageStatus.invalidate();
     }
-  }, [inputText, messagesHook, conversations, usageStatus]);
+  }, [messagesHook, conversations, usageStatus]);
+
+  const handleSendMessage = useCallback(async () => {
+    const messageText = inputText.trim();
+    if (!messageText) return;
+    setInputText('');
+    await sendText(messageText);
+  }, [inputText, sendText]);
+
+  // A navigation may arrive with composer intent: `draft` fills the composer
+  // and waits for the athlete, `send` runs once. Both are command text built
+  // by COMMAND_DRAFTS, and each is honoured once per value so a re-render on
+  // the same route never re-sends it.
+  const draftedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const draft = typeof params.draft === 'string' ? params.draft : null;
+    if (!draft || draftedRef.current === draft) return;
+    draftedRef.current = draft;
+    setInputText(draft);
+  }, [params.draft]);
+
+  const sentRef = useRef<string | null>(null);
+  useEffect(() => {
+    const send = typeof params.send === 'string' ? params.send : null;
+    if (!send || sentRef.current === send) return;
+    sentRef.current = send;
+    void sendText(send);
+  }, [params.send, sendText]);
 
   /**
    * Press handler for a control the reply's `actions` block carried.
@@ -237,15 +277,9 @@ export function ChatScreen() {
         if (target) await handleOpenUrl(target);
         return;
       }
-      // postback: send value as next turn. Uses existing handleSendMessage
-      // after seeding the composer so quota + error handling stay uniform.
-      setInputText(action.value);
-      // Defer so React commits setInputText before handleSendMessage reads.
-      setTimeout(() => {
-        void handleSendMessage();
-      }, 0);
+      await sendText(action.value);
     },
-    [handleOpenUrl, handleSendMessage],
+    [handleOpenUrl, sendText],
   );
 
   // Retry message
@@ -271,96 +305,28 @@ export function ChatScreen() {
     void messagesHook.submitFeedbackReason(messageId, conversations.currentConversation.id, comment);
   }, [messagesHook, conversations.currentConversation?.id]);
 
-  // Coach selection handling
-  const handleCoachSelect = useCallback(async (coach: Coach) => {
-    await coachSelection.handleCoachSelect(coach, {
-      isSending: messagesHook.isSending,
-      hasConnectedProvider: providerStatus.hasConnectedProvider,
-      selectedProvider: providerStatus.selectedProvider,
-      connectedProviders: providerStatus.connectedProviders,
-      setSelectedProvider: providerStatus.setSelectedProvider,
-      setProviderModalVisible: providerStatus.setProviderModalVisible,
-      startCoachConversation: async (coach) => {
-        await coachSelection.startCoachConversation(coach, {
-          createConversation: conversations.createConversation,
-          setMessages: messagesHook.setMessages,
-          setIsSending: messagesHook.setIsSending,
-          scrollToBottom: messagesHook.scrollToBottom,
-          setMessageBlocks: messagesHook.setMessageBlocks,
-        });
-      },
-    });
-  }, [coachSelection, messagesHook, providerStatus, conversations]);
-
-  // Start coach conversation helper
-  const startCoachConversation = useCallback(async (coach: Coach) => {
-    await coachSelection.startCoachConversation(coach, {
-      createConversation: conversations.createConversation,
-      setMessages: messagesHook.setMessages,
-      setIsSending: messagesHook.setIsSending,
-      scrollToBottom: messagesHook.scrollToBottom,
-      setMessageBlocks: messagesHook.setMessageBlocks,
-    });
-  }, [coachSelection, conversations, messagesHook]);
-
   // Provider connection handling
   const handleConnectProvider = useCallback(async (provider: string) => {
-    await providerStatus.handleConnectProvider(provider, async () => {
-      if (coachSelection.pendingCoachAction) {
-        await startCoachConversation(coachSelection.pendingCoachAction.coach);
-        coachSelection.clearPendingCoachAction();
-      } else if (pendingPrompt) {
-        await handleSendPromptMessage(pendingPrompt);
-        setPendingPrompt(null);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerStatus, coachSelection, pendingPrompt, startCoachConversation]);
+    await providerStatus.handleConnectProvider(provider);
+  }, [providerStatus]);
 
-  const handleSendPromptMessage = useCallback(async (prompt: string) => {
-    let conversationId = conversations.currentConversation?.id;
-    if (!conversationId) {
-      try {
-        const newConversation = await conversations.createConversation({
-          title: prompt.slice(0, 50),
-        });
-        conversationId = newConversation.id;
-      } catch {
-        Alert.alert('Error', conversations.error || 'Failed to create conversation');
-        return;
-      }
-    }
-    await messagesHook.sendTurn(conversationId, prompt);
-  }, [conversations, messagesHook]);
-
-  // Provider modal handlers
   const handleProviderSelect = useCallback((provider: string) => {
     providerStatus.setSelectedProvider(provider);
     providerStatus.setProviderModalVisible(false);
-    if (pendingPrompt) {
-      handleSendPromptMessage(pendingPrompt);
-      setPendingPrompt(null);
-    }
-    if (coachSelection.pendingCoachAction) {
-      startCoachConversation(coachSelection.pendingCoachAction.coach);
-      coachSelection.clearPendingCoachAction();
-    }
-  }, [providerStatus, pendingPrompt, coachSelection, handleSendPromptMessage, startCoachConversation]);
+  }, [providerStatus]);
 
   const handleProviderModalClose = useCallback(() => {
     providerStatus.setProviderModalVisible(false);
-    setPendingPrompt(null);
-    coachSelection.clearPendingCoachAction();
-  }, [providerStatus, coachSelection]);
+  }, [providerStatus]);
 
-  // Header menu handlers
-  const showTitleActionMenu = useCallback(() => {
+  // Info sheet handlers
+  const openInfoSheet = useCallback(() => {
     if (!conversations.currentConversation) return;
-    setActionMenuVisible(true);
+    setInfoVisible(true);
   }, [conversations.currentConversation]);
 
-  const handleMenuRename = useCallback(() => {
-    setActionMenuVisible(false);
+  const handleInfoRename = useCallback(() => {
+    setInfoVisible(false);
     if (conversations.currentConversation) {
       const title = conversations.currentConversation.title || 'New Chat';
       setRenameConversationId(conversations.currentConversation.id);
@@ -369,15 +335,15 @@ export function ChatScreen() {
     }
   }, [conversations.currentConversation]);
 
-  const handleMenuParticipants = useCallback(() => {
-    setActionMenuVisible(false);
+  const handleInfoParticipants = useCallback(() => {
+    setInfoVisible(false);
     if (conversations.currentConversation) {
       chatPlus.flows.openParticipants();
     }
   }, [conversations.currentConversation, chatPlus.flows]);
 
-  const handleMenuDelete = useCallback(() => {
-    setActionMenuVisible(false);
+  const handleInfoDelete = useCallback(() => {
+    setInfoVisible(false);
     if (!conversations.currentConversation) return;
 
     Alert.alert(
@@ -412,8 +378,6 @@ export function ChatScreen() {
     setRenameDefaultTitle('');
   }, []);
 
-  const isCoachConversation = Boolean(conversations.currentConversation?.coach_id);
-
   return (
     <View className="flex-1 bg-background-primary" testID="chat-screen">
       <View
@@ -421,15 +385,10 @@ export function ChatScreen() {
       >
         <ChatHeader
           currentConversation={conversations.currentConversation}
-          actionMenuVisible={actionMenuVisible}
           insetTop={insets.top}
           onBackPress={goBackToList}
           onPlusPress={() => setPlusVisible(true)}
-          onTitlePress={showTitleActionMenu}
-          onMenuClose={() => setActionMenuVisible(false)}
-          onMenuRename={handleMenuRename}
-          onMenuParticipants={handleMenuParticipants}
-          onMenuDelete={handleMenuDelete}
+          onTitlePress={openInfoSheet}
         />
 
         <ChatPlusSheet
@@ -439,19 +398,27 @@ export function ChatScreen() {
         />
         <ChatPlusFlows flows={chatPlus.flows} />
 
+        <ConversationInfoSheet
+          visible={infoVisible}
+          conversation={conversations.currentConversation}
+          onClose={() => setInfoVisible(false)}
+          onSendCommand={(command) => void sendText(command)}
+          onRename={handleInfoRename}
+          onParticipants={handleInfoParticipants}
+          onDelete={handleInfoDelete}
+          onLeaveThread={goBackToList}
+        />
+
         <MessageList
           messages={messagesHook.messages}
-          coaches={coachSelection.coaches}
           isLoading={conversations.isLoading}
           isSending={messagesHook.isSending}
-          isCoachConversation={isCoachConversation}
           messageFeedback={messagesHook.messageFeedback}
           messageFeedbackComment={messagesHook.messageFeedbackComment}
           messageBlocks={messagesHook.messageBlocks}
           verdicts={messagesHook.verdicts}
           flatListRef={messagesHook.flatListRef}
           onScrollToBottom={messagesHook.scrollToBottom}
-          onCoachSelect={handleCoachSelect}
           onThumbsUp={handleThumbsUp}
           onThumbsDown={handleThumbsDown}
           onSubmitFeedbackReason={handleSubmitFeedbackReason}

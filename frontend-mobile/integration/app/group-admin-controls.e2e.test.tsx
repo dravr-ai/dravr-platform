@@ -1,9 +1,9 @@
-// ABOUTME: carnet #55/#52/#53/#60 e2e — mobile group admin controls, consent, group chat, weekly report
-// ABOUTME: Asserts the consent PUT carries the real value and the group chat POST carries group_id
+// ABOUTME: carnet #55/#52/#53/#60 e2e — Group info inside the group's chat: admin controls, consent, report
+// ABOUTME: Asserts the consent PUT carries the real value and that every control reaches the same routes as before
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
   CoachingGroup,
@@ -27,7 +27,7 @@ jest.mock('expo-router', () => ({
     navigate: jest.fn(),
     canGoBack: () => true,
   }),
-  useLocalSearchParams: () => ({ groupId: 'group-1' }),
+  useLocalSearchParams: () => ({ conversationId: 'conv-group-1' }),
   useSegments: () => [],
   usePathname: () => '/groups/group-1',
   useFocusEffect: () => undefined,
@@ -43,7 +43,7 @@ jest.mock('../../src/contexts/AuthContext', () => ({
   }),
 }));
 
-import { GroupDetailScreen } from '../../src/screens/groups/GroupDetailScreen';
+import { GroupInfoSheet } from '../../src/screens/groups/GroupInfoSheet';
 
 const GROUP: CoachingGroup = {
   id: 'group-1',
@@ -161,26 +161,40 @@ const INVITES: GroupInvitesResponse = {
   ],
 };
 
+const onClose = jest.fn();
+const onLeft = jest.fn();
+
+/**
+ * Group info as the chat header opens it: the sheet's content, for the group
+ * the open thread is scoped to. Sections other than Members start collapsed,
+ * so a test opens the one it is about.
+ */
 function renderGroup() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <GroupDetailScreen />
+      <GroupInfoSheet groupId="group-1" fallbackName="Harricana 2027" onClose={onClose} onLeft={onLeft} />
     </QueryClientProvider>,
   );
 }
 
-describe('carnet #55/#52 — mobile group admin + peer consent', () => {
+describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
   let stub: HttpStub;
   let ownerConsent: boolean;
+  let shareMock: jest.Mock;
 
   beforeEach(() => {
     ownerConsent = false;
     mockBack.mockClear();
     mockPush.mockClear();
+    onClose.mockClear();
+    onLeft.mockClear();
     jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    shareMock = jest
+      .spyOn(Share, 'share')
+      .mockResolvedValue({ action: 'sharedAction' } as never) as unknown as jest.Mock;
     stub = installHttpStub({
       'GET /api/groups/group-1': { data: GROUP },
       'GET /api/groups/group-1/members': () => ({ data: membersResponse(ownerConsent) }),
@@ -189,23 +203,18 @@ describe('carnet #55/#52 — mobile group admin + peer consent', () => {
       'GET /api/groups/permissions': { data: PERMISSIONS },
       'GET /api/groups/group-1/report': { data: REPORT },
       'GET /api/groups/group-1/health': { data: HEALTH },
-      'POST /api/chat/conversations': (request) => ({
-        status: 201,
-        data: {
-          id: 'conv-group-1',
-          ...(request.body as Record<string, unknown>),
-          total_tokens: 0,
-          message_count: 0,
-          created_at: '2026-08-25T08:00:00Z',
-          updated_at: '2026-08-25T08:00:00Z',
-        },
-      }),
+      'GET /api/groups/group-1/transcript': { data: { group_id: 'group-1', entries: [] } },
+      'GET /api/coaches': { data: { coaches: [] } },
       'PUT /api/groups/group-1/members/me/consent': (request) => {
         ownerConsent = (request.body as { consent: boolean }).consent;
         return { data: { success: true } };
       },
       'PUT /api/groups/group-1/members/user-phil/role': { data: { success: true } },
       'DELETE /api/groups/group-1/invites/invite-1': { data: { success: true } },
+      'POST /api/groups/group-1/invites': {
+        status: 201,
+        data: { ...INVITES.invites[0], id: 'invite-2', code: 'HARRI-NEW', use_count: 0 },
+      },
     });
   });
 
@@ -215,8 +224,9 @@ describe('carnet #55/#52 — mobile group admin + peer consent', () => {
   });
 
   it('binds the consent switch to the caller row and writes the real value', async () => {
-    const { getByTestId } = renderGroup();
+    const { getByTestId, findByTestId } = renderGroup();
 
+    fireEvent.press(await findByTestId('group-info-settings-toggle'));
     await waitFor(() => {
       expect(getByTestId('peer-consent-switch')).toBeTruthy();
     });
@@ -259,15 +269,11 @@ describe('carnet #55/#52 — mobile group admin + peer consent', () => {
     });
   });
 
-  it('lists live invites in the admin sheet and deactivates one', async () => {
-    const { getByTestId, getByText } = renderGroup();
-
-    await waitFor(() => {
-      expect(getByTestId('group-admin-button')).toBeTruthy();
-    });
+  it('lists live invites in Group info and deactivates one', async () => {
+    const { getByTestId, getByText, findByTestId } = renderGroup();
 
     await act(async () => {
-      fireEvent.press(getByTestId('group-admin-button'));
+      fireEvent.press(await findByTestId('group-info-invites-toggle'));
     });
 
     await waitFor(() => {
@@ -275,7 +281,7 @@ describe('carnet #55/#52 — mobile group admin + peer consent', () => {
     });
     expect(getByText('HARRI-7X2')).toBeTruthy();
     expect(getByText('Member invite · used 3×')).toBeTruthy();
-    expect(getByText('Active Invites (1)')).toBeTruthy();
+    expect(getByText('Invites (1)')).toBeTruthy();
 
     fireEvent.press(getByTestId('deactivate-invite-invite-1'));
 
@@ -306,27 +312,15 @@ describe('carnet #55/#52 — mobile group admin + peer consent', () => {
       'GET /api/groups/permissions': { data: PERMISSIONS },
       'GET /api/groups/group-1/report': { data: REPORT },
       'GET /api/groups/group-1/health': { data: HEALTH },
-      'POST /api/chat/conversations': (request) => ({
-        status: 201,
-        data: {
-          id: 'conv-group-1',
-          ...(request.body as Record<string, unknown>),
-          total_tokens: 0,
-          message_count: 0,
-          created_at: '2026-08-25T08:00:00Z',
-          updated_at: '2026-08-25T08:00:00Z',
-        },
-      }),
+      'GET /api/groups/group-1/transcript': { data: { group_id: 'group-1', entries: [] } },
+      'GET /api/coaches': { data: { coaches: [] } },
       'PUT /api/groups/group-1': { data: { ...GROUP, respond_mode: 'mentions' } },
     });
 
-    const { getByTestId } = renderGroup();
+    const { getByTestId, findByTestId } = renderGroup();
 
-    await waitFor(() => {
-      expect(getByTestId('group-admin-button')).toBeTruthy();
-    });
     await act(async () => {
-      fireEvent.press(getByTestId('group-admin-button'));
+      fireEvent.press(await findByTestId('group-info-settings-toggle'));
     });
     await waitFor(() => {
       expect(getByTestId('group-respond-mode-switch')).toBeTruthy();
@@ -345,37 +339,45 @@ describe('carnet #55/#52 — mobile group admin + peer consent', () => {
     });
   });
 
-  it('opens a group-scoped conversation carrying group_id and the group name', async () => {
-    const { getByTestId } = renderGroup();
-
-    await waitFor(() => {
-      expect(getByTestId('chat-with-coach-button')).toBeTruthy();
-    });
+  // The invite is created from inside the group's chat now — there is no
+  // Groups tab to open first — and it is the code the `/group join` command
+  // and the invite link both carry.
+  it('creates a member invite from Group info and shares its code', async () => {
+    const { getByTestId, findByTestId } = renderGroup();
 
     await act(async () => {
-      fireEvent.press(getByTestId('chat-with-coach-button'));
+      fireEvent.press(await findByTestId('group-info-invites-toggle'));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('group-info-create-invite'));
     });
 
-    const createRequest = stub
-      .requestsFor('POST')
-      .find((request) => request.url === '/api/chat/conversations');
-    expect(createRequest?.body).toEqual({
-      title: 'Harricana 2027',
-      coach_id: 'coach-1',
-      group_id: 'group-1',
+    const prompt = (Alert.alert as jest.Mock).mock.calls.at(-1) as [
+      string,
+      string,
+      Array<{ text: string; onPress?: () => void }>,
+    ];
+    expect(prompt[0]).toBe('Create Invite');
+    await act(async () => {
+      prompt[2].find((button) => button.text === 'Member (athlete)')?.onPress?.();
     });
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith({
-        pathname: '/(app)/(tabs)/(chat)/[conversationId]',
-        params: { conversationId: 'conv-group-1' },
-      });
+      const createRequest = stub
+        .requestsFor('POST')
+        .find((request) => request.url === '/api/groups/group-1/invites');
+      expect(createRequest?.body).toEqual({ expires_in_days: 7 });
     });
+    await waitFor(() => expect(shareMock).toHaveBeenCalled());
+    expect((shareMock.mock.calls.at(-1)?.[0] as { message: string }).message).toContain('HARRI-NEW');
   });
 
   it('renders the weekly report and one row per flagged member', async () => {
-    const { getByTestId, getAllByTestId, getByText } = renderGroup();
+    const { getByTestId, getAllByTestId, getByText, findByTestId } = renderGroup();
 
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-analytics-toggle'));
+    });
     await waitFor(() => {
       expect(getByTestId('group-report-summary').props.children).toBe(REPORT.report.summary);
     });

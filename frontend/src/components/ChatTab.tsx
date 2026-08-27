@@ -1,64 +1,99 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: AI Chat tab component for users to interact with fitness AI assistant
-// ABOUTME: Renders chat interface with collapsible conversations panel
+// ABOUTME: The chat surface: one open thread, its header info drawer, and the composer
+// ABOUTME: Coaches and groups are commands here — no coach CRUD, no group picker, no welcome grid
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ConfirmDialog, TabHeader } from './ui';
-import { chatApi, providersApi, coachesApi, oauthApi } from '../services/api';
+import { TabHeader } from './ui';
+import { chatApi, providersApi } from '../services/api';
 import { holdIdleWhileBusy, idleSignal } from '../services/api/idleSignal';
 import { track } from '../services/analytics';
-import PromptSuggestions from './PromptSuggestions';
-import { MessageCircle, Sparkles } from 'lucide-react';
+import { ChevronDown, MessageCircle } from 'lucide-react';
 import { statusTextForProgress, trustedActionUrl } from '@pierre/chat-utils';
 import {
   MessageList,
   MessageInput,
-  ProviderConnectionModal,
-  CoachFormModal,
-  CreateCoachFromConversationModal,
-  ConversationParticipants,
   ChatComposeMenu,
-  GroupChatPicker,
-  DEFAULT_COACH_FORM_DATA,
-  coachToFormData,
-  formDataToCreateRequest,
-  formDataToUpdateRequest,
+  ChatEmptyState,
+  ConversationInfoPanel,
 } from './chat';
 import VerdictDrawer from './chat/VerdictDrawer';
 import UsageWarningBanner from './chat/UsageWarningBanner';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { useUsageStatus } from '../hooks/useUsageStatus';
+import {
+  cachedConversations,
+  useConversationList,
+  useConversationMutations,
+} from '../hooks/useConversationList';
+import { useMarkConversationRead } from '../hooks/useMarkConversationRead';
+import { useCoachInfo } from '../hooks/useCoachInfo';
 import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { replySceneBlocks } from '@pierre/api-client';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type {
   Message,
-  Conversation,
-  Coach,
   MessageMetadata,
   MessageFeedback,
   OAuthNotification,
-  CoachDeleteConfirmation,
-  PendingCoachAction,
-  CoachFormData,
 } from './chat';
 import type { MessageFeedbackEntry } from '@pierre/shared-types';
+
+/**
+ * The id prefix of the user row appended to the transcript while a turn is in
+ * flight. It has no server id, so the read marker leaves it out of the
+ * "newest persisted message" it advances to.
+ */
+const OPTIMISTIC_USER_ID_PREFIX = 'user-';
+
+/** The newest row the server has persisted — the one the read marker follows. */
+function latestPersistedMessageId(messages: Message[] | undefined): string | null {
+  if (!messages) return null;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (!messages[i].id.startsWith(OPTIMISTIC_USER_ID_PREFIX)) return messages[i].id;
+  }
+  return null;
+}
+
+/**
+ * A composer action the shell hands the chat surface.
+ *
+ * `draft` seeds the composer and leaves the athlete to press send; `send`
+ * dispatches the text as a turn on its own. Both start a conversation first
+ * when none is open — an invite link opened cold has no thread to speak into.
+ */
+export interface PendingComposerAction {
+  kind: 'draft' | 'send';
+  text: string;
+}
 
 interface ChatTabProps {
   selectedConversation: string | null;
   onSelectConversation: (id: string | null) => void;
   /**
-   * Dashboard route navigator, `tab[/subview]`. The group picker sends an
-   * athlete who belongs to no group to the Groups surface through it.
+   * Dashboard route navigator, `tab[/subview]`. Editing a coach leaves for
+   * `discover/<coachId>`, which is where the edit sheet lives.
    */
   onNavigate?: (route: string) => void;
+  /** Text the shell wants drafted or sent in a thread — the invite deep link uses it. */
+  pendingComposerAction?: PendingComposerAction | null;
+  /** Called once the action above has been drafted or dispatched. */
+  onPendingComposerActionConsumed?: () => void;
 }
 
-export default function ChatTab({ selectedConversation, onSelectConversation, onNavigate }: ChatTabProps) {
+/** The stamp the server puts on a slash-command turn, both rows of it. */
+const COMMAND_FINISH_REASON = 'command';
+
+export default function ChatTab({
+  selectedConversation,
+  onSelectConversation,
+  onNavigate,
+  pendingComposerAction,
+  onPendingComposerActionConsumed,
+}: ChatTabProps) {
   const queryClient = useQueryClient();
   const showSuccessToast = useSuccessToast();
   const showInfoToast = useInfoToast();
@@ -74,10 +109,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
-  const [showIdeas, setShowIdeas] = useState(false);
-  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
-  const [showProviderModal, setShowProviderModal] = useState(false);
-  const [pendingCoachAction, setPendingCoachAction] = useState<PendingCoachAction | null>(null);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
   const [messageFeedback, setMessageFeedback] = useState<Map<string, MessageFeedback>>(new Map());
   // Saved thumbs-down reasons, keyed by message id. Hydrated from the server
@@ -87,15 +118,11 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   // Not persisted: a reloaded conversation has no block list on the wire, so
   // its rows are decoded back into the same shape by the renderer.
   const [messageBlocks, setMessageBlocks] = useState<Map<string, ReplyBlock[]>>(new Map());
-  const [showCoachModal, setShowCoachModal] = useState(false);
-  const [editingCoachId, setEditingCoachId] = useState<string | null>(null);
-  const [coachFormData, setCoachFormData] = useState<CoachFormData>(DEFAULT_COACH_FORM_DATA);
-  const [coachDeleteConfirmation, setCoachDeleteConfirmation] = useState<CoachDeleteConfirmation | null>(null);
-  const [showCreateCoachFromConversation, setShowCreateCoachFromConversation] = useState(false);
-  // The "+" menu's two sheets: the group picker, and the open thread's
-  // participants control ("Add someone to this discussion").
-  const [showGroupPicker, setShowGroupPicker] = useState(false);
-  const [participantsOpen, setParticipantsOpen] = useState(false);
+  // The header's info drawer — Group info, Coach info or the plain thread's
+  // own controls. The "+" menu's "Add someone" opens the same drawer with the
+  // participants control already expanded.
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoOpensParticipants, setInfoOpensParticipants] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -127,6 +154,15 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     refetchOnWindowFocus: true,
   });
 
+  // The open thread reads itself: the marker advances once the messages
+  // resolve and again on every reply that lands, so the row's unread count
+  // and the nav badge clear as the athlete reads.
+  const latestMessageId = useMemo(
+    () => latestPersistedMessageId(messagesData?.messages),
+    [messagesData],
+  );
+  useMarkConversationRead(selectedConversation, latestMessageId);
+
   // Hydrate thumbs up/down state (and any saved reason) from the server whenever
   // the messages load/refetch, so feedback survives reloads and conversation
   // switches. The server is the source of truth — this replaces local state.
@@ -153,44 +189,27 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   });
   const verdicts: ClaimVerdict[] = verdictsData?.verdicts ?? [];
 
-  // Conversations and coaches power the coach-aware chat header and the
-  // assistant author label. The conversation carries `coach_id`; the coach
-  // title is joined from the coaches list.
-  const { data: conversationsData } = useQuery({
-    queryKey: QUERY_KEYS.chat.conversations(),
-    queryFn: () => chatApi.getConversations(),
-  });
-  const { data: coachesListData } = useQuery<{ coaches: Coach[] }>({
-    queryKey: QUERY_KEYS.coaches.list(),
-    queryFn: () => coachesApi.list(),
-    // Coach titles change rarely; cache so the header doesn't refetch on
-    // every conversation switch.
-    staleTime: 5 * 60 * 1000,
-  });
+  // The list is the one source for the open thread's row: its title, the
+  // coach it is bound to and the group it is scoped to all come from there,
+  // so the header and the info drawer read the same record the sidebar draws.
+  const { conversations } = useConversationList();
+  const { rename, remove } = useConversationMutations();
+  const activeConversation = useMemo(
+    () => conversations.find(c => c.id === selectedConversation) ?? null,
+    [conversations, selectedConversation],
+  );
 
-  // Title of the coach attached to the active conversation, or null when the
-  // chat has no coach. `pendingCoachId` covers a freshly created conversation
-  // whose `coach_id` has not yet been written back to the conversation list.
-  const activeCoachTitle = useMemo<string | null>(() => {
-    const conversation = conversationsData?.conversations?.find(
-      c => c.id === selectedConversation,
-    );
-    const coachId = conversation?.coach_id ?? pendingCoachId;
-    if (!coachId) return null;
-    return coachesListData?.coaches?.find(c => c.id === coachId)?.title ?? null;
-  }, [conversationsData, coachesListData, selectedConversation, pendingCoachId]);
+  // `pendingCoachId` covers a freshly created conversation whose `coach_id`
+  // has not yet been written back to the list.
+  const { coach: activeCoach } = useCoachInfo(activeConversation?.coach_id ?? pendingCoachId);
+  const activeCoachTitle = activeCoach?.title ?? null;
 
-  // What the header names when no coach is attached: the conversation's own
-  // title, or a placeholder for a thread that has not been titled yet. The
-  // header always renders so the participants control has a home; this keeps
-  // its left side from being an empty rule.
+  // What the header names: the group, the coach, or the thread's own title.
   const headerTitle = useMemo<string>(() => {
+    if (activeConversation?.group_name) return activeConversation.group_name;
     if (activeCoachTitle) return activeCoachTitle;
-    const conversation = conversationsData?.conversations?.find(
-      c => c.id === selectedConversation,
-    );
-    return conversation?.title?.trim() || 'New conversation';
-  }, [activeCoachTitle, conversationsData, selectedConversation]);
+    return activeConversation?.title?.trim() || 'New conversation';
+  }, [activeConversation, activeCoachTitle]);
 
   // Drawer state for the claim verdict detail surface.
   const [selectedVerdict, setSelectedVerdict] = useState<ClaimVerdict | null>(null);
@@ -241,40 +260,13 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     },
   });
 
-  const createCoach = useMutation({
-    mutationFn: (data: CoachFormData) => coachesApi.create(formDataToCreateRequest(data)),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
-      setShowCoachModal(false);
-      setCoachFormData(DEFAULT_COACH_FORM_DATA);
-    },
-  });
-
-  const updateCoach = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: CoachFormData }) => coachesApi.update(id, formDataToUpdateRequest(data)),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
-      setShowCoachModal(false);
-      setEditingCoachId(null);
-      setCoachFormData(DEFAULT_COACH_FORM_DATA);
-    },
-  });
-
-  const deleteCoach = useMutation({
-    mutationFn: (id: string) => coachesApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
-      setCoachDeleteConfirmation(null);
-    },
-  });
+  /** Stable handle on the mutation above, so callbacks can depend on it. */
+  const startConversation = createConversation.mutate;
 
   // Restore message metadata (model label) from conversation when loading existing messages
   useEffect(() => {
     if (!selectedConversation || !messagesData?.messages?.length) return;
-    const conversationsData = queryClient.getQueryData<{ conversations: Conversation[] }>(
-      QUERY_KEYS.chat.conversations()
-    );
-    const conversation = conversationsData?.conversations?.find(c => c.id === selectedConversation);
+    const conversation = cachedConversations(queryClient).find(c => c.id === selectedConversation);
     if (!conversation?.model) return;
 
     setMessageMetadata(prev => {
@@ -290,10 +282,11 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     });
   }, [selectedConversation, messagesData, queryClient]);
 
-  // Focus input when conversation is selected; a participants panel left
-  // open belongs to the previous thread, so it closes with it.
+  // Focus input when conversation is selected; an info drawer left open
+  // belongs to the previous thread, so it closes with it.
   useEffect(() => {
-    setParticipantsOpen(false);
+    setInfoOpen(false);
+    setInfoOpensParticipants(false);
     if (selectedConversation) {
       inputRef.current?.focus();
     }
@@ -314,19 +307,10 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
         if (result.type === 'oauth_completed' && result.success && result.timestamp > fiveMinutesAgo) {
           const savedConversation = sessionStorage.getItem('pierre_oauth_conversation');
-          const savedCoachAction = sessionStorage.getItem('pierre_pending_coach_action');
-
           if (savedConversation) sessionStorage.removeItem('pierre_oauth_conversation');
-          if (savedCoachAction) sessionStorage.removeItem('pierre_pending_coach_action');
-
-          return {
-            result,
-            savedConversation,
-            savedCoachAction: savedCoachAction ? JSON.parse(savedCoachAction) : null,
-          };
+          return { result, savedConversation };
         } else if (result.timestamp <= fiveMinutesAgo) {
           sessionStorage.removeItem('pierre_oauth_conversation');
-          sessionStorage.removeItem('pierre_pending_coach_action');
         }
       } catch {
         // Ignore parse errors
@@ -334,7 +318,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       return null;
     };
 
-    const processOAuthData = (data: { result: { provider: string }; savedConversation: string | null; savedCoachAction: PendingCoachAction | null }) => {
+    const processOAuthData = (data: { result: { provider: string }; savedConversation: string | null }) => {
       if (isProcessingOAuth) return;
       isProcessingOAuth = true;
 
@@ -343,18 +327,9 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
       const providerDisplay = data.result.provider.charAt(0).toUpperCase() + data.result.provider.slice(1);
       setOauthNotification({ provider: providerDisplay, timestamp: Date.now() });
-      setConnectingProvider(null);
 
       if (data.savedConversation) {
         onSelectConversation(data.savedConversation);
-      }
-
-      if (data.savedCoachAction) {
-        setPendingPrompt(data.savedCoachAction.prompt);
-        if (data.savedCoachAction.coachId) {
-          setPendingCoachId(data.savedCoachAction.coachId);
-        }
-        createConversation.mutate(data.savedCoachAction.coachId);
       }
 
       setTimeout(() => {
@@ -376,25 +351,8 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         const { provider, success } = event.data;
         if (success && !isProcessingOAuth) {
           const savedConversation = sessionStorage.getItem('pierre_oauth_conversation');
-          const savedCoachActionStr = sessionStorage.getItem('pierre_pending_coach_action');
-
           if (savedConversation) sessionStorage.removeItem('pierre_oauth_conversation');
-          if (savedCoachActionStr) sessionStorage.removeItem('pierre_pending_coach_action');
-
-          let savedCoachAction = null;
-          if (savedCoachActionStr) {
-            try {
-              savedCoachAction = JSON.parse(savedCoachActionStr);
-            } catch {
-              // Ignore parse errors
-            }
-          }
-
-          processOAuthData({
-            result: { provider },
-            savedConversation,
-            savedCoachAction,
-          });
+          processOAuthData({ result: { provider }, savedConversation });
         }
       }
     };
@@ -430,7 +388,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [queryClient, createConversation, onSelectConversation]);
+  }, [queryClient, onSelectConversation]);
 
   /**
    * Send one turn and fold the result into the transcript.
@@ -444,16 +402,12 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const sendTurn = useCallback(async (displayContent: string) => {
     if (!displayContent || !selectedConversation || isStreaming) return;
 
-    if (connectingProvider) {
-      sessionStorage.setItem('pierre_oauth_conversation', selectedConversation);
-    }
-
     setIsStreaming(true);
     setStreamingContent('');
     setErrorMessage(null);
     track({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
 
-    const userMessageId = `user-${Date.now()}`;
+    const userMessageId = `${OPTIMISTIC_USER_ID_PREFIX}${Date.now()}`;
     const tempUserMessage: Message = {
       id: userMessageId,
       role: 'user',
@@ -557,6 +511,15 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         }
 
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+
+        // A slash command is the one turn that can rewrite what the header and
+        // the info panel draw — `/coach add` binds a coach, `/coach remove`
+        // detaches one, `/discover install` puts a new coach on the athlete's
+        // list. Both read the coach set, so a command turn refreshes it; an
+        // LLM turn never changes it and is left alone.
+        if (turn.assistant.finish_reason === COMMAND_FINISH_REASON) {
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
+        }
       },
       onError: error => {
         setErrorMessage(error.message);
@@ -571,7 +534,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     // line has nothing left to say.
     setProgressStatusText(null);
     usageStatus.invalidate();
-  }, [selectedConversation, isStreaming, connectingProvider, queryClient, usageStatus]);
+  }, [selectedConversation, isStreaming, queryClient, usageStatus]);
 
   /** The composer's own send: hand the typed text to {@link sendTurn} and clear the box. */
   const handleSendMessage = useCallback(() => {
@@ -593,75 +556,41 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   }, [pendingPrompt, selectedConversation, isStreaming, sendTurn]);
 
 
-  // Coach handlers. The optional coachId is what we now propagate to the
-  // conversation record — the server resolves the coach's system prompt.
-  const handleSelectPrompt = (prompt: string, coachId?: string) => {
-    if (!hasConnectedProvider) {
-      setPendingCoachAction({ prompt, coachId });
-      sessionStorage.setItem('pierre_pending_coach_action', JSON.stringify({ prompt, coachId }));
-      setShowProviderModal(true);
+  /**
+   * Put `text` in front of the athlete in a thread, creating one when none is
+   * open. `send` dispatches it as a turn (the invite deep link, the "+" menu's
+   * group creation, the info drawer's `/coach remove`); `draft` seeds the
+   * composer and lets them finish the line.
+   */
+  const runComposerAction = useCallback((action: PendingComposerAction) => {
+    if (action.kind === 'send' && selectedConversation) {
+      void sendTurn(action.text);
       return;
     }
-
-    setPendingPrompt(prompt);
-    if (coachId) {
-      setPendingCoachId(coachId);
+    if (action.kind === 'send') {
+      // No thread yet: queue the text and let the pending-prompt effect send
+      // it the moment the fresh conversation exists.
+      setPendingPrompt(action.text);
+      startConversation();
+      return;
     }
-    createConversation.mutate(coachId);
-  };
-
-  const handleFillPrompt = (prompt: string) => {
-    setNewMessage(prompt);
-    setShowIdeas(false);
+    if (!selectedConversation) startConversation();
+    setNewMessage(action.text);
     inputRef.current?.focus();
-  };
+  }, [selectedConversation, startConversation, sendTurn]);
 
-  const handleEditCoach = (coach: Coach) => {
-    setEditingCoachId(coach.id);
-    setCoachFormData(coachToFormData(coach));
-    setShowCoachModal(true);
-  };
+  /** Start a fresh thread whose composer already holds `/`, palette open. */
+  const handleOpenCommands = useCallback(() => {
+    runComposerAction({ kind: 'draft', text: '/' });
+  }, [runComposerAction]);
 
-  const handleDeleteCoach = (coach: Coach) => {
-    setCoachDeleteConfirmation({ id: coach.id, title: coach.title });
-  };
-
-  const handleConfirmCoachDelete = () => {
-    if (coachDeleteConfirmation) {
-      deleteCoach.mutate(coachDeleteConfirmation.id);
-    }
-  };
-
-  const handleConnectProvider = async (provider: string) => {
-    // Mobile Safari requires window.open to fire inside the synchronous
-    // user-gesture call stack. Pre-open a blank window so the popup permission
-    // is captured before the async authorize-URL fetch.
-    const popup = window.open('about:blank', '_blank');
-    setConnectingProvider(provider);
-    if (selectedConversation) {
-      sessionStorage.setItem('pierre_oauth_conversation', selectedConversation);
-    }
-    try {
-      const authUrl = await oauthApi.getAuthorizeUrlForProvider(provider);
-      if (popup && !popup.closed) {
-        popup.location.href = authUrl;
-      } else {
-        window.location.href = authUrl;
-        return;
-      }
-      // Clear the per-card spinner once the OAuth tab is loading. The chat
-      // OAuth handler resolves the eventual success through localStorage;
-      // holding the spinner here would strand the card if the user closes
-      // the OAuth tab without finishing.
-      setConnectingProvider(null);
-    } catch (error) {
-      if (popup && !popup.closed) {
-        popup.close();
-      }
-      console.error(`Failed to get OAuth URL for ${provider}:`, error);
-      setConnectingProvider(null);
-    }
-  };
+  // The shell's own composer action — the `/groups/join/:code` deep link, which
+  // lands on chat and sends `/group join CODE` as its first turn.
+  useEffect(() => {
+    if (!pendingComposerAction) return;
+    runComposerAction(pendingComposerAction);
+    onPendingComposerActionConsumed?.();
+  }, [pendingComposerAction, runComposerAction, onPendingComposerActionConsumed]);
 
   // Message action handlers
   const handleCopyMessage = useCallback((content: string) => {
@@ -806,38 +735,33 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     await sendTurn(messages[userMessageIndex].content);
   }, [selectedConversation, isStreaming, messagesData?.messages, queryClient, sendTurn]);
 
-  const handleProviderModalClose = () => {
-    setShowProviderModal(false);
-    setPendingCoachAction(null);
-    sessionStorage.removeItem('pierre_pending_coach_action');
-  };
-
-  const handleProviderModalSkip = () => {
-    setShowProviderModal(false);
-    if (pendingCoachAction) {
-      setPendingPrompt(pendingCoachAction.prompt);
-      if (pendingCoachAction.coachId) {
-        setPendingCoachId(pendingCoachAction.coachId);
+  /** The "+" menu's three items, wired the same way in both header slots. */
+  const composeMenu = (withParticipants: boolean) => (
+    <ChatComposeMenu
+      onNewChat={() => startConversation()}
+      onNewGroupChat={(command) => runComposerAction({ kind: 'send', text: command })}
+      onAddParticipant={
+        withParticipants
+          ? () => {
+              setInfoOpensParticipants(true);
+              setInfoOpen(true);
+            }
+          : undefined
       }
-      createConversation.mutate(pendingCoachAction.coachId);
-    }
-    setPendingCoachAction(null);
-    sessionStorage.removeItem('pierre_pending_coach_action');
+      disabled={createConversation.isPending}
+    />
+  );
+
+  /** The thread is gone — deleted, or left with the group it belonged to. */
+  const handleThreadGone = () => {
+    setInfoOpen(false);
+    onSelectConversation(null);
   };
 
-  // Coach form handlers
-  const handleCoachFormSubmit = () => {
-    if (editingCoachId) {
-      updateCoach.mutate({ id: editingCoachId, data: coachFormData });
-    } else {
-      createCoach.mutate(coachFormData);
-    }
-  };
-
-  const handleCoachFormClose = () => {
-    setShowCoachModal(false);
-    setEditingCoachId(null);
-    setCoachFormData(DEFAULT_COACH_FORM_DATA);
+  const handleDeleteConversation = async () => {
+    if (!selectedConversation) return;
+    await remove(selectedConversation);
+    handleThreadGone();
   };
 
   return (
@@ -855,7 +779,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
           </div>
         )}
         {!selectedConversation ? (
-          /* Welcome View */
           <div className="flex-1 flex flex-col overflow-hidden">
             <TabHeader
               icon={<MessageCircle className="w-5 h-5" />}
@@ -867,215 +790,108 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                     ).join(', ') + ' connected'
                   : 'No provider connected'
               }
-              actions={
-                <ChatComposeMenu
-                  onNewChat={() => createConversation.mutate()}
-                  onNewGroupChat={() => setShowGroupPicker(true)}
-                  disabled={createConversation.isPending}
-                />
-              }
+              actions={composeMenu(false)}
             />
-
-            <div className="flex-1 overflow-y-auto">
-              <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-                <div className="text-center mb-6 sm:mb-8">
-                  <h2 className="text-h2-mobile sm:text-2xl text-on-surface mb-2 text-balance">Ready to analyze your fitness</h2>
-                  <p className="text-on-surface-variant text-sm">
-                    {hasConnectedProvider
-                      ? 'Get personalized insights from your activity data'
-                    : 'Or ask a question to Dravr'}
-                </p>
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (newMessage.trim()) {
-                      setPendingPrompt(newMessage.trim());
-                      createConversation.mutate();
-                    }
-                  }}
-                  className="relative mt-6 max-w-2xl mx-auto flex items-stretch gap-2 min-w-0"
-                >
-                  <input
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Message Dravr..."
-                    aria-label="Message Dravr"
-                    className="flex-1 min-w-0 rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-colors"
-                    disabled={createConversation.isPending}
-                  />
-                  <button
-                    type="submit"
-                    aria-label="Send message"
-                    disabled={!newMessage.trim() || createConversation.isPending}
-                    className="flex-shrink-0 min-w-[44px] min-h-[44px] px-3 sm:px-4 bg-primary text-on-primary text-sm font-medium rounded-lg hover:bg-primary-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
-                  >
-                    {createConversation.isPending ? (
-                      <div className="pierre-spinner w-4 h-4 border-white border-t-transparent" />
-                    ) : (
-                      <>
-                        <span className="hidden sm:inline">Send</span>
-                        <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                        </svg>
-                      </>
-                    )}
-                  </button>
-                </form>
-              </div>
-
-              <PromptSuggestions
-                onSelectPrompt={handleSelectPrompt}
-                onEditCoach={handleEditCoach}
-                onDeleteCoach={handleDeleteCoach}
-              />
-            </div>
+            <ChatEmptyState
+              compose={composeMenu(false)}
+              onOpenCommands={handleOpenCommands}
+              disabled={createConversation.isPending}
+            />
           </div>
-        </div>
-      ) : (
-        /* Active Conversation View */
-        <div className="h-full flex flex-col">
-          {/* Usage warning banner */}
-          <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
+        ) : (
+          /* Active Conversation View */
+          <div className="h-full flex flex-col">
+            {/* Usage warning banner */}
+            <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
 
-          {/* Conversation Header: coach or conversation title (left) + "+" / participants / Create Coach (right) */}
-          <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-between gap-3">
-            <div className="min-w-0 flex items-center gap-2">
-              {activeCoachTitle && (
-                <img src="/dravr-icon.svg" alt="" className="w-5 h-5 rounded-md flex-shrink-0" />
-              )}
-              <span
-                className="text-sm font-semibold text-on-surface truncate"
-                title={headerTitle}
+            {/* Conversation Header: the title is the way in to Group info,
+                Coach info or the plain thread's own controls — exactly where
+                App Messaging keeps it. */}
+            <div className="border-b ghost-border px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setInfoOpensParticipants(false);
+                  setInfoOpen(true);
+                }}
+                aria-haspopup="dialog"
                 data-testid="conversation-header-title"
+                title={headerTitle}
+                className="min-w-0 flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-surface-container-low transition-colors"
               >
-                {headerTitle}
-              </span>
+                {activeCoachTitle && !activeConversation?.group_id && (
+                  <img src="/dravr-icon.svg" alt="" className="w-5 h-5 rounded-md flex-shrink-0" />
+                )}
+                <span className="text-sm font-semibold text-on-surface truncate">{headerTitle}</span>
+                <ChevronDown className="w-4 h-4 flex-shrink-0 text-on-surface-variant" aria-hidden="true" />
+              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">{composeMenu(true)}</div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <ChatComposeMenu
-                onNewChat={() => createConversation.mutate()}
-                onNewGroupChat={() => setShowGroupPicker(true)}
-                onAddParticipant={() => setParticipantsOpen(true)}
-                disabled={createConversation.isPending}
-              />
-              <ConversationParticipants
-                conversationId={selectedConversation}
-                open={participantsOpen}
-                onOpenChange={setParticipantsOpen}
-              />
-              {(messagesData?.messages?.length ?? 0) >= 2 && (
-                <button
-                  onClick={() => setShowCreateCoachFromConversation(true)}
-                  disabled={isStreaming}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                  title="Create a coach based on this conversation"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Create Coach
-                </button>
-              )}
+            <div className="flex-1 overflow-y-auto min-h-0">
+              <div className="max-w-3xl mx-auto py-4 md:py-6 px-4 md:px-6">
+                <MessageList
+                  messages={messagesData?.messages || []}
+                  messageMetadata={messageMetadata}
+                  messageFeedback={messageFeedback}
+                  messageFeedbackComment={messageFeedbackComment}
+                  messageBlocks={messageBlocks}
+                  verdicts={verdicts}
+                  assistantLabel={activeCoachTitle ?? undefined}
+                  isLoading={messagesLoading}
+                  isStreaming={isStreaming}
+                  streamingContent={streamingContent}
+                  progressStatusText={progressStatusText}
+                  errorMessage={errorMessage}
+                  oauthNotification={oauthNotification}
+                  onDismissError={() => setErrorMessage(null)}
+                  onDismissOAuthNotification={() => setOauthNotification(null)}
+                  onCopyMessage={handleCopyMessage}
+                  onShareMessage={handleShareMessage}
+                  onThumbsUp={handleThumbsUp}
+                  onThumbsDown={handleThumbsDown}
+                  onSubmitFeedbackReason={handleSubmitFeedbackReason}
+                  onRetryMessage={handleRetryMessage}
+                  onShowVerdict={setSelectedVerdict}
+                  onAskAboutClaim={handleAskAboutClaim}
+                  onActionClick={handleActionClick}
+                />
+              </div>
             </div>
-          </div>
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <div className="max-w-3xl mx-auto py-4 md:py-6 px-4 md:px-6">
-              <MessageList
-                messages={messagesData?.messages || []}
-                messageMetadata={messageMetadata}
-                messageFeedback={messageFeedback}
-                messageFeedbackComment={messageFeedbackComment}
-                messageBlocks={messageBlocks}
-                verdicts={verdicts}
-                assistantLabel={activeCoachTitle ?? undefined}
-                isLoading={messagesLoading}
-                isStreaming={isStreaming}
-                streamingContent={streamingContent}
-                progressStatusText={progressStatusText}
-                errorMessage={errorMessage}
-                oauthNotification={oauthNotification}
-                onDismissError={() => setErrorMessage(null)}
-                onDismissOAuthNotification={() => setOauthNotification(null)}
-                onCopyMessage={handleCopyMessage}
-                onShareMessage={handleShareMessage}
-                onThumbsUp={handleThumbsUp}
-                onThumbsDown={handleThumbsDown}
-                onSubmitFeedbackReason={handleSubmitFeedbackReason}
-                onRetryMessage={handleRetryMessage}
-                onShowVerdict={setSelectedVerdict}
-                onAskAboutClaim={handleAskAboutClaim}
-                onActionClick={handleActionClick}
-              />
-            </div>
-          </div>
 
-          <MessageInput
-            value={newMessage}
-            onChange={setNewMessage}
-            onSend={handleSendMessage}
-            isStreaming={isStreaming}
-            disabled={usageStatus.sendDisabled}
-            showIdeas={showIdeas}
-            onToggleIdeas={() => setShowIdeas(!showIdeas)}
-            onSelectPrompt={handleFillPrompt}
-            conversationId={selectedConversation}
-          />
-        </div>
-      )}
+            <MessageInput
+              value={newMessage}
+              onChange={setNewMessage}
+              onSend={handleSendMessage}
+              isStreaming={isStreaming}
+              disabled={usageStatus.sendDisabled}
+              conversationId={selectedConversation}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Modals and Dialogs */}
-      <GroupChatPicker
-        isOpen={showGroupPicker}
-        onClose={() => setShowGroupPicker(false)}
-        onStarted={onSelectConversation}
-        onGoToGroups={onNavigate ? () => onNavigate('groups') : undefined}
-      />
-
-      <ProviderConnectionModal
-        isOpen={showProviderModal}
-        onClose={handleProviderModalClose}
-        onConnectProvider={handleConnectProvider}
-        connectingProvider={connectingProvider}
-        onSkip={handleProviderModalSkip}
-        isSkipPending={createConversation.isPending}
-      />
-
-      <CoachFormModal
-        isOpen={showCoachModal}
-        isEditing={!!editingCoachId}
-        formData={coachFormData}
-        onFormDataChange={setCoachFormData}
-        onSubmit={handleCoachFormSubmit}
-        onClose={handleCoachFormClose}
-        isSubmitting={editingCoachId ? updateCoach.isPending : createCoach.isPending}
-        submitError={createCoach.isError || updateCoach.isError}
-      />
-
-      <ConfirmDialog
-        isOpen={!!coachDeleteConfirmation}
-        onClose={() => setCoachDeleteConfirmation(null)}
-        onConfirm={handleConfirmCoachDelete}
-        title="Delete Coach"
-        message={`Are you sure you want to delete "${coachDeleteConfirmation?.title || 'this coach'}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
-        variant="danger"
-        isLoading={deleteCoach.isPending}
-      />
-
-      {selectedConversation && (
-        <CreateCoachFromConversationModal
-          isOpen={showCreateCoachFromConversation}
-          conversationId={selectedConversation}
-          messageCount={messagesData?.messages?.length ?? 0}
-          onClose={() => setShowCreateCoachFromConversation(false)}
-          onSuccess={() => {
-            setShowCreateCoachFromConversation(false);
-            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      {/* Drawers */}
+      {infoOpen && activeConversation ? (
+        <ConversationInfoPanel
+          conversation={activeConversation}
+          openParticipants={infoOpensParticipants}
+          onClose={() => setInfoOpen(false)}
+          onSendCommand={(text) => {
+            setInfoOpen(false);
+            runComposerAction({ kind: 'send', text });
           }}
+          onEditCoach={(coachId) => {
+            setInfoOpen(false);
+            onNavigate?.(`discover/${encodeURIComponent(coachId)}`);
+          }}
+          onRename={(title) => {
+            void rename(activeConversation.id, title);
+            setInfoOpen(false);
+          }}
+          onDelete={() => void handleDeleteConversation()}
+          onThreadGone={handleThreadGone}
         />
-      )}
+      ) : null}
 
       {selectedVerdict ? (
         <VerdictDrawer

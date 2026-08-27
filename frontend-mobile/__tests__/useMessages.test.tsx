@@ -1,7 +1,9 @@
 // ABOUTME: Unit tests for useMessages hook
 // ABOUTME: Tests message state management, sending, setMessages/setIsSending exposure
 
-import { renderHook, act } from '@testing-library/react-native';
+import React from 'react';
+import { renderHook as rtlRenderHook, act } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Mock API service
 const mockGetConversationMessages = jest.fn();
@@ -30,6 +32,21 @@ jest.mock('@pierre/chat-utils', () => ({
 
 import { useMessages } from '../src/screens/chat/useMessages';
 import type { Message } from '../src/types';
+
+/**
+ * The hook invalidates the conversation-list query after a turn, so it needs
+ * a client in scope — the same one the app's QueryProvider supplies.
+ */
+function renderHook<T>(hook: () => T) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return rtlRenderHook(hook, {
+    wrapper: ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+}
 
 const createMockMessage = (overrides: Partial<Message> = {}): Message => ({
   id: `msg-${Date.now()}`,

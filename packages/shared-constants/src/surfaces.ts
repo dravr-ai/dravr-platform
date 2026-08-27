@@ -89,14 +89,6 @@ export const USER_SURFACES: readonly UserSurface[] = [
     blocks: NO_BLOCKS,
   },
   {
-    id: 'groups',
-    label: 'Groups',
-    web: 'groups',
-    mobile: '/(app)/(tabs)/(groups)',
-    webNav: 'Groups',
-    blocks: NO_BLOCKS,
-  },
-  {
     id: 'notifications',
     label: 'Notifications',
     web: 'notifications',

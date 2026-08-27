@@ -61,6 +61,7 @@ pub use hooks::{
     TurnEvent, TurnEventSink, TurnProgress, STAGE_STATUS_FINISHED, STAGE_STATUS_STARTED,
 };
 pub use quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
+pub use stages::command_persistence::{CommandPersistence, PersistedCommandReply};
 pub use surface_profile::{
     BlockSupport, MessagingTransportCaps, ModelPolicy, ProgressiveSupport, ProseFormat,
     ProviderStreaming, RenderCapabilities, SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
@@ -83,8 +84,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use pierre_agui::AgUiEvent;
 use pierre_commands::CommandHandlerRegistry;
-use pierre_config::environment::LlmProviderType;
-use pierre_config::environment::ServerConfig;
+use pierre_config::environment::{LlmProviderType, ServerConfig};
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;

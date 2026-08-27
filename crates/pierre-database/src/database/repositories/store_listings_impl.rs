@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::{
-    Coach, CoachCategory, CoachVisibility, PublishStatus, StoreAdminStats,
+    Coach, CoachCategory, CoachHandle, CoachVisibility, PublishStatus, StoreAdminStats,
 };
 use pierre_core::models::TenantId;
 use pierre_core::pagination::{Cursor, CursorPage, StoreCursor, StoreSortOrder};
@@ -239,6 +239,19 @@ impl Database {
 
 #[async_trait]
 impl StoreListingsRepository for Database {
+    async fn assign_catalogue_handle(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<String> {
+        let mut conn = self.pool().acquire().await.map_err(|e| {
+            AppError::database(format!(
+                "Failed to acquire connection for coach handle: {e}"
+            ))
+        })?;
+        ensure_catalogue_handle(&mut conn, coach_id, tenant_id).await
+    }
+
     async fn submit_for_review(
         &self,
         coach_id: &str,
@@ -756,6 +769,31 @@ impl StoreListingsRepository for Database {
         .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get published coach: {e}")))?;
+
+        row.map(|r| row_to_coach_with_listing(&r)).transpose()
+    }
+
+    async fn find_published_by_handle(
+        &self,
+        handle: &CoachHandle,
+    ) -> AppResult<Option<CoachWithListing>> {
+        // `forked_from IS NULL` keeps installed copies out: they carry the
+        // origin's handle as a reference and never own a listing of their own.
+        let row = sqlx::query(&format!(
+            r"
+            SELECT {COACH_COLUMNS_ALIASED}, {LISTING_COLUMNS_ALIASED}
+            FROM coaches c
+            JOIN store_listings sl ON c.id = sl.coach_id
+            WHERE c.slug = $1 AND c.forked_from IS NULL AND sl.publish_status = 'published'
+            LIMIT 1
+            "
+        ))
+        .bind(handle.as_str())
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to resolve published coach by handle: {e}"))
+        })?;
 
         row.map(|r| row_to_coach_with_listing(&r)).transpose()
     }

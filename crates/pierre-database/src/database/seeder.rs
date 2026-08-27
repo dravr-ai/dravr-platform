@@ -423,13 +423,14 @@ impl SeederRepository for Database {
         sqlx::query(
             "INSERT INTO users \
              (id, email, display_name, password_hash, tier, is_active, user_status, \
-              is_admin, role, approved_at, created_at, last_active, auth_provider) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'email') \
+              is_admin, role, approved_at, created_at, last_active, auth_provider, locale) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'email', $13) \
              ON CONFLICT(email) DO UPDATE SET \
               password_hash = excluded.password_hash, \
               role = excluded.role, \
               is_admin = excluded.is_admin, \
-              display_name = excluded.display_name",
+              display_name = excluded.display_name, \
+              locale = excluded.locale",
         )
         .bind(user.id.to_string())
         .bind(&user.email)
@@ -443,6 +444,7 @@ impl SeederRepository for Database {
         .bind(approved_at)
         .bind(user.created_at.to_rfc3339())
         .bind(user.created_at.to_rfc3339())
+        .bind(&user.locale)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to insert demo user: {e}")))?;

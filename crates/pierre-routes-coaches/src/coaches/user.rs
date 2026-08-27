@@ -26,10 +26,10 @@ use pierre_core::models::coaches::{
 };
 use pierre_core::models::{CoachingPersona, SportProfile, TenantId};
 use pierre_database::database::coaches::compute_request_hash;
-use pierre_database::database::ChatManager;
-use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
+use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{CoachesCtx, ConfigLookupScope, MiddlewareCtx};
+use pierre_runtime_context::{CoachesCtx, MiddlewareCtx};
+use pierre_services::coach_generation::{coach_quota, resolve_chat_provider};
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
 use pierre_services::{coach_import, coaches as coaches_service, recipes as recipes_service};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
@@ -40,33 +40,11 @@ use uuid::Uuid;
 use super::proposal_profile::{build_profile_view, pillar_context_prompt, ProfileView};
 use super::types::{
     validate_max_tool_iterations, CoachProposalResponse, CoachResponse, CreateCoachBody,
-    ForkCoachResponse, GenerateCoachRequest, GenerateCoachResponse, GeneratedCoachData,
-    HideCoachResponse, ImportCoachResponse, ImportFromUrlBody, ImportPreviewResponse,
-    ListCoachesQuery, ListCoachesResponse, MissingPrerequisite, ParsedCoachFields, ProposedCoach,
-    RecordUsageResponse, SearchCoachesQuery, SportProfileSummary, ToggleFavoriteResponse,
-    UpdateCoachBody,
+    ForkCoachResponse, HideCoachResponse, ImportCoachResponse, ImportFromUrlBody,
+    ImportPreviewResponse, ListCoachesQuery, ListCoachesResponse, MissingPrerequisite,
+    ParsedCoachFields, ProposedCoach, RecordUsageResponse, SearchCoachesQuery, SportProfileSummary,
+    ToggleFavoriteResponse, UpdateCoachBody,
 };
-
-/// Resolve the [`ChatProvider`] handle the coach-generation route needs.
-///
-/// Prefers the pre-built `ChatProvider` singleton on the context (keeps
-/// any Copilot ACP subprocess + OAuth cache warm across requests); falls
-/// back to wrapping a bare `LlmProvider` in `ChatProvider::Custom` when
-/// only the lower-level provider is wired (matches the pre-extraction
-/// `chat_provider_from_resources_arc` behavior). Returns an error when
-/// neither is configured — that's a wiring bug, not a transient
-/// failure.
-fn chat_provider_from_ctx<C: CoachesCtx>(ctx: &Arc<C>) -> Result<Arc<ChatProvider>, AppError> {
-    if let Some(cp) = ctx.chat_provider() {
-        return Ok(Arc::clone(cp));
-    }
-    if let Some(llm) = ctx.llm_provider() {
-        return Ok(Arc::new(ChatProvider::Custom(Arc::clone(llm))));
-    }
-    Err(AppError::internal(
-        "No ChatProvider configured on CoachesCtx — chat_provider or llm_provider must be set",
-    ))
-}
 
 /// Whether the user may see coach-facing builder personas (coaches tagged
 /// [`Coach::COACH_TOOL_TAG`](pierre_core::models::coaches::Coach::COACH_TOOL_TAG)).
@@ -522,7 +500,7 @@ async fn llm_rerank_selections<C: CoachesCtx>(
     max: usize,
     locale: &str,
 ) -> Vec<coaches_service::RankedSelection> {
-    let provider = match chat_provider_from_ctx(ctx) {
+    let provider = match resolve_chat_provider(ctx.chat_provider(), ctx.llm_provider()) {
         Ok(provider) => provider,
         Err(e) => {
             warn!(error = %e, "coach proposal: no chat provider, using deterministic order");
@@ -611,28 +589,22 @@ pub(super) async fn handle_create<C: CoachesCtx + MiddlewareCtx>(
 
     let manager = super::get_coaches_manager(&ctx);
 
-    // Enforce max_coaches_per_user limit from admin config
-    if let Some(admin_config) = ctx.admin_config() {
-        let max_coaches = admin_config
-            .get_value(
-                "usage_quotas.max_coaches_per_user",
-                ConfigLookupScope::user(&auth.user_id.to_string(), &tenant_id.to_string()),
-            )
-            .await
-            .ok()
-            .flatten()
-            .and_then(|v| v.as_i64())
-            .unwrap_or(3);
-
-        let current_count = i64::from(manager.count(auth.user_id, tenant_id).await?);
-        if current_count >= max_coaches {
-            return Err(AppError::quota_exceeded(
-                "max_coaches_per_user",
-                current_count,
-                max_coaches,
-                "",
-            ));
-        }
+    // The same per-user cap `/coach create confirm` enforces, read through
+    // the shared service so the two creation surfaces cannot drift.
+    let quota = coach_quota(
+        ctx.admin_config().as_deref(),
+        manager,
+        auth.user_id,
+        tenant_id,
+    )
+    .await?;
+    if quota.is_full() {
+        return Err(AppError::quota_exceeded(
+            "max_coaches_per_user",
+            quota.current,
+            quota.max,
+            "",
+        ));
     }
 
     let request: CreateCoachRequest = body.into();
@@ -930,101 +902,6 @@ pub(super) async fn handle_import_from_url<C: CoachesCtx + MiddlewareCtx>(
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
-/// Handle POST /api/coaches/generate - Generate coach from conversation
-///
-/// Uses the LLM to analyze the last N messages of a conversation and
-/// generate a coach profile with title, description, system prompt, and tags.
-pub(super) async fn handle_generate<C: CoachesCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Json(body): Json<GenerateCoachRequest>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    // Get chat manager to fetch conversation messages
-    let pool = ctx
-        .database()
-        .sqlite_pool()
-        .ok_or_else(|| AppError::internal("SQLite database required for coach generation"))?
-        .clone();
-    let chat_manager = ChatManager::new(pool);
-
-    // Verify user owns the conversation (get_conversation returns None if not found or not owned)
-    chat_manager
-        .get_conversation(&body.conversation_id, &auth.user_id.to_string(), tenant_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("Conversation"))?;
-
-    // Get conversation messages
-    let messages = chat_manager
-        .get_messages(&body.conversation_id, &auth.user_id.to_string(), tenant_id)
-        .await?;
-    let total_messages = messages.len();
-
-    if messages.is_empty() {
-        return Err(AppError::invalid_input(
-            "Cannot generate coach from empty conversation",
-        ));
-    }
-
-    // Take the last N messages (or all if fewer)
-    let messages_to_analyze: Vec<_> = messages
-        .iter()
-        .rev()
-        .take(body.max_messages)
-        .rev()
-        .collect();
-    let messages_analyzed = messages_to_analyze.len();
-
-    // Build the conversation text for LLM analysis
-    let conversation_text = messages_to_analyze
-        .iter()
-        .map(|m| format!("[{}]: {}", m.role, m.content))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-
-    // Build LLM request with generation prompt
-    let system_prompt = ctx.coach_generation_prompt();
-    let user_prompt = format!(
-        "Analyze this fitness conversation and create a specialized coach profile.\n\n\
-        Conversation (last {messages_analyzed} of {total_messages} messages):\n\n\
-        {conversation_text}"
-    );
-
-    let llm_messages = vec![
-        ChatMessage::system(system_prompt),
-        ChatMessage::user(&user_prompt),
-    ];
-
-    // Get LLM provider and generate. Shared singleton — for Copilot
-    // Headless this reuses the warm subprocess instead of spawning a
-    // fresh `copilot --acp` per coach generation.
-    let provider = chat_provider_from_ctx(&ctx)?;
-    let request = ChatRequest::new(llm_messages);
-    let response = provider.complete(&request).await?;
-
-    if response.content.is_empty() {
-        return Err(AppError::internal("LLM returned empty response"));
-    }
-
-    // Parse the JSON response from LLM
-    let generated: GeneratedCoachData = serde_json::from_str(&response.content)
-        .map_err(|e| AppError::internal(format!("Failed to parse LLM response as JSON: {e}")))?;
-
-    let response = GenerateCoachResponse {
-        title: generated.title,
-        description: generated.description,
-        system_prompt: generated.system_prompt,
-        category: generated.category,
-        tags: generated.tags,
-        messages_analyzed,
-        total_messages,
-    };
-
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
 /// Handle PUT /api/coaches/:id - Update a coach
 pub(super) async fn handle_update<C: CoachesCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
@@ -1111,7 +988,7 @@ pub(super) async fn handle_record_usage<C: CoachesCtx + MiddlewareCtx>(
     span.record("tenant_id", field::display(&tenant_id));
 
     // `coach.selected` is emitted by `record_coach_selection`, which the web
-    // chat, `/coach select` and messaging ingress also call — the event
+    // chat, `/coach add` and messaging ingress also call — the event
     // follows the selection, not this transport.
     let manager = super::get_coaches_manager(&ctx);
     let src = CoachSelectionSource::Rest;

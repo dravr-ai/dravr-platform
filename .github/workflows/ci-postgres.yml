@@ -129,47 +129,65 @@ jobs:
           echo "Testing PostgreSQL connection..."
           PGPASSWORD=ci_test_password psql -h localhost -U pierre -d pierre_mcp_server -c "SELECT version();"
 
-      - name: Run PostgreSQL tests (sharded full on main, scoped on branches)
-        # Main/schedule: the full suite, partitioned round-robin across 4 shards
-        # and run one test file at a time. A monolithic `cargo test` linked all
-        # ~325 test binaries on one runner and was OOM-killed (~11min, no output);
-        # per-file runs keep only one binary resident, mirroring the SQLite shards.
-        # Feature branches: the scoped database_plugins suite runs once (shard 1).
+      - name: Run PostgreSQL tests (full suite on main, PG-only files on branches)
+        # Both lanes select test FILES and run them one `--test` at a time. A
+        # monolithic `cargo test` linked all ~325 test binaries on one runner and
+        # was OOM-killed (~11min, no output); per-file runs keep only one binary
+        # resident, mirroring the SQLite shards.
+        #
+        # Main/schedule: every test file, partitioned round-robin across 4 shards.
+        # Feature branches: the `*_postgresql_test.rs` files — the ones whose
+        # failure shape is PostgreSQL-only — across the same 4 shards. This lane
+        # used to pass `database_plugins` as a bare argument, which cargo reads as
+        # a test-NAME filter; every PostgreSQL test is named `test_pg_*`, so the
+        # filter matched nothing and the branch lane reported green having run
+        # zero tests. An empty selection now fails the job instead.
         # Using --test-threads=4 - concurrent tests use #[serial] for isolation (issue #36)
         run: |
           SHARD=${{ matrix.shard }}
           SHARDS=4
           if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ]; then
+            LANE="full suite"
             mapfile -t ALL_TESTS < <(
               find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
                 | sed 's/\.rs$//' \
                 | grep -v '^common$' \
                 | sort
             )
-            SHARD_TESTS=()
-            for i in "${!ALL_TESTS[@]}"; do
-              if (( (i % SHARDS) + 1 == SHARD )); then
-                SHARD_TESTS+=("${ALL_TESTS[$i]}")
-              fi
-            done
-            echo "=== Shard $SHARD/$SHARDS: ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} test files ==="
-            printf '  %s\n' "${SHARD_TESTS[@]}"
-            FAILED=0
-            for test_file in "${SHARD_TESTS[@]}"; do
-              echo "::group::$test_file"
-              if ! cargo test --features postgresql --test "$test_file" -- --test-threads=4; then
-                echo "::error::PostgreSQL test file $test_file failed"
-                FAILED=1
-              fi
-              echo "::endgroup::"
-            done
-            exit $FAILED
-          elif [ "$SHARD" = "1" ]; then
-            echo "Running SCOPED database tests on feature branch (shard 1 only)..."
-            cargo test --features postgresql database_plugins -- --test-threads=4
           else
-            echo "Scoped feature-branch run uses shard 1 only; shard $SHARD is a no-op."
+            LANE="PostgreSQL-specific files"
+            mapfile -t ALL_TESTS < <(
+              find crates/pierre-server/tests -maxdepth 1 -name '*_postgresql_test.rs' -printf '%f\n' \
+                | sed 's/\.rs$//' \
+                | sort
+            )
           fi
+          if [ "${#ALL_TESTS[@]}" -eq 0 ]; then
+            echo "::error::PostgreSQL lane selected no test files ($LANE) — refusing to report green."
+            exit 1
+          fi
+          SHARD_TESTS=()
+          for i in "${!ALL_TESTS[@]}"; do
+            if (( (i % SHARDS) + 1 == SHARD )); then
+              SHARD_TESTS+=("${ALL_TESTS[$i]}")
+            fi
+          done
+          echo "=== Shard $SHARD/$SHARDS ($LANE): ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} test files ==="
+          if [ "${#SHARD_TESTS[@]}" -eq 0 ]; then
+            echo "Fewer test files than shards; shard $SHARD has nothing to run."
+            exit 0
+          fi
+          printf '  %s\n' "${SHARD_TESTS[@]}"
+          FAILED=0
+          for test_file in "${SHARD_TESTS[@]}"; do
+            echo "::group::$test_file"
+            if ! cargo test --features postgresql --test "$test_file" -- --test-threads=4; then
+              echo "::error::PostgreSQL test file $test_file failed"
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $FAILED
         timeout-minutes: 75
         env:
           DATABASE_URL: "postgresql://pierre:ci_test_password@localhost:5432/pierre_mcp_server"

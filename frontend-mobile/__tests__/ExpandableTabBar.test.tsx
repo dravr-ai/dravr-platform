@@ -7,7 +7,8 @@
 import React from 'react';
 import fs from 'fs';
 import path from 'path';
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render as rtlRender } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockRouter = {
   push: jest.fn(),
@@ -40,15 +41,22 @@ jest.mock('../src/hooks/useServerStatus', () => ({
   useServerStatus: () => ({ isServerReachable: true, isChecking: false, checkNow: jest.fn() }),
 }));
 jest.mock('../src/components/ServerStatusBanner', () => ({ ServerStatusBanner: () => null }));
+const mockGetConversations = jest.fn();
 jest.mock('../src/services/api', () => ({
   chatApi: {
+    getConversations: (...args: unknown[]) => mockGetConversations(...args),
     createConversation: jest.fn(),
     listParticipants: jest.fn().mockResolvedValue([]),
     addParticipant: jest.fn(),
     removeParticipant: jest.fn(),
   },
-  groupsApi: { listMyGroups: jest.fn().mockResolvedValue({ groups: [] }) },
 }));
+
+/** The bar reads the conversation list's cache for the chat badge. */
+function render(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 import { ExpandableTabBar, TAB_BAR_TABS } from '../src/components/ui/ExpandableTabBar';
 import TabsLayout from '../app/(app)/(tabs)/_layout';
@@ -67,12 +75,14 @@ describe('ExpandableTabBar', () => {
     jest.clearAllMocks();
     mockSegments = ['(app)', '(tabs)', '(chat)'];
     mockGlobalParams = {};
+    mockGetConversations.mockResolvedValue({ conversations: [], total: 0, limit: 50, offset: 0 });
   });
 
-  it('puts Chat first, where the app lands, and lists no Coaches tab', () => {
-    expect(TAB_BAR_TABS.map((tab) => tab.route)).toEqual(['(chat)', '(discover)', '(groups)', '(settings)']);
+  it('puts Chat first, where the app lands, and lists no Coaches or Groups tab', () => {
+    expect(TAB_BAR_TABS.map((tab) => tab.route)).toEqual(['(chat)', '(discover)', '(settings)']);
     expect(CHAT_LIST_ROUTE).toBe(`/(app)/(tabs)/${TAB_BAR_TABS[0].route}`);
     expect(TAB_BAR_TABS.map((tab) => tab.testID)).not.toContain('tab-coaches');
+    expect(TAB_BAR_TABS.map((tab) => tab.testID)).not.toContain('tab-groups');
   });
 
   // Turns red if the bar and the tabs layout ever list different tabs again —
@@ -87,8 +97,8 @@ describe('ExpandableTabBar', () => {
     const registered = mockTabsScreen.mock.calls.map(([props]) => props.name);
     const registeredTitles = mockTabsScreen.mock.calls.map(([props]) => props.options?.title);
 
-    expect(rendered).toEqual(['tab-chat', 'tab-discover', 'tab-groups', 'tab-settings']);
-    expect(registered).toEqual(['(chat)', '(discover)', '(groups)', '(settings)']);
+    expect(rendered).toEqual(['tab-chat', 'tab-discover', 'tab-settings']);
+    expect(registered).toEqual(['(chat)', '(discover)', '(settings)']);
     expect(renderedLabels).toEqual(registeredTitles);
     expect(rendered).toHaveLength(registered.length);
   });
@@ -104,16 +114,38 @@ describe('ExpandableTabBar', () => {
     expect(groupsOnDisk).toEqual([...TAB_BAR_TABS.map((tab) => tab.route)].sort());
     expect(groupsOnDisk).not.toContain('(coaches)');
     expect(groupsOnDisk).not.toContain('(social)');
+    // Group management moved into the group's own chat thread; the route
+    // group is gone, so no deep link can land on a tab that does not exist.
+    expect(groupsOnDisk).not.toContain('(groups)');
   });
 
   // The expanded menu sits behind the animated pill (display: none until the
   // "+" opens it), so its rows are queried with hidden elements included.
-  it('renders no Coaches tab, menu item or quick action', () => {
+  it('renders no Coaches or Groups tab, menu item or quick action', () => {
     const { queryByTestId } = render(<ExpandableTabBar />);
     expect(queryByTestId('tab-coaches')).toBeNull();
+    expect(queryByTestId('tab-groups')).toBeNull();
     expect(queryByTestId('tab-menu-item-(chat)', { includeHiddenElements: true })).toBeTruthy();
     expect(queryByTestId('tab-menu-item-(coaches)', { includeHiddenElements: true })).toBeNull();
+    expect(queryByTestId('tab-menu-item-(groups)', { includeHiddenElements: true })).toBeNull();
     expect(queryByTestId('quick-action-new-coach', { includeHiddenElements: true })).toBeNull();
+  });
+
+  // The badge and the list read one query, so a row read elsewhere clears
+  // the pill too. Turns red if the bar starts counting for itself.
+  it('wears the unread total of the conversation list on the chat tab', async () => {
+    mockGetConversations.mockResolvedValue({
+      conversations: [
+        { id: 'c1', title: 'A', coach_id: null, message_count: 4, unread_count: 3, created_at: '2026-08-20T10:00:00Z', updated_at: '2026-08-26T10:00:00Z' },
+        { id: 'c2', title: 'B', coach_id: null, message_count: 2, unread_count: 2, created_at: '2026-08-20T10:00:00Z', updated_at: '2026-08-26T10:00:00Z' },
+      ],
+      total: 2,
+      limit: 50,
+      offset: 0,
+    });
+    const { findByTestId, queryByTestId } = render(<ExpandableTabBar />);
+    expect(await findByTestId('tab-chat-badge')).toHaveTextContent('5');
+    expect(queryByTestId('tab-discover-badge')).toBeNull();
   });
 
   it('opens another tab by its route group', () => {

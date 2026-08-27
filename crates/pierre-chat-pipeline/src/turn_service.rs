@@ -25,15 +25,12 @@
 //!
 //! # Why not a bare envelope
 //!
-//! [`execute`] returns an enum rather than a [`TurnEnvelope`] because two of
-//! the ladder's outcomes have no turn to put in one. A slash command is
-//! answered by a handler and stored nowhere — there is no persisted user
-//! message, no assistant row, no conversation reload — and a caller-served
-//! request has not run yet. Manufacturing empty [`MessageRecord`]s to fit them
-//! into an envelope would be a fabricated record, which is exactly what the
-//! envelope exists to stop.
-//!
-//! [`MessageRecord`]: pierre_database::database::MessageRecord
+//! [`execute`] returns an enum rather than a [`TurnEnvelope`] because a slash
+//! command is not a coaching turn: no model ran, no tokens were spent, and
+//! its rows — when the surface's [`CommandPersistence`] writes them — are
+//! stamped so no later prompt replays them. Folding that into the envelope a
+//! pipeline turn produces would make every consumer tell the two apart by
+//! sniffing fields; the enum says it outright.
 
 use std::sync::Arc;
 
@@ -42,13 +39,16 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_llm::ChatProvider;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
 use crate::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
 use crate::stages::coach_mention::resolve_coach_mention;
+use crate::stages::command_persistence::{
+    persist_command_turn, CommandPersistence, PersistedCommandReply,
+};
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::usage_counters::{
@@ -85,8 +85,18 @@ pub struct TurnRequest<'a> {
     /// Canonical channel identifier (`"web"`, `"mobile"`, `"telegram"`, …)
     /// used for slash-command analytics and the command context.
     pub channel_type: &'a str,
-    /// `true` when the athlete is alone with the coach.
+    /// `true` when the athlete is alone with the coach: a messaging DM, or an
+    /// in-app conversation with no coaching group bound to it.
     pub is_direct_message: bool,
+    /// Whether a `/group` command typed in a conversation bound to no group
+    /// may act on the first group the athlete belongs to. `true` only on the
+    /// messaging surfaces, where a DM with the bot is the athlete's one thread
+    /// and the ambient group is the group they mean; `false` in the app, where
+    /// a solo thread is exactly that and the group commands are refused rather
+    /// than aimed at whichever group was touched last.
+    pub ambient_group_fallback: bool,
+    /// Which slash-command turns this surface writes to the transcript.
+    pub command_persistence: CommandPersistence,
     /// Channel-native sender id, for commands that unlink a channel; `None`
     /// on the in-app surface, which has no channel link.
     pub sender_id: Option<&'a str>,
@@ -112,15 +122,22 @@ pub struct CommandTurn {
     pub card_title: Option<String>,
     /// Controls the athlete can press.
     pub actions: Vec<TurnAction>,
+    /// The transcript rows this turn wrote, when the surface's
+    /// [`CommandPersistence`] covered the command and the write succeeded.
+    /// `None` is a turn the transcript does not hold: a private reply in a
+    /// shared room, or a write that failed after the answer was produced —
+    /// the answer is still delivered, and the failure is logged.
+    pub persisted: Option<PersistedCommandReply>,
 }
 
 /// How one call to [`execute`] ended.
 pub enum ServedTurn {
     /// The pipeline ran and produced a reply.
     Pipeline(Box<TurnEnvelope>),
-    /// A slash command answered. No model call, no token spend, nothing
-    /// persisted — a command's output is account state, not coaching, and is
-    /// live only for the turn that produced it.
+    /// A slash command answered. No model call and no token spend — a
+    /// command's output is account state, not coaching — but the turn is
+    /// history like any other: it is written to the transcript under the
+    /// surface's [`CommandPersistence`] and kept out of every later prompt.
     Command {
         /// The handler's answer.
         command: Box<CommandTurn>,
@@ -151,6 +168,10 @@ pub struct SlashRequest<'a> {
     pub locale: &'a str,
     /// `true` when the athlete is alone with the coach.
     pub is_direct_message: bool,
+    /// See [`TurnRequest::ambient_group_fallback`].
+    pub ambient_group_fallback: bool,
+    /// Which command turns this surface writes to the transcript.
+    pub persistence: CommandPersistence,
     /// Channel-native sender id for commands that unlink a channel.
     pub sender_id: Option<&'a str>,
     /// The raw text the athlete typed.
@@ -214,6 +235,8 @@ pub async fn execute(
             channel_type: request.channel_type,
             locale: &profile.locale,
             is_direct_message: request.is_direct_message,
+            ambient_group_fallback: request.ambient_group_fallback,
+            persistence: request.command_persistence,
             sender_id: request.sender_id,
             text: &request.content,
         },
@@ -237,7 +260,7 @@ pub async fn execute(
     // `@handle` hands this one turn to an installed coach. Resolved here, on
     // the ladder every surface climbs, so a Telegram mention and a web mention
     // route identically and no client has to know the grammar. A slash command
-    // never reaches this point, which is what keeps `/coach invite @handle` a
+    // never reaches this point, which is what keeps `/coach add @handle` a
     // command argument rather than a mention. Installs live in the athlete's
     // own tenant, so that is where the handle resolves.
     let mentioned_coach = resolve_coach_mention(
@@ -298,6 +321,13 @@ pub async fn execute(
 /// `commands/` — resolves every text to `Ok(None)`, so the turn falls through
 /// to the coach rather than failing.
 ///
+/// An answered command is then written to the transcript under
+/// `request.persistence` — the `/…` line and the reply, both stamped so they
+/// never replay into a prompt. The write is best-effort: a reply that was
+/// produced is delivered even when the rows could not land, and the failure
+/// is logged rather than turned into an error the athlete reads as "the
+/// command failed".
+///
 /// # Errors
 ///
 /// Returns whatever the command handler returned when it fails.
@@ -325,6 +355,7 @@ pub async fn dispatch_slash(
         channel_type: request.channel_type,
         locale: request.locale,
         is_direct_message: request.is_direct_message,
+        ambient_group_fallback: request.ambient_group_fallback,
         conversation_id: Some(request.conversation_id),
         conversation_tenant_id: request.conversation_tenant_id,
         sender_id: request.sender_id,
@@ -333,7 +364,17 @@ pub async fn dispatch_slash(
     })
     .await?;
 
-    Ok(match outcome {
+    let Some(mut command) = command_turn(outcome, request.channel_type) else {
+        return Ok(None);
+    };
+    persist_if_covered(ctx, request, &mut command).await;
+    Ok(Some(command))
+}
+
+/// Shape a dispatch outcome as a command turn; `None` when the text was not a
+/// command at all.
+fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandTurn> {
+    match outcome {
         DispatchOutcome::NotACommand => None,
         DispatchOutcome::UnknownCommand { body } => Some(CommandTurn {
             command_name: None,
@@ -341,6 +382,7 @@ pub async fn dispatch_slash(
             is_rich_text: false,
             card_title: None,
             actions: Vec::new(),
+            persisted: None,
         }),
         DispatchOutcome::Executed {
             command_name,
@@ -348,7 +390,7 @@ pub async fn dispatch_slash(
         } => {
             info!(
                 command = %command_name,
-                channel = %request.channel_type,
+                channel = %channel_type,
                 "Slash command executed"
             );
             let card_title = if response.is_card() {
@@ -371,9 +413,36 @@ pub async fn dispatch_slash(
                 is_rich_text: response.is_rich_text,
                 card_title,
                 actions,
+                persisted: None,
             })
         }
-    })
+    }
+}
+
+/// Write the turn to the transcript when the surface's policy covers it.
+///
+/// Best-effort: the reply is already produced and owed to the athlete, so a
+/// write that fails is logged and the turn goes out unpersisted.
+async fn persist_if_covered(
+    ctx: &ChatPipelineContext,
+    request: &SlashRequest<'_>,
+    command: &mut CommandTurn,
+) {
+    if !request
+        .persistence
+        .persists(command.command_name.as_deref())
+    {
+        return;
+    }
+    match persist_command_turn(ctx.repos.chat.as_ref(), request, command).await {
+        Ok(persisted) => command.persisted = Some(persisted),
+        Err(e) => warn!(
+            error = %e,
+            conversation_id = %request.conversation_id,
+            command = ?command.command_name,
+            "command reply could not be written to the transcript; delivering it unpersisted"
+        ),
+    }
 }
 
 /// Resolve the language this turn is conducted in.

@@ -14,8 +14,9 @@
 //!    user), persists the user turn before LLM dispatch (crash-safe: a
 //!    server failure mid-dispatch still leaves the user's question visible
 //!    on reload).
-//! 3. Get conversation history — retrieves all messages for the
-//!    conversation, ordered oldest-first, for LLM context assembly.
+//! 3. Get conversation history — retrieves the recent messages for the
+//!    conversation, ordered oldest-first, for LLM context assembly. Slash
+//!    command rows are left out here: they are transcript, never prompt.
 //! 4. Persist assistant response — appends the LLM reply with full
 //!    token usage and model metadata, then re-reads the conversation
 //!    record so the caller can access updated `updated_at` / `summary`
@@ -24,7 +25,9 @@
 //! Both message writers also fan the row out to the group's shared room
 //! transcript (`group_transcript_entries`) when the conversation is
 //! group-bound, so every surface's group turns land in one queryable,
-//! consent-gated room view.
+//! consent-gated room view — and both advance the participant's read
+//! marker past the row they wrote, so an athlete's own turn never counts
+//! as unread for them. One rule for web, mobile and messaging.
 
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::repositories::ChatRepository;
@@ -37,6 +40,32 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
+use tracing::warn;
+
+/// Advance the participant's read marker past a row they just wrote or were
+/// just shown. Best-effort: the row is already durable, and a marker that
+/// failed to move costs one spurious unread badge, not the turn.
+async fn advance_read_marker(
+    database: &dyn ChatRepository,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+    message_id: &str,
+) {
+    match database
+        .mark_conversation_read(conversation_id, user_id, tenant_id, Some(message_id))
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => warn!(
+            conversation_id,
+            message_id, "read marker did not advance: the row is not visible to its own writer"
+        ),
+        Err(e) => {
+            warn!(error = %e, conversation_id, "read marker could not advance after the turn");
+        }
+    }
+}
 
 /// Validate the model and create a conversation.
 ///
@@ -152,6 +181,7 @@ pub async fn persist_user_message(
         content_blocks: None,
     };
     let message = database.add_message(&user_msg_params).await?;
+    advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;
 
     fan_out_to_group_transcript(
         groups,
@@ -180,6 +210,13 @@ pub async fn persist_user_message(
 /// size. Read-only: the full history remains available for the UI and export
 /// paths via `get_messages`.
 ///
+/// Slash-command rows never leave this loader: a `/coach` picker or a
+/// `/status` listing is the platform talking, and replayed as history it
+/// would teach the model to answer in the platform's voice. The rows stay in
+/// the transcript the UI reads; only the prompt is blind to them.
+/// [`super::prompt_builder`] drops them by the same stamp for any caller that
+/// assembles messages from rows it loaded itself.
+///
 /// # Errors
 ///
 /// Returns database errors on message retrieval failure.
@@ -190,9 +227,11 @@ pub async fn get_conversation_history(
     tenant_id: TenantId,
     limit: i64,
 ) -> AppResult<Vec<MessageRecord>> {
-    database
+    let mut history = database
         .get_recent_messages(conversation_id, user_id, tenant_id, limit)
-        .await
+        .await?;
+    history.retain(|row| !row.is_command_turn());
+    Ok(history)
 }
 
 /// Persist the assistant's response message.
@@ -214,6 +253,14 @@ pub async fn persist_assistant_response(
     tenant_id: TenantId,
 ) -> AppResult<(MessageRecord, ConversationRecord)> {
     let message = database.add_message(params).await?;
+    advance_read_marker(
+        database,
+        params.conversation_id,
+        params.user_id,
+        tenant_id,
+        &message.id,
+    )
+    .await;
 
     let conversation = database
         .get_conversation(params.conversation_id, params.user_id, tenant_id)

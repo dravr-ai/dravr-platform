@@ -1,4 +1,4 @@
-// ABOUTME: Chat message list — one switch over the turn's reply blocks, plus the coach grid and empty states
+// ABOUTME: Chat message list — one switch over the turn's reply blocks, and the empty thread's one line
 // ABOUTME: The server decided what this surface draws; nothing here re-derives it from the reply prose
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -18,8 +18,9 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
 import { countActivities, isToolPlumbingMessage, transcriptBlocks } from '@pierre/chat-utils';
-import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, aiGlow, useThemeColors, useTheme } from '../../constants/theme';
-import type { Message, Coach } from '../../types';
+import { SLASH_HINT } from '@pierre/shared-constants';
+import { PRIMARY_PALETTE, spacing, fontSize, borderRadius, aiGlow, useThemeColors } from '../../constants/theme';
+import type { Message } from '../../types';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock, VerdictTone } from '@pierre/shared-types';
 import {
   mergeVerdictSeverities,
@@ -94,16 +95,6 @@ function FeedbackReasonInput({
     </View>
   );
 }
-
-// Coach category emoji icons
-const COACH_CATEGORY_ICONS: Record<string, string> = {
-  training: '🏃',
-  nutrition: '🥗',
-  recovery: '😴',
-  recipes: '👨‍🍳',
-  mobility: '🧘',
-  custom: '⚙️',
-};
 
 // Markdown styles for assistant messages — built per palette so the rendered
 // markdown flips with the active theme.
@@ -270,10 +261,8 @@ function verdictChipColor(tone: VerdictTone, colors: ThemeColors): string {
 
 interface MessageListProps {
   messages: Message[];
-  coaches: Coach[];
   isLoading: boolean;
   isSending: boolean;
-  isCoachConversation: boolean;
   messageFeedback: Record<string, 'up' | 'down' | null>;
   /** Saved thumbs-down reasons, keyed by message id. */
   messageFeedbackComment: Record<string, string>;
@@ -289,7 +278,6 @@ interface MessageListProps {
   verdicts?: ClaimVerdict[];
   flatListRef: React.RefObject<FlashListRef<Message> | null>;
   onScrollToBottom: () => void;
-  onCoachSelect: (coach: Coach) => void;
   onThumbsUp: (messageId: string) => void;
   onThumbsDown: (messageId: string) => void;
   /** Persist an optional thumbs-down reason for a message. */
@@ -302,17 +290,14 @@ interface MessageListProps {
 
 export function MessageList({
   messages,
-  coaches,
   isLoading,
   isSending,
-  isCoachConversation,
   messageFeedback,
   messageFeedbackComment,
   messageBlocks,
   verdicts,
   flatListRef,
   onScrollToBottom,
-  onCoachSelect,
   onThumbsUp,
   onThumbsDown,
   onSubmitFeedbackReason,
@@ -322,8 +307,6 @@ export function MessageList({
 }: MessageListProps) {
   const colors = useThemeColors();
   const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
-  const { scheme } = useTheme();
-  const isDark = scheme === 'dark';
   const handleCopyMessage = async (content: string) => {
     try {
       await Clipboard.setStringAsync(content);
@@ -594,123 +577,33 @@ export function MessageList({
     </View>
   );
 
-  const renderCoachCard = (coach: Coach) => {
-    // Pillar tint per category — drives the icon container, the small caps
-    // label, and the favorite star so a card reads as one cohesive object.
-    const pillarKey = (
-      ['training', 'nutrition', 'recovery', 'mobility', 'recipes'] as const
-    ).includes(coach.category as never)
-      ? (coach.category === 'recipes' ? 'nutrition' : (coach.category as 'training' | 'nutrition' | 'recovery' | 'mobility'))
-      : null;
-    const pillarMap = {
-      training: colors.pierre.activity,
-      nutrition: colors.pierre.nutrition,
-      recovery: colors.pierre.recovery,
-      mobility: colors.pierre.mobility,
-    } as const;
-    const pillarColor = pillarKey ? pillarMap[pillarKey] : colors.pierre.violet;
-
-    // Light surfaces use a hairline outline-variant edge + soft 4% ink
-    // shadow; dark surfaces lean on a deeper black drop so cards float over
-    // the near-black canvas. Both sit on the cream/ink base canvas one tier up.
-    const cardBg = colors.background.elevated;
-    const cardBorder = isDark
-      ? 'rgba(192, 200, 195, 0.10)'
-      : 'rgba(26, 28, 27, 0.06)';
-    const cardShadow = {
-      shadowColor: isDark ? '#000000' : '#1a1c1b',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.35 : 0.04,
-      shadowRadius: 16,
-      elevation: 3,
-    };
-
-    return (
-      <TouchableOpacity
-        key={coach.id}
-        className="rounded-2xl px-5 pt-4 pb-5 mb-3"
-        style={{
-          backgroundColor: cardBg,
-          borderWidth: 1,
-          borderColor: cardBorder,
-          ...cardShadow,
-        }}
-        onPress={() => onCoachSelect(coach)}
-        activeOpacity={0.85}
-      >
-        {/* Top row: pillar-tinted icon tile + category label + chevron */}
-        <View className="flex-row items-center mb-3">
-          <View
-            className="w-9 h-9 rounded-xl items-center justify-center mr-3"
-            style={{ backgroundColor: `${pillarColor}1F` }}
-          >
-            <Text className="text-base">{COACH_CATEGORY_ICONS[coach.category]}</Text>
-          </View>
-          <Text
-            className="text-[11px] font-semibold uppercase tracking-[0.12em] flex-1"
-            style={{ color: pillarColor }}
-          >
-            {coach.category}
-          </Text>
-          {coach.is_favorite && (
-            <Text className="text-sm mr-1" style={{ color: colors.pierre.nutrition }}>★</Text>
-          )}
-          <Text className="text-lg" style={{ color: colors.text.tertiary }}>›</Text>
-        </View>
-
-        {/* Coach name — large editorial weight */}
-        <Text
-          className="text-lg font-bold mb-1"
-          style={{ color: colors.text.primary }}
-          numberOfLines={2}
-        >
-          {coach.title}
-        </Text>
-
-        {/* Description */}
-        {coach.description && (
-          <Text
-            className="text-sm leading-5"
-            style={{ color: colors.text.secondary }}
-            numberOfLines={5}
-          >
-            {coach.description}
-          </Text>
-        )}
-      </TouchableOpacity>
-    );
-  };
-
+  /**
+   * An empty thread.
+   *
+   * One line and the two ways in: `/` for the command palette, `@handle` to
+   * bring a coach in for a turn. No coach grid, no picker — a coach is chosen
+   * with `/coach add @handle`, exactly as it is on web and in messaging.
+   */
   const renderEmptyChat = () => (
     <ScrollView
       className="flex-1"
-      contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: spacing.xs, paddingVertical: spacing.md, paddingBottom: 140 }}
+      contentContainerStyle={{
+        flexGrow: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: spacing.lg,
+        paddingBottom: 140,
+      }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      testID="chat-empty-state"
     >
-      {!isCoachConversation && coaches.length > 0 && (
-        <View className="w-full px-1">
-          <Text className="text-sm font-semibold text-text-tertiary uppercase tracking-wide mb-3 ml-1">Your Coaches</Text>
-          {coaches.map((coach) => renderCoachCard(coach))}
-        </View>
-      )}
-
-      {!isCoachConversation && coaches.length === 0 && (
-        <View className="flex-1 items-center justify-center px-8 py-12">
-          <Text className="text-lg font-semibold text-text-primary mb-2">No coaches yet</Text>
-          <Text className="text-base text-text-tertiary text-center">
-            Create your first coach to customize how Dravr helps you.
-          </Text>
-        </View>
-      )}
-
-      {isCoachConversation && (
-        <View className="w-full items-center px-4 mb-6">
-          <Text className="text-base text-text-secondary text-center leading-6">
-            Your coach is ready. Start the conversation by typing a message below.
-          </Text>
-        </View>
-      )}
+      <Text className="text-base text-text-secondary text-center leading-6">
+        Ask anything about your training.
+      </Text>
+      <Text className="text-sm text-text-tertiary text-center mt-2" testID="chat-slash-hint">
+        {SLASH_HINT}
+      </Text>
     </ScrollView>
   );
 

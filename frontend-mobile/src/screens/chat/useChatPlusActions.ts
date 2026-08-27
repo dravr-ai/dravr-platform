@@ -8,9 +8,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { MessageSquarePlus, UserPlus, Users } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
+import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import { threadHref } from '../../navigation/routes';
-import { useStartGroupConversation } from '../../hooks/useStartGroupConversation';
-import type { GroupSummary } from '../../types';
 
 /** The three things the chat "+" can do. */
 export type ChatPlusActionId = 'new-chat' | 'new-group-chat' | 'add-participant';
@@ -31,13 +30,13 @@ export const ADD_PARTICIPANT_LABEL = 'Add someone to this discussion';
 export interface ChatPlusFlowState {
   /** The conversation "add someone" acts on, or null when none is open. */
   conversationId: string | null;
-  groupPickerVisible: boolean;
+  groupNamePromptVisible: boolean;
   participantsVisible: boolean;
-  isStartingGroupChat: boolean;
   openParticipants: () => void;
-  closeGroupPicker: () => void;
+  closeGroupNamePrompt: () => void;
   closeParticipants: () => void;
-  pickGroup: (group: GroupSummary) => void;
+  /** Open a fresh thread that creates `name` as a group on its first turn. */
+  submitGroupName: (name: string) => void;
 }
 
 export interface UseChatPlusActionsResult {
@@ -51,22 +50,25 @@ export interface UseChatPlusActionsResult {
  * chat, and an easy way to add someone to an existing discussion.
  *
  * "Add someone" appears only with a conversation open — the participants
- * routes need a thread to act on, and a fresh composer has none yet. New
- * chat opens an empty thread; new group chat asks which room first, then
- * takes the same path the group screen's own button takes.
+ * routes need a thread to act on, and a fresh composer has none yet. New chat
+ * opens an empty thread. New group chat asks for a name and then opens a
+ * thread that sends `/group create <name>`: the command is the one
+ * implementation of creating a group, shared with web and with messaging, so
+ * the app has no second way to make one.
  */
 export function useChatPlusActions(conversationId: string | null): UseChatPlusActionsResult {
   const router = useRouter();
-  const { start, isStarting } = useStartGroupConversation();
-  const [groupPickerVisible, setGroupPickerVisible] = useState(false);
+  const [groupNamePromptVisible, setGroupNamePromptVisible] = useState(false);
   const [participantsVisible, setParticipantsVisible] = useState(false);
 
-  const pickGroup = useCallback(
-    (group: GroupSummary) => {
-      setGroupPickerVisible(false);
-      void start(group);
+  const submitGroupName = useCallback(
+    (name: string) => {
+      setGroupNamePromptVisible(false);
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      router.push(threadHref(undefined, { send: COMMAND_DRAFTS.groupCreate(trimmed) }));
     },
-    [start],
+    [router],
   );
 
   const actions = useMemo<ChatPlusAction[]>(() => {
@@ -81,7 +83,7 @@ export function useChatPlusActions(conversationId: string | null): UseChatPlusAc
         id: 'new-group-chat',
         label: NEW_GROUP_CHAT_LABEL,
         icon: Users,
-        onPress: () => setGroupPickerVisible(true),
+        onPress: () => setGroupNamePromptVisible(true),
       },
     ];
     if (conversationId !== null) {
@@ -98,15 +100,14 @@ export function useChatPlusActions(conversationId: string | null): UseChatPlusAc
   const flows = useMemo<ChatPlusFlowState>(
     () => ({
       conversationId,
-      groupPickerVisible,
+      groupNamePromptVisible,
       participantsVisible,
-      isStartingGroupChat: isStarting,
       openParticipants: () => setParticipantsVisible(true),
-      closeGroupPicker: () => setGroupPickerVisible(false),
+      closeGroupNamePrompt: () => setGroupNamePromptVisible(false),
       closeParticipants: () => setParticipantsVisible(false),
-      pickGroup,
+      submitGroupName,
     }),
-    [conversationId, groupPickerVisible, participantsVisible, isStarting, pickGroup],
+    [conversationId, groupNamePromptVisible, participantsVisible, submitGroupName],
   );
 
   return { actions, flows };

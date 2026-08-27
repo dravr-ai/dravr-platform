@@ -189,6 +189,7 @@ echo "    Creating admin user (runs migrations)..."
     --email "$ADMIN_EMAIL" \
     --password "$ADMIN_PASSWORD" \
     --super-admin \
+    --locale en \
     --force 2>&1 | tail -3
 
 # Seed coaches from a contremaitre checkout. Coach definitions live in the
@@ -220,9 +221,12 @@ echo "    Seeding mobility data (stretches, yoga)..."
 # any seeder, so create them here (idempotent via --force) to keep the script
 # self-contained on a fresh database. Without this, the synthetic step below
 # aborts with "User not found" on a clean checkout.
+# `--locale en` matches the seeded accounts: users.locale defaults to the
+# platform default (fr), and a dev account left French renders French command
+# cards and notifications to an English tester.
 echo "    Creating phil_test + jf_test users..."
-"$PIERRE_CLI" user create --email "$PHIL_TEST_EMAIL" --password "$DRAVR_TEST_PASSWORD" --force 2>&1 | tail -1
-"$PIERRE_CLI" user create --email "$JF_TEST_EMAIL" --password "$DRAVR_TEST_PASSWORD" --force 2>&1 | tail -1
+"$PIERRE_CLI" user create --email "$PHIL_TEST_EMAIL" --password "$DRAVR_TEST_PASSWORD" --locale en --force 2>&1 | tail -1
+"$PIERRE_CLI" user create --email "$JF_TEST_EMAIL" --password "$DRAVR_TEST_PASSWORD" --locale en --force 2>&1 | tail -1
 
 # Seed dev activities for test users. Each user is seeded as a real Strava or
 # Garmin athlete (provider_connection + oauth_token); the dev fixture API (started

@@ -3,6 +3,8 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { type FlashListRef } from '@shopify/flash-list';
+import { useQueryClient } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { chatApi } from '../../services/api';
 import { holdIdleWhileBusy, idleSignal } from '../../services/idleSignal';
 import { replySceneBlocks } from '@pierre/api-client';
@@ -76,6 +78,7 @@ export interface MessagesActions {
 }
 
 export function useMessages(): MessagesState & MessagesActions {
+  const queryClient = useQueryClient();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +116,13 @@ export function useMessages(): MessagesState & MessagesActions {
       }
     };
   }, []);
+
+  // A turn moves the thread to the top of the conversation list and rewrites
+  // its preview, its time and its unread count. The list is a React Query
+  // cache the tab badge reads too, so it is re-read rather than guessed at.
+  const invalidateConversationList = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+  }, [queryClient]);
 
   const loadMessages = useCallback(async (conversationId: string) => {
     try {
@@ -229,9 +239,11 @@ export function useMessages(): MessagesState & MessagesActions {
             }
             return [...filtered, ...newMessages];
           });
+          invalidateConversationList();
         },
         onError: sendErr => {
           setError(sendErr.message);
+          invalidateConversationList();
           const errorResponse: Message = {
             id: `error-${Date.now()}`,
             role: 'assistant',
@@ -254,7 +266,7 @@ export function useMessages(): MessagesState & MessagesActions {
     deferredScrollToBottom(200);
     setIsSending(false);
     setProgressText(null);
-  }, [isSending, deferredScrollToBottom]);
+  }, [isSending, deferredScrollToBottom, invalidateConversationList]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
     const messageIndex = messages.findIndex(m => m.id === messageId);
@@ -304,9 +316,11 @@ export function useMessages(): MessagesState & MessagesActions {
             // reloaded and the persisted row supplies them.
             scene_blocks: replySceneBlocks(turn),
           }]);
+          invalidateConversationList();
         },
         onError: err => {
           setError(err.message);
+          invalidateConversationList();
           setMessages(prev => [...prev, {
             id: `error-${Date.now()}`,
             role: 'assistant',
@@ -323,7 +337,7 @@ export function useMessages(): MessagesState & MessagesActions {
     deferredScrollToBottom(200);
     setIsSending(false);
     setProgressText(null);
-  }, [messages, deferredScrollToBottom]);
+  }, [messages, deferredScrollToBottom, invalidateConversationList]);
 
   // Apply a rating change optimistically and persist it. Clicking the active
   // rating again toggles it off (DELETE); otherwise the rating is upserted.

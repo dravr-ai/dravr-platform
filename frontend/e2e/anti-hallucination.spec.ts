@@ -263,10 +263,11 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
       return release;
     };
 
-    // Present as soon as ChatTab renders, and independent of the providers
-    // query — so a banner assertion cannot pass merely because chat never
-    // loaded.
-    const chatComposer = (page: Page) => page.getByLabel('Message Dravr');
+    // Present as soon as ChatTab renders with no thread open, and independent
+    // of the providers query — so a banner assertion cannot pass merely because
+    // chat never loaded. The composer belongs to an open thread, so it is the
+    // empty pane that proves chat is up here.
+    const chatPane = (page: Page) => page.getByTestId('chat-empty-state');
 
     test('shows the connect-provider banner in chat when nothing is connected', async ({
       page,
@@ -274,7 +275,7 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
       const releaseProviders = await routeProviders(page, []);
       await loginAsUser(page, 'webtest', { skipProvidersRoute: true });
       await navigateToTab(page, 'Chat');
-      await expect(chatComposer(page)).toBeVisible();
+      await expect(chatPane(page)).toBeVisible();
 
       releaseProviders();
 
@@ -292,7 +293,7 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
       ]);
       await loginAsUser(page, 'webtest', { skipProvidersRoute: true });
       await navigateToTab(page, 'Chat');
-      await expect(chatComposer(page)).toBeVisible();
+      await expect(chatPane(page)).toBeVisible();
 
       const banner = page.getByTestId('connect-provider-banner');
 

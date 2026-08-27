@@ -35,9 +35,9 @@ describe('surface parity — mobile', () => {
   it('declares at least the primary destinations', () => {
     // Guards against the registry itself being gutted to make this pass. The
     // floor moved from 14 to 13 when the Chat-First Cutover folded the Coaches
-    // tab into Discover: the coach library is a section of that surface now,
-    // not a destination of its own.
-    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(13);
+    // tab into Discover, and to 12 when group management moved into the
+    // group's own chat thread: neither is a destination of its own now.
+    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(12);
   });
 
   it('no longer declares the retired Coaches surface', () => {
@@ -45,6 +45,13 @@ describe('surface parity — mobile', () => {
     // a deep link into a route group that no longer exists.
     expect(USER_SURFACES.find((s) => s.id === 'coaches')).toBeUndefined();
     expect(USER_SURFACES.find((s) => s.id === 'insights')).toBeUndefined();
+  });
+
+  it('no longer declares the retired Groups surface', () => {
+    // Group management lives in the group's chat thread (`/group …` and the
+    // header's Group info); a row pointing at a (groups) tab would send a deep
+    // link into a route group that no longer exists.
+    expect(USER_SURFACES.find((s) => s.id === 'groups')).toBeUndefined();
   });
 
   it.each(mobileSurfaces.map((s) => [s.id, s.mobile as string]))(

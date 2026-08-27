@@ -12,9 +12,6 @@ import {
 } from '@pierre/api-client';
 import { getApiUrl } from '../apiUrl';
 
-// Re-export types for consumers
-export type { ForkCoachResponse } from '@pierre/api-client';
-
 // Create the mobile platform adapter with secure token storage
 const adapter = createMobileAdapter({
   asyncStorage: AsyncStorage,

@@ -5,27 +5,66 @@
 // Copyright (c) 2026 dravr.ai
 
 use photograveur::{resolve_all, Locale};
-use pierre_core::models::{ConversationParticipant, ParticipantRole};
+use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
+use pierre_core::models::{
+    ConversationParticipant, ParticipantRole, PersistedReplyBlock, ACTIONS_BLOCK_TYPE,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::warn;
 
-/// Resolve stored visual specs into renderable scenes.
+/// What a stored `content_blocks` column resolves to on the read path.
+#[derive(Debug, Default)]
+pub struct StoredBlocks {
+    /// Resolved visual scenes, JSON-encoded — see [`MessageResponse::scene_blocks`].
+    pub scene_blocks: Option<String>,
+    /// The controls a persisted command reply carried.
+    pub actions: Option<MessageActionsResponse>,
+}
+
+/// Resolve a stored `content_blocks` column into what a client renders.
 ///
-/// `stored` is the JSON array persisted on `chat_messages.content_blocks` — the
-/// specs the coach wrote, which are the durable record. This runs on every read
-/// rather than at write time, so improving the geometry engine improves charts
-/// already sitting in conversation history without a migration.
+/// `stored` is the JSON array persisted on `chat_messages.content_blocks`. It
+/// holds two kinds of entry: the visual specs the coach wrote, resolved by
+/// photograveur on every read (so a geometry improvement reaches charts already
+/// sitting in history without a migration), and the controls a slash-command
+/// reply carried, which are partitioned out first — photograveur must never be
+/// handed a `{"type":"actions"}` entry as if it were a chart.
 ///
-/// A block that fails to resolve is dropped and logged rather than failing the
-/// message: one malformed chart must never cost the athlete the reply carrying
-/// it. Returns `None` when there is nothing to render, so the field is omitted
-/// from the response entirely.
+/// A visual that fails to resolve is dropped and logged rather than failing
+/// the message: one malformed chart must never cost the athlete the reply
+/// carrying it. Absent parts are `None`, so the fields are omitted from the
+/// response entirely.
+#[must_use]
+pub fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> StoredBlocks {
+    let Some(entries) = stored.and_then(parse_stored_specs) else {
+        return StoredBlocks::default();
+    };
+    let (actions, specs): (Vec<Value>, Vec<Value>) = entries
+        .into_iter()
+        .partition(|entry| entry.get("type").and_then(Value::as_str) == Some(ACTIONS_BLOCK_TYPE));
+    StoredBlocks {
+        scene_blocks: resolve_visual_specs(&specs, locale),
+        actions: actions.into_iter().find_map(decode_actions_entry),
+    }
+}
+
+/// Resolve stored visual specs into renderable scenes — the visual half of
+/// [`resolve_stored_blocks`], for the live turn whose specs never carry
+/// controls.
 #[must_use]
 pub fn resolve_scene_blocks(stored: Option<&str>, locale: &str) -> Option<String> {
     let specs = parse_stored_specs(stored?)?;
+    resolve_visual_specs(&specs, locale)
+}
 
-    let (blocks, failures) = resolve_all(&specs, Locale::from_tag(locale));
+/// Run photograveur over the visual specs, dropping and logging the ones that
+/// cannot resolve.
+fn resolve_visual_specs(specs: &[Value], locale: &str) -> Option<String> {
+    if specs.is_empty() {
+        return None;
+    }
+    let (blocks, failures) = resolve_all(specs, Locale::from_tag(locale));
     for (index, error) in &failures {
         warn!(index, error = %error, "scene-blocks: dropping a block that could not resolve");
     }
@@ -33,6 +72,49 @@ pub fn resolve_scene_blocks(stored: Option<&str>, locale: &str) -> Option<String
         return None;
     }
     encode_blocks(&blocks)
+}
+
+/// Decode one `{"type":"actions"}` entry, logging and skipping a malformed one.
+fn decode_actions_entry(entry: Value) -> Option<MessageActionsResponse> {
+    match serde_json::from_value::<PersistedReplyBlock>(entry) {
+        Ok(PersistedReplyBlock::Actions { title, actions }) => Some(MessageActionsResponse {
+            title,
+            actions: actions
+                .into_iter()
+                .map(|action| ChatMessageAction {
+                    label: action.label,
+                    action_type: action.action_type,
+                    value: action.value,
+                })
+                .collect(),
+        }),
+        Err(e) => {
+            warn!(error = %e, "scene-blocks: stored actions entry is malformed; omitting it");
+            None
+        }
+    }
+}
+
+/// Longest preview a list row carries, in characters.
+const PREVIEW_CHARS: usize = 120;
+
+/// Shape the newest row's content into a one-line preview.
+///
+/// Visual markers go (a `⟦viz:0⟧` is a bug in a list row), whitespace runs
+/// collapse to one space so a markdown reply reads as one line, and the
+/// result is cut at [`PREVIEW_CHARS`] characters — a boundary that never
+/// splits a multi-byte character.
+#[must_use]
+pub fn preview_text(content_head: &str) -> String {
+    let stripped = strip_markers(content_head);
+    let mut preview = String::with_capacity(stripped.len().min(PREVIEW_CHARS * 4));
+    for word in stripped.split_whitespace() {
+        if !preview.is_empty() {
+            preview.push(' ');
+        }
+        preview.push_str(word);
+    }
+    preview.chars().take(PREVIEW_CHARS).collect()
 }
 
 /// Parse the stored spec array, logging and yielding `None` on malformed JSON.
@@ -98,13 +180,14 @@ pub struct ConversationResponse {
 /// Response for listing conversations
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConversationListResponse {
-    /// List of conversations
+    /// One page, newest activity first
     pub conversations: Vec<ConversationSummaryResponse>,
-    /// Total count
-    pub total: usize,
+    /// How many conversations the caller is in altogether — the number to
+    /// page against, not the page length.
+    pub total: i64,
 }
 
-/// Summary of a conversation for listing
+/// One row of the unified conversation list.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConversationSummaryResponse {
     /// Conversation ID
@@ -113,21 +196,52 @@ pub struct ConversationSummaryResponse {
     pub title: String,
     /// Model used
     pub model: String,
-    /// Message count
+    /// Number of `user` and `assistant` turns; tool rows are not counted.
     pub message_count: i64,
     /// Total tokens used
     pub total_tokens: i64,
-    /// Coach attached to the conversation, if any. Lets the client group
-    /// sessions by coach and show the coach's name in the header/history.
+    /// Coach attached to the conversation, if any.
     pub coach_id: Option<String>,
+    /// The attached coach's catalogue `@handle`, when it has one.
+    #[serde(default)]
+    pub coach_handle: Option<String>,
+    /// The attached coach's title, when the coach still exists.
+    #[serde(default)]
+    pub coach_title: Option<String>,
+    /// Coaching group the conversation is scoped to, if any.
+    #[serde(default)]
+    pub group_id: Option<String>,
+    /// That group's name, when the group still exists.
+    #[serde(default)]
+    pub group_name: Option<String>,
     /// Channel of origin (`web`/`mobile` for in-app, `telegram`/`whatsapp`/…
     /// for messaging). The client prefers this durable signal for the channel
     /// badge and falls back to parsing the `Messaging: <channel>` title.
     pub channel_type: Option<String>,
+    /// The newest `user`/`assistant` row, shaped for the row preview; absent
+    /// for an empty conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<LastMessageResponse>,
+    /// `user`/`assistant` rows the caller has not read — every row when they
+    /// have never opened the thread.
+    #[serde(default)]
+    pub unread_count: i64,
     /// Creation timestamp
     pub created_at: String,
     /// Last update timestamp
     pub updated_at: String,
+}
+
+/// The newest row of a conversation, as a list row shows it.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LastMessageResponse {
+    /// One line of the row's content: visual markers stripped, whitespace
+    /// collapsed, at most 120 characters.
+    pub preview: String,
+    /// `user` or `assistant`.
+    pub role: String,
+    /// When the row was written
+    pub created_at: String,
 }
 
 /// Request to update a conversation title
@@ -207,8 +321,29 @@ pub struct MessageResponse {
     /// list of positioned primitives they map to SVG.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scene_blocks: Option<String>,
+    /// Why this row ended: the provider's own reason for an LLM row, or one
+    /// of the platform's stamps — `command` marks a slash-command turn (both
+    /// the `/…` line and its answer), the field a client already reads on a
+    /// live turn to tell a command from a coaching reply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+    /// The controls a persisted command reply carried, so a reload draws the
+    /// same buttons the live turn did. Absent on a live turn, whose controls
+    /// ride the block list instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions: Option<MessageActionsResponse>,
     /// Creation timestamp
     pub created_at: String,
+}
+
+/// The controls persisted with a command reply.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageActionsResponse {
+    /// Label for the group, e.g. a picker's card title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The controls, in order.
+    pub actions: Vec<ChatMessageAction>,
 }
 
 /// Interactive control attached to a turn.
@@ -225,7 +360,7 @@ pub struct ChatMessageAction {
     /// frontends.
     pub action_type: String,
     /// For `postback`: the text to send as the next user message (e.g.
-    /// `/coach select <uuid>`). For `url`: the absolute URL to open.
+    /// `/coach add @handle`). For `url`: the absolute URL to open.
     pub value: String,
 }
 
@@ -289,16 +424,44 @@ pub struct MessageFeedbackEntry {
 }
 
 /// Query parameters for listing conversations
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 pub struct ListConversationsQuery {
-    /// Maximum number of conversations to return
+    /// Maximum number of conversations to return, clamped between
+    /// [`MIN_LIST_LIMIT`] and [`MAX_LIST_LIMIT`]
     #[serde(default = "default_limit")]
     pub limit: i64,
-    /// Offset for pagination
+    /// Offset for pagination; a negative value reads as the first page
     #[serde(default)]
     pub offset: i64,
 }
 
+impl Default for ListConversationsQuery {
+    fn default() -> Self {
+        Self {
+            limit: default_limit(),
+            offset: 0,
+        }
+    }
+}
+
+/// Smallest page a client may ask for.
+pub const MIN_LIST_LIMIT: i64 = 1;
+/// Largest page a client may ask for — a whole list for an active athlete,
+/// without letting one call pull every conversation a tenant holds.
+pub const MAX_LIST_LIMIT: i64 = 200;
+
 const fn default_limit() -> i64 {
-    20
+    50
+}
+
+impl ListConversationsQuery {
+    /// The page bounds actually applied: `limit` clamped into range, a
+    /// negative `offset` read as zero.
+    #[must_use]
+    pub fn bounded(&self) -> (i64, i64) {
+        (
+            self.limit.clamp(MIN_LIST_LIMIT, MAX_LIST_LIMIT),
+            self.offset.max(0),
+        )
+    }
 }

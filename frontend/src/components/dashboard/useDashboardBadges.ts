@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Custom hooks for dashboard badge data (pending users, store stats)
+// ABOUTME: Custom hooks for dashboard badge data (pending users, store stats, unread chats)
 // ABOUTME: Enables sidebar badges to share query data with panel components
 
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
+import { useUnreadConversationTotal } from '../../hooks/useConversationList';
 import type { User } from '../../types/api';
 
 /**
@@ -36,4 +37,15 @@ export function useStoreStatsPendingCount(enabled = true): number {
     enabled,
   });
   return storeStats?.pending_count ?? 0;
+}
+
+/**
+ * Unread rows across the athlete's conversations, for the Chat nav badge.
+ *
+ * Reads the same paged list query the sidebar draws, so opening a thread
+ * (which zeroes its row) and the badge agree without a second request.
+ * `enabled` is the caller's athlete check: an operator has no chat tab.
+ */
+export function useUnreadConversationsCount(enabled = true): number {
+  return useUnreadConversationTotal(enabled);
 }

@@ -10,15 +10,18 @@ use pierre_core::errors::{AppError, AppResult};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
+mod listing;
 mod participants;
+mod read_markers;
 
 use super::Database;
 use pierre_core::models::TenantId;
 
 // Re-export DTOs from pierre-core (canonical definitions)
 pub use pierre_core::models::{
-    AddMessageParams, ConversationParticipant, ConversationRecord, ConversationSummary,
-    MessageFeedbackRecord, MessageRecord, ParticipantRole, UpsertMessageFeedbackParams,
+    AddMessageParams, ConversationPage, ConversationParticipant, ConversationRecord,
+    ConversationSummary, MessageFeedbackRecord, MessageRecord, ParticipantRole,
+    UpsertMessageFeedbackParams,
 };
 
 // ============================================================================
@@ -165,57 +168,6 @@ impl ChatManager {
             group_id: r.get("group_id"),
             onboarding_state: r.get("onboarding_state"),
         }))
-    }
-
-    /// List the conversations a user participates in, with pagination
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    pub async fn list_conversations(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-        limit: i64,
-        offset: i64,
-    ) -> AppResult<Vec<ConversationSummary>> {
-        let rows = sqlx::query(
-            r"
-            SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.channel_type, c.created_at, c.updated_at,
-                   COUNT(m.id) as message_count
-            FROM chat_conversations c
-            JOIN conversation_participants p ON p.conversation_id = c.id
-            LEFT JOIN chat_messages m ON m.conversation_id = c.id
-            WHERE p.user_id = $1 AND p.tenant_id = $2 AND c.tenant_id = $2
-            GROUP BY c.id
-            ORDER BY c.updated_at DESC
-            LIMIT $3 OFFSET $4
-            ",
-        )
-        .bind(user_id)
-        .bind(tenant_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list conversations: {e}")))?;
-
-        let summaries = rows
-            .into_iter()
-            .map(|r| ConversationSummary {
-                id: r.get("id"),
-                title: r.get("title"),
-                model: r.get("model"),
-                message_count: r.get("message_count"),
-                total_tokens: r.get("total_tokens"),
-                coach_id: r.get("coach_id"),
-                channel_type: r.get("channel_type"),
-                created_at: r.get("created_at"),
-                updated_at: r.get("updated_at"),
-            })
-            .collect();
-
-        Ok(summaries)
     }
 
     /// Update conversation title
@@ -791,8 +743,40 @@ impl ChatRepository for Database {
         tenant_id: TenantId,
         limit: i64,
         offset: i64,
-    ) -> AppResult<Vec<ConversationSummary>> {
+    ) -> AppResult<ConversationPage> {
         Self::chat_list_conversations_impl(self, user_id, tenant_id, limit, offset).await
+    }
+    async fn count_participating_conversations(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<i64> {
+        Self::chat_count_participating_conversations_impl(self, user_id, tenant_id).await
+    }
+    async fn mark_conversation_read(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        up_to_message_id: Option<&str>,
+    ) -> AppResult<bool> {
+        Self::chat_mark_conversation_read_impl(
+            self,
+            conversation_id,
+            user_id,
+            tenant_id,
+            up_to_message_id,
+        )
+        .await
+    }
+    async fn clear_conversation_read_marker(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        Self::chat_clear_conversation_read_marker_impl(self, conversation_id, user_id, tenant_id)
+            .await
     }
     async fn update_conversation_title(
         &self,

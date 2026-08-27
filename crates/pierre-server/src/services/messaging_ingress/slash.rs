@@ -16,7 +16,10 @@ use tracing::info;
 use pierre_auth::auth::AuthResult;
 
 use crate::mcp::resources::ServerContext;
-use pierre_chat_pipeline::{dispatch_slash, CommandTurn, RenderCapabilities, SlashRequest};
+use pierre_chat_pipeline::stages::command_persistence::is_room_visible;
+use pierre_chat_pipeline::{
+    dispatch_slash, CommandPersistence, CommandTurn, RenderCapabilities, SlashRequest,
+};
 use pierre_services::channel_error_reply::ChannelErrorReply;
 
 use super::addressing::reply_recipient;
@@ -36,24 +39,6 @@ fn is_connect_command(text: &str) -> bool {
         .is_some_and(|tok| tok.eq_ignore_ascii_case("/connect"))
 }
 
-/// Commands whose reply belongs to the **room**, not to the caller alone.
-///
-/// The default is private (see [`slash_reply_should_be_private`]) because a
-/// slash reply usually carries the caller's own account state. These two are
-/// different in kind: they change a setting every member then experiences, so
-/// announcing the change in the room is the point — a member who watches the
-/// coach fall silent after someone ran `/group respond mentions` privately has
-/// no way to know why. Membership/consent/invite commands stay private: they
-/// expose one person's data or a redeemable code.
-///
-/// Entries are the command-definition `name:` values (hyphenated ids like
-/// `group-respond`), which is what `DispatchOutcome::Executed.command_name`
-/// carries — canot's matcher returns `def.name`, not the spaced `/group
-/// respond` trigger. Spelling these with a space silently matches nothing and
-/// the reply keeps going private; `group_setting_changes_are_announced_in_the_room`
-/// pins the real names against the loaded `commands/` catalog.
-const ROOM_VISIBLE_COMMANDS: [&str; 2] = ["group-respond", "group-coach"];
-
 /// Whether a slash-command reply should be delivered privately to the caller
 /// rather than posted back into the room it arrived from.
 ///
@@ -67,14 +52,17 @@ const ROOM_VISIBLE_COMMANDS: [&str; 2] = ["group-respond", "group-coach"];
 /// redirect.
 ///
 /// `command_name` opts a group-wide *setting change* out of that redirection
-/// (see [`ROOM_VISIBLE_COMMANDS`]). `None` — the `/connect` card and the
-/// unknown-command reply — keeps the private default.
+/// — the set is [`pierre_chat_pipeline::stages::command_persistence::ROOM_VISIBLE_COMMANDS`],
+/// shared with the transcript policy so what the room sees is what the room
+/// keeps. `None` — the `/connect` card and the unknown-command reply — keeps
+/// the private default. Membership/consent/invite commands stay private: they
+/// expose one person's data or a redeemable code.
 #[must_use]
 pub fn slash_reply_should_be_private(is_direct_message: bool, command_name: Option<&str>) -> bool {
     if is_direct_message {
         return false;
     }
-    !command_name.is_some_and(|name| ROOM_VISIBLE_COMMANDS.contains(&name))
+    !is_room_visible(command_name)
 }
 
 /// A slash-command reply plus the identity of the command that produced it.
@@ -260,6 +248,17 @@ pub(super) async fn try_handle_slash_command(
             channel_type: channel,
             locale: &locale,
             is_direct_message,
+            // A DM with the bot is the athlete's one thread, so a `/group`
+            // command typed there means the group they are in.
+            ambient_group_fallback: true,
+            // A DM keeps every command turn, as the channel itself does. A
+            // shared room keeps only what it saw: the replies announced in the
+            // room, never the ones delivered privately to the caller.
+            persistence: if is_direct_message {
+                CommandPersistence::Always
+            } else {
+                CommandPersistence::RoomVisibleOnly
+            },
             sender_id: Some(sender_id),
             text,
         },

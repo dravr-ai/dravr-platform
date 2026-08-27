@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Locks the chat-first landing for regular users and the retirement of the user Coach tab
-// ABOUTME: A stale #insights or #my-coaches hash lands on chat; Discover, not Coaches, is the athlete's nav
+// ABOUTME: Locks the chat-first landing for regular users and the retirement of the Coach and Groups tabs
+// ABOUTME: A stale #insights, #my-coaches or #groups hash lands on chat; the athlete's nav has neither
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor, within } from '@testing-library/react';
@@ -10,7 +10,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from '../Dashboard';
 
 vi.mock('../dashboard/index', () => ({
-  ConversationsPanel: () => null,
+  ConversationList: () => null,
+  useUnreadConversationsCount: () => 0,
   usePendingUsersCount: () => 0,
   useStoreStatsPendingCount: () => 0,
 }));
@@ -69,7 +70,7 @@ describe('Dashboard landing — regular user', () => {
     expect(window.location.hash).toBe('#chat');
   });
 
-  it.each(['#insights', '#insights/friends', '#my-coaches'])(
+  it.each(['#insights', '#insights/friends', '#my-coaches', '#groups', '#groups/group-1'])(
     'resolves a stale %s deep link to chat on first load',
     async (hash) => {
       window.history.replaceState(null, '', `/${hash}`);
@@ -100,15 +101,30 @@ describe('Dashboard landing — regular user', () => {
     await waitFor(() => expect(window.location.hash).toBe('#chat'));
   });
 
-  it('offers Chat, Discover and Groups in the sidebar, and no Coaches tab', async () => {
+  it('offers exactly Chat, Discover, Data Providers and Notifications in the sidebar', async () => {
     await act(async () => {
       renderDashboard();
     });
 
     const nav = screen.getByRole('list');
-    expect(within(nav).getByRole('button', { name: 'Chat' })).toBeInTheDocument();
-    expect(within(nav).getByRole('button', { name: 'Discover' })).toBeInTheDocument();
-    expect(within(nav).getByRole('button', { name: 'Groups' })).toBeInTheDocument();
-    expect(within(nav).queryByRole('button', { name: 'Coaches' })).toBeNull();
+    const labels = within(nav)
+      .getAllByRole('button')
+      .map((button) => button.textContent?.trim());
+    expect(labels).toEqual(['Chat', 'Discover', 'Data Providers', 'Notifications']);
+  });
+
+  it('resolves a stale #groups hash typed after load to chat', async () => {
+    window.history.replaceState(null, '', '/#discover');
+    await act(async () => {
+      renderDashboard();
+    });
+    expect(await screen.findByTestId('discover-tab')).toBeInTheDocument();
+
+    await act(async () => {
+      window.location.hash = '#groups/group-1';
+    });
+
+    expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#chat'));
   });
 });

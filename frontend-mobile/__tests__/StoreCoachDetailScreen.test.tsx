@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for StoreCoachDetailScreen component
-// ABOUTME: Tests coach detail display, install/uninstall functionality
+// ABOUTME: Tests coach detail display, install → hint → Open chat, uninstall by copy id, and Edit coach
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
@@ -21,6 +21,11 @@ jest.mock('../src/contexts/AuthContext', () => ({
   }),
 }));
 
+const mockTrackMobile = jest.fn();
+jest.mock('../src/services/analytics', () => ({
+  trackMobile: (...args: unknown[]) => mockTrackMobile(...args),
+}));
+
 // Mock API service
 const mockGet = jest.fn();
 const mockInstall = jest.fn();
@@ -40,7 +45,10 @@ jest.mock('../src/services/api', () => ({
 jest.spyOn(Alert, 'alert');
 
 import { StoreCoachDetailScreen } from '../src/screens/store/StoreCoachDetailScreen';
-import type { StoreCoachDetail, CoachCategory } from '../src/types';
+import { CHAT_THREAD_ROUTE, COACH_EDIT_ROUTE } from '../src/navigation/routes';
+import type { StoreCoach, StoreCoachDetail, CoachCategory } from '../src/types';
+
+const COACH_HANDLE = 'marathon-training-coach';
 
 const createMockStoreCoachDetail = (overrides: Partial<StoreCoachDetail> = {}): StoreCoachDetail => ({
   id: 'test-coach-id',
@@ -61,8 +69,26 @@ const createMockStoreCoachDetail = (overrides: Partial<StoreCoachDetail> = {}): 
   author_id: 'author-123',
   created_at: '2024-01-10T00:00:00Z',
   publish_status: 'published',
+  handle: COACH_HANDLE,
   ...overrides,
 });
+
+// An install mints a personal copy with its own id, carrying the listing's
+// handle. Both the install response and the installations list return copies.
+const installedCopy: StoreCoach = {
+  id: 'installed-copy-1',
+  title: 'Marathon Training Coach',
+  description: 'A comprehensive marathon training program',
+  category: 'training' as CoachCategory,
+  tags: ['marathon', 'running', 'endurance'],
+  sample_prompts: [],
+  token_count: 1200,
+  install_count: 0,
+  icon_url: null,
+  published_at: null,
+  author_id: null,
+  handle: COACH_HANDLE,
+};
 
 describe('StoreCoachDetailScreen', () => {
   beforeEach(() => {
@@ -73,6 +99,7 @@ describe('StoreCoachDetailScreen', () => {
     mockRouter.navigate.mockClear();
     mockGet.mockResolvedValue(createMockStoreCoachDetail());
     mockGetInstallations.mockResolvedValue({ coaches: [] });
+    mockInstall.mockResolvedValue({ message: 'Coach installed successfully', coach: installedCopy });
   });
 
   describe('rendering', () => {
@@ -198,21 +225,18 @@ describe('StoreCoachDetailScreen', () => {
     it('should show Install button when coach is not installed', async () => {
       mockGetInstallations.mockResolvedValue({ coaches: [] });
 
-      const { getByText } = render(
+      const { getByText, queryByTestId } = render(
         <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
         expect(getByText('Install Coach')).toBeTruthy();
       });
+      expect(queryByTestId('edit-coach-button')).toBeNull();
     });
 
     it('should call install when Install button is pressed', async () => {
       mockGetInstallations.mockResolvedValue({ coaches: [] });
-      mockInstall.mockResolvedValue({
-        coach_id: 'new-coach-id',
-        message: 'Successfully installed',
-      });
 
       const { getByText } = render(
         <StoreCoachDetailScreen />
@@ -229,14 +253,8 @@ describe('StoreCoachDetailScreen', () => {
       });
     });
 
-    it('should show success alert after installation', async () => {
-      mockGetInstallations.mockResolvedValue({ coaches: [] });
-      mockInstall.mockResolvedValue({
-        coach_id: 'new-coach-id',
-        message: 'Successfully installed',
-      });
-
-      const { getByText } = render(
+    it('shows the post-install hint that teaches /coach add @handle, not an alert', async () => {
+      const { getByText, findByTestId, getByTestId } = render(
         <StoreCoachDetailScreen />
       );
 
@@ -246,13 +264,55 @@ describe('StoreCoachDetailScreen', () => {
 
       fireEvent.press(getByText('Install Coach'));
 
+      expect(await findByTestId('post-install-hint')).toBeTruthy();
+      expect(getByTestId('post-install-title')).toHaveTextContent('“Marathon Training Coach” is in your coaches');
+      expect(getByTestId('post-install-body')).toHaveTextContent(
+        `Use it in any chat: /coach add @${COACH_HANDLE} — or mention @${COACH_HANDLE} for one turn`,
+      );
+      expect(Alert.alert).not.toHaveBeenCalled();
+      // The install is what the funnel counts.
+      expect(mockTrackMobile).toHaveBeenCalledWith({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
+      // The copy the install minted is what the screen now addresses.
+      expect(getByText('Installed')).toBeTruthy();
+      expect(getByTestId('edit-coach-button')).toBeTruthy();
+    });
+
+    it('Open chat on the hint opens a fresh thread', async () => {
+      const { getByText, findByTestId, getByTestId, queryByTestId } = render(
+        <StoreCoachDetailScreen />
+      );
+
       await waitFor(() => {
-        expect(Alert.alert).toHaveBeenCalledWith(
-          'Installed!',
-          expect.stringContaining('Marathon Training Coach'),
-          expect.any(Array)
-        );
+        expect(getByText('Install Coach')).toBeTruthy();
       });
+      fireEvent.press(getByText('Install Coach'));
+      await findByTestId('post-install-hint');
+
+      fireEvent.press(getByTestId('post-install-open-chat'));
+
+      expect(mockRouter.push).toHaveBeenCalledWith({
+        pathname: CHAT_THREAD_ROUTE,
+        params: { conversationId: 'new' },
+      });
+      expect(queryByTestId('post-install-hint')).toBeNull();
+    });
+
+    it('Dismiss hides the hint and leaves the coach installed', async () => {
+      const { getByText, findByTestId, getByTestId, queryByTestId } = render(
+        <StoreCoachDetailScreen />
+      );
+
+      await waitFor(() => {
+        expect(getByText('Install Coach')).toBeTruthy();
+      });
+      fireEvent.press(getByText('Install Coach'));
+      await findByTestId('post-install-hint');
+
+      fireEvent.press(getByTestId('post-install-dismiss'));
+
+      expect(queryByTestId('post-install-hint')).toBeNull();
+      expect(mockRouter.push).not.toHaveBeenCalled();
+      expect(getByText('Installed')).toBeTruthy();
     });
 
     it('should show error alert on installation failure', async () => {
@@ -278,26 +338,43 @@ describe('StoreCoachDetailScreen', () => {
     });
   });
 
-  describe('uninstall functionality', () => {
-    it('should show Installed button when coach is installed', async () => {
-      mockGetInstallations.mockResolvedValue({
-        coaches: [{ id: 'test-coach-id' }],
-      });
+  describe('installed copy', () => {
+    beforeEach(() => {
+      // The installations list holds copies (own id, the listing's handle),
+      // never the listing itself.
+      mockGetInstallations.mockResolvedValue({ coaches: [installedCopy] });
+    });
 
-      const { getByText } = render(
+    it('recognises the installed copy by the handle it inherited from the listing', async () => {
+      const { getByText, getByTestId, queryByText } = render(
         <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
         expect(getByText('Installed')).toBeTruthy();
       });
+      expect(queryByText('Install Coach')).toBeNull();
+      expect(getByTestId('edit-coach-button')).toBeTruthy();
+    });
+
+    it('Edit coach opens the edit sheet on the copy, not the listing', async () => {
+      const { getByTestId } = render(
+        <StoreCoachDetailScreen />
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('edit-coach-button')).toBeTruthy();
+      });
+
+      fireEvent.press(getByTestId('edit-coach-button'));
+
+      expect(mockRouter.push).toHaveBeenCalledWith({
+        pathname: COACH_EDIT_ROUTE,
+        params: { coachId: 'installed-copy-1' },
+      });
     });
 
     it('should show confirmation dialog when Installed button is pressed', async () => {
-      mockGetInstallations.mockResolvedValue({
-        coaches: [{ id: 'test-coach-id' }],
-      });
-
       const { getByText } = render(
         <StoreCoachDetailScreen />
       );
@@ -318,11 +395,8 @@ describe('StoreCoachDetailScreen', () => {
       });
     });
 
-    it('should call uninstall when confirmed', async () => {
-      mockGetInstallations.mockResolvedValue({
-        coaches: [{ id: 'test-coach-id' }],
-      });
-      mockUninstall.mockResolvedValue({ message: 'Uninstalled' });
+    it('uninstalls the copy id, never the store listing id', async () => {
+      mockUninstall.mockResolvedValue({ message: 'Uninstalled', source_coach_id: 'test-coach-id' });
 
       // Mock Alert to automatically call the destructive action
       (Alert.alert as jest.Mock).mockImplementation(
@@ -348,7 +422,22 @@ describe('StoreCoachDetailScreen', () => {
       fireEvent.press(getByText('Installed'));
 
       await waitFor(() => {
-        expect(mockUninstall).toHaveBeenCalledWith('test-coach-id');
+        expect(mockUninstall).toHaveBeenCalledWith('installed-copy-1');
+      });
+      await waitFor(() => {
+        expect(getByText('Install Coach')).toBeTruthy();
+      });
+    });
+
+    it('a listing without a handle cannot be matched to a copy', async () => {
+      mockGet.mockResolvedValue(createMockStoreCoachDetail({ handle: undefined }));
+
+      const { getByText } = render(
+        <StoreCoachDetailScreen />
+      );
+
+      await waitFor(() => {
+        expect(getByText('Install Coach')).toBeTruthy();
       });
     });
   });
@@ -368,41 +457,6 @@ describe('StoreCoachDetailScreen', () => {
       fireEvent.press(getByTestId('back-button'));
 
       expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(discover)');
-    });
-
-    it('should navigate to CoachLibrary after successful install', async () => {
-      mockGetInstallations.mockResolvedValue({ coaches: [] });
-      mockInstall.mockResolvedValue({
-        coach_id: 'new-coach-id',
-        message: 'Successfully installed',
-      });
-
-      // Mock Alert to call the "View My Coaches" action
-      (Alert.alert as jest.Mock).mockImplementation(
-        (title, message, buttons) => {
-          const viewButton = buttons?.find(
-            (b: { text: string }) => b.text === 'View My Coaches'
-          );
-          if (viewButton?.onPress) {
-            viewButton.onPress();
-          }
-        }
-      );
-
-      const { getByText } = render(
-        <StoreCoachDetailScreen />
-      );
-
-      await waitFor(() => {
-        expect(getByText('Install Coach')).toBeTruthy();
-      });
-
-      fireEvent.press(getByText('Install Coach'));
-
-      await waitFor(() => {
-        // After install, navigation goes to the coach library under Discover
-        expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(discover)/library');
-      });
     });
   });
 

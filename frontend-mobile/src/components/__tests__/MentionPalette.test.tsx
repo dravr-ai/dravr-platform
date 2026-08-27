@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile @handle mention palette over the composer
-// ABOUTME: Asserts "@" offers the installed coaches by handle and selecting one inserts the lowercase handle verbatim
+// ABOUTME: Unit tests for the mobile @handle mention palette over the composer, including its keyboard
+// ABOUTME: Asserts "@" offers installed coaches, arrows move the highlight, Enter inserts and Escape dismisses
 
 import React, { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -37,15 +37,27 @@ function coach(overrides: Partial<Coach>): Coach {
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
     is_system: false,
+    is_assigned: true,
     ...overrides,
   } as Coach;
 }
 
-/** The athlete's own list: two catalogue coaches and one personal coach with no handle. */
+/**
+ * The athlete's own list: two installed catalogue coaches, one personal coach with
+ * no handle, and one listed-but-never-installed coach. Only an assignment row makes
+ * `@handle` route, so the last one must never be offered.
+ */
 const INSTALLED: Coach[] = [
   coach({ id: 'coach-tempo', title: 'Coach Tempo', handle: 'coach-tempo' }),
   coach({ id: 'coach-recovery', title: 'Recovery Guru', handle: 'recovery-guru' }),
   coach({ id: 'coach-personal', title: 'My private coach' }),
+  coach({
+    id: 'coach-catalogue',
+    title: 'Coach Catalogue',
+    handle: 'coach-catalogue',
+    is_system: true,
+    is_assigned: false,
+  }),
 ];
 
 const onSendMessage = jest.fn();
@@ -155,5 +167,57 @@ describe('@handle mention palette (mobile composer)', () => {
 
     await waitFor(() => expect(listCoaches).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId('mention-palette')).toBeNull();
+  });
+
+  it('walks the handles with the arrows and inserts the highlighted one on Enter', async () => {
+    renderComposer();
+    const input = screen.getByTestId('message-input');
+
+    fireEvent.changeText(input, '@');
+    await waitFor(() =>
+      expect(screen.getByTestId('mention-palette-option-coach-tempo')).toBeTruthy(),
+    );
+    expect(screen.getByTestId('mention-palette-option-coach-tempo').props.accessibilityState)
+      .toEqual({ selected: true });
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'ArrowDown' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('mention-palette-option-recovery-guru').props.accessibilityState)
+        .toEqual({ selected: true }),
+    );
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'Enter' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('message-input').props.value).toBe('@recovery-guru '),
+    );
+  });
+
+  it('Escape dismisses the mention palette until the next edit', async () => {
+    renderComposer();
+    const input = screen.getByTestId('message-input');
+
+    fireEvent.changeText(input, '@co');
+    await waitFor(() => expect(screen.getByTestId('mention-palette')).toBeTruthy());
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'Escape' } });
+    await waitFor(() => expect(screen.queryByTestId('mention-palette')).toBeNull());
+
+    fireEvent.changeText(input, '@coa');
+    await waitFor(() => expect(screen.getByTestId('mention-palette')).toBeTruthy());
+  });
+
+  // A handle typed in full belongs to the composer: the athlete addressed the
+  // coach and Enter must not re-insert what is already there.
+  it('leaves Enter to the composer once the handle is complete', async () => {
+    renderComposer();
+    const input = screen.getByTestId('message-input');
+
+    fireEvent.changeText(input, '@coach-tempo');
+    await waitFor(() =>
+      expect(screen.getByTestId('mention-palette-option-coach-tempo')).toBeTruthy(),
+    );
+
+    fireEvent(input, 'keyPress', { nativeEvent: { key: 'Enter' } });
+    expect(screen.getByTestId('message-input').props.value).toBe('@coach-tempo');
   });
 });

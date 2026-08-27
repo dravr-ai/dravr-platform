@@ -26,7 +26,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
-use pierre_core::models::{default_locale, ConversationTurnId};
+use pierre_core::models::{default_locale, ConversationTurnId, COMMAND_FINISH_REASON};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{field, info, instrument, trace, warn, Span};
@@ -36,7 +36,6 @@ use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
-#[cfg(feature = "client-notifications")]
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
@@ -44,7 +43,7 @@ use pierre_notifications::triggers as notification_triggers;
 use super::common::get_tenant_id;
 use super::dto::{MessageResponse, SendMessageRequest};
 use super::turn_response::{
-    platform_blocks, AssistantResponse, TurnResponse, TurnTelemetryResponse,
+    message_response, platform_blocks, AssistantResponse, TurnResponse, TurnTelemetryResponse,
 };
 use pierre_middleware::AuthenticatedUser;
 
@@ -60,12 +59,10 @@ const CLIENT_PLATFORM_HEADER: &str = "x-client-platform";
 /// Model label recorded for a turn a slash-command handler answered. Named
 /// rather than blank so a telemetry row with no token counts is explicable.
 const COMMAND_MODEL: &str = "command";
-/// Provider label for the same.
+/// Provider label for the same. The finish reason is
+/// [`COMMAND_FINISH_REASON`] — the stamp the persisted rows carry, so the wire
+/// and the transcript name a command turn the same way.
 const COMMAND_PROVIDER: &str = "platform";
-/// Finish reason for the same. This is how a client tells a command turn from
-/// an LLM turn — the same field it reads for every other turn's outcome, so a
-/// client skipping LLM-specific treatments has one place to look.
-const COMMAND_FINISH_REASON: &str = "command";
 
 /// Which first-party client sent the turn.
 ///
@@ -163,6 +160,20 @@ pub async fn send_message(
     let turn_id = ConversationTurnId::new();
     span.record("turn_id", field::display(&turn_id));
 
+    // The conversation, loaded once for everything this handler decides from
+    // it: the caller's membership (a stranger gets the same 404 every chat
+    // route gives), whether the turn is a direct message — which is a fact of
+    // the thread, not of the surface: a conversation bound to a coaching group
+    // is a group thread even in the app — and the `updated_at` a command
+    // reply reports when its rows could not be written.
+    let conversation = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conversation_id, &user_id_str, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+
     // The athlete's stored preference is the turn service's starting point; it
     // refines it from the language of the message itself.
     let stored_locale = resources
@@ -200,8 +211,7 @@ pub async fn send_message(
 
     let egress = TurnEgress {
         resources: Arc::clone(&resources),
-        conversation_id,
-        user_id_str,
+        conversation,
         user_id: auth.user_id,
         tenant_id,
         turn_id,
@@ -224,9 +234,7 @@ pub async fn send_message(
         &profile,
     )
     .await?;
-    let response = egress
-        .into_response_body(served, &request, start_time)
-        .await?;
+    let response = egress.into_response_body(served, &request, start_time);
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }
@@ -238,8 +246,8 @@ pub async fn send_message(
 /// cannot describe the same turn differently.
 struct TurnEgress {
     resources: Arc<ServerContext>,
-    conversation_id: String,
-    user_id_str: String,
+    /// The conversation as it stood when the request arrived.
+    conversation: ConversationRecord,
     user_id: Uuid,
     tenant_id: TenantId,
     turn_id: ConversationTurnId,
@@ -254,7 +262,7 @@ impl TurnEgress {
         hooks: pipeline::PipelineHooks<'a>,
     ) -> pipeline::TurnRequest<'a> {
         pipeline::TurnRequest {
-            conversation_id: self.conversation_id.clone(),
+            conversation_id: self.conversation.id.clone(),
             user_id: self.user_id,
             // Web and mobile conversations are per-user by construction: the
             // athlete's own tenant owns the conversation and their tool
@@ -266,7 +274,18 @@ impl TurnEgress {
             // In-app conversations are single-user; no room transcript exists.
             ambient_context: None,
             channel_type: &self.channel_type,
-            is_direct_message: true,
+            // A thread bound to a coaching group is a group thread, whichever
+            // surface it is read on: `/coach add` binds the group's coach there
+            // and `/group …` acts on that group. Unbound, the athlete is alone
+            // with the coach.
+            is_direct_message: self.conversation.group_id.is_none(),
+            // A solo thread is exactly that. The group commands resolve no
+            // group here and are refused, instead of being aimed at whichever
+            // group the athlete touched last — the messaging DM's answer, where
+            // one thread stands for the whole relationship.
+            ambient_group_fallback: false,
+            // The in-app transcript keeps every command turn, as Telegram does.
+            command_persistence: pipeline::CommandPersistence::Always,
             // No channel link on this surface, so nothing for `/logout` to
             // unlink.
             sender_id: None,
@@ -275,12 +294,12 @@ impl TurnEgress {
     }
 
     /// Serialize whatever the turn service produced.
-    async fn into_response_body(
+    fn into_response_body(
         self,
         served: ServedTurn,
         request: &SendMessageRequest,
         start_time: Instant,
-    ) -> Result<TurnResponse, AppError> {
+    ) -> TurnResponse {
         // Safe cast: execution time will never exceed u64::MAX milliseconds
         // (~584 million years).
         #[allow(clippy::cast_possible_truncation)]
@@ -293,76 +312,70 @@ impl TurnEgress {
                     &envelope.conversation,
                     self.user_id,
                     self.tenant_id,
-                    &self.conversation_id,
+                    &self.conversation.id,
                 );
-                Ok(TurnResponse::from_envelope(*envelope, execution_time_ms))
+                TurnResponse::from_envelope(*envelope, execution_time_ms)
             }
             ServedTurn::Command { command, quota } => {
-                self.command_response(*command, &quota, request).await
+                self.command_response(*command, &quota, request)
             }
         }
     }
 
     /// Serialize a slash-command answer as a turn.
     ///
-    /// Slash commands are ephemeral on every surface: the reply is returned
-    /// for immediate display but never written to chat history, so the
-    /// command and its account-level output (connected providers, group count,
-    /// privacy state) neither persist in the durable transcript nor bleed into
-    /// the LLM context on the next turn. `get_conversation` stays as an
-    /// ownership check and supplies `conversation_updated_at`.
+    /// A command turn is history like any other: the turn service wrote the
+    /// `/…` line and the answer to the transcript, both stamped `command`, and
+    /// the answer's controls with them — so a reload shows the same reply and
+    /// the same buttons, and the next coaching turn's prompt sees none of it.
+    /// The ids and `conversation_updated_at` here are those persisted rows'.
     ///
-    /// Interactive actions ride back on the response DTO but are not
-    /// persisted — they are live only for the turn that produced them;
-    /// reloading the conversation shows the rendered text without controls,
-    /// and the athlete can always re-invoke the command.
-    async fn command_response(
+    /// When the rows could not be written the reply is still delivered — the
+    /// athlete asked a question and has its answer — under fresh ids the
+    /// transcript will not know, with the conversation's pre-turn `updated_at`;
+    /// the write failure is logged where it happened.
+    fn command_response(
         &self,
         command: pipeline::CommandTurn,
         quota: &pipeline::QuotaState,
         request: &SendMessageRequest,
-    ) -> Result<TurnResponse, AppError> {
-        let conversation = self
-            .resources
-            .common
-            .repos
-            .chat
-            .get_conversation(&self.conversation_id, &self.user_id_str, self.tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Conversation {}", self.conversation_id)))?;
+    ) -> TurnResponse {
+        let pipeline::CommandTurn {
+            text,
+            card_title,
+            actions,
+            persisted,
+            ..
+        } = command;
 
-        let now = Utc::now().to_rfc3339();
+        let (user_message, assistant_message, conversation_updated_at) =
+            if let Some(rows) = persisted {
+                (
+                    message_response(rows.user_message),
+                    message_response(rows.assistant_message),
+                    rows.conversation.updated_at,
+                )
+            } else {
+                let now = Utc::now().to_rfc3339();
+                (
+                    unpersisted_message("user", request.content.clone(), now.clone()),
+                    unpersisted_message("assistant", text.clone(), now),
+                    self.conversation.updated_at.clone(),
+                )
+            };
+
         // A card's title labels its controls, so it rides the actions block
         // rather than being pre-folded onto the front of the body.
-        let blocks = platform_blocks(
-            command.text.clone(),
-            command.card_title,
-            command.actions,
-            quota,
-        );
-        Ok(TurnResponse {
+        let blocks = platform_blocks(text, card_title, actions, quota);
+        TurnResponse {
             turn_id: self.turn_id.to_string(),
-            user_message: MessageResponse {
-                id: Uuid::new_v4().to_string(),
-                role: "user".to_owned(),
-                content: request.content.clone(),
-                token_count: None,
-                scene_blocks: None,
-                created_at: now.clone(),
-            },
+            user_message,
             assistant: AssistantResponse {
-                message: MessageResponse {
-                    id: Uuid::new_v4().to_string(),
-                    role: "assistant".to_owned(),
-                    content: command.text,
-                    token_count: None,
-                    scene_blocks: None,
-                    created_at: now,
-                },
+                message: assistant_message,
                 blocks,
                 finish_reason: Some(COMMAND_FINISH_REASON.to_owned()),
             },
-            conversation_updated_at: conversation.updated_at,
+            conversation_updated_at,
             telemetry: TurnTelemetryResponse {
                 model: COMMAND_MODEL.to_owned(),
                 provider_name: COMMAND_PROVIDER.to_owned(),
@@ -370,7 +383,22 @@ impl TurnEgress {
                 tools_called: Vec::new(),
                 execution_time_ms: 0,
             },
-        })
+        }
+    }
+}
+
+/// A command-turn message the transcript does not hold, rendered for the
+/// reply that is still owed to the athlete.
+fn unpersisted_message(role: &str, content: String, created_at: String) -> MessageResponse {
+    MessageResponse {
+        id: Uuid::new_v4().to_string(),
+        role: role.to_owned(),
+        content,
+        token_count: None,
+        scene_blocks: None,
+        finish_reason: Some(COMMAND_FINISH_REASON.to_owned()),
+        actions: None,
+        created_at,
     }
 }
 
@@ -422,11 +450,7 @@ fn send_message_sse(inputs: SseInputs) -> Response {
         let ctx = egress.resources.chat_pipeline_context();
         let outcome =
             match pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await {
-                Ok(served) => {
-                    egress
-                        .into_response_body(served, &request, start_time)
-                        .await
-                }
+                Ok(served) => Ok(egress.into_response_body(served, &request, start_time)),
                 Err(e) => Err(e),
             };
         for event in terminal_events(outcome) {

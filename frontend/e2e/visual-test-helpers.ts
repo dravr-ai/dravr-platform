@@ -215,14 +215,6 @@ async function setupAdditionalMocks(page: Page): Promise<void> {
     });
   });
 
-  // Mock hidden coaches
-  await page.route('**/api/coaches/hidden', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ coaches: [] }),
-    });
-  });
 
   // Mock user profile endpoint
   await page.route('**/api/user/profile**', async (route) => {

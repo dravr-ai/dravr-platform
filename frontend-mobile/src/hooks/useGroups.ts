@@ -1,50 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: React Query hooks for group coaching operations
-// ABOUTME: Provides queries and mutations for groups, members, invites, and analytics
+// ABOUTME: React Query hooks behind Group info — the group, its members, invites, settings and analytics
+// ABOUTME: Creating and joining a group are commands (/group create, /group join), so no hook does either
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
-import { QUERY_KEYS } from '../../../packages/shared-constants/src/query-keys';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { groupsApi } from '../services/api';
 import type {
-  CreateGroupRequest,
+  CreateInviteRequest,
   GroupRole,
-  JoinGroupRequest,
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
 } from '../types';
-
-/**
- * Hook for fetching groups the current user belongs to.
- */
-export function useMyGroups() {
-  const queryClient = useQueryClient();
-
-  const query = useQuery({
-    queryKey: QUERY_KEYS.groups.list(),
-    queryFn: () => groupsApi.listMyGroups(),
-    staleTime: 60_000, // 1 minute
-  });
-
-  const invalidate = useCallback(async () => {
-    await queryClient.invalidateQueries({
-      queryKey: QUERY_KEYS.groups.all,
-    });
-  }, [queryClient]);
-
-  return {
-    groups: query.data?.groups ?? [],
-    isLoading: query.isLoading,
-    isRefetching: query.isRefetching,
-    isError: query.isError,
-    error: query.error,
-    refetch: query.refetch,
-    invalidate,
-  };
-}
 
 /**
  * Hook for fetching a single group by ID.
@@ -107,48 +76,6 @@ export function useGroupStats(groupId: string) {
 }
 
 /**
- * Hook for group mutation operations (create, join, leave).
- */
-export function useGroupActions() {
-  const queryClient = useQueryClient();
-
-  const invalidateAll = useCallback(async () => {
-    await queryClient.invalidateQueries({
-      queryKey: QUERY_KEYS.groups.all,
-    });
-  }, [queryClient]);
-
-  const createGroup = useMutation({
-    mutationFn: (request: CreateGroupRequest) => groupsApi.createGroup(request),
-    onSuccess: invalidateAll,
-  });
-
-  const joinGroup = useMutation({
-    mutationFn: (request: JoinGroupRequest) => groupsApi.joinGroup(request),
-    onSuccess: invalidateAll,
-  });
-
-  const leaveGroup = useMutation({
-    mutationFn: (groupId: string) => groupsApi.leaveGroup(groupId),
-    onSuccess: invalidateAll,
-  });
-
-  return {
-    createGroup: createGroup.mutateAsync,
-    isCreating: createGroup.isPending,
-    createError: createGroup.error,
-
-    joinGroup: joinGroup.mutateAsync,
-    isJoining: joinGroup.isPending,
-    joinError: joinGroup.error,
-
-    leaveGroup: leaveGroup.mutateAsync,
-    isLeaving: leaveGroup.isPending,
-    leaveError: leaveGroup.error,
-  };
-}
-
-/**
  * Hook for fetching the invites issued for a group.
  */
 export function useGroupInvites(groupId: string) {
@@ -169,6 +96,52 @@ export function useGroupInvites(groupId: string) {
 }
 
 /**
+ * Mutation hook for issuing an invite code (admin/owner only).
+ *
+ * The code is what an athlete redeems with `/group join <code>`, and what the
+ * `/groups/join/:code` link carries, so the sheet that creates one is also
+ * where it gets shared from.
+ */
+export function useCreateInvite(groupId: string) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (request?: CreateInviteRequest) => groupsApi.createInvite(groupId, request),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.invites(groupId) });
+    },
+  });
+
+  return {
+    createInvite: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    isError: mutation.isError,
+    error: mutation.error,
+  };
+}
+
+/**
+ * Mutation hook for deactivating an invite (admin/owner only).
+ */
+export function useDeactivateInvite(groupId: string) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (inviteId: string) => groupsApi.deactivateInvite(groupId, inviteId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.invites(groupId) });
+    },
+  });
+
+  return {
+    deactivateInvite: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    isError: mutation.isError,
+    error: mutation.error,
+  };
+}
+
+/**
  * Mutation hook for updating a group's settings (admin/owner only).
  */
 export function useUpdateGroup(groupId: string) {
@@ -178,7 +151,6 @@ export function useUpdateGroup(groupId: string) {
     mutationFn: (request: UpdateGroupRequest) => groupsApi.updateGroup(groupId, request),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.detail(groupId) });
-      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.list() });
     },
   });
 
@@ -212,20 +184,62 @@ export function useDeleteGroup() {
 }
 
 /**
- * Mutation hook for deactivating an invite (admin/owner only).
+ * Mutation hook for leaving a group.
  */
-export function useDeactivateInvite(groupId: string) {
+export function useLeaveGroup() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: (inviteId: string) => groupsApi.deactivateInvite(groupId, inviteId),
+    mutationFn: (groupId: string) => groupsApi.leaveGroup(groupId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.invites(groupId) });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.all });
     },
   });
 
   return {
-    deactivateInvite: mutation.mutateAsync,
+    leaveGroup: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    isError: mutation.isError,
+    error: mutation.error,
+  };
+}
+
+/**
+ * Mutation hook for removing a member from a group (admin/owner only).
+ */
+export function useRemoveMember(groupId: string) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (userId: string) => groupsApi.removeMember(groupId, userId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.members(groupId) });
+    },
+  });
+
+  return {
+    removeMember: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    isError: mutation.isError,
+    error: mutation.error,
+  };
+}
+
+/**
+ * Mutation hook for detaching the group's human coach (admin/owner only).
+ */
+export function useRemoveCoach(groupId: string) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: () => groupsApi.removeCoach(groupId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.detail(groupId) });
+    },
+  });
+
+  return {
+    removeCoach: mutation.mutateAsync,
     isPending: mutation.isPending,
     isError: mutation.isError,
     error: mutation.error,

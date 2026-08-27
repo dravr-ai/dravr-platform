@@ -64,6 +64,19 @@ export function transcriptBlocks(
     blocks.push({ type: 'workout_plan', plan: plan.plan });
   }
 
+  // A persisted command reply keeps the controls it carried, so a reload
+  // draws the same buttons the live turn did. The block is the live shape
+  // exactly — no `title` key when the reply had no title — so both renderers'
+  // existing `actions` arm draws it unchanged.
+  const actions = message.actions;
+  if (actions && actions.actions.length > 0) {
+    blocks.push(
+      actions.title
+        ? { type: 'actions', title: actions.title, actions: actions.actions }
+        : { type: 'actions', actions: actions.actions },
+    );
+  }
+
   if (verdicts.length > 0) {
     blocks.push({
       type: 'verdicts',

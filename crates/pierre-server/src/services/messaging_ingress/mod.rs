@@ -104,7 +104,7 @@ pub(crate) enum PersistOutcome {
     StoredWithDispatch(Box<PendingDispatch>),
     /// Message was stored in DB but no LLM dispatch (non-text content)
     StoredNoDispatch,
-    /// Message was handled but not stored (linking command or unlinked user prompt)
+    /// Handled without the ingress storing it: a link code, an unlinked prompt, or a slash command the turn service persisted
     HandledNotStored,
 }
 

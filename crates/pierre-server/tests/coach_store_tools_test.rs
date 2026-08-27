@@ -34,6 +34,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 mod common;
+mod helpers;
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -273,6 +274,7 @@ async fn install_coach_from_store_creates_the_athletes_own_copy() -> Result<()> 
         common::create_test_user_with_email(executor.resources.database(), &installer_email)
             .await?;
 
+    let (events, _guard) = helpers::notify_capture::capture_notify();
     let payload = run(
         &executor,
         "install_coach_from_store",
@@ -284,6 +286,12 @@ async fn install_coach_from_store_creates_the_athletes_own_copy() -> Result<()> 
 
     assert_eq!(payload["installed"], true);
     assert_eq!(payload["coach"]["title"], "Ultra Trail Fuelling");
+
+    // `coach.installed` fires once, from the install service this tool
+    // shares with the REST route and `/discover install`.
+    let installed = helpers::notify_capture::only(&events, "coach.installed");
+    assert_eq!(installed.field("coach_slug"), published.to_string());
+    assert_eq!(installed.field("user_id"), installer_id.to_string());
 
     let copy_coach_id = payload["coach"]["id"]
         .as_str()

@@ -1,8 +1,9 @@
 // ABOUTME: PHASE 5 e2e — the mobile progress strip is fed by the turn's own stream, not a second rail
 // ABOUTME: Covers the frames it renders, the blocks it draws off frames, and the run id it no longer sends
 
-import { renderHook, act, render, screen } from '@testing-library/react-native';
+import { act, render, screen } from '@testing-library/react-native';
 
+import { renderHook } from './helpers/queryHook';
 import { installHttpStub, sseTurn, STAGE_PROGRESS, type HttpStub } from './helpers/httpStub';
 import { CONVERSATION_ID, PROSE_OPENING, assistantTurn } from './helpers/chatFixtures';
 

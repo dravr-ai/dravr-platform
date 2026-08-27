@@ -60,11 +60,12 @@ const CATALOGUE_CHANNEL: &str = "command_catalogue";
 pub struct CommandCatalogueQuery {
     /// The conversation the palette is open in, when there is one.
     ///
-    /// Group-scoped commands resolve the group *bound to the conversation*
-    /// before falling back to the caller's first group, so the same athlete
-    /// gets a different answer in a group-bound conversation than in a solo
-    /// one. Omitting it answers for the caller's memberships alone, which is
-    /// the right answer for a palette opened outside any conversation.
+    /// Group-scoped commands resolve the group *bound to the conversation*,
+    /// and a conversation that binds none is a personal thread, so the same
+    /// athlete gets a different answer in a group-bound conversation than in
+    /// a solo one. Omitting it answers for the caller's memberships alone,
+    /// which is the right answer for a palette opened outside any
+    /// conversation.
     pub conversation_id: Option<String>,
 }
 
@@ -182,6 +183,26 @@ pub async fn list_commands(
         .flatten()
         .map_or_else(default_locale, |user| user.locale);
 
+    // The conversation decides what kind of thread the palette is open in: a
+    // thread bound to a group is a group conversation, anything else is
+    // personal. Read under the caller's identity, so a conversation they
+    // cannot open is not found rather than someone else's standing.
+    let conversation = match params.conversation_id.as_deref() {
+        Some(id) => Some(
+            resources
+                .common
+                .repos
+                .chat
+                .get_conversation(id, &auth.user_id.to_string(), tenant_id)
+                .await?
+                .ok_or_else(|| AppError::not_found("Conversation"))?,
+        ),
+        None => None,
+    };
+    let is_direct_message = conversation
+        .as_ref()
+        .is_none_or(|conversation| conversation.group_id.is_none());
+
     let command_ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
     let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
     let ctx = PlatformCommandContext {
@@ -192,9 +213,10 @@ pub async fn list_commands(
         raw_text: String::new(),
         ctx: command_ctx,
         locale,
-        // Both in-app clients are per-user by construction, which is the same
-        // answer the chat ingress gives for a web or mobile turn.
-        is_direct_message: true,
+        is_direct_message,
+        // A solo in-app thread is a personal conversation: the athlete's
+        // memberships elsewhere do not make `/group invite` work in it.
+        ambient_group_fallback: false,
         conversation_id: params.conversation_id,
         // A conversation the caller can open on web or mobile is filed under
         // their own tenant, so the conversation tenant and the caller tenant

@@ -1,5 +1,5 @@
-// ABOUTME: Handlers for /confirm and /deny — resolve a Guardian-parked destructive tool call
-// ABOUTME: Single-use owner-checked claim; /confirm re-dispatches the stored call through the executor chokepoint
+// ABOUTME: Handlers for /confirm and /deny — resolve a Guardian-parked tool call or a parked coach draft
+// ABOUTME: Single-use owner-checked claim; a confirmed tool call re-dispatches through the executor chokepoint
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,6 +20,12 @@
 //! tainted `TurnState` would just park it again), and the token shape keeps
 //! confirmed executions greppable in the Guardian's structured logs. The
 //! pending row itself is the audit record (status + resolved_at).
+//!
+//! The same store parks the draft `/coach create` proposes, under
+//! [`COACH_PROPOSAL_ACTION`]. The claim path is shared — one token grammar,
+//! one single-use rule, one expiry — and routes on the parked action's kind
+//! after the claim: a confirmed draft becomes a coach, a confirmed tool call
+//! is re-dispatched.
 
 use std::fmt::Display;
 
@@ -29,12 +35,13 @@ use pierre_messaging::commands::CommandResponse;
 use tracing::{info, warn};
 
 use pierre_contremaitre::messaging_strings::{
-    KEY_GUARDIAN_CONFIRM_DENIED, KEY_GUARDIAN_CONFIRM_DONE, KEY_GUARDIAN_CONFIRM_EXPIRED,
-    KEY_GUARDIAN_CONFIRM_FAILED, KEY_GUARDIAN_CONFIRM_NOT_FOUND,
+    KEY_COACH_CREATE_DISCARDED, KEY_GUARDIAN_CONFIRM_DENIED, KEY_GUARDIAN_CONFIRM_DONE,
+    KEY_GUARDIAN_CONFIRM_EXPIRED, KEY_GUARDIAN_CONFIRM_FAILED, KEY_GUARDIAN_CONFIRM_NOT_FOUND,
 };
 use pierre_database::repositories::{ClaimOutcome, PendingGuardianAction};
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 
+use crate::coach_create::{create_from_claimed_proposal, COACH_PROPOSAL_ACTION};
 use crate::{CommandHandler, PlatformCommandContext};
 
 /// Handler for `/confirm <id>` — approve and execute a parked action.
@@ -46,29 +53,36 @@ pub struct DenyHandler;
 #[async_trait]
 impl CommandHandler for ConfirmHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        resolve_pending(ctx, "confirmed").await
+        resolve_pending(
+            ctx,
+            ctx.args.first().map_or("", String::as_str),
+            "confirmed",
+        )
+        .await
     }
 }
 
 #[async_trait]
 impl CommandHandler for DenyHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        resolve_pending(ctx, "denied").await
+        resolve_pending(ctx, ctx.args.first().map_or("", String::as_str), "denied").await
     }
 }
 
-/// Claim the pending action for the calling user and act on the outcome.
+/// Claim the pending action `id` for the calling user and act on the outcome.
 ///
+/// The one claim behind `/confirm`, `/deny` and `/coach create confirm`.
 /// A missing/garbled id deliberately gets the same reply as an unknown one:
 /// distinguishing them would let claim tokens be probed for existence.
-async fn resolve_pending(
+pub(crate) async fn resolve_pending(
     ctx: &PlatformCommandContext,
+    id: &str,
     resolution: &str,
 ) -> Result<CommandResponse, AppError> {
     let reg = ctx.ctx.messaging_strings_registry();
     let locale = ctx.locale.as_str();
 
-    let id = ctx.args.first().map_or("", String::as_str).trim();
+    let id = id.trim();
     if id.is_empty() {
         return Ok(CommandResponse::rich_text(reg.render(
             KEY_GUARDIAN_CONFIRM_NOT_FOUND,
@@ -108,6 +122,7 @@ async fn resolve_pending(
         ClaimOutcome::Claimed(action) => action,
     };
 
+    let is_coach_draft = action.tool_name == COACH_PROPOSAL_ACTION;
     if resolution == "denied" {
         info!(
             user_id = %ctx.user_id,
@@ -115,11 +130,16 @@ async fn resolve_pending(
             tool_name = %action.tool_name,
             "guardian pending action denied by user"
         );
-        return Ok(CommandResponse::rich_text(reg.render(
-            KEY_GUARDIAN_CONFIRM_DENIED,
-            locale,
-            &[],
-        )));
+        let key = if is_coach_draft {
+            KEY_COACH_CREATE_DISCARDED
+        } else {
+            KEY_GUARDIAN_CONFIRM_DENIED
+        };
+        return Ok(CommandResponse::rich_text(reg.render(key, locale, &[])));
+    }
+
+    if is_coach_draft {
+        return create_from_claimed_proposal(ctx, &action).await;
     }
 
     let executed = execute_confirmed(ctx, &action).await;

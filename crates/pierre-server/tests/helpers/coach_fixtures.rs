@@ -1,5 +1,5 @@
 // ABOUTME: Catalogue-coach fixtures — publish a coach so it owns a @handle, then install it for an athlete
-// ABOUTME: Shared by the @handle mention and /coach invite @handle tests so "installed" means one thing
+// ABOUTME: Shared by the @handle mention and /coach add @handle tests so "installed" means one thing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,6 +24,27 @@ pub async fn publish_catalogue_coach(
     title: &str,
     system_prompt: &str,
 ) -> Uuid {
+    publish_catalogue_coach_in(
+        repos,
+        author_id,
+        tenant_id,
+        title,
+        system_prompt,
+        CoachCategory::Training,
+    )
+    .await
+}
+
+/// [`publish_catalogue_coach`] filed under a specific Store category, for
+/// tests that browse one shelf of the catalogue.
+pub async fn publish_catalogue_coach_in(
+    repos: &RepositoryRegistry,
+    author_id: Uuid,
+    tenant_id: TenantId,
+    title: &str,
+    system_prompt: &str,
+    category: CoachCategory,
+) -> Uuid {
     let coach = repos
         .coaches
         .create_system_coach(
@@ -33,7 +54,7 @@ pub async fn publish_catalogue_coach(
                 title: title.to_owned(),
                 description: Some(format!("Description for {title}")),
                 system_prompt: system_prompt.to_owned(),
-                category: CoachCategory::Training,
+                category,
                 tags: vec!["test".to_owned()],
                 visibility: CoachVisibility::Tenant,
                 sample_prompts: vec![],

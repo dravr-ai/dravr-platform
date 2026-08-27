@@ -12,9 +12,8 @@ flows:
   - login/**
   - settings/**
   - chat/**
-  - coaches/**
   - store/**
-  - coach-wizard/**
+  - discover/**
   - voice-input/**
   - synthetic-provider/**
   - visual/**

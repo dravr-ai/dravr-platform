@@ -801,7 +801,7 @@ test.describe("Tool Availability - Access Control", () => {
     });
 
     await loginToDashboard(page);
-    // Non-admin users see the sidebar with athlete tabs (Chat, Coaches, Groups, etc.)
+    // Non-admin users see the sidebar with athlete tabs (Chat, Discover, Data Providers, Notifications)
     await page.waitForSelector("aside", { timeout: 10000 });
 
     // Non-admin users see the gear icon (Settings) in bottom profile bar, but NOT admin-specific tabs like Configuration

@@ -1,7 +1,26 @@
 // ABOUTME: Shared TypeScript types for common API structures
 // ABOUTME: Chat types, prompt suggestions, and common response patterns
 
+import type { ChatMessageAction } from './turn.js';
+
 // ========== CHAT TYPES ==========
+
+/**
+ * The newest row of a conversation, as a list row shows it.
+ *
+ * Mirrors `LastMessageResponse` in `routes/chat/dto.rs`.
+ */
+export interface ConversationLastMessage {
+  /**
+   * One line of the row's content: visual markers stripped, whitespace
+   * collapsed, at most 120 characters.
+   */
+  preview: string;
+  /** `user` or `assistant` — the only roles the list query reads. */
+  role: 'user' | 'assistant';
+  /** When the row was written (ISO 8601). */
+  created_at: string;
+}
 
 /** A conversation in the chat system */
 export interface Conversation {
@@ -12,10 +31,16 @@ export interface Conversation {
   /** Coach ID if conversation uses a coach; resolves to the coach's
    *  system_prompt at runtime via the coaches table. */
   coach_id?: string | null;
+  /** The attached coach's catalogue `@handle`, when it has one. List rows only. */
+  coach_handle?: string | null;
+  /** The attached coach's title, when the coach still exists. List rows only. */
+  coach_title?: string | null;
   /** Coaching group ID if the conversation is group-scoped. When set,
    *  prompt assembly injects group context (members, peer training data
    *  subject to per-member consent). NULL for personal 1:1 chats. */
   group_id?: string | null;
+  /** That group's name, when the group still exists. List rows only. */
+  group_name?: string | null;
   /** Total tokens used in conversation */
   total_tokens?: number;
   /** Number of messages in conversation */
@@ -31,6 +56,16 @@ export interface Conversation {
   updated_at: string;
   /** When last message was sent */
   last_message_at?: string | null;
+  /**
+   * The newest `user`/`assistant` row, shaped for the row preview; absent
+   * for an empty conversation. List rows only.
+   */
+  last_message?: ConversationLastMessage | null;
+  /**
+   * `user`/`assistant` rows the caller has not read — every row when they
+   * have never opened the thread. List rows only.
+   */
+  unread_count?: number;
 }
 
 /** What a participant may do beyond reading and posting. */
@@ -90,12 +125,37 @@ export interface Message {
    */
   /** Resolved visual blocks: JSON-encoded `RenderBlock[]` from @pierre/scene-types. */
   scene_blocks?: string;
+  /**
+   * Why this row ended: the provider's own reason for an LLM row, or one of
+   * the platform's stamps — `command` marks a slash-command turn (both the
+   * `/…` line and its answer).
+   */
+  finish_reason?: string;
+  /**
+   * The controls a persisted command reply carried, so a reload draws the
+   * same buttons the live turn did. Absent on a live turn, whose controls
+   * ride the block list instead.
+   */
+  actions?: MessageActions;
   /** Model used for assistant messages */
   model?: string;
   /** Execution time in milliseconds */
   execution_time_ms?: number;
   /** Error flag for failed message responses */
   isError?: boolean;
+}
+
+/**
+ * The controls persisted with a command reply.
+ *
+ * Mirrors `MessageActionsResponse` in `routes/chat/dto.rs`; the same shape a
+ * live turn's `actions` reply block carries.
+ */
+export interface MessageActions {
+  /** Label for the group, e.g. a picker's card title. */
+  title?: string;
+  /** The controls, in order. */
+  actions: ChatMessageAction[];
 }
 
 /**

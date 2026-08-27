@@ -49,6 +49,8 @@ export const ENDPOINTS = {
     /** Set (POST) or clear (DELETE) the caller's thumbs up/down feedback on a message */
     MESSAGE_FEEDBACK: (conversationId: string, messageId: string) =>
       `/api/chat/conversations/${conversationId}/messages/${messageId}/feedback`,
+    /** Advance (POST) or clear (DELETE) the caller's read marker on a conversation */
+    READ: (id: string) => `/api/chat/conversations/${id}/read`,
   },
 
   // ==================== SLASH COMMANDS ====================
@@ -65,40 +67,14 @@ export const ENDPOINTS = {
 
   // ==================== COACHES ====================
   COACHES: {
-    /** List/create coaches */
+    /** List the caller's coaches */
     LIST: '/api/coaches',
     /** Get/update/delete a coach */
     COACH: (id: string) => `/api/coaches/${id}`,
-    /** Toggle favorite status */
-    FAVORITE: (id: string) => `/api/coaches/${id}/favorite`,
     /** Record coach usage */
     USAGE: (id: string) => `/api/coaches/${id}/usage`,
-    /** Hide/show a coach */
-    HIDE: (id: string) => `/api/coaches/${id}/hide`,
-    /** List hidden coaches */
-    HIDDEN: '/api/coaches/hidden',
-    /** Fork a coach */
-    FORK: (id: string) => `/api/coaches/${id}/fork`,
-    /** List versions */
-    VERSIONS: (id: string) => `/api/coaches/${id}/versions`,
-    /** Revert to version */
-    VERSION_REVERT: (id: string, version: number) =>
-      `/api/coaches/${id}/versions/${version}/revert`,
-    /** Diff between versions */
-    VERSION_DIFF: (id: string, fromVersion: number, toVersion: number) =>
-      `/api/coaches/${id}/versions/${fromVersion}/diff/${toVersion}`,
     /** Onboarding coach proposal (inferred profile + top-3 coaches) */
     PROPOSAL: '/api/coaches/proposal',
-    /** Generate coach from conversation */
-    GENERATE: '/api/coaches/generate',
-    /** Import a coach from markdown content */
-    IMPORT: '/api/coaches/import',
-    /** Preview an import before saving */
-    IMPORT_PREVIEW: '/api/coaches/import/preview',
-    /** Import a coach from a URL */
-    IMPORT_URL: '/api/coaches/import/url',
-    /** Export a coach as markdown */
-    EXPORT: (id: string) => `/api/coaches/${id}/export`,
   },
 
   // ==================== OAUTH ====================
@@ -133,8 +109,6 @@ export const ENDPOINTS = {
     COACH: (id: string) => `/api/store/coaches/${id}`,
     /** Search store coaches */
     SEARCH: '/api/store/search',
-    /** Get store categories */
-    CATEGORIES: '/api/store/categories',
     /** Install/uninstall a coach */
     INSTALL: (id: string) => `/api/store/coaches/${id}/install`,
     /** List installed coaches */
@@ -165,8 +139,6 @@ export const ENDPOINTS = {
 
   // ==================== GROUPS ====================
   GROUPS: {
-    /** List/create groups */
-    LIST: '/api/groups',
     /** Get/update/delete a group */
     GROUP: (id: string) => `/api/groups/${id}`,
     /** List/manage members */
@@ -184,12 +156,8 @@ export const ENDPOINTS = {
     INVITES: (id: string) => `/api/groups/${id}/invites`,
     /** Specific invite */
     INVITE: (groupId: string, inviteId: string) => `/api/groups/${groupId}/invites/${inviteId}`,
-    /** Join a group via invite code */
-    JOIN: '/api/groups/join',
     /** Detach the human coach (admin/owner only) */
     COACH: (id: string) => `/api/groups/${id}/coach`,
-    /** List groups the current user is the human coach of */
-    COACHED: '/api/groups/coached',
     /** Check group creation permissions */
     PERMISSIONS: '/api/groups/permissions',
     /** Leave a group */

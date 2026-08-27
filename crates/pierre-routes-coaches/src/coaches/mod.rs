@@ -63,7 +63,6 @@ where
             "/api/coaches/import/url",
             post(user::handle_import_from_url::<C>),
         )
-        .route("/api/coaches/generate", post(user::handle_generate::<C>))
         .route(
             "/api/coaches/by-handle/{handle}",
             get(handle::handle_get_by_handle::<C>),

@@ -233,13 +233,21 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     }
   });
 
-  // Mock chat conversations endpoint
+  // Mock chat conversations endpoint. Rows carry the unified-list shape —
+  // coach handle/title, group id/name, last_message and unread_count — so a
+  // spec that overrides this with its own rows starts from the real contract.
   await page.route('**/api/chat/conversations**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
     });
+  });
+
+  // The read marker the open thread advances, and the mark-unread that clears
+  // it. Registered after the list route so it wins the more specific path.
+  await page.route('**/api/chat/conversations/*/read', async (route) => {
+    await route.fulfill({ status: 204, body: '' });
   });
 
   // Mock user OAuth apps endpoint
@@ -370,7 +378,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     });
   });
 
-  // Mock coaches (needed by PromptSuggestions in welcome view)
+  // Mock coaches (the chat header and the @handle palette read this list)
   await page.route('**/api/coaches**', async (route) => {
     await route.fulfill({
       status: 200,

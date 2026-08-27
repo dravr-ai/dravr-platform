@@ -31,17 +31,17 @@ use uuid::Uuid;
 
 use crate::{CommandHandler, PlatformCommandContext};
 
-/// The coaching group a `/group` subcommand acts on, together with the tenant
-/// whose rows describe it.
-struct TargetGroup {
+/// The coaching group a `/group` subcommand — or `/coach add` in a group
+/// conversation — acts on, together with the tenant whose rows describe it.
+pub(crate) struct TargetGroup {
     /// `coaching_groups.id`.
-    id: Uuid,
+    pub(crate) id: Uuid,
     /// Display name, echoed back in confirmations.
-    name: String,
+    pub(crate) name: String,
     /// Tenant that owns the `coaching_groups` row — the conversation tenant
     /// when the chat binding supplied the group, the caller's own tenant on the
     /// `list_groups_for_user` path (which reports no tenant).
-    tenant_id: TenantId,
+    pub(crate) tenant_id: TenantId,
     /// How the group was resolved, for the operator log line: either
     /// `"conversation_group_id"` or `"list_groups_for_user_first"`.
     source: &'static str,
@@ -101,14 +101,19 @@ async fn conversation_bound_group(
 /// tenant, which is not the caller's tenant whenever a member joined from
 /// elsewhere.
 ///
-/// `list_groups_for_user` is the fallback only for personal chats and for
-/// surfaces that carry no conversation id at all (Slack `block_actions`
-/// buttons). It spans tenants, applies no tenant filter and orders by
+/// `list_groups_for_user` is the fallback only for the messaging surfaces
+/// ([`PlatformCommandContext::ambient_group_fallback`]) — a personal chat with
+/// the bot, or a Slack `block_actions` button that carries no conversation id
+/// at all. It spans tenants, applies no tenant filter and orders by
 /// `updated_at DESC`, so using it after a failed conversation lookup would
 /// silently point the command at whichever other group the caller touched last.
 /// For a privacy control such as `/group consent` a visible refusal is the
-/// safer failure, so a shared room that cannot name its group refuses.
-async fn resolve_target_group(ctx: &PlatformCommandContext) -> Result<TargetGroup, AppError> {
+/// safer failure, so a shared room that cannot name its group refuses — and so
+/// does a solo in-app thread, where the fallback is off and `/group invite` in
+/// a conversation bound to no group offers nothing instead of the wrong group.
+pub(crate) async fn resolve_target_group(
+    ctx: &PlatformCommandContext,
+) -> Result<TargetGroup, AppError> {
     let reg = ctx.ctx.messaging_strings_registry();
     let locale = ctx.locale.as_str();
 
@@ -132,6 +137,9 @@ async fn find_target_group(ctx: &PlatformCommandContext) -> Result<Option<Target
         if !ctx.is_direct_message {
             return Ok(None);
         }
+    }
+    if !ctx.ambient_group_fallback {
+        return Ok(None);
     }
 
     let groups = ctx
@@ -502,8 +510,9 @@ pub struct GroupInviteHandler;
 impl GroupInviteHandler {
     /// The single authority on who may invite. `execute` checks it against the
     /// membership row it fetched; `is_available` checks it against the role
-    /// `/help` already resolved for the same group.
-    fn permits(role: GroupRole) -> bool {
+    /// `/help` already resolved for the same group. `/coach invite` lists
+    /// itself on the same answer.
+    pub(crate) fn permits(role: GroupRole) -> bool {
         role.can_manage_members()
     }
 }

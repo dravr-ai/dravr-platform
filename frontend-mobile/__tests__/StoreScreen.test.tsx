@@ -1,9 +1,8 @@
 // ABOUTME: Unit tests for StoreScreen component
-// ABOUTME: Tests coach store browsing, filtering, search, and navigation
+// ABOUTME: Tests coach store browsing, filtering, search, navigation, and that Discover keeps no coach list of its own
 
 import React from 'react';
-import { render as rtlRender, fireEvent, waitFor } from '@testing-library/react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 // Per-file expo-router mock override with spyable router methods
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
@@ -24,46 +23,20 @@ jest.mock('../src/contexts/AuthContext', () => ({
 // Mock API service
 const mockBrowseStoreCoaches = jest.fn();
 const mockSearchStoreCoaches = jest.fn();
-const mockGetStoreCategories = jest.fn();
-const mockListInstalledCoaches = jest.fn();
+const mockListCoaches = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   storeApi: {
     browse: (...args: unknown[]) => mockBrowseStoreCoaches(...args),
     search: (...args: unknown[]) => mockSearchStoreCoaches(...args),
-    getCategories: (...args: unknown[]) => mockGetStoreCategories(...args),
   },
   coachesApi: {
-    list: (...args: unknown[]) => mockListInstalledCoaches(...args),
+    list: (...args: unknown[]) => mockListCoaches(...args),
   },
 }));
 
 import { StoreScreen } from '../src/screens/store/StoreScreen';
-import type { StoreCoach, CoachCategory, Coach } from '../src/types';
-
-/** Discover pins the athlete's installed coaches through react-query, so every render needs a client. */
-function render(ui: React.ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
-}
-
-const createInstalledCoach = (overrides: Partial<Coach> = {}): Coach => ({
-  id: 'coach-1',
-  title: 'Coach Tempo',
-  description: null,
-  system_prompt: '',
-  category: 'training',
-  tags: [],
-  token_count: 0,
-  is_favorite: false,
-  is_system: false,
-  is_hidden: false,
-  use_count: 0,
-  last_used_at: null,
-  created_at: '2026-08-01T00:00:00Z',
-  updated_at: '2026-08-01T00:00:00Z',
-  ...overrides,
-});
+import type { StoreCoach, CoachCategory } from '../src/types';
 
 const createMockStoreCoach = (overrides: Partial<StoreCoach> = {}): StoreCoach => ({
   id: 'store-coach-1',
@@ -88,14 +61,7 @@ describe('StoreScreen', () => {
     mockRouter.back.mockClear();
     mockRouter.navigate.mockClear();
     mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
-    mockListInstalledCoaches.mockResolvedValue({ coaches: [] });
-    mockGetStoreCategories.mockResolvedValue({
-      categories: [
-        { category: 'training', count: 5 },
-        { category: 'nutrition', count: 3 },
-        { category: 'recovery', count: 2 },
-      ],
-    });
+    mockListCoaches.mockResolvedValue({ coaches: [] });
   });
 
   describe('rendering', () => {
@@ -413,63 +379,22 @@ describe('StoreScreen', () => {
     });
   });
 
-  describe('installed coaches pinned above the catalogue', () => {
-    // Turns red if the strip stops reading the athlete's own coach list — it
-    // must be its own query, never a re-rank of the catalogue page, because
-    // handle_browse grades each cursor page and an installed coach on page
-    // three could never surface on page one.
-    it('lists the installed coaches with their @handle, from the coach list not the catalogue', async () => {
-      mockListInstalledCoaches.mockResolvedValue({
-        coaches: [
-          createInstalledCoach({ id: 'coach-1', title: 'Coach Tempo', handle: 'coach-tempo' }),
-          createInstalledCoach({ id: 'coach-2', title: 'My private coach' }),
-        ],
-      });
+  describe('no coach list of its own', () => {
+    // Discover is the catalogue. The athlete's coaches are reached from chat
+    // (`/coach list`, `@handle`), and editing lives on the store detail of an
+    // installed listing — no strip, no library, no create button here.
+    it('renders the catalogue with no pinned coaches, library link or create button', async () => {
+      const coaches = [createMockStoreCoach({ id: '1', title: 'Marathon Training Coach' })];
+      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
-      const { findByTestId, getByTestId, getByText } = render(<StoreScreen />);
+      const { findByText, queryByTestId } = render(<StoreScreen />);
 
-      expect(await findByTestId('installed-coach-coach-1')).toBeTruthy();
-      expect(getByTestId('installed-coach-handle-coach-1').props.children).toEqual(['@', 'coach-tempo']);
-      expect(getByText('Coach Tempo')).toBeTruthy();
-      // A personal coach with no catalogue handle is still installed; it shows its category instead.
-      expect(getByTestId('installed-coach-coach-2')).toBeTruthy();
-      expect(getByText('Installed · 2')).toBeTruthy();
-      // The catalogue returned nothing, so these rows can only have come from
-      // the coach list — the strip's own query, refetched on focus.
-      expect(mockListInstalledCoaches).toHaveBeenCalled();
-      expect(mockBrowseStoreCoaches).toHaveBeenCalled();
-      // The strip sits above the category filters, which stay as they were.
-      expect(getByText('All')).toBeTruthy();
-      expect(getByText('Training')).toBeTruthy();
-    });
-
-    it('opens the installed coach detail under Discover', async () => {
-      mockListInstalledCoaches.mockResolvedValue({
-        coaches: [createInstalledCoach({ id: 'coach-1', title: 'Coach Tempo', handle: 'coach-tempo' })],
-      });
-      const { findByTestId } = render(<StoreScreen />);
-
-      fireEvent.press(await findByTestId('installed-coach-coach-1'));
-
-      expect(mockRouter.push).toHaveBeenCalledWith({
-        pathname: '/(app)/(tabs)/(discover)/library/[coachId]',
-        params: { coachId: 'coach-1' },
-      });
-    });
-
-    it('reaches the coach library and the coach editor from the strip', async () => {
-      const { findByTestId, getByTestId } = render(<StoreScreen />);
-
-      fireEvent.press(await findByTestId('manage-coaches-button'));
-      expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(discover)/library');
-
-      fireEvent.press(getByTestId('discover-create-coach-button'));
-      expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(discover)/library/editor');
-    });
-
-    it('says so when nothing is installed yet', async () => {
-      const { findByTestId } = render(<StoreScreen />);
-      expect(await findByTestId('installed-coaches-empty')).toBeTruthy();
+      expect(await findByText('Marathon Training Coach')).toBeTruthy();
+      expect(queryByTestId('installed-coaches-strip')).toBeNull();
+      expect(queryByTestId('manage-coaches-button')).toBeNull();
+      expect(queryByTestId('discover-create-coach-button')).toBeNull();
+      // The catalogue is the only query Discover makes.
+      expect(mockListCoaches).not.toHaveBeenCalled();
     });
   });
 });

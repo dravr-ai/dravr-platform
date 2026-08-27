@@ -104,12 +104,6 @@ export interface Coach {
   max_tool_iterations?: number;
 }
 
-/** Response when forking a coach */
-export interface ForkCoachResponse {
-  coach: Coach;
-  source_coach_id: string;
-}
-
 // -- Onboarding coach proposal (GET /api/coaches/proposal) --
 
 /** One sport's share of the user's recent activity mix. */
@@ -152,38 +146,6 @@ export interface CoachProposalResponse {
   profile: SportProfileSummary;
   /** Up to 3 proposed coaches, best fit first */
   coaches: ProposedCoach[];
-}
-
-/** Request to create a new coach */
-export interface CreateCoachRequest {
-  title: string;
-  description?: string;
-  system_prompt: string;
-  /** Category - accepts any valid category string */
-  category: string;
-  tags?: string[];
-  visibility?: string;
-  /** Query auto-sent on first message to provide analysis context */
-  startup_query?: string;
-  /** Structured data requirements for deterministic activity pre-fetching */
-  data_requirements?: DataRequirements;
-  /** Coach purpose (from ## Purpose section) */
-  purpose?: string;
-  /** Usage scenarios (from ## When to Use section) */
-  when_to_use?: string;
-  /** Core AI instructions (from ## Instructions section) */
-  instructions?: string;
-  /** Sample questions (from ## Example Inputs section) */
-  example_inputs?: string;
-  /** Response style guidance (from ## Example Outputs section) */
-  example_outputs?: string;
-  /** Success definition (from ## Success Criteria section) */
-  success_criteria?: string;
-  /**
-   * Per-turn tool-loop iteration budget. Omit to inherit the tenant-wide
-   * `tool_execution.max_iterations` setting. Range 1..=50.
-   */
-  max_tool_iterations?: number;
 }
 
 /** Request to update an existing coach */
@@ -230,45 +192,6 @@ export interface ListCoachesResponse {
   coaches: Coach[];
   total: number;
   metadata: CoachMetadata;
-}
-
-// ========== COACH VERSION HISTORY ==========
-
-/** A version of a coach (for history tracking) */
-export interface CoachVersion {
-  version: number;
-  content_snapshot: Record<string, unknown>;
-  change_summary: string | null;
-  created_at: string;
-  created_by_name: string | null;
-}
-
-/** Response for listing coach versions */
-export interface ListVersionsResponse {
-  versions: CoachVersion[];
-  current_version: number;
-  total: number;
-}
-
-/** Response for reverting to a previous version */
-export interface RevertVersionResponse {
-  coach: Coach;
-  reverted_to_version: number;
-  new_version: number;
-}
-
-/** A field change in a coach diff */
-export interface FieldChange {
-  field: string;
-  old_value: unknown | null;
-  new_value: unknown | null;
-}
-
-/** Response for coach diff between versions */
-export interface CoachDiffResponse {
-  from_version: number;
-  to_version: number;
-  changes: FieldChange[];
 }
 
 // ========== COACH STORE TYPES ==========
@@ -320,19 +243,6 @@ export interface SearchCoachesResponse {
   metadata: StoreMetadata;
 }
 
-/** Count of coaches in a category */
-export interface CategoryCount {
-  category: string;
-  name: string;
-  count: number;
-}
-
-/** Response for store categories */
-export interface CategoriesResponse {
-  categories: CategoryCount[];
-  metadata: StoreMetadata;
-}
-
 /** Response for installing a coach */
 export interface InstallCoachResponse {
   message: string;
@@ -381,45 +291,4 @@ export interface UnassignCoachResponse {
 export interface ListAssignmentsResponse {
   coach_id: string;
   assignments: CoachAssignment[];
-}
-
-// ========== COACH IMPORT/EXPORT TYPES ==========
-
-/** Parsed fields from a coach markdown preview */
-export interface ParsedCoachFields {
-  name: string;
-  title: string;
-  category: string;
-  tags: string[];
-  purpose: string;
-  has_instructions: boolean;
-  has_example_inputs: boolean;
-  has_example_outputs: boolean;
-  has_success_criteria: boolean;
-}
-
-/** Response for importing a coach from markdown */
-export interface ImportCoachResponse {
-  coach: Coach;
-  parsed_name: string;
-  token_count: number;
-  warnings?: string[];
-}
-
-/** Response for previewing a coach import */
-export interface ImportPreviewResponse {
-  valid: boolean;
-  parsed?: ParsedCoachFields;
-  errors?: string[];
-  warnings?: string[];
-  content_hash?: string;
-  duplicate_exists: boolean;
-  duplicate_coach_id?: string;
-  token_count?: number;
-}
-
-/** Request body for importing a coach from a URL */
-export interface ImportFromUrlRequest {
-  url: string;
-  save?: boolean;
 }

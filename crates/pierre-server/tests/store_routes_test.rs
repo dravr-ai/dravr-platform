@@ -15,6 +15,7 @@ use common::{
     generate_test_token,
 };
 use helpers::axum_test::AxumTestRequest;
+use helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::models::TenantId;
 use pierre_database::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
@@ -943,13 +944,14 @@ async fn test_install_coach() {
     .await;
 
     // Create a second user who will install the coach
-    let (_user2_id, user2) =
+    let (installer_id, user2) =
         create_test_user_with_email(&resources.coach.database, "user2@example.com")
             .await
             .unwrap();
     let token = generate_test_token(&resources, &user2).await;
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+    let (events, _guard) = capture_notify();
 
     let response = AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
         .header("authorization", &auth_token)
@@ -961,6 +963,12 @@ async fn test_install_coach() {
     let result: InstallCoachResponse = response.json();
     assert!(result.message.contains("Successfully installed"));
     assert_eq!(result.coach.title, "Installable Coach");
+
+    // `coach.installed` fires once, from the install service this route
+    // shares with the `install_coach_from_store` tool and `/discover install`.
+    let installed = only(&events, "coach.installed");
+    assert_eq!(installed.field("coach_slug"), coach.id.to_string());
+    assert_eq!(installed.field("user_id"), installer_id.to_string());
 }
 
 #[tokio::test]
@@ -997,6 +1005,8 @@ async fn test_install_coach_already_installed() {
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
 
+    let (events, _guard) = capture_notify();
+
     // Install once
     AxumTestRequest::post(&format!("/api/store/coaches/{}/install", coach.id))
         .header("authorization", &auth_token)
@@ -1010,6 +1020,11 @@ async fn test_install_coach_already_installed() {
         .await;
 
     assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        named(&events, "coach.installed").len(),
+        1,
+        "a refused second install is not counted"
+    );
 }
 
 #[tokio::test]

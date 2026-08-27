@@ -9,7 +9,7 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::AddMessageParams;
 use pierre_core::models::UpsertMessageFeedbackParams;
-use pierre_core::models::{ConversationParticipant, ConversationRecord, ConversationSummary};
+use pierre_core::models::{ConversationPage, ConversationParticipant, ConversationRecord};
 use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
 
 /// Chat conversation and message management repository.
@@ -53,14 +53,56 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<ConversationRecord>>;
-    /// List the conversations `user_id` participates in, with pagination
+    /// One page of the conversations `user_id` participates in — whatever
+    /// surface opened them — newest activity first, with the participant's
+    /// total alongside so a client pages against the real count.
+    ///
+    /// Each row carries what a list row shows: the coach's title and
+    /// `@handle`, the group's name, the newest `user`/`assistant` row and the
+    /// count of such rows written after the caller's read marker. Tool rows
+    /// count nowhere. `limit`/`offset` are applied as given; the route clamps
+    /// them.
     async fn list_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
         limit: i64,
         offset: i64,
-    ) -> AppResult<Vec<ConversationSummary>>;
+    ) -> AppResult<ConversationPage>;
+    /// Count every conversation `user_id` participates in, in this tenant —
+    /// the `total` of [`Self::list_conversations`]. Membership semantics, so
+    /// it must never size a quota: that is [`Self::count_conversations`].
+    async fn count_participating_conversations(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<i64>;
+    /// Advance `user_id`'s read marker on a conversation they participate in.
+    ///
+    /// `up_to_message_id` names the row the athlete has seen; `None` means the
+    /// newest `user`/`assistant` row. The marker is monotonic — it never moves
+    /// backwards, so a stale client re-marking an older row cannot resurrect
+    /// unread rows — and it is the participant's own: another member's marker
+    /// is untouched. Returns `false` when the caller is not a participant or
+    /// the named message is not in this conversation, both of which the route
+    /// answers with 404; a conversation with no rows yet marks nothing and
+    /// still returns `true`.
+    async fn mark_conversation_read(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        up_to_message_id: Option<&str>,
+    ) -> AppResult<bool>;
+    /// Clear `user_id`'s read marker — "mark unread": every `user`/`assistant`
+    /// row counts as unread again. Returns `false` when the caller is not a
+    /// participant.
+    async fn clear_conversation_read_marker(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
     /// Update conversation title (any participant)
     async fn update_conversation_title(
         &self,

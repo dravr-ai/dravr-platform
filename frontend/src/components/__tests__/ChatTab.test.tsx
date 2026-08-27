@@ -1,5 +1,5 @@
-// ABOUTME: Tests for ChatTab's assistant author label and coach-form request building
-// ABOUTME: Covers the coach-titled assistant bubble and the keep/clear/set tool budget
+// ABOUTME: Tests for ChatTab's author label, its header info drawer and its url reply actions
+// ABOUTME: Covers the coach-titled bubble, the header-as-button contract, and the trusted-domain gate
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,7 @@ import userEvent from '@testing-library/user-event';
 import type { ReplyBlock, TurnEnvelope } from '@pierre/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChatTab from '../ChatTab';
-import { formDataToCreateRequest, formDataToUpdateRequest } from '../chat/coachForm';
 import { ToastProvider } from '../ui';
-import { DEFAULT_COACH_FORM_DATA, type CoachFormData } from '../chat';
 
 const CONVERSATION_ID = 'conv-1';
 const COACH_ID = 'coach-1';
@@ -34,10 +32,21 @@ vi.mock('../../services/api', () => ({
     getConversationVerdicts: (...a: unknown[]) => getConversationVerdicts(...a),
     listParticipants: (...a: unknown[]) => listParticipants(...a),
     sendTurn: (...a: unknown[]) => sendTurn(...a),
+    markConversationRead: vi.fn().mockResolvedValue(undefined),
+    createConversation: vi.fn(),
+    updateConversation: vi.fn(),
+    deleteConversation: vi.fn(),
+    markConversationUnread: vi.fn(),
   },
   coachesApi: { list: (...a: unknown[]) => listCoaches(...a) },
   providersApi: { getProvidersStatus: (...a: unknown[]) => getProvidersStatus(...a) },
-  oauthApi: {},
+  groupsApi: {},
+}));
+
+vi.mock('../groups/GroupInfoPanel', () => ({
+  default: ({ groupId }: { groupId: string }) => (
+    <div data-testid="group-info-panel">group {groupId}</div>
+  ),
 }));
 
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
@@ -57,12 +66,18 @@ vi.mock('../../hooks/useUsageStatus', () => ({
   }),
 }));
 
-function renderChatTab() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderChatTab(props: { onNavigate?: (route: string) => void } = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <ChatTab selectedConversation={CONVERSATION_ID} onSelectConversation={vi.fn()} />
+        <ChatTab
+          selectedConversation={CONVERSATION_ID}
+          onSelectConversation={vi.fn()}
+          onNavigate={props.onNavigate}
+        />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -155,62 +170,6 @@ describe('ChatTab assistant author label', () => {
     await waitFor(() =>
       expect(screen.getByTestId('conversation-header-title')).toHaveTextContent('New conversation'),
     );
-  });
-});
-
-describe('coach form → API request tool budget', () => {
-  function filledForm(overrides: Partial<CoachFormData> = {}): CoachFormData {
-    return {
-      ...DEFAULT_COACH_FORM_DATA,
-      title: COACH_TITLE,
-      system_prompt: 'You are an expert marathon coach.',
-      ...overrides,
-    };
-  }
-
-  it('omits max_tool_iterations from a create request when the field is untouched', () => {
-    const request = formDataToCreateRequest(filledForm());
-
-    expect(request.max_tool_iterations).toBeUndefined();
-    expect('max_tool_iterations' in request).toBe(false);
-    expect(request.title).toBe(COACH_TITLE);
-  });
-
-  it('sends max_tool_iterations on a create request when the user entered one', () => {
-    const request = formDataToCreateRequest(filledForm({ max_tool_iterations: 25 }));
-
-    expect(request.max_tool_iterations).toBe(25);
-  });
-
-  it('omits max_tool_iterations from an update request when the field is untouched', () => {
-    const request = formDataToUpdateRequest(filledForm());
-
-    expect(request.max_tool_iterations).toBeUndefined();
-    expect('max_tool_iterations' in request).toBe(false);
-  });
-
-  it('sends max_tool_iterations on an update request when the user entered one', () => {
-    const request = formDataToUpdateRequest(filledForm({ max_tool_iterations: 3 }));
-
-    expect(request.max_tool_iterations).toBe(3);
-  });
-
-  it('sends an explicit null on an update request when the user cleared the box', () => {
-    const request = formDataToUpdateRequest(filledForm({ max_tool_iterations: null }));
-
-    // The key has to be PRESENT and null. Merely leaving it out is what the
-    // untouched state does, and the server preserves an absent field — so an
-    // omitted key would leave the coach's existing pin in place forever.
-    expect('max_tool_iterations' in request).toBe(true);
-    expect(request.max_tool_iterations).toBeNull();
-  });
-
-  it('omits a cleared max_tool_iterations from a create request', () => {
-    const request = formDataToCreateRequest(filledForm({ max_tool_iterations: null }));
-
-    // A coach that does not exist yet has no pin to clear, so "cleared" and
-    // "untouched" are the same request: inherit.
-    expect('max_tool_iterations' in request).toBe(false);
   });
 });
 
@@ -356,5 +315,102 @@ describe('ChatTab url reply actions', () => {
       limit: 50,
       resets_at: '2026-08-26T00:00:00Z',
     });
+  });
+});
+
+describe('ChatTab header info drawer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
+    getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
+    getConversationMessages.mockResolvedValue({ messages: [] });
+    listCoaches.mockResolvedValue({
+      coaches: [
+        {
+          id: COACH_ID,
+          title: COACH_TITLE,
+          description: 'Builds a marathon block.',
+          category: 'endurance',
+          handle: 'marathon-coach',
+          is_system: false,
+        },
+      ],
+    });
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', coach_id: COACH_ID }],
+      total: 1,
+    });
+  });
+
+  it('makes the header title the button that opens the drawer', async () => {
+    const user = userEvent.setup();
+    renderChatTab();
+
+    const title = await screen.findByTestId('conversation-header-title');
+    expect(title.tagName).toBe('BUTTON');
+    expect(title).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(screen.queryByTestId('conversation-info-panel')).toBeNull();
+
+    await user.click(title);
+
+    expect(await screen.findByTestId('conversation-info-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('coach-info-panel')).toBeInTheDocument();
+  });
+
+  it('opens Group info for a group-scoped thread, named by the group', async () => {
+    getConversations.mockResolvedValue({
+      conversations: [
+        {
+          id: CONVERSATION_ID,
+          title: 'Sunday long run',
+          coach_id: COACH_ID,
+          group_id: 'group-7',
+          group_name: 'Sunday Riders',
+        },
+      ],
+      total: 1,
+    });
+    const user = userEvent.setup();
+    renderChatTab();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('conversation-header-title')).toHaveTextContent('Sunday Riders'),
+    );
+    await user.click(screen.getByTestId('conversation-header-title'));
+
+    expect(await screen.findByTestId('group-info-panel')).toHaveTextContent('group group-7');
+  });
+
+  it('routes Edit coach to the coach Discover detail', async () => {
+    const onNavigate = vi.fn();
+    const user = userEvent.setup();
+    renderChatTab({ onNavigate });
+
+    await user.click(await screen.findByTestId('conversation-header-title'));
+    await user.click(await screen.findByTestId('coach-info-edit'));
+
+    expect(onNavigate).toHaveBeenCalledWith('discover/coach-1');
+  });
+
+  it('sends /coach remove as a turn when the coach is removed from the chat', async () => {
+    sendTurn.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderChatTab();
+
+    await user.click(await screen.findByTestId('conversation-header-title'));
+    await user.click(await screen.findByTestId('coach-info-remove'));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][1]).toBe('/coach remove');
+  });
+
+  it('offers no coach creation or coach form anywhere in the chat surface', async () => {
+    renderChatTab();
+
+    await screen.findByTestId('conversation-header-title');
+    expect(screen.queryByRole('button', { name: /Create Coach/i })).toBeNull();
+    expect(screen.queryByTestId('prompt-suggestions')).toBeNull();
+    expect(screen.queryByLabelText('Coach title')).toBeNull();
   });
 });

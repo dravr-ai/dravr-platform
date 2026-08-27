@@ -143,6 +143,7 @@ async fn create_test_db() -> SqlitePool {
             role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
             added_by TEXT NOT NULL,
             added_at TEXT NOT NULL,
+            last_read_at TEXT,
             PRIMARY KEY (conversation_id, user_id)
         )
         ",
@@ -151,7 +152,253 @@ async fn create_test_db() -> SqlitePool {
     .await
     .unwrap();
 
+    // The list joins the coach and the group a conversation names, for the
+    // row's title/handle and group name. Only the columns the join reads.
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS coaches (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            slug TEXT
+        )
+        ",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS coaching_groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL
+        )
+        ",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     pool
+}
+
+/// Append one row through the manager, as the pipeline does.
+async fn add_row(
+    manager: &ChatManager,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+    role: &str,
+    content: &str,
+) -> String {
+    manager
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id,
+            user_id,
+            role,
+            content,
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+#[tokio::test]
+async fn test_list_rows_carry_coach_group_preview_and_unread() {
+    let pool = create_test_db().await;
+    sqlx::query("INSERT INTO coaches (id, title, slug) VALUES ('coach-1', 'Recovery Coach', 'recovery-coach')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO coaching_groups (id, name) VALUES ('group-1', 'Marathon Squad')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+
+    let plain = manager
+        .create_conversation("user-1", tenant_id, "Plain", "m", None, None)
+        .await
+        .unwrap();
+    let grouped = manager
+        .create_conversation("user-1", tenant_id, "Squad", "m", None, Some("group-1"))
+        .await
+        .unwrap();
+    let coached = manager
+        .create_conversation("user-1", tenant_id, "Coach", "m", Some("coach-1"), None)
+        .await
+        .unwrap();
+    add_row(&manager, &coached.id, "user-1", tenant_id, "user", "salut").await;
+    add_row(
+        &manager,
+        &coached.id,
+        "user-1",
+        tenant_id,
+        "tool_result",
+        "<tool_result/>",
+    )
+    .await;
+    let last = add_row(
+        &manager,
+        &coached.id,
+        "user-1",
+        tenant_id,
+        "assistant",
+        "Repos demain.",
+    )
+    .await;
+
+    let page = manager
+        .list_conversations("user-1", tenant_id, 10, 0)
+        .await
+        .unwrap();
+    assert_eq!(page.total, 3);
+    let ids: Vec<&str> = page.items.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [coached.id.as_str(), grouped.id.as_str(), plain.id.as_str()],
+        "newest activity first: the coached thread just received rows"
+    );
+
+    let coached_row = &page.items[0];
+    assert_eq!(coached_row.coach_handle.as_deref(), Some("recovery-coach"));
+    assert_eq!(coached_row.coach_title.as_deref(), Some("Recovery Coach"));
+    assert_eq!(coached_row.message_count, 2, "tool rows are not turns");
+    assert_eq!(coached_row.unread_count, 2, "nothing read yet");
+    let newest = coached_row.last_message.as_ref().unwrap();
+    assert_eq!(newest.role, "assistant");
+    assert_eq!(newest.content_head, "Repos demain.");
+    assert!(!newest.created_at.is_empty());
+
+    let group_row = &page.items[1];
+    assert_eq!(group_row.group_id.as_deref(), Some("group-1"));
+    assert_eq!(group_row.group_name.as_deref(), Some("Marathon Squad"));
+    assert_eq!(group_row.last_message, None);
+    assert_eq!(group_row.unread_count, 0);
+    assert_eq!(group_row.message_count, 0);
+
+    // Reading up to the newest row clears the badge; the marker then holds.
+    assert!(manager
+        .mark_conversation_read(&coached.id, "user-1", tenant_id, Some(&last))
+        .await
+        .unwrap());
+    let page = manager
+        .list_conversations("user-1", tenant_id, 10, 0)
+        .await
+        .unwrap();
+    assert_eq!(page.items[0].unread_count, 0);
+}
+
+/// The unread count `user` sees on their first listed thread.
+async fn unread_of(manager: &ChatManager, tenant_id: TenantId, user: &str) -> i64 {
+    manager
+        .list_conversations(user, tenant_id, 10, 0)
+        .await
+        .unwrap()
+        .items[0]
+        .unread_count
+}
+
+#[tokio::test]
+async fn test_read_marker_is_monotonic_and_membership_gated() {
+    let pool = create_test_db().await;
+    let manager = ChatManager::new(pool);
+    let tenant_id = test_tenant_id();
+
+    let conv = manager
+        .create_conversation("user-1", tenant_id, "Marker", "m", None, None)
+        .await
+        .unwrap();
+    // An empty thread: a participant marks nothing and is still answered.
+    assert!(manager
+        .mark_conversation_read(&conv.id, "user-1", tenant_id, None)
+        .await
+        .unwrap());
+    let first = add_row(&manager, &conv.id, "user-1", tenant_id, "user", "one").await;
+    let second = add_row(&manager, &conv.id, "user-1", tenant_id, "assistant", "two").await;
+    let third = add_row(
+        &manager,
+        &conv.id,
+        "user-1",
+        tenant_id,
+        "assistant",
+        "three",
+    )
+    .await;
+
+    assert_eq!(unread_of(&manager, tenant_id, "user-1").await, 3);
+
+    assert!(manager
+        .mark_conversation_read(&conv.id, "user-1", tenant_id, Some(&second))
+        .await
+        .unwrap());
+    assert_eq!(
+        unread_of(&manager, tenant_id, "user-1").await,
+        1,
+        "only the row after the marker"
+    );
+
+    // Never backwards: re-marking the first row leaves the marker on the second.
+    assert!(manager
+        .mark_conversation_read(&conv.id, "user-1", tenant_id, Some(&first))
+        .await
+        .unwrap());
+    assert_eq!(unread_of(&manager, tenant_id, "user-1").await, 1);
+
+    // `None` means the newest row.
+    assert!(manager
+        .mark_conversation_read(&conv.id, "user-1", tenant_id, None)
+        .await
+        .unwrap());
+    assert_eq!(unread_of(&manager, tenant_id, "user-1").await, 0);
+
+    // Mark unread: every turn counts again.
+    assert!(manager
+        .clear_conversation_read_marker(&conv.id, "user-1", tenant_id)
+        .await
+        .unwrap());
+    assert_eq!(unread_of(&manager, tenant_id, "user-1").await, 3);
+    assert!(manager
+        .mark_conversation_read(&conv.id, "user-1", tenant_id, Some(&third))
+        .await
+        .unwrap());
+    assert_eq!(unread_of(&manager, tenant_id, "user-1").await, 0);
+
+    // A message outside the thread, a stranger, and a stranger's clear are all refused.
+    assert!(!manager
+        .mark_conversation_read(&conv.id, "user-1", tenant_id, Some("not-a-row"))
+        .await
+        .unwrap());
+    assert!(!manager
+        .mark_conversation_read(&conv.id, "user-2", tenant_id, None)
+        .await
+        .unwrap());
+    assert!(!manager
+        .clear_conversation_read_marker(&conv.id, "user-2", tenant_id)
+        .await
+        .unwrap());
+
+    // A member added later keeps their own marker.
+    manager
+        .add_participant(&conv.id, tenant_id, "user-2", "user-1")
+        .await
+        .unwrap();
+    let member_page = manager
+        .list_conversations("user-2", tenant_id, 10, 0)
+        .await
+        .unwrap();
+    assert_eq!(member_page.items[0].unread_count, 3);
+    assert_eq!(
+        unread_of(&manager, tenant_id, "user-1").await,
+        0,
+        "the owner's marker is untouched"
+    );
 }
 
 // ============================================================================
@@ -311,7 +558,8 @@ async fn test_list_conversations() {
     let list = manager
         .list_conversations("user-1", tenant_id, 10, 0)
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     assert_eq!(list.len(), 3);
 }
@@ -341,21 +589,24 @@ async fn test_list_conversations_pagination() {
     let page1 = manager
         .list_conversations("user-1", tenant_id, 2, 0)
         .await
-        .unwrap();
+        .unwrap()
+        .items;
     assert_eq!(page1.len(), 2);
 
     // Get next 2
     let page2 = manager
         .list_conversations("user-1", tenant_id, 2, 2)
         .await
-        .unwrap();
+        .unwrap()
+        .items;
     assert_eq!(page2.len(), 2);
 
     // Get remaining
     let page3 = manager
         .list_conversations("user-1", tenant_id, 2, 4)
         .await
-        .unwrap();
+        .unwrap()
+        .items;
     assert_eq!(page3.len(), 1);
 }
 
@@ -415,7 +666,8 @@ async fn test_set_conversation_channel_surfaces_in_list() {
     let before = manager
         .list_conversations("user-1", tenant_id, 10, 0)
         .await
-        .unwrap();
+        .unwrap()
+        .items;
     assert_eq!(
         before
             .iter()
@@ -437,7 +689,8 @@ async fn test_set_conversation_channel_surfaces_in_list() {
     let after = manager
         .list_conversations("user-1", tenant_id, 10, 0)
         .await
-        .unwrap();
+        .unwrap()
+        .items;
     assert_eq!(
         after
             .iter()
@@ -942,7 +1195,8 @@ async fn test_delete_all_user_conversations() {
     let remaining = manager
         .list_conversations("user-1", tenant_id, 10, 0)
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     assert!(remaining.is_empty());
 }
@@ -1368,6 +1622,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
         .list_conversations("user-2", tenant_id, 10, 0)
         .await
         .unwrap()
+        .items
         .is_empty());
     let refused = manager
         .add_message(&AddMessageParams {
@@ -1406,7 +1661,8 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
     let listed = manager
         .list_conversations("user-2", tenant_id, 10, 0)
         .await
-        .unwrap();
+        .unwrap()
+        .items;
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, conv.id);
 
@@ -1583,6 +1839,7 @@ async fn test_count_and_delete_all_keep_owner_semantics() {
             .list_conversations("user-1", tenant_id, 10, 0)
             .await
             .unwrap()
+            .items
             .len(),
         2
     );

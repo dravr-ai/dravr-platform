@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tab layout rendering one screen per entry of the tab bar's own list (Chat, Discover, Groups, Settings)
+// ABOUTME: Tab layout rendering one screen per entry of the tab bar's own list (Chat, Discover, Settings)
 // ABOUTME: Uses floating expandable glass tab bar with glassmorphism effect
 
 import React from 'react';

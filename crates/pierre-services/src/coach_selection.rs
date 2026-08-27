@@ -1,5 +1,5 @@
 // ABOUTME: The one place a coach is bound to a conversation and coach.selected is emitted
-// ABOUTME: Shared by the REST usage endpoint, web chat, /coach select, and messaging ingress
+// ABOUTME: Shared by the REST usage endpoint, web chat, /coach add, and messaging ingress
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,7 @@
 //! Four surfaces bind a coach to a conversation — `POST
 //! /api/coaches/{id}/usage` (what the web Coaches UI and onboarding
 //! proposal call when the athlete picks one), web chat conversation
-//! creation, the `/coach select` slash command, and messaging session
+//! creation, the `/coach add` slash command, and messaging session
 //! creation. All four bump the same `coach_assignments.use_count`, so all
 //! four are the same product event.
 //!
@@ -20,7 +20,7 @@
 //!
 //! The surfaces are not equally meaningful, though, which is why every
 //! emission carries a [`CoachSelectionSource`]: a REST bump and a
-//! `/coach select` are an athlete actively choosing, while a conversation
+//! `/coach add` are an athlete actively choosing, while a conversation
 //! create re-reports the choice they already made. Counting them together
 //! answers "how much is coaching used", counting
 //! [`CoachSelectionSource::Rest`] and [`CoachSelectionSource::SlashCommand`]
@@ -45,8 +45,8 @@ pub enum CoachSelectionSource {
     /// `POST /api/coaches/{id}/usage` — the web Coaches UI and the
     /// onboarding proposal. An explicit pick.
     Rest,
-    /// The `/coach select` (or `/coach assign`) slash command in a messaging
-    /// channel. An explicit pick.
+    /// The `/coach add` (or `/coach assign`) slash command on any chat
+    /// surface. An explicit pick.
     SlashCommand,
     /// Web chat conversation creation, binding the already-selected coach.
     ChatConversation,

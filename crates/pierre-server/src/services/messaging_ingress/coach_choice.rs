@@ -101,7 +101,7 @@ pub(super) async fn try_handle_coach_choice(
         .ok()
         .flatten()?;
 
-    // The one selection pointer — same write `/coach select` performs, so a
+    // The one selection pointer — same write `/coach add` performs, so a
     // user ends up with a coach exactly one way regardless of how they said so.
     if let Err(e) = resources
         .common

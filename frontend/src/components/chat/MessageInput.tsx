@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Chat message input component with textarea and send button
-// ABOUTME: Handles keyboard shortcuts, the slash-command and @handle palettes, and the ideas popover
+// ABOUTME: Chat message input component with textarea, a "/" commands button and a send button
+// ABOUTME: Handles keyboard shortcuts and the slash-command and @handle palettes
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { clsx } from 'clsx';
-import PromptSuggestions from '../PromptSuggestions';
+import { Slash } from 'lucide-react';
 import CommandPalette from '../CommandPalette';
 import MentionPalette from './MentionPalette';
+import { IconButton } from '../ui';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { useMentionPalette } from '../../hooks/useMentionPalette';
 
@@ -19,9 +20,6 @@ interface MessageInputProps {
   isStreaming: boolean;
   /** Whether input should be disabled (e.g., quota exceeded) */
   disabled?: boolean;
-  showIdeas: boolean;
-  onToggleIdeas: () => void;
-  onSelectPrompt: (prompt: string, coachId?: string) => void;
   /**
    * The open conversation, passed to the slash-command palette so group-scoped
    * commands are resolved for the group this conversation is bound to.
@@ -35,9 +33,6 @@ export default function MessageInput({
   onSend,
   isStreaming,
   disabled = false,
-  showIdeas,
-  onToggleIdeas,
-  onSelectPrompt,
   conversationId,
 }: MessageInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -93,21 +88,6 @@ export default function MessageInput({
   return (
     <div className="border-t ghost-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-surface-container-low">
       <div className="max-w-3xl mx-auto">
-        {/* Ideas popover */}
-        {showIdeas && (
-          <div className="mb-4 p-4 bg-surface-container-low rounded-xl border ghost-border relative">
-            <button
-              onClick={onToggleIdeas}
-              className="absolute top-2 right-2 text-outline hover:text-on-surface transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <p className="text-xs text-on-surface-variant mb-3">Click a suggestion to fill the input:</p>
-            <PromptSuggestions onSelectPrompt={onSelectPrompt} />
-          </div>
-        )}
         <CommandPalette
           matches={palette.matches}
           highlightedIndex={palette.highlightedIndex}
@@ -118,7 +98,25 @@ export default function MessageInput({
           highlightedIndex={mentions.highlightedIndex}
           onSelect={mentions.select}
         />
-        <div className="relative">
+        <div className="flex items-end gap-2">
+          {/* The visible affordance that `/` exists at all — Telegram's bot
+              "Menu" button, in the one place a new athlete is already
+              looking. It types the character the palette watches for rather
+              than opening a second, parallel list. */}
+          <IconButton
+            variant="tonal"
+            aria-label="Commands"
+            title="Commands"
+            data-testid="slash-command-button"
+            disabled={isStreaming || disabled}
+            onClick={() => {
+              onChange('/');
+              inputRef.current?.focus();
+            }}
+          >
+            <Slash className="w-4 h-4" aria-hidden="true" />
+          </IconButton>
+          <div className="relative flex-1 min-w-0">
           {/* The composer is a chat surface, not a form field — DESIGN.md §5
               lists the two separately. It keeps its enclosing rounded field so
               the embedded 44x44 send button has something to sit inside; the
@@ -155,21 +153,12 @@ export default function MessageInput({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
           </button>
+          </div>
         </div>
         <div className="flex items-center justify-center gap-2 mt-2">
           <p className="text-xs text-outline hidden sm:block">
             Press Enter to send, Shift+Enter for new line
           </p>
-          <span className="text-on-surface-variant hidden sm:inline">|</span>
-          <button
-            onClick={onToggleIdeas}
-            className="text-xs text-primary hover:text-primary-fixed-dim flex items-center gap-1 transition-colors"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-            Need ideas?
-          </button>
         </div>
       </div>
     </div>

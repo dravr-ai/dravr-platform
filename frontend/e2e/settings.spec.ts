@@ -226,7 +226,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
-  // Mock coaches (needed by PromptSuggestions in welcome view)
+  // Mock coaches (the chat header and the @handle palette read this list)
   await page.route('**/api/coaches**', async (route) => {
     await route.fulfill({
       status: 200,

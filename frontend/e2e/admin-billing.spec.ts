@@ -187,7 +187,7 @@ async function loginAsSuperAdminWithUsers(page: Page) {
     }
   });
 
-  // Coaches list (PromptSuggestions on first dashboard render).
+  // Coaches list (the chat header reads it on first dashboard render).
   await page.route('**/api/coaches**', async (route) => {
     await route.fulfill({
       status: 200,

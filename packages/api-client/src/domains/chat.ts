@@ -37,9 +37,8 @@ export type {
 
 export interface ConversationsResponse {
   conversations: Conversation[];
+  /** How many conversations the caller takes part in, not the page length. */
   total: number;
-  limit: number;
-  offset: number;
 }
 
 export interface MessagesResponse {
@@ -198,16 +197,6 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
     },
 
     /**
-     * Get a specific conversation by ID.
-     */
-    async getConversation(conversationId: string): Promise<Conversation> {
-      const response = await axios.get<Conversation>(
-        ENDPOINTS.CHAT.CONVERSATION(conversationId)
-      );
-      return response.data;
-    },
-
-    /**
      * Update a conversation (e.g., change title).
      */
     async updateConversation(
@@ -272,6 +261,28 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
      */
     async removeParticipant(conversationId: string, userId: string): Promise<void> {
       await axios.delete(ENDPOINTS.CHAT.PARTICIPANT(conversationId, userId));
+    },
+
+    /**
+     * Advance the caller's read marker on a conversation — up to
+     * `upToMessageId`, or to the newest `user`/`assistant` row when omitted.
+     * Monotonic server-side: re-marking an older row than the marker already
+     * covers changes nothing, so two tabs racing cannot resurrect unread rows.
+     * A caller who is not a participant gets 404.
+     */
+    async markConversationRead(conversationId: string, upToMessageId?: string): Promise<void> {
+      await axios.post(ENDPOINTS.CHAT.READ(conversationId), {
+        up_to_message_id: upToMessageId,
+      });
+    },
+
+    /**
+     * Clear the caller's read marker — mark the thread unread, so every
+     * `user`/`assistant` row counts as unread again until it is opened.
+     * Idempotent for a participant; a stranger gets 404.
+     */
+    async markConversationUnread(conversationId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.CHAT.READ(conversationId));
     },
 
     /**

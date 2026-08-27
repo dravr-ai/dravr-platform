@@ -14,7 +14,8 @@
 //!    argument signatures `/help` renders beside each command.
 //! 2. **Handler runtime** ([`CommandHandler`], [`CommandHandlerRegistry`],
 //!    [`PlatformCommandContext`], and the per-command modules
-//!    [`account`], [`coach`], [`group`], [`help`], [`privacy`], [`status`]).
+//!    [`account`], [`coach`], [`coach_create`], [`discover`], [`group`],
+//!    [`group_membership`], [`help`], [`privacy`], [`status`]).
 //!    The [`dispatch::try_dispatch`] entry point is the single authority
 //!    for every chat surface — messaging ingress, web chat, mobile chat,
 //!    Slack ops buttons.
@@ -27,12 +28,19 @@
 pub mod account;
 /// Difficulty-calibration interview command (`/calibrate`)
 pub mod calibration;
-/// Coach selection commands (list, select)
+/// The `/coach` command tree (list, add, remove, invite, assign)
 pub mod coach;
+/// `/coach create` — draft a coach from the conversation, confirm to create it.
+pub mod coach_create;
+
+/// Coach catalogue commands (`/discover`, `/discover install`)
+pub mod discover;
 /// Transport-agnostic slash-command dispatcher — single authority for every chat surface
 pub mod dispatch;
 /// Group coaching commands (status, invite, members, leave)
 pub mod group;
+/// Group membership commands (`/group create`, `/group join`)
+pub mod group_membership;
 /// Handlers for /confirm and /deny — Guardian pending-action resolution.
 pub mod guardian_confirm;
 /// Help command listing available commands
@@ -93,10 +101,22 @@ pub struct PlatformCommandContext {
     /// Sourced from `IncomingMessage::is_direct_message` — each transport
     /// extracts this from its native chat-kind signal (Telegram `chat.type`,
     /// Slack `event.channel_type`, Discord `guild_id` absence, `WhatsApp`
-    /// / Messenger always true). Commands with different DM vs group
-    /// semantics (notably `/coach select` → user-scoped default coach in
-    /// DM, group coach binding otherwise) branch on this flag.
+    /// / Messenger always true). Web and mobile derive it from the
+    /// conversation: a thread with no `group_id` is personal. Commands with
+    /// different personal vs group semantics (notably `/coach add` →
+    /// user-scoped selection in a personal thread, group coach binding
+    /// otherwise) branch on this flag.
     pub is_direct_message: bool,
+    /// Whether a `/group` command typed where no group is bound may act on
+    /// the first group the caller belongs to.
+    ///
+    /// `true` on the messaging surfaces: a DM with the bot is the athlete's
+    /// one thread, and the group they mean is the group they are in. `false`
+    /// in the app and for the command catalogue, where a solo thread is
+    /// exactly that — the group commands resolve no group there and are
+    /// refused (and hidden from the palette) rather than aimed at whichever
+    /// group the caller touched last.
+    pub ambient_group_fallback: bool,
     /// Pierre `chat_conversations.id` for this turn, when known.
     ///
     /// Carries the chat-bound conversation from the dispatch layer so

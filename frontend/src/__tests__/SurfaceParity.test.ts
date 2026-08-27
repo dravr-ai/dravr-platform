@@ -44,8 +44,17 @@ describe('surface parity — web', () => {
   it('declares at least the primary destinations', () => {
     // Guards against the registry itself being gutted to make this pass. The
     // floor dropped from 14 when the Chat-First Cutover retired Insights and
-    // folded the Coach tab into Discover — two surfaces fewer by decision.
-    expect(webSurfaces.length).toBeGreaterThanOrEqual(13);
+    // folded the Coach tab into Discover, and again to 12 when group
+    // management moved into the group's own chat thread — each one surface
+    // fewer by decision.
+    expect(webSurfaces.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('no longer declares the retired Groups surface', () => {
+    // Group management lives in the group's chat thread (`/group …` and the
+    // header's Group info); a registry row pointing at a Groups tab would send
+    // a deep link to a destination that no longer exists.
+    expect(USER_SURFACES.find((s) => s.id === 'groups')).toBeUndefined();
   });
 
   it.each(webSurfaces.map((s) => [s.id, s.web as string]))(

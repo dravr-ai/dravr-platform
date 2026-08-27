@@ -11,12 +11,15 @@ import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
 import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
+import { COMMAND_DRAFTS } from '@pierre/shared-constants';
+import type { PendingComposerAction } from './ChatTab';
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
-  ConversationsPanel,
+  ConversationList,
   usePendingUsersCount,
   useStoreStatsPendingCount,
+  useUnreadConversationsCount,
 } from './dashboard/index';
 
 // Lazy load heavy components to reduce initial bundle size
@@ -42,12 +45,13 @@ const ADMIN_ONLY_TABS = new Set([
  *
  * `insights` (the social feed and its friends sub-view) and `my-coaches` (the
  * user Coach tab, folded into Discover) were retired by the Chat-First Cutover
- * on 2026-08-26, but a bookmark, a browser history entry or a notification
- * persisted before that day can still carry the hash. Left to the render
- * switch it would select a tab nothing draws — a blank main pane with a
- * working sidebar — so it resolves to the role's default instead.
+ * on 2026-08-26; `groups` followed when group management moved inside the
+ * group's own chat thread. A bookmark, a browser history entry or a
+ * notification persisted before those days can still carry the hash. Left to
+ * the render switch it would select a tab nothing draws — a blank main pane
+ * with a working sidebar — so it resolves to the role's default instead.
  */
-const RETIRED_TABS = new Set(['insights', 'my-coaches']);
+const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups']);
 
 const UsageAnalytics = lazy(() => import('./UsageAnalytics'));
 const ActivityTab = lazy(() => import('./ActivityTab'));
@@ -79,8 +83,6 @@ const ToolUsagePanel = lazy(() => import('./ToolUsagePanel'));
 const BillingTab = lazy(() => import('./BillingTab'));
 const BillingPage = lazy(() => import('./BillingPage'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
-const GroupManagement = lazy(() => import('./groups/GroupManagement'));
-const GroupDetail = lazy(() => import('./groups/GroupDetail'));
 import { Card } from './ui';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { BILLING_ENABLED } from '../constants/features';
@@ -129,8 +131,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const [activeTab, setActiveTab] = useState<string>(initialTab);
 
   // Hash-route mirroring + back/forward handling live below, after the
-  // sub-view state declarations (they reference selectedGroupId /
-  // selectedConversation, which are declared later in the component).
+  // sub-view state declarations (they reference selectedConversation and
+  // editingCoachId, which are declared later in the component).
   // User's manual collapse preference (persisted). The EFFECTIVE collapse
   // (`sidebarCollapsed`, derived below) also forces the rail in the tablet band.
   const [userSidebarCollapsed, setUserSidebarCollapsed] = useState(() => {
@@ -144,6 +146,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // handle, which only renders when `!sidebarCollapsed`).
   const isTablet = useIsTablet();
   const sidebarCollapsed = userSidebarCollapsed || isTablet;
+  const showConversationPane = activeTab === 'chat' && !sidebarCollapsed;
   // User-tunable sidebar width when expanded. The default 260px truncates
   // long chat-session titles and the user button's display name (web QA
   // 2026-05-09); a drag handle lets the user widen the panel to fit
@@ -200,30 +203,36 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const pendingUsersCount = usePendingUsersCount(isAdminUser);
   const storeStatsPendingCount = useStoreStatsPendingCount(isAdminUser);
   const { unreadCount: notificationUnreadCount } = useUnreadCount();
+  // Unread chat rows; an operator has no Chat tab, so the list is never fetched for them.
+  const unreadConversationsCount = useUnreadConversationsCount(!isAdminUser);
 
   // Chat conversations state
   const [selectedConversation, setSelectedConversation] = useState<string | null>(
     initialTabSeg === 'chat' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
   );
 
-  // Groups state — null shows list, a group ID shows detail
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
-    initialTabSeg === 'groups' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
+  // The coach whose Discover edit sheet is open, from `#discover/<coachId>`.
+  const [editingCoachId, setEditingCoachId] = useState<string | null>(
+    initialTabSeg === 'discover' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
   );
 
-  // Auto-navigate to Groups tab when an invite link is detected
+  // An invite link lands on chat and joins through the command, exactly as a
+  // Telegram or WhatsApp member would: one turn, `/group join <code>`, in a
+  // thread the athlete can then read.
+  const [pendingComposerAction, setPendingComposerAction] = useState<PendingComposerAction | null>(
+    null,
+  );
   useEffect(() => {
-    if (pendingInviteCode) {
-      setActiveTab('groups');
-      setSelectedGroupId(null);
-    }
+    if (!pendingInviteCode) return;
+    setActiveTab('chat');
+    setPendingComposerAction({ kind: 'send', text: COMMAND_DRAFTS.groupJoin(pendingInviteCode) });
   }, [pendingInviteCode]);
 
   // ── URL hash routing ──────────────────────────────────────────────────────
   // Compose the route from the active tab + its open sub-view, so deep links
   // and the Back button operate on sub-views, not just top-level tabs.
   const route = (() => {
-    if (activeTab === 'groups' && selectedGroupId) return `groups/${encodeURIComponent(selectedGroupId)}`;
+    if (activeTab === 'discover' && editingCoachId) return `discover/${encodeURIComponent(editingCoachId)}`;
     if (activeTab === 'chat' && selectedConversation) return `chat/${encodeURIComponent(selectedConversation)}`;
     return activeTab;
   })();
@@ -276,9 +285,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     if (tab !== requested && typeof window !== 'undefined') {
       window.history.replaceState(null, '', `#${tab}`);
     }
-    const sub = slash === -1 ? '' : raw.slice(slash + 1);
+    // A resolved-away tab takes its sub-view with it. `#groups/<groupId>`
+    // resolving to chat used to keep the segment and hand the group's id to
+    // the chat pane as a conversation id — a thread that does not exist.
+    const sub = tab !== requested || slash === -1 ? '' : raw.slice(slash + 1);
     setActiveTab(tab);
-    setSelectedGroupId(tab === 'groups' && sub ? decodeURIComponent(sub) : null);
+    setEditingCoachId(tab === 'discover' && sub ? decodeURIComponent(sub) : null);
     setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
   }, [isAdminUser]);
 
@@ -318,11 +330,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ), badge: storeStatsPendingCount > 0 ? storeStatsPendingCount : undefined },
-    { id: 'groups', name: 'Groups', section: 'Coaching', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ) },
     { id: 'configuration', name: 'Tool Management', section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
@@ -441,7 +448,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
-    ) },
+    ), badge: unreadConversationsCount > 0 ? unreadConversationsCount : undefined },
     // The coach library is a pinned section of Discover, not a tab of its own.
     { id: 'discover', name: 'Discover', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -451,11 +458,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     { id: 'data-providers', name: 'Data Providers', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-      </svg>
-    ) },
-    { id: 'groups', name: 'Groups', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ) },
     { id: 'notifications', name: 'Notifications', icon: (
@@ -471,7 +473,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         </svg>
       ) }]
       : []),
-  ], [notificationUnreadCount]);
+  ], [notificationUnreadCount, unreadConversationsCount]);
 
   // For admin users, use sidebar tabs
   const tabs = isSuperAdmin ? superAdminTabs : (isAdminUser ? adminTabs : regularTabs);
@@ -482,14 +484,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // and the rest fall into the off-canvas drawer. Active <768px only.
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // For regular users, pin Chat / Discover / Groups to the bottom bar and
-  // route the rest through the drawer. For admin users we use the first 4
-  // tabs (Users / Coaches / Coach Store / Groups) as the primary slots.
+  // For regular users, pin Chat / Discover / Notifications to the bottom bar
+  // and route the rest through the drawer. For admin users we use the first
+  // three tabs (Users / Coaches / Coach Store) as the primary slots.
   const primaryTabIds = useMemo<string[]>(() => {
     if (isAdminUser) {
-      return ['users', 'coaches', 'coach-store', 'groups'];
+      return ['users', 'coaches', 'coach-store'];
     }
-    return ['chat', 'discover', 'groups'];
+    return ['chat', 'discover', 'notifications'];
   }, [isAdminUser]);
   const primaryMobileTabs: MobileNavTab[] = useMemo(() => {
     return primaryTabIds
@@ -546,8 +548,16 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           )}
         </div>
 
-        {/* Navigation Items */}
-        <nav className="flex-1 py-4 overflow-y-auto overflow-x-hidden">
+        {/* Navigation Items. On the Chat tab the nav keeps its own height
+            and the conversation pane below takes the rest of the column —
+            the list is the sidebar's main content there, not a footnote
+            under the tabs. */}
+        <nav
+          className={clsx(
+            'py-4 overflow-x-hidden',
+            showConversationPane ? 'flex-shrink-0' : 'flex-1 overflow-y-auto',
+          )}
+        >
           <ul className="space-y-1 px-3">
             {tabs.map((tab, index) => {
               // Render section header when the section changes
@@ -610,17 +620,22 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               );
             })}
           </ul>
-
-          {/* Recent Conversations - shown when Chat tab is active */}
-          {activeTab === 'chat' && !sidebarCollapsed && (
-            <div className="mt-4 px-3">
-              <ConversationsPanel
-                selectedConversation={selectedConversation}
-                onSelectConversation={setSelectedConversation}
-              />
-            </div>
-          )}
         </nav>
+
+        {/* The unified conversation list — every thread the athlete is in,
+            whatever created it. Shown while the Chat tab is active and the
+            sidebar is wide enough to read a row. */}
+        {showConversationPane && (
+          <div
+            className="flex-1 min-h-0 flex flex-col border-t ghost-border"
+            data-testid="conversation-pane"
+          >
+            <ConversationList
+              selectedConversation={selectedConversation}
+              onSelectConversation={setSelectedConversation}
+            />
+          </div>
+        )}
 
         {/* User Profile Section - Bottom of sidebar */}
         <div className={clsx(
@@ -768,7 +783,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {/* Content Area. The gutter is a property of the surface, declared in
             constants/surfaceLayout.ts — never of the viewer's role. It used to
             read `isAdminUser && activeTab !== 'chat'`, which padded every page
-            for an operator and left Groups, Settings and Data Providers flush
+            for an operator and left Settings and Data Providers flush
             against the viewport for every regular user.
             `data-page-shell` / `data-page-layout` are what the layout gate in
             e2e/design-sweep.visual.spec.ts measures against. */}
@@ -919,21 +934,17 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               selectedConversation={selectedConversation}
               onSelectConversation={setSelectedConversation}
               onNavigate={applyRoute}
+              pendingComposerAction={pendingComposerAction}
+              onPendingComposerActionConsumed={() => {
+                setPendingComposerAction(null);
+                onInviteCodeConsumed?.();
+              }}
             />
           </Suspense>
         )}
         {activeTab === 'discover' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <StoreScreen onNavigate={applyRoute} />
-          </Suspense>
-        )}
-        {activeTab === 'groups' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            {selectedGroupId ? (
-              <GroupDetail groupId={selectedGroupId} onBack={() => setSelectedGroupId(null)} onNavigate={applyRoute} />
-            ) : (
-              <GroupManagement onSelectGroup={setSelectedGroupId} pendingInviteCode={pendingInviteCode ?? undefined} onInviteCodeConsumed={onInviteCodeConsumed} />
-            )}
+            <StoreScreen onNavigate={applyRoute} ownCoachId={editingCoachId} />
           </Suspense>
         )}
         {activeTab === 'settings' && (

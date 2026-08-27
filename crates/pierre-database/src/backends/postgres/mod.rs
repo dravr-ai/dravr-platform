@@ -18,6 +18,8 @@ pub mod admin;
 pub mod api_key;
 /// Chat repository implementation
 pub mod chat;
+mod chat_listing;
+mod chat_read_markers;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
 /// Coaches repository implementation

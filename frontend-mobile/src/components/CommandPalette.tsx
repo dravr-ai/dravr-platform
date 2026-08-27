@@ -9,6 +9,8 @@ import { useThemeColors } from '../constants/theme';
 export interface CommandPaletteProps {
   /** The commands to offer, already filtered and ordered by the server. */
   matches: CommandEntry[];
+  /** Index into `matches` of the row the keyboard is on. */
+  highlightedIndex: number;
   /** Fill the composer with this command. */
   onSelect: (entry: CommandEntry) => void;
 }
@@ -20,8 +22,11 @@ export interface CommandPaletteProps {
  * resolved per caller by the same availability predicates `/help` asks, so an
  * athlete in no group is never shown `/group invite`. Renders nothing when
  * there is nothing to offer, which is what closes it.
+ *
+ * The highlighted row is where a hardware keyboard's arrows are; Enter takes
+ * it. On a phone the first row is highlighted and a tap takes any of them.
  */
-export function CommandPalette({ matches, onSelect }: CommandPaletteProps) {
+export function CommandPalette({ matches, highlightedIndex, onSelect }: CommandPaletteProps) {
   const colors = useThemeColors();
 
   if (matches.length === 0) return null;
@@ -44,12 +49,16 @@ export function CommandPalette({ matches, onSelect }: CommandPaletteProps) {
           <TouchableOpacity
             key={entry.name}
             testID={`command-palette-option-${entry.name}`}
+            accessibilityRole="button"
+            accessibilityState={index === highlightedIndex ? { selected: true } : {}}
             onPress={() => onSelect(entry)}
             style={{
               paddingHorizontal: 16,
               paddingVertical: 10,
               borderBottomWidth: index < matches.length - 1 ? 1 : 0,
               borderBottomColor: colors.border.subtle,
+              backgroundColor:
+                index === highlightedIndex ? colors.background.elevated : 'transparent',
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>

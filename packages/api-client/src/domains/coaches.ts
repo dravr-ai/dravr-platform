@@ -1,26 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Coaches domain API - CRUD, favorites, versions, fork operations
-// ABOUTME: Manages AI coaching personas with full version history support
+// ABOUTME: Coaches domain API - list, read, update and delete the caller's coaches
+// ABOUTME: Creation, install and catalogue browsing live in /coach and /discover
 
 import type { AxiosInstance } from 'axios';
 import type {
   Coach,
-  CreateCoachRequest,
   UpdateCoachRequest,
   ListCoachesResponse,
-  CoachVersion,
-  FieldChange,
-  ForkCoachResponse,
-  ImportCoachResponse,
-  ImportPreviewResponse,
   CoachProposalResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
-export type { Coach, CreateCoachRequest, UpdateCoachRequest, ListCoachesResponse, CoachVersion, ForkCoachResponse, ImportCoachResponse, ImportPreviewResponse, CoachProposalResponse };
+export type { Coach, UpdateCoachRequest, ListCoachesResponse, CoachProposalResponse };
 
 export interface ListCoachesOptions {
   category?: string;
@@ -31,21 +25,6 @@ export interface ListCoachesOptions {
   /** Mark each coach with a match_score + recommended flag based on the
    *  user's recent activities and connected providers. */
   personalize?: boolean;
-}
-
-export interface GenerateCoachRequest {
-  conversation_id: string;
-  max_messages?: number;
-}
-
-export interface GenerateCoachResponse {
-  title: string;
-  description: string;
-  system_prompt: string;
-  category: string;
-  tags: string[];
-  messages_analyzed: number;
-  total_messages: number;
 }
 
 /**
@@ -91,14 +70,6 @@ export function createCoachesApi(axios: AxiosInstance) {
     },
 
     /**
-     * Create a new coach.
-     */
-    async create(request: CreateCoachRequest): Promise<Coach> {
-      const response = await axios.post<Coach>(ENDPOINTS.COACHES.LIST, request);
-      return response.data;
-    },
-
-    /**
      * Update an existing coach.
      */
     async update(coachId: string, request: UpdateCoachRequest): Promise<Coach> {
@@ -114,16 +85,6 @@ export function createCoachesApi(axios: AxiosInstance) {
     },
 
     /**
-     * Toggle favorite status for a coach.
-     */
-    async toggleFavorite(coachId: string): Promise<{ is_favorite: boolean }> {
-      const response = await axios.post<{ is_favorite: boolean }>(
-        ENDPOINTS.COACHES.FAVORITE(coachId)
-      );
-      return response.data;
-    },
-
-    /**
      * Record coach usage (for analytics).
      */
     async recordUsage(coachId: string): Promise<void> {
@@ -132,146 +93,6 @@ export function createCoachesApi(axios: AxiosInstance) {
       } catch {
         // Silent failure - usage tracking is non-critical
       }
-    },
-
-    /**
-     * Hide a coach from the user's view.
-     */
-    async hide(coachId: string): Promise<{ success: boolean; is_hidden: boolean }> {
-      const response = await axios.post<{ success: boolean; is_hidden: boolean }>(
-        ENDPOINTS.COACHES.HIDE(coachId)
-      );
-      return response.data;
-    },
-
-    /**
-     * Show a previously hidden coach.
-     */
-    async show(coachId: string): Promise<{ success: boolean; is_hidden: boolean }> {
-      const response = await axios.delete<{ success: boolean; is_hidden: boolean }>(
-        ENDPOINTS.COACHES.HIDE(coachId)
-      );
-      return response.data;
-    },
-
-    /**
-     * List hidden coaches.
-     */
-    async getHidden(): Promise<ListCoachesResponse> {
-      const response = await axios.get<ListCoachesResponse>(ENDPOINTS.COACHES.HIDDEN);
-      return response.data;
-    },
-
-    /**
-     * Fork (copy) a coach to create a personal version.
-     */
-    async fork(coachId: string): Promise<ForkCoachResponse> {
-      const response = await axios.post<ForkCoachResponse>(ENDPOINTS.COACHES.FORK(coachId));
-      return response.data;
-    },
-
-    /**
-     * Get version history for a coach.
-     */
-    async getVersions(
-      coachId: string,
-      limit?: number
-    ): Promise<{
-      versions: CoachVersion[];
-      current_version: number;
-      total: number;
-    }> {
-      const params = new URLSearchParams();
-      if (limit) params.append('limit', limit.toString());
-
-      const queryString = params.toString();
-      const url = queryString
-        ? `${ENDPOINTS.COACHES.VERSIONS(coachId)}?${queryString}`
-        : ENDPOINTS.COACHES.VERSIONS(coachId);
-
-      const response = await axios.get(url);
-      return response.data;
-    },
-
-    /**
-     * Revert a coach to a previous version.
-     */
-    async revertToVersion(
-      coachId: string,
-      version: number
-    ): Promise<{
-      coach: Coach;
-      reverted_to_version: number;
-      new_version: number;
-    }> {
-      const response = await axios.post(ENDPOINTS.COACHES.VERSION_REVERT(coachId, version));
-      return response.data;
-    },
-
-    /**
-     * Get the diff between two versions of a coach.
-     */
-    async getVersionDiff(
-      coachId: string,
-      fromVersion: number,
-      toVersion: number
-    ): Promise<{
-      from_version: number;
-      to_version: number;
-      changes: FieldChange[];
-    }> {
-      const response = await axios.get(
-        ENDPOINTS.COACHES.VERSION_DIFF(coachId, fromVersion, toVersion)
-      );
-      return response.data;
-    },
-
-    /**
-     * Generate a coach from a conversation using LLM analysis.
-     */
-    async generateFromConversation(
-      request: GenerateCoachRequest
-    ): Promise<GenerateCoachResponse> {
-      const response = await axios.post<GenerateCoachResponse>(ENDPOINTS.COACHES.GENERATE, request);
-      return response.data;
-    },
-
-    /**
-     * Import a coach from markdown content.
-     */
-    async importFromMarkdown(markdown: string): Promise<ImportCoachResponse> {
-      const response = await axios.post<ImportCoachResponse>(ENDPOINTS.COACHES.IMPORT, markdown, {
-        headers: { 'Content-Type': 'text/plain' },
-      });
-      return response.data;
-    },
-
-    /**
-     * Preview a coach import from markdown without saving.
-     */
-    async importPreview(markdown: string): Promise<ImportPreviewResponse> {
-      const response = await axios.post<ImportPreviewResponse>(ENDPOINTS.COACHES.IMPORT_PREVIEW, markdown, {
-        headers: { 'Content-Type': 'text/plain' },
-      });
-      return response.data;
-    },
-
-    /**
-     * Import a coach from a URL. When save is false, returns a preview.
-     */
-    async importFromUrl(url: string, save = true): Promise<ImportCoachResponse | ImportPreviewResponse> {
-      const response = await axios.post(ENDPOINTS.COACHES.IMPORT_URL, { url, save });
-      return response.data;
-    },
-
-    /**
-     * Export a coach as markdown text.
-     */
-    async exportAsMarkdown(coachId: string): Promise<string> {
-      const response = await axios.get<string>(ENDPOINTS.COACHES.EXPORT(coachId), {
-        responseType: 'text',
-      });
-      return response.data;
     },
   };
 }

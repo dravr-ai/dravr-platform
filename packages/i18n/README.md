@@ -77,7 +77,7 @@ function Row() {
 }
 ```
 
-Keys are dot-notation over nine namespaces: `common`, `auth`, `chat`, `coaches`,
+Keys are dot-notation over eight namespaces: `common`, `auth`, `chat`,
 `settings`, `insights`, `providers`, `errors`, `validation`.
 Interpolation uses `{{name}}`: `t('validation.minLength', { min: 8 })`.
 

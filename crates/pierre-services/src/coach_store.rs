@@ -16,9 +16,10 @@
 //! browse or install a coach at all.
 //!
 //! Keeping the projection, the grade re-rank and the install call in one place
-//! is what makes those two surfaces the same store: a coach that ranks third
-//! in the web browse ranks third in chat, and installing from either writes
-//! the same row and emits the same `coach.installed` attribution.
+//! is what makes those surfaces the same store: a coach that ranks third in
+//! the web browse ranks third in chat, and installing from any of them — the
+//! REST route, the `install_coach_from_store` tool, `/discover install` —
+//! writes the same row and emits `coach.installed` exactly once, from here.
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -26,7 +27,7 @@ use pierre_core::pagination::StoreSortOrder;
 use pierre_database::database::{CoachCategory, CoachWithListing};
 use pierre_database::views::CoachRepos;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::coach_grading::{compute_coach_grades, rerank_by_grade, DEFAULT_VERDICT_LIMIT};
@@ -145,6 +146,55 @@ pub async fn browse_store(
     })
 }
 
+/// One page of published coaches addressed by offset.
+///
+/// Chat surfaces page with a plain offset carried in a button value
+/// (`/discover more 8 training`), where a cursor would not fit Telegram's
+/// 64-byte callback budget next to the command and a category.
+#[derive(Debug, Clone)]
+pub struct StoreOffsetPage {
+    /// The coaches on this page, already re-ranked by grade.
+    pub coaches: Vec<StoreCoach>,
+    /// Offset of the page after this one, absent when this is the last.
+    pub next_offset: Option<u32>,
+}
+
+/// Browse published coaches newest first from `offset`, re-ranked by coach grade.
+///
+/// Reads one row past `limit` to learn whether a next page exists, so a
+/// caller never offers a "More" that turns out empty. `limit` is clamped to
+/// `1..MAX_STORE_PAGE_SIZE` — one under the cap, so the look-ahead row still
+/// fits the repository's own page ceiling. Grading degrades exactly as in
+/// [`browse_store`].
+///
+/// # Errors
+///
+/// Returns the underlying repository error when the listing page cannot be read.
+pub async fn browse_store_page(
+    repos: &CoachRepos,
+    viewer_tenant: TenantId,
+    category: Option<CoachCategory>,
+    offset: u32,
+    limit: u32,
+) -> AppResult<StoreOffsetPage> {
+    let limit = limit.clamp(1, MAX_STORE_PAGE_SIZE - 1);
+    let page_len = limit as usize;
+    let mut rows = repos
+        .store_listings
+        .get_published_coaches(category, Some("newest"), Some(limit + 1), Some(offset))
+        .await?;
+    let has_more = rows.len() > page_len;
+    rows.truncate(page_len);
+
+    let mut coaches: Vec<StoreCoach> = rows.into_iter().map(StoreCoach::from).collect();
+    apply_grade_rank(repos, viewer_tenant, &mut coaches).await;
+
+    Ok(StoreOffsetPage {
+        coaches,
+        next_offset: has_more.then(|| offset.saturating_add(limit)),
+    })
+}
+
 /// Search published coaches by title, description, or tag.
 ///
 /// The Store is global, so the search crosses tenants; `limit` is clamped to
@@ -196,6 +246,20 @@ pub async fn install_store_coach(
         .store_listings
         .install_from_store(coach_id, user_id, tenant_id)
         .await?;
+
+    // notify: the one emission for every install surface — the REST route,
+    // the `install_coach_from_store` tool and `/discover install` all land
+    // here, so an install counts exactly once whichever way it came in.
+    // Fields are inline because a tool call or a slash command has no route
+    // span to carry them.
+    info!(
+        target: "notify",
+        event = "coach.installed",
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        coach_slug = %coach_id,
+        "coach installed from store"
+    );
 
     Ok(StoreCoach {
         id: installed.id,

@@ -89,7 +89,7 @@ describe('PHASE 2 — the mobile client does not read the removed wire fields', 
 
   it('renders a turn identically with and without X-Usage-* headers and is_command_response', async () => {
     const send = async () => {
-      const { result } = renderHook(() => useMessages());
+      const { result } = renderHook(() => useMessages(), { wrapper: queryWrapper() });
       await act(async () => {
         await result.current.sendTurn(CONVERSATION_ID, 'Comment se presente ma semaine ?');
       });
@@ -123,7 +123,7 @@ describe('PHASE 2 — the mobile client does not read the removed wire fields', 
       [`POST ${MESSAGES_URL}`]: { data: assistantTurn(), headers: DEAD_USAGE_HEADERS },
     });
 
-    const chat = renderHook(() => useMessages());
+    const chat = renderHook(() => useMessages(), { wrapper: queryWrapper() });
     await act(async () => {
       await chat.result.current.sendTurn(CONVERSATION_ID, 'Comment se presente ma semaine ?');
     });

@@ -34,7 +34,7 @@ const SLACK_CHANNEL: &str = "slack";
 /// Handle Slack interactive action payloads (button clicks)
 ///
 /// Routes two kinds of actions:
-/// - **Command postbacks**: `action_id` starts with `/` (e.g. `/coach select UUID`).
+/// - **Command postbacks**: `action_id` starts with `/` (e.g. `/coach add @handle`).
 ///   These come from messaging card buttons and are routed through the command system.
 /// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from admin
 ///   notifications. Requires Pierre admin role.
@@ -263,6 +263,9 @@ pub async fn execute_postback_command(
         // use the channel ID prefix convention ("D" = IM, "C" = channel,
         // "G" = private group).
         is_direct_message: channel_id.starts_with('D'),
+        // A messaging surface: the group a button means is the group the
+        // caller is in.
+        ambient_group_fallback: true,
         // Block-actions buttons fire outside a Pierre conversation
         // turn — there's no chat_conversations row associated with the
         // click. Group-scoped commands fall back to the user's most

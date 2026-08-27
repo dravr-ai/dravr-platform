@@ -78,6 +78,11 @@ pub mod coach_import;
 /// Coach-selection recording — the one emit site for `coach.selected`
 pub mod coach_selection;
 
+/// Coach generation from a conversation — the draft behind `/coach create`,
+/// plus the per-user coach quota read.
+///
+pub mod coach_generation;
+
 /// Coach Store browse / search / install, shared by the REST routes and the
 /// chat-callable `store` MCP tools.
 pub mod coach_store;

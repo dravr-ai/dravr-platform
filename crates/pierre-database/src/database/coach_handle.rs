@@ -1,4 +1,4 @@
-// ABOUTME: Catalogue handle assignment on SQLite — gives a coach its @handle when the Store approves it
+// ABOUTME: Catalogue handle assignment on SQLite — gives a coach its @handle on Store approval or creation
 // ABOUTME: Shared by the StoreListingsManager and the direct StoreListingsRepository impl
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -11,8 +11,8 @@ use sqlx::{Row, SqliteConnection};
 /// Upper bound on numbered candidates tried before giving up on a title.
 const MAX_HANDLE_ATTEMPTS: u32 = 100;
 
-/// Give the coach being approved its catalogue handle, if it does not own
-/// one yet.
+/// Give a coach its catalogue handle, if it does not own one yet — the coach
+/// being approved into the Store, or the one `/coach create` just created.
 ///
 /// An origin coach that already carries a handle (a seeded coach) keeps it.
 /// Any other coach — a custom coach with no handle, or a copy that inherited
@@ -24,7 +24,8 @@ const MAX_HANDLE_ATTEMPTS: u32 = 100;
 /// candidate fails loudly on the second `UPDATE` instead of producing twins.
 ///
 /// Runs inside the approval transaction so a coach never ends up published
-/// without an addressable name.
+/// without an addressable name, and on a plain connection for a created
+/// coach.
 ///
 /// # Errors
 ///

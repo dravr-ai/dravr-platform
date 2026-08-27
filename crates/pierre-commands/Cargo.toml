@@ -12,8 +12,8 @@ publish = false
 
 [features]
 default = []
-# Group coaching handlers (/coach select group create, /group invite). Disabled
-# when tools-groups is off in the host so the dispatch + handler layer still
+# Group coaching handlers (/group invite, /coach invite). Disabled when
+# tools-groups is off in the host so the dispatch + handler layer still
 # compiles without dragging in the group service surface.
 tools-groups = []
 
