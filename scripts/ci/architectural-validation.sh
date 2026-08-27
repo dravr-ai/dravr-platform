@@ -1454,6 +1454,17 @@ if [ "$APPLY_SKILLS" = true ]; then
     fi
 fi
 
+# Migration version uniqueness — sqlx keys a migration on its numeric prefix, so
+# two files claiming one version fail at boot with a UNIQUE constraint on
+# _sqlx_migrations.version. Compile-free, whole-tree: a collision is a property
+# of a PAIR, and concurrent work on main produces pairs whose halves were each
+# fine at their own push.
+if [ -x "$SCRIPT_DIR/check-migration-versions.sh" ]; then
+    "$SCRIPT_DIR/check-migration-versions.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${YELLOW}⚠️  scripts/ci/check-migration-versions.sh not found or not executable${NC}"
+fi
+
 # Migration idempotency — new migrations must use idempotent DDL (ADD COLUMN IF
 # NOT EXISTS, DROP ... IF EXISTS) so they survive live-DB drift (the shared_insights
 # deploy-crash class). Historical migrations are grandfathered (diff vs origin/main).
