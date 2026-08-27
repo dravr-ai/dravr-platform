@@ -41,7 +41,13 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel on main: the verdict is the point there. On 2026-08-26 four
+  # sessions pushed to main every ~2 minutes and the ~12-minute clippy job was
+  # cancelled five runs straight, so main's last real lint result was 25 minutes
+  # stale and red while everything after it read as "no result". Queued runs
+  # supersede each other per ref, so this costs a wait, not a pile-up.
+  # Feature branches keep cancelling — there, fast feedback beats a stale verdict.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
