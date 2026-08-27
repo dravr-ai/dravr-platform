@@ -123,6 +123,8 @@ fn day_title(workout: &str, sport: &SportType) -> String {
 
 /// Render one plan day as a calendar session, or `None` for a rest day or a
 /// day whose date is not a plan date.
+///
+/// LIMITATION(registre#125): `plan_day_session` renders a `PlannedDay` into at most one step — a plan day carries no structured steps, so interval structure in its prose reaches intervals.icu as a timed entry rather than as workout-builder steps, and no planned load is computed for it.
 #[must_use]
 pub fn plan_day_session(user_id: Uuid, day: &PlannedDay, ordinal: usize) -> Option<PlannedSession> {
     if day.is_rest() {
