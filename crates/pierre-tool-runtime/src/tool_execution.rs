@@ -15,7 +15,6 @@
 //! identical [`ToolLoopResult`] output.
 
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -271,11 +270,7 @@ pub async fn run_api_tool_loop(
     let mut captured_activity_list: Option<String> = None;
     let mut tool_calls_count: u32 = 0;
     let mut tools_called: Vec<String> = Vec::new();
-    let mut cumulative_usage = TokenUsage {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-    };
+    let mut cumulative_usage = TokenUsage::new(0, 0, 0);
 
     for iteration in 0..params.max_iterations {
         let llm_request = {
@@ -305,18 +300,11 @@ pub async fn run_api_tool_loop(
         );
 
         let call_start = Instant::now();
-        let cached_slot = Arc::new(AtomicU32::new(0));
-        let slot_for_scope = cached_slot.clone();
-        let response_result = pierre_llm::LAST_CACHED_TOKENS
-            .scope(
-                slot_for_scope,
-                params
-                    .provider
-                    .complete_with_tools(&llm_request, Some(vec![params.tools.clone()])),
-            )
+        let response_result = params
+            .provider
+            .complete_with_tools(&llm_request, Some(vec![params.tools.clone()]))
             .await;
         let latency_ms = millis_elapsed(call_start);
-        let cached_tokens = i64::from(cached_slot.load(Ordering::SeqCst));
         let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
             Ok(r) => {
@@ -330,7 +318,6 @@ pub async fn run_api_tool_loop(
                     provider: params.provider.name(),
                     model: params.model,
                     usage: r.usage.as_ref(),
-                    cached_tokens,
                     latency_ms,
                     success: true,
                     call_sequence: call_seq,
@@ -354,7 +341,6 @@ pub async fn run_api_tool_loop(
                     provider: params.provider.name(),
                     model: params.model,
                     usage: None,
-                    cached_tokens: 0,
                     latency_ms,
                     success: false,
                     call_sequence: call_seq,
@@ -724,13 +710,8 @@ pub async fn run_cli_tool_loop(
         );
 
         let call_start = Instant::now();
-        let cached_slot = Arc::new(AtomicU32::new(0));
-        let slot_for_scope = cached_slot.clone();
-        let response_result = pierre_llm::LAST_CACHED_TOKENS
-            .scope(slot_for_scope, params.provider.complete(&llm_request))
-            .await;
+        let response_result = params.provider.complete(&llm_request).await;
         let latency_ms = millis_elapsed(call_start);
-        let cached_tokens = i64::from(cached_slot.load(Ordering::SeqCst));
         let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
             Ok(r) => {
@@ -751,7 +732,6 @@ pub async fn run_cli_tool_loop(
                     provider: params.provider.name(),
                     model: params.model,
                     usage: None,
-                    cached_tokens: 0,
                     latency_ms,
                     success: false,
                     call_sequence: call_seq,
@@ -787,7 +767,6 @@ pub async fn run_cli_tool_loop(
                 provider: params.provider.name(),
                 model: params.model,
                 usage: response.usage.as_ref(),
-                cached_tokens,
                 latency_ms,
                 success: true,
                 call_sequence: call_seq,
@@ -1076,7 +1055,7 @@ fn log_iteration_response(iteration: usize, latency_ms: i64, response: &ChatResp
 /// extraction so the three tool-loop variants can share the same
 /// recording contract. `cached_tokens` is zero unless the provider
 /// wrapped its usage in
-/// [`pierre_core::llm::ExtendedTokenUsage`] and forwarded it through
+/// the provider's own [`pierre_core::llm::TokenUsage`] and forwarded it through
 /// the caller. `call_sequence` is the 1-based turn-local position of
 /// the call (1, 2, 3, ...).
 /// Shared parameters for the [`emit_call_record`] / [`emit_call_record_with_text`]
@@ -1092,8 +1071,6 @@ struct CallRecordInputs<'a> {
     /// Token-usage payload reported by the provider; `None` when the provider
     /// emits no usage and the caller will fall back to text-based estimation.
     usage: Option<&'a TokenUsage>,
-    /// Cached prompt-token count surfaced by providers that report it.
-    cached_tokens: i64,
     /// End-to-end call latency in milliseconds.
     latency_ms: i64,
     /// `true` when the call completed without a provider-side error.
@@ -1122,7 +1099,6 @@ fn emit_call_record_with_text(
         provider,
         model,
         usage,
-        cached_tokens,
         latency_ms,
         success,
         call_sequence,
@@ -1147,6 +1123,14 @@ fn emit_call_record_with_text(
             )
         },
     );
+    // Read off the usage rather than accepted as a second parameter. It used to
+    // arrive separately, sourced from a `LAST_CACHED_TOKENS` task-local that only
+    // one provider ever wrote and that three of the five call sites did not open
+    // at all -- including `run_headless_tool_loop`, the loop production actually
+    // runs. Two parameters describing one turn can disagree; one cannot.
+    let cached_tokens = usage
+        .and_then(|u| u.cached_read_tokens)
+        .map_or(0, i64::from);
     recorder.record(LlmCallRecord {
         provider: provider.to_owned(),
         model: model.to_owned(),
@@ -1767,7 +1751,6 @@ async fn run_headless_tool_loop(
                     provider: params.provider.name(),
                     model: params.model,
                     usage: r.usage.as_ref(),
-                    cached_tokens: 0,
                     latency_ms,
                     success: true,
                     call_sequence: Some(1),
@@ -1784,7 +1767,6 @@ async fn run_headless_tool_loop(
                 provider: params.provider.name(),
                 model: params.model,
                 usage: None,
-                cached_tokens: 0,
                 latency_ms,
                 success: false,
                 call_sequence: Some(1),
@@ -1961,7 +1943,6 @@ async fn retry_headless_turn(
             provider: params.provider.name(),
             model: params.model,
             usage: retry.usage.as_ref(),
-            cached_tokens: 0,
             latency_ms: retry_latency_ms,
             success: true,
             call_sequence: Some(2),

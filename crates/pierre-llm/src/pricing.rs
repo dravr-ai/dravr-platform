@@ -14,7 +14,7 @@
 //! Prompt tokens that hit the provider's context cache bill at 25% of
 //! the full input rate. Gemini and OpenAI both report cached-token
 //! counts in their usage payloads; the value is carried end-to-end
-//! through [`pierre_core::llm::ExtendedTokenUsage`] and applied here
+//! through [`pierre_core::llm::TokenUsage`] and applied here
 //! via [`calculate_cost_with_cache`].
 //!
 //! ## Admin-editable overrides
@@ -25,6 +25,7 @@
 //! cached in-process; the compile-time table remains the fallback for
 //! models the operator has not repriced.
 
+use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
@@ -611,4 +612,37 @@ fn longest_prefix_match(
         .filter(|((p, prefix), _)| p == provider && model.starts_with(prefix.as_str()))
         .max_by_key(|((_, prefix), _)| prefix.len())
         .map(|(_, pricing)| *pricing)
+}
+
+/// Cost of one recorded LLM call, crediting the prompt tokens it served from
+/// cache.
+///
+/// Every read path recomputes cost from a stored row, and each one used to
+/// spell the five arguments out at the call site — so each was free to forget
+/// the cache one, and all of them had: they called the four-argument
+/// `calculate_cost`, which passes 0. Taking the row itself removes the
+/// opportunity.
+#[must_use]
+pub fn cost_for_record(record: &LlmUsageRecord) -> f64 {
+    calculate_cost_with_cache(
+        &record.provider,
+        &record.model,
+        record.prompt_tokens,
+        record.cached_tokens,
+        record.completion_tokens,
+    )
+}
+
+/// Cost of a grouped usage row, crediting its summed cache reads.
+///
+/// Counterpart to [`cost_for_record`] for the aggregate and daily series.
+#[must_use]
+pub fn cost_for_aggregate(row: &LlmUsageAggregateRow) -> f64 {
+    calculate_cost_with_cache(
+        &row.provider,
+        &row.model,
+        row.prompt_tokens,
+        row.cached_tokens,
+        row.completion_tokens,
+    )
 }

@@ -98,11 +98,11 @@ mod conversation_turn_e2e_tests {
             Ok(ChatResponse {
                 content: self.reply.clone(),
                 model: self.model.clone(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 42,
-                    completion_tokens: 11,
-                    total_tokens: 53,
-                }),
+                // 17 of the 42 prompt tokens served from cache. Non-zero on
+                // purpose: a seam that only ever carries 0 cannot distinguish
+                // "carried the value" from "hardcoded a zero", which is exactly
+                // how the old side channel passed for a measurement.
+                usage: Some(TokenUsage::new(42, 11, 53).with_cache(Some(17), None)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -360,6 +360,20 @@ mod conversation_turn_e2e_tests {
         assert!(
             body["total_tokens"].as_u64().unwrap() > 0,
             "per-call rows carry real token counts from the mock"
+        );
+
+        // The cache seam, end to end: provider reports a cache read, it rides on
+        // TokenUsage through the tool loop into llm_usage, and the per-turn
+        // endpoint reports it. Every link was previously broken -- embacle dropped
+        // the field, the loop hardcoded 0, and the endpoint had no such column.
+        let cached: u64 = calls
+            .iter()
+            .map(|c| c["cached_tokens"].as_u64().unwrap_or_default())
+            .sum();
+        assert_eq!(
+            cached, 17,
+            "the provider's cache-read count must reach the per-turn endpoint; \
+             got {cached} from {calls:?}"
         );
     }
 }

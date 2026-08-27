@@ -124,11 +124,7 @@ mod capability_recovery {
             Ok(ChatResponse {
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 30,
-                    completion_tokens: 40,
-                    total_tokens: 70,
-                }),
+                usage: Some(TokenUsage::new(30, 40, 70)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -175,11 +171,7 @@ mod capability_recovery {
             Ok(ChatResponse {
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 30,
-                    completion_tokens: 40,
-                    total_tokens: 70,
-                }),
+                usage: Some(TokenUsage::new(30, 40, 70)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -573,11 +565,7 @@ mod capability_recovery {
             Ok(ChatResponse {
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 30,
-                    completion_tokens: 40,
-                    total_tokens: 70,
-                }),
+                usage: Some(TokenUsage::new(30, 40, 70)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -706,11 +694,7 @@ mod capability_recovery {
             Ok(ChatResponse {
                 content,
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 30,
-                    completion_tokens: 40,
-                    total_tokens: 70,
-                }),
+                usage: Some(TokenUsage::new(30, 40, 70)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls,

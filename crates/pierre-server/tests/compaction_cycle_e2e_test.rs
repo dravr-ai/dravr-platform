@@ -78,11 +78,7 @@ impl LlmProvider for StubSummarizer {
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
             content: STUB_SUMMARY.to_owned(),
-            usage: Some(TokenUsage {
-                prompt_tokens: 1,
-                completion_tokens: 1,
-                total_tokens: 2,
-            }),
+            usage: Some(TokenUsage::new(1, 1, 2)),
             model: "stub-model".to_owned(),
             finish_reason: Some("stop".to_owned()),
             warnings: None,

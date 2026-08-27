@@ -194,11 +194,7 @@ mod reply_scaffolding_strip {
             Ok(ChatResponse {
                 content,
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 30,
-                    completion_tokens: 15,
-                    total_tokens: 45,
-                }),
+                usage: Some(TokenUsage::new(30, 15, 45)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,

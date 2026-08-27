@@ -13,7 +13,7 @@ use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
 use pierre_database::RepositoryRegistry;
-use pierre_llm::pricing::calculate_cost;
+use pierre_llm::pricing::cost_for_record;
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
 use tracing::{debug, error, info, warn};
@@ -1392,7 +1392,7 @@ pub async fn fetch_recent_activity(data: &DataContext) -> Result<RecentActivityR
     let llm_calls: Vec<LlmCallEntry> = recent_llm
         .iter()
         .map(|r| {
-            let cost = calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens);
+            let cost = cost_for_record(r);
             LlmCallEntry {
                 id: r.id.clone(),
                 provider: r.provider.clone(),
@@ -1434,11 +1434,7 @@ pub async fn fetch_recent_activity(data: &DataContext) -> Result<RecentActivityR
     // Estimate cost for today using pricing
     let estimated_cost_today = if total_calls_today > 0 {
         // Use average cost per token from recent calls as approximation
-        recent_llm
-            .iter()
-            .map(|r| calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens))
-            .sum::<f64>()
-            / recent_llm.len().max(1) as f64
+        recent_llm.iter().map(cost_for_record).sum::<f64>() / recent_llm.len().max(1) as f64
             * total_calls_today as f64
     } else {
         0.0

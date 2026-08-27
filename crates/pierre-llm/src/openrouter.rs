@@ -227,6 +227,18 @@ struct OpenRouterUsage {
     completion: u32,
     #[serde(rename = "total_tokens")]
     total: u32,
+    /// Breakdown of `prompt_tokens`. Carries the cache-read share, which this
+    /// struct never declared — so it deserialized away on every response.
+    #[serde(default)]
+    prompt_tokens_details: Option<OpenRouterUsageDetails>,
+}
+
+/// The `prompt_tokens_details` sub-object of an OpenAI-compatible usage block.
+#[derive(Debug, Deserialize)]
+struct OpenRouterUsageDetails {
+    /// Prompt tokens served from the provider's cache.
+    #[serde(default)]
+    cached_tokens: Option<u32>,
 }
 
 /// Streaming chunk structure (OpenAI-compatible)
@@ -610,10 +622,11 @@ impl OpenRouterProvider {
             content,
             function_calls,
             model: or_response.model,
-            usage: or_response.usage.map(|u| TokenUsage {
-                prompt_tokens: u.prompt,
-                completion_tokens: u.completion,
-                total_tokens: u.total,
+            usage: or_response.usage.map(|u| {
+                // No cache-WRITE count in this API shape: writes are
+                // implicit and unbilled, so None is accurate, not unknown.
+                TokenUsage::new(u.prompt, u.completion, u.total)
+                    .with_cache(u.prompt_tokens_details.and_then(|d| d.cached_tokens), None)
             }),
             finish_reason: choice.finish_reason,
         })
@@ -745,10 +758,11 @@ impl LlmProvider for OpenRouterProvider {
             return Ok(ChatResponse {
                 content,
                 model: or_response.model,
-                usage: or_response.usage.map(|u| TokenUsage {
-                    prompt_tokens: u.prompt,
-                    completion_tokens: u.completion,
-                    total_tokens: u.total,
+                usage: or_response.usage.map(|u| {
+                    // No cache-WRITE count in this API shape: writes are
+                    // implicit and unbilled, so None is accurate, not unknown.
+                    TokenUsage::new(u.prompt, u.completion, u.total)
+                        .with_cache(u.prompt_tokens_details.and_then(|d| d.cached_tokens), None)
                 }),
                 finish_reason: choice.finish_reason,
                 warnings: None,

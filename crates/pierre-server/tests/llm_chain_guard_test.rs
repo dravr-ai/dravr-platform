@@ -86,11 +86,7 @@ impl LlmProvider for MockProvider {
         if self.mode == "ok" {
             Ok(ChatResponse {
                 content: format!("hello from {}", self.name),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 1,
-                    completion_tokens: 1,
-                    total_tokens: 2,
-                }),
+                usage: Some(TokenUsage::new(1, 1, 2)),
                 model: "mock-model".to_owned(),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,

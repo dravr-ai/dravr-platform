@@ -108,11 +108,7 @@ impl LlmProvider for CapturingLlm {
         Ok(ChatResponse {
             content: "Bien reçu, on regarde ça ensemble.".to_owned(),
             model: "mock-model".to_owned(),
-            usage: Some(TokenUsage {
-                prompt_tokens: 12,
-                completion_tokens: 6,
-                total_tokens: 18,
-            }),
+            usage: Some(TokenUsage::new(12, 6, 18)),
             finish_reason: Some("stop".to_owned()),
             warnings: None,
             tool_calls: None,

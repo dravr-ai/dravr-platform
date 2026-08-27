@@ -58,7 +58,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::{TenantId, UserTier};
 use pierre_database::RepositoryRegistry;
-use pierre_llm::pricing::calculate_cost;
+use pierre_llm::pricing::cost_for_aggregate;
 use pierre_middleware::tenant_path::TenantPath;
 use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
 use pierre_runtime_context::DataContext;
@@ -1933,12 +1933,7 @@ impl WebAdminRoutes {
         let by_model: Vec<LlmUsageAggregateRowWithCost> = raw_rows
             .into_iter()
             .map(|row| {
-                let cost_usd = calculate_cost(
-                    &row.provider,
-                    &row.model,
-                    row.prompt_tokens,
-                    row.completion_tokens,
-                );
+                let cost_usd = cost_for_aggregate(&row);
                 LlmUsageAggregateRowWithCost { row, cost_usd }
             })
             .collect();

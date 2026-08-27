@@ -11,7 +11,7 @@ use pierre_core::models::ConversationTurnId;
 use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::test_utils::create_test_db;
-use pierre_llm::pricing::calculate_cost;
+use pierre_llm::pricing::{calculate_cost, calculate_cost_with_cache};
 
 /// Parameters for inserting test LLM usage data
 struct TestUsageParams<'a> {
@@ -22,6 +22,10 @@ struct TestUsageParams<'a> {
     call_type: &'a str,
     prompt_tokens: i64,
     completion_tokens: i64,
+    /// Prompt tokens served from the provider's cache. Most tests pass 0; the
+    /// aggregate-sum test needs a non-zero one, because a sum that is always 0
+    /// cannot distinguish "summed correctly" from "not summed at all".
+    cached_tokens: i64,
 }
 
 /// Insert test usage data for a given tenant/user with specified provider, model, and `call_type`
@@ -36,7 +40,7 @@ async fn insert_test_usage(db: &dyn LlmUsageRepository, params: &TestUsageParams
         prompt_tokens: params.prompt_tokens,
         completion_tokens: params.completion_tokens,
         total_tokens: params.prompt_tokens + params.completion_tokens,
-        cached_tokens: 0,
+        cached_tokens: params.cached_tokens,
         call_type: params.call_type,
         tool_calls_count: 0,
         tools_called: "[]",
@@ -84,6 +88,7 @@ async fn test_aggregates_single_provider() {
         call_type: "chat",
         prompt_tokens: 100,
         completion_tokens: 50,
+        cached_tokens: 0,
     };
     for _ in 0..3 {
         insert_test_usage(repos.llm_usage.as_ref(), &params).await;
@@ -122,6 +127,7 @@ async fn test_aggregates_multiple_providers_and_call_types() {
             call_type: "chat",
             prompt_tokens: 200,
             completion_tokens: 100,
+            cached_tokens: 0,
         },
     )
     .await;
@@ -135,6 +141,7 @@ async fn test_aggregates_multiple_providers_and_call_types() {
             call_type: "chat",
             prompt_tokens: 300,
             completion_tokens: 150,
+            cached_tokens: 0,
         },
     )
     .await;
@@ -150,6 +157,7 @@ async fn test_aggregates_multiple_providers_and_call_types() {
             call_type: "insight",
             prompt_tokens: 500,
             completion_tokens: 200,
+            cached_tokens: 0,
         },
     )
     .await;
@@ -165,6 +173,7 @@ async fn test_aggregates_multiple_providers_and_call_types() {
             call_type: "chat",
             prompt_tokens: 1000,
             completion_tokens: 500,
+            cached_tokens: 0,
         },
     )
     .await;
@@ -217,6 +226,7 @@ async fn test_tenant_isolation() {
             call_type: "chat",
             prompt_tokens: 100,
             completion_tokens: 50,
+            cached_tokens: 0,
         },
     )
     .await;
@@ -230,6 +240,7 @@ async fn test_tenant_isolation() {
             call_type: "chat",
             prompt_tokens: 200,
             completion_tokens: 100,
+            cached_tokens: 0,
         },
     )
     .await;
@@ -267,6 +278,7 @@ async fn test_daily_series_groups_by_date() {
         call_type: "chat",
         prompt_tokens: 100,
         completion_tokens: 50,
+        cached_tokens: 0,
     };
     for _ in 0..5 {
         insert_test_usage(repos.llm_usage.as_ref(), &params).await;
@@ -301,6 +313,7 @@ async fn test_date_range_filtering() {
             call_type: "chat",
             prompt_tokens: 100,
             completion_tokens: 50,
+            cached_tokens: 0,
         },
     )
     .await;
@@ -361,4 +374,67 @@ async fn test_group_by_provider() {
 
     let group = LlmUsageGroupBy::from_str_param("invalid");
     assert_eq!(group, None);
+}
+
+/// The aggregate must carry the cache sum, and cost must apply its discount.
+///
+/// `LlmUsageAggregateRow` had no cache column, so every read path that recomputed
+/// cost from an aggregate called the 4-arg `calculate_cost`, which hardcodes
+/// `cached_tokens = 0`. Rows that stored a real count were still billed at the
+/// full input rate on the way out — the discount existed in the write path and
+/// was discarded on every read.
+#[tokio::test]
+async fn aggregates_sum_cached_tokens_and_cost_reflects_the_discount() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+
+    let params = TestUsageParams {
+        tenant_id: "t-cache",
+        user_id: "u1",
+        provider: "gemini",
+        model: "gemini-2.5-flash",
+        call_type: "chat",
+        prompt_tokens: 1_000,
+        completion_tokens: 100,
+        cached_tokens: 400,
+    };
+    for _ in 0..3 {
+        insert_test_usage(repos.llm_usage.as_ref(), &params).await;
+    }
+
+    let aggregates = repos
+        .llm_usage
+        .get_llm_usage_aggregates("t-cache", "2020-01-01T00:00:00+00:00")
+        .await
+        .unwrap();
+
+    assert_eq!(aggregates.len(), 1);
+    let row = &aggregates[0];
+    assert_eq!(row.prompt_tokens, 3_000);
+    assert_eq!(
+        row.cached_tokens, 1_200,
+        "the aggregate must sum cached_tokens; without it the read path bills \
+         every cached token at the full input rate"
+    );
+
+    // The discount is only real if a cached row costs less than an uncached one.
+    let discounted = calculate_cost_with_cache(
+        &row.provider,
+        &row.model,
+        row.prompt_tokens,
+        row.cached_tokens,
+        row.completion_tokens,
+    );
+    let undiscounted = calculate_cost_with_cache(
+        &row.provider,
+        &row.model,
+        row.prompt_tokens,
+        0,
+        row.completion_tokens,
+    );
+    assert!(
+        discounted < undiscounted,
+        "1,200 cached of 3,000 prompt tokens must cost less than none cached: \
+         {discounted} vs {undiscounted}"
+    );
 }

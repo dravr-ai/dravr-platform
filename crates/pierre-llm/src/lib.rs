@@ -80,7 +80,7 @@ pub use embacle::{
 };
 pub use gemini::{
     ChatResponseWithTools, FunctionCall, FunctionDeclaration, FunctionResponse, GeminiProvider,
-    Tool, LAST_CACHED_TOKENS,
+    Tool,
 };
 pub use groq::GroqProvider;
 pub use openai_compatible::{OpenAiCompatibleConfig, OpenAiCompatibleProvider};

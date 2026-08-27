@@ -504,11 +504,11 @@ impl CohereProvider {
     fn resolve_usage(usage: Option<CohereUsage>) -> Option<TokenUsage> {
         let usage = usage?;
         let counts = usage.billed_units.or(usage.tokens)?;
-        Some(TokenUsage {
-            prompt_tokens: counts.input_tokens,
-            completion_tokens: counts.output_tokens,
-            total_tokens: counts.input_tokens.saturating_add(counts.output_tokens),
-        })
+        Some(TokenUsage::new(
+            counts.input_tokens,
+            counts.output_tokens,
+            counts.input_tokens.saturating_add(counts.output_tokens),
+        ))
     }
 
     /// Parse error response from Cohere API

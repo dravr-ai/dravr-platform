@@ -42,22 +42,10 @@
 
 use std::env;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
-use std::sync::atomic::AtomicU32;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 
-tokio::task_local! {
-    /// Per-task slot for cached-token counts reported by Gemini's
-    /// `cachedContentTokenCount`. The chat pipeline opens the scope
-    /// before issuing `LlmProvider::complete()` and reads the value
-    /// after the call returns. Because the slot is task-local, multiple
-    /// concurrent chat turns in different tokio tasks do not stomp on
-    /// each other's counts. Wrapped in [`Arc`] so the caller keeps a
-    /// reference across the scope boundary.
-    pub static LAST_CACHED_TOKENS: Arc<AtomicU32>;
-}
 use pierre_core::http_client::SharedHttpClient;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
@@ -701,20 +689,20 @@ impl GeminiProvider {
 
     /// Convert usage metadata to our token usage format.
     ///
-    /// Publishes `cachedContentTokenCount` (if present) into the
-    /// per-task slot [`LAST_CACHED_TOKENS`] so upstream billing code
-    /// running in the same tokio task can read it back without a trait
-    /// expansion across every provider.
+    /// `cachedContentTokenCount` rides on the returned `TokenUsage` now. It used
+    /// to be published into a task-local slot instead, because embacle's
+    /// `TokenUsage` had nowhere to put it — a side channel that only this
+    /// provider ever wrote, that three of the five call sites never opened, and
+    /// whose `try_with` dropped the value silently when no scope was active.
+    /// Gemini reports no cache-write count, so that half stays `None`: absent,
+    /// not zero.
     fn convert_usage(metadata: &UsageMetadata) -> TokenUsage {
-        use std::sync::atomic::Ordering;
-        if let Some(cached) = metadata.cached {
-            let _ = LAST_CACHED_TOKENS.try_with(|c| c.store(cached, Ordering::SeqCst));
-        }
-        TokenUsage {
-            prompt_tokens: metadata.prompt.unwrap_or(0),
-            completion_tokens: metadata.candidates.unwrap_or(0),
-            total_tokens: metadata.total.unwrap_or(0),
-        }
+        TokenUsage::new(
+            metadata.prompt.unwrap_or(0),
+            metadata.candidates.unwrap_or(0),
+            metadata.total.unwrap_or(0),
+        )
+        .with_cache(metadata.cached, None)
     }
 
     /// Map API error status to appropriate error type

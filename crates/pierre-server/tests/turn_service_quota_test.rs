@@ -91,11 +91,7 @@ mod turn_service_quota_tests {
             Ok(ChatResponse {
                 content: "Ta semaine est bien dosée: garde le volume et dors davantage.".to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 25,
-                    completion_tokens: 15,
-                    total_tokens: 40,
-                }),
+                usage: Some(TokenUsage::new(25, 15, 40)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,

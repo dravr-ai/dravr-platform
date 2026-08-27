@@ -142,11 +142,7 @@ mod intake_tests {
             Ok(ChatResponse {
                 content: "Bien reçu.".to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 10,
-                    completion_tokens: 3,
-                    total_tokens: 13,
-                }),
+                usage: Some(TokenUsage::new(10, 3, 13)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,

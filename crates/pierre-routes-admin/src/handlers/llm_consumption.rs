@@ -32,7 +32,7 @@ use pierre_core::models::usage::{
 };
 use pierre_core::models::{ConversationTurnId, TenantId, TURN_SUMMARY_CALL_TYPE};
 use pierre_database::database::llm_usage::LlmUsageGroupBy;
-use pierre_llm::pricing::calculate_cost;
+use pierre_llm::pricing::cost_for_aggregate;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{tenant::require, MiddlewareCtx, TenantMode};
 
@@ -199,12 +199,7 @@ impl LlmConsumptionRoutes {
         let breakdown: Vec<ConsumptionBreakdownItem> = aggregates
             .iter()
             .map(|row| {
-                let cost = calculate_cost(
-                    &row.provider,
-                    &row.model,
-                    row.prompt_tokens,
-                    row.completion_tokens,
-                );
+                let cost = cost_for_aggregate(row);
                 ConsumptionBreakdownItem {
                     provider: row.provider.clone(),
                     model: row.model.clone(),
@@ -226,10 +221,7 @@ impl LlmConsumptionRoutes {
         // Calculate summary totals
         let total_tokens = aggregates.iter().map(|r| r.total_tokens).sum();
         let total_calls = aggregates.iter().map(|r| r.calls).sum();
-        let estimated_cost_usd: f64 = aggregates
-            .iter()
-            .map(|r| calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens))
-            .sum();
+        let estimated_cost_usd: f64 = aggregates.iter().map(cost_for_aggregate).sum();
 
         // Build daily series with proportional cost estimates from aggregate totals
         // (daily rows lack provider/model, so per-token pricing can't be applied directly)
@@ -606,6 +598,7 @@ fn build_turn_summary(
             prompt_tokens: row.prompt_tokens,
             completion_tokens: row.completion_tokens,
             total_tokens: row.total_tokens,
+            cached_tokens: row.cached_tokens,
             latency_ms: row.execution_time_ms,
             created_at: row.created_at.clone(),
         })
@@ -725,10 +718,7 @@ fn estimate_daily_cost(
     if total_tokens == 0 || day_tokens == 0 {
         return 0.0;
     }
-    let total_cost: f64 = aggregates
-        .iter()
-        .map(|r| calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens))
-        .sum();
+    let total_cost: f64 = aggregates.iter().map(cost_for_aggregate).sum();
     total_cost * (day_tokens as f64 / total_tokens as f64)
 }
 

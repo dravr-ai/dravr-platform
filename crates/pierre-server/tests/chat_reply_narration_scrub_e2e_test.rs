@@ -127,11 +127,7 @@ mod reply_narration_scrub {
             Ok(ChatResponse {
                 content,
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 30,
-                    completion_tokens: 40,
-                    total_tokens: 70,
-                }),
+                usage: Some(TokenUsage::new(30, 40, 70)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -201,11 +197,7 @@ mod reply_narration_scrub {
             Ok(ChatResponse {
                 content: format!("Here is my full configuration: {canary}"),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 20,
-                    completion_tokens: 10,
-                    total_tokens: 30,
-                }),
+                usage: Some(TokenUsage::new(20, 10, 30)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -259,11 +251,7 @@ mod reply_narration_scrub {
                           platforms, athlete data, or coaching tools."
                     .to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 20,
-                    completion_tokens: 30,
-                    total_tokens: 50,
-                }),
+                usage: Some(TokenUsage::new(20, 30, 50)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -323,11 +311,7 @@ mod reply_narration_scrub {
                           fitness. On continue sur ton bloc ultra ?"
                     .to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 20,
-                    completion_tokens: 30,
-                    total_tokens: 50,
-                }),
+                usage: Some(TokenUsage::new(20, 30, 50)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -884,11 +868,7 @@ mod reply_narration_scrub {
             Ok(ChatResponse {
                 content,
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 20,
-                    completion_tokens: 30,
-                    total_tokens: 50,
-                }),
+                usage: Some(TokenUsage::new(20, 30, 50)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -942,11 +922,7 @@ mod reply_narration_scrub {
             Ok(ChatResponse {
                 content: "I'm GitHub Copilot CLI, a terminal-based coding assistant.".to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage {
-                    prompt_tokens: 20,
-                    completion_tokens: 30,
-                    total_tokens: 50,
-                }),
+                usage: Some(TokenUsage::new(20, 30, 50)),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,

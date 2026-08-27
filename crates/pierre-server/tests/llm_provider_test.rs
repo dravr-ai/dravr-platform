@@ -281,11 +281,7 @@ fn test_chat_response_creation() {
 
 #[test]
 fn test_chat_response_with_usage() {
-    let usage = TokenUsage {
-        prompt_tokens: 10,
-        completion_tokens: 20,
-        total_tokens: 30,
-    };
+    let usage = TokenUsage::new(10, 20, 30);
 
     let response = ChatResponse {
         content: "Response".to_owned(),
@@ -307,11 +303,7 @@ fn test_chat_response_serialization() {
     let response = ChatResponse {
         content: "Hello!".to_owned(),
         model: "model-1".to_owned(),
-        usage: Some(TokenUsage {
-            prompt_tokens: 5,
-            completion_tokens: 10,
-            total_tokens: 15,
-        }),
+        usage: Some(TokenUsage::new(5, 10, 15)),
         finish_reason: Some("stop".to_owned()),
         warnings: None,
         tool_calls: None,
@@ -330,11 +322,7 @@ fn test_chat_response_serialization() {
 
 #[test]
 fn test_token_usage_creation() {
-    let usage = TokenUsage {
-        prompt_tokens: 100,
-        completion_tokens: 200,
-        total_tokens: 300,
-    };
+    let usage = TokenUsage::new(100, 200, 300);
 
     assert_eq!(usage.prompt_tokens, 100);
     assert_eq!(usage.completion_tokens, 200);
@@ -343,11 +331,7 @@ fn test_token_usage_creation() {
 
 #[test]
 fn test_token_usage_serialization() {
-    let usage = TokenUsage {
-        prompt_tokens: 50,
-        completion_tokens: 75,
-        total_tokens: 125,
-    };
+    let usage = TokenUsage::new(50, 75, 125);
 
     let json = serde_json::to_string(&usage).unwrap();
     assert!(json.contains("prompt_tokens"));
@@ -476,11 +460,7 @@ fn test_chat_request_temperature_boundaries() {
 
 #[test]
 fn test_token_usage_zero_values() {
-    let usage = TokenUsage {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-    };
+    let usage = TokenUsage::new(0, 0, 0);
 
     assert_eq!(usage.prompt_tokens, 0);
     assert_eq!(usage.total_tokens, 0);

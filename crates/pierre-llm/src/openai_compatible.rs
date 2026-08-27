@@ -184,6 +184,18 @@ struct OpenAiUsage {
     completion: u32,
     #[serde(rename = "total_tokens")]
     total: u32,
+    /// Breakdown of `prompt_tokens`. Carries the cache-read share, which this
+    /// struct never declared — so it deserialized away on every response.
+    #[serde(default)]
+    prompt_tokens_details: Option<OpenAiUsageDetails>,
+}
+
+/// The `prompt_tokens_details` sub-object of an OpenAI-compatible usage block.
+#[derive(Debug, Deserialize)]
+struct OpenAiUsageDetails {
+    /// Prompt tokens served from the provider's cache.
+    #[serde(default)]
+    cached_tokens: Option<u32>,
 }
 
 /// Streaming chunk structure
@@ -717,10 +729,11 @@ impl OpenAiCompatibleProvider {
             content,
             function_calls,
             model: openai_response.model,
-            usage: openai_response.usage.map(|u| TokenUsage {
-                prompt_tokens: u.prompt,
-                completion_tokens: u.completion,
-                total_tokens: u.total,
+            usage: openai_response.usage.map(|u| {
+                // No cache-WRITE count in this API shape: writes are
+                // implicit and unbilled, so None is accurate, not unknown.
+                TokenUsage::new(u.prompt, u.completion, u.total)
+                    .with_cache(u.prompt_tokens_details.and_then(|d| d.cached_tokens), None)
             }),
             finish_reason: choice.finish_reason,
         })
@@ -842,10 +855,11 @@ impl LlmProvider for OpenAiCompatibleProvider {
         Ok(ChatResponse {
             content,
             model: openai_response.model,
-            usage: openai_response.usage.map(|u| TokenUsage {
-                prompt_tokens: u.prompt,
-                completion_tokens: u.completion,
-                total_tokens: u.total,
+            usage: openai_response.usage.map(|u| {
+                // No cache-WRITE count in this API shape: writes are
+                // implicit and unbilled, so None is accurate, not unknown.
+                TokenUsage::new(u.prompt, u.completion, u.total)
+                    .with_cache(u.prompt_tokens_details.and_then(|d| d.cached_tokens), None)
             }),
             finish_reason: choice.finish_reason,
             warnings: None,

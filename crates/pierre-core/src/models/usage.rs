@@ -135,6 +135,12 @@ pub struct ConversationTurnLlmCall {
     pub completion_tokens: i64,
     /// Total tokens (prompt + completion)
     pub total_tokens: i64,
+    /// Prompt tokens the provider served from its context cache.
+    ///
+    /// Surfaced per call because a cache hit is the difference between
+    /// re-reading a six-figure prompt and not, and this endpoint is where a
+    /// turn is inspected. Aggregates hide exactly the turn you are looking at.
+    pub cached_tokens: i64,
     /// Execution time in milliseconds
     pub latency_ms: Option<i64>,
     /// When the call was recorded (ISO 8601)
@@ -326,6 +332,11 @@ pub struct LlmUsageAggregateRow {
     pub completion_tokens: i64,
     /// Number of LLM calls
     pub calls: i64,
+    /// Prompt tokens served from the provider's cache across all matching
+    /// records. Summed so the read path can apply the cache discount — it
+    /// recomputed cost with a hardcoded zero before, ignoring the discount
+    /// even on rows that stored a real count.
+    pub cached_tokens: i64,
 }
 
 /// Daily LLM usage summary
@@ -344,4 +355,9 @@ pub struct LlmUsageDailyRow {
     /// Mean execution time in milliseconds across calls for this day.
     /// Zero when no rows recorded `execution_time_ms`.
     pub avg_execution_time_ms: f64,
+    /// Prompt tokens served from the provider's cache across all matching
+    /// records. Summed so the read path can apply the cache discount — it
+    /// recomputed cost with a hardcoded zero before, ignoring the discount
+    /// even on rows that stored a real count.
+    pub cached_tokens: i64,
 }

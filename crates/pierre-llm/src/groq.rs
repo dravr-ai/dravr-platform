@@ -574,11 +574,9 @@ impl GroqProvider {
             content,
             function_calls,
             model: groq_response.model,
-            usage: groq_response.usage.map(|u| TokenUsage {
-                prompt_tokens: u.prompt,
-                completion_tokens: u.completion,
-                total_tokens: u.total,
-            }),
+            usage: groq_response
+                .usage
+                .map(|u| TokenUsage::new(u.prompt, u.completion, u.total)),
             finish_reason: choice.finish_reason,
         })
     }
@@ -704,11 +702,9 @@ impl LlmProvider for GroqProvider {
             return Ok(ChatResponse {
                 content,
                 model: groq_response.model,
-                usage: groq_response.usage.map(|u| TokenUsage {
-                    prompt_tokens: u.prompt,
-                    completion_tokens: u.completion,
-                    total_tokens: u.total,
-                }),
+                usage: groq_response
+                    .usage
+                    .map(|u| TokenUsage::new(u.prompt, u.completion, u.total)),
                 finish_reason: choice.finish_reason,
                 warnings: None,
                 tool_calls: None,

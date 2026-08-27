@@ -88,11 +88,7 @@ impl LlmProvider for MockLlmProvider {
         Ok(ChatResponse {
             content: MOCK_REPLY.to_owned(),
             model: self.model.clone(),
-            usage: Some(TokenUsage {
-                prompt_tokens: 42,
-                completion_tokens: 11,
-                total_tokens: 53,
-            }),
+            usage: Some(TokenUsage::new(42, 11, 53)),
             finish_reason: Some("stop".to_owned()),
             warnings: None,
             tool_calls: None,
