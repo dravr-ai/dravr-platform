@@ -28,9 +28,24 @@ frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 backend_cpu    = "2"
 backend_memory = "2Gi"
 # Scale to zero when idle. A warm floor (min=1) combined with cpu_idle=false
-# bills 2 vCPU continuously (~$140/mo); the dev cost is not worth keeping the
-# contremaitre push webhook off a cold start — the webhook retries and prompts
-# also sync on container startup.
+# bills 2 vCPU continuously (~$140/mo — roughly half the 300 CAD/mo budget for
+# one instance), and it would reverse the single surviving saving from the
+# 2026-06-03 cost cut (2676ccfc7). Not worth it for the contremaitre push
+# webhook's cold start: the webhook retries, and prompts sync on startup anyway.
+#
+# LIMITATION(registre#126): scaling to zero also means an idle scaledown can
+# interrupt a live coaching turn. A messaging turn is dispatched AFTER its
+# webhook returned 200, so Cloud Run reads the instance as idle from the
+# athlete's first second and may take it mid-turn with no deploy involved
+# (observed 2026-08-26). registre#109 made that survivable — turns are tracked,
+# SIGTERM drains them, and one that cannot finish closes its status placeholder
+# with an honest notice instead of leaving the athlete waiting forever — but the
+# athlete still loses the answer. min=1 was proposed as the prevention and
+# DECLINED on the cost above (shipped e47ac94ef, reverted 18c031edd before any
+# apply). Next step on #126 is measurement, not spend: `messaging.error` with
+# error_type=shutdown_drain is catalogued and emitting, so count it before
+# choosing between the warm floor, a request-visible turn, or resuming a killed
+# turn on the next instance.
 backend_min_instances = 0
 # Capped at 3 by the DB connection budget (see the concurrency block below):
 # max_instances × POSTGRES_MAX_CONNECTIONS must stay ≤ 18 on db-f1-micro. With
