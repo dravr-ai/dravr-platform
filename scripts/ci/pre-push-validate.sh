@@ -469,6 +469,50 @@ echo ""
 echo "Local validation covers fmt + architecture + secrets + vendor-readonly + infra only."
 echo "The heavy gates (clippy, deadlock, integration tests) run in CI on every push."
 echo ""
+
+# ============================================================================
+# What this gate CANNOT see — named, because a green run here reads as coverage
+# ============================================================================
+# Clippy is deliberately not run locally: a full-workspace pass costs more CPU
+# than this gate is allowed to spend, and CI runs it on every push. The cost of
+# that trade is that a whole lint class — pedantic/nursery lints, doc_markdown
+# and too_long_first_doc_paragraph among them — is invisible until CI reports,
+# and `cargo check` finds NONE of them. On 2026-08-26 that cost four
+# red-then-fix-then-wait cycles on main for four doc comments.
+#
+# So this prints the exact scoped commands for what THIS diff touched. Running
+# them is a judgement call, not a gate: seconds on a warm target/, minutes on a
+# cold one. Nothing below spends CPU — it is git-diff and echo.
+if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
+    ADVISORY_CRATES=$(echo "$CHANGED_FILES" \
+        | grep '^crates/' \
+        | sed 's|^crates/||; s|/.*||' \
+        | sort -u \
+        | grep -v '^pierre-server$' \
+        || true)
+    ADVISORY_TARGETS=$(echo "$CHANGED_FILES" \
+        | grep '^crates/pierre-server/tests/[^/]*\.rs$' \
+        | sed 's|.*/||; s|\.rs$||' \
+        | sort -u \
+        || true)
+
+    if [[ -n "$ADVISORY_CRATES" ]] || [[ -n "$ADVISORY_TARGETS" ]]; then
+        echo "NOT COVERED HERE — clippy (deliberate: CPU). CI runs it; these catch it sooner:"
+        while IFS= read -r crate; do
+            [[ -z "$crate" ]] && continue
+            echo "  cargo clippy -p $crate --all-targets --all-features -- -D warnings"
+        done <<< "$ADVISORY_CRATES"
+        while IFS= read -r target; do
+            [[ -z "$target" ]] && continue
+            echo "  cargo clippy -p pierre_mcp_server --test $target --all-features -- -D warnings"
+        done <<< "$ADVISORY_TARGETS"
+        echo ""
+        echo "  A red clippy run's error list is PARTIAL: a crate whose dependency"
+        echo "  failed to compile emits nothing, which reads the same as clean. Fix"
+        echo "  what it reports and expect the next run to find more, not fewer."
+        echo ""
+    fi
+fi
 echo "You can now push:"
 echo "  git push"
 echo ""
