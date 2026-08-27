@@ -1,7 +1,7 @@
 // ABOUTME: Covers the native Google Sign-In path that mints a Firebase session token
 // ABOUTME: Pins the gate that hides the button and the cancel/no-token branches
 
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 import {
   GoogleSignin,
   type SignInResponse,
@@ -13,6 +13,15 @@ import { signInWithCredential, GoogleAuthProvider } from 'firebase/auth';
 // reads through — assigning to process.env in a test would never be observed.
 const mockEnv: Record<string, string | undefined> = {};
 jest.mock('expo/virtual/env', () => ({ env: mockEnv }));
+
+// The module resolves the package only on a binary that registers the native
+// `RNGoogleSignin` module — Expo Go does not, which is the whole point of the
+// guard in ../firebase. These tests cover the path on a binary that DOES carry
+// it, so the double has to be registered; without it the module correctly reports
+// the flow as unavailable and never reaches the mocked package below. Registered
+// on the real `NativeModules` rather than by mocking `react-native` wholesale,
+// which would evaluate every lazy getter in its index and blow up.
+(NativeModules as Record<string, unknown>).RNGoogleSignin = {};
 
 jest.mock('@react-native-google-signin/google-signin', () => ({
   GoogleSignin: {
@@ -152,6 +161,21 @@ describe('native Google Sign-In', () => {
   it('is enabled on iOS once the iOS client id is present', async () => {
     const { isFirebaseEnabled } = loadFirebaseModule();
     expect(isFirebaseEnabled()).toBe(true);
+  });
+
+  it('is disabled on a binary with no native Google Sign-In module', async () => {
+    // Expo Go. Everything else is configured, so the missing native module is the
+    // only reason the flow is unavailable — and the package must never be required,
+    // because its first statement throws and Metro reports that to LogBox before it
+    // rethrows, putting a red overlay over the login screen on every render.
+    const registry = NativeModules as Record<string, unknown>;
+    delete registry.RNGoogleSignin;
+    try {
+      const { isFirebaseEnabled } = loadFirebaseModule();
+      expect(isFirebaseEnabled()).toBe(false);
+    } finally {
+      registry.RNGoogleSignin = {};
+    }
   });
 
   it('is disabled when the Firebase api key is missing', async () => {

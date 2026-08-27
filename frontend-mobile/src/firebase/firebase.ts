@@ -11,7 +11,7 @@ import {
   type Auth,
   type User,
 } from 'firebase/auth';
-import { Platform } from 'react-native';
+import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
 
 type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin');
 
@@ -24,8 +24,35 @@ type GoogleSigninModule = typeof import('@react-native-google-signin/google-sign
 // cannot run the flow.
 let googleSigninModule: GoogleSigninModule | null | undefined;
 
+/** The native module `@react-native-google-signin/google-signin` binds to. */
+const NATIVE_GOOGLE_SIGNIN = 'RNGoogleSignin';
+
+/**
+ * Whether this binary carries the native Google Sign-In module.
+ *
+ * Asked *before* the require, not inferred from catching it: the package's first
+ * statement is `TurboModuleRegistry.getEnforcing('RNGoogleSignin')`, and Metro
+ * reports a module that throws while initialising to LogBox before it rethrows.
+ * Catching the throw therefore still left a red "Uncaught Error" over the login
+ * screen in Expo Go, which had to be dismissed before anyone could type. `get` is
+ * the same lookup without the throw, so on a binary that lacks the module we never
+ * evaluate the package at all.
+ */
+function hasNativeGoogleSignin(): boolean {
+  return (
+    TurboModuleRegistry.get(NATIVE_GOOGLE_SIGNIN) != null ||
+    NativeModules[NATIVE_GOOGLE_SIGNIN] != null
+  );
+}
+
 function getGoogleSignin(): GoogleSigninModule | null {
   if (googleSigninModule === undefined) {
+    if (!hasNativeGoogleSignin()) {
+      googleSigninModule = null;
+      return googleSigninModule;
+    }
+    // The module is registered, so the package should evaluate — the catch keeps
+    // an unexpected failure from blanking every route that reaches AuthContext.
     try {
       googleSigninModule = require('@react-native-google-signin/google-signin') as GoogleSigninModule;
     } catch {
