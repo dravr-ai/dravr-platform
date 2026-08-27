@@ -580,7 +580,8 @@
     "catSystem": "System",
     "catAi": "AI Insights",
     "catReminders": "Reminders",
-    "categoryNotifications": "{{category}} notifications"
+    "categoryNotifications": "{{category}} notifications",
+    "catAll": "All"
   },
   "groups": {
     "owner": "Owner",

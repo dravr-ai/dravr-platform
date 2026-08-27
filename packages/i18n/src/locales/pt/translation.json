@@ -580,7 +580,8 @@
     "catSystem": "Sistema",
     "catAi": "Análises de IA",
     "catReminders": "Lembretes",
-    "categoryNotifications": "Notificações de {{category}}"
+    "categoryNotifications": "Notificações de {{category}}",
+    "catAll": "Todas"
   },
   "groups": {
     "owner": "Proprietário",

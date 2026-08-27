@@ -580,7 +580,8 @@
     "catSystem": "Sistema",
     "catAi": "Análisis de IA",
     "catReminders": "Recordatorios",
-    "categoryNotifications": "Notificaciones de {{category}}"
+    "categoryNotifications": "Notificaciones de {{category}}",
+    "catAll": "Todas"
   },
   "groups": {
     "owner": "Propietario",

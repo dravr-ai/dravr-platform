@@ -214,7 +214,7 @@ export function NotificationCenterScreen() {
 
   /** Category filter list: 'all' + each category from shared constants */
   const categoryFilters = [
-    { key: 'all' as const, label: 'All' },
+    { key: 'all' as const, label: t('notifPrefs.catAll') },
     ...NOTIFICATION_CATEGORIES.map((cat) => ({
       key: cat,
       label: t(NOTIFICATION_CATEGORY_META[cat].labelKey),
