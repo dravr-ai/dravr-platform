@@ -89,4 +89,36 @@ async fn test_pg_create_refuses_a_duplicate_and_update_writes_the_row() {
         .update(&ghost)
         .await
         .expect_err("no row carries that id");
+
+    // `create` and `update` agree on the mutable column set.
+    let mut fresh = user("pg-preferences@dravr.ai");
+    fresh.timezone = Some("America/Montreal".to_owned());
+    fresh.theme = Some("dark".to_owned());
+    repos.users.create(&fresh).await.unwrap();
+    let stored = repos
+        .users
+        .get_by_email("pg-preferences@dravr.ai")
+        .await
+        .unwrap()
+        .expect("user created");
+    assert_eq!(stored.timezone, Some("America/Montreal".to_owned()));
+    assert_eq!(stored.theme, Some("dark".to_owned()));
+
+    // `users` has a unique index on firebase_uid too, and Postgres names the
+    // constraint — so the error says which one collided rather than blaming email.
+    let mut one = user("pg-device-one@dravr.ai");
+    one.firebase_uid = Some("pg-google-uid-42".to_owned());
+    repos.users.create(&one).await.unwrap();
+    let mut two = user("pg-device-two@dravr.ai");
+    two.firebase_uid = Some("pg-google-uid-42".to_owned());
+    let err = repos
+        .users
+        .create(&two)
+        .await
+        .expect_err("the firebase_uid index refuses the second insert")
+        .to_string();
+    assert!(
+        err.contains("Firebase account already linked"),
+        "PG must name the constraint that collided, got: {err}"
+    );
 }

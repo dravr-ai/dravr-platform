@@ -158,3 +158,65 @@ async fn update_reports_a_missing_row_instead_of_silently_doing_nothing() {
         "expected a not-found error, got: {err}"
     );
 }
+
+/// `create` and `update` have to agree on which columns are mutable, or a caller that
+/// sets one on a brand-new user silently loses it — `create` writes NULL and there is
+/// no upsert fallback to catch it on the next call.
+#[tokio::test]
+async fn create_carries_every_column_update_writes() {
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+
+    let mut fresh = user("preferences@dravr.ai");
+    fresh.timezone = Some("America/Montreal".to_owned());
+    fresh.theme = Some("dark".to_owned());
+    fresh.locale = "en".to_owned();
+    repos.users.create(&fresh).await.unwrap();
+
+    let stored = repos
+        .users
+        .get_by_email("preferences@dravr.ai")
+        .await
+        .unwrap()
+        .expect("user created");
+    assert_eq!(
+        stored.timezone,
+        Some("America/Montreal".to_owned()),
+        "create dropped timezone, which update writes"
+    );
+    assert_eq!(stored.theme, Some("dark".to_owned()));
+    assert_eq!(stored.locale, "en");
+}
+
+/// `users` carries a unique index on `firebase_uid` as well as on `email`. Reporting
+/// both as "Email already in use" sends whoever reads the log hunting a column that
+/// did not collide.
+#[tokio::test]
+async fn a_duplicate_firebase_uid_is_not_reported_as_an_email_collision() {
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+
+    let mut first = user("device-one@dravr.ai");
+    first.firebase_uid = Some("google-uid-42".to_owned());
+    repos.users.create(&first).await.unwrap();
+
+    // A different address, the same Firebase account — the race two concurrent
+    // sign-ins for one UID lose.
+    let mut second = user("device-two@dravr.ai");
+    second.firebase_uid = Some("google-uid-42".to_owned());
+    let err = repos
+        .users
+        .create(&second)
+        .await
+        .expect_err("the firebase_uid index refuses the second insert")
+        .to_string();
+
+    assert!(
+        err.contains("Firebase account already linked"),
+        "the error must name the constraint that collided, got: {err}"
+    );
+    assert!(
+        !err.contains("Email already in use"),
+        "the emails did not collide, so the message must not say they did: {err}"
+    );
+}

@@ -14,8 +14,21 @@ use super::super::Database;
 
 /// The `SQLite` text for a violated `UNIQUE` constraint. `create` turns one into the
 /// same structured error `PostgreSQL`'s unique-violation code produces, so a duplicate
-/// email reads identically to a caller whichever engine is underneath.
+/// reads identically to a caller whichever engine is underneath.
 const UNIQUE_VIOLATION: &str = "UNIQUE constraint failed";
+
+/// `users` carries a second unique index besides `email`: `idx_users_firebase_uid`,
+/// partial over non-null `firebase_uid`. Two concurrent Firebase sign-ins for one UID
+/// can both pass `find_or_create_firebase_user`'s "no user for this UID" check and race
+/// the insert, and the loser collides on *that* index — so reporting every duplicate as
+/// an email collision sends whoever reads the log hunting the wrong column.
+fn duplicate_error(message: &str) -> AppError {
+    if message.contains("firebase_uid") {
+        AppError::invalid_input("Firebase account already linked to another user")
+    } else {
+        AppError::invalid_input("Email already in use by another user")
+    }
+}
 
 impl Database {
     /// Insert a new user row.
@@ -40,8 +53,8 @@ impl Database {
                 is_active, user_status, is_admin, role, approved_by, approved_at,
                 created_at, last_active, firebase_uid, auth_provider,
                 analytics_consent, analytics_consent_at, locale,
-                coaching_persona, manages_roster
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                coaching_persona, manages_roster, timezone, theme
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
             ",
         )
         .bind(user.id.to_string())
@@ -64,11 +77,14 @@ impl Database {
         .bind(&user.locale)
         .bind(user.coaching_persona.as_str())
         .bind(user.manages_roster)
+        .bind(&user.timezone)
+        .bind(&user.theme)
         .execute(&self.pool)
         .await
         .map_err(|e| {
-            if e.to_string().contains(UNIQUE_VIOLATION) {
-                AppError::invalid_input("Email already in use by another user")
+            let message = e.to_string();
+            if message.contains(UNIQUE_VIOLATION) {
+                duplicate_error(&message)
             } else {
                 AppError::database(format!("Failed to create user: {e}"))
             }

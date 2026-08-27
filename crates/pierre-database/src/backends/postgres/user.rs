@@ -38,12 +38,33 @@ const USER_COLUMNS: &str =
 
 /// `PostgreSQL`'s SQLSTATE for a violated unique constraint. `create` turns one into
 /// the same structured error `SQLite`'s `UNIQUE constraint failed` produces, so a
-/// duplicate email reads identically to a caller whichever engine is underneath.
+/// duplicate reads identically to a caller whichever engine is underneath.
 const UNIQUE_VIOLATION: &str = "23505";
 
-/// Whether a `sqlx` error is the unique-constraint violation above.
-fn is_unique_violation(error: &sqlx::Error) -> bool {
-    matches!(error, sqlx::Error::Database(db) if db.code().as_deref() == Some(UNIQUE_VIOLATION))
+/// The structured error for a violated unique constraint on `users`, or `None` when the
+/// failure was something else.
+///
+/// `users` carries a second unique index besides `email`: `idx_users_firebase_uid`,
+/// partial over non-null `firebase_uid`. Two concurrent Firebase sign-ins for one UID can
+/// both pass `find_or_create_firebase_user`'s "no user for this UID" check and race the
+/// insert, and the loser collides on *that* index — so reporting every duplicate as an
+/// email collision sends whoever reads the log hunting the wrong column. Postgres names
+/// the constraint, so this asks it rather than guessing.
+fn duplicate_error(error: &sqlx::Error) -> Option<AppError> {
+    let sqlx::Error::Database(db) = error else {
+        return None;
+    };
+    if db.code().as_deref() != Some(UNIQUE_VIOLATION) {
+        return None;
+    }
+    let names_firebase_uid = db
+        .constraint()
+        .is_some_and(|name| name.contains("firebase_uid"));
+    Some(if names_firebase_uid {
+        AppError::invalid_input("Firebase account already linked to another user")
+    } else {
+        AppError::invalid_input("Email already in use by another user")
+    })
 }
 
 #[async_trait]
@@ -51,8 +72,8 @@ impl UserRepository for PostgresDatabase {
     async fn create(&self, user: &User) -> AppResult<Uuid> {
         sqlx::query(
             r"
-            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, coaching_persona, manages_roster)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, coaching_persona, manages_roster, timezone, theme)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
             ",
         )
         .bind(user.id)
@@ -76,15 +97,13 @@ impl UserRepository for PostgresDatabase {
         .bind(&user.locale)
         .bind(user.coaching_persona.as_str())
         .bind(user.manages_roster)
+        .bind(&user.timezone)
+        .bind(&user.theme)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                AppError::invalid_input("Email already in use by another user")
-            } else {
-                AppError::database(format!("Failed to create user: {e}"))
-            }
-        })?;
+        .map_err(|e| duplicate_error(&e).unwrap_or_else(|| {
+            AppError::database(format!("Failed to create user: {e}"))
+        }))?;
 
         Ok(user.id)
     }
