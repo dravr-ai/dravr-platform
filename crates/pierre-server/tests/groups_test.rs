@@ -477,7 +477,13 @@ async fn test_cannot_join_twice() {
         .json(&json!({ "invite_code": invite_code }))
         .send(router)
         .await;
-    assert_ne!(resp.status_code(), StatusCode::OK);
+    // `!= OK` would be vacuous here: a join that wrongly succeeded answers 201
+    // CREATED, not 200, so only a client error proves the second was refused.
+    assert!(
+        resp.status_code().is_client_error(),
+        "joining twice must be refused; got {}",
+        resp.status_code()
+    );
 }
 
 #[tokio::test]
@@ -1156,4 +1162,112 @@ async fn cross_tenant_group_entity_isolation() {
         .send(router)
         .await;
     assert_success(&join, "cross-tenant athlete join (allowed by design)");
+}
+
+// ============================================================================
+// Deleted-group access tests
+// ============================================================================
+
+/// `delete_group` archives the row rather than dropping it, and an invite
+/// outlives that archive. Both redemption paths read the invite first, so
+/// before this was fixed a link handed out before deletion still admitted a
+/// stranger to a group its owner had already removed — against a confirm
+/// dialog promising the group is gone and its members with it.
+#[tokio::test]
+async fn test_deleted_group_invite_cannot_be_redeemed() {
+    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+
+    let resp = AxumTestRequest::delete(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth1)
+        .send(router.clone())
+        .await;
+    assert_success(&resp, "delete group");
+
+    // The code is still well-formed, unexpired and unused. Only the deletion
+    // stands between it and a join.
+    let resp = AxumTestRequest::post("/api/groups/join")
+        .header("authorization", &auth2)
+        .json(&json!({ "invite_code": invite_code }))
+        .send(router.clone())
+        .await;
+    // A successful join answers 201 CREATED, so asserting `!= OK` would hold
+    // whether or not it was refused. Require an actual client error.
+    assert!(
+        resp.status_code().is_client_error(),
+        "an invite for a deleted group must not admit anyone; got {}",
+        resp.status_code()
+    );
+
+    // A refusal that still wrote the membership row would satisfy the status
+    // assertion above. The roster endpoint answers only to members, so a client
+    // error here is what proves no membership was created.
+    let resp = AxumTestRequest::get(&format!("/api/groups/{group_id}/members"))
+        .header("authorization", &auth2)
+        .send(router)
+        .await;
+    assert!(
+        resp.status_code().is_client_error(),
+        "the refused join must leave the invitee outside the group; got {}",
+        resp.status_code()
+    );
+}
+
+/// Deleting a group releases its members, so a member who joined before the
+/// delete loses access with it. Previously the membership row survived the
+/// archive and the group stayed readable to everyone already in it.
+#[tokio::test]
+async fn test_delete_group_releases_its_members() {
+    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+
+    let resp = AxumTestRequest::post("/api/groups/join")
+        .header("authorization", &auth2)
+        .json(&json!({ "invite_code": invite_code }))
+        .send(router.clone())
+        .await;
+    assert_success(&resp, "join before delete");
+
+    // The joiner can read the roster while the group is live — this is the
+    // access the delete has to revoke, established before revoking it.
+    let resp = AxumTestRequest::get(&format!("/api/groups/{group_id}/members"))
+        .header("authorization", &auth2)
+        .send(router.clone())
+        .await;
+    assert_success(&resp, "member reads roster before delete");
+    let body: Value = resp.json();
+    assert_eq!(
+        body["members"].as_array().unwrap().len(),
+        2,
+        "owner plus the joiner before the delete"
+    );
+
+    let resp = AxumTestRequest::delete(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth1)
+        .send(router.clone())
+        .await;
+    assert_success(&resp, "delete group");
+
+    let resp = AxumTestRequest::get(&format!("/api/groups/{group_id}/members"))
+        .header("authorization", &auth2)
+        .send(router.clone())
+        .await;
+    assert!(
+        resp.status_code().is_client_error(),
+        "a released member must not keep reading a deleted group; got {}",
+        resp.status_code()
+    );
+
+    // And it is gone from both sides' listings, not merely unreadable.
+    for (who, auth) in [("owner", &auth1), ("joiner", &auth2)] {
+        let resp = AxumTestRequest::get("/api/groups")
+            .header("authorization", auth)
+            .send(router.clone())
+            .await;
+        let body: Value = resp.json();
+        assert!(
+            body["groups"].as_array().is_none_or(Vec::is_empty),
+            "{who} still lists the deleted group: {body}"
+        );
+    }
 }

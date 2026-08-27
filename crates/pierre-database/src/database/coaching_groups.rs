@@ -404,6 +404,12 @@ impl CoachingGroupRepository for Database {
 
     async fn delete_group(&self, group_id: &str, tenant_id: TenantId) -> AppResult<bool> {
         let now = Utc::now().to_rfc3339();
+        // Archiving the group is the authoritative, tenant-scoped step, so it
+        // runs first: a caller whose tenant does not own the group affects no
+        // rows and leaves the invites alone. Once it lands, `join_group` and
+        // `redeem_coach_invite` already refuse the group, and deactivating its
+        // invites and releasing its members brings the stored data in line with
+        // the confirm dialog's promise that the members are removed.
         let result = sqlx::query(
             r"UPDATE coaching_groups SET is_active = 0, updated_at = $1
               WHERE id = $2 AND tenant_id = $3",
@@ -415,7 +421,27 @@ impl CoachingGroupRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to delete group: {e}")))?;
 
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            return Ok(false);
+        }
+
+        sqlx::query(r"UPDATE group_invites SET is_active = 0 WHERE group_id = $1")
+            .bind(group_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AppError::database(format!("Failed to deactivate group invites: {e}")))?;
+
+        sqlx::query(
+            r"UPDATE coaching_group_members SET left_at = $1
+              WHERE group_id = $2 AND left_at IS NULL",
+        )
+        .bind(&now)
+        .bind(group_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to release group members: {e}")))?;
+
+        Ok(true)
     }
 
     async fn set_group_coach_user(

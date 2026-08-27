@@ -649,10 +649,8 @@ impl GroupService {
 
         // Check member limit
         let group = self
-            .repo
-            .get_group(&invite.group_id.to_string(), tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Group not found"))?;
+            .open_group_for_invite(&invite.group_id.to_string(), tenant_id)
+            .await?;
 
         let current_count = self
             .repo
@@ -707,6 +705,29 @@ impl GroupService {
     }
 
     /// Shared invite-validity gate: active, not expired, under its use limit.
+    /// Fetch the group an invite points at, refusing one that has been archived.
+    ///
+    /// `delete_group` archives the row rather than dropping it, and an invite
+    /// outlives that archive. Both redemption paths read the invite first and
+    /// then loaded the group unconditionally, so a link handed out before the
+    /// owner deleted the group still admitted people to it — against a confirm
+    /// dialog that promises the group is gone and its members removed.
+    async fn open_group_for_invite(
+        &self,
+        group_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<CoachingGroup> {
+        let group = self
+            .repo
+            .get_group(group_id, tenant_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group not found"))?;
+        if !group.is_active {
+            return Err(AppError::not_found("This group is no longer available"));
+        }
+        Ok(group)
+    }
+
     fn check_invite_usable(invite: &GroupInvite) -> AppResult<()> {
         if !invite.is_active {
             return Err(AppError::invalid_input("This invite has been deactivated"));
@@ -761,10 +782,8 @@ impl GroupService {
         }
 
         let group = self
-            .repo
-            .get_group(&invite.group_id.to_string(), tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Group not found"))?;
+            .open_group_for_invite(&invite.group_id.to_string(), tenant_id)
+            .await?;
 
         // Single human coach per group (v1). Re-redeeming as the same coach is
         // idempotent; a different coach is rejected so an owner explicitly
