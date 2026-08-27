@@ -6,6 +6,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from '@pierre/i18n';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ export const Modal: React.FC<ModalProps> = ({
   closeOnEscape = true,
   footer,
 }) => {
+  const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
   // Stable refs so the escape/close handlers don't trigger effect re-runs
   const onCloseRef = useRef(onClose);
@@ -105,7 +107,7 @@ export const Modal: React.FC<ModalProps> = ({
                 type="button"
                 onClick={onClose}
                 className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                aria-label="Close modal"
+                aria-label={t('shell.modalCloseAria')}
               >
                 <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

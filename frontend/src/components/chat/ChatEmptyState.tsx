@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { MessageCircle, Slash } from 'lucide-react';
 import { SLASH_HINT } from '@pierre/shared-constants';
 import { Button } from '../ui';
+import { useTranslation } from '@pierre/i18n';
 
 interface ChatEmptyStateProps {
   /**
@@ -33,6 +34,7 @@ export default function ChatEmptyState({
   onOpenCommands,
   disabled = false,
 }: ChatEmptyStateProps) {
+  const { t } = useTranslation();
   return (
     <div
       className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-10 text-center"
@@ -41,7 +43,7 @@ export default function ChatEmptyState({
       <div className="w-12 h-12 rounded-full bg-surface-container-low flex items-center justify-center">
         <MessageCircle className="w-6 h-6 text-primary" aria-hidden="true" />
       </div>
-      <p className="text-base text-on-surface">Pick a chat, or start one</p>
+      <p className="text-base text-on-surface">{t('chat.emptyStatePrompt')}</p>
       <div className="flex items-center gap-2">
         {compose}
         <Button
@@ -52,7 +54,7 @@ export default function ChatEmptyState({
         >
           <span className="flex items-center gap-1.5">
             <Slash className="w-4 h-4" aria-hidden="true" />
-            Commands
+            {t('chat.commandsButton')}
           </span>
         </Button>
       </div>

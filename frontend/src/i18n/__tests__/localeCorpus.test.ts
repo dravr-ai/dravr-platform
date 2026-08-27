@@ -26,6 +26,7 @@ function bundleFor(language: string): Record<string, unknown> {
 // untranslated leftovers. Anything else matching English is a gap.
 const SHARED_ACROSS_LANGUAGES = new Set([
   'common.appName',
+  'settings.claudeDesktop',
   'providers.strava',
   'providers.garmin',
   'providers.fitbit',
@@ -40,13 +41,16 @@ describe('client locale corpus', () => {
     expect(defaultI18nConfig.fallbackLng).toBe('fr');
   });
 
-  it('carries the same 154 keys in every locale', () => {
+  it('carries the same 1060 keys in every locale', () => {
     // 201 before the Chat-First Cutover retired the 23-key `social`
-    // namespace with the feature it named; 178 until coach UI left chat and
-    // took the 24-key `coaches` namespace with it — `/coach` and `/discover`
-    // speak through the server's own five-locale corpus now.
+    // namespace with the feature it named, and 178 until the 14-key
+    // `insights` namespace was dropped for the same reason — it outlived the
+    // surface it named. The 7-key `nav` namespace is what the sidebar reads,
+    // and Settings brought the rest across: profile, password, tokens,
+    // credentials, account and about, plus the provider strings that
+    // surface owns. The number only moves when a surface does.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(154);
+    expect(reference).toHaveLength(1060);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);
@@ -65,10 +69,18 @@ describe('client locale corpus', () => {
       }
       const bundle = bundleFor(language);
       const untranslated = keys.filter((key) => read(bundle, key) === read(english, key));
-      // A handful of true cognates survive per language ("Nutrition" in
-      // French, "Training" in German); a locale that never diverged would
-      // blow past this.
-      expect(untranslated.length).toBeLessThanOrEqual(12);
+      // Cognates are a proportion of the corpus, not a fixed number of them:
+      // "Admin", "Coach", "Notifications", "Version" are the same word in
+      // several of these languages, and more keys means more of them. This
+      // was an absolute 12, which was right at 178 keys and wrong at 400 —
+      // a bound that has to be raised every time the corpus grows teaches
+      // everyone to raise it. The highest real rate measured here is 5.5%
+      // (French); a locale that never diverged would sit near 100%.
+      const rate = untranslated.length / keys.length;
+      expect(
+        rate,
+        `${language}: ${untranslated.length}/${keys.length} identical to English — ${untranslated.slice(0, 20).join(', ')}`,
+      ).toBeLessThanOrEqual(0.08);
     }
   });
 });

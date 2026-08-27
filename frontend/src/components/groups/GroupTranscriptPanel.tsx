@@ -6,6 +6,7 @@
 
 import { MessageCircle } from 'lucide-react';
 import { useGroupTranscript } from '../../hooks/useGroups';
+import { useTranslation } from '@pierre/i18n';
 
 interface GroupTranscriptPanelProps {
   groupId: string;
@@ -20,6 +21,7 @@ interface GroupTranscriptPanelProps {
  * a web turn and ambient room chatter all land in this one transcript.
  */
 export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelProps) {
+  const { t } = useTranslation();
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
 
   if (isLoading) {
@@ -33,7 +35,7 @@ export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelPr
   if (isError || !transcript) {
     return (
       <p className="px-3 py-6 text-sm text-outline text-center">
-        The room transcript could not be loaded.
+        {t('groups.roomLoadFailed')}
       </p>
     );
   }
@@ -42,9 +44,9 @@ export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelPr
     return (
       <div className="px-3 py-8 text-center">
         <MessageCircle className="w-8 h-8 mx-auto mb-2 text-outline" />
-        <p className="text-sm text-on-surface-variant">Nothing said in the room yet.</p>
+        <p className="text-sm text-on-surface-variant">{t('groups.roomEmpty')}</p>
         <p className="text-xs text-outline mt-1">
-          Messages from every surface land here once the group starts talking.
+          {t('groups.roomHint')}
         </p>
       </div>
     );

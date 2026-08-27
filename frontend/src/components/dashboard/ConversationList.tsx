@@ -10,6 +10,7 @@ import type { ConversationRowModel } from '@pierre/chat-utils';
 import { useConversationList, useConversationMutations } from '../../hooks/useConversationList';
 import ConversationItem from '../chat/ConversationItem';
 import { Button, ConfirmDialog, Input } from '../ui';
+import { useTranslation } from '@pierre/i18n';
 
 interface ConversationListProps {
   selectedConversation: string | null;
@@ -28,6 +29,7 @@ export default function ConversationList({
   selectedConversation,
   onSelectConversation,
 }: ConversationListProps) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editedTitleValue, setEditedTitleValue] = useState('');
@@ -77,28 +79,28 @@ export default function ConversationList({
           leftIcon={<Search className="w-3.5 h-3.5" />}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search chats"
-          aria-label="Search conversations"
+          placeholder={t('convPanel.searchChats')}
+          aria-label={t('convPanel.search')}
         />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2">
         {isLoading ? (
-          <p className="px-3 py-2 text-outline text-sm">Loading…</p>
+          <p className="px-3 py-2 text-outline text-sm">{t('chat.conversationsLoading')}</p>
         ) : isError ? (
           <div className="px-3 py-2 space-y-2">
-            <p className="text-sm text-error">Your chats could not be loaded.</p>
+            <p className="text-sm text-error">{t('chat.listLoadFailed')}</p>
             <Button variant="secondary" size="sm" onClick={refetch}>
-              Try again
+              {t('chat.listRetry')}
             </Button>
           </div>
         ) : rows.length === 0 ? (
           <p className="px-3 py-6 text-center text-sm text-outline" data-testid="conversation-list-empty">
-            {searchActive ? 'No chats match' : 'No chats yet — start one from the "+" beside the chat'}
+            {searchActive ? t('convPanel.noChatsMatch') : t('chat.noChatsEmptyHint')}
           </p>
         ) : (
           <>
-            <ul className="space-y-0.5" aria-label="Conversations">
+            <ul className="space-y-0.5" aria-label={t('chat.conversations')}>
               {rows.map((row) => (
                 <ConversationItem
                   key={row.id}
@@ -125,7 +127,7 @@ export default function ConversationList({
                   loading={isLoadingMore}
                   data-testid="conversation-list-load-more"
                 >
-                  Load more
+                  {t('chat.loadMore')}
                 </Button>
               </div>
             )}
@@ -135,7 +137,7 @@ export default function ConversationList({
 
       <ConfirmDialog
         isOpen={!!deleteConfirmation}
-        title="Delete Conversation"
+        title={t('convPanel.deleteOne')}
         message={`Are you sure you want to delete "${deleteConfirmation?.title ?? ''}"? This action cannot be undone.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"

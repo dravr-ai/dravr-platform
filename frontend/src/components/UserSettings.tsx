@@ -100,10 +100,10 @@ function formatResetTime(isoString: string): string {
 
 type SettingsTab = 'profile' | 'connections' | 'tokens' | 'llm' | 'coaching' | 'messaging' | 'notifications' | 'memory' | 'privacy' | 'about' | 'account';
 
-const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] = [
+const SETTINGS_TABS: { id: SettingsTab; nameKey: string; icon: React.ReactNode }[] = [
   {
     id: 'profile',
-    name: 'Profile',
+    nameKey: 'settingsTabs.profile',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -115,7 +115,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   // hideTabNav /> so it is no longer buried under Profile/Settings.
   {
     id: 'tokens',
-    name: 'API Tokens',
+    nameKey: 'settingsTabs.tokens',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
@@ -124,7 +124,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
   {
     id: 'llm',
-    name: 'AI Settings',
+    nameKey: 'settingsTabs.ai',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
@@ -133,7 +133,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
   {
     id: 'coaching',
-    name: 'Coaching style',
+    nameKey: 'settingsTabs.coaching',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -142,7 +142,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
   {
     id: 'messaging',
-    name: 'Messaging',
+    nameKey: 'settingsTabs.messaging',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -151,7 +151,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
   {
     id: 'notifications',
-    name: 'Notifications',
+    nameKey: 'settingsTabs.notifications',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -160,7 +160,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
   {
     id: 'memory',
-    name: 'Memory',
+    nameKey: 'settingsTabs.memory',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
@@ -169,7 +169,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
   {
     id: 'privacy',
-    name: 'Privacy & Data',
+    nameKey: 'settingsTabs.privacy',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
@@ -178,7 +178,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
   {
     id: 'about',
-    name: 'About',
+    nameKey: 'settingsTabs.about',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -187,7 +187,7 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
   {
     id: 'account',
-    name: 'Account',
+    nameKey: 'settingsTabs.account',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -364,7 +364,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     mutationFn: (provider: string) => userApi.deleteOAuthApp(provider),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
-      setCredentialMessage({ type: 'success', text: 'Provider credentials removed' });
+      setCredentialMessage({ type: 'success', text: t('settingsErr.credentialsRemoved') });
       setProviderToDelete(null);
     },
     onError: (error: Error) => {
@@ -423,7 +423,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     mutationFn: (data: { current_password: string; new_password: string }) =>
       userApi.changePassword(data.current_password, data.new_password),
     onSuccess: () => {
-      setPasswordMessage({ type: 'success', text: 'Password changed successfully' });
+      setPasswordMessage({ type: 'success', text: t('settingsErr.passwordChanged') });
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -445,7 +445,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
   const handleAddCredentials = () => {
     if (!selectedProvider || !clientId.trim() || !clientSecret.trim()) {
-      setCredentialMessage({ type: 'error', text: 'Provider, Client ID, and Client Secret are required' });
+      setCredentialMessage({ type: 'error', text: t('settingsErr.credentialsRequired') });
       return;
     }
     // Auto-generate the redirect URI from the current deployment
@@ -469,15 +469,15 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const handleChangePassword = () => {
     setPasswordMessage(null);
     if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordMessage({ type: 'error', text: 'All fields are required' });
+      setPasswordMessage({ type: 'error', text: t('settingsUi.allFieldsRequired') });
       return;
     }
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setPasswordMessage({ type: 'error', text: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+      setPasswordMessage({ type: 'error', text: t('frag.passwordMinError', { n: MIN_PASSWORD_LENGTH }) });
       return;
     }
     if (newPassword !== confirmPassword) {
-      setPasswordMessage({ type: 'error', text: 'Passwords do not match' });
+      setPasswordMessage({ type: 'error', text: t('settingsErr.passwordMismatch') });
       return;
     }
     changePasswordMutation.mutate({
@@ -500,8 +500,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     const otherConnected = allProviders.find(p => p.provider === otherProvider && p.connected);
     if (otherConnected) {
       setProviderConflict({
-        connecting: backendId === 'sciotte' ? 'Strava — Sciotte' : 'Strava',
-        disconnecting: otherProvider === 'sciotte' ? 'Strava — Sciotte' : 'Strava',
+        connecting: backendId === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava'),
+        disconnecting: otherProvider === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava'),
       });
       return true;
     }
@@ -554,7 +554,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 // instead of leaving the user on an error message.
                 setSciotteModalTarget('strava');
               } else {
-                setProviderMessage({ type: 'error', text: `Failed to connect ${providerId}` });
+                setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: providerId }) });
               }
             }
           }
@@ -582,7 +582,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       }
       setProviderMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to start connection',
+        text: error instanceof Error ? error.message : t('settingsErr.startConnectionFailed'),
       });
     }
   };
@@ -604,7 +604,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       setProviderToDisconnect(null);
       setProviderMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to disconnect provider',
+        text: error instanceof Error ? error.message : t('settingsErr.disconnectFailed'),
       });
     }
   };
@@ -615,14 +615,14 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // off until we ship dedicated integrations. `strava` is retained so legacy
   // rows still display correctly when surfaced through the disconnect flow.
   const PROVIDER_DISPLAY: Record<string, { color: string; description: string }> = {
-    strava: { color: '#FC4C02', description: 'Running, cycling, and swimming activities' },
-    garmin: { color: '#007CC3', description: 'Activities and health metrics from Garmin devices' },
-    whoop: { color: '#000000', description: 'Recovery, strain, and sleep metrics' },
-    synthetic: { color: '#9C27B0', description: 'Synthetic test data for development' },
-    synthetic_sleep: { color: '#673AB7', description: 'Synthetic sleep data for development' },
-    sciotte: { color: '#F97316', description: 'Running, cycling, and swimming activities' },
-    sciotte_garmin: { color: '#007CC3', description: 'Activities and health metrics from Garmin devices' },
-    intervals_icu: { color: '#1273DE', description: 'Endurance analytics, activities, and wellness' },
+    strava: { color: '#FC4C02', description: t('providerBlurb.strava') },
+    garmin: { color: '#007CC3', description: t('providerBlurb.garmin') },
+    whoop: { color: '#000000', description: t('providerBlurb.whoop') },
+    synthetic: { color: '#9C27B0', description: t('providerBlurb.synthTest') },
+    synthetic_sleep: { color: '#673AB7', description: t('providerBlurb.synthSleep') },
+    sciotte: { color: '#F97316', description: t('providerBlurb.strava') },
+    sciotte_garmin: { color: '#007CC3', description: t('providerBlurb.garmin') },
+    intervals_icu: { color: '#1273DE', description: t('providerBlurb.intervals') },
   };
 
   const copyToClipboard = async (text: string) => {
@@ -643,12 +643,17 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       {/* Horizontal Tab Navigation. On mobile the strip overflows
           horizontally with scroll-snap so the active tab always lands at
           a clean offset; a right-edge gradient fade hints that more tabs
-          live off-screen. */}
+          live off-screen.
+          From `md` it wraps instead of scrolling. Scrolling at desktop width
+          silently clipped the last tab as soon as the labels stopped being
+          English — French runs long enough that "Compte" fell off the edge —
+          and a strip that scrolls inside its own box is invisible to the page
+          gutter gate, which only measures the document. Wrapping cannot clip. */}
       {!hideTabNav && (
       <div className="relative border-b ghost-border">
         <nav
-          className="flex gap-1 -mb-px overflow-x-auto scroll-smooth snap-x snap-mandatory"
-          aria-label="Settings tabs"
+          className="flex gap-1 -mb-px overflow-x-auto scroll-smooth snap-x snap-mandatory md:flex-wrap md:overflow-x-visible md:snap-none"
+          aria-label={t('settings.tabsLabel')}
         >
           {visibleTabs.map((tab) => (
             <button
@@ -662,7 +667,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               )}
             >
               <span className={clsx('flex-shrink-0', activeTab === tab.id ? 'text-primary' : '')}>{tab.icon}</span>
-              {tab.name}
+              {t(tab.nameKey)}
             </button>
           ))}
         </nav>
@@ -681,7 +686,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
         {activeTab === 'profile' && (
           <>
             <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-4">Profile Information</h2>
+              <h2 className="text-lg font-semibold text-on-surface mb-4">{t('profile.title')}</h2>
               <div className="space-y-4">
                 {/* Gradient ring avatar — stacks on mobile so the email
                     field (frequently long) doesn't get squeezed. */}
@@ -706,17 +711,17 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
                 <Input
                   variant="dark"
-                  label="Display Name"
+                  label={t('profile.displayName')}
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Enter your display name"
+                  placeholder={t('profile.displayNamePlaceholder')}
                   size="lg"
                 />
 
                 <div>
-                  <label className="block text-sm font-medium text-on-surface mb-2">Email</label>
+                  <label className="block text-sm font-medium text-on-surface mb-2">{t('common.email')}</label>
                   <p className="text-on-surface-variant bg-surface-container-low px-4 py-3 rounded-md border ghost-border">{user?.email}</p>
-                  <p className="text-xs text-outline mt-1">Email cannot be changed</p>
+                  <p className="text-xs text-outline mt-1">{t('profile.emailLocked')}</p>
                 </div>
 
                 {message && (
@@ -738,7 +743,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   disabled={displayName === user?.display_name}
                   className="shadow-ambient hover:shadow-ambient"
                 >
-                  Save Changes
+                  {t('settings.saveChanges')}
                 </Button>
               </div>
             </Card>
@@ -795,7 +800,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   <div className="text-3xl font-bold bg-gradient-to-r boreal-hero-gradient bg-clip-text text-transparent">
                     {statsLoading ? '...' : (stats?.connected_providers ?? 0)}
                   </div>
-                  <div className="text-sm text-on-surface-variant mt-1">Connected Providers</div>
+                  <div className="text-sm text-on-surface-variant mt-1">{t('providers.connectedTitle')}</div>
                 </div>
               </div>
               <div className="stat-card-dark rounded-xl border ghost-border p-6">
@@ -803,7 +808,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   <div className="text-3xl font-bold bg-gradient-to-r from-nutrition to-activity bg-clip-text text-transparent">
                     {statsLoading ? '...' : (stats?.days_active ?? 0)}
                   </div>
-                  <div className="text-sm text-on-surface-variant mt-1">Days Active</div>
+                  <div className="text-sm text-on-surface-variant mt-1">{t('profile.daysActive')}</div>
                 </div>
               </div>
             </div>
@@ -815,9 +820,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
           <>
             {/* Fitness Providers - Connection Status */}
             <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-1">Fitness Providers</h2>
+              <h2 className="text-lg font-semibold text-on-surface mb-1">{t('providers.fitnessTitle')}</h2>
               <p className="text-sm text-on-surface-variant mb-4">
-                Connect your fitness accounts to sync activities, health metrics, and more.
+                {t('providers.fitnessHint')}
               </p>
 
               {providerMessage && (
@@ -839,14 +844,14 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 </div>
               ) : fitnessProviders.length === 0 ? (
                 <div className="text-center py-8 text-on-surface-variant">
-                  <p>No providers available</p>
+                  <p>{t('providers.none')}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {fitnessProviders.map((provider) => {
                     const display = PROVIDER_DISPLAY[provider.provider] || {
                       color: '#607D8B',
-                      description: 'Fitness data provider',
+                      description: t('providerBlurb.generic'),
                     };
                     const isConnecting = connectingProvider === provider.provider;
 
@@ -874,9 +879,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                               <p className="font-medium text-on-surface">{provider.display_name}</p>
                               {provider.connected && (
                                 provider.needs_reauth ? (
-                                  <Badge variant="warning">Reconnect needed</Badge>
+                                  <Badge variant="warning">{t('providers.reconnectNeeded')}</Badge>
                                 ) : (
-                                  <Badge variant="success">Connected</Badge>
+                                  <Badge variant="success">{t('settingsUi.connected')}</Badge>
                                 )
                               )}
                             </div>
@@ -899,7 +904,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   onClick={() => setProviderToDisconnect(provider.connectionProvider)}
                                   className="text-error hover:bg-error/20"
                                 >
-                                  Disconnect
+                                  {t('settingsUi.disconnect')}
                                 </Button>
                               )
                             ) : provider.provider === 'intervals_icu' ? (
@@ -908,7 +913,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 size="sm"
                                 onClick={() => setIntervalsModalOpen(true)}
                               >
-                                {provider.needs_reauth ? 'Reconnect' : 'Connect'}
+                                {provider.needs_reauth ? t('settingsUi.reconnect') : t('shell.intervalsConnectAction')}
                               </Button>
                             ) : provider.provider === 'sciotte' || provider.provider === 'sciotte_garmin' ? (
                               <Button
@@ -935,7 +940,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   }
                                 }}
                               >
-                                {provider.needs_reauth ? 'Reconnect' : 'Connect'}
+                                {provider.needs_reauth ? t('settingsUi.reconnect') : t('shell.intervalsConnectAction')}
                               </Button>
                             ) : provider.requires_oauth ? (
                               <Button
@@ -946,10 +951,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 }}
                                 loading={isConnecting}
                               >
-                                {provider.needs_reauth ? 'Reconnect' : 'Connect'}
+                                {provider.needs_reauth ? t('settingsUi.reconnect') : t('shell.intervalsConnectAction')}
                               </Button>
                             ) : (
-                              <Badge variant="secondary">Manual</Badge>
+                              <Badge variant="secondary">{t('settingsUi.manual')}</Badge>
                             )}
                           </div>
                         </div>
@@ -962,8 +967,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               {/* Privacy note */}
               <div className="mt-4 p-3 bg-surface-container-low border ghost-border rounded-lg">
                 <p className="text-xs text-on-surface-variant">
-                  Dravr only accesses the data you authorize. We never share your fitness data with third parties.
-                  You can disconnect any provider at any time.
+                  {t('providers.privacyNote')}
                 </p>
               </div>
             </Card>
@@ -972,14 +976,14 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
             <Card variant="dark">
             <div className="flex justify-between items-center mb-4">
               <div>
-                <h2 className="text-lg font-semibold text-on-surface">Custom API Credentials</h2>
+                <h2 className="text-lg font-semibold text-on-surface">{t('credentials.title')}</h2>
                 <p className="text-sm text-on-surface-variant mt-1">
-                  Use your own OAuth app credentials to avoid shared rate limits
+                  {t('credentials.useOwnHint')}
                 </p>
               </div>
               {availableProviders.length > 0 && (
                 <Button variant="secondary" size="sm" onClick={() => setShowAddCredentials(true)}>
-                  Add Provider
+                  {t('providers.add')}
                 </Button>
               )}
             </div>
@@ -1015,9 +1019,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
                   />
                 </svg>
-                <p className="text-on-surface font-medium">No custom credentials configured</p>
+                <p className="text-on-surface font-medium">{t('credentials.empty')}</p>
                 <p className="text-sm text-outline mt-1">
-                  Add your own OAuth app credentials to use your personal API quotas
+                  {t('credentials.addHint')}
                 </p>
               </div>
             ) : (
@@ -1032,13 +1036,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                         </div>
                         <div>
                           <p className="font-medium text-on-surface">{provider.name}</p>
-                          <p className="text-xs text-outline">Client ID: {app.client_id.substring(0, 8)}...</p>
+                          <p className="text-xs text-outline">{t('frag.clientIdLabel')} {app.client_id.substring(0, 8)}...</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant="success">Configured</Badge>
+                        <Badge variant="success">{t('settingsUi.configured')}</Badge>
                         <Button variant="danger" size="sm" onClick={() => setProviderToDelete(app.provider)}>
-                          Remove
+                          {t('settingsUi.remove')}
                         </Button>
                       </div>
                     </div>
@@ -1057,7 +1061,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 setClientSecret('');
                 setCredentialMessage(null);
               }}
-              title="Add Provider Credentials"
+              title={t('credentials.add')}
               size="md"
               footer={
                 <div className="flex gap-2 justify-end">
@@ -1071,7 +1075,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                       setCredentialMessage(null);
                     }}
                   >
-                    Cancel
+                    {t('settingsUi.cancel')}
                   </Button>
                   <Button
                     variant="gradient"
@@ -1079,12 +1083,12 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     loading={registerMutation.isPending}
                     disabled={!selectedProvider || !clientId || !clientSecret}
                   >
-                    Save Credentials
+                    {t('credentials.save')}
                   </Button>
                 </div>
               }
             >
-              <p className="text-sm text-on-surface-variant mb-5">Use your own OAuth app to connect fitness providers</p>
+              <p className="text-sm text-on-surface-variant mb-5">{t('credentials.useOwnAppHint')}</p>
 
               {credentialMessage && (
                 <div className={`p-3 rounded-lg text-sm mb-4 ${
@@ -1099,10 +1103,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               <div className="space-y-4">
                 <div>
                   <Select
-                    label="Provider"
+                    label={t('providers.provider')}
                     value={selectedProvider}
                     onChange={(e) => setSelectedProvider(e.target.value)}
-                    placeholder="Select a provider"
+                    placeholder={t('providers.select')}
                     options={availableProviders.map((provider) => ({
                       value: provider.id,
                       label: provider.name,
@@ -1112,25 +1116,25 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
                 <Input
                   variant="dark"
-                  label="Client ID"
+                  label={t('credentials.clientId')}
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  placeholder="Enter your OAuth client ID"
+                  placeholder={t('credentials.clientIdPlaceholder')}
                 />
 
                 <Input
                   variant="dark"
-                  label="Client Secret"
+                  label={t('credentials.clientSecret')}
                   type="password"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
-                  placeholder="Enter your OAuth client secret"
+                  placeholder={t('credentials.clientSecretPlaceholder')}
                 />
 
                 {selectedProvider && (
                   <div className="text-xs text-outline space-y-1">
-                    <p>In your {selectedProvider} app settings, set:</p>
-                    <p>Authorization Callback Domain: <code className="text-on-surface-variant">{window.location.host}</code></p>
+                    <p>{t('frag.inYour')} {selectedProvider} app settings, set:</p>
+                    <p>{t('settingsUi.callbackDomain')} <code className="text-on-surface-variant">{window.location.host}</code></p>
                   </div>
                 )}
               </div>
@@ -1155,18 +1159,18 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     />
                   </svg>
                   <div className="flex-1">
-                    <h3 className="text-lg font-medium text-success">Token Created: {createdToken.name}</h3>
-                    <p className="text-success/80 mt-1 mb-3">Copy this token now. You won&apos;t be able to see it again!</p>
+                    <h3 className="text-lg font-medium text-success">{t('frag.tokenCreatedLabel')} {createdToken.name}</h3>
+                    <p className="text-success/80 mt-1 mb-3">{t('settingsUi.copyTokenNow')}</p>
                     <div className="flex items-center gap-2">
                       <code className="flex-1 px-3 py-2 bg-surface-container-low border border-success/30 rounded font-mono text-sm break-all text-on-surface">
                         {createdToken.token_value}
                       </code>
                       <Button onClick={() => copyToClipboard(createdToken.token_value)} variant="secondary" size="sm">
-                        {copied ? 'Copied!' : 'Copy'}
+                        {copied ? t('settingsUi.copied') : t('settingsUi.copy')}
                       </Button>
                     </div>
                     <Button onClick={() => setCreatedToken(null)} variant="secondary" size="sm" className="mt-3">
-                      Dismiss
+                      {t('settingsUi.dismiss')}
                     </Button>
                   </div>
                 </div>
@@ -1176,7 +1180,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
             <Card variant="dark">
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h2 className="text-lg font-semibold text-on-surface">API Tokens</h2>
+                  <h2 className="text-lg font-semibold text-on-surface">{t('tokens.title')}</h2>
                   <p className="text-sm text-on-surface-variant mt-1">
                     {activeTokens.length} active tokens for AI client connections
                   </p>
@@ -1187,25 +1191,25 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               <div className="mb-6">
                 {!showCreateForm ? (
                   <Button onClick={() => setShowCreateForm(true)} variant="primary">
-                    Create New Token
+                    {t('tokens.createNew')}
                   </Button>
                 ) : (
                   <div className="bg-surface-container-low border ghost-border rounded-lg p-4 space-y-4">
-                    <h4 className="font-medium text-on-surface">Create Token</h4>
+                    <h4 className="font-medium text-on-surface">{t('tokens.create')}</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <Input
                         variant="dark"
-                        label="Token Name"
+                        label={t('tokens.name')}
                         value={newTokenName}
                         onChange={(e) => setNewTokenName(e.target.value)}
                         placeholder="e.g., Claude Desktop, Cursor IDE"
                       />
                       <Select
-                        label="Expires In (days)"
+                        label={t('tokens.expiresInDays')}
                         value={expiresInDays || ''}
                         onChange={(e) => setExpiresInDays(e.target.value ? Number(e.target.value) : undefined)}
                         options={[
-                          { value: '', label: 'Never expires' },
+                          { value: '', label: t('settingsUi.neverExpires') },
                           { value: '30', label: '30 days' },
                           { value: '90', label: '90 days' },
                           { value: '180', label: '180 days' },
@@ -1219,10 +1223,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                         disabled={!newTokenName.trim() || createTokenMutation.isPending}
                         variant="primary"
                       >
-                        {createTokenMutation.isPending ? 'Creating...' : 'Create Token'}
+                        {createTokenMutation.isPending ? t('tokens.creating') : t('tokens.createAction')}
                       </Button>
                       <Button onClick={() => setShowCreateForm(false)} variant="secondary">
-                        Cancel
+                        {t('settingsUi.cancel')}
                       </Button>
                     </div>
                   </div>
@@ -1239,8 +1243,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   <svg className="w-12 h-12 text-on-surface-variant mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                   </svg>
-                  <p className="text-lg mb-2 text-on-surface">No tokens yet</p>
-                  <p>Create a token to connect AI clients like Claude Desktop or Cursor to Dravr</p>
+                  <p className="text-lg mb-2 text-on-surface">{t('tokens.empty')}</p>
+                  <p>{t('tokens.createHint')}</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1251,7 +1255,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                           <div className="flex items-center gap-2">
                             <h3 className="text-lg font-medium text-on-surface">{token.name}</h3>
                             <Badge variant={token.is_revoked ? 'info' : 'success'}>
-                              {token.is_revoked ? 'Revoked' : 'Active'}
+                              {token.is_revoked ? t('settingsUi.revoked') : t('tokens.statusActive')}
                             </Badge>
                           </div>
                           <code className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-surface-container-high text-on-surface text-xs font-mono rounded border ghost-border">
@@ -1259,23 +1263,23 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                           </code>
                           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div>
-                              <span className="text-outline">Created:</span>
+                              <span className="text-outline">{t('settingsUi.createdLabel')}</span>
                               <p className="font-medium text-on-surface">{format(new Date(token.created_at), 'MMM d, yyyy')}</p>
                             </div>
                             <div>
-                              <span className="text-outline">Expires:</span>
+                              <span className="text-outline">{t('settingsUi.expiresLabel')}</span>
                               <p className="font-medium text-on-surface">
-                                {token.expires_at ? format(new Date(token.expires_at), 'MMM d, yyyy') : 'Never'}
+                                {token.expires_at ? format(new Date(token.expires_at), 'MMM d, yyyy') : t('settingsUi.neverValue')}
                               </p>
                             </div>
                             <div>
-                              <span className="text-outline">Usage:</span>
+                              <span className="text-outline">{t('settingsUi.usageLabel')}</span>
                               <p className="font-medium text-on-surface">{token.usage_count} requests</p>
                             </div>
                             <div>
-                              <span className="text-outline">Last Used:</span>
+                              <span className="text-outline">{t('settingsUi.lastUsedLabel')}</span>
                               <p className="font-medium text-on-surface">
-                                {token.last_used_at ? format(new Date(token.last_used_at), 'MMM d, yyyy') : 'Never'}
+                                {token.last_used_at ? format(new Date(token.last_used_at), 'MMM d, yyyy') : t('settingsUi.neverValue')}
                               </p>
                             </div>
                           </div>
@@ -1288,7 +1292,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                             className="text-error hover:bg-error/20"
                             size="sm"
                           >
-                            Revoke
+                            {t('settingsUi.revoke')}
                           </Button>
                         )}
                       </div>
@@ -1312,8 +1316,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                         d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                       />
                     </svg>
-                    <span className="font-medium text-on-surface">Setup Instructions</span>
-                    <span className="text-sm text-on-surface-variant">for Claude & ChatGPT</span>
+                    <span className="font-medium text-on-surface">{t('tokens.setupInstructions')}</span>
+                    <span className="text-sm text-on-surface-variant">{t('tokens.setupInstructionsFor')}</span>
                   </div>
                   <svg
                     className={`w-5 h-5 text-outline transition-transform ${showSetupInstructions ? 'rotate-180' : ''}`}
@@ -1328,9 +1332,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 {showSetupInstructions && (
                   <div className="mt-4 space-y-4">
                     <div className="bg-surface-container-low border ghost-border rounded-lg p-4">
-                      <h4 className="font-medium text-on-surface mb-2">Claude Desktop</h4>
+                      <h4 className="font-medium text-on-surface mb-2">{t('settings.claudeDesktop')}</h4>
                       <p className="text-sm text-on-surface-variant mb-3">
-                        Add the following to your Claude Desktop config file:
+                        {t('settingsUi.claudeConfigHint')}
                       </p>
                       <pre className="text-xs bg-surface-container-low text-on-surface p-3 rounded overflow-x-auto border ghost-border">
                         {`{
@@ -1350,7 +1354,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
                     <div className="bg-surface-container-low border ghost-border rounded-lg p-4">
                       <h4 className="font-medium text-on-surface mb-2">ChatGPT</h4>
-                      <p className="text-sm text-on-surface-variant mb-3">Configure in ChatGPT MCP settings:</p>
+                      <p className="text-sm text-on-surface-variant mb-3">{t('settingsUi.chatgptConfigHint')}</p>
                       <pre className="text-xs bg-surface-container-low text-on-surface p-3 rounded overflow-x-auto border ghost-border">
                         {`Server URL: ${window.location.origin}/mcp
 Authorization: Bearer <your-token-here>`}
@@ -1365,9 +1369,9 @@ Authorization: Bearer <your-token-here>`}
             <Card variant="dark">
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h2 className="text-lg font-semibold text-on-surface">Connected Apps</h2>
+                  <h2 className="text-lg font-semibold text-on-surface">{t('tokens.connectedApps')}</h2>
                   <p className="text-sm text-on-surface-variant mt-1">
-                    Third-party applications authorized to access your fitness data via OAuth
+                    {t('providers.thirdPartyHint')}
                   </p>
                 </div>
               </div>
@@ -1399,7 +1403,7 @@ Authorization: Bearer <your-token-here>`}
         {/* About Tab */}
         {activeTab === 'about' && (
           <Card variant="dark">
-            <h2 className="text-lg font-semibold text-on-surface mb-6">About Dravr</h2>
+            <h2 className="text-lg font-semibold text-on-surface mb-6">{t('about.title')}</h2>
             <div className="space-y-3">
               {/* Version */}
               <div className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border">
@@ -1409,7 +1413,7 @@ Authorization: Bearer <your-token-here>`}
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm text-on-surface-variant">Version</p>
+                  <p className="text-sm text-on-surface-variant">{t('settingsUi.version')}</p>
                   <p className="text-on-surface font-medium">1.0.0</p>
                 </div>
               </div>
@@ -1427,8 +1431,8 @@ Authorization: Bearer <your-token-here>`}
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-on-surface font-medium">Help Center</p>
-                  <p className="text-sm text-on-surface-variant">Documentation and support</p>
+                  <p className="text-on-surface font-medium">{t('about.helpCenter')}</p>
+                  <p className="text-sm text-on-surface-variant">{t('about.helpHint')}</p>
                 </div>
                 <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1448,8 +1452,8 @@ Authorization: Bearer <your-token-here>`}
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-on-surface font-medium">Terms & Privacy</p>
-                  <p className="text-sm text-on-surface-variant">Legal information and data policy</p>
+                  <p className="text-on-surface font-medium">{t('settingsUi.termsPrivacy')}</p>
+                  <p className="text-sm text-on-surface-variant">{t('about.legalHint')}</p>
                 </div>
                 <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1463,10 +1467,10 @@ Authorization: Bearer <your-token-here>`}
         {activeTab === 'account' && (
           <>
             <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-4">Account Status</h2>
+              <h2 className="text-lg font-semibold text-on-surface mb-4">{t('profile.accountStatus')}</h2>
               <div className="space-y-3">
                 <div className="flex justify-between items-center py-2 border-b ghost-border">
-                  <span className="text-on-surface-variant">Status</span>
+                  <span className="text-on-surface-variant">{t('settingsUi.status')}</span>
                   <span
                     className={`px-2 py-1 rounded-full text-xs font-medium ${
                       user?.user_status === 'active'
@@ -1479,15 +1483,15 @@ Authorization: Bearer <your-token-here>`}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b ghost-border">
-                  <span className="text-on-surface-variant">Role</span>
+                  <span className="text-on-surface-variant">{t('settingsUi.role')}</span>
                   <span className="text-on-surface capitalize">{user?.role}</span>
                 </div>
                 <div className="flex justify-between items-center py-2">
-                  <span className="text-on-surface-variant">Member Since</span>
+                  <span className="text-on-surface-variant">{t('profile.memberSince')}</span>
                   <span className="text-on-surface">
                     {user?.created_at
                       ? format(new Date(user.created_at), 'MMM d, yyyy')
-                      : 'Unknown'}
+                      : t('settingsUi.unknownDate')}
                   </span>
                 </div>
               </div>
@@ -1504,8 +1508,8 @@ Authorization: Bearer <your-token-here>`}
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-on-surface">Usage</h2>
-                  <p className="text-sm text-on-surface-variant">Your current quota consumption</p>
+                  <h2 className="text-lg font-semibold text-on-surface">{t('settingsUi.usage')}</h2>
+                  <p className="text-sm text-on-surface-variant">{t('account.quotaHint')}</p>
                 </div>
               </div>
 
@@ -1514,15 +1518,15 @@ Authorization: Bearer <your-token-here>`}
                   <div className="pierre-spinner w-6 h-6"></div>
                 </div>
               ) : !usageData ? (
-                <p className="text-sm text-outline text-center py-4">Usage data unavailable</p>
+                <p className="text-sm text-outline text-center py-4">{t('account.usageUnavailable')}</p>
               ) : (
                 <div className="space-y-5">
                   {/* Progress bars */}
                   <div className="space-y-4">
                     {([
-                      { label: 'Daily Messages', counter: usageData.daily.messages },
-                      { label: 'Daily Tokens', counter: usageData.daily.tokens, compact: true },
-                      { label: 'Weekly Messages', counter: usageData.weekly.messages },
+                      { label: t('settingsUi.dailyMessages'), counter: usageData.daily.messages },
+                      { label: t('settingsUi.dailyTokens'), counter: usageData.daily.tokens, compact: true },
+                      { label: t('settingsUi.weeklyMessages'), counter: usageData.weekly.messages },
                     ] as { label: string; counter: LimitCheckResult; compact?: boolean }[]).map(({ label, counter, compact }) => {
                       const pct = counter.limit > 0 ? Math.min((counter.current / counter.limit) * 100, 100) : 0;
                       return (
@@ -1551,7 +1555,7 @@ Authorization: Bearer <your-token-here>`}
 
                   {/* Reset time */}
                   <p className="text-xs text-outline">
-                    Daily limits reset at {formatResetTime(usageData.daily.messages.resets_at)}
+                    {t('frag.dailyLimitsResetAt')} {formatResetTime(usageData.daily.messages.resets_at)}
                   </p>
 
                   {/* Resource counts (user-facing only, not shown for admin) */}
@@ -1559,13 +1563,13 @@ Authorization: Bearer <your-token-here>`}
                   <div className="border-t ghost-border pt-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-3 bg-surface-container-low rounded-lg">
-                        <p className="text-xs text-outline mb-1">Coaches</p>
+                        <p className="text-xs text-outline mb-1">{t('settingsUi.coaches')}</p>
                         <p className="text-sm font-medium text-on-surface">
                           {usageData.resources.coaches} / {usageData.resources.max_coaches}
                         </p>
                       </div>
                       <div className="p-3 bg-surface-container-low rounded-lg">
-                        <p className="text-xs text-outline mb-1">Conversations</p>
+                        <p className="text-xs text-outline mb-1">{t('settingsUi.conversations')}</p>
                         <p className="text-sm font-medium text-on-surface">
                           {usageData.resources.conversations} / {usageData.resources.max_conversations}
                         </p>
@@ -1579,13 +1583,13 @@ Authorization: Bearer <your-token-here>`}
             )}
 
             <Card variant="dark">
-              <h2 className="text-lg font-semibold text-on-surface mb-4">Security</h2>
+              <h2 className="text-lg font-semibold text-on-surface mb-4">{t('settingsUi.security')}</h2>
               <div className="space-y-4">
                 <div className="p-4 bg-surface-container-low border ghost-border rounded-lg">
-                  <h3 className="font-medium text-on-surface mb-2">Password</h3>
-                  <p className="text-sm text-on-surface-variant mb-3">Change your password to keep your account secure.</p>
+                  <h3 className="font-medium text-on-surface mb-2">{t('settingsUi.password')}</h3>
+                  <p className="text-sm text-on-surface-variant mb-3">{t('password.changeHint')}</p>
                   <Button variant="outline" size="sm" onClick={() => setShowChangePassword(true)}>
-                    Change Password
+                    {t('password.change')}
                   </Button>
                 </div>
               </div>
@@ -1597,9 +1601,9 @@ Authorization: Bearer <your-token-here>`}
                 self-registered agent-to-agent clients. */}
             <Card variant="dark">
               <div className="mb-4">
-                <h2 className="text-lg font-semibold text-on-surface">Connected MCP apps</h2>
+                <h2 className="text-lg font-semibold text-on-surface">{t('tokens.connectedMcpApps')}</h2>
                 <p className="text-sm text-on-surface-variant mt-1">
-                  External applications you authorized to access Dravr via OAuth
+                  {t('tokens.connectedAppsHint')}
                 </p>
               </div>
 
@@ -1611,7 +1615,7 @@ Authorization: Bearer <your-token-here>`}
                 <div className="p-3 rounded-lg text-sm bg-error/20 text-error border border-error/30">
                   {connectedAppsError instanceof Error
                     ? connectedAppsError.message
-                    : 'Failed to load connected apps'}
+                    : t('settingsErr.loadAppsFailed')}
                 </div>
               ) : connectedApps && connectedApps.length > 0 ? (
                 <div className="space-y-3">
@@ -1624,7 +1628,7 @@ Authorization: Bearer <your-token-here>`}
                         <p className="font-medium text-on-surface break-all">{app.client_id}</p>
                         <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
                         <p className="text-xs text-outline mt-1">
-                          Connected {format(new Date(app.granted_at), 'MMM d, yyyy')}
+                          {t('frag.connected')} {format(new Date(app.granted_at), 'MMM d, yyyy')}
                         </p>
                       </div>
                       <Button
@@ -1634,26 +1638,26 @@ Authorization: Bearer <your-token-here>`}
                         disabled={revokeConnectedAppMutation.isPending}
                         className="flex-shrink-0 text-error hover:bg-error/20"
                       >
-                        Revoke
+                        {t('settingsUi.revoke')}
                       </Button>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-8 text-on-surface-variant">
-                  <p>No connected apps yet</p>
+                  <p>{t('tokens.connectedAppsEmpty')}</p>
                 </div>
               )}
             </Card>
 
             <Card variant="dark" className="border-error/30">
-              <h2 className="text-lg font-semibold text-error mb-4">Danger Zone</h2>
+              <h2 className="text-lg font-semibold text-error mb-4">{t('account.dangerZone')}</h2>
               <div className="space-y-4">
                 <div className="p-4 bg-error/10 border border-error/20 rounded-lg">
-                  <h3 className="font-medium text-on-surface mb-2">Sign Out</h3>
-                  <p className="text-sm text-on-surface-variant mb-3">Sign out of your account on this device.</p>
+                  <h3 className="font-medium text-on-surface mb-2">{t('account.signOut')}</h3>
+                  <p className="text-sm text-on-surface-variant mb-3">{t('account.signOutHint')}</p>
                   <Button variant="secondary" size="sm" onClick={logout}>
-                    Sign Out
+                    {t('account.signOut')}
                   </Button>
                 </div>
               </div>
@@ -1672,7 +1676,7 @@ Authorization: Bearer <your-token-here>`}
           setConfirmPassword('');
           setPasswordMessage(null);
         }}
-        title="Change Password"
+        title={t('password.change')}
         size="sm"
         footer={
           <ModalActions>
@@ -1686,7 +1690,7 @@ Authorization: Bearer <your-token-here>`}
                 setPasswordMessage(null);
               }}
             >
-              Cancel
+              {t('settingsUi.cancel')}
             </Button>
             <Button
               variant="gradient"
@@ -1694,7 +1698,7 @@ Authorization: Bearer <your-token-here>`}
               loading={changePasswordMutation.isPending}
               disabled={!currentPassword || !newPassword || !confirmPassword}
             >
-              Update Password
+              {t('password.update')}
             </Button>
           </ModalActions>
         }
@@ -1713,29 +1717,29 @@ Authorization: Bearer <your-token-here>`}
           )}
           <Input
             variant="dark"
-            label="Current Password"
+            label={t('password.current')}
             type="password"
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
-            placeholder="Enter current password"
+            placeholder={t('password.currentPlaceholder')}
           />
           <Input
             variant="dark"
-            label="New Password"
+            label={t('password.new')}
             type="password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="Enter new password"
-            helpText={`Minimum ${MIN_PASSWORD_LENGTH} characters`}
+            placeholder={t('password.newPlaceholder')}
+            helpText={t('frag.passwordMinHint', { n: MIN_PASSWORD_LENGTH })}
           />
           <Input
             variant="dark"
-            label="Confirm New Password"
+            label={t('password.confirm')}
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Confirm new password"
-            error={confirmPassword && newPassword !== confirmPassword ? 'Passwords do not match' : undefined}
+            placeholder={t('password.confirmPlaceholder')}
+            error={confirmPassword && newPassword !== confirmPassword ? t('settingsErr.passwordMismatch') : undefined}
           />
         </div>
       </Modal>
@@ -1745,7 +1749,7 @@ Authorization: Bearer <your-token-here>`}
         isOpen={!!providerToDelete}
         onClose={() => setProviderToDelete(null)}
         onConfirm={() => providerToDelete && deleteMutation.mutate(providerToDelete)}
-        title="Remove Provider Credentials"
+        title={t('credentials.remove')}
         message={`Are you sure you want to remove the ${getProviderInfo(providerToDelete || '').name} credentials? You'll need to use the shared server credentials after this.`}
         confirmLabel="Remove"
         variant="danger"
@@ -1757,7 +1761,7 @@ Authorization: Bearer <your-token-here>`}
         isOpen={tokenToRevoke !== null}
         onClose={() => setTokenToRevoke(null)}
         onConfirm={() => tokenToRevoke && revokeTokenMutation.mutate(tokenToRevoke.id)}
-        title="Revoke Token"
+        title={t('tokens.revoke')}
         message={`Are you sure you want to revoke "${tokenToRevoke?.name}"? Any AI clients using this token will lose access immediately.`}
         confirmLabel="Revoke Token"
         cancelLabel="Cancel"
@@ -1770,7 +1774,7 @@ Authorization: Bearer <your-token-here>`}
         isOpen={appToRevoke !== null}
         onClose={() => setAppToRevoke(null)}
         onConfirm={() => appToRevoke && revokeConnectedAppMutation.mutate(appToRevoke.id)}
-        title="Revoke Access"
+        title={t('tokens.revokeAccess')}
         message={`Revoke access for "${appToRevoke?.client_id}"? It will need to be re-authorized on its next connection.`}
         confirmLabel="Revoke"
         variant="danger"
@@ -1782,7 +1786,7 @@ Authorization: Bearer <your-token-here>`}
         isOpen={providerToDisconnect !== null}
         onClose={() => setProviderToDisconnect(null)}
         onConfirm={() => providerToDisconnect && handleDisconnectProvider(providerToDisconnect)}
-        title="Disconnect Provider"
+        title={t('providers.disconnectProvider')}
         message={`Are you sure you want to disconnect ${providerToDisconnect}? You will need to reconnect to sync new data.`}
         confirmLabel="Disconnect"
         variant="danger"
@@ -1810,7 +1814,7 @@ Authorization: Bearer <your-token-here>`}
             handleConnectProvider(connecting, preopenedPopup);
           }
         }}
-        title="Switch Provider"
+        title={t('providers.switchProvider')}
         message={`Connecting ${providerConflict?.connecting} will disconnect ${providerConflict?.disconnecting}. Both providers access Strava data — only one can be active at a time. Continue?`}
         confirmLabel="Switch"
         variant="danger"

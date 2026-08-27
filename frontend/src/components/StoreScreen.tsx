@@ -14,25 +14,28 @@ import { TabHeader } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
+import { useTranslation } from '@pierre/i18n';
 
 // Category filter options
+// Built at import time, where `t` does not exist: the table carries the key
+// and the render resolves it.
 const CATEGORY_FILTERS = [
-  { key: 'all', label: 'All' },
-  { key: 'training', label: 'Training' },
-  { key: 'nutrition', label: 'Nutrition' },
-  { key: 'recovery', label: 'Recovery' },
-  { key: 'recipes', label: 'Recipes' },
-  { key: 'mobility', label: 'Mobility' },
-  { key: 'custom', label: 'Custom' },
+  { key: 'all', labelKey: 'discover.filterAll' },
+  { key: 'training', labelKey: 'chat.categoryTraining' },
+  { key: 'nutrition', labelKey: 'chat.categoryNutrition' },
+  { key: 'recovery', labelKey: 'chat.categoryRecovery' },
+  { key: 'recipes', labelKey: 'chat.categoryRecipes' },
+  { key: 'mobility', labelKey: 'chat.categoryMobility' },
+  { key: 'custom', labelKey: 'chat.categoryCustom' },
 ] as const;
 
 type CategoryFilter = typeof CATEGORY_FILTERS[number]['key'];
 
 // Sort options
 const SORT_OPTIONS = [
-  { key: 'popular', label: 'Popular' },
-  { key: 'newest', label: 'Newest' },
-  { key: 'title', label: 'A-Z' },
+  { key: 'popular', labelKey: 'discover.sortPopular' },
+  { key: 'newest', labelKey: 'discover.sortNewest' },
+  { key: 'title', labelKey: 'discover.sortAlpha' },
 ] as const;
 
 type SortOption = typeof SORT_OPTIONS[number]['key'];
@@ -97,6 +100,7 @@ function defaultConversationTitle(): string {
 }
 
 export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
@@ -397,8 +401,8 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           </svg>
           <input
             type="search"
-            placeholder="Search coaches..."
-            aria-label="Search coaches"
+            placeholder={t('discover.searchCoachesPlaceholder')}
+            aria-label={t('discover.searchCoachesLabel')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder-outline focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
@@ -406,7 +410,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           {searchQuery && (
             <button
               onClick={handleClearSearch}
-              aria-label="Clear search"
+              aria-label={t('discover.clearSearch')}
               className="absolute right-1 top-1/2 transform -translate-y-1/2 text-on-surface-variant hover:text-outline min-w-[44px] min-h-[44px] flex items-center justify-center"
             >
               <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -436,7 +440,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
                   : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
               )}
             >
-              {filter.label}
+              {t(filter.labelKey)}
             </button>
           ))}
         </div>
@@ -444,7 +448,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
 
       {/* Sort Options */}
       <div className="px-6 py-2 bg-surface-container-low border-b ghost-border flex items-center gap-3 overflow-x-auto">
-        <span className="text-sm text-on-surface-variant whitespace-nowrap flex-shrink-0">Sort by:</span>
+        <span className="text-sm text-on-surface-variant whitespace-nowrap flex-shrink-0">{t('discover.sortByLabel')}</span>
         {SORT_OPTIONS.map((option) => (
           <button
             key={option.key}
@@ -456,7 +460,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
                 : 'text-on-surface-variant hover:text-primary'
             )}
           >
-            {option.label}
+            {t(option.labelKey)}
           </button>
         ))}
       </div>
@@ -467,7 +471,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="mt-3 text-sm text-on-surface-variant">Loading coaches...</p>
+              <p className="mt-3 text-sm text-on-surface-variant">{t('discover.loadingCoaches')}</p>
             </div>
           </div>
         ) : isListError ? (
@@ -482,18 +486,18 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
             <h3 className="text-lg font-medium text-on-surface">
-              {searchQuery ? "Couldn't search coaches" : "Couldn't load the store"}
+              {searchQuery ? t('frag.couldntSearchCoaches') : t('frag.couldntLoadStore')}
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
               {listError instanceof Error && listError.message
                 ? listError.message
-                : 'The server did not return a coach list.'}
+                : t('discover.storeListMissing')}
             </p>
             <button
               onClick={handleRetryList}
               className="mt-4 px-4 py-2 bg-primary text-on-primary font-medium rounded-lg hover:bg-primary/80 transition-colors min-h-[44px]"
             >
-              Try Again
+              {t('discover.tryAgain')}
             </button>
           </div>
         ) : coaches.length === 0 ? (
@@ -508,12 +512,12 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <h3 className="text-lg font-medium text-on-surface">
-              {searchQuery ? 'No coaches found' : 'Store is empty'}
+              {searchQuery ? t('discover.noCoachesFound') : t('discover.storeEmpty')}
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
               {searchQuery
                 ? `No coaches match "${searchQuery}"`
-                : 'No published coaches available yet'}
+                : t('discover.noPublishedCoaches')}
             </p>
           </div>
         ) : (
@@ -530,12 +534,12 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
                 {isFetchingNextPage ? (
                   <div className="flex items-center gap-2">
                     <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm text-on-surface-variant">Loading more...</span>
+                    <span className="text-sm text-on-surface-variant">{t('discover.loadingMore')}</span>
                   </div>
                 ) : hasNextPage ? (
-                  <span className="text-sm text-on-surface-variant">Scroll for more</span>
+                  <span className="text-sm text-on-surface-variant">{t('discover.scrollForMore')}</span>
                 ) : coaches.length > 0 ? (
-                  <span className="text-sm text-on-surface-variant">You've seen all coaches</span>
+                  <span className="text-sm text-on-surface-variant">{t('discover.endOfCoachList')}</span>
                 ) : null}
               </div>
             )}
@@ -637,13 +641,14 @@ function CoachDetailView({
   onOpenChat,
   onDismissHint,
 }: CoachDetailViewProps) {
+  const { t } = useTranslation();
   if (isLoading) {
     return (
       <div className="h-full flex flex-col bg-surface">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="mt-3 text-sm text-on-surface-variant">Loading coach details...</p>
+            <p className="mt-3 text-sm text-on-surface-variant">{t('discover.loadingCoachDetails')}</p>
           </div>
         </div>
       </div>
@@ -655,12 +660,12 @@ function CoachDetailView({
       <div className="h-full flex flex-col bg-surface">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <p className="text-lg text-on-surface-variant mb-4">Coach not found</p>
+            <p className="text-lg text-on-surface-variant mb-4">{t('discover.coachNotFound')}</p>
             <button
               onClick={onBack}
               className="px-4 py-2 bg-primary text-on-primary rounded-lg hover:bg-primary/80 transition-colors"
             >
-              Go Back
+              {t('discover.goBack')}
             </button>
           </div>
         </div>
@@ -676,8 +681,8 @@ function CoachDetailView({
       <div className="p-4 border-b ghost-border flex items-center gap-3">
         <button
           onClick={onBack}
-          title="Back to Store"
-          aria-label="Back to Store"
+          title={t('discover.backToStore')}
+          aria-label={t('discover.backToStore')}
           className="p-2 text-outline hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
         >
           <ArrowLeft className="w-5 h-5" aria-hidden="true" />
@@ -706,7 +711,7 @@ function CoachDetailView({
           {/* Tags */}
           {coach.tags.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">Tags</h3>
+              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">{t('discover.tagsSection')}</h3>
               <div className="flex flex-wrap gap-2">
                 {coach.tags.map((tag, index) => (
                   <span
@@ -723,7 +728,7 @@ function CoachDetailView({
           {/* Sample Prompts */}
           {coach.sample_prompts.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">Sample Prompts</h3>
+              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">{t('discover.samplePrompts')}</h3>
               <div className="space-y-2">
                 {coach.sample_prompts.map((prompt, index) => (
                   <div
@@ -739,7 +744,7 @@ function CoachDetailView({
 
           {/* System Prompt Preview */}
           <div>
-            <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">System Prompt</h3>
+            <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">{t('chat.systemPromptLabel')}</h3>
             <div className="p-3 bg-surface-container-low border ghost-border rounded-lg">
               <p className="text-sm text-on-surface-variant font-mono whitespace-pre-wrap line-clamp-6">
                 {coach.system_prompt}
@@ -754,15 +759,15 @@ function CoachDetailView({
 
           {/* Details */}
           <div>
-            <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">Details</h3>
+            <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wide mb-2">{t('discover.detailsSection')}</h3>
             <div className="bg-surface-container-low border ghost-border rounded-lg overflow-hidden">
               <div className="flex justify-between items-center px-4 py-3 border-b ghost-border">
-                <span className="text-sm text-on-surface-variant">Token Count</span>
+                <span className="text-sm text-on-surface-variant">{t('discover.tokenCount')}</span>
                 <span className="text-sm text-on-surface font-medium">{coach.token_count.toLocaleString()}</span>
               </div>
               {coach.published_at && (
                 <div className="flex justify-between items-center px-4 py-3">
-                  <span className="text-sm text-on-surface-variant">Published</span>
+                  <span className="text-sm text-on-surface-variant">{t('discover.publishedBadge')}</span>
                   <span className="text-sm text-on-surface font-medium">
                     {new Date(coach.published_at).toLocaleDateString()}
                   </span>
@@ -812,7 +817,7 @@ function CoachDetailView({
               className="flex-1 py-3 px-4 bg-primary/10 text-primary font-medium rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <Pencil className="w-4 h-4" />
-              Edit coach
+              {t('chat.editCoach')}
             </button>
             <button
               onClick={onRemove}
@@ -824,7 +829,7 @@ function CoachDetailView({
               ) : (
                 <>
                   <Trash2 className="w-4 h-4" />
-                  Remove
+                  {t('discover.removeCoach')}
                 </>
               )}
             </button>
@@ -840,7 +845,7 @@ function CoachDetailView({
             ) : (
               <>
                 <Plus className="w-4 h-4" />
-                Add Coach
+                {t('discover.addCoach')}
               </>
             )}
           </button>

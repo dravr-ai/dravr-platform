@@ -6,6 +6,7 @@
 
 import React, { useEffect } from 'react';
 import { clsx } from 'clsx';
+import { useTranslation } from '@pierre/i18n';
 
 export interface MobileNavTab {
   id: string;
@@ -29,9 +30,10 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
   onOpenDrawer,
   drawerHasBadge,
 }) => {
+  const { t } = useTranslation();
   return (
     <nav
-      aria-label="Primary navigation"
+      aria-label={t('shell.mobileNavPrimary')}
       className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface-container-low/95 backdrop-blur-boreal border-t ghost-border"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
@@ -77,7 +79,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
           <button
             type="button"
             onClick={onOpenDrawer}
-            aria-label="Open menu"
+            aria-label={t('shell.mobileNavOpen')}
             className="w-full min-h-[56px] flex flex-col items-center justify-center gap-0.5 px-1 py-1.5 relative text-on-surface-variant focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
           >
             <span className="relative inline-flex">
@@ -91,7 +93,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
                 />
               )}
             </span>
-            <span className="text-[10px] font-medium leading-none tracking-tight">Menu</span>
+            <span className="text-[10px] font-medium leading-none tracking-tight">{t('shell.mobileNavMenu')}</span>
           </button>
         </li>
       </ul>
@@ -124,6 +126,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   onOpenSettings,
   onSignOut,
 }) => {
+  const { t } = useTranslation();
   useEffect(() => {
     if (!open) return;
     const original = document.body.style.overflow;
@@ -219,7 +222,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         ref={asideRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Secondary navigation"
+        aria-label={t('shell.mobileNavSecondary')}
         className={clsx(
           'absolute left-0 top-0 bottom-0 w-[78vw] max-w-[320px] bg-surface-container-low border-r ghost-border flex flex-col',
           'transition-transform duration-200 ease-out',
@@ -242,7 +245,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close menu"
+            aria-label={t('shell.mobileNavClose')}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center text-on-surface-variant hover:text-on-surface"
           >
             <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -251,7 +254,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
           </button>
         </header>
 
-        <nav aria-label="Secondary destinations" className="flex-1 overflow-y-auto px-3 py-3">
+        <nav aria-label={t('shell.mobileNavSecondaryDest')} className="flex-1 overflow-y-auto px-3 py-3">
           <ul className="space-y-1">
             {secondary.map((tab) => {
               const active = activeTab === tab.id;
@@ -299,7 +302,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <span>Settings</span>
+            <span>{t('nav.settings')}</span>
           </button>
           <button
             type="button"
@@ -312,7 +315,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
             <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
-            <span>Sign out</span>
+            <span>{t('shell.mobileNavSignOut')}</span>
           </button>
         </footer>
       </aside>

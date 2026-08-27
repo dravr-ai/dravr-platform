@@ -6,6 +6,7 @@
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { i18n } from '@pierre/i18n';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -134,19 +135,19 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
                 {/* Error Title */}
                 <h1 className="text-2xl font-bold text-on-surface text-center mb-3">
-                  Something went wrong
+                  {i18n.t('shell.errorTitle')}
                 </h1>
 
                 {/* Error Description */}
                 <p className="text-outline text-center mb-6">
-                  An unexpected error occurred. We apologize for the inconvenience.
+                  {i18n.t('shell.errorUnexpectedBody')}
                 </p>
 
                 {/* Error Details (collapsible in production) */}
                 {error && (
                   <details className="mb-6 bg-surface-container-highest/50 rounded-lg overflow-hidden">
                     <summary className="px-4 py-3 text-sm text-outline cursor-pointer hover:bg-surface-container-highest/70 transition-colors">
-                      Technical Details
+                      {i18n.t('shell.errorTechnicalDetails')}
                     </summary>
                     <div className="px-4 py-3 border-t border-on-surface">
                       <p className="text-sm font-mono text-error mb-2">
@@ -168,7 +169,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary/90 text-on-primary font-medium rounded-lg transition-colors"
                   >
                     <RefreshCw className="w-4 h-4" />
-                    Try Again
+                    {i18n.t('chat.tryAgain')}
                   </button>
 
                   {showHomeButton && (
@@ -177,7 +178,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-surface-container hover:bg-on-surface-variant text-on-surface font-medium rounded-lg transition-colors"
                     >
                       <Home className="w-4 h-4" />
-                      Go Home
+                      {i18n.t('shell.errorGoHome')}
                     </button>
                   )}
                 </div>
@@ -186,7 +187,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               {/* Footer */}
               <div className="px-8 py-4 bg-surface-container-highest/30 border-t border-on-surface">
                 <p className="text-xs text-on-surface-variant text-center">
-                  If this problem persists, please contact support or try refreshing the page.
+                  {i18n.t('shell.errorPersistHint')}
                 </p>
               </div>
             </div>

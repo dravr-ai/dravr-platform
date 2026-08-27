@@ -14,6 +14,7 @@ import {
 import type { NotificationCategory, NotificationPreferenceItem } from '@pierre/shared-types';
 import { Card, Select } from './ui';
 import { useNotificationPreferences } from '../hooks/useNotifications';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * What each category actually sends, in the athlete's words.
@@ -23,14 +24,14 @@ import { useNotificationPreferences } from '../hooks/useNotifications';
  * what muting the category costs you. That sentence is only meaningful next to
  * a switch, so it lives with the switch rather than in the shared metadata.
  */
-const CATEGORY_BLURB: Record<NotificationCategory, string> = {
-  training: 'Planned sessions, workout reminders and training-load changes.',
-  recovery: 'Sleep, HRV and readiness alerts from your connected devices.',
-  coach: 'Messages your coach sends you, including commitment check-ins.',
-  achievement: 'Personal bests, streaks and milestones.',
-  system: 'Account, connection and service notices.',
-  ai: 'Proactive insights your coach surfaces between conversations.',
-  reminders: 'Anything you asked to be reminded about.',
+const CATEGORY_BLURB_KEYS: Record<NotificationCategory, string> = {
+  training: 'notifPrefs.blurbTraining',
+  recovery: 'notifPrefs.blurbRecovery',
+  coach: 'notifPrefs.blurbCoach',
+  achievement: 'notifPrefs.blurbAchievement',
+  system: 'notifPrefs.blurbSystem',
+  ai: 'notifPrefs.blurbAi',
+  reminders: 'notifPrefs.blurbReminders',
 };
 
 /** The browser's IANA zone, used when a category has never had one stored. */
@@ -48,23 +49,30 @@ function localTimezone(): string {
  * The wire format is `HH:MM`; the server compares against it directly, so the
  * options are generated in that format rather than parsed back from a label.
  */
-const QUIET_HOUR_OPTIONS = [
-  { value: '', label: 'Off' },
+function quietHourOptions(offLabel: string) {
+  return [
+  { value: '', label: offLabel },
   ...Array.from({ length: 24 }, (_, hour) => {
     const value = `${String(hour).padStart(2, '0')}:00`;
     return { value, label: value };
   }),
 ];
+}
 
 /** A `null` cap means "no limit"; the select round-trips that as an empty value. */
 function capValue(max: number | null): string {
   return max === null ? '' : String(max);
 }
 
-/** Label for one daily-cap choice. */
-function capLabel(choice: number | null): string {
-  if (choice === null) return 'No limit';
-  return choice === 1 ? '1 per day' : `${choice} per day`;
+/**
+ * Label for one daily-cap choice.
+ *
+ * Takes the translator rather than calling the hook: this is a plain helper,
+ * not a component, and a hook here is a rules-of-hooks violation.
+ */
+function capLabel(choice: number | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  if (choice === null) return t('frag.noLimit');
+  return choice === 1 ? t('frag.perDayOne') : t('frag.perDayN', { count: choice });
 }
 
 /**
@@ -75,6 +83,7 @@ function capLabel(choice: number | null): string {
  * blurb for still renders with its shared label — the server's list is the list.
  */
 export default function NotificationSettingsTab() {
+  const { t } = useTranslation();
   const { preferences, isLoading, isError, updatePreference, isUpdating } =
     useNotificationPreferences();
   const [expanded, setExpanded] = useState<NotificationCategory | null>(null);
@@ -99,7 +108,7 @@ export default function NotificationSettingsTab() {
     return (
       <Card variant="dark">
         <p className="text-sm text-on-surface-variant" data-testid="notification-prefs-loading">
-          Loading notification preferences…
+          {t('notifPrefs.loading')}
         </p>
       </Card>
     );
@@ -109,7 +118,7 @@ export default function NotificationSettingsTab() {
     return (
       <Card variant="dark">
         <p className="text-sm text-error" data-testid="notification-prefs-error">
-          Could not load your notification preferences. Reload the page to try again.
+          {t('notifPrefs.loadFailed')}
         </p>
       </Card>
     );
@@ -117,10 +126,9 @@ export default function NotificationSettingsTab() {
 
   return (
     <Card variant="dark">
-      <h2 className="text-lg font-semibold text-on-surface mb-2">Notifications</h2>
+      <h2 className="text-lg font-semibold text-on-surface mb-2">{t('notifPrefs.title')}</h2>
       <p className="text-sm text-on-surface-variant mb-6">
-        Choose what reaches you, when it may arrive, and how often. These settings apply to push
-        notifications and to anything your coach sends you between conversations.
+        {t('notifPrefs.intro')}
       </p>
 
       <div className="space-y-3" data-testid="notification-prefs-list">
@@ -142,11 +150,11 @@ export default function NotificationSettingsTab() {
                       aria-hidden="true"
                     />
                     <h3 className="text-sm font-medium text-on-surface">
-                      {meta?.label ?? pref.category}
+                      {meta ? t(meta.labelKey) : pref.category}
                     </h3>
                   </div>
                   <p className="text-sm text-on-surface-variant leading-relaxed">
-                    {CATEGORY_BLURB[pref.category] ?? 'Notifications in this category.'}
+                    {CATEGORY_BLURB_KEYS[pref.category] ? t(CATEGORY_BLURB_KEYS[pref.category]) : t('notifPrefs.categoryBlurbFallback')}
                   </p>
                 </div>
 
@@ -154,7 +162,7 @@ export default function NotificationSettingsTab() {
                   type="button"
                   role="switch"
                   aria-checked={pref.enabled}
-                  aria-label={`${meta?.label ?? pref.category} notifications`}
+                  aria-label={t('notifPrefs.categoryNotifications', { category: meta ? t(meta.labelKey) : pref.category })}
                   data-testid={`notification-pref-switch-${pref.category}`}
                   disabled={isUpdating}
                   onClick={() =>
@@ -182,20 +190,20 @@ export default function NotificationSettingsTab() {
                   aria-expanded={isOpen}
                   onClick={() => setExpanded(isOpen ? null : pref.category)}
                 >
-                  {isOpen ? 'Hide quiet hours & limit' : 'Quiet hours & limit'}
+                  {isOpen ? t('notifPrefs.hideQuietHours') : t('notifPrefs.quietHoursAndLimit')}
                 </button>
               )}
 
               {pref.enabled && isOpen && (
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <Select
-                    label="Max per day"
+                    label={t('notifPrefs.maxPerDay')}
                     size="sm"
                     value={capValue(pref.max_per_day)}
                     data-testid={`notification-pref-cap-${pref.category}`}
                     options={NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => ({
                       value: capValue(choice),
-                      label: capLabel(choice),
+                      label: capLabel(choice, t),
                     }))}
                     onChange={(e) =>
                       updatePreference(
@@ -206,11 +214,11 @@ export default function NotificationSettingsTab() {
                     }
                   />
                   <Select
-                    label="Quiet from"
+                    label={t('notifPrefs.quietFrom')}
                     size="sm"
                     value={pref.quiet_hours_start ?? ''}
                     data-testid={`notification-pref-quiet-start-${pref.category}`}
-                    options={QUIET_HOUR_OPTIONS}
+                    options={quietHourOptions(t('notifPrefs.off'))}
                     onChange={(e) =>
                       updatePreference(
                         notificationPreferenceUpdate(pref, {
@@ -221,11 +229,11 @@ export default function NotificationSettingsTab() {
                     }
                   />
                   <Select
-                    label="Quiet until"
+                    label={t('notifPrefs.quietUntil')}
                     size="sm"
                     value={pref.quiet_hours_end ?? ''}
                     data-testid={`notification-pref-quiet-end-${pref.category}`}
-                    options={QUIET_HOUR_OPTIONS}
+                    options={quietHourOptions(t('notifPrefs.off'))}
                     onChange={(e) =>
                       updatePreference(
                         notificationPreferenceUpdate(pref, {

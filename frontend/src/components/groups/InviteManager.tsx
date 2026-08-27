@@ -9,6 +9,7 @@ import { Link2, Plus, Copy, Check, Trash2, UserCog } from 'lucide-react';
 import { useGroupInvites, useCreateInvite, useDeactivateInvite } from '../../hooks/useGroups';
 import { Button, Card, Select, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import type { SelectOption } from '../ui';
+import { useTranslation } from '@pierre/i18n';
 import type {
   GroupRole,
   GroupInvite,
@@ -21,27 +22,33 @@ interface InviteManagerProps {
   currentUserRole: GroupRole;
 }
 
-const EXPIRY_OPTIONS: SelectOption[] = [
+function expiry_options(t: (key: string) => string): SelectOption[] {
+  return [
   { value: '1', label: '1 day' },
   { value: '3', label: '3 days' },
   { value: '7', label: '7 days' },
   { value: '14', label: '14 days' },
   { value: '30', label: '30 days' },
-  { value: '0', label: 'Never expires' },
+  { value: '0', label: t('settingsUi.neverExpires') },
 ];
+}
 
-const MAX_USES_OPTIONS: SelectOption[] = [
+function max_uses_options(t: (key: string) => string): SelectOption[] {
+  return [
   { value: '1', label: '1 use' },
   { value: '5', label: '5 uses' },
   { value: '10', label: '10 uses' },
   { value: '25', label: '25 uses' },
-  { value: '0', label: 'Unlimited' },
+  { value: '0', label: t('groups.inviteUnlimited') },
 ];
+}
 
-const KIND_OPTIONS: SelectOption[] = [
-  { value: 'member', label: 'Member (athlete)' },
-  { value: 'coach', label: 'Coach' },
+function kind_options(t: (key: string) => string): SelectOption[] {
+  return [
+  { value: 'member', label: t('groups.inviteTypeMember') },
+  { value: 'coach', label: t('groups.coach') },
 ];
+}
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, {
@@ -64,6 +71,7 @@ function isExhausted(invite: GroupInvite): boolean {
 }
 
 export default function InviteManager({ groupId, currentUserRole }: InviteManagerProps) {
+  const { t } = useTranslation();
   const { invites, isLoading } = useGroupInvites(groupId);
   const { createInvite, isPending: isCreating } = useCreateInvite(groupId);
   const { deactivateInvite, isPending: isDeactivating } = useDeactivateInvite(groupId);
@@ -97,12 +105,12 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       await createInvite(request);
       const detail =
         inviteKind === 'coach'
-          ? 'Share it with the coach you want to oversee this group.'
-          : 'The invite link is ready to share.';
+          ? t('groups.inviteCoachShare')
+          : t('groups.inviteReadyToShare');
       showSuccess('Invite created', detail);
       setShowCreateForm(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create invite';
+      const message = err instanceof Error ? err.message : t('groups.inviteCreateFailed');
       showError('Creation failed', message);
     }
   };
@@ -134,7 +142,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       showSuccess('Invite deactivated', 'The invite link will no longer work.');
       setConfirmDeactivate(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to deactivate invite';
+      const message = err instanceof Error ? err.message : t('groups.inviteDeactivateFailed');
       showError('Deactivation failed', message);
     }
   };
@@ -156,12 +164,12 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {canManage && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-on-surface-variant">
-            Share invite links to let people join this group.
+            {t('groups.inviteShareHint')}
           </p>
           <Button variant="primary" size="sm" onClick={() => setShowCreateForm(!showCreateForm)}>
             <span className="flex items-center gap-2">
               <Plus className="w-4 h-4" />
-              New Invite
+              {t('groups.inviteNew')}
             </span>
           </Button>
         </div>
@@ -170,41 +178,40 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {/* Create invite form */}
       {showCreateForm && canManage && (
         <Card variant="dark" className="!p-5">
-          <h4 className="text-sm font-semibold text-on-surface mb-4">Create Invite Link</h4>
+          <h4 className="text-sm font-semibold text-on-surface mb-4">{t('groups.inviteCreateTitle')}</h4>
           <div className="mb-4">
             <Select
-              label="Invite Type"
-              options={KIND_OPTIONS}
+              label={t('groups.inviteType')}
+              options={kind_options(t)}
               value={inviteKind}
               onChange={(e) => setInviteKind(e.target.value as GroupInviteKind)}
             />
             {inviteKind === 'coach' && (
               <p className="text-xs text-outline mt-1.5">
-                A coach invite attaches the redeemer as this group's human coach. Only a
-                roster-managing coach in this group's tenant can redeem it.
+                {t('groups.inviteCoachHint')}
               </p>
             )}
           </div>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <Select
-              label="Expires After"
-              options={EXPIRY_OPTIONS}
+              label={t('groups.inviteExpiresAfter')}
+              options={expiry_options(t)}
               value={expiryDays}
               onChange={(e) => setExpiryDays(e.target.value)}
             />
             <Select
-              label="Max Uses"
-              options={MAX_USES_OPTIONS}
+              label={t('groups.inviteMaxUses')}
+              options={max_uses_options(t)}
               value={maxUses}
               onChange={(e) => setMaxUses(e.target.value)}
             />
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={() => setShowCreateForm(false)}>
-              Cancel
+              {t('settingsUi.cancel')}
             </Button>
             <Button variant="primary" size="sm" onClick={handleCreate} loading={isCreating}>
-              Create
+              {t('groups.inviteCreate')}
             </Button>
           </div>
         </Card>
@@ -229,7 +236,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                     {invite.kind === 'coach' && (
                       <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-primary/20 text-primary rounded-full">
                         <UserCog className="w-3 h-3" />
-                        Coach
+                        {t('groups.coach')}
                       </span>
                     )}
                   </div>
@@ -238,9 +245,9 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                       {invite.use_count} / {invite.max_uses ?? 'unlimited'} uses
                     </span>
                     {invite.expires_at && (
-                      <span>Expires {formatDate(invite.expires_at)}</span>
+                      <span>{t('frag.expires')} {formatDate(invite.expires_at)}</span>
                     )}
-                    {!invite.expires_at && <span>No expiry</span>}
+                    {!invite.expires_at && <span>{t('groups.inviteNoExpiry')}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">
@@ -248,8 +255,8 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                     variant="secondary"
                     size="sm"
                     onClick={() => handleCopyLink(invite.code, invite.id)}
-                    title="Copy invite link"
-                    aria-label="Copy invite link to clipboard"
+                    title={t('groups.inviteCopy')}
+                    aria-label={t('groups.inviteCopyAria')}
                   >
                     {copiedId === invite.id ? (
                       <Check className="w-4 h-4 text-activity" />
@@ -262,8 +269,8 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                       variant="danger"
                       size="sm"
                       onClick={() => setConfirmDeactivate(invite)}
-                      title="Deactivate invite"
-                      aria-label="Deactivate this invite"
+                      title={t('groups.inviteDeactivateAria')}
+                      aria-label={t('groups.inviteDeactivateThis')}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -294,9 +301,9 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                   </div>
                   <div className="flex items-center gap-3 text-xs text-on-surface-variant">
                     <span>{invite.use_count} uses</span>
-                    {!invite.is_active && <span>Deactivated</span>}
-                    {invite.is_active && isExpired(invite) && <span>Expired</span>}
-                    {invite.is_active && isExhausted(invite) && <span>Max uses reached</span>}
+                    {!invite.is_active && <span>{t('groups.inviteDeactivated')}</span>}
+                    {invite.is_active && isExpired(invite) && <span>{t('groups.inviteExpired')}</span>}
+                    {invite.is_active && isExhausted(invite) && <span>{t('groups.inviteMaxReached')}</span>}
                   </div>
                 </div>
               </div>
@@ -309,10 +316,10 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {invites.length === 0 && (
         <div className="text-center py-8">
           <Link2 className="w-8 h-8 text-on-surface-variant mx-auto mb-3" />
-          <p className="text-outline">No invites created yet.</p>
+          <p className="text-outline">{t('groups.inviteEmptyTitle')}</p>
           {canManage && (
             <p className="text-on-surface-variant text-sm mt-1">
-              Create an invite link to let people join this group.
+              {t('groups.inviteEmptyHint')}
             </p>
           )}
         </div>
@@ -323,7 +330,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
         isOpen={!!confirmDeactivate}
         onClose={() => setConfirmDeactivate(null)}
         onConfirm={handleDeactivate}
-        title="Deactivate Invite"
+        title={t('groups.inviteDeactivate')}
         message="This invite link will stop working immediately. Anyone who hasn't used it yet will need a new invite."
         confirmLabel="Deactivate"
         variant="warning"

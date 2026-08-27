@@ -10,6 +10,7 @@ import type { ProposedCoach } from '@pierre/shared-types';
 import { coachesApi } from '../services/api';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
+import { useTranslation } from '@pierre/i18n';
 
 /** One-time onboarding snapshot; not invalidated elsewhere. */
 const COACH_PROPOSAL_QUERY_KEY = ['coaches', 'proposal'] as const;
@@ -34,6 +35,7 @@ export default function OnboardingCoachProposal({
   userDisplayName?: string | null;
   onComplete: () => void;
 }) {
+  const { t } = useTranslation();
   const [selecting, setSelecting] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
@@ -61,10 +63,9 @@ export default function OnboardingCoachProposal({
       <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface font-label">Analyzing your training data…</p>
+          <p className="text-sm text-on-surface font-label">{t('onboarding.analyzingTrainingData')}</p>
           <p className="text-xs text-on-surface-variant max-w-sm text-center">
-            We&apos;re reading the activities your provider tracks to find the coaches that fit how
-            you actually train.
+            {t('onboarding.readingActivitiesHint')}
           </p>
         </div>
       </OnboardingShell>
@@ -76,10 +77,10 @@ export default function OnboardingCoachProposal({
       <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
           <p className="text-sm text-on-surface font-label">
-            We couldn&apos;t build your coach suggestions just now.
+            {t('onboarding.coachSuggestionsFailed')}
           </p>
           <Button variant="primary" onClick={onComplete}>
-            Continue to dashboard
+            {t('onboarding.continueToDashboard')}
           </Button>
         </div>
       </OnboardingShell>
@@ -92,7 +93,7 @@ export default function OnboardingCoachProposal({
   return (
     <OnboardingShell
       heading={
-        userDisplayName ? `Here's your starting lineup, ${userDisplayName}` : "Here's your starting lineup"
+        userDisplayName ? `Here's your starting lineup, ${userDisplayName}` : t('frag.startingLineup')
       }
     >
       {/* Inferred profile summary */}
@@ -100,7 +101,7 @@ export default function OnboardingCoachProposal({
         {profile.has_profile ? (
           <>
             <p className="text-sm text-on-surface font-label">
-              Over the last {profile.window_days} days we logged{' '}
+              {t('frag.overTheLast')} {profile.window_days} days we logged{' '}
               <span className="font-semibold">{profile.total_activities}</span> activities
               {primary ? (
                 <>
@@ -128,8 +129,7 @@ export default function OnboardingCoachProposal({
           </>
         ) : (
           <p className="text-sm text-on-surface-variant font-label">
-            We didn&apos;t find recent activities yet — here are some coaches to start with. Your
-            picks will sharpen as your provider syncs more data.
+            {t('onboarding.coachProposalNoActivities')}
           </p>
         )}
       </div>
@@ -149,7 +149,7 @@ export default function OnboardingCoachProposal({
 
       <div className="mt-8">
         <Button variant="secondary" onClick={onComplete} className="w-full" disabled={selecting !== null}>
-          Skip for now
+          {t('onboarding.skipForNow')}
         </Button>
       </div>
     </OnboardingShell>
@@ -168,6 +168,7 @@ function CoachProposalCard({
   disabled: boolean;
   onStart: () => void;
 }) {
+  const { t } = useTranslation();
   const { coach, reason } = proposed;
   return (
     <div className="rounded-xl border border-outline-variant bg-surface-container-low px-5 py-4">
@@ -181,7 +182,7 @@ function CoachProposalCard({
           </p>
         </div>
         <Button variant="primary" onClick={onStart} disabled={disabled}>
-          {selecting ? 'Starting…' : 'Start'}
+          {selecting ? t('onboarding.starting') : t('onboarding.startButton')}
         </Button>
       </div>
       {reason ? <p className="mt-2 text-sm text-on-surface-variant font-label">{reason}</p> : null}

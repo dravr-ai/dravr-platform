@@ -7,6 +7,7 @@
 import React, { useState } from 'react';
 import { authApi } from '../services/api';
 import { Button, Input } from './ui';
+import { useTranslation } from '@pierre/i18n';
 
 interface ForgotPasswordProps {
   onNavigateToLogin: () => void;
@@ -14,6 +15,7 @@ interface ForgotPasswordProps {
 }
 
 export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: ForgotPasswordProps) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -69,10 +71,10 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 />
               </svg>
               <h1 className="mt-4 text-xl font-bold text-on-surface tracking-tight">
-                Reset Your Password
+                {t('auth.resetPasswordTitle')}
               </h1>
               <p className="mt-1 text-sm text-on-surface-variant text-center">
-                Enter your email and we&apos;ll send you a reset code
+                {t('auth.resetRequestHint')}
               </p>
             </div>
 
@@ -91,10 +93,10 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 id="email"
                 name="email"
                 type="email"
-                label="Email address"
+                label={t('auth.emailAddressLabel')}
                 autoComplete="email"
                 required
-                placeholder="Enter your email"
+                placeholder={t('auth.emailPlaceholder')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 variant="dark"
@@ -106,7 +108,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 loading={isLoading}
                 className="w-full shadow-ambient"
               >
-                {isLoading ? 'Sending code...' : 'Send reset code'}
+                {isLoading ? t('auth.sendingCode') : t('auth.sendResetCode')}
               </Button>
 
               <div className="text-center">
@@ -115,7 +117,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                   onClick={onNavigateToLogin}
                   className="text-sm text-primary hover:text-primary-fixed-dim font-medium transition-colors"
                 >
-                  Back to sign in
+                  {t('auth.backToSignIn')}
                 </button>
               </div>
             </form>

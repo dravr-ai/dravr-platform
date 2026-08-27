@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { AlertTriangle, X, Ban } from 'lucide-react';
 import type { WarningLevel } from '../../hooks/useUsageStatus';
+import { useTranslation } from '@pierre/i18n';
 
 interface UsageWarningBannerProps {
   /** The warning severity level */
@@ -41,6 +42,7 @@ const BANNER_STYLES: Record<Exclude<WarningLevel, 'none'>, { bg: string; border:
 };
 
 export default function UsageWarningBanner({ level, message }: UsageWarningBannerProps) {
+  const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(false);
 
   if (level === 'none' || dismissed || !message) {
@@ -62,7 +64,7 @@ export default function UsageWarningBanner({ level, message }: UsageWarningBanne
         <button
           onClick={() => setDismissed(true)}
           className="flex-shrink-0 p-0.5 rounded hover:bg-surface-container transition-colors"
-          aria-label="Dismiss warning"
+          aria-label={t('chat.dismissWarning')}
         >
           <X className="w-3.5 h-3.5" />
         </button>

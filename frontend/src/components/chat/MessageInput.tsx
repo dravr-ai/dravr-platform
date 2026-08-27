@@ -12,6 +12,7 @@ import MentionPalette from './MentionPalette';
 import { IconButton } from '../ui';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { useMentionPalette } from '../../hooks/useMentionPalette';
+import { useTranslation } from '@pierre/i18n';
 
 interface MessageInputProps {
   value: string;
@@ -35,6 +36,7 @@ export default function MessageInput({
   disabled = false,
   conversationId,
 }: MessageInputProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const palette = useCommandPalette({ value, conversationId, onChange });
 
@@ -105,8 +107,8 @@ export default function MessageInput({
               than opening a second, parallel list. */}
           <IconButton
             variant="tonal"
-            aria-label="Commands"
-            title="Commands"
+            aria-label={t('chat.commandsLabel')}
+            title={t('chat.commandsLabel')}
             data-testid="slash-command-button"
             disabled={isStreaming || disabled}
             onClick={() => {
@@ -133,7 +135,7 @@ export default function MessageInput({
             onKeyUp={syncCaret}
             onClick={syncCaret}
             onSelect={syncCaret}
-            placeholder="Message Dravr..."
+            placeholder={t('chat.messageDravrPlaceholder')}
             className="w-full resize-none rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-16 py-3 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm transition-colors overflow-hidden"
             rows={1}
             disabled={isStreaming || disabled}
@@ -141,7 +143,7 @@ export default function MessageInput({
           <button
             onClick={onSend}
             disabled={!value.trim() || isStreaming || disabled}
-            aria-label="Send message"
+            aria-label={t('chat.sendMessageAria')}
             className={clsx(
               'absolute right-2 top-1/2 -translate-y-1/2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg transition-colors',
               value.trim() && !isStreaming && !disabled
@@ -157,7 +159,7 @@ export default function MessageInput({
         </div>
         <div className="flex items-center justify-center gap-2 mt-2">
           <p className="text-xs text-outline hidden sm:block">
-            Press Enter to send, Shift+Enter for new line
+            {t('chat.inputKeyHint')}
           </p>
         </div>
       </div>

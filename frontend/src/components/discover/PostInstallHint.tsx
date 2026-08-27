@@ -6,6 +6,7 @@
 
 import { Button, Card } from '../ui';
 import { coachAddDraft, coachMention } from './coachDraft';
+import { useTranslation } from '@pierre/i18n';
 
 export interface PostInstallHintProps {
   coachTitle: string;
@@ -20,6 +21,7 @@ export interface PostInstallHintProps {
 }
 
 export default function PostInstallHint({ coachTitle, handle, onOpenChat, onDismiss }: PostInstallHintProps) {
+  const { t } = useTranslation();
   const draft = coachAddDraft(handle);
   const mention = coachMention(handle);
   return (
@@ -29,15 +31,15 @@ export default function PostInstallHint({ coachTitle, handle, onOpenChat, onDism
           &ldquo;{coachTitle}&rdquo; is in your coaches
         </h3>
         <p className="text-sm text-on-surface-variant">
-          Use it in any chat: <code className="font-mono text-primary">{draft}</code> — or mention{' '}
-          <code className="font-mono text-primary">{mention}</code> for one turn
+          {t('discover.postInstallUseHint')} <code className="font-mono text-primary">{draft}</code> — or mention{' '}
+          <code className="font-mono text-primary">{mention}</code> {t('frag.forOneTurn')}
         </p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => onOpenChat(draft)} data-testid="post-install-open-chat">
-            Open chat
+            {t('discover.openChat')}
           </Button>
           <Button size="sm" variant="secondary" onClick={onDismiss} data-testid="post-install-dismiss">
-            Dismiss
+            {t('chat.dismiss')}
           </Button>
         </div>
       </Card>

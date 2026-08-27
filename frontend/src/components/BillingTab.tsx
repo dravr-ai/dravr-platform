@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { adminApi } from '../services/api';
 import { Button, Card } from './ui';
+import { useTranslation } from '@pierre/i18n';
 
 function defaultPeriod(): string {
   const now = new Date();
@@ -16,6 +17,7 @@ function defaultPeriod(): string {
 }
 
 export default function BillingTab() {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<string>(defaultPeriod());
   const [limit, setLimit] = useState<number>(1000);
   const [busy, setBusy] = useState<boolean>(false);
@@ -39,7 +41,7 @@ export default function BillingTab() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Export failed');
+      setError(e instanceof Error ? e.message : t('shell.billingExportFailed'));
     } finally {
       setBusy(false);
     }
@@ -49,12 +51,10 @@ export default function BillingTab() {
     <div className="space-y-6">
       <Card variant="dark" className="p-6">
         <h2 className="text-lg font-semibold text-on-surface mb-2">
-          Billing Export
+          {t('shell.billingExportTitle')}
         </h2>
         <p className="text-sm text-on-surface-variant mb-4">
-          Download every LLM usage row from the selected period for invoice
-          reconciliation. CSV is the canonical accounting format; JSON is
-          available for programmatic consumers.
+          {t('shell.billingExportHint')}
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -63,7 +63,7 @@ export default function BillingTab() {
               htmlFor="billing-period"
               className="block text-sm font-medium text-on-surface mb-1"
             >
-              Period (YYYY-MM)
+              {t('shell.billingExportPeriod')}
             </label>
             <input
               id="billing-period"
@@ -79,7 +79,7 @@ export default function BillingTab() {
               htmlFor="billing-limit"
               className="block text-sm font-medium text-on-surface mb-1"
             >
-              Row limit (1-10000)
+              {t('shell.billingExportRowLimit')}
             </label>
             <input
               id="billing-limit"
@@ -99,19 +99,19 @@ export default function BillingTab() {
             disabled={busy}
             className="bg-activity hover:bg-activity/80 text-on-primary"
           >
-            {busy ? 'Exporting…' : 'Export CSV'}
+            {busy ? t('shell.billingExporting') : t('shell.billingExportCsv')}
           </Button>
           <Button
             onClick={() => handleExport('json')}
             disabled={busy}
             variant="secondary"
           >
-            Export JSON
+            {t('shell.billingExportJson')}
           </Button>
         </div>
 
         {error && (
-          <p className="mt-4 text-sm text-error">Error: {error}</p>
+          <p className="mt-4 text-sm text-error">{t('frag.errorLabel')} {error}</p>
         )}
       </Card>
     </div>

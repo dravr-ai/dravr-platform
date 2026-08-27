@@ -1,3 +1,4 @@
+import { useTranslation } from '@pierre/i18n';
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
@@ -46,12 +47,13 @@ function SessionCell({ session, label }: { session: WorkoutSession; label?: stri
 }
 
 function DayRow({ day }: { day: WorkoutDay }) {
+  const { t } = useTranslation();
   const rest = !day.session && !day.pm_session;
   return (
     <tr className="border-b border-outline-variant/40 last:border-0">
       <td className="py-2 pr-3 align-top font-semibold text-on-surface">{day.day}</td>
       <td className="py-2 align-top">
-        {rest && <span className="text-on-surface-variant">Rest</span>}
+        {rest && <span className="text-on-surface-variant">{t('chat.restDay')}</span>}
         {day.session && (
           <SessionCell session={day.session} label={day.am_pm_split ? 'AM' : undefined} />
         )}
@@ -62,6 +64,7 @@ function DayRow({ day }: { day: WorkoutDay }) {
 }
 
 export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
+  const { t } = useTranslation();
   // `compliance` is typed as required but `parseWorkoutPlan` only checks
   // `plan_window` and `weeks`, so a plan without it reaches here and an
   // unguarded dereference blanks the whole app behind the error boundary.
@@ -75,7 +78,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
       {/* Header */}
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-outline-variant bg-surface-container-high px-4 py-3">
         <div className="text-sm font-semibold text-on-surface">
-          Training plan
+          {t('chat.trainingPlanTitle')}
           <span className="ml-2 font-normal text-on-surface-variant">
             {plan.plan_window.start} → {plan.plan_window.end}
           </span>
@@ -97,7 +100,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
         <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-on-surface-variant">
           {hasZones && (
             <span>
-              Zones{' '}
+              {t('frag.zones')}{' '}
               <span className="font-medium text-on-surface">
                 Z1 {compliance.z1_pct ?? 0}% / Z2 {compliance.z2_pct ?? 0}% / Z3 {compliance.z3_pct ?? 0}%
               </span>
@@ -105,12 +108,12 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
           )}
           {typeof compliance.weekly_tss_target === 'number' && (
             <span>
-              Weekly TSS <span className="font-medium text-on-surface">{compliance.weekly_tss_target}</span>
+              {t('chat.weeklyTss')} <span className="font-medium text-on-surface">{compliance.weekly_tss_target}</span>
             </span>
           )}
           {typeof compliance.polarization_index === 'number' && (
             <span>
-              Polarization{' '}
+              {t('frag.polarization')}{' '}
               <span className="font-medium text-on-surface">
                 {compliance.polarization_index.toFixed(2)}
               </span>
@@ -118,7 +121,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
           )}
           {typeof plan.easy_volume_floor_pct === 'number' && (
             <span>
-              Easy floor <span className="font-medium text-on-surface">≥{plan.easy_volume_floor_pct}%</span>
+              {t('chat.easyFloor')} <span className="font-medium text-on-surface">≥{plan.easy_volume_floor_pct}%</span>
             </span>
           )}
         </div>
@@ -128,9 +131,9 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
           <div key={week.week_index} className="mb-4 last:mb-0">
             {plan.weeks.length > 1 && (
               <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-                Week {week.week_index}
+                {t('frag.week')} {week.week_index}
                 {typeof week.ctl_target === 'number' && (
-                  <span className="ml-2 font-normal normal-case">CTL target {week.ctl_target}</span>
+                  <span className="ml-2 font-normal normal-case">{t('frag.ctlTarget')} {week.ctl_target}</span>
                 )}
               </div>
             )}

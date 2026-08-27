@@ -13,6 +13,7 @@ import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls } from './utils';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
+import { useTranslation } from '@pierre/i18n';
 
 interface MessageListProps {
   messages: Message[];
@@ -85,6 +86,7 @@ export default function MessageList({
   onAskAboutClaim,
   onActionClick,
 }: MessageListProps) {
+  const { t } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when messages change
@@ -94,7 +96,7 @@ export default function MessageList({
 
   if (isLoading) {
     return (
-      <div className="text-center text-on-surface-variant py-8 text-sm">Loading messages...</div>
+      <div className="text-center text-on-surface-variant py-8 text-sm">{t('chat.loadingMessages')}</div>
     );
   }
 
@@ -137,11 +139,11 @@ export default function MessageList({
       {oauthNotification && (
         <div className="flex gap-3 animate-fadeIn">
           <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt={assistantLabel ?? 'Dravr'} className="w-8 h-8 rounded-xl" />
+            <img src="/dravr-icon.svg" alt={assistantLabel ?? t('shell.brandName')} className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
             <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
-              {assistantLabel ?? 'Dravr'}
+              {assistantLabel ?? t('shell.brandName')}
               <button
                 onClick={onDismissOAuthNotification}
                 className="text-outline hover:text-on-surface transition-colors"
@@ -162,11 +164,11 @@ export default function MessageList({
       {isStreaming && streamingContent && (
         <div className="flex gap-3">
           <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt={assistantLabel ?? 'Dravr'} className="w-8 h-8 rounded-xl" />
+            <img src="/dravr-icon.svg" alt={assistantLabel ?? t('shell.brandName')} className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
             <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
-              {assistantLabel ?? 'Dravr'}
+              {assistantLabel ?? t('shell.brandName')}
               <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
             </div>
             <div className="text-on-surface text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
@@ -191,15 +193,15 @@ export default function MessageList({
       {isStreaming && !streamingContent && (
         <div className="flex gap-3">
           <div className="flex-shrink-0">
-            <img src="/dravr-icon.svg" alt={assistantLabel ?? 'Dravr'} className="w-8 h-8 rounded-xl" />
+            <img src="/dravr-icon.svg" alt={assistantLabel ?? t('shell.brandName')} className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 pt-1">
             <div className="font-medium text-on-surface text-sm mb-2 flex items-center gap-2">
-              {assistantLabel ?? 'Dravr'}
+              {assistantLabel ?? t('shell.brandName')}
             </div>
             <div className="flex items-center gap-2 text-on-surface-variant text-sm">
               <div className="pierre-spinner w-4 h-4"></div>
-              <span>{progressStatusText ?? 'Thinking...'}</span>
+              <span>{progressStatusText ?? t('chat.thinking')}</span>
             </div>
           </div>
         </div>
@@ -222,7 +224,7 @@ export default function MessageList({
                 onClick={onDismissError}
                 className="text-error hover:text-error text-xs mt-2 underline transition-colors"
               >
-                Dismiss
+                {t('chat.dismiss')}
               </button>
             </div>
           </div>

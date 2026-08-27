@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * The seven standard PAR-Q+ questions, served by the backend.
@@ -27,6 +28,7 @@ export default function OnboardingParq({
   userDisplayName?: string | null;
   onComplete: (status?: 'complete' | 'skipped') => void;
 }) {
+  const { t } = useTranslation();
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
 
@@ -71,11 +73,10 @@ export default function OnboardingParq({
 
   return (
     <OnboardingShell
-      heading={userDisplayName ? `A quick health check, ${userDisplayName}` : 'A quick health check'}
+      heading={userDisplayName ? `A quick health check, ${userDisplayName}` : t('onboarding.parqHeading')}
     >
       <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
-        Standard pre-participation questions. Nothing here blocks your account — a yes just tells
-        your coach to be careful in the right places.
+        {t('onboarding.parqIntro')}
       </p>
 
       <div className="mt-8 space-y-3">
@@ -88,7 +89,7 @@ export default function OnboardingParq({
             <div className="flex shrink-0 gap-1" role="group" aria-label={q.text}>
               {[
                 { label: 'No', value: false },
-                { label: 'Yes', value: true },
+                { label: t('onboarding.parqYes'), value: true },
               ].map(({ label, value }) => {
                 const selected = answers[q.id] === value;
                 return (
@@ -119,7 +120,7 @@ export default function OnboardingParq({
           disabled={saving || !allAnswered}
           className="w-full"
         >
-          {saving ? 'Saving…' : allAnswered ? 'Continue' : 'Answer all to continue'}
+          {saving ? t('onboarding.saving') : allAnswered ? t('onboarding.continueButton') : t('onboarding.parqAnswerAll')}
         </Button>
         <button
           type="button"
@@ -127,7 +128,7 @@ export default function OnboardingParq({
           disabled={saving}
           className="w-full text-sm font-medium text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline transition-colors"
         >
-          Skip for now
+          {t('onboarding.skipForNow')}
         </button>
       </div>
     </OnboardingShell>

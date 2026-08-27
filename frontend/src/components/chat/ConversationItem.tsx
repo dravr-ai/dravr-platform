@@ -10,6 +10,7 @@ import { Mail, MoreVertical, Pencil, Send, Trash2, Users } from 'lucide-react';
 import type { ConversationRowModel } from '@pierre/chat-utils';
 import { Badge, IconButton, Input } from '../ui';
 import { avatarSlotClass } from './avatarSlots';
+import { useTranslation } from '@pierre/i18n';
 
 interface ConversationItemProps {
   row: ConversationRowModel;
@@ -47,6 +48,7 @@ function RowMenu({
   onMarkUnread: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -89,8 +91,8 @@ function RowMenu({
         onClick={() => setOpen(!open)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Conversation actions"
-        title="Conversation actions"
+        aria-label={t('chat.conversationActions')}
+        title={t('chat.conversationActions')}
         data-testid="conversation-actions-trigger"
       >
         <MoreVertical className="w-4 h-4" aria-hidden="true" />
@@ -98,17 +100,17 @@ function RowMenu({
       {open && (
         <div
           role="menu"
-          aria-label="Conversation actions"
+          aria-label={t('chat.conversationActions')}
           data-testid="conversation-actions-menu"
           className="absolute right-0 z-30 mt-1 w-48 rounded-xl border ghost-border bg-surface shadow-lg p-1.5"
         >
           <button type="button" role="menuitem" onClick={() => choose(onStartRename)} className={itemClass}>
             <Pencil className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-            <span>Rename conversation</span>
+            <span>{t('chat.renameConversation')}</span>
           </button>
           <button type="button" role="menuitem" onClick={() => choose(onMarkUnread)} className={itemClass}>
             <Mail className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-            <span>Mark conversation unread</span>
+            <span>{t('chat.markUnread')}</span>
           </button>
           <button
             type="button"
@@ -117,7 +119,7 @@ function RowMenu({
             className={clsx(itemClass, 'hover:!text-error')}
           >
             <Trash2 className="w-4 h-4 text-error flex-shrink-0" aria-hidden="true" />
-            <span>Delete conversation</span>
+            <span>{t('chat.deleteConversation')}</span>
           </button>
         </div>
       )}
@@ -127,14 +129,15 @@ function RowMenu({
 
 /** What the glyph before the title says, for the rows that carry one. */
 function KindGlyph({ row }: { row: ConversationRowModel }) {
+  const { t } = useTranslation();
   if (row.kind === 'group') {
     return (
       <span
         className="inline-flex items-center flex-shrink-0 text-on-surface-variant"
         data-testid="conversation-kind-glyph"
         data-kind="group"
-        title={row.groupName ?? 'Group chat'}
-        aria-label="Group chat"
+        title={row.groupName ?? t('chat.groupChatBadge')}
+        aria-label={t('chat.groupChatBadge')}
       >
         <Users className="w-3.5 h-3.5" aria-hidden="true" />
       </span>
@@ -170,6 +173,7 @@ const ConversationItem = memo(function ConversationItem({
   onSaveRename,
   onCancelRename,
 }: ConversationItemProps) {
+  const { t } = useTranslation();
   const unread = row.unreadCount > 0;
   // The open menu drops over the rows below it, so the row it belongs to has
   // to sit above its later siblings while it is showing — a `relative` row at
@@ -213,7 +217,7 @@ const ConversationItem = memo(function ConversationItem({
               }
             }}
             onBlur={onSaveRename}
-            aria-label="Conversation title"
+            aria-label={t('chat.conversationTitle')}
             autoFocus
           />
         </div>

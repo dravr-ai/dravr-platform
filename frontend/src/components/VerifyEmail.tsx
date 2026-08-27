@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { authApi } from '../services/api';
 import { Button, Card, Input } from './ui';
 import { DravrLogo } from './DravrLogo';
+import { useTranslation } from '@pierre/i18n';
 
 /** The outcomes `GET /api/auth/verify-email` can redirect here with. */
 export type VerifyEmailStatus = 'verified' | 'verified_pending' | 'invalid' | 'error';
@@ -43,6 +44,7 @@ export default function VerifyEmail({
   status: VerifyEmailStatus;
   onContinue: () => void;
 }) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 
@@ -59,20 +61,20 @@ export default function VerifyEmail({
 
   const copy = {
     verified: {
-      heading: 'Email confirmed',
-      body: 'Your account is active. Sign in and connect a fitness service to meet your coach.',
+      heading: t('auth.emailConfirmed'),
+      body: t('auth.emailConfirmedBody'),
     },
     verified_pending: {
-      heading: 'Email confirmed',
+      heading: t('auth.emailConfirmed'),
       body: "Thanks — that's your part done. An administrator still needs to approve the account, and you'll get an email the moment they do.",
     },
     invalid: {
-      heading: 'That link has expired',
-      body: 'Confirmation links work once and then stop. Enter your email below and we’ll send a fresh one.',
+      heading: t('auth.linkExpired'),
+      body: t('auth.linkExpiredBody'),
     },
     error: {
-      heading: "We couldn't confirm that just now",
-      body: 'Something went wrong on our side. Request a new link below — if it keeps failing, the address may already be confirmed.',
+      heading: t('frag.couldntConfirm'),
+      body: t('auth.verifyErrorBody'),
     },
   }[status];
 
@@ -96,7 +98,7 @@ export default function VerifyEmail({
                 <Input
                   id="verify-resend-email"
                   type="email"
-                  label="Email address"
+                  label={t('auth.emailAddressLabel')}
                   autoComplete="email"
                   placeholder="you@example.com"
                   value={email}
@@ -108,16 +110,16 @@ export default function VerifyEmail({
                   disabled={resendState === 'sending' || !email.includes('@')}
                   className="w-full"
                 >
-                  {resendState === 'sending' ? 'Sending…' : 'Send a new link'}
+                  {resendState === 'sending' ? t('auth.resendSending') : t('auth.sendNewLink')}
                 </Button>
                 {resendState === 'sent' && (
                   <p className="text-xs text-on-surface-variant text-center" role="status">
-                    If that address needs confirming, a new link is on its way.
+                    {t('auth.newLinkOnItsWay')}
                   </p>
                 )}
                 {resendState === 'failed' && (
                   <p className="text-xs text-error text-center" role="alert">
-                    Couldn&apos;t send it just now. Try again in a moment.
+                    {t('auth.resendFailed')}
                   </p>
                 )}
               </div>
@@ -125,7 +127,7 @@ export default function VerifyEmail({
 
             <div className="mt-8">
               <Button variant={showResend ? 'secondary' : 'primary'} onClick={onContinue} className="w-full">
-                Continue to sign in
+                {t('auth.continueToSignIn')}
               </Button>
             </div>
           </div>

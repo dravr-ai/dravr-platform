@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 import { MessageSquarePlus, Plus, UserPlus, Users } from 'lucide-react';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import { Button, Input, Modal, ModalActions } from '../ui';
+import { useTranslation } from '@pierre/i18n';
 
 export interface ChatComposeMenuProps {
   /** Start a fresh one-to-one conversation. */
@@ -43,6 +44,7 @@ export default function ChatComposeMenu({
   onAddParticipant,
   disabled = false,
 }: ChatComposeMenuProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [namingGroup, setNamingGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -94,8 +96,8 @@ export default function ChatComposeMenu({
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="New"
-        title="New"
+        aria-label={t('chat.newMenuButton')}
+        title={t('chat.newMenuButton')}
         className="rounded-lg text-on-primary bg-primary hover:bg-primary-container transition-colors shadow-ambient disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center"
       >
         <Plus className="w-4 h-4" aria-hidden="true" />
@@ -104,13 +106,13 @@ export default function ChatComposeMenu({
       {open && (
         <div
           role="menu"
-          aria-label="Start a conversation"
+          aria-label={t('chat.startConversationPrompt')}
           data-testid="chat-compose-menu"
           className="absolute right-0 z-30 mt-2 w-72 max-w-[90vw] rounded-xl border ghost-border bg-surface shadow-lg p-1.5"
         >
           <button type="button" role="menuitem" onClick={() => choose(onNewChat)} className={itemClass}>
             <MessageSquarePlus className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-            <span>New chat</span>
+            <span>{t('chat.newChat')}</span>
           </button>
           <button
             type="button"
@@ -119,7 +121,7 @@ export default function ChatComposeMenu({
             className={itemClass}
           >
             <Users className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-            <span>New group chat</span>
+            <span>{t('chat.newGroupChat')}</span>
           </button>
           {onAddParticipant && (
             <button
@@ -129,7 +131,7 @@ export default function ChatComposeMenu({
               className={clsx(itemClass, 'border-t ghost-border rounded-t-none mt-1 pt-3')}
             >
               <UserPlus className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-              <span>Add someone to this discussion</span>
+              <span>{t('chat.addSomeoneHint')}</span>
             </button>
           )}
         </div>
@@ -138,12 +140,12 @@ export default function ChatComposeMenu({
       <Modal
         isOpen={namingGroup}
         onClose={closeNaming}
-        title="New group chat"
+        title={t('chat.newGroupChat')}
         size="sm"
         footer={
           <ModalActions>
             <Button variant="secondary" onClick={closeNaming}>
-              Cancel
+              {t('chat.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -151,13 +153,13 @@ export default function ChatComposeMenu({
               disabled={!groupName.trim()}
               data-testid="group-name-submit"
             >
-              Create
+              {t('groups.inviteCreate')}
             </Button>
           </ModalActions>
         }
       >
         <Input
-          label="Group name"
+          label={t('chat.groupNameLabel')}
           value={groupName}
           onChange={(e) => setGroupName(e.target.value)}
           onKeyDown={(e) => {
@@ -166,7 +168,7 @@ export default function ChatComposeMenu({
               submitGroupName();
             }
           }}
-          placeholder="Marathon Squad"
+          placeholder={t('groups.namePlaceholder')}
           maxLength={100}
           autoFocus
           data-testid="group-name-input"

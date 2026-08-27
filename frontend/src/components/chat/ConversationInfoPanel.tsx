@@ -12,6 +12,7 @@ import { useCoachInfo } from '../../hooks/useCoachInfo';
 import GroupInfoPanel from '../groups/GroupInfoPanel';
 import CoachInfoPanel from './CoachInfoPanel';
 import ConversationParticipants from './ConversationParticipants';
+import { useTranslation } from '@pierre/i18n';
 
 interface ConversationInfoPanelProps {
   /** The open conversation, as the list serves it. */
@@ -42,10 +43,12 @@ function shapeOf(conversation: Conversation): 'group' | 'coach' | 'plain' {
   return 'plain';
 }
 
-const HEADINGS: Record<'group' | 'coach' | 'plain', string> = {
-  group: 'Group info',
-  coach: 'Coach info',
-  plain: 'Chat info',
+// Built at import time, where `t` does not exist: the table carries the key
+// and the render resolves it.
+const HEADING_KEYS: Record<'group' | 'coach' | 'plain', string> = {
+  group: 'chat.infoPanelGroupTitle',
+  coach: 'chat.coachInfo',
+  plain: 'chat.infoPanelChatTitle',
 };
 
 /**
@@ -67,6 +70,7 @@ export default function ConversationInfoPanel({
   onThreadGone,
   openParticipants = false,
 }: ConversationInfoPanelProps) {
+  const { t } = useTranslation();
   const shape = shapeOf(conversation);
   const { coach } = useCoachInfo(shape === 'coach' ? conversation.coach_id : null);
   const [title, setTitle] = useState(conversation.title ?? '');
@@ -88,7 +92,7 @@ export default function ConversationInfoPanel({
       className="fixed inset-0 z-50 flex items-start justify-end bg-black/60"
       role="dialog"
       aria-modal="true"
-      aria-label={HEADINGS[shape]}
+      aria-label={t(HEADING_KEYS[shape])}
       onClick={onClose}
     >
       <div
@@ -97,12 +101,12 @@ export default function ConversationInfoPanel({
         data-testid="conversation-info-panel"
       >
         <div className="sticky top-0 z-10 flex items-start justify-between border-b ghost-border bg-surface-container-lowest/90 px-5 py-4 backdrop-blur">
-          <h3 className="text-lg font-semibold text-on-surface">{HEADINGS[shape]}</h3>
+          <h3 className="text-lg font-semibold text-on-surface">{t(HEADING_KEYS[shape])}</h3>
           <button
             type="button"
             onClick={onClose}
             className="rounded p-1 text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
-            aria-label="Close"
+            aria-label={t('chat.close')}
           >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -127,14 +131,14 @@ export default function ConversationInfoPanel({
               />
             ) : (
               <p className="py-6 text-center text-sm text-outline" data-testid="coach-info-missing">
-                This chat's coach could not be loaded.
+                {t('chat.coachInfoLoadFailed')}
               </p>
             )
           ) : (
             <div className="space-y-6" data-testid="plain-info-panel">
               <section className="space-y-2">
                 <Input
-                  label="Chat name"
+                  label={t('chat.chatNameLabel')}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   maxLength={200}
@@ -148,14 +152,14 @@ export default function ConversationInfoPanel({
                     onClick={() => onRename(trimmed)}
                     data-testid="conversation-info-rename"
                   >
-                    Rename
+                    {t('chat.renameAction')}
                   </Button>
                 </div>
               </section>
 
               <section>
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-outline">
-                  Participants
+                  {t('chat.participantsHeading')}
                 </h4>
                 <ConversationParticipants
                   conversationId={conversation.id}
@@ -166,10 +170,10 @@ export default function ConversationInfoPanel({
 
               <section className="space-y-3 rounded-lg border border-error/20 p-4">
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-error">
-                  Danger Zone
+                  {t('chat.dangerZone')}
                 </h4>
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm text-on-surface">Delete this chat and its messages.</p>
+                  <p className="text-sm text-on-surface">{t('chat.deleteChatHint')}</p>
                   <Button
                     variant="danger"
                     size="sm"
@@ -178,7 +182,7 @@ export default function ConversationInfoPanel({
                   >
                     <span className="flex items-center gap-1.5">
                       <Trash2 className="w-4 h-4" aria-hidden="true" />
-                      Delete
+                      {t('chat.deleteAction')}
                     </span>
                   </Button>
                 </div>

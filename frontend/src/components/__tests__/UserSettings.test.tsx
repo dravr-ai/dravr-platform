@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -12,6 +12,7 @@ import UserSettings from '../UserSettings';
 import { ThemeProvider } from '../../hooks/useTheme';
 import { ToastProvider } from '../ui';
 import { userApi } from '../../services/api';
+import { i18n } from '@pierre/i18n';
 
 // Mock lazy-loaded components
 vi.mock('../A2AClientList', () => ({
@@ -163,7 +164,19 @@ describe('UserSettings Component', () => {
     vi.clearAllMocks();
   });
 
+  // These assert translated copy rather than English chrome, which is the
+  // point of them: they are the one unit-level proof that a component renders
+  // through the corpus at all. The suite as a whole pins English, so this
+  // block states the locale it means to exercise instead of inheriting it.
   describe('Appearance', () => {
+    beforeEach(async () => {
+      await i18n.changeLanguage('fr');
+    });
+
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+    });
+
     it('renders the theme toggle on the Profile tab and flips the scheme', async () => {
       const user = userEvent.setup();
       localStorage.removeItem('dravr.theme');
@@ -173,8 +186,7 @@ describe('UserSettings Component', () => {
       });
 
       // The provider defaults new visitors to dark, so the control offers light.
-      // Chrome renders in French: DEFAULT_LOCALE is `fr` and this test client
-      // has no stored language preference.
+      // Chrome renders in French because this block selects `fr` above.
       expect(screen.getByText('Apparence')).toBeInTheDocument();
       expect(screen.getByText('Tu utilises le mode sombre.')).toBeInTheDocument();
       expect(document.documentElement.classList.contains('dark')).toBe(true);
@@ -219,7 +231,7 @@ describe('UserSettings Component', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            'Le thème a changé ici, mais la préférence n\'a pas pu être enregistrée sur ton compte. Réessaie.',
+            'Le thème a changé ici, mais la préférence n’a pas pu être enregistrée sur ton compte. Réessaie.',
           ),
         ).toBeInTheDocument();
       });
@@ -238,7 +250,7 @@ describe('UserSettings Component', () => {
       expect(select).toBeInTheDocument();
       expect(select).toHaveValue('fr');
       expect(
-        screen.getByText("L'interface et les réponses de ton coach suivent toutes deux ce réglage."),
+        screen.getByText("L’interface et les réponses de ton coach suivent toutes deux ce réglage."),
       ).toBeInTheDocument();
       expect(screen.getByRole('option', { name: '🇩🇪 Deutsch' })).toBeInTheDocument();
       expect(screen.getByRole('option', { name: '🇵🇹 Português' })).toBeInTheDocument();

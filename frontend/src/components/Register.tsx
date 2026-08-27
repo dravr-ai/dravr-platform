@@ -9,6 +9,7 @@ import { authApi } from '../services/api';
 import { Button, Input } from './ui';
 
 import { DravrLogo } from './DravrLogo';
+import { useTranslation } from '@pierre/i18n';
 
 interface RegisterProps {
   onNavigateToLogin: () => void;
@@ -16,6 +17,7 @@ interface RegisterProps {
 }
 
 export default function Register({ onNavigateToLogin, onRegistrationSuccess }: RegisterProps) {
+  const { t } = useTranslation();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -68,10 +70,10 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
             <div className="flex flex-col items-center">
               <DravrLogo size={80} />
               <h1 className="mt-4 text-xl font-bold text-on-surface tracking-tight">
-                Create Your Account
+                {t('auth.createAccountTitle')}
               </h1>
               <p className="mt-1 text-sm text-on-surface-variant">
-                Join Dravr
+                {t('auth.joinDravr')}
               </p>
             </div>
 
@@ -88,9 +90,9 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                   id="displayName"
                   name="displayName"
                   type="text"
-                  label="Display Name"
+                  label={t('auth.displayNameLabel')}
                   autoComplete="name"
-                  placeholder="Enter your name (optional)"
+                  placeholder={t('auth.displayNamePlaceholder')}
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   variant="dark"
@@ -100,10 +102,10 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                   id="email"
                   name="email"
                   type="email"
-                  label="Email address"
+                  label={t('auth.emailAddressLabel')}
                   autoComplete="email"
                   required
-                  placeholder="Enter your email"
+                  placeholder={t('auth.emailPlaceholder')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   variant="dark"
@@ -113,17 +115,17 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
-                  label="Password"
+                  label={t('auth.passwordLabel')}
                   autoComplete="new-password"
                   required
-                  placeholder="Create a password (min 8 characters)"
+                  placeholder={t('auth.newPasswordPlaceholderSignUp')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   variant="dark"
                   rightIcon={
                     <button
                       type="button"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                       className="text-on-surface-variant hover:text-on-surface transition-colors"
                       onClick={() => setShowPassword(!showPassword)}
                     >
@@ -145,10 +147,10 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                   id="confirmPassword"
                   name="confirmPassword"
                   type={showPassword ? 'text' : 'password'}
-                  label="Confirm Password"
+                  label={t('auth.confirmPasswordLabel')}
                   autoComplete="new-password"
                   required
-                  placeholder="Confirm your password"
+                  placeholder={t('auth.confirmPasswordPlaceholder')}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   variant="dark"
@@ -161,7 +163,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                 loading={isLoading}
                 className="w-full shadow-ambient"
               >
-                {isLoading ? 'Creating account...' : 'Create Account'}
+                {isLoading ? t('auth.creatingAccount') : t('auth.createAccountButton')}
               </Button>
 
               {/* Link to login */}
@@ -171,7 +173,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                   onClick={onNavigateToLogin}
                   className="text-sm text-primary hover:text-primary-fixed-dim font-medium transition-colors"
                 >
-                  Already have an account? Sign in
+                  {t('auth.haveAccountSignIn')}
                 </button>
               </div>
             </form>

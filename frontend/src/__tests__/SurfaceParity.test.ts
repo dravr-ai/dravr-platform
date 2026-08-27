@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { describe, it, expect } from 'vitest';
 import { SURFACE_CAPABILITIES, USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
+import { defaultI18nConfig } from '@pierre/i18n';
 
 /**
  * Mobile has had this test since the registry existed. Web never did — a grep
@@ -97,9 +98,23 @@ describe('surface parity — web', () => {
   it('pins every web nav label to a surface the sidebar actually offers', () => {
     // The design sweep walks these labels; a label no sidebar button carries
     // makes the sweep skip a surface and still report success.
-    const missing = USER_SURFACES.filter(
-      (s) => s.webNav !== null && !dashboardSource.includes(`name: '${s.webNav}'`),
-    );
+    //
+    // The sidebar renders its labels through the corpus, so this checks the
+    // same two links the sweep depends on: the route exists in the sidebar,
+    // and the registry's English `webNav` is exactly what `nav.*` renders in
+    // English. It used to match on a `name: '<label>'` literal in the source,
+    // which the translation removed — and which would have gone on passing for
+    // the admin tabs that still carry literals, quietly covering less than it
+    // claimed.
+    const bundle = defaultI18nConfig.resources.en.translation as { nav: Record<string, string> };
+    const navLabels = new Set(Object.values(bundle.nav));
+
+    const missing = USER_SURFACES.filter((s) => {
+      if (s.webNav === null) {
+        return false;
+      }
+      return !navLabels.has(s.webNav) || !dashboardSource.includes(`id: '${s.web}'`);
+    });
     expect(missing.map((s) => s.id)).toEqual([]);
   });
 });

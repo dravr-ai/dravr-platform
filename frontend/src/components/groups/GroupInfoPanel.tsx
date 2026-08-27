@@ -34,6 +34,7 @@ import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import type { GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 interface GroupInfoPanelProps {
   /** The group this conversation is scoped to. */
@@ -45,10 +46,12 @@ interface GroupInfoPanelProps {
   onMembershipEnded: () => void;
 }
 
-const TREND_DISPLAY: Record<GroupTrend, { label: string; color: string }> = {
-  improving: { label: 'Improving', color: 'text-success' },
-  stable: { label: 'Stable', color: 'text-on-surface-variant' },
-  declining: { label: 'Declining', color: 'text-warning' },
+// Built at import time, where `t` does not exist: the table carries the key
+// and the render resolves it.
+const TREND_DISPLAY: Record<GroupTrend, { labelKey: string; color: string }> = {
+  improving: { labelKey: 'groups.improving', color: 'text-success' },
+  stable: { labelKey: 'groups.stable', color: 'text-on-surface-variant' },
+  declining: { labelKey: 'groups.declining', color: 'text-warning' },
 };
 
 /** One titled block of the panel. */
@@ -82,6 +85,7 @@ function Section({
  * the two exits. Creating and joining are commands, so neither appears.
  */
 export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfoPanelProps) {
+  const { t } = useTranslation();
   const { group, isLoading: isGroupLoading } = useGroup(groupId);
   const { members, isLoading: isMembersLoading } = useGroupMembers(groupId);
   const { stats, isLoading: isStatsLoading } = useGroupStats(groupId);
@@ -129,13 +133,13 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
     try {
       await updateConsent(consent);
       showSuccess(
-        consent ? 'Sharing on' : 'Sharing off',
+        consent ? t('groups.sharingOn') : t('groups.sharingOff'),
         consent
-          ? 'Your training data is now readable by this group.'
-          : 'Your training data is no longer readable by this group.',
+          ? t('groups.dataSharingOnBody')
+          : t('groups.sharingOffNotice'),
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update sharing consent';
+      const message = err instanceof Error ? err.message : t('groups.consentFailed');
       showError('Update failed', message);
     }
   };
@@ -151,7 +155,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
       });
       showSuccess('Settings saved', 'Group settings have been updated.');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save settings';
+      const message = err instanceof Error ? err.message : t('groups.saveFailed');
       showError('Save failed', message);
     }
   };
@@ -162,7 +166,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
       showSuccess('Coach removed', 'The human coach has been detached from this group.');
       setConfirmRemoveCoach(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to remove coach';
+      const message = err instanceof Error ? err.message : t('groups.removeCoachFailed');
       showError('Remove failed', message);
     }
   };
@@ -173,7 +177,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
       showSuccess('Left group', 'You have left the group.');
       onMembershipEnded();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to leave group';
+      const message = err instanceof Error ? err.message : t('groups.leaveFailed');
       showError('Leave failed', message);
     }
   };
@@ -184,7 +188,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
       showSuccess('Group deleted', 'The group has been permanently archived.');
       onMembershipEnded();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to delete group';
+      const message = err instanceof Error ? err.message : t('groups.deleteFailed');
       showError('Delete failed', message);
     }
   };
@@ -200,7 +204,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
   if (!group) {
     return (
       <p className="py-10 text-center text-sm text-outline" data-testid="group-info-missing">
-        This group could not be loaded.
+        {t('groups.groupLoadFailed')}
       </p>
     );
   }
@@ -227,13 +231,13 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
           {isOwner && (
             <span className="flex items-center gap-1.5 text-warning">
               <Crown className="w-3.5 h-3.5" aria-hidden="true" />
-              Owner
+              {t('groups.owner')}
             </span>
           )}
           {group.coach_user_id && (
             <span className="flex items-center gap-1.5 text-primary">
               <UserCog className="w-3.5 h-3.5" aria-hidden="true" />
-              Coach attached
+              {t('groups.coachAttached')}
             </span>
           )}
         </div>
@@ -246,11 +250,11 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         <div data-testid="peer-consent-card">
           <Card variant="dark" className="!p-4">
             <Checkbox
-              label="Share my training data with this group"
+              label={t('groups.shareMyData')}
               description={
                 group.peer_data_sharing
-                  ? 'Lets the coach compare you with the rest of the group. Applies to your membership only.'
-                  : 'Group sharing is off, so your data stays private either way.'
+                  ? t('groups.shareMyDataHint')
+                  : t('groups.sharingOffHint')
               }
               checked={currentMember.peer_sharing_consent}
               disabled={isSavingConsent}
@@ -261,7 +265,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         </div>
       )}
 
-      <Section icon={<Users className="w-3.5 h-3.5" aria-hidden="true" />} title="Members">
+      <Section icon={<Users className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabMembers')}>
         <MemberList
           groupId={groupId}
           members={members}
@@ -271,14 +275,14 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         />
       </Section>
 
-      <Section icon={<Link2 className="w-3.5 h-3.5" aria-hidden="true" />} title="Invites">
+      <Section icon={<Link2 className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabInvites')}>
         <InviteManager groupId={groupId} currentUserRole={currentUserRole} />
       </Section>
 
       {isAdmin && (
-        <Section icon={<UserCog className="w-3.5 h-3.5" aria-hidden="true" />} title="Coach">
+        <Section icon={<UserCog className="w-3.5 h-3.5" aria-hidden="true" />} title={t('chat.coachPanelTitle')}>
           <p className="text-sm text-on-surface">
-            The AI coach answers in this room; a human coach can oversee it too.
+            {t('groups.coachRoomHint')}
           </p>
           {group.coach_user_id ? (
             <div className="flex items-center justify-between gap-3">
@@ -291,49 +295,48 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
                 onClick={() => setConfirmRemoveCoach(true)}
                 data-testid="group-info-remove-coach"
               >
-                Remove Coach
+                {t('groups.removeCoach')}
               </Button>
             </div>
           ) : (
             <p className="text-sm text-outline">
-              No human coach attached. Create a Coach invite above and share it with the coach you
-              want to oversee this group.
+              {t('groups.noCoachAttachedHint')}
             </p>
           )}
         </Section>
       )}
 
       {isAdmin && (
-        <Section icon={<Settings className="w-3.5 h-3.5" aria-hidden="true" />} title="Settings">
+        <Section icon={<Settings className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabSettings')}>
           <div className="space-y-4">
             <Input
-              label="Group Name"
+              label={t('groups.name')}
               variant="dark"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               maxLength={100}
             />
             <Textarea
-              label="Description"
+              label={t('chat.descriptionLabel')}
               rows={3}
               value={editDescription}
               onChange={(e) => setEditDescription(e.target.value)}
               maxLength={500}
             />
             <Checkbox
-              label="Enable peer data sharing"
+              label={t('groups.peerSharingEnable')}
               description="Allows members who consent to see each other's aggregated training data."
               checked={editPeerSharing}
               onChange={(e) => setEditPeerSharing(e.target.checked)}
             />
             <Select
               id="group-respond-mode"
-              label="Coach replies in the group chat"
+              label={t('groups.respondMode')}
               value={editRespondMode}
               onChange={(e) => setEditRespondMode(e.target.value as GroupRespondMode)}
               options={[
-                { value: 'all', label: 'To every message' },
-                { value: 'mentions', label: 'Only when mentioned' },
+                { value: 'all', label: t('groups.respondEvery') },
+                { value: 'mentions', label: t('groups.respondMentioned') },
               ]}
               helpText={'"Only when mentioned" keeps the coach quiet unless someone @-mentions it or replies to one of its messages; it still follows the discussion for context.'}
             />
@@ -344,14 +347,14 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
                 loading={isUpdating}
                 data-testid="group-info-save-settings"
               >
-                Save Settings
+                {t('groups.saveSettings')}
               </Button>
             </div>
           </div>
         </Section>
       )}
 
-      <Section icon={<BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />} title="Analytics">
+      <Section icon={<BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabAnalytics')}>
         {isStatsLoading ? (
           <div className="flex justify-center py-6">
             <div className="pierre-spinner" />
@@ -359,51 +362,51 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         ) : stats ? (
           <div className="grid grid-cols-2 gap-3" data-testid="group-info-stats">
             <div className="stat-card-dark">
-              <p className="text-xs font-medium text-on-surface-variant mb-1">Active Members</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.activeMembers')}</p>
               <p className="text-xl font-bold text-on-surface">{stats.active_members}</p>
               <p className="text-xs text-outline mt-1">of {stats.total_members} total</p>
             </div>
             <div className="stat-card-dark">
-              <p className="text-xs font-medium text-on-surface-variant mb-1">Avg Weekly Volume</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgWeeklyVolume')}</p>
               <p className="text-xl font-bold text-on-surface">
                 {stats.avg_weekly_volume_km.toFixed(1)}
                 <span className="text-sm text-on-surface-variant ml-1">km</span>
               </p>
             </div>
             <div className="stat-card-dark">
-              <p className="text-xs font-medium text-on-surface-variant mb-1">Avg CTL</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgCtl')}</p>
               <p className="text-xl font-bold text-on-surface">
                 {stats.avg_ctl !== null ? stats.avg_ctl.toFixed(1) : '--'}
               </p>
             </div>
             <div className="stat-card-dark">
-              <p className="text-xs font-medium text-on-surface-variant mb-1">Flagged</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.flagged')}</p>
               <p className="text-xl font-bold text-on-surface">{stats.flagged_members}</p>
               <p className="text-xs mt-1">
                 <span className={TREND_DISPLAY[stats.weekly_trend].color}>
-                  {TREND_DISPLAY[stats.weekly_trend].label}
+                  {t(TREND_DISPLAY[stats.weekly_trend].labelKey)}
                 </span>
               </p>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-outline">No stats available yet.</p>
+          <p className="text-sm text-outline">{t('groups.noStats')}</p>
         )}
         <GroupInsightsPanel groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
       </Section>
 
-      <Section icon={<MessageCircle className="w-3.5 h-3.5" aria-hidden="true" />} title="Room">
+      <Section icon={<MessageCircle className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabRoom')}>
         <GroupTranscriptPanel groupId={groupId} />
       </Section>
 
       <section className="space-y-3 rounded-lg border border-error/20 p-4">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-error">Danger Zone</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-error">{t('chat.dangerZone')}</h4>
         {!isOwner && (
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm text-on-surface">Leave Group</p>
+              <p className="text-sm text-on-surface">{t('groups.leaveGroup')}</p>
               <p className="text-xs text-outline mt-0.5">
-                You will lose access to this group and its data.
+                {t('groups.leaveHint')}
               </p>
             </div>
             <Button
@@ -412,16 +415,16 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
               onClick={() => setConfirmLeave(true)}
               data-testid="group-info-leave"
             >
-              Leave
+              {t('groups.leave')}
             </Button>
           </div>
         )}
         {isOwner && (
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm text-on-surface">Delete Group</p>
+              <p className="text-sm text-on-surface">{t('groups.deleteGroup')}</p>
               <p className="text-xs text-outline mt-0.5">
-                Permanently archive this group. All members will be removed.
+                {t('groups.deleteHint')}
               </p>
             </div>
             <Button
@@ -430,7 +433,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
               onClick={() => setConfirmDelete(true)}
               data-testid="group-info-delete"
             >
-              Delete Group
+              {t('groups.deleteGroup')}
             </Button>
           </div>
         )}
@@ -440,7 +443,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         isOpen={confirmLeave}
         onClose={() => setConfirmLeave(false)}
         onConfirm={() => void handleLeave()}
-        title="Leave Group"
+        title={t('groups.leaveGroup')}
         message={`Are you sure you want to leave "${group.name}"? You will need a new invite to rejoin.`}
         confirmLabel="Leave Group"
         variant="warning"
@@ -451,7 +454,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         isOpen={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => void handleDelete()}
-        title="Delete Group"
+        title={t('groups.deleteGroup')}
         message={`This will permanently archive "${group.name}" and remove all members. This action cannot be undone.`}
         confirmLabel="Delete Group"
         variant="danger"
@@ -462,7 +465,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         isOpen={confirmRemoveCoach}
         onClose={() => setConfirmRemoveCoach(false)}
         onConfirm={() => void handleRemoveCoach()}
-        title="Remove Coach"
+        title={t('groups.removeCoach')}
         message="Detach the human coach from this group? They will lose access to the group's roster. You can invite a coach again later."
         confirmLabel="Remove Coach"
         variant="warning"

@@ -11,6 +11,7 @@ import {
 } from '@pierre/shared-constants';
 import type { CoachFormData } from './coachForm';
 import { Select, Textarea, Radio } from '../ui';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Hold the typed budget inside the range the server accepts. A cleared or
@@ -46,6 +47,7 @@ export default function CoachFormModal({
   submitError,
   onDelete,
 }: CoachFormModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -68,7 +70,7 @@ export default function CoachFormModal({
           <button
             onClick={onClose}
             className="absolute top-4 right-4 p-2 text-on-surface-variant hover:text-on-surface-variant hover:bg-surface-container-high rounded-lg transition-colors"
-            aria-label="Close"
+            aria-label={t('chat.close')}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -81,14 +83,14 @@ export default function CoachFormModal({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold text-on-surface mb-2">Edit Coach</h2>
-            <p className="text-on-surface-variant text-sm">Update your coaching persona settings</p>
+            <h2 className="text-xl font-semibold text-on-surface mb-2">{t('chat.editCoachTitle')}</h2>
+            <p className="text-on-surface-variant text-sm">{t('chat.coachFormEditHint')}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-on-surface-variant mb-1">
-                Coach Name
+                {t('chat.coachNameLabel')}
               </label>
               <input
                 type="text"
@@ -102,11 +104,11 @@ export default function CoachFormModal({
 
             <div>
               <label className="block text-sm font-medium text-on-surface-variant mb-1">
-                Description <span className="text-on-surface-variant">(optional)</span>
+                {t('chat.descriptionLabel')} <span className="text-on-surface-variant">(optional)</span>
               </label>
               <input
                 type="text"
-                placeholder="Brief description of what this coach specializes in"
+                placeholder={t('chat.descriptionPlaceholder')}
                 value={formData.description}
                 onChange={(e) => onFormDataChange({ ...formData, description: e.target.value })}
                 className="w-full px-3 py-2 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -114,8 +116,8 @@ export default function CoachFormModal({
             </div>
 
             <Textarea
-              label="System Prompt"
-              placeholder="Define your coach's personality, expertise, and communication style..."
+              label={t('chat.systemPromptLabel')}
+              placeholder={t('chat.systemPromptPlaceholder')}
               value={formData.system_prompt}
               onChange={(e) => onFormDataChange({ ...formData, system_prompt: e.target.value })}
               rows={4}
@@ -128,23 +130,23 @@ export default function CoachFormModal({
             />
 
             <Select
-              label="Category"
+              label={t('chat.categoryLabel')}
               value={formData.category}
               onChange={(e) => onFormDataChange({ ...formData, category: e.target.value })}
               options={[
-                { value: 'Training', label: 'Training' },
-                { value: 'Nutrition', label: 'Nutrition' },
-                { value: 'Recovery', label: 'Recovery' },
-                { value: 'Recipes', label: 'Recipes' },
-                { value: 'Mobility', label: 'Mobility' },
-                { value: 'Analysis', label: 'Analysis' },
-                { value: 'Custom', label: 'Custom' },
+                { value: t('chat.categoryTraining'), label: t('chat.categoryTraining') },
+                { value: t('chat.categoryNutrition'), label: t('chat.categoryNutrition') },
+                { value: t('chat.categoryRecovery'), label: t('chat.categoryRecovery') },
+                { value: t('chat.categoryRecipes'), label: t('chat.categoryRecipes') },
+                { value: t('chat.categoryMobility'), label: t('chat.categoryMobility') },
+                { value: t('chat.categoryAnalysis'), label: t('chat.categoryAnalysis') },
+                { value: t('chat.categoryCustom'), label: t('chat.categoryCustom') },
               ]}
             />
 
             {/* Data Context Section */}
             <div className="border-t ghost-border pt-4">
-              <h3 className="text-sm font-medium text-on-surface-variant mb-3">Data Context</h3>
+              <h3 className="text-sm font-medium text-on-surface-variant mb-3">{t('chat.dataContextSection')}</h3>
 
               <div className="mb-3">
                 <Textarea
@@ -163,14 +165,14 @@ export default function CoachFormModal({
                   onChange={(e) => onFormDataChange({ ...formData, prefetch_enabled: e.target.checked })}
                   className="w-4 h-4 rounded ghost-border text-primary focus:ring-primary"
                 />
-                <span className="text-sm text-on-surface-variant">Pre-fetch activity data when conversation starts</span>
+                <span className="text-sm text-on-surface-variant">{t('chat.prefetchActivityData')}</span>
               </label>
 
               {formData.prefetch_enabled && (
                 <div className="space-y-3 pl-6 border-l-2 border-primary/20">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-on-surface-variant mb-1">Activity count</label>
+                      <label className="block text-xs font-medium text-on-surface-variant mb-1">{t('chat.activityCountLabel')}</label>
                       <input
                         type="number"
                         min={1}
@@ -181,7 +183,7 @@ export default function CoachFormModal({
                       />
                     </div>
                     <Select
-                      label="Time frame"
+                      label={t('chat.timeFrameLabel')}
                       size="sm"
                       value={formData.time_frame}
                       onChange={(e) => onFormDataChange({ ...formData, time_frame: e.target.value })}
@@ -197,7 +199,7 @@ export default function CoachFormModal({
 
                   <div>
                     <label className="block text-xs font-medium text-on-surface-variant mb-1">
-                      Sport types <span className="text-on-surface-variant">(none = all types)</span>
+                      {t('chat.sportTypesLabel')} <span className="text-on-surface-variant">(none = all types)</span>
                     </label>
                     <div className="flex flex-wrap gap-1.5">
                       {['Run', 'Ride', 'Swim', 'Walk', 'Hike'].map((sport) => {
@@ -228,7 +230,7 @@ export default function CoachFormModal({
                   <div className="flex items-center gap-4">
                     <Radio
                       name="detail_mode"
-                      label="Summary"
+                      label={t('chat.detailLevelSummary')}
                       checked={formData.detail_mode === 'summary'}
                       onChange={() => onFormDataChange({ ...formData, detail_mode: 'summary' })}
                     />
@@ -247,7 +249,7 @@ export default function CoachFormModal({
                       onChange={(e) => onFormDataChange({ ...formData, athlete_profile: e.target.checked })}
                       className="w-3.5 h-3.5 rounded ghost-border text-primary focus:ring-primary"
                     />
-                    <span className="text-xs text-on-surface-variant">Also fetch athlete profile</span>
+                    <span className="text-xs text-on-surface-variant">{t('chat.fetchAthleteProfile')}</span>
                   </label>
                 </div>
               )}
@@ -255,12 +257,12 @@ export default function CoachFormModal({
 
             {/* Tool Budget Section */}
             <div className="border-t ghost-border pt-4">
-              <h3 className="text-sm font-medium text-on-surface-variant mb-3">Tool Budget</h3>
+              <h3 className="text-sm font-medium text-on-surface-variant mb-3">{t('chat.toolBudgetSection')}</h3>
               <label
                 htmlFor="max-tool-iterations"
                 className="block text-xs font-medium text-on-surface-variant mb-1"
               >
-                Max tool iterations per turn
+                {t('chat.maxToolIterations')}
               </label>
               <input
                 id="max-tool-iterations"
@@ -278,8 +280,7 @@ export default function CoachFormModal({
                 className="w-full px-2 py-1.5 text-sm border ghost-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
               <p className="mt-1 text-xs text-on-surface-variant">
-                How many tool-call rounds one reply may run before the coach answers from what it
-                has. {MIN_MAX_TOOL_ITERATIONS}–{MAX_MAX_TOOL_ITERATIONS}. Leave it empty to follow
+                {t('frag.toolRoundsHelp')} {MIN_MAX_TOOL_ITERATIONS}–{MAX_MAX_TOOL_ITERATIONS}. Leave it empty to follow
                 the workspace limit, currently {DEFAULT_MAX_TOOL_ITERATIONS}.
               </p>
             </div>
@@ -290,20 +291,20 @@ export default function CoachFormModal({
                 onClick={onClose}
                 className="flex-1 px-4 py-2 text-sm font-medium text-on-surface-variant bg-surface-container-high rounded-lg hover:bg-surface-container-highest transition-colors"
               >
-                Cancel
+                {t('chat.cancel')}
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting || !formData.title.trim() || !formData.system_prompt.trim()}
                 className="flex-1 px-4 py-2 text-sm font-medium text-on-primary bg-primary rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {isSubmitting ? 'Saving...' : 'Save Changes'}
+                {isSubmitting ? t('chat.saving') : t('chat.saveChanges')}
               </button>
             </div>
 
             {submitError && (
               <p className="text-xs text-error text-center">
-                Failed to update coach. Please try again.
+                {t('discover.updateCoachFailed')}
               </p>
             )}
 
@@ -315,7 +316,7 @@ export default function CoachFormModal({
                   disabled={isSubmitting}
                   className="text-xs font-medium text-error hover:underline disabled:opacity-50 min-h-[44px]"
                 >
-                  Delete this coach
+                  {t('discover.deleteThisCoach')}
                 </button>
               </div>
             )}

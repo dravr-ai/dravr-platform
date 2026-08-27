@@ -8,6 +8,7 @@ import { useState } from 'react';
 import type { AvailableChannel } from '@pierre/api-client';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Messaging-channel picker. The user chooses which chat app to connect so they
@@ -26,6 +27,7 @@ export default function OnboardingMessagingChannel({
   onSelect: (channel: string) => void;
   onSkip: () => void;
 }) {
+  const { t } = useTranslation();
   const [choosing, setChoosing] = useState<string | null>(null);
 
   const handleSelect = (channel: string) => {
@@ -36,11 +38,10 @@ export default function OnboardingMessagingChannel({
 
   return (
     <OnboardingShell
-      heading={userDisplayName ? `Almost there, ${userDisplayName}` : 'Almost there'}
+      heading={userDisplayName ? `Almost there, ${userDisplayName}` : t('onboarding.almostThere')}
     >
       <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
-        Where do you want to chat with your coach? Pick the app you already use — you can add
-        more later in Settings.
+        {t('onboarding.messagingChannelIntro')}
       </p>
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
         {channels.map((channel) => (
@@ -55,7 +56,7 @@ export default function OnboardingMessagingChannel({
       </div>
       <div className="mt-8">
         <Button variant="secondary" onClick={onSkip} className="w-full" disabled={choosing !== null}>
-          Skip for now
+          {t('onboarding.skipForNow')}
         </Button>
       </div>
     </OnboardingShell>
@@ -74,10 +75,11 @@ function ChannelCard({
   disabled: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   const hint =
     channel.method === 'deep_link'
-      ? 'Scan a QR or tap to open the app'
-      : 'Connect with one tap';
+      ? t('onboarding.channelScanQr')
+      : t('onboarding.channelOneTap');
   return (
     <button
       type="button"
@@ -91,7 +93,7 @@ function ChannelCard({
         </span>
         {channel.recommended ? (
           <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
-            Recommended
+            {t('onboarding.channelRecommended')}
           </span>
         ) : null}
       </span>
@@ -99,7 +101,7 @@ function ChannelCard({
       {busy ? (
         <span className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
           <span className="pierre-spinner w-4 h-4 border-on-surface border-t-transparent" />
-          Setting things up…
+          {t('onboarding.channelSettingUp')}
         </span>
       ) : null}
     </button>

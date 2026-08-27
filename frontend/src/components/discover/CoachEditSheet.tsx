@@ -12,6 +12,7 @@ import { Button, ConfirmDialog } from '../ui';
 import CoachFormModal from './CoachFormModal';
 import { coachToFormData, formDataToUpdateRequest } from './coachForm';
 import type { CoachFormData } from './coachForm';
+import { useTranslation } from '@pierre/i18n';
 
 /** Cache slot for one coach, under the `coaches` prefix every coach mutation invalidates. */
 const coachKey = (coachId: string) => [...QUERY_KEYS.coaches.all, 'coach', coachId] as const;
@@ -24,6 +25,7 @@ export interface CoachEditSheetProps {
 }
 
 export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState<CoachFormData | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -73,14 +75,14 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
 
   if (isError) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" role="alertdialog" aria-label="Coach could not be loaded">
+      <div className="fixed inset-0 z-50 flex items-center justify-center" role="alertdialog" aria-label={t('discover.coachLoadFailed')}>
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
         <div className="relative bg-surface rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
-          <h2 className="text-lg font-semibold text-on-surface mb-2">Couldn&apos;t load this coach</h2>
+          <h2 className="text-lg font-semibold text-on-surface mb-2">{t('discover.coachLoadFailedTitle')}</h2>
           <p className="text-sm text-on-surface-variant mb-4">
-            {error instanceof Error && error.message ? error.message : 'The server did not return the coach.'}
+            {error instanceof Error && error.message ? error.message : t('discover.coachDetailMissing')}
           </p>
-          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button variant="secondary" onClick={onClose}>{t('chat.close')}</Button>
         </div>
       </div>
     );
@@ -88,7 +90,7 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
 
   if (formData === null) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" role="status" aria-label="Loading coach">
+      <div className="fixed inset-0 z-50 flex items-center justify-center" role="status" aria-label={t('discover.loadingCoach')}>
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
         <div className="relative pierre-spinner w-8 h-8" />
       </div>
@@ -111,7 +113,7 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
         isOpen={confirmingDelete}
         onClose={() => setConfirmingDelete(false)}
         onConfirm={() => remove.mutate()}
-        title="Delete Coach?"
+        title={t('discover.deleteCoachConfirm')}
         message={`Delete coach "${formData.title}"? This cannot be undone.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
@@ -120,7 +122,7 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
       />
       {remove.isError && (
         <p role="alert" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-error/10 border border-error/30 text-sm text-error">
-          {remove.error instanceof Error && remove.error.message ? remove.error.message : 'Failed to delete coach'}
+          {remove.error instanceof Error && remove.error.message ? remove.error.message : t('discover.deleteCoachFailed')}
         </p>
       )}
     </>

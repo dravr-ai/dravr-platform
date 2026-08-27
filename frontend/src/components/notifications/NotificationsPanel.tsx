@@ -30,6 +30,7 @@ import {
   webNotificationRoute,
 } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 /** Map Lucide icon components by category for rendering */
 const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
@@ -49,6 +50,7 @@ interface NotificationsPanelProps {
 }
 
 export default function NotificationsPanel({ onNavigate }: NotificationsPanelProps) {
+  const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<NotificationCategory | 'all'>('all');
 
   const feedParams = selectedCategory === 'all'
@@ -97,10 +99,10 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
 
   /** Category filter list: 'all' + each category from shared constants */
   const categoryFilters = [
-    { key: 'all' as const, label: 'All' },
+    { key: 'all' as const, label: t('discover.filterAll') },
     ...NOTIFICATION_CATEGORIES.map((cat) => ({
       key: cat,
-      label: NOTIFICATION_CATEGORY_META[cat].label,
+      label: t(NOTIFICATION_CATEGORY_META[cat].labelKey),
     })),
   ];
 
@@ -113,9 +115,9 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
             <Bell className="w-5 h-5 text-on-surface" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-on-surface">Notifications</h2>
+            <h2 className="text-lg font-semibold text-on-surface">{t('shell.navNotifications')}</h2>
             <p className="text-xs text-on-surface-variant">
-              {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
+              {unreadCount > 0 ? `${unreadCount} unread` : t('shell.notificationsCaughtUp')}
               {total > 0 && ` · ${total} total`}
             </p>
           </div>
@@ -128,7 +130,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors disabled:opacity-50"
           >
             <CheckCheck className="w-3.5 h-3.5" />
-            Mark all read
+            {t('shell.notificationMarkAllRead')}
           </button>
         )}
       </div>
@@ -165,11 +167,11 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-outline">
             <Bell className="w-12 h-12 mb-3 opacity-30" />
-            <p className="text-base font-medium text-on-surface-variant">No notifications</p>
+            <p className="text-base font-medium text-on-surface-variant">{t('shell.notificationsEmpty')}</p>
             <p className="text-sm mt-1">
               {selectedCategory === 'all'
-                ? "You're all caught up!"
-                : `No ${selectedCategory} notifications`}
+                ? t('frag.allCaughtUp')
+                : t('shell.notificationsEmptyCategory', { category: selectedCategory })}
             </p>
           </div>
         ) : (
@@ -212,7 +214,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                     className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5"
                     style={{ color: meta.color, backgroundColor: `${meta.color}15` }}
                   >
-                    {meta.label}
+                    {t(meta.labelKey)}
                   </div>
 
                   {/* Content */}
@@ -260,8 +262,8 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                         deleteNotification(item.id);
                       }}
                       className="text-on-surface-variant hover:text-error opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded hover:bg-surface-container-low min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0"
-                      aria-label="Delete notification"
-                      title="Delete"
+                      aria-label={t('shell.notificationDelete')}
+                      title={t('common.delete')}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

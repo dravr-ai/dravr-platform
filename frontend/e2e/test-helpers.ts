@@ -482,7 +482,11 @@ export async function loginToDashboard(page: Page, credentials?: { email?: strin
   await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  // By role, not by name: the submit label is translated, so matching "Sign in"
+  // tied every spec in the suite to the chrome being English. The suite pins
+  // English, but a spec that deliberately runs in another locale — the French
+  // sweeps — could not log in at all.
+  await page.locator('form button[type="submit"]').first().click();
 
   // Wait for dashboard to load - wait for main content area which only exists after successful login
   // Note: 'text=Dravr' would match login page's "Dravr" title, so use 'main' instead

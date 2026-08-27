@@ -10,7 +10,8 @@ import type {
 /** Category display metadata shared across all frontends */
 export interface NotificationCategoryMeta {
   /** Human-readable label */
-  label: string;
+  /** Corpus key for the category name; the client resolves it. */
+  labelKey: string;
   /** Hex color for the category badge/dot */
   color: string;
   /** Lucide icon name (both web and mobile use lucide) */
@@ -25,14 +26,18 @@ export interface NotificationCategoryMeta {
  * from `PILLAR_COLORS`; coach/ai/reminders use tonal derivatives of the
  * primary forest-green family.
  */
+// `labelKey` rather than `label`: this metadata is shared with mobile and
+// rendered on an athlete screen, so the words come from the corpus. They
+// shipped as English strings here, which is why no scan of the frontend
+// components ever saw them.
 export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, NotificationCategoryMeta> = {
-  training: { label: 'Training', color: '#3c6658', iconName: 'dumbbell' },     // activity pillar
-  recovery: { label: 'Recovery', color: '#5e7a82', iconName: 'heart' },        // recovery pillar
-  coach: { label: 'Coach', color: '#00241a', iconName: 'message-circle' },     // primary
-  achievement: { label: 'Achievements', color: '#8f6a2e', iconName: 'trophy' }, // nutrition pillar / warm bronze
-  system: { label: 'System', color: '#717974', iconName: 'settings' },          // outline
-  ai: { label: 'AI Insights', color: '#0d3b2e', iconName: 'brain' },           // primary_container
-  reminders: { label: 'Reminders', color: '#7a4d5e', iconName: 'clock' },      // mobility pillar / aged rose
+  training: { labelKey: 'notifPrefs.catTraining', color: '#3c6658', iconName: 'dumbbell' },     // activity pillar
+  recovery: { labelKey: 'notifPrefs.catRecovery', color: '#5e7a82', iconName: 'heart' },        // recovery pillar
+  coach: { labelKey: 'notifPrefs.catCoach', color: '#00241a', iconName: 'message-circle' },     // primary
+  achievement: { labelKey: 'notifPrefs.catAchievement', color: '#8f6a2e', iconName: 'trophy' }, // nutrition pillar / warm bronze
+  system: { labelKey: 'notifPrefs.catSystem', color: '#717974', iconName: 'settings' },          // outline
+  ai: { labelKey: 'notifPrefs.catAi', color: '#0d3b2e', iconName: 'brain' },           // primary_container
+  reminders: { labelKey: 'notifPrefs.catReminders', color: '#7a4d5e', iconName: 'clock' },      // mobility pillar / aged rose
 } as const;
 
 /** All notification categories in display order */

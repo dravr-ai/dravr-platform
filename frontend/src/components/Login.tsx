@@ -9,6 +9,7 @@ import { signInWithGoogle, getGoogleRedirectResult, isFirebaseEnabled } from '..
 import { Button, Input } from './ui';
 
 import { DravrLogo } from './DravrLogo';
+import { useTranslation } from '@pierre/i18n';
 
 interface LoginProps {
   onNavigateToRegister?: () => void;
@@ -17,6 +18,7 @@ interface LoginProps {
 }
 
 export default function Login({ onNavigateToRegister, onNavigateToForgotPassword, prefilledEmail }: LoginProps) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState(prefilledEmail ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -144,23 +146,21 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 opacity: 0.85,
               }}
             >
-              The Technical Naturalist
+              {t('auth.taglinePersona')}
             </p>
             <h2
               className="font-display font-semibold text-4xl xl:text-5xl leading-tight"
               style={{ color: '#ffffff' }}
             >
-              Fitness intelligence,
+              {t('auth.taglineLead')}
               <br />
-              rendered in ink.
+              {t('auth.taglineTail')}
             </h2>
             <p
               className="text-base leading-relaxed"
               style={{ color: '#a3d0be' }}
             >
-              Dravr turns every session, meal, and hour of recovery into a
-              single, legible story. For the athletes who want the signal,
-              and the coaches who want it cleanly.
+              {t('auth.landingBlurb')}
             </p>
           </div>
 
@@ -173,13 +173,13 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
               opacity: 0.7,
             }}
           >
-            <span>Activity</span>
+            <span>{t('auth.activityLabel')}</span>
             <span aria-hidden>·</span>
-            <span>Nutrition</span>
+            <span>{t('chat.categoryNutrition')}</span>
             <span aria-hidden>·</span>
-            <span>Recovery</span>
+            <span>{t('chat.categoryRecovery')}</span>
             <span aria-hidden>·</span>
-            <span>Mobility</span>
+            <span>{t('chat.categoryMobility')}</span>
           </div>
         </div>
       </aside>
@@ -190,7 +190,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
         <button
           type="button"
           onClick={toggle}
-          aria-label={scheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={scheme === 'dark' ? t('auth.switchToLightMode') : t('auth.switchToDarkMode')}
           className="absolute top-6 right-6 p-2 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors"
         >
           {scheme === 'dark' ? (
@@ -223,10 +223,10 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
 
           <div className="text-center lg:text-left">
             <h1 className="font-display font-semibold text-3xl text-on-surface">
-              Sign in
+              {t('auth.signInButton')}
             </h1>
             <p className="mt-2 text-sm text-on-surface-variant font-label">
-              Welcome back. Enter your credentials to continue.
+              {t('auth.welcomeBackHint')}
             </p>
           </div>
 
@@ -250,7 +250,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 id="email"
                 name="email"
                 type="email"
-                label="Email address"
+                label={t('auth.emailAddressLabel')}
                 autoComplete="email"
                 required
                 placeholder="name@example.com"
@@ -261,7 +261,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 id="password"
                 name="password"
                 type={showPassword ? 'text' : 'password'}
-                label="Password"
+                label={t('auth.passwordLabel')}
                 autoComplete="current-password"
                 required
                 value={password}
@@ -269,7 +269,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 rightIcon={
                   <button
                     type="button"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                     className="text-on-surface-variant hover:text-on-surface transition-colors"
                     onClick={() => setShowPassword(!showPassword)}
                   >
@@ -296,7 +296,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                   className="btn-secondary text-xs font-label uppercase"
                   style={{ letterSpacing: '0.08em' }}
                 >
-                  Forgot password?
+                  {t('auth.forgotPasswordLink')}
                 </button>
               </div>
             )}
@@ -307,7 +307,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
               loading={loginAction.isLoading}
               className="w-full"
             >
-              {loginAction.isLoading ? 'Signing in…' : 'Sign in'}
+              {loginAction.isLoading ? t('auth.signingIn') : t('auth.signInAction')}
             </Button>
 
             {isFirebaseEnabled() && (
@@ -342,7 +342,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                     </svg>
                   )}
                   <span>
-                    {isGoogleLoading ? 'Signing in…' : 'Continue with Google'}
+                    {isGoogleLoading ? t('auth.signingIn') : t('auth.googleContinueButton')}
                   </span>
                 </button>
               </>
@@ -356,7 +356,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 onClick={onNavigateToRegister}
                 className="btn-secondary font-medium text-on-surface"
               >
-                Don&apos;t have an account? Create one
+                {t('auth.noAccountCreateOne')}
               </button>
             </p>
           )}

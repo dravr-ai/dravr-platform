@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { providersApi } from '../services/api';
+import { useTranslation } from '@pierre/i18n';
 
 interface IntervalsIcuLinkModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export default function IntervalsIcuLinkModal({
   onClose,
   onConnected,
 }: IntervalsIcuLinkModalProps) {
+  const { t } = useTranslation();
   const [athleteId, setAthleteId] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -83,15 +85,15 @@ export default function IntervalsIcuLinkModal({
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-on-surface">Connect Intervals.icu</h2>
-              <p className="text-xs text-on-surface/50">API key — no OAuth redirect</p>
+              <h2 className="text-lg font-semibold text-on-surface">{t('shell.intervalsConnectTitle')}</h2>
+              <p className="text-xs text-on-surface/50">{t('shell.intervalsApiKeyHint')}</p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="p-2 rounded-lg hover:bg-surface-container text-on-surface/60 hover:text-on-surface transition-colors"
-            title="Close"
-            aria-label="Close Intervals.icu link modal"
+            title={t('common.close')}
+            aria-label={t('shell.intervalsCloseModalAria')}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -112,14 +114,14 @@ export default function IntervalsIcuLinkModal({
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <p className="text-sm text-on-surface-variant leading-snug">
-                Find your athlete id and API key under{' '}
-                <span className="text-on-surface font-medium">Settings → Developer</span> on
+                {t('frag.findAthleteIdUnder')}{' '}
+                <span className="text-on-surface font-medium">{t('shell.intervalsSettingsPath')}</span> on
                 intervals.icu.
               </p>
 
               <div>
                 <label htmlFor="intervals-athlete-id" className="block text-sm text-on-surface/60 mb-1.5">
-                  Athlete ID
+                  {t('shell.intervalsAthleteId')}
                 </label>
                 <input
                   id="intervals-athlete-id"
@@ -137,13 +139,13 @@ export default function IntervalsIcuLinkModal({
 
               <div>
                 <label htmlFor="intervals-api-key" className="block text-sm text-on-surface/60 mb-1.5">
-                  API Key
+                  {t('shell.intervalsApiKeyLabel')}
                 </label>
                 <div className="relative">
                   <input
                     id="intervals-api-key"
                     type={showKey ? 'text' : 'password'}
-                    placeholder="API key"
+                    placeholder={t('shell.intervalsApiKeyPlaceholder')}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     className="input-glass w-full pr-10"
@@ -155,8 +157,8 @@ export default function IntervalsIcuLinkModal({
                     type="button"
                     onClick={() => setShowKey(!showKey)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/40 hover:text-on-surface/70 transition-colors"
-                    title={showKey ? 'Hide API key' : 'Show API key'}
-                    aria-label={showKey ? 'Hide API key' : 'Show API key'}
+                    title={showKey ? t('shell.intervalsHideApiKey') : t('shell.intervalsShowApiKey')}
+                    aria-label={showKey ? t('shell.intervalsHideApiKey') : t('shell.intervalsShowApiKey')}
                   >
                     {showKey ? (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -183,7 +185,7 @@ export default function IntervalsIcuLinkModal({
                 disabled={isLoading || !athleteId.trim() || !apiKey.trim()}
                 className="w-full py-3 bg-primary rounded-lg text-on-primary font-medium hover:shadow-lg hover:shadow-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
-                {isLoading ? 'Verifying…' : 'Connect'}
+                {isLoading ? t('shell.intervalsVerifying') : t('shell.intervalsConnectAction')}
               </button>
             </form>
           )}

@@ -13,11 +13,12 @@ import { useAuth } from '../hooks/useAuth';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
+import { useTranslation } from '@pierre/i18n';
 
-const TIER_LABELS: Record<string, string> = {
-  starter: 'Starter',
-  professional: 'Professional',
-  enterprise: 'Enterprise',
+const TIER_LABEL_KEYS: Record<string, string> = {
+  starter: 'plan.starter',
+  professional: 'plan.professional',
+  enterprise: 'plan.enterprise',
 };
 
 /** Subscription statuses that mean the user must fix their payment. */
@@ -49,6 +50,7 @@ function formatDate(epochSecs: number | undefined): string {
 }
 
 export default function BillingPage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { flags: featureFlags } = useFeatureFlags();
   const showBillingHeader = featureFlags[FEATURE_KEYS.billingHeader];
@@ -92,7 +94,7 @@ export default function BillingPage() {
     onSuccess: (data) => {
       window.location.href = data.checkout_url;
     },
-    onError: (e) => setError(e instanceof Error ? e.message : 'Checkout failed'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('shell.billingCheckoutFailed')),
   });
 
   const portalMutation = useMutation({
@@ -107,7 +109,7 @@ export default function BillingPage() {
     onSuccess: (data) => {
       window.location.href = data.portal_url;
     },
-    onError: (e) => setError(e instanceof Error ? e.message : 'Portal open failed'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('shell.billingPortalOpenFailed')),
   });
 
   const sub = subscriptionQuery.data;
@@ -116,7 +118,7 @@ export default function BillingPage() {
   // user as a last resort. The stored auth user may omit `tier`, so relying
   // on it alone mislabels a paid user as Starter.
   const tier = sub?.plan_tier ?? quotaQuery.data?.tier ?? user?.tier ?? 'starter';
-  const tierLabel = TIER_LABELS[tier] ?? tier;
+  const tierLabel = TIER_LABEL_KEYS[tier] ? t(TIER_LABEL_KEYS[tier]) : tier;
   const hasPaymentProblem = sub != null && PAYMENT_PROBLEM_STATUSES.has(sub.status);
 
   // Checkout success return path: the provider redirects to
@@ -143,10 +145,10 @@ export default function BillingPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-sm font-semibold text-error">
-                Payment problem — action needed
+                {t('shell.billingPaymentProblem')}
               </h3>
               <p className="mt-1 text-sm text-on-surface-variant">
-                Your last payment for the {tierLabel} plan didn&apos;t go through (status:{' '}
+                {t('frag.lastPaymentFor')} {tierLabel} plan didn&apos;t go through (status:{' '}
                 {sub?.status}). Update your payment method to keep your plan — otherwise it will
                 revert to Starter.
               </p>
@@ -156,7 +158,7 @@ export default function BillingPage() {
               disabled={portalMutation.isPending}
               className="shrink-0 bg-error hover:bg-error/80 text-on-primary"
             >
-              {portalMutation.isPending ? 'Opening…' : 'Update payment'}
+              {portalMutation.isPending ? t('shell.billingPortalOpening') : t('shell.billingUpdatePayment')}
             </Button>
           </div>
         </Card>
@@ -165,9 +167,9 @@ export default function BillingPage() {
       <Card variant="dark" className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-on-surface">Current Plan</h2>
+            <h2 className="text-lg font-semibold text-on-surface">{t('shell.billingCurrentPlanHeading')}</h2>
             <p className="text-sm text-on-surface-variant">
-              Manage your subscription, payment method, and invoices.
+              {t('shell.billingSubtitle')}
             </p>
           </div>
           <Badge variant={tier === 'starter' ? 'warning' : 'success'}>{tierLabel}</Badge>
@@ -178,11 +180,11 @@ export default function BillingPage() {
         ) : sub ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
-              <div className="text-on-surface-variant">Status</div>
+              <div className="text-on-surface-variant">{t('auth.statusFieldLabel')}</div>
               <div className="font-medium text-on-surface">{sub.status}</div>
             </div>
             <div>
-              <div className="text-on-surface-variant">Period End</div>
+              <div className="text-on-surface-variant">{t('shell.billingPeriodEnd')}</div>
               <div className="font-medium text-on-surface">
                 {sub.current_period_end
                   ? new Date(sub.current_period_end).toLocaleDateString()
@@ -194,13 +196,13 @@ export default function BillingPage() {
               <div className="font-mono text-xs text-on-surface">{sub.provider_customer_id}</div>
             </div>
             <div>
-              <div className="text-on-surface-variant">Cancel at Period End</div>
+              <div className="text-on-surface-variant">{t('shell.billingCancelAtPeriodEnd')}</div>
               <div className="font-medium text-on-surface">{sub.cancel_at_period_end ? 'Yes' : 'No'}</div>
             </div>
           </div>
         ) : (
           <p className="text-sm text-on-surface-variant">
-            No subscription on file. You're on the Starter plan — use the buttons below to upgrade or contact sales.
+            {t('shell.billingNoSubscription')}
           </p>
         )}
 
@@ -211,7 +213,7 @@ export default function BillingPage() {
               disabled={checkoutMutation.isPending}
               className="bg-activity hover:bg-activity/80 text-on-primary"
             >
-              {checkoutMutation.isPending ? 'Redirecting…' : 'Upgrade to Professional'}
+              {checkoutMutation.isPending ? t('shell.billingRedirecting') : t('shell.billingUpgradeProfessional')}
             </Button>
           )}
           {tier !== 'enterprise' && (
@@ -220,7 +222,7 @@ export default function BillingPage() {
               disabled={checkoutMutation.isPending}
               variant="secondary"
             >
-              Talk to Sales (Enterprise)
+              {t('shell.billingTalkToSalesEnterprise')}
             </Button>
           )}
           {sub != null && (
@@ -229,7 +231,7 @@ export default function BillingPage() {
               disabled={portalMutation.isPending}
               variant="secondary"
             >
-              {portalMutation.isPending ? 'Opening…' : 'Manage Subscription'}
+              {portalMutation.isPending ? t('shell.billingPortalOpening') : t('shell.billingManageSubscription')}
             </Button>
           )}
         </div>
@@ -237,19 +239,19 @@ export default function BillingPage() {
         {sub != null && (
           <p className="mt-3 text-xs text-on-surface-variant">
             {sub.cancel_at_period_end
-              ? 'Your plan is scheduled to cancel at the end of the current period. Use Manage Subscription to resume.'
-              : 'Use Manage Subscription to update your payment method, change plan, or cancel.'}
+              ? t('shell.billingCancelScheduled')
+              : t('shell.billingManageHint')}
           </p>
         )}
 
-        {error && <p className="mt-4 text-sm text-error">Error: {error}</p>}
+        {error && <p className="mt-4 text-sm text-error">{t('frag.errorLabel')} {error}</p>}
       </Card>
       )}
 
       <Card variant="dark" className="p-6">
-        <h2 className="text-lg font-semibold text-on-surface mb-1">Plans</h2>
+        <h2 className="text-lg font-semibold text-on-surface mb-1">{t('shell.billingPlans')}</h2>
         <p className="text-sm text-on-surface-variant mb-4">
-          Compare what each plan includes. Limits shown are the caps the app enforces.
+          {t('shell.billingPlanCompareHint')}
         </p>
         {plansQuery.isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-pulse">
@@ -274,12 +276,12 @@ export default function BillingPage() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-on-surface-variant">Plan information unavailable.</p>
+          <p className="text-sm text-on-surface-variant">{t('shell.billingPlanUnavailable')}</p>
         )}
       </Card>
 
       <Card variant="dark" className="p-6">
-        <h2 className="text-lg font-semibold text-on-surface mb-4">Usage Quota</h2>
+        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('shell.billingUsageQuota')}</h2>
         {quotaQuery.isLoading ? (
           <div className="space-y-3 animate-pulse">
             {[1, 2, 3].map((k) => (
@@ -316,12 +318,12 @@ export default function BillingPage() {
             })}
           </div>
         ) : (
-          <p className="text-sm text-on-surface-variant">Quota information unavailable.</p>
+          <p className="text-sm text-on-surface-variant">{t('shell.billingQuotaUnavailable')}</p>
         )}
       </Card>
 
       <Card variant="dark" className="p-6">
-        <h2 className="text-lg font-semibold text-on-surface mb-4">Invoices</h2>
+        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('shell.billingInvoices')}</h2>
         {invoicesQuery.isLoading ? (
           <div className="animate-pulse h-4 bg-surface-container-high rounded w-1/2" />
         ) : invoicesQuery.data?.invoices?.length ? (
@@ -329,11 +331,11 @@ export default function BillingPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-on-surface-variant border-b ghost-border">
-                  <th className="text-left py-2">Date</th>
-                  <th className="text-left py-2">Number</th>
-                  <th className="text-left py-2">Amount</th>
-                  <th className="text-left py-2">Status</th>
-                  <th className="text-left py-2">Link</th>
+                  <th className="text-left py-2">{t('shell.billingInvoiceDate')}</th>
+                  <th className="text-left py-2">{t('shell.billingInvoiceNumber')}</th>
+                  <th className="text-left py-2">{t('shell.billingAmount')}</th>
+                  <th className="text-left py-2">{t('auth.statusFieldLabel')}</th>
+                  <th className="text-left py-2">{t('shell.billingInvoiceLink')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -353,7 +355,7 @@ export default function BillingPage() {
                           rel="noopener noreferrer"
                           className="text-primary hover:underline"
                         >
-                          View
+                          {t('shell.billingViewInvoice')}
                         </a>
                       ) : (
                         '—'
@@ -366,7 +368,7 @@ export default function BillingPage() {
           </div>
         ) : (
           <p className="text-sm text-on-surface-variant">
-            {sub ? 'No invoices yet.' : 'Invoices appear after your first paid period.'}
+            {sub ? t('shell.billingNoInvoices') : t('shell.billingInvoicesAfterFirstPeriod')}
           </p>
         )}
       </Card>
@@ -390,11 +392,12 @@ function PlanCard({
   checkoutPending: boolean;
   hasSubscription: boolean;
 }) {
-  const cap = (value: number): string => (plan.unlimited ? 'Unlimited' : formatCompact(value));
+  const { t } = useTranslation();
+  const cap = (value: number): string => (plan.unlimited ? t('shell.billingUnlimited') : formatCompact(value));
   const includedUsage = plan.included_usd != null
     ? `$${plan.included_usd}/mo`
     : plan.unlimited
-    ? 'Custom'
+    ? t('shell.billingIncludedCustom')
     : '—';
   const features: Array<[string, string]> = [
     ['Messages / day', cap(plan.daily_messages)],
@@ -412,7 +415,7 @@ function PlanCard({
     >
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-base font-semibold text-on-surface">{plan.label}</h3>
-        {isCurrent && <Badge variant="success">Current</Badge>}
+        {isCurrent && <Badge variant="success">{t('shell.billingCurrentBadge')}</Badge>}
       </div>
       <ul className="space-y-2 text-sm flex-1">
         {features.map(([label, value]) => (
@@ -425,11 +428,11 @@ function PlanCard({
       <div className="mt-4">
         {isCurrent ? (
           <Button disabled variant="secondary" className="w-full">
-            Current plan
+            {t('shell.billingCurrentPlanLabel')}
           </Button>
         ) : plan.tier === 'enterprise' ? (
           <Button onClick={onUpgrade} disabled={checkoutPending} variant="secondary" className="w-full">
-            Talk to Sales
+            {t('shell.billingTalkToSales')}
           </Button>
         ) : plan.tier === 'professional' ? (
           <Button
@@ -437,11 +440,11 @@ function PlanCard({
             disabled={checkoutPending}
             className="w-full bg-activity hover:bg-activity/80 text-on-primary"
           >
-            {checkoutPending ? 'Redirecting…' : 'Upgrade'}
+            {checkoutPending ? t('shell.billingRedirecting') : t('shell.billingUpgrade')}
           </Button>
         ) : (
           <Button onClick={onManage} disabled={!hasSubscription} variant="secondary" className="w-full">
-            Downgrade
+            {t('shell.billingDowngrade')}
           </Button>
         )}
       </div>

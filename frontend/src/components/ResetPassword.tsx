@@ -7,6 +7,7 @@
 import React, { useState } from 'react';
 import { authApi } from '../services/api';
 import { Button, Input } from './ui';
+import { useTranslation } from '@pierre/i18n';
 
 interface ResetPasswordProps {
   email: string;
@@ -21,6 +22,7 @@ export default function ResetPassword({
   onResetSuccess,
   onResendCode,
 }: ResetPasswordProps) {
+  const { t } = useTranslation();
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -72,7 +74,7 @@ export default function ResetPassword({
   const passwordToggle = (
     <button
       type="button"
-      aria-label={showPassword ? 'Hide password' : 'Show password'}
+      aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
       className="text-on-surface-variant hover:text-on-surface transition-colors"
       onClick={() => setShowPassword(!showPassword)}
     >
@@ -124,10 +126,10 @@ export default function ResetPassword({
                 />
               </svg>
               <h1 className="mt-4 text-xl font-bold text-on-surface tracking-tight">
-                Enter Reset Code
+                {t('auth.enterResetCodeTitle')}
               </h1>
               <p className="mt-1 text-sm text-on-surface-variant text-center">
-                We sent a reset code to <span className="text-on-surface">{email}</span>
+                {t('auth.resetCodeSentTo')} <span className="text-on-surface">{email}</span>
               </p>
             </div>
 
@@ -147,13 +149,13 @@ export default function ResetPassword({
                   id="code"
                   name="code"
                   type="text"
-                  label="Reset code"
+                  label={t('auth.resetCodeLabel')}
                   autoComplete="one-time-code"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
                   required
-                  placeholder="Reset code from your email"
+                  placeholder={t('auth.resetCodePlaceholder')}
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   variant="dark"
@@ -163,10 +165,10 @@ export default function ResetPassword({
                   id="newPassword"
                   name="newPassword"
                   type={showPassword ? 'text' : 'password'}
-                  label="New password"
+                  label={t('auth.newPasswordLabel')}
                   autoComplete="new-password"
                   required
-                  placeholder="Enter new password (min 8 characters)"
+                  placeholder={t('auth.newPasswordPlaceholderReset')}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   variant="dark"
@@ -177,10 +179,10 @@ export default function ResetPassword({
                   id="confirmPassword"
                   name="confirmPassword"
                   type={showPassword ? 'text' : 'password'}
-                  label="Confirm new password"
+                  label={t('auth.confirmNewPasswordLabel')}
                   autoComplete="new-password"
                   required
-                  placeholder="Confirm your new password"
+                  placeholder={t('auth.confirmNewPasswordPlaceholder')}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   variant="dark"
@@ -193,7 +195,7 @@ export default function ResetPassword({
                 loading={isLoading}
                 className="w-full shadow-ambient"
               >
-                {isLoading ? 'Resetting password...' : 'Reset password'}
+                {isLoading ? t('auth.resettingPassword') : t('auth.resetPasswordButton')}
               </Button>
 
               <div className="flex items-center justify-between text-sm">
@@ -202,14 +204,14 @@ export default function ResetPassword({
                   onClick={onResendCode}
                   className="text-on-surface-variant hover:text-primary transition-colors"
                 >
-                  Resend code
+                  {t('auth.resendCode')}
                 </button>
                 <button
                   type="button"
                   onClick={onNavigateToLogin}
                   className="text-primary hover:text-primary-fixed-dim font-medium transition-colors"
                 >
-                  Back to sign in
+                  {t('auth.backToSignIn')}
                 </button>
               </div>
             </form>

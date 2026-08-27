@@ -126,9 +126,13 @@ vi.mock('react-chartjs-2', () => ({
 // crashes on an undefined i18n. The persister rejects rather than no-opping:
 // a test that changes language must register the writer it means to assert,
 // so a missing client→server wire fails loudly instead of passing quietly.
+// Unit tests assert English copy, so they pin the locale rather than inherit
+// the product default (French). A test that means to exercise another locale
+// calls `i18n.changeLanguage` itself.
 await initI18n({
   persistLocale: () =>
     Promise.reject(
       new Error('No locale persister registered for this test — call initI18n({ persistLocale }).'),
     ),
+  config: { lng: 'en' },
 })

@@ -10,6 +10,7 @@ import { Shield, Crown, User, ChevronUp, ChevronDown, Trash2 } from 'lucide-reac
 import { Button, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import { useRemoveMember, useUpdateMemberRole } from '../../hooks/useGroups';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 interface MemberListProps {
   groupId: string;
@@ -24,10 +25,10 @@ type SortDirection = 'asc' | 'desc';
 
 const ROLE_ORDER: Record<GroupRole, number> = { owner: 0, admin: 1, member: 2 };
 
-const ROLE_BADGE: Record<GroupRole, { label: string; color: string; Icon: typeof Crown }> = {
-  owner: { label: 'Owner', color: 'bg-warning/20 text-warning', Icon: Crown },
-  admin: { label: 'Admin', color: 'bg-primary/20 text-primary', Icon: Shield },
-  member: { label: 'Member', color: 'bg-surface-container-high/20 text-on-surface-variant', Icon: User },
+const ROLE_BADGE: Record<GroupRole, { labelKey: string; color: string; Icon: typeof Crown }> = {
+  owner: { labelKey: 'groups.owner', color: 'bg-warning/20 text-warning', Icon: Crown },
+  admin: { labelKey: 'groups.admin', color: 'bg-primary/20 text-primary', Icon: Shield },
+  member: { labelKey: 'groups.member', color: 'bg-surface-container-high/20 text-on-surface-variant', Icon: User },
 };
 
 function formatDate(dateStr: string): string {
@@ -45,6 +46,7 @@ export default function MemberList({
   currentUserId,
   isLoading,
 }: MemberListProps) {
+  const { t } = useTranslation();
   const [sortField, setSortField] = useState<SortField>('role');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [confirmRemove, setConfirmRemove] = useState<GroupMember | null>(null);
@@ -88,10 +90,10 @@ export default function MemberList({
     if (!confirmRemove) return;
     try {
       await removeMember(confirmRemove.user_id);
-      showSuccess('Member removed', `${confirmRemove.display_name ?? 'Member'} has been removed from the group.`);
+      showSuccess('Member removed', `${confirmRemove.display_name ?? t('groups.member')} has been removed from the group.`);
       setConfirmRemove(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to remove member';
+      const message = err instanceof Error ? err.message : t('groups.removeFailed');
       showError('Remove failed', message);
     }
   };
@@ -100,9 +102,9 @@ export default function MemberList({
     const newRole: GroupRole = member.role === 'member' ? 'admin' : 'member';
     try {
       await updateRole({ userId: member.user_id, role: newRole });
-      showSuccess('Role updated', `${member.display_name ?? 'Member'} is now ${newRole}.`);
+      showSuccess('Role updated', `${member.display_name ?? t('groups.member')} is now ${newRole}.`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update role';
+      const message = err instanceof Error ? err.message : t('groups.roleUpdateFailed');
       showError('Update failed', message);
     }
   };
@@ -126,7 +128,7 @@ export default function MemberList({
 
   if (members.length === 0) {
     return (
-      <p className="text-center py-8 text-outline">No members in this group.</p>
+      <p className="text-center py-8 text-outline">{t('groups.noMembers')}</p>
     );
   }
 
@@ -140,29 +142,29 @@ export default function MemberList({
                 className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('display_name')}
               >
-                Name <SortIcon field="display_name" />
+                {t('groups.colName')} <SortIcon field="display_name" />
               </th>
               <th
                 className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('role')}
               >
-                Role <SortIcon field="role" />
+                {t('settingsUi.role')} <SortIcon field="role" />
               </th>
               <th
                 className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('joined_at')}
               >
-                Joined <SortIcon field="joined_at" />
+                {t('groups.colJoined')} <SortIcon field="joined_at" />
               </th>
               <th
                 className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('peer_sharing_consent')}
               >
-                Peer Sharing <SortIcon field="peer_sharing_consent" />
+                {t('groups.peerSharing')} <SortIcon field="peer_sharing_consent" />
               </th>
               {canManageMembers && (
                 <th className="py-3 px-4 text-on-surface-variant font-medium text-right">
-                  Actions
+                  {t('groups.colActions')}
                 </th>
               )}
             </tr>
@@ -185,7 +187,7 @@ export default function MemberList({
                 >
                   <td className="py-3 px-4">
                     <span className="text-on-surface font-medium">
-                      {member.display_name ?? 'Unknown'}
+                      {member.display_name ?? t('settingsUi.unknownDate')}
                       {isSelf && (
                         <span className="ml-2 text-xs text-outline">(you)</span>
                       )}
@@ -199,7 +201,7 @@ export default function MemberList({
                       )}
                     >
                       <BadgeIcon className="w-3 h-3" />
-                      {badge.label}
+                      {t(badge.labelKey)}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-on-surface-variant">
@@ -207,9 +209,9 @@ export default function MemberList({
                   </td>
                   <td className="py-3 px-4">
                     {member.peer_sharing_consent ? (
-                      <span className="text-activity text-xs font-medium">Enabled</span>
+                      <span className="text-activity text-xs font-medium">{t('groups.enabled')}</span>
                     ) : (
-                      <span className="text-outline text-xs">Disabled</span>
+                      <span className="text-outline text-xs">{t('groups.disabled')}</span>
                     )}
                   </td>
                   {canManageMembers && (
@@ -221,8 +223,8 @@ export default function MemberList({
                             size="sm"
                             onClick={() => handlePromote(member)}
                             loading={isUpdatingRole}
-                            title={member.role === 'member' ? 'Promote to Admin' : 'Demote to Member'}
-                            aria-label={member.role === 'member' ? `Promote ${member.display_name ?? 'member'} to admin` : `Demote ${member.display_name ?? 'member'} to member`}
+                            title={member.role === 'member' ? t('groups.promoteToAdmin') : t('groups.demoteToMember')}
+                            aria-label={member.role === 'member' ? t('groups.promoteNamed', { name: member.display_name ?? t('groups.memberFallback') }) : t('groups.demoteNamed', { name: member.display_name ?? t('groups.memberFallback') })}
                           >
                             {member.role === 'member' ? (
                               <Shield className="w-4 h-4" />
@@ -236,8 +238,8 @@ export default function MemberList({
                             variant="danger"
                             size="sm"
                             onClick={() => setConfirmRemove(member)}
-                            title="Remove member"
-                            aria-label={`Remove ${member.display_name ?? 'member'} from group`}
+                            title={t('groups.removeMemberAria')}
+                            aria-label={t('groups.removeNamed', { name: member.display_name ?? t('groups.memberFallback') })}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -257,7 +259,7 @@ export default function MemberList({
         isOpen={!!confirmRemove}
         onClose={() => setConfirmRemove(null)}
         onConfirm={handleRemove}
-        title="Remove Member"
+        title={t('groups.removeMember')}
         message={`Are you sure you want to remove ${confirmRemove?.display_name ?? 'this member'} from the group? They can rejoin with a new invite.`}
         confirmLabel="Remove"
         variant="danger"

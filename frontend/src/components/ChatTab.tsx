@@ -41,6 +41,7 @@ import type {
   OAuthNotification,
 } from './chat';
 import type { MessageFeedbackEntry } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * The id prefix of the user row appended to the transcript while a turn is in
@@ -94,6 +95,7 @@ export default function ChatTab({
   pendingComposerAction,
   onPendingComposerActionConsumed,
 }: ChatTabProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const showSuccessToast = useSuccessToast();
   const showInfoToast = useInfoToast();
@@ -248,8 +250,8 @@ export default function ChatTab({
       if (res?.status === 429 || res?.data?.code === 'QuotaExceeded') {
         const limit = res?.data?.details?.limit;
         showErrorToast(
-          'Conversation limit reached',
-          `You've reached your limit${limit ? ` of ${limit}` : ''} active conversations. Delete or archive one from the sidebar to start a new chat.`
+          t('chat.conversationLimitTitle'),
+          t('chat.conversationLimitBody', { limit: limit ?? '' })
         );
         return;
       }
@@ -621,7 +623,7 @@ export default function ChatTab({
     // Use native Web Share API if available, otherwise copy to clipboard
     if (navigator.share) {
       navigator.share({
-        title: 'Dravr AI Insight',
+        title: t('chat.aiInsightLabel'),
         text: content,
       }).catch(() => {
         // User cancelled share, ignore
@@ -670,7 +672,7 @@ export default function ChatTab({
         else newMap.delete(messageId);
         return newMap;
       });
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to save feedback');
+      setErrorMessage(error instanceof Error ? error.message : t('chat.feedbackSaveFailed'));
     }
   }, [selectedConversation, messageFeedback]);
 
@@ -701,7 +703,7 @@ export default function ChatTab({
         trimmed || undefined,
       );
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to save feedback');
+      setErrorMessage(error instanceof Error ? error.message : t('chat.feedbackSaveFailed'));
     }
   }, [selectedConversation]);
 
@@ -788,7 +790,7 @@ export default function ChatTab({
                   ? providersData?.providers?.filter(p => p.connected).map(p =>
                       p.display_name
                     ).join(', ') + ' connected'
-                  : 'No provider connected'
+                  : t('chat.noProviderStatus')
               }
               actions={composeMenu(false)}
             />

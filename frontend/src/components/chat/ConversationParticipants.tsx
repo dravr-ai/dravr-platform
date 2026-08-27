@@ -11,6 +11,7 @@ import { chatApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Input, useErrorToast, useSuccessToast } from '../ui';
 import type { ConversationParticipant } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 interface ConversationParticipantsProps {
   conversationId: string;
@@ -38,6 +39,7 @@ export default function ConversationParticipants({
   open: controlledOpen,
   onOpenChange,
 }: ConversationParticipantsProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const errorToast = useErrorToast();
   const successToast = useSuccessToast();
@@ -65,7 +67,7 @@ export default function ConversationParticipants({
       successToast('Participant added');
     },
     onError: (error: unknown) => {
-      errorToast(error instanceof Error ? error.message : 'Could not add participant');
+      errorToast(error instanceof Error ? error.message : t('chat.addParticipantFailed'));
     },
   });
 
@@ -76,7 +78,7 @@ export default function ConversationParticipants({
       successToast('Participant removed');
     },
     onError: (error: unknown) => {
-      errorToast(error instanceof Error ? error.message : 'Could not remove participant');
+      errorToast(error instanceof Error ? error.message : t('chat.removeParticipantFailed'));
     },
   });
 
@@ -94,19 +96,19 @@ export default function ConversationParticipants({
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low rounded-lg transition-colors"
-        title="Participants"
+        title={t('chat.participantsHeading')}
       >
         <Users className="w-3.5 h-3.5" aria-hidden="true" />
-        <span>Participants{isLoading ? '' : ` (${participants.length})`}</span>
+        <span>{t('frag.participants')}{isLoading ? '' : ` (${participants.length})`}</span>
       </button>
 
       {open && (
         <div
           role="dialog"
-          aria-label="Conversation participants"
+          aria-label={t('chat.participantsAria')}
           className="absolute right-0 z-20 mt-2 w-80 max-w-[90vw] rounded-xl border ghost-border bg-surface shadow-lg p-3"
         >
-          <ul className="space-y-1 max-h-60 overflow-y-auto" aria-label="Participant list">
+          <ul className="space-y-1 max-h-60 overflow-y-auto" aria-label={t('chat.participantListAria')}>
             {participants.map(p => (
               <li
                 key={p.user_id}
@@ -137,8 +139,8 @@ export default function ConversationParticipants({
                 size="sm"
                 value={newUserId}
                 onChange={e => setNewUserId(e.target.value)}
-                placeholder="User id to add"
-                aria-label="User id to add"
+                placeholder={t('chat.participantIdInput')}
+                aria-label={t('chat.participantIdInput')}
               />
             </div>
             <button
@@ -147,7 +149,7 @@ export default function ConversationParticipants({
               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <UserPlus className="w-3.5 h-3.5" aria-hidden="true" />
-              Add
+              {t('chat.addParticipant')}
             </button>
           </form>
         </div>

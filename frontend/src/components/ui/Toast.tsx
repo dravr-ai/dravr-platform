@@ -7,6 +7,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast as useToastLogic } from '@pierre/ui-logic';
 import { ToastContext, type Toast, type ToastType } from './ToastContext';
+import { useTranslation } from '@pierre/i18n';
 
 interface ToastProviderProps {
   children: React.ReactNode;
@@ -75,6 +76,7 @@ interface ToastItemProps {
 }
 
 const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
+  const { t } = useTranslation();
   const duration = toast.duration ?? 5000;
   const [progress, setProgress] = useState(100);
 
@@ -175,7 +177,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Dismiss notification"
+            aria-label={t('shell.toastDismiss')}
             className="flex-shrink-0 p-1 text-on-surface-variant hover:text-on-surface-variant rounded transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

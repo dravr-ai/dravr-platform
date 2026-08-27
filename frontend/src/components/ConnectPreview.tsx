@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState } from 'react';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * A short illustrative exchange, shown collapsed on the connect gate.
@@ -20,6 +21,7 @@ import { useState } from 'react';
  * that is a worse outcome than an unpersuasive gate.
  */
 export default function ConnectPreview() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   return (
@@ -30,22 +32,22 @@ export default function ConnectPreview() {
         aria-expanded={open}
         className="w-full text-sm font-medium text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline transition-colors"
       >
-        {open ? 'Hide the example' : 'See what coaching looks like first'}
+        {open ? t('shell.previewExampleHide') : t('shell.previewSeeExample')}
       </button>
 
       {open && (
         <div className="mt-4 rounded-xl border border-outline-variant bg-surface-container-low p-4">
           <p className="text-xs uppercase tracking-wide text-on-surface-variant font-label">
-            Example — not your data
+            {t('shell.previewExampleBadge')}
           </p>
           <p className="mt-1 text-xs text-on-surface-variant">
-            A made-up athlete, Maya, three weeks into marathon training.
+            {t('shell.previewExampleCaption')}
           </p>
 
           <div className="mt-4 flex flex-col gap-3">
             <div className="self-end max-w-[85%] rounded-2xl rounded-br-sm border border-primary bg-primary/10 px-3.5 py-2">
               <p className="text-sm text-on-surface">
-                Legs felt heavy on today&apos;s tempo. Should I still do Saturday&apos;s long run?
+                {t('shell.previewExampleMessage')}
               </p>
             </div>
 
@@ -60,8 +62,7 @@ export default function ConnectPreview() {
           </div>
 
           <p className="mt-4 text-xs text-on-surface-variant">
-            The specifics — the 24%, the sleep, the size of the block — are read from the service
-            you connect. Without one, a coach can only give you the generic answer.
+            {t('shell.previewSpecificsHint')}
           </p>
         </div>
       )}

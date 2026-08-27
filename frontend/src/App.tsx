@@ -21,6 +21,7 @@ import { useAuth } from './hooks/useAuth';
 import { QUERY_KEYS } from './constants/queryKeys';
 import { useOnboardingState } from './hooks/useOnboardingState';
 import { useIdleWatch } from './hooks/useIdleWatch';
+import { useLanguageSwitcher } from '@pierre/i18n';
 import { QUERY_FOCUS_POLICY } from '@pierre/shared-constants';
 import './App.css';
 
@@ -78,6 +79,21 @@ function AppContent() {
     isVerifyEmailPath() ? parseVerifyStatus(window.location.search) : null,
   );
   const localQueryClient = useQueryClient();
+
+  // Adopt the viewer's language for the whole app, not just the screen that
+  // owns the picker. The restore effect lives in the switcher hook, and the
+  // switcher only renders inside Settings, so a viewer who chose a language
+  // and reloaded onto Chat got the default one back everywhere else — a gap
+  // that stayed invisible only because the chrome was hardcoded English.
+  // Mounting the same hook here means one restore path, not a parallel one.
+  const { currentLanguage } = useLanguageSwitcher({ serverLocale: user?.locale });
+
+  // Keep `<html lang>` on the language actually rendered. index.html ships
+  // `lang="en"` and nothing moved it, so French copy was announced to screen
+  // readers as English and offered to translation tooling as English.
+  useEffect(() => {
+    document.documentElement.lang = currentLanguage;
+  }, [currentLanguage]);
 
   // Stop polling — and drop any open turn stream — once the tab has gone
   // untouched for long enough that nobody is reading it.

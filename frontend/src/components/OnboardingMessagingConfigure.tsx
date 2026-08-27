@@ -10,6 +10,7 @@ import { messagingLinkApi } from '../services/api';
 import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Connect the chosen messaging channel.
@@ -34,6 +35,7 @@ export default function OnboardingMessagingConfigure({
   onLinked: () => void;
   onSkip: () => void;
 }) {
+  const { t } = useTranslation();
   // One link-init per channel: re-initialising would mint a fresh code and
   // invalidate the QR the user may be mid-scan of, so never refetch it.
   const { data: link, isLoading, isError, refetch, isFetching } = useQuery({
@@ -66,7 +68,7 @@ export default function OnboardingMessagingConfigure({
       <OnboardingShell heading={`Connect ${displayName}`}>
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface font-label">Preparing your {displayName} link…</p>
+          <p className="text-sm text-on-surface font-label">{t('frag.preparingYour')} {displayName} link…</p>
         </div>
       </OnboardingShell>
     );
@@ -77,14 +79,14 @@ export default function OnboardingMessagingConfigure({
       <OnboardingShell heading={`Connect ${displayName}`}>
         <div className="flex flex-col items-center gap-4 py-8">
           <p className="text-sm text-on-surface font-label">
-            We couldn&apos;t start the {displayName} connection just now.
+            {t('frag.couldntStartThe')} {displayName} connection just now.
           </p>
           <div className="flex gap-3">
             <Button variant="primary" onClick={() => void refetch()} disabled={isFetching}>
-              Try again
+              {t('onboarding.retry')}
             </Button>
             <Button variant="secondary" onClick={onSkip}>
-              Skip for now
+              {t('onboarding.skipForNow')}
             </Button>
           </div>
         </div>
@@ -105,37 +107,37 @@ export default function OnboardingMessagingConfigure({
             <div className="rounded-xl bg-white p-3">
               <img
                 src={`data:image/svg+xml;utf8,${encodeURIComponent(link.qr_svg)}`}
-                alt={`QR code to connect ${displayName}`}
+                alt={t('frag.qrCodeFor', { app: displayName })}
                 className="h-44 w-44"
               />
             </div>
             <p className="max-w-sm text-center text-sm text-on-surface-variant font-label">
-              Scan the QR with your phone, or tap below to open {displayName}. Then press
-              <span className="font-semibold"> Start</span> to finish.
+              {t('onboarding.messagingScanPrefix', { app: displayName })}
+              <span className="font-semibold"> {t('onboarding.messagingStartButton')}</span> {t('onboarding.messagingScanSuffix')}
             </p>
           </>
         ) : (
           <p className="max-w-sm text-center text-sm text-on-surface-variant font-label">
-            Tap below to connect {displayName}. You&apos;ll come back here automatically once it&apos;s
+            {t('frag.tapBelowToConnect')} {displayName}. You&apos;ll come back here automatically once it&apos;s
             done.
           </p>
         )}
 
         <a href={link.linking_url} target="_blank" rel="noreferrer" className="w-full sm:w-auto">
           <Button variant="primary" className="w-full">
-            {isDeepLink ? `Open ${displayName}` : `Connect with ${displayName}`}
+            {isDeepLink ? t('frag.openApp', { app: displayName }) : t('frag.connectWithApp', { app: displayName })}
           </Button>
         </a>
 
         <div className="flex items-center gap-2 text-xs text-on-surface-variant">
           <span className="pierre-spinner w-3.5 h-3.5 border-on-surface border-t-transparent" />
-          Waiting for you to finish in {displayName}…
+          {t('frag.waitingForYouIn')} {displayName}…
         </div>
       </div>
 
       <div className="mt-8">
         <Button variant="secondary" onClick={onSkip} className="w-full">
-          Skip for now
+          {t('onboarding.skipForNow')}
         </Button>
       </div>
     </OnboardingShell>

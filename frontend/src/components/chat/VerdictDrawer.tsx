@@ -7,6 +7,7 @@
 import { useEffect } from 'react';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { VERDICT_STATUS_TONE } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 interface VerdictDrawerProps {
   /** The row to show. */
@@ -77,6 +78,7 @@ export default function VerdictDrawer({
   onClose,
   onAskAboutClaim,
 }: VerdictDrawerProps) {
+  const { t } = useTranslation();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -99,7 +101,7 @@ export default function VerdictDrawer({
       className="fixed inset-0 z-50 flex items-start justify-end bg-black/60"
       role="dialog"
       aria-modal="true"
-      aria-label="Claim verdict details"
+      aria-label={t('chat.verdictDrawerAria')}
       onClick={onClose}
     >
       <div
@@ -109,14 +111,14 @@ export default function VerdictDrawer({
         <div className="sticky top-0 border-b ghost-border bg-surface-container-lowest/90 px-5 py-4 backdrop-blur">
           <div className="flex items-start justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-on-surface">About this claim</h3>
+              <h3 className="text-lg font-semibold text-on-surface">{t('chat.aboutThisClaim')}</h3>
               <p className="mt-0.5 text-xs text-outline">{verdict.id}</p>
             </div>
             <button
               type="button"
               onClick={onClose}
               className="rounded p-1 text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
-              aria-label="Close"
+              aria-label={t('chat.close')}
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -150,7 +152,7 @@ export default function VerdictDrawer({
         <div className="space-y-5 px-5 py-5 text-sm">
           <section>
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
-              The claim
+              {t('chat.theClaim')}
             </h4>
             <blockquote className="border-l-2 border-primary bg-surface-container-low p-3 text-on-surface">
               {verdict.claim_text}
@@ -160,7 +162,7 @@ export default function VerdictDrawer({
           {verdict.explanation ? (
             <section>
               <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
-                What the detector found
+                {t('chat.detectorFindings')}
               </h4>
               <p className="text-on-surface">{verdict.explanation}</p>
             </section>
@@ -169,7 +171,7 @@ export default function VerdictDrawer({
           {references.length > 0 ? (
             <section>
               <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
-                Evidence references
+                {t('chat.evidenceReferences')}
               </h4>
               <ul className="space-y-1">
                 {references.map((ref) => (
@@ -184,19 +186,19 @@ export default function VerdictDrawer({
           {hasProvenance ? (
             <section>
               <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
-                Provenance
+                {t('chat.provenanceHeading')}
               </h4>
               <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-xs">
-                <Provenance label="User" value={verdict.user_id} />
-                <Provenance label="Coach" value={verdict.coach_id} />
-                <Provenance label="Conversation" value={verdict.conversation_id} />
-                <Provenance label="Message" value={verdict.message_id} />
+                <Provenance label={t('chat.provenanceUser')} value={verdict.user_id} />
+                <Provenance label={t('chat.provenanceCoach')} value={verdict.coach_id} />
+                <Provenance label={t('chat.provenanceConversation')} value={verdict.conversation_id} />
+                <Provenance label={t('chat.provenanceMessage')} value={verdict.message_id} />
               </dl>
             </section>
           ) : null}
 
           <section className="text-xs text-outline">
-            Verdict emitted {formatTimestamp(verdict.created_at)}
+            {t('frag.verdictEmitted')} {formatTimestamp(verdict.created_at)}
           </section>
 
           {onAskAboutClaim ? (
@@ -205,7 +207,7 @@ export default function VerdictDrawer({
               onClick={onAskAboutClaim}
               className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary/90"
             >
-              Ask me about this claim
+              {t('chat.askAboutClaim')}
             </button>
           ) : null}
         </div>

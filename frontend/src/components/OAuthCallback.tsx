@@ -3,6 +3,7 @@
 
 import { useEffect } from 'react';
 import { DravrLogo } from './DravrLogo';
+import { useTranslation } from '@pierre/i18n';
 
 interface OAuthCallbackProps {
   provider: string;
@@ -16,6 +17,7 @@ interface OAuthCallbackProps {
  * Displays success or error state and allows user to continue to dashboard.
  */
 export default function OAuthCallback({ provider, success, error, onClose }: OAuthCallbackProps) {
+  const { t } = useTranslation();
   const providerDisplay = provider.charAt(0).toUpperCase() + provider.slice(1);
 
   // Store OAuth result in localStorage so ChatTab can display connection status
@@ -52,7 +54,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
             <DravrLogo size={80} className="mx-auto" />
           </div>
 
-          <div className="text-lg font-bold text-on-surface mb-6">Dravr</div>
+          <div className="text-lg font-bold text-on-surface mb-6">{t('shell.brandName')}</div>
 
           {success ? (
             <>
@@ -77,7 +79,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
                 {providerDisplay} Connected
               </h1>
               <p className="text-sm text-on-surface-variant mb-6">
-                Your {providerDisplay} account has been successfully connected to Dravr.
+                {t('frag.your')} {providerDisplay} account has been successfully connected to Dravr.
               </p>
             </>
           ) : (
@@ -99,7 +101,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
                 </svg>
               </div>
 
-              <h1 className="text-xl font-bold text-error mb-2">Connection Failed</h1>
+              <h1 className="text-xl font-bold text-error mb-2">{t('shell.oauthConnectionFailed')}</h1>
               <p className="text-sm text-on-surface-variant mb-6">
                 {error || `Failed to connect your ${providerDisplay} account. Please try again.`}
               </p>
@@ -111,11 +113,11 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
               onClick={onClose}
               className="btn-primary w-full"
             >
-              Continue to Dashboard
+              {t('shell.oauthContinueToDashboard')}
             </button>
           ) : (
             <p className="text-xs text-on-surface-variant">
-              You can close this tab and return to your conversation.
+              {t('shell.oauthCloseTabHint')}
             </p>
           )}
         </div>

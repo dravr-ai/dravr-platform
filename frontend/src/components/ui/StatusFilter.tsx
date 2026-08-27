@@ -5,6 +5,7 @@
 // ABOUTME: Provides consistent Active/All/Inactive filtering across Admin Tokens, API Keys, and A2A Clients
 
 import React from 'react';
+import { useTranslation } from '@pierre/i18n';
 
 export type StatusFilterValue = 'active' | 'all' | 'inactive';
 
@@ -25,10 +26,11 @@ export const StatusFilter: React.FC<StatusFilterProps> = ({
   totalCount,
   className = '',
 }) => {
+  const { t } = useTranslation();
   const options: { value: StatusFilterValue; label: string; count?: number }[] = [
-    { value: 'active', label: 'Active', count: activeCount },
-    { value: 'all', label: 'All', count: totalCount },
-    { value: 'inactive', label: 'Inactive', count: inactiveCount },
+    { value: 'active', label: t('shell.statusFilterActive'), count: activeCount },
+    { value: 'all', label: t('discover.filterAll'), count: totalCount },
+    { value: 'inactive', label: t('shell.statusFilterInactive'), count: inactiveCount },
   ];
 
   return (

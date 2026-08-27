@@ -6,6 +6,7 @@
 
 import { clsx } from 'clsx';
 import type { CommandEntry } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 export interface CommandPaletteProps {
   /** The commands to offer, already filtered and ordered by the server. */
@@ -29,12 +30,13 @@ export default function CommandPalette({
   highlightedIndex,
   onSelect,
 }: CommandPaletteProps) {
+  const { t } = useTranslation();
   if (matches.length === 0) return null;
 
   return (
     <div
       role="listbox"
-      aria-label="Slash commands"
+      aria-label={t('shell.commandPaletteSlashCommands')}
       data-testid="command-palette"
       className="mb-2 max-h-64 overflow-y-auto rounded-xl border ghost-border bg-surface-container-low shadow-ambient"
     >

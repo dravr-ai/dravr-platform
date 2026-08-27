@@ -17,6 +17,7 @@ import ConnectPreview from './ConnectPreview';
 // embedded `<defs>` don't collide when multiple instances of the logo render
 // in the same document tree.
 import { DravrLogo } from './DravrLogo';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Hard gate shown right after first login when the user has zero connected
@@ -38,6 +39,7 @@ export default function OnboardingConnectProvider({
   userDisplayName?: string | null;
   onContinueWithoutProvider?: () => void;
 }) {
+  const { t } = useTranslation();
   const { logout } = useAuth();
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   // Bridges the gap between Sciotte success and the App-level route flip:
@@ -159,7 +161,7 @@ export default function OnboardingConnectProvider({
         <div className="flex flex-col items-center gap-4">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface-variant font-label">
-            Provider connected — preparing your dashboard…
+            {t('onboarding.providerConnectedPreparing')}
           </p>
         </div>
       </div>
@@ -173,18 +175,17 @@ export default function OnboardingConnectProvider({
         <div className="flex flex-col items-center gap-4 max-w-md text-center">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface font-label">
-            Awaiting {friendlyName} consent…
+            {t('frag.awaiting')} {friendlyName} consent…
           </p>
           <p className="text-xs text-on-surface-variant">
-            Finish the authorisation in the popup window. We&apos;ll route you to the
-            dashboard automatically once {friendlyName} confirms.
+            {t('frag.finishAuthPopup')} {friendlyName} confirms.
           </p>
           <Button
             variant="secondary"
             onClick={() => setAwaitingOAuthFor(null)}
             className="mt-2"
           >
-            Cancel and try a different provider
+            {t('onboarding.cancelChooseOtherProvider')}
           </Button>
         </div>
       </div>
@@ -206,13 +207,11 @@ export default function OnboardingConnectProvider({
               <DravrLogo size={64} />
 
               <h1 className="mt-6 font-display font-semibold text-3xl text-on-surface">
-                {userDisplayName ? `Welcome, ${userDisplayName}` : 'Welcome to Dravr'}
+                {userDisplayName ? `Welcome, ${userDisplayName}` : t('onboarding.welcomeToDravr')}
               </h1>
 
               <p className="mt-3 text-sm text-on-surface-variant max-w-md font-label">
-                Connect a fitness service to get started. Dravr coaches you on
-                the activities your provider already tracks — without one,
-                there&apos;s nothing for the model to read.
+                {t('onboarding.connectProviderIntro')}
               </p>
             </div>
 
@@ -238,7 +237,7 @@ export default function OnboardingConnectProvider({
             <ConnectPreview />
 
             <p className="mt-6 text-xs text-on-surface-variant text-center">
-              Your credentials are encrypted at rest and used only to fetch your activity data.
+              {t('onboarding.credentialsEncryptedHint')}
             </p>
 
             {onContinueWithoutProvider && (
@@ -248,10 +247,10 @@ export default function OnboardingConnectProvider({
                   onClick={onContinueWithoutProvider}
                   className="text-sm font-medium text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline transition-colors"
                 >
-                  Continue without connecting &rarr;
+                  {t('onboarding.continueWithoutProvider')}
                 </button>
                 <p className="mt-1 text-xs text-on-surface-variant">
-                  You can connect anytime &mdash; your coach needs a provider to read your activity.
+                  {t('onboarding.connectAnytimeHint')}
                 </p>
               </div>
             )}
@@ -262,7 +261,7 @@ export default function OnboardingConnectProvider({
                 onClick={logout}
                 className="w-full"
               >
-                Sign Out
+                {t('common.logout')}
               </Button>
             </div>
           </div>

@@ -6,6 +6,7 @@
 
 import { clsx } from 'clsx';
 import type { MentionCandidate } from '@pierre/shared-constants';
+import { useTranslation } from '@pierre/i18n';
 
 export interface MentionPaletteProps {
   /** The installed coaches to offer, already filtered and ordered by handle. */
@@ -28,12 +29,13 @@ export default function MentionPalette({
   highlightedIndex,
   onSelect,
 }: MentionPaletteProps) {
+  const { t } = useTranslation();
   if (matches.length === 0) return null;
 
   return (
     <div
       role="listbox"
-      aria-label="Coach mentions"
+      aria-label={t('chat.coachMentionsAria')}
       data-testid="mention-palette"
       className="mb-2 max-h-64 overflow-y-auto rounded-xl border ghost-border bg-surface-container-low shadow-ambient"
     >

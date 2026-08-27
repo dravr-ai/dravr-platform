@@ -8,6 +8,7 @@ import { AlertTriangle, CalendarRange, CheckCircle2, Info, Lightbulb } from 'luc
 import { Card } from '../ui';
 import { useGroupHealthFlags, useGroupWeeklyReport } from '../../hooks/useGroups';
 import type { HealthFlagSeverity, MemberFlag } from '@pierre/shared-types';
+import { useTranslation } from '@pierre/i18n';
 
 interface GroupInsightsPanelProps {
   groupId: string;
@@ -17,13 +18,13 @@ interface GroupInsightsPanelProps {
   weeklyDigestEnabled: boolean;
 }
 
-const FLAG_LABELS: Record<MemberFlag, string> = {
-  overreaching: 'Overreaching',
-  fresh_form: 'Fresh form',
-  personal_record: 'Personal record',
-  deep_fatigue: 'Deep fatigue',
-  inactive: 'Inactive',
-  volume_drop: 'Volume drop',
+const FLAG_LABEL_KEYS: Record<MemberFlag, string> = {
+  overreaching: 'groups.flagOverreaching',
+  fresh_form: 'groups.flagFreshForm',
+  personal_record: 'groups.flagPersonalRecord',
+  deep_fatigue: 'groups.flagDeepFatigue',
+  inactive: 'groups.inactive',
+  volume_drop: 'groups.flagVolumeDrop',
 };
 
 const SEVERITY_STYLES: Record<HealthFlagSeverity, string> = {
@@ -45,6 +46,7 @@ export default function GroupInsightsPanel({
   isAdmin,
   weeklyDigestEnabled,
 }: GroupInsightsPanelProps) {
+  const { t } = useTranslation();
   const enabled = isAdmin && weeklyDigestEnabled;
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
   const { flags, isLoading: isFlagsLoading } = useGroupHealthFlags(groupId, enabled);
@@ -60,10 +62,9 @@ export default function GroupInsightsPanel({
           <div className="flex items-start gap-3">
             <Info className="w-4 h-4 text-on-surface-variant mt-0.5 flex-shrink-0" />
             <div>
-              <h4 className="text-sm font-semibold text-on-surface">Weekly report</h4>
+              <h4 className="text-sm font-semibold text-on-surface">{t('groups.weeklyReport')}</h4>
               <p className="text-sm text-on-surface-variant mt-1">
-                The weekly group report and member health flags come with the Professional plan.
-                Your current plan does not include them.
+                {t('groups.insightsPlanRequired')}
               </p>
             </div>
           </div>
@@ -86,7 +87,7 @@ export default function GroupInsightsPanel({
         <Card variant="dark" className="!p-5">
           <div className="flex items-center gap-2 mb-3">
             <CalendarRange className="w-4 h-4 text-primary" />
-            <h4 className="text-sm font-semibold text-on-surface">This week</h4>
+            <h4 className="text-sm font-semibold text-on-surface">{t('groups.thisWeek')}</h4>
           </div>
           <p className="text-sm text-on-surface-variant" data-testid="group-report-summary">
             {report.summary}
@@ -94,7 +95,7 @@ export default function GroupInsightsPanel({
 
           {report.highlights.length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-medium text-on-surface-variant mb-2">Highlights</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-2">{t('groups.highlights')}</p>
               <ul className="space-y-1.5">
                 {report.highlights.map((highlight) => (
                   <li
@@ -112,7 +113,7 @@ export default function GroupInsightsPanel({
 
           {report.concerns.length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-medium text-on-surface-variant mb-2">Concerns</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-2">{t('groups.concerns')}</p>
               <ul className="space-y-1.5">
                 {report.concerns.map((concern) => (
                   <li
@@ -130,7 +131,7 @@ export default function GroupInsightsPanel({
 
           {report.recommendations.length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-medium text-on-surface-variant mb-2">Recommendations</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-2">{t('groups.recommendations')}</p>
               <ul className="space-y-1.5">
                 {report.recommendations.map((recommendation) => (
                   <li
@@ -157,7 +158,7 @@ export default function GroupInsightsPanel({
         </div>
         {flags.length === 0 ? (
           <p className="text-sm text-outline" data-testid="group-health-flags-empty">
-            No member is flagged this week.
+            {t('groups.noneFlagged')}
           </p>
         ) : (
           <ul className="space-y-2">
@@ -176,7 +177,7 @@ export default function GroupInsightsPanel({
                 <span
                   className={`px-2 py-0.5 rounded-full text-[11px] font-medium flex-shrink-0 ${SEVERITY_STYLES[flag.severity]}`}
                 >
-                  {FLAG_LABELS[flag.flag_type]}
+                  {t(FLAG_LABEL_KEYS[flag.flag_type])}
                 </span>
               </li>
             ))}

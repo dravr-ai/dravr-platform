@@ -87,6 +87,7 @@ import { Card } from './ui';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { BILLING_ENABLED } from '../constants/features';
 import { PAGE_GUTTER_CLASS, layoutForRoute } from '../constants/surfaceLayout';
+import { useTranslation } from '@pierre/i18n';
 import { track } from '../services/analytics';
 
 // Tab definition type with optional badge for notification counts
@@ -107,6 +108,7 @@ interface DashboardProps {
 
 export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: DashboardProps) {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
   // Default tab depends on user role: admin sees 'users', regular users see 'chat'
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const isSuperAdmin = user?.role === 'super_admin';
@@ -315,116 +317,116 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
 
   // Tab definitions for admin users, grouped into sidebar sections
   const adminTabs: TabDefinition[] = useMemo(() => [
-    { id: 'users', name: 'Users', section: 'Platform', icon: (
+    { id: 'users', name: t('shell.navUsers'), section: 'Platform', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ), badge: pendingUsersCount > 0 ? pendingUsersCount : undefined },
-    { id: 'coaches', name: 'Coaches', section: 'Coaching', icon: (
+    { id: 'coaches', name: t('chat.coachesHeading'), section: 'Coaching', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ) },
-    { id: 'coach-store', name: 'Coach Store', section: 'Coaching', icon: (
+    { id: 'coach-store', name: t('shell.navCoachStore'), section: 'Coaching', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ), badge: storeStatsPendingCount > 0 ? storeStatsPendingCount : undefined },
-    { id: 'configuration', name: 'Tool Management', section: 'Configuration', icon: (
+    { id: 'configuration', name: t('shell.navToolManagement'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
       </svg>
     ) },
-    { id: 'user-tools', name: 'User Tools', section: 'Configuration', icon: (
+    { id: 'user-tools', name: t('shell.navUserTools'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h9m3-6l2 2 4-4" />
       </svg>
     ) },
-    { id: 'prompts', name: 'Prompts', section: 'Configuration', icon: (
+    { id: 'prompts', name: t('shell.navPrompts'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ) },
-    { id: 'platform-settings', name: 'Platform Settings', section: 'Configuration', icon: (
+    { id: 'platform-settings', name: t('shell.navPlatformSettings'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ) },
-    { id: 'claim-verdicts', name: 'Claim Verdicts', section: 'Configuration', icon: (
+    { id: 'claim-verdicts', name: t('shell.navClaimVerdicts'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
       </svg>
     ) },
-    { id: 'harness-config', name: 'Harness Config', section: 'Configuration', icon: (
+    { id: 'harness-config', name: t('shell.navHarnessConfig'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
       </svg>
     ) },
-    { id: 'guardian-config', name: 'Guardian Config', section: 'Configuration', icon: (
+    { id: 'guardian-config', name: t('shell.navGuardianConfig'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l7 3v5c0 5.25-3.4 9.74-7 11-3.6-1.26-7-5.75-7-11V6l7-3z" />
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.5 12l1.8 1.8 3.2-3.6" />
       </svg>
     ) },
-    { id: 'memory-worker', name: 'Memory Worker', section: 'Configuration', icon: (
+    { id: 'memory-worker', name: t('shell.navMemoryWorker'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7l8 6 8-6" />
       </svg>
     ) },
-    { id: 'coach-followups', name: 'Coach Followups', section: 'Configuration', icon: (
+    { id: 'coach-followups', name: t('shell.navCoachFollowups'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ) },
-    { id: 'coach-notes-audit', name: 'Coach Notes Audit', section: 'Configuration', icon: (
+    { id: 'coach-notes-audit', name: t('shell.navCoachNotesAudit'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ) },
-    { id: 'myth-busting', name: 'Myth Busting', section: 'Configuration', icon: (
+    { id: 'myth-busting', name: t('shell.navMythBusting'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l1.664 1.664M21 21l-1.5-1.5m-5.485-1.242L12 17l-3.5-1L9 13.5 7 11l1-2 3 1 2-3.5L15 8l3 1-1.5 2.5L18 14l-3 1 1 3.258m0 0L11 21M3 3l8 8m4 4l4 4M3 3l18 18" />
       </svg>
     ) },
-    { id: 'coach-grading', name: 'Coach Grades', section: 'Configuration', icon: (
+    { id: 'coach-grading', name: t('shell.navCoachGrades'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
       </svg>
     ) },
-    { id: 'eval-harness', name: 'Eval Harness', section: 'Configuration', icon: (
+    { id: 'eval-harness', name: t('shell.navEvalHarness'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
       </svg>
     ) },
-    { id: 'activity', name: 'Activity', section: 'Platform', icon: (
+    { id: 'activity', name: t('auth.activityLabel'), section: 'Platform', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
     ) },
-    { id: 'engagement', name: 'Engagement', section: 'Platform', icon: (
+    { id: 'engagement', name: t('shell.navEngagement'), section: 'Platform', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ) },
-    { id: 'notifications', name: 'Notifications', section: 'Platform', icon: (
+    { id: 'notifications', name: t('shell.navNotifications'), section: 'Platform', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
       </svg>
     ), badge: notificationUnreadCount > 0 ? notificationUnreadCount : undefined },
-    { id: 'connections', name: 'Service Tokens', section: 'Developer', icon: (
+    { id: 'connections', name: t('shell.navServiceTokens'), section: 'Developer', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
       </svg>
     ) },
-    { id: 'analytics', name: 'Analytics', section: 'Developer', icon: (
+    { id: 'analytics', name: t('shell.navAnalytics'), section: 'Developer', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ) },
     // Billing is gated out of the first release (see constants/features).
     ...(BILLING_ENABLED
-      ? [{ id: 'billing', name: 'Billing', section: 'Platform', icon: (
+      ? [{ id: 'billing', name: t('shell.navBilling'), section: 'Platform', icon: (
         <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h2m-2 4h2m4-4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
         </svg>
@@ -435,7 +437,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Super admin tabs extend admin tabs with admin token management
   const superAdminTabs: TabDefinition[] = useMemo(() => [
     ...adminTabs,
-    { id: 'admin-tokens', name: 'Admin Tokens', icon: (
+    { id: 'admin-tokens', name: t('shell.navAdminTokens'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
       </svg>
@@ -444,36 +446,36 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
 
   // Regular user tabs - Settings accessible via gear icon, not sidebar
   const regularTabs: TabDefinition[] = useMemo(() => [
-    { id: 'chat', name: 'Chat', icon: (
+    { id: 'chat', name: t('nav.chat'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
     ), badge: unreadConversationsCount > 0 ? unreadConversationsCount : undefined },
     // The coach library is a pinned section of Discover, not a tab of its own.
-    { id: 'discover', name: 'Discover', icon: (
+    { id: 'discover', name: t('nav.discover'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
       </svg>
     ) },
-    { id: 'data-providers', name: 'Data Providers', icon: (
+    { id: 'data-providers', name: t('nav.dataProviders'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
       </svg>
     ) },
-    { id: 'notifications', name: 'Notifications', icon: (
+    { id: 'notifications', name: t('nav.notifications'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
       </svg>
     ), badge: notificationUnreadCount > 0 ? notificationUnreadCount : undefined },
     // Usage renders the billing surface; gated out of the first release.
     ...(BILLING_ENABLED
-      ? [{ id: 'usage', name: 'Usage', icon: (
+      ? [{ id: 'usage', name: t('nav.usage'), icon: (
         <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h2m-2 4h2m4-4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
         </svg>
       ) }]
       : []),
-  ], [notificationUnreadCount, unreadConversationsCount]);
+  ], [notificationUnreadCount, unreadConversationsCount, t]);
 
   // For admin users, use sidebar tabs
   const tabs = isSuperAdmin ? superAdminTabs : (isAdminUser ? adminTabs : regularTabs);
@@ -542,7 +544,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           {!sidebarCollapsed && (
             <div className="flex flex-col">
               <span className="text-lg font-semibold bg-gradient-to-r boreal-hero-gradient bg-clip-text text-transparent">
-                Dravr
+                {t('shell.brandName')}
               </span>
             </div>
           )}
@@ -653,8 +655,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                 'flex items-center gap-2 rounded-lg transition-all duration-200 hover:bg-surface-container-low',
                 sidebarCollapsed ? 'p-1 flex-col' : 'flex-1 min-w-0 p-1.5'
               )}
-              title="Open Settings"
-              aria-label="Open Settings"
+              title={t('shell.navOpenSettings')}
+              aria-label={t('shell.navOpenSettings')}
             >
               {/* User Avatar with online indicator */}
               <div className="relative flex-shrink-0">
@@ -673,7 +675,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                     {user?.display_name || user?.email}
                   </p>
                   <span className="text-[9px] text-on-surface-variant uppercase">
-                    {user?.role === 'super_admin' ? 'Super Admin' : user?.role === 'admin' ? 'Admin' : 'User'}
+                    {user?.role === 'super_admin' ? t('shell.roleSuperAdmin') : user?.role === 'admin' ? t('shell.roleAdmin') : t('shell.roleUser')}
                   </span>
                 </div>
               )}
@@ -687,8 +689,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                 sidebarCollapsed ? 'min-w-[44px] min-h-[44px]' : 'min-w-[44px] min-h-[44px]',
                 activeTab === 'settings' && 'text-primary'
               )}
-              title="Settings"
-              aria-label="Settings"
+              title={t('shell.navSettings')}
+              aria-label={t('shell.navSettings')}
             >
               <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -700,8 +702,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <button
               onClick={logout}
               className="text-outline hover:text-primary transition-colors flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
-              title="Sign out"
-              aria-label="Sign out"
+              title={t('shell.navSignOut')}
+              aria-label={t('shell.navSignOut')}
             >
               <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -720,8 +722,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             setUserSidebarCollapsed(next);
           }}
           className="hidden lg:flex absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full items-center justify-center shadow-sm hover:bg-surface-container hover:border-primary transition-all duration-200 z-[60]"
-          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
+          aria-label={sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')}
         >
           <svg
             className={clsx(
@@ -744,7 +746,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Resize sidebar"
+            aria-label={t('shell.sidebarResize')}
             onPointerDown={onSidebarResizeStart}
             className={clsx(
               'absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-50 hover:bg-primary/40 transition-colors',
@@ -773,7 +775,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <div className="px-4 md:px-6 py-3 md:py-4 flex items-center justify-between">
               <div className="min-w-0">
                 <h1 className="text-lg md:text-xl font-medium text-on-surface truncate">
-                  {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? 'Settings' : '')}
+                  {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? t('shell.navSettings') : '')}
                 </h1>
               </div>
             </div>
@@ -978,9 +980,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             ) : (
               <>
                 <Card variant="dark">
-                  <h2 className="text-xl font-semibold mb-4 text-on-surface">API Key Management</h2>
+                  <h2 className="text-xl font-semibold mb-4 text-on-surface">{t('shell.navApiKeyManagement')}</h2>
                   <p className="text-on-surface-variant mb-4">
-                    Manage API keys for MCP clients and programmatic access. Only super admins can create, rotate, and revoke API keys.
+                    {t('shell.apiKeysDescription')}
                   </p>
                 </Card>
                 <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
@@ -1010,7 +1012,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             }}
             userLabel={user?.display_name || user?.email || ''}
             userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
-            userRole={user?.role === 'super_admin' ? 'Super Admin' : user?.role === 'admin' ? 'Admin' : 'User'}
+            userRole={user?.role === 'super_admin' ? t('shell.roleSuperAdmin') : user?.role === 'admin' ? t('shell.roleAdmin') : t('shell.roleUser')}
             onOpenSettings={() => setActiveTab('settings')}
             onSignOut={logout}
           />

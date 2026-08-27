@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { userApi } from '../services/api';
 import { Button, Input, Textarea } from './ui';
 import OnboardingShell from './OnboardingShell';
+import { useTranslation } from '@pierre/i18n';
 
 /** Sports offered as one-tap choices; anything else is typed. */
 const SPORTS = ['Running', 'Cycling', 'Swimming', 'Triathlon', 'Strength', 'Hiking'] as const;
@@ -33,6 +34,7 @@ export default function OnboardingAboutYou({
   userDisplayName?: string | null;
   onComplete: (status?: 'complete' | 'skipped') => void;
 }) {
+  const { t } = useTranslation();
   const [sport, setSport] = useState('');
   const [goal, setGoal] = useState('');
   const [northStar, setNorthStar] = useState('');
@@ -63,16 +65,15 @@ export default function OnboardingAboutYou({
 
   return (
     <OnboardingShell
-      heading={userDisplayName ? `Tell me about your training, ${userDisplayName}` : 'Tell me about your training'}
+      heading={userDisplayName ? `Tell me about your training, ${userDisplayName}` : t('onboarding.tellMeAboutTraining')}
     >
       <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
-        Three quick questions so your coach starts out knowing you. Skip any of them — we&apos;ll
-        pick the rest up as we go.
+        {t('onboarding.aboutYouHint')}
       </p>
 
       <div className="mt-8 space-y-6">
         <div>
-          <span className="block text-sm font-medium text-on-surface">What do you mostly do?</span>
+          <span className="block text-sm font-medium text-on-surface">{t('onboarding.primarySportLabel')}</span>
           <div className="mt-3 flex flex-wrap gap-2">
             {SPORTS.map((option) => {
               const selected = sport === option;
@@ -97,8 +98,8 @@ export default function OnboardingAboutYou({
             <Input
               id="about-sport-other"
               type="text"
-              label="Or something else"
-              placeholder="Type another sport"
+              label={t('onboarding.otherSportLabel')}
+              placeholder={t('onboarding.otherSportPlaceholder')}
               value={SPORTS.includes(sport as (typeof SPORTS)[number]) ? '' : sport}
               onChange={(e) => setSport(e.target.value)}
             />
@@ -109,8 +110,8 @@ export default function OnboardingAboutYou({
           <Input
             id="about-goal"
             type="text"
-            label="What are you working toward?"
-            placeholder="A first half-marathon in the spring, say"
+            label={t('onboarding.goalLabel')}
+            placeholder={t('onboarding.goalPlaceholder')}
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
           />
@@ -120,8 +121,8 @@ export default function OnboardingAboutYou({
           <Textarea
             id="about-north-star"
             rows={3}
-            label="And why does it matter to you?"
-            placeholder="Keeping up with my kids on the trail"
+            label={t('onboarding.northStarLabel')}
+            placeholder={t('onboarding.northStarPlaceholder')}
             helpText="This is the one your coach comes back to when the training gets hard."
             value={northStar}
             onChange={(e) => setNorthStar(e.target.value)}
@@ -136,7 +137,7 @@ export default function OnboardingAboutYou({
           disabled={saving}
           className="w-full"
         >
-          {saving ? 'Saving…' : 'Continue'}
+          {saving ? t('onboarding.saving') : t('onboarding.continueButton')}
         </Button>
         <button
           type="button"
@@ -144,7 +145,7 @@ export default function OnboardingAboutYou({
           disabled={saving}
           className="w-full text-sm font-medium text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline transition-colors"
         >
-          Skip for now
+          {t('onboarding.skipForNow')}
         </button>
       </div>
     </OnboardingShell>

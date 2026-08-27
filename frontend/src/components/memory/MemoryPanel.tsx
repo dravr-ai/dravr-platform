@@ -9,19 +9,22 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
 import { userApi } from '../../services/api';
 import { Card, Button, Badge, ConfirmDialog, Select } from '../ui';
+import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
-const KIND_OPTIONS: { value: MemoryFactRow['kind'] | ''; label: string }[] = [
-  { value: '', label: 'All kinds' },
-  { value: 'preference', label: 'Preference' },
-  { value: 'physiology', label: 'Physiology' },
-  { value: 'injury', label: 'Injury' },
-  { value: 'goal', label: 'Goal' },
-  { value: 'schedule', label: 'Schedule' },
-  { value: 'equipment', label: 'Equipment' },
-  { value: 'other', label: 'Other' },
+function kindOptions(t: (key: string) => string): { value: MemoryFactRow['kind'] | ''; label: string }[] {
+  return [
+  { value: '', label: t('shell.memoryFilterAllKinds') },
+  { value: 'preference', label: t('shell.memoryKindPreference') },
+  { value: 'physiology', label: t('shell.memoryKindPhysiology') },
+  { value: 'injury', label: t('shell.memoryKindInjury') },
+  { value: 'goal', label: t('shell.memoryKindGoal') },
+  { value: 'schedule', label: t('shell.memoryKindSchedule') },
+  { value: 'equipment', label: t('shell.memoryKindEquipment') },
+  { value: 'other', label: t('shell.memoryKindOther') },
 ];
+}
 
 const KIND_VARIANT: Record<MemoryFactRow['kind'], 'success' | 'info' | 'warning' | 'error' | 'secondary'> = {
   preference: 'info',
@@ -66,6 +69,7 @@ function factSentence(fact: Pick<MemoryFactRow, 'subject' | 'predicate' | 'objec
 }
 
 export default function MemoryPanel() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
   const [pendingForget, setPendingForget] = useState<MemoryFactRow | null>(null);
@@ -111,7 +115,7 @@ export default function MemoryPanel() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-on-surface">
-              What the coach remembers about you
+              {t('shell.memoryTitle')}
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
               Facts the platform extracted from your conversations to give the
@@ -120,20 +124,20 @@ export default function MemoryPanel() {
             </p>
           </div>
           <Button variant="secondary" onClick={() => refetch()}>
-            Refresh
+            {t('shell.memoryRefresh')}
           </Button>
         </div>
 
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <div className="w-56">
             <Select
-              label="Filter by kind"
+              label={t('shell.memoryFilterByKind')}
               size="sm"
               value={kindFilter}
               onChange={(e) =>
                 setKindFilter((e.target.value || '') as MemoryFactRow['kind'] | '')
               }
-              options={KIND_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+              options={kindOptions(t).map((opt) => ({ value: opt.value, label: opt.label }))}
             />
           </div>
           <span className="pb-2 text-xs text-outline">
@@ -151,18 +155,17 @@ export default function MemoryPanel() {
       ) : isError ? (
         <Card className="p-6">
           <p className="text-sm text-error">
-            Failed to load memory facts:{' '}
+            {t('frag.failedLoadMemory')}{' '}
             {error instanceof Error ? error.message : String(error)}
           </p>
         </Card>
       ) : facts.length === 0 ? (
         <Card className="p-12 text-center">
           <p className="text-on-surface-variant">
-            No facts stored yet.
+            {t('shell.memoryEmpty')}
           </p>
           <p className="mt-2 text-xs text-outline">
-            Talk to a coach for a few turns and the platform will start
-            building your memory profile.
+            {t('shell.memoryEmptyHint')}
           </p>
         </Card>
       ) : (
@@ -198,7 +201,7 @@ export default function MemoryPanel() {
                         )}
                       </p>
                       <p className="mt-1 text-xs text-on-surface-variant">
-                        Confidence {(fact.confidence * 100).toFixed(0)}% ·{' '}
+                        {t('frag.confidence')} {(fact.confidence * 100).toFixed(0)}% ·{' '}
                         Updated {formatTimestamp(fact.updated_at)}
                         {fact.coach_id ? ` · Coach ${fact.coach_id}` : ''}
                       </p>
@@ -208,7 +211,7 @@ export default function MemoryPanel() {
                       onClick={() => setPendingForget(fact)}
                       disabled={forgetMutation.isPending}
                     >
-                      Forget
+                      {t('shell.memoryForget')}
                     </Button>
                   </li>
                 ))}
@@ -221,7 +224,7 @@ export default function MemoryPanel() {
       {pendingForget ? (
         <ConfirmDialog
           isOpen
-          title="Forget this fact?"
+          title={t('shell.memoryForgetConfirm')}
           message={`The coach will stop using "${factSentence(pendingForget)}" on the next turn. This cannot be undone.`}
           confirmLabel="Forget"
           cancelLabel="Cancel"

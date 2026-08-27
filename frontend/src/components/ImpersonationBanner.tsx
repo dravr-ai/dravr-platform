@@ -6,8 +6,10 @@
 
 import { useAuth } from '../hooks/useAuth';
 import { Button } from './ui';
+import { useTranslation } from '@pierre/i18n';
 
 export default function ImpersonationBanner() {
+  const { t } = useTranslation();
   const { impersonation, endImpersonation } = useAuth();
 
   if (!impersonation.isImpersonating || !impersonation.targetUser) {
@@ -40,7 +42,7 @@ export default function ImpersonationBanner() {
             />
           </svg>
           <span className="font-medium">
-            You are impersonating{' '}
+            {t('frag.impersonating')}{' '}
             <span className="font-bold">
               {impersonation.targetUser.display_name || impersonation.targetUser.email}
             </span>
@@ -51,7 +53,7 @@ export default function ImpersonationBanner() {
             )}
           </span>
           <span className="text-warning text-sm">
-            Role: {impersonation.targetUser.role}
+            {t('frag.roleLabel')} {impersonation.targetUser.role}
           </span>
         </div>
         <Button
@@ -60,7 +62,7 @@ export default function ImpersonationBanner() {
           onClick={handleEndImpersonation}
           className="bg-white text-warning hover:bg-warning border-0"
         >
-          End Impersonation
+          {t('shell.impersonationEnd')}
         </Button>
       </div>
     </div>

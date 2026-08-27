@@ -46,6 +46,20 @@ export default defineConfig({
     // that failure mode cannot happen. PLAYWRIGHT_BASE_URL still overrides for
     // a worktree that deliberately targets an already-running E2E-mode server.
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5174',
+    // The product default is French. This suite asserts English copy in well
+    // over a thousand places, so it states the language it is testing rather
+    // than depending on the chrome being untranslated.
+    //
+    // It lives here rather than in a helper because a helper is opt-in: the pin
+    // started inside `applyTestStubs`, and the eight specs that never call it —
+    // registration, pending-approval, login, the visual sweeps — kept rendering
+    // French and failed the moment the copy was translated. Seeding the same
+    // `pierre_app_language` key the switcher itself writes means no spec can
+    // miss it, and the pin still travels the path a real preference travels.
+    //
+    // `locale-default.spec.ts` overrides it with an init script to cover the
+    // unpinned French path that real users get.
+    storageState: 'e2e/storage-state.json',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

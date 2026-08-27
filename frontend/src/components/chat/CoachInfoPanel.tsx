@@ -8,6 +8,7 @@ import { AtSign, Pencil, UserMinus } from 'lucide-react';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import type { Coach } from '@pierre/shared-types';
 import { Button } from '../ui';
+import { useTranslation } from '@pierre/i18n';
 
 interface CoachInfoPanelProps {
   /** The coach bound to the conversation. */
@@ -21,7 +22,7 @@ interface CoachInfoPanelProps {
 /**
  * Who this thread is talking to.
  *
- * The coach is not managed from chat: "Remove from this chat" sends
+ * The coach is not managed from chat: t('chat.removeFromChat') sends
  * `/coach remove` down the same command pipeline a typed command takes, and
  * editing leaves for the coach's Discover detail, which owns the edit sheet.
  * A system coach belongs to the catalogue, so it offers no edit.
@@ -31,10 +32,11 @@ export default function CoachInfoPanel({
   onSendCommand,
   onEditCoach,
 }: CoachInfoPanelProps) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-5" data-testid="coach-info-panel">
       <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-outline mb-1">Coach</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-outline mb-1">{t('chat.coachPanelTitle')}</h4>
         <p className="text-base font-semibold text-on-surface">{coach.title}</p>
         {coach.handle && (
           <p className="text-sm text-primary font-mono mt-0.5" data-testid="coach-info-handle">
@@ -47,7 +49,7 @@ export default function CoachInfoPanel({
       {coach.description && (
         <section>
           <h4 className="text-xs font-semibold uppercase tracking-wide text-outline mb-1">
-            What it does
+            {t('chat.whatItDoesSection')}
           </h4>
           <p className="text-sm text-on-surface-variant">{coach.description}</p>
         </section>
@@ -58,8 +60,7 @@ export default function CoachInfoPanel({
           <p className="flex items-start gap-2 text-xs text-on-surface-variant">
             <AtSign className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-primary" aria-hidden="true" />
             <span>
-              Mention: <span className="font-mono text-on-surface">@{coach.handle}</span> brings this
-              coach in for one turn, in any chat.
+              {t('chat.mentionLabel')} <span className="font-mono text-on-surface">@{coach.handle}</span> {t('chat.mentionHint')}
             </span>
           </p>
         </section>
@@ -74,7 +75,7 @@ export default function CoachInfoPanel({
         >
           <span className="flex items-center justify-center gap-2">
             <UserMinus className="w-4 h-4" aria-hidden="true" />
-            Remove from this chat
+            {t('chat.removeFromChat')}
           </span>
         </Button>
         {!coach.is_system && (
@@ -86,7 +87,7 @@ export default function CoachInfoPanel({
           >
             <span className="flex items-center justify-center gap-2">
               <Pencil className="w-4 h-4" aria-hidden="true" />
-              Edit coach
+              {t('chat.editCoach')}
             </span>
           </Button>
         )}

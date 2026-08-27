@@ -25,6 +25,7 @@ function ClockIcon({ className }: { className?: string }) {
 
 // Pierre holistic node logo SVG
 import { DravrLogo } from './DravrLogo';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Shown to a signed-in user who cannot proceed yet. Two distinct situations land
@@ -42,6 +43,7 @@ import { DravrLogo } from './DravrLogo';
  * `false` puts the page in confirm-your-email mode.
  */
 export default function PendingApproval() {
+  const { t } = useTranslation();
   const { user, logout } = useAuth();
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 
@@ -75,21 +77,17 @@ export default function PendingApproval() {
               </div>
 
               <h1 className="text-xl font-bold text-on-surface">
-                {needsEmailConfirmation ? 'Confirm your email' : 'Account Pending Approval'}
+                {needsEmailConfirmation ? t('auth.confirmYourEmailTitle') : t('auth.pendingApprovalTitle')}
               </h1>
 
               <p className="mt-3 text-sm text-on-surface-variant max-w-sm">
                 {needsEmailConfirmation ? (
                   <>
-                    We sent a confirmation link to your inbox. Open it to finish
-                    setting up your account — check your spam folder if it
-                    hasn&apos;t arrived.
+                    {t('auth.confirmationLinkSent')}
                   </>
                 ) : (
                   <>
-                    Your account has been created successfully and is awaiting approval
-                    by an administrator. You&apos;ll receive an email notification once
-                    your account is approved.
+                    {t('auth.pendingApprovalBody')}
                   </>
                 )}
               </p>
@@ -103,16 +101,16 @@ export default function PendingApproval() {
                   disabled={resendState === 'sending'}
                   className="w-full"
                 >
-                  {resendState === 'sending' ? 'Sending…' : 'Send the link again'}
+                  {resendState === 'sending' ? t('auth.resendSending') : t('auth.resendLink')}
                 </Button>
                 {resendState === 'sent' && (
                   <p className="text-xs text-on-surface-variant" role="status">
-                    Sent. Give it a minute, then check your inbox and spam folder.
+                    {t('auth.resendSent')}
                   </p>
                 )}
                 {resendState === 'failed' && (
                   <p className="text-xs text-error" role="alert">
-                    Couldn&apos;t send it just now. Try again in a moment.
+                    {t('auth.resendFailed')}
                   </p>
                 )}
               </div>
@@ -121,31 +119,31 @@ export default function PendingApproval() {
             {/* Status card */}
             <div className="mt-8 bg-surface-container-low rounded-lg p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-on-surface-variant">Status</span>
+                <span className="text-sm font-medium text-on-surface-variant">{t('auth.statusFieldLabel')}</span>
                 <Badge variant="warning">
-                  {needsEmailConfirmation ? 'Email unconfirmed' : 'Awaiting review'}
+                  {needsEmailConfirmation ? t('auth.emailUnconfirmed') : t('auth.awaitingReview')}
                 </Badge>
               </div>
 
               {user?.email_verified === true && (
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-on-surface-variant">
-                    Email confirmed
+                    {t('auth.emailConfirmed')}
                   </span>
-                  <Badge variant="success">Done</Badge>
+                  <Badge variant="success">{t('auth.stepDone')}</Badge>
                 </div>
               )}
 
               {user?.email && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-on-surface-variant">Email</span>
+                  <span className="text-sm font-medium text-on-surface-variant">{t('auth.emailFieldLabel')}</span>
                   <span className="text-sm text-on-surface-variant">{user.email}</span>
                 </div>
               )}
 
               {user?.display_name && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-on-surface-variant">Name</span>
+                  <span className="text-sm font-medium text-on-surface-variant">{t('auth.nameFieldLabel')}</span>
                   <span className="text-sm text-on-surface-variant">{user.display_name}</span>
                 </div>
               )}
@@ -154,37 +152,37 @@ export default function PendingApproval() {
             {/* What happens next */}
             <div className="mt-6">
               <h2 className="text-sm font-semibold text-on-surface mb-3">
-                What happens next?
+                {t('auth.whatHappensNext')}
               </h2>
               <ul className="text-sm text-on-surface-variant space-y-2">
                 {needsEmailConfirmation ? (
                   <>
                     <li className="flex items-start gap-2">
                       <span className="text-activity mt-0.5">•</span>
-                      <span>Open the confirmation link we emailed you</span>
+                      <span>{t('auth.openConfirmationLink')}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-activity mt-0.5">•</span>
-                      <span>Your account activates as soon as the address is confirmed</span>
+                      <span>{t('auth.activatesOnConfirm')}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-activity mt-0.5">•</span>
-                      <span>Then connect a fitness service and meet your coach</span>
+                      <span>{t('auth.thenConnectService')}</span>
                     </li>
                   </>
                 ) : (
                   <>
                     <li className="flex items-start gap-2">
                       <span className="text-activity mt-0.5">•</span>
-                      <span>An administrator will review your registration</span>
+                      <span>{t('auth.adminWillReview')}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-activity mt-0.5">•</span>
-                      <span>You&apos;ll receive an email when approved</span>
+                      <span>{t('auth.emailOnApproval')}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-activity mt-0.5">•</span>
-                      <span>Once approved, you can access Dravr&apos;s fitness intelligence</span>
+                      <span>{t('auth.afterApprovalAccess')}</span>
                     </li>
                   </>
                 )}
@@ -198,7 +196,7 @@ export default function PendingApproval() {
                 onClick={logout}
                 className="w-full"
               >
-                Sign Out
+                {t('auth.signOutButton')}
               </Button>
             </div>
           </div>

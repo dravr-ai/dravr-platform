@@ -22,6 +22,7 @@ import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
+import { useTranslation } from '@pierre/i18n';
 
 interface MessageItemProps {
   message: Message;
@@ -88,6 +89,7 @@ function FeedbackReasonForm({
   initialComment?: string;
   onSubmit: (comment: string) => void;
 }) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(initialComment ?? '');
   const [saved, setSaved] = useState(false);
 
@@ -114,8 +116,8 @@ function FeedbackReasonForm({
         onKeyDown={(e) => {
           if (e.key === 'Enter') submit();
         }}
-        placeholder="What went wrong? (optional)"
-        aria-label="Feedback reason"
+        placeholder={t('chat.feedbackReasonPlaceholder')}
+        aria-label={t('chat.feedbackReasonLabel')}
         className="flex-1 max-w-xs px-2 py-1 text-xs rounded bg-surface-container-high text-on-surface placeholder:text-outline border border-outline/20 focus:outline-none focus:border-primary"
       />
       <button
@@ -123,7 +125,7 @@ function FeedbackReasonForm({
         onClick={submit}
         className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
       >
-        {saved ? 'Saved' : 'Send'}
+        {saved ? t('chat.feedbackReasonSaved') : t('chat.feedbackReasonSend')}
       </button>
     </div>
   );
@@ -148,6 +150,7 @@ const MessageItem = memo(function MessageItem({
   onAskAboutClaim,
   onActionClick,
 }: MessageItemProps) {
+  const { t } = useTranslation();
   const isUser = message.role === 'user';
 
   const messageVerdicts = useMemo(
@@ -229,7 +232,7 @@ const MessageItem = memo(function MessageItem({
           <img
             key={key}
             src={block.url}
-            alt={block.caption ?? 'Chart'}
+            alt={block.caption ?? t('chat.chartAlt')}
             className="mt-3 max-w-full rounded-lg"
           />
         );
@@ -249,14 +252,14 @@ const MessageItem = memo(function MessageItem({
               <ShieldAlert className="w-3 h-3" />
               <span>{verdictSummaryLabel(summary)}</span>
             </button>
-            {summary.count > 1 ? <span className="text-xs text-outline">Click for details</span> : null}
+            {summary.count > 1 ? <span className="text-xs text-outline">{t('chat.clickForDetails')}</span> : null}
             {onAskAboutClaim && detail && summary.count === 1 ? (
               <button
                 type="button"
                 onClick={() => onAskAboutClaim(detail)}
                 className="text-xs text-primary hover:underline"
               >
-                Ask me about this claim
+                {t('chat.askAboutClaim')}
               </button>
             ) : null}
           </div>
@@ -294,7 +297,7 @@ const MessageItem = memo(function MessageItem({
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-on-primary hover:bg-primary/90 transition-colors no-underline"
             >
               <RefreshCw className="w-4 h-4" />
-              Reconnect {block.display_name}
+              {t('frag.reconnect')} {block.display_name}
             </a>
           </div>
         );
@@ -317,13 +320,13 @@ const MessageItem = memo(function MessageItem({
             </svg>
           </div>
         ) : (
-          <img src="/dravr-icon.svg" alt={assistantLabel ?? 'Dravr'} className="w-8 h-8 rounded-xl" />
+          <img src="/dravr-icon.svg" alt={assistantLabel ?? t('shell.brandName')} className="w-8 h-8 rounded-xl" />
         )}
       </div>
       {/* Message Content */}
       <div className="flex-1 min-w-0 pt-1">
         <div className="font-medium text-on-surface text-sm mb-1">
-          {isUser ? 'You' : (assistantLabel ?? 'Dravr')}
+          {isUser ? 'You' : (assistantLabel ?? t('shell.brandName'))}
         </div>
         {replyBlocks.map((block, index) => renderBlock(block, index))}
         {/* Action icons and metadata for assistant messages - matches mobile design */}
@@ -336,7 +339,7 @@ const MessageItem = memo(function MessageItem({
                 className="flex items-center gap-1 px-2 py-1 text-xs text-on-surface font-medium bg-surface-container-high rounded hover:bg-white/15 transition-colors"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-                <span>Retry</span>
+                <span>{t('chat.retry')}</span>
               </button>
             ) : (
               /* Normal assistant message actions */
@@ -346,7 +349,7 @@ const MessageItem = memo(function MessageItem({
                   <button
                     onClick={onCopy}
                     className="p-0.5 text-outline hover:text-on-surface transition-colors"
-                    title="Copy message"
+                    title={t('chat.copyMessage')}
                   >
                     <Copy className="w-3.5 h-3.5" />
                   </button>
@@ -356,7 +359,7 @@ const MessageItem = memo(function MessageItem({
                   <button
                     onClick={onShare}
                     className="p-0.5 text-outline hover:text-on-surface transition-colors"
-                    title="Share"
+                    title={t('chat.share')}
                   >
                     <Share2 className="w-3.5 h-3.5" />
                   </button>
@@ -368,7 +371,7 @@ const MessageItem = memo(function MessageItem({
                     className={`p-0.5 transition-colors ${
                       feedback === 'up' ? 'text-primary' : 'text-outline hover:text-on-surface'
                     }`}
-                    title="Good response"
+                    title={t('chat.feedbackGood')}
                   >
                     <ThumbsUp className={`w-3.5 h-3.5 ${feedback === 'up' ? 'fill-current' : ''}`} />
                   </button>
@@ -380,7 +383,7 @@ const MessageItem = memo(function MessageItem({
                     className={`p-0.5 transition-colors ${
                       feedback === 'down' ? 'text-error' : 'text-outline hover:text-on-surface'
                     }`}
-                    title="Poor response"
+                    title={t('chat.feedbackPoor')}
                   >
                     <ThumbsDown className={`w-3.5 h-3.5 ${feedback === 'down' ? 'fill-current' : ''}`} />
                   </button>
@@ -390,7 +393,7 @@ const MessageItem = memo(function MessageItem({
                   <button
                     onClick={onRetry}
                     className="p-0.5 text-outline hover:text-on-surface transition-colors"
-                    title="Regenerate response"
+                    title={t('chat.regenerateResponse')}
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                   </button>
