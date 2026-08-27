@@ -191,8 +191,28 @@ jobs:
               | sort -u \
               | grep -v '^pierre-server$' \
               || true)
-          if [ -z "$CRATES" ]; then
-              echo "No leaf-crate changes — preflight clippy will skip"
+          # pierre-server is excluded above because its per-crate clippy is as
+          # slow as the full-workspace run. That left crates/pierre-server/tests/
+          # linted by NOTHING until the full job reported ~12 min after the push:
+          # on 2026-08-26 a doc comment in a test file reddened main that way,
+          # and the same gap covers every integration test in the repo. A single
+          # changed test binary is cheap to lint on its own, so name the targets.
+          TEST_TARGETS=$(git diff --name-only "$BASE" HEAD 2>/dev/null \
+              | grep '^crates/pierre-server/tests/[^/]*\.rs$' \
+              | sed 's|.*/||; s|\.rs$||' \
+              | sort -u \
+              || true)
+          if [ -n "$TEST_TARGETS" ]; then
+              echo "Changed pierre-server test targets:"
+              echo "$TEST_TARGETS"
+              {
+                  echo "test_targets<<TARGETS_EOF"
+                  echo "$TEST_TARGETS"
+                  echo "TARGETS_EOF"
+              } >> "$GITHUB_OUTPUT"
+          fi
+          if [ -z "$CRATES" ] && [ -z "$TEST_TARGETS" ]; then
+              echo "No leaf-crate or test-target changes — preflight clippy will skip"
               echo "skip=true" >> "$GITHUB_OUTPUT"
           else
               echo "Leaf crates changed:"
@@ -226,6 +246,19 @@ jobs:
               fi
               echo "::endgroup::"
           done <<< "${{ steps.detect.outputs.crates }}"
+
+          # Changed integration-test binaries, one target at a time. `--test X`
+          # builds the library plus that one binary, not all ~325 of them, which
+          # is what makes this affordable here.
+          while IFS= read -r target; do
+              [ -z "$target" ] && continue
+              echo "::group::cargo clippy -p pierre_mcp_server --test $target"
+              if ! cargo clippy -p pierre_mcp_server --test "$target" --all-features -- -D warnings; then
+                  echo "::error::clippy failed for test target $target"
+                  FAILED=1
+              fi
+              echo "::endgroup::"
+          done <<< "${{ steps.detect.outputs.test_targets }}"
           exit "$FAILED"
 
   clippy:
@@ -497,9 +530,14 @@ jobs:
     # server-* profiles used to sit here; nothing had ever built them, which is
     # how they stayed broken, and they were deleted rather than gated.
     #
-    # `cargo check`, not clippy: the contract is that the configuration
-    # compiles, and full-workspace clippy already runs --all-targets
-    # --all-features. RUSTFLAGS denies warnings for the workspace only — Cargo
+    # The production profile runs `cargo clippy`, the probe runs `cargo check`.
+    # `--all-features` cannot produce the shipping combination (postgresql WITHOUT
+    # sqlite), so no clippy job in this workflow lints the code that actually
+    # deploys — a lint reachable only under that combination has nothing standing
+    # between it and the Docker build. Clippy costs little more than check on the
+    # same unit, so the configuration that ships gets linted; `no-default-features`
+    # stays a check, since its job is to prove the gates are wired, not to lint.
+    # RUSTFLAGS denies warnings for the workspace only — Cargo
     # compiles registry and git dependencies with --cap-lints allow, so
     # third-party code cannot fail this.
     strategy:
@@ -526,8 +564,8 @@ jobs:
       - name: Check ${{ matrix.name }}
         run: |
           if [ -n "${{ matrix.features }}" ]; then
-            cargo check --keep-going -p pierre_mcp_server \
-              --no-default-features --features "${{ matrix.features }}"
+            cargo clippy --keep-going -p pierre_mcp_server \
+              --no-default-features --features "${{ matrix.features }}" -- -D warnings
           else
             cargo check --keep-going -p pierre_mcp_server --no-default-features
           fi
