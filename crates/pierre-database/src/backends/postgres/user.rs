@@ -36,6 +36,16 @@ const USER_COLUMNS: &str =
      firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, \
      coaching_persona, manages_roster, timezone, theme";
 
+/// `PostgreSQL`'s SQLSTATE for a violated unique constraint. `create` turns one into
+/// the same structured error `SQLite`'s `UNIQUE constraint failed` produces, so a
+/// duplicate email reads identically to a caller whichever engine is underneath.
+const UNIQUE_VIOLATION: &str = "23505";
+
+/// Whether a `sqlx` error is the unique-constraint violation above.
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::Database(db) if db.code().as_deref() == Some(UNIQUE_VIOLATION))
+}
+
 #[async_trait]
 impl UserRepository for PostgresDatabase {
     async fn create(&self, user: &User) -> AppResult<Uuid> {
@@ -68,9 +78,70 @@ impl UserRepository for PostgresDatabase {
         .bind(user.manages_roster)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
+        .map_err(|e| {
+            if is_unique_violation(&e) {
+                AppError::invalid_input("Email already in use by another user")
+            } else {
+                AppError::database(format!("Failed to create user: {e}"))
+            }
+        })?;
 
         Ok(user.id)
+    }
+
+    async fn update(&self, user: &User) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE users SET
+                display_name = $2,
+                password_hash = $3,
+                tier = $4,
+                is_active = $5,
+                user_status = $6,
+                is_admin = $7,
+                role = $8,
+                approved_by = $9,
+                approved_at = $10,
+                firebase_uid = $11,
+                auth_provider = $12,
+                analytics_consent = $13,
+                analytics_consent_at = $14,
+                locale = $15,
+                coaching_persona = $16,
+                manages_roster = $17,
+                timezone = $18,
+                theme = $19,
+                last_active = NOW()
+            WHERE id = $1
+            ",
+        )
+        .bind(user.id)
+        .bind(&user.display_name)
+        .bind(&user.password_hash)
+        .bind(shared::enums::user_tier_to_str(&user.tier))
+        .bind(user.is_active)
+        .bind(shared::enums::user_status_to_str(&user.user_status))
+        .bind(user.is_admin)
+        .bind(shared::enums::user_role_to_str(&user.role))
+        .bind(user.approved_by)
+        .bind(user.approved_at)
+        .bind(&user.firebase_uid)
+        .bind(&user.auth_provider)
+        .bind(user.analytics_consent)
+        .bind(user.analytics_consent_at)
+        .bind(&user.locale)
+        .bind(user.coaching_persona.as_str())
+        .bind(user.manages_roster)
+        .bind(&user.timezone)
+        .bind(&user.theme)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update user: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User {}", user.id)));
+        }
+        Ok(())
     }
 
     async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {

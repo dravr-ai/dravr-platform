@@ -149,7 +149,10 @@ async fn update_existing_admin_user(
         theme: existing_user.theme,
     };
 
-    repos.users.create(&updated_user).await?;
+    // `update`, not `create`: the row exists, and `create` is insert-only on both
+    // engines now — a bare INSERT would hit the unique email index. This is what
+    // made `user create --force` impossible on PostgreSQL (carnet#124).
+    repos.users.update(&updated_user).await?;
     Ok(())
 }
 

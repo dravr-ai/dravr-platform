@@ -20,8 +20,20 @@ use uuid::Uuid;
 /// User account management repository
 #[async_trait]
 pub trait UserRepository: Send + Sync {
-    /// Create a new user account
+    /// Insert a new user account.
+    ///
+    /// Insert-only on both engines: a duplicate email is `invalid_input`, never a
+    /// silent overwrite. Callers that mean "write this User over the existing row"
+    /// call [`UserRepository::update`].
     async fn create(&self, user: &User) -> AppResult<Uuid>;
+    /// Write a whole `User` onto its existing row, matched by id.
+    ///
+    /// Every mutable column is written, so the caller must hand a `User` it loaded
+    /// and then modified. `email` and `created_at` are not writable. This is the
+    /// escape hatch for callers changing several fields at once (Firebase account
+    /// linking, `pierre-cli user create --force`); single-field changes keep their
+    /// dedicated setters below.
+    async fn update(&self, user: &User) -> AppResult<()>;
     /// Get user by ID, scoped to a specific tenant for multi-tenant isolation
     async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>>;
     /// Get user by ID without tenant scoping (for system-level operations)

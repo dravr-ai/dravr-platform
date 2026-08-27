@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-mod upsert;
+mod write;
 
 use super::user_preferences as preferences;
 use super::Database;
@@ -1069,6 +1069,10 @@ impl Database {
 impl UserRepository for Database {
     async fn create(&self, user: &User) -> AppResult<Uuid> {
         Self::create_user_impl(self, user).await
+    }
+
+    async fn update(&self, user: &User) -> AppResult<()> {
+        self.update_user_impl(user).await
     }
     async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
         Self::get_user_tenant_impl(self, user_id, tenant_id).await

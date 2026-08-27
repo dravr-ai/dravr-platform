@@ -22,7 +22,7 @@ use pierre_core::constants::{error_messages, limits, tiers};
 use pierre_core::error_helpers::{user_state_error, validation_error};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    CoachingPersona, PreApprovedEmail, Tenant, TenantId, User, UserStatus, UserTier,
+    default_locale, CoachingPersona, PreApprovedEmail, Tenant, TenantId, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
 use pierre_runtime_context::DataContext;
@@ -356,7 +356,12 @@ impl AuthService {
             tracing::info!(user_id = %user.id, "Linking existing email user to Firebase UID");
             user.firebase_uid = Some(claims.sub.clone());
             user.auth_provider.clone_from(&claims.provider);
-            self.data.repos().users.create(&user).await?;
+            // `update`, not `create`: the row exists. `create` used to double as an
+            // upsert on SQLite — whose UPDATE branch wrote neither firebase_uid nor
+            // auth_provider, so the link never took and every sign-in re-ran this
+            // branch — and was a bare INSERT on PostgreSQL, where it hit the unique
+            // email index instead.
+            self.data.repos().users.update(&user).await?;
             return Ok(user);
         }
 
@@ -640,7 +645,7 @@ impl AuthService {
             auth_provider: claims.provider.clone(),
             analytics_consent: false,
             analytics_consent_at: None,
-            locale: "fr".to_owned(),
+            locale: default_locale(),
             coaching_persona: CoachingPersona::default(),
             manages_roster: false,
             timezone: None,
