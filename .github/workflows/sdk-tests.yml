@@ -24,14 +24,19 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  # Never cancel on main: the verdict is the point there. On 2026-08-26 four
-  # sessions pushed to main every ~2 minutes and the ~12-minute clippy job was
-  # cancelled five runs straight, so main's last real lint result was 25 minutes
-  # stale and red while everything after it read as "no result". Queued runs
-  # supersede each other per ref, so this costs a wait, not a pile-up.
-  # Feature branches keep cancelling — there, fast feedback beats a stale verdict.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # On main the sha is part of the group, so every commit gets its own group and
+  # nothing can cancel anyone's verdict. Branches share a group per ref and keep
+  # cancelling, where fast feedback beats a stale result.
+  #
+  # The ref test lives in `group` rather than in `cancel-in-progress` because
+  # only the former is known to work here: `cancel-in-progress: ${{ github.ref
+  # != 'refs/heads/main' }}` was tried first and did not hold — run 33026440559
+  # on main was cancelled one second after the next run was created, and that
+  # run's run_started_at equalled its created_at, so it never waited on the
+  # group the way a false would have made it. `group` expressions demonstrably
+  # do evaluate: that is what has been scoping cancellation per ref all along.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  cancel-in-progress: true
 
 # Security: Explicit permissions following principle of least privilege
 permissions:
