@@ -192,6 +192,19 @@ impl ToolSurface for TurnToolSurface {
             Ok(Ok(response)) => {
                 let payload = response.result.unwrap_or(Value::Null);
                 if response.success {
+                    // LIMITATION(registre#128): the whole tool payload goes to the
+                    // agent. 3c2e5056a projected the `get_activities` envelope at
+                    // the API loop, the text loop and persisted history -- 12,995
+                    // to 3,155 bytes on a 30-activity window -- and deliberately
+                    // skipped this seam, because the ACP agent runs its own loop
+                    // and may chain on a field the projection drops.
+                    //
+                    // The exclusion is defensible; being unwritten was not. This
+                    // is the seam production actually runs: `copilot_headless`
+                    // never reports FUNCTION_CALLING, so tool_dispatch takes the
+                    // loopback branch, and every iteration of the agent's loop
+                    // re-sends this payload. So the three projected seams are the
+                    // fallbacks and the unprojected one is live.
                     ToolOutcome::json(payload)
                 } else {
                     // The tool ran and declined — a Guardian block, a tenant
