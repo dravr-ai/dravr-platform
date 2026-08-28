@@ -26,9 +26,9 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use super::{
-    ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider,
-    CohereProvider, FunctionResponse, GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider,
-    OpenAiCompatibleProvider, OpenRouterProvider, Tool,
+    ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider, CohereProvider,
+    GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider, OpenAiCompatibleProvider,
+    OpenRouterProvider, Tool,
 };
 use crate::chain_guard::{CircuitTransition, CHAIN_GUARD};
 use crate::config::LlmProviderType;
@@ -723,24 +723,6 @@ impl ChatProvider {
                     Err(primary_err) => Err(primary_err),
                 }
             }
-        }
-    }
-
-    /// Add function responses to messages for multi-turn tool execution
-    ///
-    /// This helper adds function response content back to the conversation
-    /// for the next LLM iteration.
-    pub fn add_function_responses_to_messages(
-        messages: &mut Vec<ChatMessage>,
-        function_responses: &[FunctionResponse],
-    ) {
-        for func_response in function_responses {
-            let response_text =
-                serde_json::to_string(&func_response.response).unwrap_or_else(|_| "{}".to_owned());
-            messages.push(ChatMessage::user(format!(
-                "[Tool Result for {}]: {}",
-                func_response.name, response_text
-            )));
         }
     }
 }
