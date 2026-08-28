@@ -884,6 +884,9 @@ pub(crate) async fn assemble_prompt_and_messages(
     } else {
         ctx.tool_discipline_prompt.clone()
     };
+
+    // Both variants already carry the shared rules, appended when the context
+    // resolved them; this is the surface-specific half plus that tail.
     let raw_system_prompt = format!("{raw_system_prompt}\n\n{tool_discipline_prompt}");
 
     // Stage 7g.2: Builder coaches that declare an `output_schema` get the

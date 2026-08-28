@@ -16,7 +16,7 @@ use pierre_llm::prompts::{
     ENTHUSIAST_PERSONA_PROMPT, MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT,
     PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT,
     PROGRESSION_GUARDRAILS_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT,
-    TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT,
+    TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -113,6 +113,7 @@ impl PromptRegistry {
                 "tool_discipline_messaging",
                 TOOL_DISCIPLINE_MESSAGING_PROMPT,
             ),
+            ("tool_discipline_shared", TOOL_DISCIPLINE_SHARED_PROMPT),
             ("memory_extraction", MEMORY_EXTRACTION_PROMPT),
             ("progression_guardrails", PROGRESSION_GUARDRAILS_PROMPT),
         ];
@@ -208,6 +209,34 @@ impl PromptRegistry {
     /// Get the mandatory tool-discipline prompt for messaging channels.
     pub fn tool_discipline_messaging_prompt(&self) -> String {
         self.get_system_prompt("tool_discipline_messaging")
+    }
+
+    /// Get the tool-discipline rules shared by every surface.
+    pub fn tool_discipline_shared_prompt(&self) -> String {
+        self.get_system_prompt("tool_discipline_shared")
+    }
+
+    /// A surface's tool-discipline document with the shared rules appended.
+    ///
+    /// The two surface variants are mutually exclusive — assembly selects one,
+    /// never both — so the shared half is the only part that would otherwise
+    /// have to be written twice, and was: the same five sections lived in both
+    /// documents and had already drifted apart.
+    ///
+    /// The shared rules go last because the surface half sets the terms they
+    /// are read under: the messaging document forbids markdown fences and
+    /// explains that `<tool_call>` blocks are stripped server-side, and the
+    /// shared rules about narration and acronyms are read against that.
+    ///
+    /// An empty shared block yields the variant untouched rather than a
+    /// trailing separator, so a registry that cannot resolve the key degrades
+    /// to exactly the previous behaviour instead of corrupting the prompt.
+    pub fn tool_discipline_with_shared_rules(&self, variant: &str) -> String {
+        let shared = self.tool_discipline_shared_prompt();
+        if shared.trim().is_empty() {
+            return variant.to_owned();
+        }
+        format!("{variant}\n\n{shared}")
     }
 
     /// Get the memory extraction system prompt.
@@ -463,6 +492,7 @@ impl PromptRegistry {
             "activity_analysis_system" => ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
             "tool_discipline" => TOOL_DISCIPLINE_PROMPT,
             "tool_discipline_messaging" => TOOL_DISCIPLINE_MESSAGING_PROMPT,
+            "tool_discipline_shared" => TOOL_DISCIPLINE_SHARED_PROMPT,
             "memory_extraction" => MEMORY_EXTRACTION_PROMPT,
             "progression_guardrails" => PROGRESSION_GUARDRAILS_PROMPT,
             _ => "",

@@ -239,13 +239,15 @@ impl ServerContext {
     /// Get the mandatory tool-discipline prompt for non-messaging channels.
     #[must_use]
     pub fn tool_discipline_prompt(&self) -> String {
-        self.mcp.prompt_registry.tool_discipline_prompt()
+        let registry = &self.mcp.prompt_registry;
+        registry.tool_discipline_with_shared_rules(&registry.tool_discipline_prompt())
     }
 
     /// Get the mandatory tool-discipline prompt for messaging channels.
     #[must_use]
     pub fn tool_discipline_messaging_prompt(&self) -> String {
-        self.mcp.prompt_registry.tool_discipline_messaging_prompt()
+        let registry = &self.mcp.prompt_registry;
+        registry.tool_discipline_with_shared_rules(&registry.tool_discipline_messaging_prompt())
     }
 
     /// Get the memory extraction system prompt.

@@ -61,6 +61,13 @@ pub const TOOL_DISCIPLINE_PROMPT: &str = system::TOOL_DISCIPLINE;
 /// channels where the user only sees plain text.
 pub const TOOL_DISCIPLINE_MESSAGING_PROMPT: &str = system::TOOL_DISCIPLINE_MESSAGING;
 
+/// Tool-discipline rules that are identical on every surface.
+///
+/// Appended after whichever surface variant applies. Holding them once means a
+/// change to a shared rule cannot reach one surface and miss the other, which
+/// is how the messaging copy came to be missing a clause the web copy had.
+pub const TOOL_DISCIPLINE_SHARED_PROMPT: &str = system::TOOL_DISCIPLINE_SHARED;
+
 /// Load-progression guardrails.
 ///
 /// Bounds how fast a coach may ramp an athlete's training load — volume,
@@ -152,6 +159,12 @@ pub const fn get_tool_discipline_prompt() -> &'static str {
 #[must_use]
 pub const fn get_tool_discipline_messaging_prompt() -> &'static str {
     TOOL_DISCIPLINE_MESSAGING_PROMPT
+}
+
+/// Get the tool-discipline rules shared by every surface.
+#[must_use]
+pub const fn get_tool_discipline_shared_prompt() -> &'static str {
+    TOOL_DISCIPLINE_SHARED_PROMPT
 }
 
 /// Get the recommendation analysis user prompt template
