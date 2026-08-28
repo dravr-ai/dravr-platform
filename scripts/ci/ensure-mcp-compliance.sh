@@ -48,23 +48,13 @@ COMPLIANCE_PASSED=true
 # Track Pierre MCP server PID if we start it
 MCP_SERVER_PID=""
 SERVER_LOG=""
-VALIDATOR_PID=""
 
 # Cleanup function - shut down server if we started it
 cleanup_mcp_server() {
-    # Kill validator subprocess and its children (including Node.js bridge)
-    if [ -n "$VALIDATOR_PID" ]; then
-        echo ""
-        echo -e "${BLUE}==== Stopping MCP validator and bridge processes... ====${NC}"
-        # Kill the entire process group
-        kill -TERM -$VALIDATOR_PID 2>/dev/null || true
-        sleep 1
-        # Force kill if still running
-        kill -KILL -$VALIDATOR_PID 2>/dev/null || true
-        echo -e "${GREEN}[OK] Validator stopped${NC}"
-        VALIDATOR_PID=""
-    fi
-
+    # No probe teardown here: each inspector run is foreground and bounded by
+    # `timeout`, so it and its bridge child are gone before this runs. The old
+    # process-group kill existed because the python validator was backgrounded
+    # and ignored SIGTERM.
     if [ -n "$MCP_SERVER_PID" ]; then
         echo ""
         echo -e "${BLUE}==== Shutting down Pierre MCP server (PID: $MCP_SERVER_PID)... ====${NC}"
@@ -112,63 +102,25 @@ if [ ! -d "." ]; then
 fi
 
 # Look for Python MCP validator
-echo -e "${BLUE}==== Checking for MCP compliance validator (REQUIRED)... ====${NC}"
-MCP_VALIDATOR_DIR=""
-if [ -d "../validator" ]; then
-    # Installed locally in worktree (for testing)
-    MCP_VALIDATOR_DIR="../validator"
-elif [ -d "/tmp/mcp-validator" ]; then
-    MCP_VALIDATOR_DIR="/tmp/mcp-validator"
-elif [ -d "./mcp-validator" ]; then
-    MCP_VALIDATOR_DIR="./mcp-validator"
-elif [ -d "../mcp-validator" ]; then
-    MCP_VALIDATOR_DIR="../mcp-validator"
+echo -e "${BLUE}==== Checking for the MCP inspector (REQUIRED)... ====${NC}"
+
+# The compliance client is the official inspector's CLI mode, run through npx so
+# there is nothing to install or keep in sync. The version is PINNED: an unpinned
+# validator is a lane that can turn red on someone else's release.
+#
+# This replaced Janix-ai/mcp-validator, which the lane cloned at build time until
+# that repository was deleted or made private on 2026-08-27 (carnet#127). A
+# single-owner repository is a single point of failure for a required gate; the
+# protocol org's own tool is the one thing here we can reasonably expect to
+# outlive us.
+MCP_INSPECTOR_PKG="@modelcontextprotocol/inspector@2.4.0"
+
+if ! command -v npx >/dev/null 2>&1; then
+    echo -e "${RED}[FAIL] npx not found - the MCP inspector cannot run${NC}"
+    echo -e "${RED}       Node is required; CI already provisions it for the SDK lane${NC}"
+    exit 1
 fi
-
-if [ -z "$MCP_VALIDATOR_DIR" ] || [ ! -f "$MCP_VALIDATOR_DIR/mcp_testing/__init__.py" ]; then
-    echo -e "${YELLOW}[INFO] Python MCP validator not found - installing automatically...${NC}"
-
-    # Auto-install to /tmp/mcp-validator
-    MCP_VALIDATOR_DIR="/tmp/mcp-validator"
-
-    # Remove old installation if it exists but is broken
-    if [ -d "$MCP_VALIDATOR_DIR" ]; then
-        echo -e "${YELLOW}[INFO] Removing existing broken installation...${NC}"
-        rm -rf "$MCP_VALIDATOR_DIR"
-    fi
-
-    # Clone the repository
-    echo -e "${BLUE}[INFO] Cloning MCP validator from GitHub...${NC}"
-    if ! git clone https://github.com/Janix-ai/mcp-validator.git "$MCP_VALIDATOR_DIR" 2>&1; then
-        echo -e "${RED}[FAIL] Failed to clone the MCP validator repository${NC}"
-        echo -e "${RED}       Janix-ai/mcp-validator was deleted or made private on 2026-08-27,${NC}"
-        echo -e "${RED}       so this is not your network and not the code under test.${NC}"
-        echo -e "${RED}       The whole suite is built on its mcp_testing package; see carnet#127${NC}"
-        echo -e "${RED}       for the options (own assertions / restore a copy / drop the lane).${NC}"
-        exit 1
-    fi
-
-    # Create Python virtual environment
-    echo -e "${BLUE}[INFO] Creating Python virtual environment...${NC}"
-    if ! python3 -m venv "$MCP_VALIDATOR_DIR/venv" 2>&1; then
-        echo -e "${RED}[FAIL] Failed to create Python virtual environment${NC}"
-        echo -e "${RED}       Please ensure python3-venv is installed${NC}"
-        exit 1
-    fi
-
-    # Install dependencies
-    echo -e "${BLUE}[INFO] Installing MCP validator dependencies...${NC}"
-    if ! (cd "$MCP_VALIDATOR_DIR" && source venv/bin/activate && pip install -q -r requirements.txt 2>&1); then
-        echo -e "${RED}[FAIL] Failed to install MCP validator dependencies${NC}"
-        exit 1
-    fi
-
-    echo -e "${GREEN}[OK] MCP validator installed successfully at: $MCP_VALIDATOR_DIR${NC}"
-else
-    echo -e "${GREEN}[OK] Python MCP validator found at: $MCP_VALIDATOR_DIR${NC}"
-fi
-
-# Build the bridge before testing
+echo -e "${GREEN}[OK] Using ${MCP_INSPECTOR_PKG} via npx${NC}"
 echo -e "${BLUE}==== Building pierre-claude-bridge for compliance testing... ====${NC}"
 echo -e "${BLUE}     Using bun at: $BUN_PATH${NC}"
 if $BUN_PATH run build; then
@@ -265,160 +217,83 @@ else
     fi
 fi
 
-# Run MCP compliance tests (REQUIRED - NO EXCEPTIONS POLICY)
-echo -e "${BLUE}==== Running MCP protocol compliance tests (REQUIRED)... ====${NC}"
+# Run MCP compliance checks (REQUIRED - NO EXCEPTIONS POLICY)
+echo -e "${BLUE}==== Running MCP protocol compliance checks (REQUIRED)... ====${NC}"
 BRIDGE_PATH="$(pwd)/dist/cli.js"
-echo -e "${BLUE}     Using bun at: $BUN_PATH${NC}"
+echo -e "${BLUE}     Bridge under test: $BUN_PATH $BRIDGE_PATH${NC}"
 
-cd "$MCP_VALIDATOR_DIR"
-
-# Use venv Python if available, otherwise system Python
-PYTHON_CMD="python3"
-if [ -f "venv/bin/python" ]; then
-    PYTHON_CMD="venv/bin/python"
+if [ ! -f "$BRIDGE_PATH" ]; then
+    echo -e "${RED}[FAIL] Bridge not found at $BRIDGE_PATH${NC}"
+    exit 1
 fi
 
-# Set PYTHONPATH to include validator directory for module imports
-export PYTHONPATH="$MCP_VALIDATOR_DIR"
-
-# Run validator with 10-minute timeout and verbose output
-echo -e "${BLUE}     Testing bridge: $BUN_PATH $BRIDGE_PATH${NC}"
-echo -e "${BLUE}     Protocol version: 2025-06-18${NC}"
-
-# Detect available timeout command (Linux: timeout, macOS: gtimeout).
-# --kill-after sends SIGKILL 60s after the initial SIGTERM: the python validator
-# blocks in a read on the bridge subprocess and ignores SIGTERM, so without the
-# follow-up SIGKILL a stuck validator runs unbounded (the job has no
-# timeout-minutes). With it, the step always terminates by ~11min.
+# stdio, not HTTP, and the bridge rather than the server: an MCP host launches
+# the bridge, so that is what the protocol contract is actually observed at.
+# Pointing the inspector at the server's HTTP endpoint would test a different
+# thing and leave the bridge - the half with no Rust coverage - unexercised.
+INSPECTOR_TIMEOUT=180
 TIMEOUT_CMD=""
 if command -v timeout >/dev/null 2>&1; then
-    TIMEOUT_CMD="timeout --kill-after=60 600"
+    TIMEOUT_CMD="timeout --kill-after=30 $INSPECTOR_TIMEOUT"
 elif command -v gtimeout >/dev/null 2>&1; then
-    TIMEOUT_CMD="gtimeout --kill-after=60 600"
+    TIMEOUT_CMD="gtimeout --kill-after=30 $INSPECTOR_TIMEOUT"
 else
-    echo -e "${YELLOW}[WARN] timeout command not available - running without timeout${NC}"
-    echo -e "${YELLOW}       Install coreutils for timeout support: brew install coreutils${NC}"
+    echo -e "${YELLOW}[WARN] no timeout command; a wedged probe will not be bounded${NC}"
 fi
 
-echo -e "${BLUE}     Timeout: ${TIMEOUT_CMD:-none}${NC}"
+INSPECTOR_OUT="$(mktemp)"
+INSPECTOR_ERR="$(mktemp)"
 
-# Run validator in background to capture PID for signal handling
-# Set CI=true so SDK bridge uses encrypted file storage instead of keytar (prevents hang)
-# PYTHONUNBUFFERED=1 forces the per-test verbose lines to flush immediately, so if the
-# validator is SIGKILLed mid-run the CI log still shows the last test it attempted.
-CI=true PYTHONUNBUFFERED=1 $TIMEOUT_CMD $PYTHON_CMD -m mcp_testing.scripts.compliance_report \
-    --server-command "$BUN_PATH $BRIDGE_PATH --no-browser" \
-    --protocol-version 2025-06-18 \
-    --test-timeout 30 \
-    --verbose &
-VALIDATOR_PID=$!
+# $1 = label, $2 = expected exit code, rest = inspector arguments.
+# CI=true makes the bridge use encrypted file storage instead of keytar, which
+# otherwise blocks on a headless runner.
+run_probe() {
+    local label="$1"; shift
+    local want="$1"; shift
+    local code=0
 
-# Wait for validator to complete
-if wait $VALIDATOR_PID; then
-    echo -e "${GREEN}[OK] MCP spec compliance tests passed${NC}"
-    VALIDATOR_PID=""
-    cd - >/dev/null
-else
-    EXIT_CODE=$?
-    VALIDATOR_PID=""
+    echo -e "${BLUE}     -> ${label}${NC}"
+    CI=true $TIMEOUT_CMD npx --yes "$MCP_INSPECTOR_PKG" --cli \
+        "$BUN_PATH" "$BRIDGE_PATH" "$@" >"$INSPECTOR_OUT" 2>"$INSPECTOR_ERR" || code=$?
 
-    # Find the most recent compliance report
-    LATEST_REPORT=$(ls -t "$MCP_VALIDATOR_DIR"/reports/cr_*.md 2>/dev/null | head -1)
-
-    if [ $EXIT_CODE -eq 124 ] || [ $EXIT_CODE -eq 137 ]; then
-        echo -e "${RED}[FAIL] MCP compliance tests timed out (validator did not finish; exit $EXIT_CODE)${NC}"
-        # The verbose validator output above shows the last test attempted (the
-        # one it stalled on). Dump the server log too so we can see which request
-        # the server was still processing when the validator hung.
-        echo -e "${RED}       ==== Last 150 lines of server log ($SERVER_LOG) ====${NC}"
-        tail -150 "$SERVER_LOG" 2>/dev/null || echo "       (no server log captured)"
-        cd - >/dev/null
-        COMPLIANCE_PASSED=false
-    else
-        # Check if we have a report to analyze
-        if [ -n "$LATEST_REPORT" ] && [ -f "$LATEST_REPORT" ]; then
-            echo -e "${BLUE}==== Analyzing compliance report for known validator bugs... ====${NC}"
-
-            # Extract failure details (format: "- **Total Tests**: 43")
-            TOTAL_TESTS=$(grep "Total Tests" "$LATEST_REPORT" | grep -o '[0-9]\+' | head -1)
-            PASSED_TESTS=$(grep "Passed" "$LATEST_REPORT" | grep -o '[0-9]\+' | head -1)
-            FAILED_TESTS=$(grep "Failed" "$LATEST_REPORT" | grep -o '[0-9]\+' | head -1)
-
-            echo -e "${BLUE}     Total: $TOTAL_TESTS, Passed: $PASSED_TESTS, Failed: $FAILED_TESTS${NC}"
-
-            # Known validator bugs (documented in docs/mcp_compliance_validator_bug.md):
-            # 1. Batch support test - runs old protocol test on 2025-06-18 (expects success, we correctly reject)
-            # 2. Init negotiation - hardcoded version check bug
-            # 3. Prompts tests (2) - Python async 'await' expression bug
-            # 4. Tool functionality - OAuth requires user interaction (expected failure)
-
-            # Count known validator bugs
-            KNOWN_BUGS=0
-
-            # Check for batch support test bug (test runs for wrong protocol version)
-            if grep -q "Batch request.*failed.*not supported in protocol version 2025-06-18" "$LATEST_REPORT"; then
-                echo -e "${YELLOW}     [KNOWN BUG] Batch support test - validator runs old protocol test${NC}"
-                KNOWN_BUGS=$((KNOWN_BUGS + 1))
-            fi
-
-            # Check for init negotiation bug
-            if grep -q "Negotiated version '2025-06-18' is not a valid version" "$LATEST_REPORT"; then
-                echo -e "${YELLOW}     [KNOWN BUG] Init negotiation - validator hardcoded version check${NC}"
-                KNOWN_BUGS=$((KNOWN_BUGS + 1))
-            fi
-
-            # Check for prompts capability bugs (Python async issue)
-            PROMPTS_BUGS=$(grep -c "object dict can't be used in 'await' expression" "$LATEST_REPORT" || echo "0")
-            if [ "$PROMPTS_BUGS" -gt 0 ]; then
-                echo -e "${YELLOW}     [KNOWN BUG] Prompts tests ($PROMPTS_BUGS) - validator Python async bug${NC}"
-                KNOWN_BUGS=$((KNOWN_BUGS + PROMPTS_BUGS))
-            fi
-
-            # Check for OAuth tool test (expected failure - requires user interaction)
-            if grep -q "Tool call failed.*Unknown error" "$LATEST_REPORT"; then
-                echo -e "${YELLOW}     [EXPECTED] OAuth tool test - requires user interaction${NC}"
-                KNOWN_BUGS=$((KNOWN_BUGS + 1))
-            fi
-
-            # Calculate actual failures (excluding known bugs)
-            ACTUAL_FAILURES=$((FAILED_TESTS - KNOWN_BUGS))
-            ACTUAL_PASSED=$((TOTAL_TESTS - ACTUAL_FAILURES))
-            ACTUAL_COMPLIANCE=$((ACTUAL_PASSED * 100 / TOTAL_TESTS))
-
-            echo ""
-            echo -e "${BLUE}==== Compliance Analysis ====${NC}"
-            echo -e "${BLUE}     Reported:  $PASSED_TESTS/$TOTAL_TESTS ($(( PASSED_TESTS * 100 / TOTAL_TESTS ))%)${NC}"
-            echo -e "${BLUE}     Known bugs: $KNOWN_BUGS validator issues${NC}"
-            echo -e "${GREEN}     Actual:    $ACTUAL_PASSED/$TOTAL_TESTS ($ACTUAL_COMPLIANCE%)${NC}"
-            echo ""
-
-            # Success if actual compliance is ≥95% (allowing only expected OAuth failure)
-            if [ "$ACTUAL_COMPLIANCE" -ge 95 ]; then
-                echo -e "${GREEN}[OK] MCP compliance validated (excluding known validator bugs)${NC}"
-                echo -e "${GREEN}     See docs/mcp_compliance_validator_bug.md for details${NC}"
-                cd - >/dev/null
-                COMPLIANCE_PASSED=true
-            else
-                echo -e "${RED}[FAIL] MCP compliance below 95% even after excluding known bugs${NC}"
-                echo -e "${RED}       Actual failures: $ACTUAL_FAILURES${NC}"
-                cd - >/dev/null
-                COMPLIANCE_PASSED=false
-            fi
-        else
-            echo -e "${RED}[FAIL] MCP spec compliance tests failed (exit code: $EXIT_CODE)${NC}"
-            echo -e "${RED}       Bridge implementation does not meet MCP protocol requirements${NC}"
-            cd - >/dev/null
-            COMPLIANCE_PASSED=false
-        fi
+    if [ "$code" -eq "$want" ]; then
+        echo -e "${GREEN}     [OK] ${label}${NC}"
+        return 0
     fi
+
+    echo -e "${RED}     [FAIL] ${label} - exit ${code}, expected ${want}${NC}"
+    # The bridge narrates its own startup on stderr; keep the tail, where the
+    # actual error lands.
+    grep -vE 'ExperimentalWarning|trace-warnings|npm warn|ES Module' "$INSPECTOR_ERR" \
+        | tail -20 | sed 's/^/       /'
+    head -c 800 "$INSPECTOR_OUT" | sed 's/^/       /'
+    COMPLIANCE_PASSED=false
+    return 1
+}
+
+# tools/list under --strict: the inspector reports tool-schema portability
+# problems in full and exits 6 if any is error-severity. This is the part our own
+# Rust and SDK suites cannot do for us - they assert our schemas against our own
+# reading of the spec, and a misreading we share cannot be caught from inside.
+run_probe "tools/list (schema portability, --strict)" 0 --method tools/list --strict || true
+
+# The other two advertised surfaces. A server that names a capability in
+# initialize and then errors on the matching list call is the exact defect
+# mcp_resources_prompts_conformance_test.rs guards server-side; this covers the
+# same ground from outside, through the bridge.
+run_probe "resources/list" 0 --method resources/list --format json || true
+run_probe "prompts/list" 0 --method prompts/list --format json || true
+
+rm -f "$INSPECTOR_OUT" "$INSPECTOR_ERR"
+
+if [ "$COMPLIANCE_PASSED" = true ]; then
+    echo ""
+    echo -e "${GREEN}==== MCP compliance checks passed ====${NC}"
+    exit 0
 fi
 
 echo ""
-if [ "$COMPLIANCE_PASSED" = true ]; then
-    echo -e "${GREEN}✅ MCP Compliance Validation PASSED${NC}"
-    exit 0
-else
-    echo -e "${RED}❌ MCP Compliance Validation FAILED${NC}"
-    echo -e "${RED}    View detailed report: validator/reports/${NC}"
-    exit 1
-fi
+echo -e "${RED}==== MCP compliance checks FAILED ====${NC}"
+echo -e "${RED}     Reproduce locally:${NC}"
+echo -e "${RED}       cd sdk && npx ${MCP_INSPECTOR_PKG} --cli \$(which bun) \$(pwd)/dist/cli.js --method tools/list --strict${NC}"
+exit 1
