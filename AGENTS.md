@@ -234,6 +234,7 @@ Routing (use the `obsidian-writer` skill, which writes to the live vault):
 | ADR / decision | dravr-vault `Architecture/ADRs/` |
 | Plan / phased build | dravr-vault `Work Log/` (`kind: plan`) |
 | Runbook / oncall procedure | dravr-vault `Development/Runbooks/` |
+| Guide / how-to | dravr-vault `Development/Guides/` |
 | Audit / design analysis / session handoff / report | dravr-vault `Work Log/` (`kind:` audit / design / handoff / report) |
 | Training science: a formula, threshold, or framing rule | dravr-vault `Methodology/` (see the standing-folders block below) |
 | Feature R&D / feasibility analysis, not yet committed to | dravr-vault `Features/Potential/` (`stage: potential` + `verdict:`) |
