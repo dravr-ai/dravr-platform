@@ -169,10 +169,9 @@ test.describe('Coach Data Requirements', () => {
     await expect(page.getByText('Activity count')).toBeVisible();
     await expect(page.locator('input[type="number"]').first()).toHaveValue('25');
     await expect(page.getByText('Time frame')).toBeVisible();
-    await expect(page.getByText('Sport types')).toBeVisible();
   });
 
-  test('pre-fetch toggle hides and reveals activity count, time frame, sport types, and mode fields', async ({ page }) => {
+  test('pre-fetch toggle hides and reveals activity count, time frame, and mode fields', async ({ page }) => {
     await setupCoachMocks(page);
     await loginToDashboard(page);
     await openEditSheet(page);
@@ -188,7 +187,6 @@ test.describe('Coach Data Requirements', () => {
     await prefetchLabel.click();
     await expect(page.getByText('Activity count')).toBeVisible();
     await expect(page.getByText('Time frame')).toBeVisible();
-    await expect(page.getByText('Sport types')).toBeVisible();
     await expect(page.getByText('Summary')).toBeVisible();
     await expect(page.getByText('Detailed')).toBeVisible();
   });
