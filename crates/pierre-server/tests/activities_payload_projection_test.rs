@@ -200,3 +200,56 @@ fn the_text_loop_and_the_recovery_reask_share_the_same_projection() {
     assert!(!text.contains("activities_toon"));
     assert!(!text.contains("Felt strong through the back half"));
 }
+
+// ============================================================================
+// The fourth seam — the loopback MCP surface (registre#128)
+// ============================================================================
+
+/// The loopback seam's source, read at compile time.
+///
+/// `TurnToolSurface::new` takes a concrete `Arc<UniversalToolExecutor>` rather
+/// than a trait, so a canned `get_activities` envelope cannot be injected and a
+/// true end-to-end assertion would need seeded provider data and OAuth tokens.
+/// What is cheap and worth guarding is the wiring: the projection is applied at
+/// this call site, and the payload still travels whole when it does not match.
+const LOOPBACK_SEAM_SRC: &str = include_str!("../src/mcp/resources/tool_surface.rs");
+
+/// The seam production actually runs must project, like the other three.
+///
+/// `copilot_headless` never reports `FUNCTION_CALLING`, so `tool_dispatch` takes
+/// the loopback branch — which makes this the live path and the other three the
+/// fallbacks. It was deliberately left unprojected by 3c2e5056a and is projected
+/// now; this fails if it is reverted to a bare `ToolOutcome::json(payload)`.
+#[test]
+fn the_loopback_seam_projects_the_activities_payload() {
+    assert!(
+        LOOPBACK_SEAM_SRC.contains("project_activities_payload(tool_name, &payload)"),
+        "the loopback seam must route the success payload through the projection; \
+         a bare ToolOutcome::json(payload) here re-sends the whole window on every \
+         pass of the agent's own loop"
+    );
+}
+
+/// An unrecognised shape must still travel whole.
+///
+/// The projection returning `None` has to fall back to the original payload, not
+/// to null or an empty object. This is the half that keeps the reducer from ever
+/// being the reason a coach has no data.
+#[test]
+fn the_loopback_seam_passes_unrecognised_payloads_through() {
+    assert!(
+        LOOPBACK_SEAM_SRC.contains(".unwrap_or(payload)"),
+        "the seam must fall back to the whole payload when the projection declines"
+    );
+
+    // And the projection does decline for anything that is not the envelope —
+    // asserted against the real function, not just the source text.
+    assert!(
+        project_activities_payload("get_activities", &json!({"error": "no provider"})).is_none(),
+        "an error envelope carries no activity_list and must not be projected"
+    );
+    assert!(
+        project_activities_payload("get_athlete", &activities_envelope(3)).is_none(),
+        "the projection is scoped to get_activities by name"
+    );
+}

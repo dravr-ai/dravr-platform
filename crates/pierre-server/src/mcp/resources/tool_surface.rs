@@ -45,6 +45,7 @@ use pierre_tool_runtime::implementations::guided_flow::guided_flow_is_active;
 use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_results::project_activities_payload;
 use serde_json::Value;
 use tracing::{info, warn};
 
@@ -192,20 +193,25 @@ impl ToolSurface for TurnToolSurface {
             Ok(Ok(response)) => {
                 let payload = response.result.unwrap_or(Value::Null);
                 if response.success {
-                    // LIMITATION(registre#128): the whole tool payload goes to the
-                    // agent. 3c2e5056a projected the `get_activities` envelope at
-                    // the API loop, the text loop and persisted history -- 12,995
-                    // to 3,155 bytes on a 30-activity window -- and deliberately
-                    // skipped this seam, because the ACP agent runs its own loop
-                    // and may chain on a field the projection drops.
+                    // The fourth seam, and the one that matters: `copilot_headless`
+                    // never reports FUNCTION_CALLING, so `tool_dispatch` takes the
+                    // loopback branch and this is the path production runs. The
+                    // three seams 3c2e5056a projected are the fallbacks, and the
+                    // agent re-sends this payload on every pass of its own loop.
                     //
-                    // The exclusion is defensible; being unwritten was not. This
-                    // is the seam production actually runs: `copilot_headless`
-                    // never reports FUNCTION_CALLING, so tool_dispatch takes the
-                    // loopback branch, and every iteration of the agent's loop
-                    // re-sends this payload. So the three projected seams are the
-                    // fallbacks and the unprojected one is live.
-                    ToolOutcome::json(payload)
+                    // Same projection as those seams, deliberately: it keeps
+                    // id/name/sport_type/start_date per activity plus the envelope
+                    // fields, which is exactly what the five tools taking a
+                    // required `activity_id` need to chain. Those tools are
+                    // reached through this very surface, so the agent's chaining
+                    // requirement is the API loop's requirement.
+                    //
+                    // `None` for anything that is not a recognised `get_activities`
+                    // envelope, and then the payload travels whole. The projection
+                    // must never be the reason a coach has no data.
+                    ToolOutcome::json(
+                        project_activities_payload(tool_name, &payload).unwrap_or(payload),
+                    )
                 } else {
                     // The tool ran and declined — a Guardian block, a tenant
                     // disable, a provider needing reconnection. The model must
