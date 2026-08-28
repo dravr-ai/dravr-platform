@@ -62,6 +62,12 @@ mod intake_tests {
     /// here: every intake turn that reached it would be a paraphrased question.
     struct MockLlm {
         calls: Arc<AtomicUsize>,
+        /// How long the model "thinks" before answering.
+        ///
+        /// Zero for every test but the ordering one, which needs the served turn
+        /// to take measurable time: whether the intake opens before or after the
+        /// answer is only observable while the turn is still in flight.
+        delay: Duration,
         /// Every message body handed to the model, across every request.
         ///
         /// The counter alone cannot pin the property under test: background
@@ -76,6 +82,15 @@ mod intake_tests {
             Self {
                 calls: Arc::new(AtomicUsize::new(0)),
                 seen: Arc::new(Mutex::new(Vec::new())),
+                delay: Duration::ZERO,
+            }
+        }
+        /// A model that takes `delay` to answer, so a test can sample the world
+        /// while the turn is still running.
+        fn slow(delay: Duration) -> Self {
+            Self {
+                delay,
+                ..Self::new()
             }
         }
         fn counter(&self) -> Arc<AtomicUsize> {
@@ -137,6 +152,7 @@ mod intake_tests {
             &[]
         }
         async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            sleep(self.delay).await;
             self.record(request);
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ChatResponse {
@@ -149,6 +165,7 @@ mod intake_tests {
             })
         }
         async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
+            sleep(self.delay).await;
             self.record(request);
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(Box::pin(stream::iter(vec![Ok(StreamChunk {
@@ -310,6 +327,25 @@ mod intake_tests {
         false
     }
 
+    /// Count assistant rows on the athlete's messaging conversation.
+    ///
+    /// The coach's answer is persisted before `deliver_reply` sends it, so this
+    /// is the observable "the turn was served" signal a test can order the
+    /// intake against.
+    async fn assistant_message_count(resources: &ServerContext, user_id: Uuid) -> usize {
+        let pool = resources.coach.database.sqlite_pool().unwrap();
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT COUNT(*) FROM chat_messages m \
+             JOIN messaging_sessions s ON s.pierre_conversation_id = m.conversation_id \
+             WHERE s.user_id = ?1 AND m.role = 'assistant'",
+        )
+        .bind(user_id.to_string())
+        .fetch_optional(pool)
+        .await
+        .unwrap();
+        usize::try_from(row.map_or(0, |(n,)| n)).unwrap_or(0)
+    }
+
     async fn probed_count(resources: &ServerContext, user_id: Uuid) -> usize {
         let pool = resources.coach.database.sqlite_pool().unwrap();
         let row: Option<(Option<String>,)> = sqlx::query_as(
@@ -434,6 +470,74 @@ mod intake_tests {
 
     /// The whole walk, over real webhook turns: one coached turn opens it, then
     /// eight answers land without the model ever seeing a question.
+    /// The intake rides BEHIND the served turn, never in front of it.
+    ///
+    /// `maybe_send_intake_question` used to run at the top of
+    /// `dispatch_and_respond`, before the pipeline had started, so the athlete
+    /// got the form first and the answer to their actual question second —
+    /// pinned below it in the thread, because the reply is delivered by editing
+    /// a placeholder opened after the probe. Reported from production Telegram
+    /// on 2026-08-28: "I never had a chance to answer the question."
+    ///
+    /// Three doc comments and the sibling test's comment all claimed the probe
+    /// rides behind a served turn. Nothing asserted the ORDER — only that both
+    /// eventually happened, which is equally true of the inverted order. That is
+    /// how the inversion shipped green.
+    ///
+    /// Order is only observable WHILE the turn is in flight, so the model is
+    /// made slow on purpose and the ledger is sampled mid-turn: the probe must
+    /// not have been written yet. Sampling after the turn settles cannot tell
+    /// the two orderings apart, and a test that cannot fail on the old code is
+    /// not a regression test.
+    #[tokio::test]
+    #[serial]
+    async fn the_intake_opens_behind_the_answer_not_in_front_of_it() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let think = Duration::from_secs(4);
+        let mock = MockLlm::slow(think);
+        let calls = mock.counter();
+        let resources = create_test_server_resources_with_llm(Arc::new(mock))
+            .await
+            .unwrap();
+
+        let (user_id, tenant_id) =
+            create_user_with_own_tenant(&resources, "intake_order@example.com").await;
+        link_channel(&resources, tenant_id, user_id, "83").await;
+
+        send_turn(
+            &resources,
+            8301,
+            83,
+            "j'attaque la tourbiere ce matin, c'est bon?",
+            false,
+        )
+        .await;
+
+        // Mid-turn: the model is still thinking, so nothing has been served yet
+        // and the intake must not have spoken. Under the old ordering the probe
+        // was already in the ledger microseconds after the webhook returned.
+        sleep(think / 4).await;
+        assert_eq!(
+            probed_count(&resources, user_id).await,
+            0,
+            "the intake spoke before the coach answered — the athlete is handed a \
+             form while the reply they asked for is still being written"
+        );
+
+        assert!(
+            wait_for_turns(&calls, 1).await,
+            "the athlete's question must reach the coach"
+        );
+        assert!(
+            wait_for_probes(&resources, user_id, 1).await,
+            "the intake must still open, once the turn has been served"
+        );
+        assert!(
+            assistant_message_count(&resources, user_id).await >= 1,
+            "the coach's answer must be durable before the intake opens"
+        );
+    }
+
     #[tokio::test]
     #[serial]
     async fn the_intake_walks_to_completion_without_the_model() {

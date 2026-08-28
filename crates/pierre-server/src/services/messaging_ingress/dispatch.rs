@@ -776,7 +776,6 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // their message. Best-effort — never blocks or fails the turn.
     maybe_send_coach_proposal(&dispatch, &channel_config).await;
     maybe_send_connect_card(&dispatch, &channel_config).await;
-    maybe_send_intake_question(&dispatch, &channel_config).await;
 
     // Register an AG-UI run for this messaging turn so the in-process
     // channel-side status adapter can subscribe via
@@ -1002,6 +1001,23 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // cleaned up. Held until after `deliver_reply` so any
     // last events the pipeline emitted on the way out still render.
     drop(messaging_agui);
+
+    // After the answer, never before it. The intake rides *behind* a served
+    // turn — an athlete who asks "j'attaque la tourbière, c'est bon?" gets
+    // answered and is then handed the form, not the reverse. Running it up at
+    // the top put the question above a coaching reply that was delivered by
+    // editing a placeholder opened later, so the answer was pinned below the
+    // form in the thread and the opener's promise ("une minute maintenant, et
+    // le coaching qui suit est plus précis") was already broken by the time it
+    // was read (production Telegram, 2026-08-28).
+    //
+    // Inside the conversation lock, so the ledger write that records the probe
+    // still lands before the athlete can answer it. Below the early returns for
+    // quota denial, turn failure and an empty reply, so a turn that produced no
+    // coaching no longer trails a form behind nothing — the intake keeps its
+    // claim on the next served turn instead, because `try_build_first_question`
+    // only asks while nothing has been probed.
+    maybe_send_intake_question(&dispatch, &channel_config).await;
 
     // Held until here to serialize dispatches for the same conversation
     drop(dispatch_guard);

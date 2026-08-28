@@ -992,7 +992,7 @@ pub(crate) const FR_TIMEZONE_INVALID: &str = "Fuseau horaire invalide. Donne un 
 pub(crate) const FR_PILLARS_OPENER: &str = "On va construire ton profil ensemble — je te pose quelques questions, une à la fois. Pour commencer : qu'est-ce qui te motive profondément à t'entraîner (ton « North Star ») ?";
 pub(crate) const FR_PILLARS_DM_ONLY: &str = "Le profil se construit en privé. Écris-moi <code>/pillars</code> en message direct et on commence.";
 
-pub(crate) const FR_INTAKE_OPENER: &str = "Avant de commencer, quelques questions rapides — une minute maintenant, et le coaching qui suit est plus précis et plus sûr.";
+pub(crate) const FR_INTAKE_OPENER: &str = "Pendant que j'y suis, quelques questions rapides — une minute, et tout le coaching à partir de là est plus précis et plus sûr.";
 pub(crate) const FR_INTAKE_PERSONA: &str = "D'abord : tu t'entraînes pour toi, ou tu entraînes d'autres personnes ?\n\n<b>1</b> — Je m'entraîne pour moi\n<b>2</b> — J'entraîne d'autres personnes";
 pub(crate) const FR_INTAKE_PARQ_INTRO: &str = "Maintenant sept questions de santé standard (le PAR-Q+). Un « oui » ne bloque rien — ça indique simplement à ton coach où être prudent.";
 pub(crate) const FR_INTAKE_PARQ_HEART_CONDITION: &str =
@@ -1323,7 +1323,7 @@ pub(crate) const EN_TIMEZONE_INVALID: &str =
 pub(crate) const EN_PILLARS_OPENER: &str = "Let's build your profile together — I'll ask about a few areas, one at a time. To start: what's the deeper reason you train — your North Star?";
 pub(crate) const EN_PILLARS_DM_ONLY: &str = "Profile building happens in private. Send me <code>/pillars</code> in a direct message and we'll start.";
 
-pub(crate) const EN_INTAKE_OPENER: &str = "Before we start, a couple of quick questions — a minute now, and the coaching that follows is sharper and safer.";
+pub(crate) const EN_INTAKE_OPENER: &str = "While I have you, a couple of quick questions — a minute, and every bit of coaching from here is sharper and safer.";
 pub(crate) const EN_INTAKE_PERSONA: &str = "First: do you train for yourself, or do you coach other people?\n\n<b>1</b> — I train for myself\n<b>2</b> — I coach others";
 pub(crate) const EN_INTAKE_PARQ_INTRO: &str = "Now seven standard health questions (the PAR-Q+). A \"yes\" never blocks anything — it just tells your coach where to be careful.";
 pub(crate) const EN_INTAKE_PARQ_HEART_CONDITION: &str =
@@ -1630,7 +1630,7 @@ pub(crate) const ES_TIMEZONE_INVALID: &str = "Zona horaria no válida. Indica un
 pub(crate) const ES_PILLARS_OPENER: &str = "Vamos a construir tu perfil juntos — te haré preguntas sobre algunos temas, uno a uno. Para empezar: ¿cuál es la razón profunda por la que entrenas, tu «North Star»?";
 pub(crate) const ES_PILLARS_DM_ONLY: &str = "El perfil se construye en privado. Escríbeme <code>/pillars</code> por mensaje directo y empezamos.";
 
-pub(crate) const ES_INTAKE_OPENER: &str = "Antes de empezar, unas preguntas rápidas: un minuto ahora y el acompañamiento que viene será más preciso y más seguro.";
+pub(crate) const ES_INTAKE_OPENER: &str = "Ya que estamos, unas preguntas rápidas: un minuto y todo el acompañamiento a partir de aquí será más preciso y más seguro.";
 pub(crate) const ES_INTAKE_PERSONA: &str = "Primero: ¿entrenas para ti o entrenas a otras personas?\n\n<b>1</b> — Entreno para mí\n<b>2</b> — Entreno a otras personas";
 pub(crate) const ES_INTAKE_PARQ_INTRO: &str = "Ahora siete preguntas de salud estándar (el PAR-Q+). Un «sí» no bloquea nada: solo le indica a tu coach dónde ser prudente.";
 pub(crate) const ES_INTAKE_PARQ_HEART_CONDITION: &str =
@@ -1936,7 +1936,7 @@ pub(crate) const DE_TIMEZONE_INVALID: &str =
 pub(crate) const DE_PILLARS_OPENER: &str = "Wir bauen dein Profil gemeinsam auf — ich frage dich zu einigen Themen, eines nach dem anderen. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?";
 pub(crate) const DE_PILLARS_DM_ONLY: &str = "Das Profil entsteht privat. Schreib mir <code>/pillars</code> als Direktnachricht, dann legen wir los.";
 
-pub(crate) const DE_INTAKE_OPENER: &str = "Bevor wir loslegen, ein paar kurze Fragen — eine Minute jetzt, und das Coaching danach ist genauer und sicherer.";
+pub(crate) const DE_INTAKE_OPENER: &str = "Wo wir gerade dabei sind, ein paar kurze Fragen — eine Minute, und das gesamte Coaching ab hier ist genauer und sicherer.";
 pub(crate) const DE_INTAKE_PERSONA: &str = "Zuerst: Trainierst du für dich selbst, oder trainierst du andere?\n\n<b>1</b> — Ich trainiere für mich\n<b>2</b> — Ich trainiere andere";
 pub(crate) const DE_INTAKE_PARQ_INTRO: &str = "Jetzt sieben Standard-Gesundheitsfragen (der PAR-Q+). Ein „Ja“ blockiert nichts — es sagt deinem Coach nur, wo Vorsicht angebracht ist.";
 pub(crate) const DE_INTAKE_PARQ_HEART_CONDITION: &str =
@@ -2243,7 +2243,7 @@ pub(crate) const PT_TIMEZONE_INVALID: &str = "Fuso horário inválido. Indica um
 pub(crate) const PT_PILLARS_OPENER: &str = "Vamos construir o teu perfil juntos — vou fazer-te perguntas sobre alguns temas, um a um. Para começar: qual é a razão profunda pela qual treinas — o teu «North Star»?";
 pub(crate) const PT_PILLARS_DM_ONLY: &str = "O perfil constrói-se em privado. Escreve-me <code>/pillars</code> em mensagem direta e começamos.";
 
-pub(crate) const PT_INTAKE_OPENER: &str = "Antes de começarmos, algumas perguntas rápidas — um minuto agora, e o acompanhamento seguinte é mais preciso e mais seguro.";
+pub(crate) const PT_INTAKE_OPENER: &str = "Já agora, algumas perguntas rápidas — um minuto, e todo o acompanhamento a partir daqui é mais preciso e mais seguro.";
 pub(crate) const PT_INTAKE_PERSONA: &str = "Primeiro: treinas para ti, ou treinas outras pessoas?\n\n<b>1</b> — Treino para mim\n<b>2</b> — Treino outras pessoas";
 pub(crate) const PT_INTAKE_PARQ_INTRO: &str = "Agora sete perguntas de saúde padrão (o PAR-Q+). Um «sim» não bloqueia nada — apenas indica ao teu coach onde ser prudente.";
 pub(crate) const PT_INTAKE_PARQ_HEART_CONDITION: &str =
