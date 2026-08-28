@@ -1,5 +1,5 @@
 // ABOUTME: Dev-seeded accounts are English — `users.locale` defaults to `fr`, so seeding must override it
-// ABOUTME: Covers both paths the setup script uses: the seeders, and the `users` upsert behind `user create`
+// ABOUTME: Covers both paths the setup script uses: the seeders, and the insert/update pair behind `user create`
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -121,11 +121,13 @@ async fn reseeding_rewrites_a_french_account_to_english() {
 }
 
 /// `pierre-cli user create --force --locale en` re-points an account the dev-setup
-/// script already created, and it reaches the database through this upsert. The
-/// update branch has to write `locale` for that to mean anything — without it the
-/// flag is accepted, the command reports success, and the account stays French.
+/// script already created. It reaches the database as an insert then an update —
+/// `create` is insert-only and refuses a duplicate email, so re-pointing goes
+/// through `update`. That update has to write `locale` for the flag to mean
+/// anything; without it the flag is accepted, the command reports success, and
+/// the account stays French.
 #[tokio::test]
-async fn the_user_upsert_writes_the_locale_it_is_handed() {
+async fn the_user_update_writes_the_locale_it_is_handed() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
 
@@ -145,7 +147,7 @@ async fn the_user_upsert_writes_the_locale_it_is_handed() {
     assert_eq!(stored.locale, "fr", "the insert honours the given locale");
 
     user.locale = "en".to_owned();
-    repos.users.create(&user).await.unwrap();
+    repos.users.update(&user).await.unwrap();
 
     let updated = repos
         .users
@@ -159,6 +161,6 @@ async fn the_user_upsert_writes_the_locale_it_is_handed() {
     );
     assert_eq!(
         updated.id, user.id,
-        "the upsert updates rather than duplicates"
+        "the update re-points the same row rather than duplicating it"
     );
 }

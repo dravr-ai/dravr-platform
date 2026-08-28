@@ -11,11 +11,18 @@ use uuid::Uuid;
 use crate::backends::shared;
 
 use super::super::Database;
+use sqlx::error::DatabaseError;
 
-/// The `SQLite` text for a violated `UNIQUE` constraint. `create` turns one into the
-/// same structured error `PostgreSQL`'s unique-violation code produces, so a duplicate
+/// `SQLite`'s extended result codes for a violated uniqueness constraint:
+/// `SQLITE_CONSTRAINT_UNIQUE` and `SQLITE_CONSTRAINT_PRIMARYKEY`. `create` turns one
+/// into the same structured error `PostgreSQL`'s `23505` produces, so a duplicate
 /// reads identically to a caller whichever engine is underneath.
-const UNIQUE_VIOLATION: &str = "UNIQUE constraint failed";
+///
+/// Matched on the driver's code rather than its message: the text is not part of
+/// `SQLite`'s contract and changes between releases, and the `PostgreSQL` side of
+/// this same pair already keys on a code. Which index was hit still has to come
+/// from the message — a result code says a unique constraint failed, not which one.
+const UNIQUE_VIOLATION_CODES: [&str; 2] = ["2067", "1555"];
 
 /// `users` carries a second unique index besides `email`: `idx_users_firebase_uid`,
 /// partial over non-null `firebase_uid`. Two concurrent Firebase sign-ins for one UID
@@ -82,9 +89,12 @@ impl Database {
         .execute(&self.pool)
         .await
         .map_err(|e| {
-            let message = e.to_string();
-            if message.contains(UNIQUE_VIOLATION) {
-                duplicate_error(&message)
+            let is_duplicate = e
+                .as_database_error()
+                .and_then(DatabaseError::code)
+                .is_some_and(|code| UNIQUE_VIOLATION_CODES.contains(&code.as_ref()));
+            if is_duplicate {
+                duplicate_error(&e.to_string())
             } else {
                 AppError::database(format!("Failed to create user: {e}"))
             }

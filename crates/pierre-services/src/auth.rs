@@ -104,14 +104,12 @@ impl AuthService {
         user.approved_at = approved_at;
         user.approved_by = approved_by;
 
-        // Save user to database
-        let user_id = self
-            .data
-            .repos()
-            .users
-            .create(&user)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
+        // Propagated, not re-wrapped: `create` is insert-only now and reports a
+        // duplicate email as `invalid_input`. Wrapping it in `AppError::database`
+        // turned that into a 500, so the one case a caller can actually act on —
+        // "that address is taken" — arrived as a server fault. The bare `?` is
+        // what the Firebase-link branch below already does.
+        let user_id = self.data.repos().users.create(&user).await?;
 
         // Create a personal tenant for the user (required for MCP operations)
         let display_name = user
