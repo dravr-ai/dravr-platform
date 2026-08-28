@@ -44,6 +44,7 @@ jest.mock('../../src/screens/chat/useUsageStatus', () => ({
 }));
 
 import { SettingsScreen } from '../../src/screens/settings/SettingsScreen';
+import { i18n } from '@pierre/i18n';
 
 const DESKTOP_TOKEN: McpToken = {
   id: 'tok-desktop',
@@ -137,7 +138,9 @@ describe('carnet #64 — mobile MCP token revocation', () => {
       string,
       Array<{ text: string; style?: string; onPress?: () => void }>,
     ];
-    expect(confirm[0]).toBe('Revoke Token');
+    // Against the corpus, not an English literal: this screen renders in the
+    // app's default locale, so pinning the sentence pins the language too.
+    expect(confirm[0]).toBe(i18n.t('app.revokeTokenTitle'));
     expect(confirm[1]).toContain('Vieux portable');
 
     // Found by its ROLE, not its label. The label is a corpus string now, and

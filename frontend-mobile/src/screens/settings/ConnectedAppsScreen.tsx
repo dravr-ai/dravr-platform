@@ -58,7 +58,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
 
   const handleRevoke = (grant: OAuthGrant): void => {
     Alert.alert(
-      'Revoke access?',
+      t('app.revokeAccessQ'),
       `"${grant.client_id}" will lose access to your data and must ask for your approval again the next time it connects. This cannot be undone.`,
       [
         { text: t('common.cancel'), style: 'cancel' },

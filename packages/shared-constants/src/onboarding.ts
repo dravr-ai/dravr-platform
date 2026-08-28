@@ -228,3 +228,36 @@ export function onboardingProgress(ctx: OnboardingContext): OnboardingProgressIt
     status: i === currentIndex ? 'current' : i < currentIndex ? 'done' : 'upcoming',
   }));
 }
+
+
+/**
+ * The one-tap sport choices offered during onboarding.
+ *
+ * These strings are the VALUE stored on the athlete's profile and read back by
+ * the coach, so they are English on the wire in every locale. What the chip
+ * SHOWS is `SPORT_LABEL_KEY[value]`, resolved from the translation corpus.
+ *
+ * Both apps had their own copy of this array with the label and the value as
+ * one string, which is precisely why neither could translate the chips without
+ * changing what gets saved.
+ */
+export const ONBOARDING_SPORTS = [
+  'Running',
+  'Cycling',
+  'Swimming',
+  'Triathlon',
+  'Strength',
+  'Hiking',
+] as const;
+
+export type OnboardingSport = (typeof ONBOARDING_SPORTS)[number];
+
+/** Corpus key for each sport's visible label. */
+export const SPORT_LABEL_KEY: Record<OnboardingSport, string> = {
+  Running: 'app.sportRunning',
+  Cycling: 'app.sportCycling',
+  Swimming: 'app.sportSwimming',
+  Triathlon: 'app.sportTriathlon',
+  Strength: 'app.sportStrength',
+  Hiking: 'app.sportHiking',
+};

@@ -62,7 +62,7 @@ export function ProfileScreen() {
       // Reflect the saved value locally so the Settings header and avatar
       // initial update without a round-trip through a refetch.
       await updateUser({ display_name: response.user?.display_name ?? trimmed });
-      Alert.alert(t('app.profileUpdated'), 'Your display name has been saved.');
+      Alert.alert(t('app.profileUpdated'), t('app.displayNameSaved'));
       router.back();
     } catch (err) {
       const message = err instanceof Error ? err.message : t('app.failedToUpdateProfile');

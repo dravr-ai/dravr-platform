@@ -9,9 +9,8 @@ import { userApi } from '../services/api';
 import { Button, Input, Textarea } from './ui';
 import OnboardingShell from './OnboardingShell';
 import { useTranslation } from '@pierre/i18n';
+import { ONBOARDING_SPORTS as SPORTS, SPORT_LABEL_KEY } from '@pierre/shared-constants';
 
-/** Sports offered as one-tap choices; anything else is typed. */
-const SPORTS = ['Running', 'Cycling', 'Swimming', 'Triathlon', 'Strength', 'Hiking'] as const;
 
 /**
  * Who the athlete is, in three questions.
@@ -89,7 +88,7 @@ export default function OnboardingAboutYou({
                       : 'border-outline-variant bg-surface-container-low text-on-surface hover:border-primary'
                   }`}
                 >
-                  {option}
+                  {t(SPORT_LABEL_KEY[option])}
                 </button>
               );
             })}

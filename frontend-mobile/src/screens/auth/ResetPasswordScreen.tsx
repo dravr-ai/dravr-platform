@@ -66,12 +66,12 @@ export function ResetPasswordScreen() {
     try {
       await authApi.resetPassword(code.trim(), newPassword);
       Alert.alert(
-        'Password Reset',
-        'Your password has been reset successfully. Please sign in.',
+        t('app.passwordResetTitle'),
+        t('app.passwordResetBody'),
         [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }],
       );
     } catch (error) {
-      let message = 'Reset failed. Please try again.';
+      let message = t('app.resetFailedRetry');
       if (error instanceof Error) {
         if (error.message.includes('404') || error.message.includes('not found')) {
           message = t('app.codeInvalidOrExpired');

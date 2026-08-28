@@ -86,11 +86,11 @@ export function ConversationsScreen() {
       // something unread — advancing it is monotonic server-side anyway.
       if (row.unreadCount > 0) {
         list.markRead(row.id).catch((err: unknown) => {
-          setActionError(describeError(err, 'Failed to mark conversation read'));
+          setActionError(describeError(err, t('app.failedMarkRead')));
         });
       }
     },
-    [router, list],
+    [router, list, t],
   );
 
   const openActionMenu = useCallback((row: ConversationRowModel) => {
@@ -106,10 +106,10 @@ export function ConversationsScreen() {
   const markUnread = useCallback(
     (row: ConversationRowModel) => {
       list.markUnread(row.id).catch((err: unknown) => {
-        setActionError(describeError(err, 'Failed to mark conversation unread'));
+        setActionError(describeError(err, t('app.failedMarkUnread')));
       });
     },
-    [list],
+    [list, t],
   );
 
   const confirmDelete = useCallback(
@@ -121,7 +121,7 @@ export function ConversationsScreen() {
           style: 'destructive',
           onPress: () => {
             list.remove(row.id).catch((err: unknown) => {
-              setActionError(describeError(err, 'Failed to delete conversation'));
+              setActionError(describeError(err, t('app.failedDeleteConversation')));
             });
           },
         },
@@ -157,10 +157,10 @@ export function ConversationsScreen() {
       const row = selectedRow;
       setSelectedRow(null);
       list.rename(row.id, newTitle).catch((err: unknown) => {
-        setActionError(describeError(err, 'Failed to rename conversation'));
+        setActionError(describeError(err, t('app.failedRenameConversation')));
       });
     },
-    [selectedRow, list],
+    [selectedRow, list, t],
   );
 
   const handleRenameCancel = useCallback(() => {
@@ -183,7 +183,7 @@ export function ConversationsScreen() {
 
   const keyExtractor = useCallback((item: ConversationRowModel) => item.id, []);
 
-  const errorMessage = actionError ?? (list.isError ? describeError(list.error, 'Failed to load conversations') : null);
+  const errorMessage = actionError ?? (list.isError ? describeError(list.error, t('app.failedLoadConversations')) : null);
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="conversations-screen">

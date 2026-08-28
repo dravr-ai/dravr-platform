@@ -153,7 +153,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         peer_data_sharing: editPeerSharing,
         respond_mode: editRespondMode,
       });
-      showSuccess(t('app.settingsSaved'), 'Group settings have been updated.');
+      showSuccess(t('app.settingsSaved'), t('app.groupSettingsUpdated'));
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.saveFailed');
       showError(t('app.saveFailed'), message);
@@ -163,7 +163,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
   const handleRemoveCoach = async () => {
     try {
       await removeCoach();
-      showSuccess(t('app.coachRemoved'), 'The human coach has been detached from this group.');
+      showSuccess(t('app.coachRemoved'), t('app.humanCoachDetached'));
       setConfirmRemoveCoach(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.removeCoachFailed');
@@ -174,7 +174,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
   const handleLeave = async () => {
     try {
       await leaveGroup(groupId);
-      showSuccess(t('app.leftGroup'), 'You have left the group.');
+      showSuccess(t('app.leftGroup'), t('app.youLeftGroup'));
       onMembershipEnded();
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.leaveFailed');
@@ -185,7 +185,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
   const handleDelete = async () => {
     try {
       await deleteGroup(groupId);
-      showSuccess(t('app.groupDeleted'), 'The group has been permanently archived.');
+      showSuccess(t('app.groupDeleted'), t('app.groupArchivedPermanently'));
       onMembershipEnded();
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.deleteFailed');

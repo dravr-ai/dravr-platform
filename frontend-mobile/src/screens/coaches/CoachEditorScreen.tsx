@@ -92,7 +92,7 @@ export function CoachEditorScreen() {
       }
     } catch (error) {
       console.error('Failed to load coach:', error);
-      Alert.alert(t('common.error'), 'Failed to load coach data');
+      Alert.alert(t('common.error'), t('app.failedLoadCoachData'));
       router.back();
     } finally {
       setIsLoading(false);
@@ -196,7 +196,7 @@ export function CoachEditorScreen() {
       router.back();
     } catch (error) {
       console.error('Failed to save coach:', error);
-      Alert.alert(t('common.error'), 'Failed to update coach');
+      Alert.alert(t('common.error'), t('app.failedUpdateCoach'));
     } finally {
       setIsSaving(false);
     }
@@ -206,7 +206,7 @@ export function CoachEditorScreen() {
   const handleDelete = () => {
     if (!coachId) return;
     Alert.alert(
-      'Delete Coach?',
+      t('app.deleteCoachQ'),
       `Delete coach "${title}"? This cannot be undone.`,
       [
         { text: t('common.cancel'), style: 'cancel' },
@@ -221,7 +221,7 @@ export function CoachEditorScreen() {
               router.back();
             } catch (error) {
               console.error('Failed to delete coach:', error);
-              Alert.alert(t('common.error'), 'Failed to delete coach');
+              Alert.alert(t('common.error'), t('app.failedDeleteCoach'));
             } finally {
               setIsDeleting(false);
             }

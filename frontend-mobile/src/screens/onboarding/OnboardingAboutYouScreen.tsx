@@ -12,9 +12,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { userApi } from '../../services/api';
 import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useTranslation } from '@pierre/i18n';
+import { ONBOARDING_SPORTS as SPORTS, SPORT_LABEL_KEY } from '@pierre/shared-constants';
 
 /** Sports offered as one-tap choices; anything else is typed. */
-const SPORTS = ['Running', 'Cycling', 'Swimming', 'Triathlon', 'Strength', 'Hiking'];
+
 
 /** Web-matching storage key prefix for this step. */
 const STORAGE_PREFIX = 'dravr.about_you_done.';
@@ -79,7 +80,7 @@ export function OnboardingAboutYouScreen() {
                 }`}
               >
                 <Text className={selected ? 'text-on-primary text-sm' : 'text-on-surface text-sm'}>
-                  {option}
+                  {t(SPORT_LABEL_KEY[option])}
                 </Text>
               </Pressable>
             );

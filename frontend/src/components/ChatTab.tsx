@@ -256,8 +256,8 @@ export default function ChatTab({
         return;
       }
       showErrorToast(
-        'Could not start chat',
-        'Something went wrong creating the conversation. Please try again.'
+        t('app.couldNotStartChat'),
+        t('app.conversationCreateFailed')
       );
     },
   });
@@ -597,7 +597,7 @@ export default function ChatTab({
   // Message action handlers
   const handleCopyMessage = useCallback((content: string) => {
     navigator.clipboard.writeText(content);
-    showSuccessToast(t('app.copiedTitle'), 'Message copied to clipboard', 2000);
+    showSuccessToast(t('app.copiedTitle'), t('app.copiedBody'), 2000);
   }, [showSuccessToast, t]);
 
   /**
@@ -630,7 +630,7 @@ export default function ChatTab({
       });
     } else {
       navigator.clipboard.writeText(content);
-      showInfoToast(t('app.copiedTitle'), 'Message copied to clipboard for sharing', 2000);
+      showInfoToast(t('app.copiedTitle'), t('app.messageCopiedForSharing'), 2000);
     }
   }, [showInfoToast, t]);
 

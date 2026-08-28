@@ -47,7 +47,7 @@ export function ForgotPasswordScreen() {
       await authApi.forgotPassword(email.trim());
       router.push({ pathname: '/(auth)/reset-password', params: { email: email.trim() } });
     } catch (error) {
-      let message = 'Something went wrong. Please try again.';
+      let message = t('app.somethingWentWrongRetry');
       if (error instanceof Error) {
         message = error.message;
       }

@@ -79,15 +79,15 @@ export function OAuthCredentialsSection() {
 
   const handleSave = async () => {
     if (!selectedProvider) {
-      Alert.alert(t('common.error'), 'Please select a provider');
+      Alert.alert(t('common.error'), t('app.pleaseSelectProvider'));
       return;
     }
     if (!clientId.trim()) {
-      Alert.alert(t('common.error'), 'Please enter a Client ID');
+      Alert.alert(t('common.error'), t('app.pleaseEnterClientId'));
       return;
     }
     if (!clientSecret.trim()) {
-      Alert.alert(t('common.error'), 'Please enter a Client Secret');
+      Alert.alert(t('common.error'), t('app.pleaseEnterClientSecret'));
       return;
     }
 
@@ -112,7 +112,7 @@ export function OAuthCredentialsSection() {
 
   const handleDelete = (provider: string, providerName: string) => {
     Alert.alert(
-      'Remove Credentials',
+      t('app.removeCredentials'),
       `Are you sure you want to remove ${providerName} credentials? You'll need to re-enter them to use a custom OAuth app.`,
       [
         { text: t('common.cancel'), style: 'cancel' },

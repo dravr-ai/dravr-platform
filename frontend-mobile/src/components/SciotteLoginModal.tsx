@@ -162,7 +162,7 @@ export function SciotteLoginModal({
       );
       if (result.type === 'success' && result.url) {
         if (!result.url.startsWith(returnUrl)) {
-          Alert.alert(t('app.connectionFailed'), 'Unexpected OAuth callback URL');
+          Alert.alert(t('app.connectionFailed'), t('app.unexpectedOauthCallback'));
           return;
         }
         const parsed = Linking.parse(result.url);

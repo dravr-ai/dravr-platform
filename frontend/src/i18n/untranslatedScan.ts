@@ -48,8 +48,16 @@ const STRING_PROP =
  * hardcoded English survived three i18n passes in that blind spot.
  *
  * Requires two words to stay out of identifiers and enum-ish arguments.
+ *
+ * A comma counts as an opener, not just `(`. Anchoring only on `(` meant the
+ * pattern saw the FIRST argument of a call and nothing after it, so
+ * `Alert.alert(t('common.error'), 'Failed to revoke token')` reported clean —
+ * and so did every multi-line call, where the argument starts on its own line.
+ * That gap is how SettingsScreen scored zero while holding three English
+ * strings.
  */
-const CALL_ARG_PROSE = /(?:\(|\|\|\s|\?\?\s)'([A-Z][a-z]+(?: [^']{2,110})?)'/g;
+const CALL_ARG_PROSE =
+  /(?:\(|,|\|\||\?\?)\s*'([A-Z][a-z]+(?: [^']{2,110})?)'/g;
 const OBJECT_LITERAL =
   /\b(?:name|label|title|description|heading|text|message|placeholder)\s*:\s*'([A-Z][^']{2,120})'/g;
 /**

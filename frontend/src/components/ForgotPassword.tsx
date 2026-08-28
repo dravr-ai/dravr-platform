@@ -39,7 +39,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
       setError(
         apiError.response?.data?.message ||
           apiError.response?.data?.error ||
-          'Something went wrong. Please try again.',
+          t('app.somethingWentWrongRetry'),
       );
     } finally {
       setIsLoading(false);

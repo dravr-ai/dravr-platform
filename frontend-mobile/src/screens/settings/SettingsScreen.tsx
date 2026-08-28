@@ -190,7 +190,7 @@ export function SettingsScreen() {
 
   const handleCreateToken = async () => {
     if (!newTokenName.trim()) {
-      Alert.alert(t('common.error'), 'Please enter a token name');
+      Alert.alert(t('common.error'), t('app.pleaseEnterTokenName'));
       return;
     }
 
@@ -204,7 +204,7 @@ export function SettingsScreen() {
       await loadTokens();
       setNewTokenName('');
     } catch {
-      Alert.alert(t('common.error'), 'Failed to create token');
+      Alert.alert(t('common.error'), t('app.failedCreateToken'));
     } finally {
       setIsCreatingToken(false);
     }
@@ -220,7 +220,7 @@ export function SettingsScreen() {
    */
   const handleRevokeToken = (token: McpToken) => {
     Alert.alert(
-      'Revoke Token',
+      t('app.revokeTokenTitle'),
       `Revoke "${token.name}"? Any client still using it loses access immediately.`,
       [
         { text: t('common.cancel'), style: 'cancel' },
@@ -233,7 +233,7 @@ export function SettingsScreen() {
               await userApi.revokeMcpToken(token.id);
               setTokens((prev) => prev.filter((t) => t.id !== token.id));
             } catch {
-              Alert.alert(t('common.error'), 'Failed to revoke token');
+              Alert.alert(t('common.error'), t('app.failedRevokeToken'));
             } finally {
               setRevokingTokenId(null);
             }
@@ -245,12 +245,12 @@ export function SettingsScreen() {
 
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert(t('common.error'), 'Please fill in all fields');
+      Alert.alert(t('common.error'), t('app.pleaseFillAllFields'));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert(t('common.error'), 'New passwords do not match');
+      Alert.alert(t('common.error'), t('app.newPasswordsMismatch'));
       return;
     }
 
@@ -262,13 +262,13 @@ export function SettingsScreen() {
     try {
       setIsChangingPassword(true);
       await userApi.changePassword(currentPassword, newPassword);
-      Alert.alert(t('common.success'), 'Password changed successfully');
+      Alert.alert(t('common.success'), t('app.passwordChanged'));
       setShowChangePassword(false);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch {
-      Alert.alert(t('common.error'), 'Failed to change password. Please check your current password.');
+      Alert.alert(t('common.error'), t('app.failedChangePasswordCheck'));
     } finally {
       setIsChangingPassword(false);
     }
@@ -277,7 +277,7 @@ export function SettingsScreen() {
   const handleLogout = () => {
     Alert.alert(
       t('common.logout'),
-      'Are you sure you want to sign out?',
+      t('app.signOutConfirm'),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {

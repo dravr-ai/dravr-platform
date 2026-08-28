@@ -113,7 +113,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               setRemovingMemberId(member.user_id);
               await removeMember(member.user_id);
             } catch (err) {
-              Alert.alert(t('common.error'), errorText(err, 'Failed to remove member'));
+              Alert.alert(t('common.error'), errorText(err, t('app.failedRemoveMember')));
             } finally {
               setRemovingMemberId(null);
             }
@@ -130,7 +130,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         setRoleChangingUserId(member.user_id);
         await updateRole({ userId: member.user_id, role });
       } catch (err) {
-        Alert.alert(t('common.error'), errorText(err, 'Failed to update role'));
+        Alert.alert(t('common.error'), errorText(err, t('app.failedUpdateRole')));
       } finally {
         setRoleChangingUserId(null);
       }
@@ -153,14 +153,14 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               : `Join ${group?.name ?? 'our group'}: ${INVITE_LINK_BASE}/${invite.code}`,
         });
       } catch (err) {
-        Alert.alert(t('common.error'), errorText(err, 'Failed to create invite'));
+        Alert.alert(t('common.error'), errorText(err, t('app.failedCreateInvite')));
       }
     },
     [createInvite, group?.name, t],
   );
 
   const handleShareInvite = useCallback(() => {
-    Alert.alert(t('app.createInvite'), 'Who is this invite for?', [
+    Alert.alert(t('app.createInvite'), t('app.whoIsInviteFor'), [
       { text: 'Member (athlete)', onPress: () => void createInviteOfKind('member') },
       { text: t('app.coach'), onPress: () => void createInviteOfKind('coach') },
       { text: t('common.cancel'), style: 'cancel' },
@@ -178,7 +178,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             try {
               await deactivateInvite(inviteId);
             } catch (err) {
-              Alert.alert(t('common.error'), errorText(err, 'Failed to deactivate invite'));
+              Alert.alert(t('common.error'), errorText(err, t('app.failedDeactivateInvite')));
             }
           },
         },
@@ -188,7 +188,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   );
 
   const handleRemoveCoach = useCallback(() => {
-    Alert.alert(t('app.removeCoach'), 'Detach the human coach from this group?', [
+    Alert.alert(t('app.removeCoach'), t('app.detachHumanCoachQ'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('app.remove'),
@@ -212,7 +212,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       setNameDraft(null);
       setDescriptionDraft(null);
     } catch (err) {
-      Alert.alert(t('common.error'), errorText(err, 'Failed to update group'));
+      Alert.alert(t('common.error'), errorText(err, t('app.failedUpdateGroup')));
     }
   }, [nameDraft, descriptionDraft, group?.name, group?.description, updateGroup, t]);
 
@@ -221,7 +221,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       try {
         await updateGroup(patch);
       } catch (err) {
-        Alert.alert(t('common.error'), errorText(err, 'Failed to update group'));
+        Alert.alert(t('common.error'), errorText(err, t('app.failedUpdateGroup')));
       }
     },
     [updateGroup, t],
@@ -232,7 +232,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       try {
         await updateConsent(consent);
       } catch (err) {
-        Alert.alert(t('common.error'), errorText(err, 'Failed to update sharing consent'));
+        Alert.alert(t('common.error'), errorText(err, t('app.failedUpdateSharing')));
       }
     },
     [updateConsent, t],
@@ -250,7 +250,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             onClose();
             onLeft();
           } catch (err) {
-            Alert.alert(t('common.error'), errorText(err, 'Failed to leave group'));
+            Alert.alert(t('common.error'), errorText(err, t('app.failedLeaveGroup')));
           }
         },
       },
@@ -259,7 +259,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
   const handleDelete = useCallback(() => {
     Alert.alert(
-      'Archive Group',
+      t('app.archiveGroupTitle'),
       `Archive "${group?.name ?? 'this group'}"? Members lose access to its shared coaching.`,
       [
         { text: t('common.cancel'), style: 'cancel' },
@@ -272,7 +272,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               onClose();
               onLeft();
             } catch (err) {
-              Alert.alert(t('common.error'), errorText(err, 'Failed to archive group'));
+              Alert.alert(t('common.error'), errorText(err, t('app.failedArchiveGroup')));
             }
           },
         },

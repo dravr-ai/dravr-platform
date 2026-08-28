@@ -45,11 +45,11 @@ export function ConversationParticipantsModal({
     try {
       setParticipants(await chatApi.listParticipants(conversationId));
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to load participants'));
+      setError(extractErrorMessage(err, t('app.failedLoadParticipants')));
     } finally {
       setIsLoading(false);
     }
-  }, [conversationId]);
+  }, [conversationId, t]);
 
   useEffect(() => {
     if (visible) {
@@ -67,11 +67,11 @@ export function ConversationParticipantsModal({
       setNewUserId('');
       await load();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to add participant'));
+      setError(extractErrorMessage(err, t('app.failedAddParticipant')));
     } finally {
       setIsSaving(false);
     }
-  }, [conversationId, newUserId, load]);
+  }, [conversationId, newUserId, load, t]);
 
   const handleRemove = useCallback(
     async (userId: string) => {
@@ -82,12 +82,12 @@ export function ConversationParticipantsModal({
         await chatApi.removeParticipant(conversationId, userId);
         await load();
       } catch (err) {
-        setError(extractErrorMessage(err, 'Failed to remove participant'));
+        setError(extractErrorMessage(err, t('app.failedRemoveParticipant')));
       } finally {
         setIsSaving(false);
       }
     },
-    [conversationId, load],
+    [conversationId, load, t],
   );
 
   return (

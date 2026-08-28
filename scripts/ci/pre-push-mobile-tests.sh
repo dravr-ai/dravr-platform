@@ -126,6 +126,48 @@ fi
 echo ""
 
 # ============================================================================
+# TIER 3b: App Integration Specs
+# ----------------------------------------------------------------------------
+# `bun run test` is the UNIT project only. The app integration specs live under
+# a separate jest config and were invoked by CI alone, so a change that broke
+# one of them passed every local gate and reddened main instead. Same config
+# and project selector the workflow uses.
+# ============================================================================
+echo "🧪 Tier 3b: App Integration Specs"
+echo "---------------------------------"
+echo -n "Running app integration specs... "
+
+# ONE invocation, not two. Running jest a second time just to print the summary
+# doubles the tier's wall clock, and the parent validator's per-tier timeout
+# killed the first run with SIGTERM — reported as a failure while the specs
+# themselves were passing.
+# --forceExit because these specs leave a handle open: the run finishes in ~5s
+# and then jest sits there reporting "Jest did not exit one second after the
+# test run has completed". CI never noticed — the job ends either way — but a
+# command substitution here blocks on it forever, which wedged this tier for
+# five minutes before it was traced. The leak is pre-existing and lives in the
+# specs, not in this gate; forcing exit stops it hanging a developer's push.
+INTEGRATION_OUT=$(bunx jest --config integration/jest.config.js --selectProjects app --forceExit 2>&1)
+INTEGRATION_STATUS=$?
+
+if [[ $INTEGRATION_STATUS -eq 0 ]]; then
+    echo "✅"
+    PASSED=$((PASSED + 1))
+    echo "$INTEGRATION_OUT" | grep -E "^(Test Suites|Tests):" | sed 's/^/   /'
+else
+    echo "❌"
+    FAILED=$((FAILED + 1))
+    echo ""
+    echo "Integration failures:"
+    echo "$INTEGRATION_OUT" | tail -30
+    echo ""
+    echo "Run 'cd frontend-mobile && bunx jest --config integration/jest.config.js --selectProjects app'."
+    exit 1
+fi
+
+echo ""
+
+# ============================================================================
 # Summary
 # ============================================================================
 END_TIME=$(date +%s)
@@ -134,7 +176,7 @@ DURATION=$((END_TIME - START_TIME))
 echo "======================================="
 echo "Mobile Pre-Push Validation Complete"
 echo "======================================="
-echo "Checks passed: $PASSED/4"
+echo "Checks passed: $PASSED/5"
 echo "Duration:      ${DURATION}s"
 echo ""
 

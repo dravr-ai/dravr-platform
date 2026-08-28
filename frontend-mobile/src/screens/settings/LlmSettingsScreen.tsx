@@ -79,7 +79,7 @@ export function LlmSettingsScreen() {
       setApiKey('');
       setSelectedProvider(null);
       await load();
-      Alert.alert(t('app.providerSaved'), 'Your key was validated and saved.');
+      Alert.alert(t('app.providerSaved'), t('app.keyValidatedSaved'));
     } catch (err) {
       Alert.alert(t('app.couldNotSaveKey'), err instanceof Error ? err.message : t('app.unknownError'));
     } finally {
@@ -90,7 +90,7 @@ export function LlmSettingsScreen() {
   const handleDelete = (provider: string) => {
     Alert.alert(
       `Remove your ${provider} key?`,
-      'Coaching falls back to the system provider until you add another key.',
+      t('app.coachingFallsBack'),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {

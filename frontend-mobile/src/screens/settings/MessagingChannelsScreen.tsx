@@ -70,7 +70,7 @@ export function MessagingChannelsScreen() {
     const name = available.find((c) => c.channel === link.channel)?.display_name ?? link.channel;
     Alert.alert(
       `Unlink ${name}?`,
-      'Your coach will stop sending messages there. You can link it again at any time.',
+      t('app.unlinkChannelWarning'),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {

@@ -101,7 +101,7 @@ export function OAuthAppSetupModal({
       await Linking.openURL(devPortalUrl);
     } catch {
       Alert.alert(
-        'Unable to open browser',
+        t('app.unableOpenBrowser'),
         `Open ${devPortalUrl} manually to create your ${displayName} app.`,
       );
     }

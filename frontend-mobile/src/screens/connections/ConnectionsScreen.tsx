@@ -110,7 +110,7 @@ export function ConnectionsScreen() {
         const expectedPrefix = getOAuthCallbackUrl();
         if (!result.url.startsWith(expectedPrefix)) {
           console.error('OAuth callback URL does not match expected scheme:', result.url);
-          Alert.alert(t('app.connectionFailed'), 'Unexpected OAuth callback URL');
+          Alert.alert(t('app.connectionFailed'), t('app.unexpectedOauthCallback'));
           return;
         }
 
@@ -164,7 +164,7 @@ export function ConnectionsScreen() {
         setShowCredentials(true);
       } else {
         console.error('Failed to start OAuth flow:', err);
-        Alert.alert(t('common.error'), 'Failed to start authentication. Please try again.');
+        Alert.alert(t('common.error'), t('app.failedStartAuth'));
       }
     } finally {
       setConnectingProvider(null);

@@ -76,7 +76,7 @@ export function StoreCoachDetailScreen() {
       setInstalledCopy(findInstalledCopy(response, installations.coaches));
     } catch (error) {
       console.error('Failed to load coach detail:', error);
-      Alert.alert(t('common.error'), 'Failed to load coach details');
+      Alert.alert(t('common.error'), t('app.failedLoadCoachDetails'));
     } finally {
       setIsLoading(false);
     }
@@ -97,7 +97,7 @@ export function StoreCoachDetailScreen() {
       trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     } catch (error) {
       console.error('Failed to install coach:', error);
-      Alert.alert(t('common.error'), 'Failed to install coach. Please try again.');
+      Alert.alert(t('common.error'), t('app.failedInstallCoach'));
     } finally {
       setIsInstalling(false);
     }
@@ -120,7 +120,7 @@ export function StoreCoachDetailScreen() {
     const copyId = installedCopy.id;
 
     Alert.alert(
-      'Uninstall Coach?',
+      t('app.uninstallCoachQ'),
       `Remove "${coach.title}" from your coaches? You can always reinstall it later.`,
       [
         { text: t('common.cancel'), style: 'cancel' },
@@ -134,10 +134,10 @@ export function StoreCoachDetailScreen() {
               await storeApi.uninstall(copyId);
               setInstalledCopy(null);
               setPostInstall(null);
-              Alert.alert(t('app.uninstalled'), 'Coach has been removed from your library.');
+              Alert.alert(t('app.uninstalled'), t('app.coachRemovedFromLibrary'));
             } catch (error) {
               console.error('Failed to uninstall coach:', error);
-              Alert.alert(t('common.error'), 'Failed to uninstall coach. Please try again.');
+              Alert.alert(t('common.error'), t('app.failedUninstallCoach'));
             } finally {
               setIsInstalling(false);
             }

@@ -120,17 +120,17 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
     try {
       await navigator.clipboard.writeText(link);
       setCopiedId(inviteId);
-      showSuccess(t('app.inviteLinkCopied'), 'Share this link with people you want to invite.');
+      showSuccess(t('app.inviteLinkCopied'), t('app.shareThisLink'));
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
       // Fallback: copy just the code
       try {
         await navigator.clipboard.writeText(code);
         setCopiedId(inviteId);
-        showSuccess(t('app.inviteCodeCopied'), 'Share this code with people you want to invite.');
+        showSuccess(t('app.inviteCodeCopied'), t('app.shareThisCode'));
         setTimeout(() => setCopiedId(null), 2000);
       } catch {
-        showError(t('app.copyFailed'), 'Could not copy to clipboard.');
+        showError(t('app.copyFailed'), t('app.couldNotCopyClipboard'));
       }
     }
   };
@@ -139,7 +139,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
     if (!confirmDeactivate) return;
     try {
       await deactivateInvite(confirmDeactivate.id);
-      showSuccess(t('app.inviteDeactivated'), 'The invite link will no longer work.');
+      showSuccess(t('app.inviteDeactivated'), t('app.inviteLinkStopsWorking'));
       setConfirmDeactivate(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.inviteDeactivateFailed');

@@ -109,7 +109,7 @@ export function MemoryScreen(): React.JSX.Element {
 
   const handleForget = (fact: MemoryFactRow): void => {
     Alert.alert(
-      'Forget this fact?',
+      t('app.forgetThisFactQ'),
       `The coach will stop using "${fact.subject} ${fact.predicate} ${fact.object}" on the next turn. This cannot be undone.`,
       [
         { text: t('common.cancel'), style: 'cancel' },

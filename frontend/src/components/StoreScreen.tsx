@@ -228,7 +228,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
       setInstalledCopy(null);
-      setSuccessMessage(`Coach has been removed from your library.`);
+      setSuccessMessage(t('app.coachRemovedFromLibrary'));
     },
     onError: (error: Error) => {
       setSuccessMessage(null);

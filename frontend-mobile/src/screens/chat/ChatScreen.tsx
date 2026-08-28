@@ -369,7 +369,7 @@ export function ChatScreen() {
     if (!conversations.currentConversation) return;
 
     Alert.alert(
-      'Delete Conversation',
+      t('app.convDeleteTitle'),
       `Are you sure you want to delete "${conversations.currentConversation.title || 'this conversation'}"?`,
       [
         { text: t('common.cancel'), style: 'cancel' },

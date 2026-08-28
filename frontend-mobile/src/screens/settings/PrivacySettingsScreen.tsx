@@ -31,16 +31,16 @@ const sectionCardStyle: ViewStyle = {
 
 // Same lists the web Privacy & Data tab shows, so the two surfaces cannot
 // promise different things about what leaves the device.
-const COLLECTED_WHEN_ENABLED = [
-  'Feature usage patterns (which tools and commands you use)',
-  'Session frequency and messaging channel usage',
-  'Error rates and performance metrics',
+const COLLECTED_WHEN_ENABLED_KEYS = [
+  'app.analyticsCollect0',
+  'app.analyticsCollect1',
+  'app.analyticsCollect2',
 ] as const;
 
-const NEVER_COLLECTED = [
-  'Your messages, conversations, or fitness data',
-  'Personal information (email, name, location)',
-  'Your real user ID (all identifiers are SHA-256 hashed)',
+const NEVER_COLLECTED_KEYS = [
+  'app.analyticsNever0',
+  'app.analyticsNever1',
+  'app.analyticsNever2',
 ] as const;
 
 export function PrivacySettingsScreen(): React.JSX.Element {
@@ -127,10 +127,10 @@ export function PrivacySettingsScreen(): React.JSX.Element {
           {t('app.whatWeCollect')}
         </Text>
         <View style={sectionCardStyle}>
-          {COLLECTED_WHEN_ENABLED.map((item) => (
+          {COLLECTED_WHEN_ENABLED_KEYS.map((item) => (
             <View key={item} className="flex-row items-start py-1.5">
               <Feather name="check" size={16} color={colors.pierre.activity} style={{ marginTop: 2 }} />
-              <Text className="flex-1 text-text-secondary text-sm ml-2">{item}</Text>
+              <Text className="flex-1 text-text-secondary text-sm ml-2">{t(item)}</Text>
             </View>
           ))}
         </View>
@@ -139,10 +139,10 @@ export function PrivacySettingsScreen(): React.JSX.Element {
           {t('app.whatWeNeverCollect')}
         </Text>
         <View style={sectionCardStyle}>
-          {NEVER_COLLECTED.map((item) => (
+          {NEVER_COLLECTED_KEYS.map((item) => (
             <View key={item} className="flex-row items-start py-1.5">
               <Feather name="x" size={16} color={colors.pierre.red} style={{ marginTop: 2 }} />
-              <Text className="flex-1 text-text-secondary text-sm ml-2">{item}</Text>
+              <Text className="flex-1 text-text-secondary text-sm ml-2">{t(item)}</Text>
             </View>
           ))}
         </View>

@@ -63,7 +63,7 @@ export default function ResetPassword({
         setError(
           apiError.response?.data?.message ||
             apiError.response?.data?.error ||
-            'Reset failed. Please try again.',
+            t('app.resetFailedRetry'),
         );
       }
     } finally {
