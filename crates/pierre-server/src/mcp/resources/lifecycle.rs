@@ -90,11 +90,15 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_services::embedding_sink::RepositoryEmbeddingSink;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
+#[cfg(feature = "client-messaging")]
+use pierre_services::messenger_persistent_menu::publish_messenger_menu;
 #[cfg(all(feature = "client-notifications", feature = "client-messaging"))]
 use pierre_services::notification_channel_sink::MessagingChannelSink;
 use pierre_services::pricing_loader;
 #[cfg(feature = "client-messaging")]
-use pierre_services::telegram_bot_commands::publish_telegram_commands;
+use pierre_services::telegram_bot_commands::{
+    publish_telegram_commands, CommandScope, PERSONAL_MARKER,
+};
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
@@ -103,6 +107,10 @@ use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::collections::HashMap;
+// Only `CommandRegistries` carries a HashSet, and that whole type is
+// client-messaging-gated.
+#[cfg(feature = "client-messaging")]
+use std::collections::HashSet;
 use std::env;
 #[cfg(feature = "client-messaging")]
 use std::path::{Path, PathBuf};
@@ -117,14 +125,15 @@ use tokio::task::AbortHandle;
 use tracing::{error, info, warn};
 
 /// Everything one parse of the `commands/*.md` catalogue produces: the command
-/// definitions, the handlers keyed by command name, and the argument
-/// signatures `/help` renders beside each. `None` in a host built without the
-/// catalogue.
+/// definitions, the handlers keyed by command name, the argument signatures
+/// `/help` renders beside each, and the names of the commands that act on
+/// their caller alone. `None` in a host built without the catalogue.
 #[cfg(feature = "client-messaging")]
 type CommandRegistries = (
     Option<Arc<CommandRegistry>>,
     Option<Arc<CommandHandlerRegistry>>,
     Option<Arc<HashMap<String, String>>>,
+    HashSet<String>,
 );
 
 impl ServerContext {
@@ -287,17 +296,46 @@ impl ServerContext {
 
         // Load messaging slash commands + handlers (see `build_command_registries`).
         #[cfg(feature = "client-messaging")]
-        let (command_registry, command_handler_registry, command_arg_specs) =
+        let (command_registry, command_handler_registry, command_arg_specs, personal) =
             Self::build_command_registries();
 
-        // Push that same catalogue to Telegram's `/` menu. Detached because a
-        // slow or unreachable Telegram API must not stall the bind path; the
-        // publisher no-ops when TELEGRAM_BOT_TOKEN is unset.
+        // Push that same catalogue to Telegram's `/` menu, as two lists: the
+        // default scope every chat falls back to, and a group list carrying
+        // the SAME commands with the personal ones marked, so a shared room
+        // can tell which entries act on one member alone without losing the
+        // ability to discover them. Detached because a slow or unreachable
+        // Telegram API must not stall the bind path; the publisher no-ops
+        // when TELEGRAM_BOT_TOKEN is unset.
         #[cfg(feature = "client-messaging")]
         if let Some(registry) = command_registry.as_ref() {
-            let bot_commands = registry.bot_command_list();
+            let all_commands = registry.bot_command_list();
+            let group_commands = registry.bot_command_list_described(|d| {
+                if personal.contains(&d.name) {
+                    format!("{PERSONAL_MARKER}{}", d.description)
+                } else {
+                    d.description.clone()
+                }
+            });
+            let publish = tokio::spawn(async move {
+                publish_telegram_commands(&all_commands, CommandScope::Default).await;
+                publish_telegram_commands(&group_commands, CommandScope::AllGroupChats).await;
+                // Messenger has no group thread, so its menu is the DM list —
+                // the same one, unmarked.
+                // LIMITATION(registre#129): `publish_messenger_menu` and
+                // `publish_telegram_commands` are the only always-on menu
+                // publishers. WhatsApp has no persistent-menu API; Slack's
+                // only programmatic path replaces the whole app config
+                // app-globally behind a 12h human-bootstrapped token, and its
+                // slash commands cannot be invoked in threads, where the
+                // coach conversation lives; Discord is deprioritized.
+                publish_messenger_menu(&all_commands).await;
+            });
+            // A panic in a detached task is otherwise swallowed, leaving a
+            // stale menu with nothing in the logs to explain it.
             tokio::spawn(async move {
-                publish_telegram_commands(&bot_commands).await;
+                if let Err(e) = publish.await {
+                    warn!(error = %e, "Telegram command-menu publish task failed");
+                }
             });
         }
 
@@ -574,6 +612,7 @@ impl ServerContext {
         // Argument signatures ride alongside the registry: `/help` renders them
         // in each command's line so options like `yes|no` are discoverable.
         let arg_specs = Arc::new(catalog.arg_specs);
+        let personal = catalog.personal;
 
         // Built before the registry so `/help` can hold the same handler
         // instances and ask each whether it would refuse the caller. `/help`
@@ -622,12 +661,18 @@ impl ServerContext {
                 Arc::clone(&registry),
                 Arc::clone(&arg_specs),
                 Arc::clone(&handlers),
+                personal.clone(),
             )),
         );
         for (name, handler) in handlers.iter() {
             handler_reg.register(name, Arc::clone(handler));
         }
-        (Some(registry), Some(Arc::new(handler_reg)), Some(arg_specs))
+        (
+            Some(registry),
+            Some(Arc::new(handler_reg)),
+            Some(arg_specs),
+            personal,
+        )
     }
 
     /// Create the notification service, dispatching to the appropriate backend

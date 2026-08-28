@@ -77,15 +77,22 @@ fn slack_resolves_its_forty_thousand_character_headroom() {
 }
 
 #[test]
-fn whatsapp_has_media_but_no_native_cards() {
+fn whatsapp_has_media_and_native_cards() {
     let profile = messaging(ChannelType::WhatsApp);
     assert_eq!(profile.render.max_reply_chars, 4096);
     assert!(profile.render.blocks.scene_raster);
+    // WhatsApp was the one channel that degraded a Card to text. Its renderer
+    // now carries reply buttons and list menus, and this profile reads that
+    // straight off the renderer rather than from a name match, so the
+    // capability follows the dependency bump with no edit here.
     assert!(
-        !profile.render.blocks.action_buttons,
-        "WhatsApp degrades a Card, so actions must ship as autolinked text lines"
+        profile.render.blocks.action_buttons,
+        "WhatsApp lays out native controls now"
     );
-    assert!(!profile.render.interactive);
+    assert!(
+        profile.render.interactive,
+        "a tapped WhatsApp control reaches the platform"
+    );
 }
 
 #[test]

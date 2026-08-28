@@ -888,8 +888,8 @@ mod messaging_tests {
         assert_eq!(renderer.max_message_length(), 4096);
         assert!(renderer.supports_media());
         assert!(
-            !renderer.supports_cards(),
-            "WhatsApp uses text fallback for cards"
+            renderer.supports_cards(),
+            "WhatsApp lays out reply buttons and list menus natively now"
         );
     }
 

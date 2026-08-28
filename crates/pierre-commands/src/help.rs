@@ -4,13 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
-use pierre_messaging::commands::{CommandRegistry, CommandResponse};
+use pierre_messaging::commands::{CommandAction, CommandRegistry, CommandResponse};
 use tracing::warn;
 
 use pierre_contremaitre::messaging_strings::{
@@ -19,14 +19,35 @@ use pierre_contremaitre::messaging_strings::{
     KEY_HELP_DOMAIN_TRAINING, KEY_HELP_FOOTER, KEY_HELP_HEADER,
 };
 
-use crate::group::caller_group_standing;
+use crate::group::{caller_group_standing, CallerGroupStanding};
 use crate::{CommandHandler, PlatformCommandContext};
+
+/// Prefixed to a personal command's line when `/help` is read in a shared
+/// room. Matches the glyph the Telegram group command menu uses, so the two
+/// surfaces say the same thing about the same command.
+pub const PERSONAL_MARKER: &str = "\u{1f464} ";
+
+/// The commands offered as tappable shortcuts under the listing, in
+/// preference order.
+///
+/// Three, because three is the smallest cap any channel puts on a card's
+/// buttons — `WhatsApp` refuses a fourth reply button outright — so a card
+/// built to this number renders as native controls everywhere instead of
+/// degrading to text on the strictest channel. Each is dropped if the
+/// catalogue does not carry it or the caller could not run it, so the card
+/// never offers a dead button.
+const SHORTCUT_COMMANDS: [&str; 3] = ["plan", "status", "discover"];
 
 /// Handler for the `/help` command.
 ///
 /// Lists all registered commands grouped by domain, each line showing the
 /// command's argument signature so a reader learns how to invoke it and not
 /// only what it does.
+///
+/// The listing is also the cross-channel menu: it comes back as a card whose
+/// buttons each channel renders natively — a Telegram inline keyboard, Slack
+/// Block Kit, `WhatsApp` reply buttons, a Messenger template — because there
+/// is no second `/menu` command to keep in step with this one.
 pub struct HelpHandler {
     registry: Arc<CommandRegistry>,
     /// Command name → argument signature (`yes|no`, `[week|today]`), loaded
@@ -38,6 +59,10 @@ pub struct HelpHandler {
     /// unconditionally — `/help` itself is the only such command, and it has no
     /// precondition to check.
     handlers: Arc<HashMap<String, Arc<dyn CommandHandler>>>,
+    /// Names of the commands that act on their caller alone, from the same
+    /// catalogue parse as the definitions. Marked when `/help` is read in a
+    /// shared room so a member can tell whose data a command touches.
+    personal: HashSet<String>,
 }
 
 impl HelpHandler {
@@ -49,12 +74,41 @@ impl HelpHandler {
         registry: Arc<CommandRegistry>,
         arg_specs: Arc<HashMap<String, String>>,
         handlers: Arc<HashMap<String, Arc<dyn CommandHandler>>>,
+        personal: HashSet<String>,
     ) -> Self {
         Self {
             registry,
             arg_specs,
             handlers,
+            personal,
         }
+    }
+
+    /// The shortcut buttons this caller can actually use.
+    ///
+    /// A button is offered only when the catalogue carries the command and
+    /// its handler would not refuse the caller — the same predicate the
+    /// listing filters on, so a button can never appear for a line that does
+    /// not.
+    fn shortcuts(&self, standing: Option<&CallerGroupStanding>) -> Vec<CommandAction> {
+        SHORTCUT_COMMANDS
+            .iter()
+            .filter_map(|name| {
+                let def = self.registry.get_by_name(name)?;
+                let available = standing.is_none_or(|s| {
+                    self.handlers
+                        .get(*name)
+                        .is_none_or(|handler| handler.is_available(s))
+                });
+                available.then(|| CommandAction {
+                    label: def.command.clone(),
+                    // A postback value is the text the press stands for, so
+                    // tapping is exactly typing the command.
+                    action_type: "postback".to_owned(),
+                    value: def.command.clone(),
+                })
+            })
+            .collect()
     }
 }
 
@@ -127,12 +181,21 @@ impl CommandHandler for HelpHandler {
 
             let _ = writeln!(text, "\n{domain_label}:");
             for cmd in commands {
+                // Marked only in a shared room: in a DM every command is
+                // inherently the reader's own, so the glyph would sit on
+                // every line and say nothing.
+                let mark = if !ctx.is_direct_message && self.personal.contains(&cmd.name) {
+                    PERSONAL_MARKER
+                } else {
+                    ""
+                };
                 match self.arg_specs.get(&cmd.name) {
                     Some(args) => {
-                        let _ = writeln!(text, "  {} {args} — {}", cmd.command, cmd.description);
+                        let _ =
+                            writeln!(text, "  {mark}{} {args} — {}", cmd.command, cmd.description);
                     }
                     None => {
-                        let _ = writeln!(text, "  {} — {}", cmd.command, cmd.description);
+                        let _ = writeln!(text, "  {mark}{} — {}", cmd.command, cmd.description);
                     }
                 }
             }
@@ -140,6 +203,18 @@ impl CommandHandler for HelpHandler {
 
         text.push_str(&reg.render(KEY_HELP_FOOTER, locale, &[]));
 
-        Ok(CommandResponse::text(text))
+        // The listing doubles as the cross-channel menu. `CommandResponse` is
+        // a card only when it has both a title and at least one action, so a
+        // caller for whom every shortcut was filtered out still gets the
+        // plain listing rather than an empty-looking card.
+        let shortcuts = self.shortcuts(standing.as_ref());
+        if shortcuts.is_empty() {
+            return Ok(CommandResponse::text(text));
+        }
+        Ok(CommandResponse::card(
+            reg.render(KEY_HELP_HEADER, locale, &[]).trim().to_owned(),
+            text,
+            shortcuts,
+        ))
     }
 }

@@ -683,11 +683,14 @@ fn a_reconnect_prompt_is_one_affordance_on_a_button_less_channel() {
         text: "La connexion à WHOOP a expiré. https://dravr.test/reconnect".to_owned(),
     });
     let turn = envelope(ChannelType::WhatsApp, state);
-    let render = profile(ChannelType::WhatsApp).render;
-    assert!(
-        !render.blocks.action_buttons,
-        "fixture assumes a channel that draws no controls"
-    );
+    // Every messaging channel draws controls now — WhatsApp was the last one
+    // that did not, until its renderer learned reply buttons. The button-less
+    // branch of render_reply is still live for any surface that cannot, so
+    // it is exercised through a capability with the flag off rather than
+    // through whichever channel happens to lack buttons this month.
+    let mut render = profile(ChannelType::WhatsApp).render;
+    render.blocks.action_buttons = false;
+    render.blocks.reconnect_cta = true;
 
     let rendered = render_reply(&render, &turn.assistant, &strings(), "fr");
 

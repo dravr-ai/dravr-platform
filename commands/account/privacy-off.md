@@ -4,6 +4,7 @@ command: /privacy off
 aliases: []
 description: Disable analytics consent
 domain: account
+personal: true
 ---
 
 ## Response Template

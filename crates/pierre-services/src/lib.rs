@@ -160,6 +160,11 @@ pub mod messaging_seed;
 #[cfg(feature = "client-messaging")]
 pub mod telegram_bot_commands;
 
+/// Publish the same catalogue as Messenger's persistent menu — the one
+/// always-on menu surface a bot can set for itself (`client-messaging`).
+#[cfg(feature = "client-messaging")]
+pub mod messenger_persistent_menu;
+
 /// Channel-group binding for the messaging ingress path — resolves or
 /// auto-creates a `coaching_groups` row for a non-DM chat
 #[cfg(feature = "client-messaging")]

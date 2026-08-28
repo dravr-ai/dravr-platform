@@ -3,7 +3,7 @@
 //
 // Surfaces: 7 · Reply-block kinds: 9 · Notification screens: 7
 // capability-digest: 6100756fdd790e2f
-// content-digest: 08b4676f38de7886
+// content-digest: 86210aa2d2dc4396
 // To regenerate: bun run generate (from packages/shared-constants)
 
 /**
@@ -110,12 +110,12 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     call_type: 'messaging',
     prose: 'plain_text',
     max_reply_chars: 4096,
-    interactive: false,
+    interactive: true,
     progressive: 'complete',
     streams_text_deltas: false,
     max_tool_iterations: 5,
     model_policy: 'override_with_env',
-    blocks: ['prose', 'scene_image', 'reconnect', 'notice'],
+    blocks: ['prose', 'scene_image', 'reconnect', 'actions', 'notice'],
   },
   'discord': {
     id: 'discord',

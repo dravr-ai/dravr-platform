@@ -152,7 +152,10 @@ mod whatsapp {
         let r = renderer();
         assert_eq!(r.max_message_length(), 4096);
         assert!(r.supports_media());
-        assert!(!r.supports_cards());
+        // WhatsApp used to be the one renderer answering false here, which is
+        // what kept the platform degrading every card to text before it ever
+        // reached this file. Reply buttons and list menus changed that.
+        assert!(r.supports_cards());
     }
 }
 

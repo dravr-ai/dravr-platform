@@ -4,6 +4,7 @@ command: /status
 aliases: ["/me"]
 description: Account summary
 domain: general
+personal: true
 ---
 
 ## Response Template

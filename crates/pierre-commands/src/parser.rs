@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -35,6 +35,23 @@ struct CommandFrontmatter {
     /// text, and Slack turns `<...>` into a link.
     #[serde(default)]
     arguments: Option<String>,
+    /// This command acts on the caller alone, not on the room it is typed in.
+    ///
+    /// An account setting, a guided interview, a personal plan: the answer
+    /// concerns one athlete and is delivered privately even when the command
+    /// arrives in a shared room. Every command stays offered everywhere — a
+    /// menu that hides rows costs discoverability and lies by omission, since
+    /// the command still runs when typed — so this only changes how the entry
+    /// is *described* in a group's menu.
+    ///
+    /// This is about what the command ACTS ON, not how its reply is
+    /// delivered. Delivery is already private for nearly everything —
+    /// `ROOM_VISIBLE_COMMANDS` is three entries long — so "answers you
+    /// privately" would mark almost the whole catalogue and tell a reader
+    /// nothing. `/group status` reports the room and is not personal;
+    /// `/group consent` toggles one athlete's own sharing and is.
+    #[serde(default)]
+    personal: bool,
 }
 
 /// A loaded command catalog: the command definitions plus the argument
@@ -48,6 +65,11 @@ pub struct CommandCatalog {
     pub definitions: Vec<CommandDefinition>,
     /// Command name → argument signature, for commands that take arguments.
     pub arg_specs: HashMap<String, String>,
+    /// Names of the commands that act on their caller alone, which a shared
+    /// room's menu marks. Travels beside the definitions for the same reason
+    /// `arg_specs` does: the field is this catalog's, not dravr-canot's
+    /// schema.
+    pub personal: HashSet<String>,
 }
 
 /// Extract the `## Response Template` section from markdown body
@@ -79,6 +101,8 @@ struct ParsedCommand {
     definition: CommandDefinition,
     /// Argument signature, absent for commands taking no arguments.
     arguments: Option<String>,
+    /// Whether this command acts on its caller alone.
+    personal: bool,
 }
 
 /// Parse a single command markdown file into a [`ParsedCommand`].
@@ -119,6 +143,7 @@ fn parse_command_file(content: &str) -> Option<ParsedCommand> {
             response_template,
         },
         arguments,
+        personal: fm.personal,
     })
 }
 
@@ -134,6 +159,7 @@ pub fn load_command_catalog(commands_dir: &Path) -> CommandCatalog {
     let mut catalog = CommandCatalog {
         definitions: Vec::new(),
         arg_specs: HashMap::new(),
+        personal: HashSet::new(),
     };
 
     if !commands_dir.exists() {
@@ -149,6 +175,7 @@ pub fn load_command_catalog(commands_dir: &Path) -> CommandCatalog {
     info!(
         count = catalog.definitions.len(),
         with_arguments = catalog.arg_specs.len(),
+        personal = catalog.personal.len(),
         "Loaded command definitions from {}",
         commands_dir.display()
     );
@@ -197,6 +224,9 @@ fn add_to_catalog(path: &Path, content: &str, catalog: &mut CommandCatalog) {
     debug!(name = %def.name, command = %def.command, "Loaded command");
     if let Some(args) = parsed.arguments {
         catalog.arg_specs.insert(def.name.clone(), args);
+    }
+    if parsed.personal {
+        catalog.personal.insert(def.name.clone());
     }
     catalog.definitions.push(def);
 }

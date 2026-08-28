@@ -18,10 +18,32 @@
 //! therefore appears in the Telegram menu on the next boot rather than needing
 //! a manual BotFather edit.
 //!
-//! The registration is for Telegram's default scope, with no `language_code`:
-//! the command catalogue carries one description per command (localization in
-//! `commands/*.md` covers the reply strings, not the frontmatter descriptions),
-//! and the default scope is what Telegram serves to every user locale.
+//! Two lists are published, both with no `language_code`: the catalogue
+//! carries one description per command (localization in `commands/*.md`
+//! covers the reply strings, not the frontmatter descriptions), and the
+//! default scope is what Telegram serves to every user locale.
+//!
+//! The default scope already reaches groups — Telegram's resolution chain for
+//! a group ends on it — so the second, `all_group_chats` list exists to
+//! *re-describe* what a shared room offers, not to give it reach it lacked. A
+//! nearer scope wins, so the group list is the one a group member sees.
+//!
+//! Both lists carry every command. A menu that hides rows costs discovery and
+//! lies by omission, because the command still runs when typed. What the
+//! group list changes is the description: a command marked `personal` in the
+//! catalogue is prefixed with [`PERSONAL_MARKER`], so a member reading the
+//! menu in a shared room can tell at a glance which entries act on them alone.
+//! `BotCommand` has exactly two settable fields, `command` and `description`
+//! — there is no disabled or greyed state to set — so the description is the
+//! only lever a scope has.
+//!
+//! There is no menu button to set alongside these. Telegram's menu button is
+//! a private-chat surface: `setChatMenuButton`'s `chat_id` is documented
+//! "Unique identifier for the target private chat", the MTProto call beneath
+//! it is `bots.setBotMenuButton user_id:InputUser` with no peer parameter at
+//! all, and the live API answers a real group id with "Bad Request: invalid
+//! chat_id specified". A group's entry point is the `/` composer icon, which
+//! these lists fill.
 
 use std::env;
 
@@ -32,6 +54,13 @@ use tracing::{info, warn};
 
 /// Telegram's cap on a command description.
 const MAX_DESCRIPTION_LEN: usize = 256;
+/// Prefixed to a personal command's description in a shared room's menu.
+///
+/// An emoji rather than a word: catalogue descriptions are not localized (the
+/// `commands/*.md` frontmatter carries one English line per command, while
+/// localization covers the reply strings), so a word would be wrong for four
+/// of the five locales. A single-person glyph reads the same in all of them.
+pub const PERSONAL_MARKER: &str = "👤 ";
 /// Telegram's cap on a command name (excluding the leading slash).
 const MAX_COMMAND_LEN: usize = 32;
 
@@ -65,8 +94,41 @@ pub fn telegram_command_payload(commands: &[(String, String)]) -> Vec<serde_json
         .collect()
 }
 
+/// Which chats a published command list serves.
+///
+/// Telegram resolves a viewer's menu through a per-scope chain that ends at
+/// the default scope, so the default list already reaches groups. Publishing
+/// `AllGroupChats` as well does not add reach — it re-describes what a shared
+/// room shows, because a nearer scope wins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandScope {
+    /// Every chat with no narrower list set. The fallback the chain ends on.
+    Default,
+    /// Group and supergroup chats only.
+    AllGroupChats,
+}
+
+impl CommandScope {
+    /// The `scope` object Telegram expects, or `None` for the default scope,
+    /// which is expressed by omitting the field entirely.
+    fn payload(self) -> Option<serde_json::Value> {
+        match self {
+            Self::Default => None,
+            Self::AllGroupChats => Some(json!({ "type": "all_group_chats" })),
+        }
+    }
+
+    /// Stable label for logs.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::AllGroupChats => "all_group_chats",
+        }
+    }
+}
+
 /// Publish `commands` to Telegram's `setMyCommands` for the bot named by
-/// `TELEGRAM_BOT_TOKEN`.
+/// `TELEGRAM_BOT_TOKEN`, under `scope`.
 ///
 /// Returns without acting when the env var is unset or empty — the same
 /// condition under which `messaging_seed` skips seeding the Telegram channel,
@@ -75,7 +137,7 @@ pub fn telegram_command_payload(commands: &[(String, String)]) -> Vec<serde_json
 /// Best-effort: a Telegram outage at boot must not fail startup, so failures
 /// are logged and swallowed. Neither the URL nor the response body is logged —
 /// the token sits in the request path, and a rejection description can echo it.
-pub async fn publish_telegram_commands(commands: &[(String, String)]) {
+pub async fn publish_telegram_commands(commands: &[(String, String)], scope: CommandScope) {
     let Ok(token) = env::var("TELEGRAM_BOT_TOKEN") else {
         return;
     };
@@ -85,43 +147,54 @@ pub async fn publish_telegram_commands(commands: &[(String, String)]) {
 
     let payload = telegram_command_payload(commands);
     if payload.is_empty() {
-        warn!("No Telegram-acceptable slash commands in the catalogue; menu not published");
+        warn!(
+            scope = scope.as_str(),
+            "No Telegram-acceptable slash commands in the catalogue; menu not published"
+        );
         return;
     }
     let count = payload.len();
+
+    let mut body = json!({ "commands": payload });
+    if let Some(scope_payload) = scope.payload() {
+        body["scope"] = scope_payload;
+    }
 
     let url = format!("https://api.telegram.org/bot{token}/setMyCommands");
     // The token sits in the request path and a reqwest error carries that URL,
     // so it is masked out here, before anything reaches a log line.
     let outcome = api_client()
         .post(&url)
-        .json(&json!({ "commands": payload }))
+        .json(&body)
         .send()
         .await
         .map(|res| res.status())
         .map_err(|e| e.to_string().replace(&token, "***"));
 
-    log_publish_result(&outcome, count);
+    log_publish_result(&outcome, count, scope);
 }
 
 /// Report the outcome of one `setMyCommands` call.
-fn log_publish_result(outcome: &Result<StatusCode, String>, count: usize) {
+fn log_publish_result(outcome: &Result<StatusCode, String>, count: usize, scope: CommandScope) {
     match outcome {
         Ok(status) if status.is_success() => {
             info!(
                 commands = count,
+                scope = scope.as_str(),
                 "Published the Telegram slash-command menu"
             );
         }
         Ok(status) => {
             warn!(
                 %status,
+                scope = scope.as_str(),
                 "Telegram rejected setMyCommands; the / menu keeps its previous contents"
             );
         }
         Err(error) => {
             warn!(
                 %error,
+                scope = scope.as_str(),
                 "setMyCommands request failed; the / menu keeps its previous contents"
             );
         }
