@@ -17,6 +17,17 @@ export default defineConfig({
   expect: { timeout: 5000 },
   use: {
     baseURL: 'http://127.0.0.1:8081',
+    // The product default is French (`DEFAULT_LANGUAGE` in @pierre/i18n), so the
+    // login page renders "Se connecter". `coaching-persona.real.spec.ts` drives the
+    // real UI and matches English copy in six places — /sign in|log in/,
+    // /open settings/, /coaching style/ — so it states the language it is testing
+    // rather than depending on the chrome being untranslated.
+    //
+    // Third suite, third origin: e2e pins 5174, integration pins 5173, and this one
+    // pins the backend that serves the SPA in the real-server run. Same mechanism in
+    // all three, deliberately — a per-spec selector workaround would fix the login
+    // click and then fail on the next English label down.
+    storageState: 'e2e-real/storage-state.json',
     trace: 'on-first-retry',
   },
 

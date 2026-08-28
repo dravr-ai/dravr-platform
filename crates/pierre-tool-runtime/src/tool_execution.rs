@@ -29,7 +29,7 @@ use crate::headless_stream;
 use crate::protocol::{UniversalExecutor, UniversalResponse};
 use crate::registry::ToolRegistry;
 use crate::tool_results::{
-    extract_activity_list, format_tool_results_as_text, project_activities_payload,
+    extract_activity_list, format_tool_results_as_text, render_tool_payload_for_prompt,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -856,10 +856,8 @@ pub async fn run_cli_tool_loop(
             llm_messages.push(ChatMessage::assistant(&assistant_text));
         }
 
-        // Format tool results as text and inject as user message. Through the
-        // crate's own wrapper rather than embacle directly, so this path gets
-        // the same `get_activities` projection the API loop and the
-        // capability-recovery re-ask get — one seam, not three.
+        // The crate's wrapper, not embacle directly: this path gets the same
+        // `get_activities` projection the API loop and the re-ask get.
         let tool_results_text = format_tool_results_as_text(&function_responses);
 
         // Capture activity list if present in function responses
@@ -920,19 +918,6 @@ fn from_embacle_calls(calls: Vec<tool_simulation::FunctionCall>) -> Vec<Function
         .map(|c| FunctionCall {
             name: c.name,
             args: c.args,
-        })
-        .collect()
-}
-
-/// Convert pierre-llm function responses to embacle `tool_simulation` responses.
-pub(crate) fn to_embacle_responses(
-    resps: &[FunctionResponse],
-) -> Vec<tool_simulation::FunctionResponse> {
-    resps
-        .iter()
-        .map(|r| tool_simulation::FunctionResponse {
-            name: r.name.clone(),
-            response: r.response.clone(),
         })
         .collect()
 }
@@ -1262,17 +1247,10 @@ pub fn add_function_responses_to_messages(
     let mut combined_blocks: Vec<String> = Vec::with_capacity(function_responses.len());
 
     for func_response in function_responses {
-        // Projected before serialization, not after: `get_activities` answers
-        // the same window two or three times over (prose, structured array,
-        // retrieval sidecar, token estimate) and the whole envelope used to go
-        // into the prompt AND into the persisted round the next turn replays.
-        // The projection keeps the prose and enough per-activity fields to
-        // address one, which is what a chained `activity_id` call needs. Any
-        // other tool, and any shape this does not recognise, serializes
-        // unchanged.
-        let projected = project_activities_payload(&func_response.name, &func_response.response);
-        let payload = projected.as_ref().unwrap_or(&func_response.response);
-        let response_text = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_owned());
+        // See `render_tool_payload_for_prompt`: a `get_activities` envelope is
+        // projected before it is serialized, every other tool passes through.
+        let response_text =
+            render_tool_payload_for_prompt(&func_response.name, &func_response.response);
 
         // For get_activities, extract the activity_list to prepend to final response
         if func_response.name == "get_activities" {

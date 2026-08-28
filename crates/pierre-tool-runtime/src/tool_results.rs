@@ -16,7 +16,39 @@ use pierre_llm::FunctionResponse;
 use serde_json::{Map, Value};
 use tracing::info;
 
-use crate::tool_execution::to_embacle_responses;
+/// Convert pierre-llm function responses to embacle `tool_simulation` responses.
+///
+/// Lives here rather than in `tool_execution` because this module is its only
+/// caller: the text loop reaches embacle's formatter through
+/// [`format_tool_results_as_text`], so the conversion travels with the
+/// formatting rather than with the loop.
+fn to_embacle_responses(resps: &[FunctionResponse]) -> Vec<tool_simulation::FunctionResponse> {
+    resps
+        .iter()
+        .map(|r| tool_simulation::FunctionResponse {
+            name: r.name.clone(),
+            response: r.response.clone(),
+        })
+        .collect()
+}
+
+/// Serialize one tool response for injection into the prompt.
+///
+/// Projects a `get_activities` envelope through [`project_activities_payload`]
+/// first; every other tool, and any shape the projection does not recognise,
+/// serializes unchanged.
+///
+/// The API tool loop injects the result as a `[Tool Result for X]: {json}` user
+/// message AND hands it to the recorder that persists the round — which the next
+/// turn replays as history. So one unreduced payload is re-paid for the rest of
+/// the conversation, which is why the projection belongs at the serialization
+/// step rather than at the injection site.
+#[must_use]
+pub fn render_tool_payload_for_prompt(tool_name: &str, response: &Value) -> String {
+    let projected = project_activities_payload(tool_name, response);
+    let payload = projected.as_ref().unwrap_or(response);
+    serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_owned())
+}
 
 /// The `get_activities` envelope fields that survive projection verbatim.
 ///

@@ -1,0 +1,11 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:8081",
+      "localStorage": [
+        { "name": "pierre_app_language", "value": "en" }
+      ]
+    }
+  ]
+}
