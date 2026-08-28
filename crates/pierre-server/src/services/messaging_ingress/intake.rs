@@ -107,6 +107,21 @@ pub(super) enum IntakeOutcome {
     Answered(Box<OutgoingMessage>),
 }
 
+impl IntakeOutcome {
+    /// Whether a question is outstanding and this message did not answer it.
+    pub(super) const fn awaiting(&self) -> bool {
+        matches!(self, Self::Unanswered)
+    }
+
+    /// The reply this outcome earned, if it earned one.
+    pub(super) fn into_reply(self) -> Option<OutgoingMessage> {
+        match self {
+            Self::Answered(reply) => Some(*reply),
+            Self::Idle | Self::Unanswered => None,
+        }
+    }
+}
+
 /// Handle this turn if the conversation is mid-intake.
 ///
 /// Only a message that PARSES as an answer takes the turn. A message that does

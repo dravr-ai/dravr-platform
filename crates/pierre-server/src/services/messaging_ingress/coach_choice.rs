@@ -62,6 +62,13 @@ pub(super) struct CoachChoiceParams<'a> {
     pub user_id: Uuid,
     pub locale: &'a str,
     pub text: &'a str,
+    /// True while the intake is waiting on an answer of its own.
+    ///
+    /// `parse_choice` claims ANY bare digit, so a "3" typed at a PAR-Q question
+    /// would bind a coach the athlete never picked. The intake used to shadow
+    /// this band by handling such a turn outright; now that it yields the turn,
+    /// the exclusion has to be stated here.
+    pub intake_awaiting: bool,
 }
 
 pub(super) async fn try_handle_coach_choice(
@@ -76,7 +83,11 @@ pub(super) async fn try_handle_coach_choice(
         user_id,
         locale,
         text,
+        intake_awaiting,
     } = params;
+    if intake_awaiting {
+        return None;
+    }
     let choice = parse_choice(text)?;
 
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();

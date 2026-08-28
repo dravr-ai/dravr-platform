@@ -523,7 +523,7 @@ async fn handle_pre_session_commands(
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
 
-    let reply = if let LinkingAction::LinkCode(code) =
+    let mut reply = if let LinkingAction::LinkCode(code) =
         detect_linking_code(channel_type, &message.content)
     {
         info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
@@ -545,7 +545,6 @@ async fn handle_pre_session_commands(
         return None;
     };
 
-    let mut reply = reply;
     reply.thread_id = thread_id;
     apply_conversation_recipient(&mut reply, message.conversation_id.as_deref());
     send_channel_response(db, tenant_id, channel, adapter, reply).await;
@@ -607,7 +606,7 @@ async fn persist_single_message(
     // Check for logout command: unlink channel and destroy session
     if is_logout_command(&message.content) {
         emit_messaging_intent(&pre_link_identity, tenant_id, channel, "logout");
-        let logout_response = handle_logout(
+        let mut logout_response = handle_logout(
             resources,
             tenant_id,
             channel_type,
@@ -615,7 +614,6 @@ async fn persist_single_message(
             &message.sender_id,
         )
         .await;
-        let mut logout_response = logout_response;
         logout_response.thread_id = thread_id;
         apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, logout_response).await;
@@ -696,10 +694,7 @@ async fn persist_single_message(
     // intake is outstanding before a proposal ever goes out, so a bare "1" here
     // is answering the intake, not choosing a coach.
     //
-    // Only a message that PARSES as an answer is handled here. One that does not
-    // yields the turn to the coach — the athlete asked something, and being
-    // mid-form is no reason to refuse it — and the re-ask rides behind the reply
-    // from `maybe_send_intake_question`.
+    // Only a message that PARSES as an answer is handled here — see [`intake::IntakeOutcome`].
     let intake_outcome = intake::try_handle_intake(intake::IntakeParams {
         resources,
         // The conversation, and the facts the intake writes, both live under the
@@ -718,16 +713,9 @@ async fn persist_single_message(
         is_direct_message: message.is_direct_message,
     })
     .await;
+    let intake_awaiting = intake_outcome.awaiting();
 
-    // A question is outstanding and this message did not answer it. That
-    // suppresses the coach-proposal band below: `parse_choice` claims ANY bare
-    // digit, so a "3" typed mid-PAR-Q would bind a coach the athlete never
-    // picked. Skipping it preserves exactly today's ordering, where the intake
-    // shadowed that band by handling the turn outright.
-    let intake_awaiting = matches!(intake_outcome, intake::IntakeOutcome::Unanswered);
-
-    if let intake::IntakeOutcome::Answered(intake_reply) = intake_outcome {
-        let mut intake_reply = *intake_reply;
+    if let Some(mut intake_reply) = intake_outcome.into_reply() {
         intake_reply.thread_id = thread_id;
         apply_conversation_recipient(&mut intake_reply, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, intake_reply).await;
@@ -741,9 +729,7 @@ async fn persist_single_message(
     //
     // Returns None for anything that is not a bare in-range number against an
     // outstanding proposal, so ordinary messages fall through untouched.
-    let choice_outcome = if intake_awaiting {
-        None
-    } else {
+    if let Some(mut choice_reply) =
         coach_choice::try_handle_coach_choice(coach_choice::CoachChoiceParams {
             resources,
             tenant_id,
@@ -755,11 +741,10 @@ async fn persist_single_message(
             text: content_body_text(&message.content)
                 .unwrap_or_default()
                 .as_str(),
+            intake_awaiting,
         })
         .await
-    };
-
-    if let Some(mut choice_reply) = choice_outcome {
+    {
         choice_reply.thread_id = thread_id;
         apply_conversation_recipient(&mut choice_reply, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, choice_reply).await;
