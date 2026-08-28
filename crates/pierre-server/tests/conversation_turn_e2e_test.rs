@@ -102,7 +102,15 @@ mod conversation_turn_e2e_tests {
                 // purpose: a seam that only ever carries 0 cannot distinguish
                 // "carried the value" from "hardcoded a zero", which is exactly
                 // how the old side channel passed for a measurement.
-                usage: Some(TokenUsage::new(42, 11, 53).with_cache(Some(17), None)),
+                // Reasoning is 7 and deliberately not a round number: the
+                // recorder's own total must be 42 + 11 + 7 = 60, which is
+                // distinguishable from both the provider's own 53 and from a
+                // sum that quietly drops the reasoning tokens.
+                usage: Some(
+                    TokenUsage::new(42, 11, 53)
+                        .with_cache(Some(17), None)
+                        .with_reasoning(Some(7)),
+                ),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -374,6 +382,21 @@ mod conversation_turn_e2e_tests {
             cached, 17,
             "the provider's cache-read count must reach the per-turn endpoint; \
              got {cached} from {calls:?}"
+        );
+
+        // Reasoning tokens are billed as output and excluded from
+        // `completion_tokens` by every provider that reports them apart, so the
+        // recorded total counts them: 42 prompt + 11 completion + 7 reasoning.
+        // A sum that dropped them would read 53 -- which is also the provider's
+        // own `totalTokens`, so the two numbers are deliberately different here
+        // and a regression cannot hide behind the wire value.
+        let total: u64 = calls
+            .iter()
+            .map(|c| c["total_tokens"].as_u64().unwrap_or_default())
+            .sum();
+        assert_eq!(
+            total, 60,
+            "total_tokens must include the reasoning tokens; got {total} from {calls:?}"
         );
     }
 }

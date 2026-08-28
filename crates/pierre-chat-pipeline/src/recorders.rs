@@ -65,7 +65,20 @@ impl LlmCallRecorder for UsageRepoCallRecorder {
         let call_sequence = record.call_sequence;
         let tenant_id_for_cost = self.tenant_id.clone();
         tokio::spawn(async move {
-            let total_tokens = record.prompt_tokens + record.completion_tokens;
+            // Reasoning tokens are consumed and billed, and every provider that
+            // reports them separately excludes them from `completion_tokens`, so
+            // leaving them out made `total_tokens` smaller than the tokens the
+            // turn actually spent.
+            //
+            // The tradeoff, recorded because it is not free: on a reasoning
+            // model this no longer matches a provider dashboard that reports
+            // `totalTokens = input + output`. The one ACP payload captured
+            // 2026-08-27 had `thoughtTokens: 0`, so it could not settle whether
+            // upstream counts them in its own total. Cost is unaffected either
+            // way — `cost_from_pricing` charges reasoning at the output rate
+            // from its own field, not from this sum.
+            let total_tokens =
+                record.prompt_tokens + record.completion_tokens + record.reasoning_tokens;
             let counts = TokenCounts::new(record.prompt_tokens, record.completion_tokens)
                 .with_cache(record.cached_tokens, record.cached_write_tokens)
                 .with_reasoning(record.reasoning_tokens);
