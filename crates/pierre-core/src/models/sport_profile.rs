@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{resolve_sport_type, Activity, SportType};
+use crate::models::{resolve_sport_type, sport_matches_family, Activity, SportType};
 
 /// A user's recent sport mix, derived from their connected providers'
 /// activities. Drives personalized coach recommendations.
@@ -94,10 +94,23 @@ impl SportProfile {
         if active.is_empty() {
             return 0.0;
         }
+        // Family-aware, not exact. A coach asking for `Run` is asking for the
+        // on-foot family, and an athlete who logs almost everything as
+        // `TrailRunning` is a runner; a coach asking for `Ride` wants the
+        // cyclist whose rides are tagged `MountainBike` and `GravelRide`.
+        // Exact equality made this the mirror of the 2026-08-27 grounding
+        // defect: the same athlete whose 22 mountain-bike sessions were hidden
+        // from his coach also scored 0.0 against every cycling coach, so none
+        // was ever eligible to recommend. A coach naming a specific discipline
+        // still matches only that one — see `sport_matches_family`.
         let matches = coach_activity_types
             .iter()
             .filter_map(|t| resolve_sport_type(t))
-            .filter(|sport| active.contains(sport))
+            .filter(|sport| {
+                active
+                    .iter()
+                    .any(|logged| sport_matches_family(logged, sport))
+            })
             .count();
         #[allow(clippy::cast_precision_loss)] // small counts; exact in f32
         let overlap = f32::from(u16::try_from(matches).unwrap_or(u16::MAX))

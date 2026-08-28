@@ -166,6 +166,71 @@ fn active_sports_applies_count_and_share_thresholds() {
     assert!(!active.contains(&SportType::Ride));
 }
 
+/// A coach asking for `Ride` must match the athlete whose rides are logged
+/// ONLY as mountain-bike and gravel.
+///
+/// No plain `ride` entry on purpose. An athlete who also logs road rides was
+/// always eligible — `active` held `Ride` outright and exact equality found it
+/// — which is why this has to be the pure case to mean anything. It is the
+/// mirror of the 2026-08-27 grounding defect: that one hid an athlete's rides
+/// from his coach, this hides the cycling coaches from a rider whose provider
+/// tags every ride as a discipline.
+#[test]
+fn a_ride_coach_matches_an_athlete_who_logs_only_mountain_bike_and_gravel() {
+    let cfg = CoachRecommendationConfig::default();
+    let off_road_only = profile(&[("mountain_bike", 22), ("gravel_ride", 7), ("walk", 4)]);
+
+    let ride_overlap = off_road_only.activity_type_overlap(
+        &["Ride".to_owned()],
+        cfg.min_activities_for_sport,
+        cfg.min_share_for_sport,
+    );
+    assert!(
+        (ride_overlap - 1.0).abs() < f32::EPSILON,
+        "a cycling coach must be eligible for an athlete who only rides off-road, got {ride_overlap}"
+    );
+}
+
+/// The same rule on foot: trail sessions are running.
+///
+/// An athlete who logs every run as `TrailRunning` matched no `Run` coach at
+/// all, which is most trail runners.
+#[test]
+fn a_run_coach_matches_an_athlete_who_logs_only_trail_running() {
+    let cfg = CoachRecommendationConfig::default();
+    let trail_runner = profile(&[("trail_running", 19), ("hike", 4)]);
+
+    let run_overlap = trail_runner.activity_type_overlap(
+        &["Run".to_owned()],
+        cfg.min_activities_for_sport,
+        cfg.min_share_for_sport,
+    );
+    assert!(
+        (run_overlap - 1.0).abs() < f32::EPSILON,
+        "a running coach must be eligible for a trail runner, got {run_overlap}"
+    );
+}
+
+/// Family-aware widens the head of a family, never a specific discipline.
+///
+/// A mountain-bike specialist must not be recommended to a road cyclist just
+/// because both are cycling — that asymmetry is the whole point of the rule.
+#[test]
+fn a_discipline_specific_coach_stays_exact() {
+    let cfg = CoachRecommendationConfig::default();
+    let road_cyclist = profile(&[("ride", 20)]);
+
+    let mtb_overlap = road_cyclist.activity_type_overlap(
+        &["MountainBike".to_owned()],
+        cfg.min_activities_for_sport,
+        cfg.min_share_for_sport,
+    );
+    assert!(
+        mtb_overlap.abs() < f32::EPSILON,
+        "a mountain-bike coach must not match a road-only cyclist, got {mtb_overlap}"
+    );
+}
+
 #[test]
 fn overlap_normalizes_titlecase_coach_activity_types() {
     let cfg = CoachRecommendationConfig::default();
