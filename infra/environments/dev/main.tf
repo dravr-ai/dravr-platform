@@ -348,10 +348,24 @@ module "backend" {
       # coding CLI. Athlete-supplied text drives that session, so auto-approval
       # is an injection-to-execution path.
       #
-      # Nothing is lost by denying: Dravr tool execution never happens inside
-      # the session (MCP_TOOL_CALLING above routes it through the text
-      # <tool_call> loop) and the sciotte vision path sends inline base64 PNGs
-      # rather than file paths, so neither needs a tool the model can run.
+      # Nothing is lost by denying, but NOT for the reason this comment used to
+      # give. It said Dravr tools run through the text <tool_call> loop, which
+      # stopped being true when MCP_TOOL_CALLING went to "true" twelve lines
+      # above: Dravr tool execution happens inside the session now, over the
+      # loopback MCP server declared in session/new.
+      #
+      # What makes deny_all free is that those calls never raise a permission
+      # request. embacle sets the session to Autopilot whenever mcp_servers is
+      # non-empty, which runs the declared servers' tools to completion; the
+      # prompts this policy cancels are the ones for Copilot's OWN shell/git/file
+      # tools, which is precisely the surface the 2026-08-13 incident reached.
+      # The sciotte vision path sends inline base64 PNGs rather than file paths,
+      # so it needs no runnable tool either.
+      #
+      # The dependency runs the other way now: if Autopilot ever fails to arm
+      # (embacle logs "ACP: failed to set Autopilot mode" and continues), every
+      # Dravr tool call becomes a permission prompt that this policy cancels, and
+      # the turn answers with no data. That warning is the signal to watch.
       COPILOT_HEADLESS_PERMISSION_POLICY = "deny_all"
 
       # embacle truncates history to the last N non-system messages before it
