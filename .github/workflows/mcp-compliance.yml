@@ -77,10 +77,18 @@ jobs:
         with:
           shared-key: release
 
+      # The suite is built on the `mcp_testing` package from a third-party repo
+      # that was deleted or made private on 2026-08-27 (carnet#127). Nothing here
+      # survives its absence, so this fails — but it fails saying WHY, because
+      # the bare clone failure is an `exit 128` buried in an install step and
+      # reads as "the change under test broke compliance", which it never is.
       - name: Install MCP Validator
         run: |
           echo "📦 Installing MCP Validator..."
-          git clone --depth 1 https://github.com/Janix-ai/mcp-validator.git validator
+          if ! git clone --depth 1 https://github.com/Janix-ai/mcp-validator.git validator; then
+            echo "::error::MCP validator source is unreachable: Janix-ai/mcp-validator no longer exists (deleted or private, 2026-08-27). This lane cannot run and the failure is NOT caused by the commit under test. Tracked in carnet#127, which carries the options — write our own assertions, restore a copy, or drop the lane."
+            exit 1
+          fi
           cd validator
           python3 -m venv venv
           source venv/bin/activate

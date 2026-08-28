@@ -140,8 +140,11 @@ if [ -z "$MCP_VALIDATOR_DIR" ] || [ ! -f "$MCP_VALIDATOR_DIR/mcp_testing/__init_
     # Clone the repository
     echo -e "${BLUE}[INFO] Cloning MCP validator from GitHub...${NC}"
     if ! git clone https://github.com/Janix-ai/mcp-validator.git "$MCP_VALIDATOR_DIR" 2>&1; then
-        echo -e "${RED}[FAIL] Failed to clone MCP validator repository${NC}"
-        echo -e "${RED}       Please check your internet connection and GitHub access${NC}"
+        echo -e "${RED}[FAIL] Failed to clone the MCP validator repository${NC}"
+        echo -e "${RED}       Janix-ai/mcp-validator was deleted or made private on 2026-08-27,${NC}"
+        echo -e "${RED}       so this is not your network and not the code under test.${NC}"
+        echo -e "${RED}       The whole suite is built on its mcp_testing package; see carnet#127${NC}"
+        echo -e "${RED}       for the options (own assertions / restore a copy / drop the lane).${NC}"
         exit 1
     fi
 
