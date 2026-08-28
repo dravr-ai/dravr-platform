@@ -47,8 +47,8 @@ async fn from_database_with_no_row_returns_compiled_in_defaults() {
 
     let snapshot: HarnessConfigSnapshot = registry.current();
     assert_eq!(snapshot.source, HarnessConfigSource::Defaults);
-    assert_eq!(snapshot.compaction.window_tokens, 128_000);
-    assert!((snapshot.compaction.warn_threshold - 0.70).abs() < f32::EPSILON);
+    assert_eq!(snapshot.compaction.window_tokens, 1_000_000);
+    assert!((snapshot.compaction.warn_threshold - 0.0896).abs() < f32::EPSILON);
     assert_eq!(snapshot.guardrails.max_response_chars, 5_000);
     // Default ships triggers for every supported locale; sanity-check
     // both the English and the French entries so the regression case
@@ -121,14 +121,14 @@ async fn from_database_with_corrupt_row_falls_back_to_defaults() {
     let snapshot = registry.current();
 
     assert_eq!(snapshot.source, HarnessConfigSource::Defaults);
-    assert_eq!(snapshot.compaction.window_tokens, 128_000);
+    assert_eq!(snapshot.compaction.window_tokens, 1_000_000);
 }
 
 #[test]
 fn install_swaps_runtime_projections_atomically() {
     let registry = HarnessConfigRegistry::bootstrap();
     let baseline = registry.current_compaction();
-    assert_eq!(baseline.window_tokens, 128_000);
+    assert_eq!(baseline.window_tokens, 1_000_000);
     let baseline_guardrails = registry.current_guardrails();
     assert_eq!(baseline_guardrails.max_response_chars, 5_000);
 

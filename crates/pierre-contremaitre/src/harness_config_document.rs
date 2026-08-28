@@ -32,7 +32,8 @@ pub const HARNESS_CONFIG_SETTING_KEY: &str = "harness_config";
 /// `pierre_core::config::CompactionConfig`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HarnessCompactionConfig {
-    /// Target context window size in tokens (default `128_000`).
+    /// Target context window size in tokens (default `1_000_000`, Claude Opus
+    /// 4.8's real window).
     pub window_tokens: u32,
     /// Fraction of `window_tokens` that triggers a summarization pass.
     pub warn_threshold: f32,

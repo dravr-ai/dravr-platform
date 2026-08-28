@@ -81,7 +81,7 @@ impl CompactionConfig {
     /// Token count at which summarization becomes active.
     ///
     /// Rounded from `window_tokens * warn_threshold` to avoid `f32` precision
-    /// artifacts (e.g., `128_000 * 0.70f32` evaluates to 89599.999… in `f64`).
+    /// artifacts (e.g., `1_000_000 * 0.0896f32` does not land on `89_600` exactly).
     #[must_use]
     pub fn warn_tokens(&self) -> u32 {
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
