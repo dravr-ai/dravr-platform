@@ -58,9 +58,25 @@ fn default_compaction_max_messages() -> u32 {
 impl Default for HarnessCompactionConfig {
     fn default() -> Self {
         Self {
-            window_tokens: 128_000,
-            warn_threshold: 0.70,
-            emergency_threshold: 0.95,
+            // Claude Opus 4.8's real context window. The inherited 128_000 was
+            // never this model's limit -- it predates the provider -- and the
+            // thresholds below were fractions of a number that was wrong by 8x.
+            //
+            // The fractions absorb that correction rather than the trigger
+            // moving: warn stays 89_600 tokens and emergency 121_600, exactly
+            // where they sat before. Re-deriving the window without re-deriving
+            // the fractions would have pushed warn to 700_000 -- above the
+            // 603_498-token peak observed the week of 2026-08-18 -- and
+            // compaction, which only became reachable when estimate_context_tokens
+            // stopped charging dense JSON half price, would have stopped firing
+            // again the same week it started.
+            //
+            // Where the trigger BELONGS is a cost question, not a correctness
+            // one, and it is measurable now: it is an explicit fraction of a true
+            // window rather than an artifact of a false one.
+            window_tokens: 1_000_000,
+            warn_threshold: 0.0896,
+            emergency_threshold: 0.1216,
             summarize_oldest_n: 6,
             sliding_drop_n: 4,
             max_messages: default_compaction_max_messages(),

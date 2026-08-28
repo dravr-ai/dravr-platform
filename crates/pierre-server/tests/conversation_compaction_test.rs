@@ -74,18 +74,29 @@ fn decide_action_warn_band_summarizes_below_warn_is_noop() {
     );
 }
 
+/// The window is the model's; the fractions are ours.
+///
+/// The plan's original 128_000 was never Claude Opus 4.8's context window — it
+/// predates the provider. Correcting it to 1_000_000 without moving the
+/// fractions would have pushed warn from 89_600 to 700_000, past the
+/// 603_498-token peak observed the week of 2026-08-18, switching compaction off
+/// in the same week the estimator fix first made it reachable. The fractions
+/// absorb the correction instead; `warn_and_emergency_threshold_math` pins the
+/// triggers that result.
 #[test]
-fn default_config_matches_gist_plan() {
+fn default_config_names_the_real_window() {
     let cfg = CompactionConfig::default();
-    assert_eq!(cfg.window_tokens, 128_000);
-    assert!((cfg.warn_threshold - 0.70).abs() < f32::EPSILON);
-    assert!((cfg.emergency_threshold - 0.95).abs() < f32::EPSILON);
+    assert_eq!(cfg.window_tokens, 1_000_000);
+    assert!((cfg.warn_threshold - 0.0896).abs() < f32::EPSILON);
+    assert!((cfg.emergency_threshold - 0.1216).abs() < f32::EPSILON);
 }
 
 #[test]
 fn warn_and_emergency_threshold_math() {
     let cfg = CompactionConfig::default();
-    // 128_000 * 0.70 = 89_600, 128_000 * 0.95 = 121_600
+    // 1_000_000 * 0.0896 = 89_600, 1_000_000 * 0.1216 = 121_600 — the same two
+    // numbers the 128_000 window produced, which is the point: the window was
+    // corrected without moving where compaction fires.
     assert_eq!(cfg.warn_tokens(), 89_600);
     assert_eq!(cfg.emergency_tokens(), 121_600);
     assert!(cfg.emergency_tokens() > cfg.warn_tokens());
@@ -187,4 +198,33 @@ fn sliding_window_noop_when_already_within_bounds() {
     let dropped = sliding_window_to_fit(&mut v, &cfg);
     assert_eq!(dropped, 0, "a short thread is left untouched");
     assert_eq!(v.len(), 2);
+}
+
+// ============================================================================
+// The window is the model's, the trigger is ours (registre / F4)
+/// With an honest estimator, tokens bind before the message cap — which is what
+/// `max_messages` was always meant to be.
+///
+/// It was sized as a backstop while the estimator charged dense JSON half price,
+/// and through August 2026 it was the only bound actually in force: forty dense
+/// messages is roughly the 160_998-token mean, and the warn line at 89_600 was
+/// never reached because a 161k prompt estimated at ~80k. Now that
+/// `estimate_context_tokens` scales toward two characters per token, that same
+/// prompt crosses warn well before it reaches forty messages.
+#[test]
+fn the_token_bound_binds_before_the_message_cap() {
+    let cfg = CompactionConfig::default();
+
+    // The observed mean prompt, against the observed message cap.
+    let observed_mean_tokens = 160_998_u32;
+    assert!(
+        observed_mean_tokens > cfg.warn_tokens(),
+        "a mean production prompt must reach the warn line; got {} against {}",
+        observed_mean_tokens,
+        cfg.warn_tokens()
+    );
+    assert_eq!(
+        cfg.max_messages, 40,
+        "the message cap stays as the estimate-independent backstop"
+    );
 }

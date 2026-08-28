@@ -97,9 +97,9 @@ Two strategies layered:
 
 | Field | Default | Valid range |
 |---|---|---|
-| `window_tokens` | 128_000 | > 0 |
-| `warn_threshold` | 0.70 | `(0.0, 1.0]` |
-| `emergency_threshold` | 0.95 | `(0.0, 1.0]`, strictly > `warn_threshold` |
+| `window_tokens` | 1_000_000 | > 0 |
+| `warn_threshold` | 0.0896 | `(0.0, 1.0]` |
+| `emergency_threshold` | 0.1216 | `(0.0, 1.0]`, strictly > `warn_threshold` |
 | `summarize_oldest_n` | 6 | > 0 |
 | `sliding_drop_n` | 4 | > 0 |
 
