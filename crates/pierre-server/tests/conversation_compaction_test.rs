@@ -76,9 +76,9 @@ fn decide_action_warn_band_summarizes_below_warn_is_noop() {
 
 /// The window is the model's; the fractions are ours.
 ///
-/// The plan's original 128_000 was never Claude Opus 4.8's context window — it
-/// predates the provider. Correcting it to 1_000_000 without moving the
-/// fractions would have pushed warn from 89_600 to 700_000, past the
+/// The plan's original `128_000` was never Claude Opus 4.8's context window — it
+/// predates the provider. Correcting it to `1_000_000` without moving the
+/// fractions would have pushed warn from `89_600` to `700_000`, past the
 /// 603_498-token peak observed the week of 2026-08-18, switching compaction off
 /// in the same week the estimator fix first made it reachable. The fractions
 /// absorb the correction instead; `warn_and_emergency_threshold_math` pins the
@@ -207,7 +207,7 @@ fn sliding_window_noop_when_already_within_bounds() {
 ///
 /// It was sized as a backstop while the estimator charged dense JSON half price,
 /// and through August 2026 it was the only bound actually in force: forty dense
-/// messages is roughly the 160_998-token mean, and the warn line at 89_600 was
+/// messages is roughly the `160_998`-token mean, and the warn line at `89_600` was
 /// never reached because a 161k prompt estimated at ~80k. Now that
 /// `estimate_context_tokens` scales toward two characters per token, that same
 /// prompt crosses warn well before it reaches forty messages.

@@ -236,7 +236,7 @@ fn a_discipline_specific_coach_stays_exact() {
 /// THE INVARIANT, and the reason the other tests in this group exist. Same
 /// athlete, same thirty activities, same six rides — described two ways. Before
 /// the family pass these scored 0.0 vs 1.0, 0.5 vs 1.0 and 0.333 vs 0.667: the
-/// rider was punished for owning three bikes, because Strava derives sport_type
+/// rider was punished for owning three bikes, because Strava derives `sport_type`
 /// from default gear.
 #[test]
 fn sport_eligibility_does_not_depend_on_provider_tag_granularity() {
