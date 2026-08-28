@@ -147,20 +147,25 @@ pub const PREFETCH_TOOL: &str = "get_activities";
 
 /// Build the `get_activities` parameters for a coach's declared activity window.
 ///
-/// The window is never narrowed by sport, whatever the coach declares.
-/// `sport_types` says what the coach specializes in, not what the athlete does,
-/// and the block this window is injected under tells the model to base its plan
-/// on these activities and to "infer the sport mix from them rather than
-/// asking". Over a filtered window that instruction is false and the model has
-/// no way to tell: on 2026-08-27 a Marathon Coach (`sport_types: ["Run"]`)
-/// turned a 106-activity window into 24 run-family sessions, was told they were
-/// the athlete's training, answered "no mountain-bike history, 100% trail
-/// running" to an athlete who had ridden 18 km of singletrack that morning, and
-/// dosed the next day's session on that reading. Cross-sport load is load: the
-/// ride the run coach cannot see is the ride it plans on top of. A coach that
-/// wants more of its own sport in view raises `count`; it never gets there by
-/// hiding the rest. Over-fetching is corrected by later stages; dropped data is
-/// not.
+/// The window is bounded by time and count, never by sport — and there is no
+/// knob to narrow it by sport, deliberately.
+///
+/// A coach's specialization says what it should TALK about, not what it should
+/// be allowed to SEE, and it already reaches the model where it belongs: in the
+/// persona prompt, its title and its tags. The block this window is injected
+/// under tells the model to base its plan on these activities and to "infer the
+/// sport mix from them rather than asking" — an instruction that is a lie over a
+/// filtered window, and one the model has no way to detect.
+///
+/// A coach-declared sport filter used to exist here. On 2026-08-27 it turned a
+/// 106-activity window into 24 run-family sessions for a marathon coach, which
+/// was handed over as the athlete's training; the coach answered "no
+/// mountain-bike history, 100% trail running" to someone who had ridden 18 km of
+/// singletrack that morning, and dosed the next day's session on that reading.
+/// Cross-sport load is load: the ride the run coach cannot see is the ride it
+/// plans on top of. A coach that wants more of its own sport in view raises
+/// `count`; it never gets there by hiding the rest. Over-fetching is corrected by
+/// later stages; dropped data is not.
 ///
 /// Separated from the dispatch so the window contract is unit-testable without
 /// an executor.

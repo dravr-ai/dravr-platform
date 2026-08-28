@@ -633,11 +633,6 @@ pub fn to_markdown(definition: &CoachDefinition) -> String {
             if let Some(activities) = &data_reqs.activities {
                 output.push_str("    activities:\n");
                 let _ = writeln!(output, "      count: {}", activities.count);
-                if !activities.sport_types.is_empty() {
-                    output.push_str("      sport_types: [");
-                    output.push_str(&activities.sport_types.join(", "));
-                    output.push_str("]\n");
-                }
                 if let Some(tf) = &activities.time_frame {
                     let _ = writeln!(output, "      time_frame: {tf}");
                 }

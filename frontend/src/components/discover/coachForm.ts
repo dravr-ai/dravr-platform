@@ -14,7 +14,6 @@ export interface CoachFormData {
   startup_query: string;
   prefetch_enabled: boolean;
   activity_count: number;
-  sport_types: string[];
   time_frame: string;
   detail_mode: 'summary' | 'detailed';
   athlete_profile: boolean;
@@ -46,7 +45,6 @@ export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
   startup_query: '',
   prefetch_enabled: false,
   activity_count: 20,
-  sport_types: [],
   time_frame: '12w',
   detail_mode: 'summary',
   athlete_profile: false,
@@ -72,7 +70,6 @@ export function coachToFormData(coach: Coach): CoachFormData {
     startup_query: coach.startup_query || '',
     prefetch_enabled: !!dr?.activities,
     activity_count: dr?.activities?.count ?? 20,
-    sport_types: dr?.activities?.sport_types ?? [],
     time_frame: dr?.activities?.time_frame ?? '12w',
     detail_mode: (dr?.activities?.mode as 'summary' | 'detailed') ?? 'summary',
     athlete_profile: dr?.athlete_profile ?? false,
@@ -110,7 +107,6 @@ export function formDataToUpdateRequest(data: CoachFormData): UpdateCoachRequest
     request.data_requirements = {
       activities: {
         count: data.activity_count,
-        sport_types: data.sport_types,
         time_frame: data.time_frame,
         mode: data.detail_mode,
         format: 'toon',

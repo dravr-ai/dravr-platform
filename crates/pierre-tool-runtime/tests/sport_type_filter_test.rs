@@ -204,7 +204,7 @@ fn cycling_activities() -> Vec<Activity> {
 ///
 /// Exact equality made a cycling coach blind to cycling: an athlete whose
 /// window held 22 mountain-bike and 7 gravel rides matched none of them, so a
-/// `sport_types: ["Ride"]` coach saw an empty cycling history (2026-08-27).
+/// `"Ride"` ask returned an empty cycling history (2026-08-27).
 #[test]
 fn ride_filter_covers_the_whole_cycling_family() {
     let filtered = filter_activities_by_sport_type(cycling_activities(), Some("ride"));

@@ -14,7 +14,6 @@ startup:
   data_requirements:
     activities:
       count: 30
-      sport_types: [Run, Ride]
       time_frame: 4w
       mode: detailed
       analysis_type: race_preparation

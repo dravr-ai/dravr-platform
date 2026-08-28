@@ -96,9 +96,9 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
 /// Providers tag the same effort inconsistently — an athlete who runs almost
 /// only on trails still has many logged as a plain "Run" — and "how much did I
 /// ride" means every discipline to the athlete who rode them. Exact equality on
-/// the cycling side made a cycling coach blind to cycling: a
-/// `sport_types: ["Ride"]` coach matched none of an athlete's 22 mountain-bike
-/// and 7 gravel rides (2026-08-27).
+/// the cycling side made a cycling coach blind to cycling: a `"Ride"` filter
+/// matched none of an athlete's 22 mountain-bike and 7 gravel rides
+/// (2026-08-27).
 ///
 /// A filter naming a specific member — `TrailRunning`, `MountainBike`,
 /// `GravelRide`, `EbikeRide`, `VirtualRide`, `VirtualRun` — stays exact, so

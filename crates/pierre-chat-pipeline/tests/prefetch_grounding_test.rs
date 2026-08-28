@@ -385,21 +385,25 @@ fn an_unrecognised_payload_is_injected_verbatim() {
     );
 }
 
-/// The declared window reaches `get_activities` unnarrowed by sport.
+/// The grounding window is bounded by time and count, and by nothing else.
 ///
-/// A Marathon Coach declares `sport_types: ["Run"]`, and the prefetch used to
-/// forward that as a `sport_type` filter whenever exactly one sport was named.
-/// On 2026-08-27 that turned a 106-activity window into 24 run-family sessions,
-/// which were then injected under a block instructing the model to "infer the
-/// sport mix from them rather than asking" — so the coach told an athlete who
-/// had ridden 18 km of singletrack that morning he had no mountain-bike history
-/// and was 100% trail running. The coach's specialization belongs in its
-/// prompt, never in a filter over the athlete's training.
+/// A coach used to be able to declare a sport and have the prefetch narrow the
+/// athlete's window to it. On 2026-08-27 that turned a 106-activity window into
+/// 24 run-family sessions for a marathon coach, injected under a block telling
+/// the model to "infer the sport mix from them rather than asking" — so it told
+/// an athlete who had ridden 18 km of singletrack that morning that he had no
+/// mountain-bike history and was 100% trail running. The knob is gone, and the
+/// specialization lives in the coach's persona prompt instead.
+///
+/// Asserts the parameter key set EXHAUSTIVELY rather than probing for the one
+/// name that used to leak. `params.get("sport_type").is_none()` only ever proved
+/// that one spelling was absent; an exhaustive set fails on any future
+/// sport-shaped key — `sport_types`, `activity_type`, `type` — including one
+/// added by someone who never reads this comment.
 #[test]
-fn a_single_sport_coach_still_gets_an_unfiltered_window() {
+fn the_grounding_window_is_bounded_by_time_and_count_and_nothing_else() {
     let marathon_coach = ActivityDataRequirements {
         count: 30,
-        sport_types: vec!["Run".to_owned()],
         time_frame: Some("16w".to_owned()),
         mode: "summary".to_owned(),
         format: "toon".to_owned(),
@@ -407,38 +411,60 @@ fn a_single_sport_coach_still_gets_an_unfiltered_window() {
     };
 
     let params = build_prefetch_params(&marathon_coach);
+    let object = params
+        .as_object()
+        .expect("prefetch params must be a JSON object");
 
-    assert!(
-        params.get("sport_type").is_none(),
-        "a coach's sport_types must never narrow the grounding window, got {params}"
-    );
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
     assert_eq!(
-        params.get("limit").and_then(serde_json::Value::as_u64),
+        keys,
+        vec![
+            "after",
+            "analysis_type",
+            "before",
+            "format",
+            "limit",
+            "mode"
+        ],
+        "the grounding window grew a parameter. If it is sport-shaped, it is the \
+         2026-08-27 defect returning: the athlete's training is not the coach's \
+         specialty. Got {params}"
+    );
+
+    assert_eq!(
+        object.get("limit").and_then(serde_json::Value::as_u64),
         Some(30),
         "the declared count still bounds the window"
     );
     assert!(
-        params.get("after").is_some() && params.get("before").is_some(),
-        "the declared time_frame still bounds the window as a paired range, got {params}"
+        object.get("after").is_some() && object.get("before").is_some(),
+        "time_frame still bounds the window as a paired range — unpaired, Strava \
+         flips to oldest-first and the newest sessions drop out: {params}"
     );
 }
 
-/// The multi-sport case was already unfiltered and must stay that way.
+/// A window with no `time_frame` is bounded by count alone, still by no sport.
 #[test]
-fn a_multi_sport_coach_still_gets_an_unfiltered_window() {
-    let endurance_coach = ActivityDataRequirements {
-        count: 30,
-        sport_types: vec!["Run".to_owned(), "Ride".to_owned()],
-        time_frame: Some("4w".to_owned()),
-        mode: "detailed".to_owned(),
+fn an_unbounded_window_still_carries_no_sport_key() {
+    let open_ended = ActivityDataRequirements {
+        count: 40,
+        time_frame: None,
+        mode: "summary".to_owned(),
         format: "toon".to_owned(),
-        analysis_type: "race_preparation".to_owned(),
+        analysis_type: "general_overview".to_owned(),
     };
 
-    let params = build_prefetch_params(&endurance_coach);
+    let params = build_prefetch_params(&open_ended);
+    let object = params
+        .as_object()
+        .expect("prefetch params must be a JSON object");
 
-    assert!(
-        params.get("sport_type").is_none(),
-        "a multi-sport coach must not acquire a filter either, got {params}"
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["analysis_type", "format", "limit", "mode"],
+        "an absent time_frame must drop the range, not acquire anything else: {params}"
     );
 }

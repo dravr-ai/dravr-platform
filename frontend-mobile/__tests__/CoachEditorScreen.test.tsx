@@ -52,7 +52,6 @@ const storedCoach = (overrides: Partial<Coach> = {}): Coach => ({
   data_requirements: {
     activities: {
       count: 15,
-      sport_types: ['Run'],
       time_frame: '8w',
       mode: 'summary',
       format: 'toon',
@@ -101,7 +100,7 @@ describe('CoachEditorScreen', () => {
           system_prompt: 'You are a tempo coach.',
           startup_query: 'Analyze my tempo runs',
           data_requirements: expect.objectContaining({
-            activities: expect.objectContaining({ count: 15, sport_types: ['Run'], time_frame: '8w' }),
+            activities: expect.objectContaining({ count: 15, time_frame: '8w' }),
           }),
         }),
       );

@@ -209,7 +209,6 @@
     "prefetchActivityData": "Precargar los datos de actividad al empezar la conversación",
     "categoryRecipes": "Recetas",
     "categoryRecovery": "Recuperación",
-    "sportTypesLabel": "Tipos de deporte",
     "startupQueryLabel": "Consulta inicial (opcional)",
     "detailLevelSummary": "Resumen",
     "systemPromptLabel": "Instrucción del sistema",

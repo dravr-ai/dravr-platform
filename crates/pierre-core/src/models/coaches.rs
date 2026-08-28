@@ -23,11 +23,6 @@ pub struct ActivityDataRequirements {
     /// Number of activities to fetch
     pub count: u32,
 
-    /// Sport types to filter by (empty = all types)
-    /// Values match Strava sport types: Run, Ride, Swim, etc.
-    #[serde(default)]
-    pub sport_types: Vec<String>,
-
     /// Lookback time frame (e.g., "16w", "90d", "3m")
     /// Parsed as: number + unit where unit is w(eeks), d(ays), m(onths)
     #[serde(default)]

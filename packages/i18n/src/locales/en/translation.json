@@ -209,7 +209,6 @@
     "prefetchActivityData": "Pre-fetch activity data when conversation starts",
     "categoryRecipes": "Recipes",
     "categoryRecovery": "Recovery",
-    "sportTypesLabel": "Sport types",
     "startupQueryLabel": "Startup Query (optional)",
     "detailLevelSummary": "Summary",
     "systemPromptLabel": "System Prompt",

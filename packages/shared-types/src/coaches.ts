@@ -18,8 +18,6 @@ export type PublishStatus = 'draft' | 'pending_review' | 'published' | 'rejected
 export interface ActivityDataRequirements {
   /** Number of activities to fetch */
   count: number;
-  /** Sport types to filter by (empty = all types) */
-  sport_types: string[];
   /** Lookback time frame (e.g., "16w", "90d", "3m") */
   time_frame?: string;
   /** Data detail level */

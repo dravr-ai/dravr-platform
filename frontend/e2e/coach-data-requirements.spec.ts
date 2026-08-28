@@ -48,7 +48,6 @@ const coachWithDataReqs = {
   data_requirements: {
     activities: {
       count: 25,
-      sport_types: ['Run'],
       time_frame: '16w',
       mode: 'summary',
       format: 'toon',
@@ -217,7 +216,6 @@ test.describe('Coach Data Requirements', () => {
     const dr = updateReq!.body.data_requirements as Record<string, unknown>;
     const activities = dr.activities as Record<string, unknown>;
     expect(activities.count).toBe(30);
-    expect(activities.sport_types).toEqual(['Run']);
     expect(activities.time_frame).toBe('16w');
     expect(activities.format).toBe('toon');
     expect(activities.mode).toBe('summary');

@@ -177,11 +177,10 @@ describe('coach form → update request tool budget', () => {
 
   it('carries data_requirements only while pre-fetch is enabled', () => {
     const enabled = formDataToUpdateRequest(
-      filledForm({ prefetch_enabled: true, activity_count: 30, sport_types: ['Run'], time_frame: '16w' }),
+      filledForm({ prefetch_enabled: true, activity_count: 30, time_frame: '16w' }),
     );
     expect(enabled.data_requirements?.activities).toMatchObject({
       count: 30,
-      sport_types: ['Run'],
       time_frame: '16w',
       format: 'toon',
       mode: 'summary',

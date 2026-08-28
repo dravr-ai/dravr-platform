@@ -197,36 +197,6 @@ export default function CoachFormModal({
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-on-surface-variant mb-1">
-                      {t('chat.sportTypesLabel')} <span className="text-on-surface-variant">(none = all types)</span>
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {['Run', 'Ride', 'Swim', 'Walk', 'Hike'].map((sport) => {
-                        const isSelected = formData.sport_types.includes(sport);
-                        return (
-                          <button
-                            key={sport}
-                            type="button"
-                            onClick={() => {
-                              const updated = isSelected
-                                ? formData.sport_types.filter((s) => s !== sport)
-                                : [...formData.sport_types, sport];
-                              onFormDataChange({ ...formData, sport_types: updated });
-                            }}
-                            className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
-                              isSelected
-                                ? 'bg-primary text-on-primary border-primary'
-                                : 'bg-surface text-on-surface-variant ghost-border hover:border-primary/50'
-                            }`}
-                          >
-                            {sport}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
                   <div className="flex items-center gap-4">
                     <Radio
                       name="detail_mode"

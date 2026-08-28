@@ -57,7 +57,6 @@ export function CoachEditorScreen() {
   const [startupQuery, setStartupQuery] = useState('');
   const [prefetchEnabled, setPrefetchEnabled] = useState(false);
   const [activityCount, setActivityCount] = useState(20);
-  const [sportTypes, setSportTypes] = useState<string[]>([]);
   const [timeFrame, setTimeFrame] = useState('12w');
   const [detailMode, setDetailMode] = useState<'summary' | 'detailed'>('summary');
   const [athleteProfile, setAthleteProfile] = useState(false);
@@ -83,7 +82,6 @@ export function CoachEditorScreen() {
       if (coach.data_requirements?.activities) {
         setPrefetchEnabled(true);
         setActivityCount(coach.data_requirements.activities.count);
-        setSportTypes(coach.data_requirements.activities.sport_types || []);
         setTimeFrame(coach.data_requirements.activities.time_frame || '12w');
         setDetailMode(coach.data_requirements.activities.mode || 'summary');
         setAthleteProfile(coach.data_requirements?.athlete_profile || false);
@@ -170,7 +168,6 @@ export function CoachEditorScreen() {
         ? {
             activities: {
               count: activityCount,
-              sport_types: sportTypes,
               time_frame: timeFrame,
               mode: detailMode,
               format: 'toon' as const,
@@ -583,37 +580,6 @@ export function CoachEditorScreen() {
                       <Text className="text-text-tertiary text-xs">{'▼'}</Text>
                     </TouchableOpacity>
                   </View>
-                </View>
-
-                <Text className="text-text-secondary text-xs font-semibold mb-2">Sport types</Text>
-                <View className="flex-row flex-wrap gap-2 mb-3">
-                  {['Run', 'Ride', 'Swim', 'Walk', 'Hike'].map((sport) => {
-                    const selected = sportTypes.includes(sport);
-                    return (
-                      <TouchableOpacity
-                        key={sport}
-                        className="px-3 py-1.5 rounded-full"
-                        style={{
-                          backgroundColor: selected ? colors.pierre.violet : 'transparent',
-                          borderWidth: 1,
-                          borderColor: selected ? colors.pierre.violet : colors.border.default,
-                        }}
-                        onPress={() => {
-                          setSportTypes(selected
-                            ? sportTypes.filter((s) => s !== sport)
-                            : [...sportTypes, sport]);
-                        }}
-                        testID={`sport-type-${sport.toLowerCase()}`}
-                      >
-                        <Text
-                          className="text-sm"
-                          style={{ color: selected ? colors.tokens.onPrimary : colors.text.secondary }}
-                        >
-                          {sport}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
                 </View>
 
                 <View className="flex-row gap-4 mb-3">
