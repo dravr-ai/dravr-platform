@@ -79,7 +79,7 @@ pub use dravr_cageux::models::sport::SportType;
 pub use dravr_cageux::training_load::FormBand;
 
 mod sport_type_alias;
-pub use sport_type_alias::{resolve_sport_type, sport_matches_family};
+pub use sport_type_alias::{resolve_sport_type, sport_family_head, sport_matches_family};
 
 mod sport_profile;
 pub use sport_profile::SportProfile;

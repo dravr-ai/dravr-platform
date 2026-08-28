@@ -231,6 +231,149 @@ fn a_discipline_specific_coach_stays_exact() {
     );
 }
 
+/// Eligibility must not depend on how granularly the provider tagged the rides.
+///
+/// THE INVARIANT, and the reason the other tests in this group exist. Same
+/// athlete, same thirty activities, same six rides — described two ways. Before
+/// the family pass these scored 0.0 vs 1.0, 0.5 vs 1.0 and 0.333 vs 0.667: the
+/// rider was punished for owning three bikes, because Strava derives sport_type
+/// from default gear.
+#[test]
+fn sport_eligibility_does_not_depend_on_provider_tag_granularity() {
+    let cfg = CoachRecommendationConfig::default();
+    let fragmented = profile(&[
+        ("run", 20),
+        ("walk", 4),
+        ("ride", 2),
+        ("mountain_bike", 2),
+        ("gravel_ride", 2),
+    ]);
+    let lumped = profile(&[("run", 20), ("walk", 4), ("ride", 6)]);
+
+    for shape in [
+        vec!["Ride".to_owned()],
+        vec!["Run".to_owned(), "Ride".to_owned()],
+        vec!["Run".to_owned(), "Ride".to_owned(), "Swim".to_owned()],
+    ] {
+        let a = fragmented.activity_type_overlap(
+            &shape,
+            cfg.min_activities_for_sport,
+            cfg.min_share_for_sport,
+        );
+        let b = lumped.activity_type_overlap(
+            &shape,
+            cfg.min_activities_for_sport,
+            cfg.min_share_for_sport,
+        );
+        assert!(
+            (a - b).abs() < f32::EPSILON,
+            "coach {shape:?} scored {a} for the athlete whose rides are split across \
+             three bikes and {b} for the same six rides tagged plain — the tag is not \
+             the training"
+        );
+    }
+}
+
+/// Rides split across disciplines clear the floor together.
+///
+/// Non-vacuous by construction: every cycling label is 2, under the count floor
+/// of 3, and 2/30 = 6.7%, under the share floor of 15%. No single label can
+/// satisfy this — only the family total of 6 (20%) can. Measured 0.0 before.
+#[test]
+fn a_ride_coach_matches_an_athlete_whose_rides_are_split_across_disciplines() {
+    let cfg = CoachRecommendationConfig::default();
+    let three_bikes = profile(&[
+        ("run", 20),
+        ("walk", 4),
+        ("ride", 2),
+        ("mountain_bike", 2),
+        ("gravel_ride", 2),
+    ]);
+
+    let overlap = three_bikes.activity_type_overlap(
+        &["Ride".to_owned()],
+        cfg.min_activities_for_sport,
+        cfg.min_share_for_sport,
+    );
+    assert!(
+        (overlap - 1.0).abs() < f32::EPSILON,
+        "six rides across three bikes is a cyclist, got {overlap}"
+    );
+}
+
+/// The same on foot — proves the rule is family-generic, not cycling-special-cased.
+///
+/// A cycling-only patch would pass the ride test and fail this one, which is
+/// precisely what it is for. Each on-foot label is 2 (<3) at 6.7% (<15%); only
+/// the family total of 6 clears. Measured 0.0 before.
+#[test]
+fn a_run_coach_matches_an_athlete_whose_runs_are_split_road_trail_treadmill() {
+    let cfg = CoachRecommendationConfig::default();
+    let mixed_runner = profile(&[
+        ("run", 2),
+        ("trail_running", 2),
+        ("virtual_run", 2),
+        ("ride", 24),
+    ]);
+
+    let overlap = mixed_runner.activity_type_overlap(
+        &["Run".to_owned()],
+        cfg.min_activities_for_sport,
+        cfg.min_share_for_sport,
+    );
+    assert!(
+        (overlap - 1.0).abs() < f32::EPSILON,
+        "road plus trail plus treadmill is a runner, got {overlap}"
+    );
+}
+
+/// The stated intent, unchanged: one cross-training ride surfaces no cycling coach.
+///
+/// Passes both before and after — a guard on the bar, not proof of the fix. The
+/// family total here is 1, which clears neither floor, so nothing is inserted.
+#[test]
+fn one_cross_training_ride_in_thirty_still_surfaces_no_cycling_coach() {
+    let cfg = CoachRecommendationConfig::default();
+    let runner = profile(&[("run", 29), ("ride", 1)]);
+
+    let overlap = runner.activity_type_overlap(
+        &["Ride".to_owned()],
+        cfg.min_activities_for_sport,
+        cfg.min_share_for_sport,
+    );
+    assert!(
+        overlap.abs() < f32::EPSILON,
+        "the floor must not move — one ride in thirty is not a cyclist, got {overlap}"
+    );
+}
+
+/// A discipline-specific coach stays exact even when the head was inserted.
+///
+/// Passes both before and after — it guards the family pass against widening
+/// into specificity. The head `Ride` enters the set for this athlete, and a
+/// `MountainBike` coach must still not match through it.
+#[test]
+fn an_inserted_family_head_does_not_make_a_specialist_coach_match() {
+    let cfg = CoachRecommendationConfig::default();
+    let three_bikes = profile(&[
+        ("run", 20),
+        ("walk", 4),
+        ("ride", 2),
+        ("mountain_bike", 2),
+        ("gravel_ride", 2),
+    ]);
+
+    let overlap = three_bikes.activity_type_overlap(
+        &["MountainBike".to_owned()],
+        cfg.min_activities_for_sport,
+        cfg.min_share_for_sport,
+    );
+    assert!(
+        overlap.abs() < f32::EPSILON,
+        "a mountain-bike specialist must not match through an inserted Ride head, got {overlap}"
+    );
+}
+
 #[test]
 fn overlap_normalizes_titlecase_coach_activity_types() {
     let cfg = CoachRecommendationConfig::default();

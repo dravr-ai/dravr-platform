@@ -123,6 +123,28 @@ pub fn sport_matches_family(activity: &SportType, filter: &SportType) -> bool {
     }
 }
 
+/// The head of the family `sport` belongs to, or `None` when it is its own head.
+///
+/// The exact inverse of [`sport_matches_family`]: `Some(head)` is returned for
+/// precisely those sports the head widens to. Kept beside it so the two cannot
+/// drift — a discipline added to one arm and not the other is the bug this
+/// pairing exists to prevent.
+///
+/// `Option` rather than the identity, deliberately: callers act only on a label
+/// that HAS a distinct head, and returning `Some(Run)` for `Run` would invite a
+/// caller to insert a head that is already there.
+#[must_use]
+pub fn sport_family_head(sport: &SportType) -> Option<SportType> {
+    match sport {
+        SportType::TrailRunning | SportType::VirtualRun => Some(SportType::Run),
+        SportType::MountainBike
+        | SportType::GravelRide
+        | SportType::EbikeRide
+        | SportType::VirtualRide => Some(SportType::Ride),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +215,42 @@ mod tests {
     fn returns_none_for_unknown() {
         assert_eq!(resolve_sport_type("quidditch"), None);
         assert_eq!(resolve_sport_type(""), None);
+    }
+
+    /// The two halves of the family rule must agree, in one direction and the
+    /// other. A discipline given a head that the head does not widen to — or
+    /// widened to by a head it does not name — is the drift this pair exists to
+    /// prevent, and it is one system's internal consistency, not two systems
+    /// policing each other.
+    #[test]
+    fn family_head_and_family_match_agree() {
+        let disciplines = [
+            SportType::Run,
+            SportType::TrailRunning,
+            SportType::VirtualRun,
+            SportType::Ride,
+            SportType::MountainBike,
+            SportType::GravelRide,
+            SportType::EbikeRide,
+            SportType::VirtualRide,
+            SportType::Swim,
+            SportType::Hike,
+            SportType::Walk,
+        ];
+
+        for sport in &disciplines {
+            match sport_family_head(sport) {
+                Some(head) => assert!(
+                    sport_matches_family(sport, &head),
+                    "{sport:?} claims head {head:?}, but that head does not widen to it"
+                ),
+                None => assert!(
+                    !disciplines.iter().any(|other| other != sport
+                        && sport_matches_family(sport, other)
+                        && sport_family_head(other).is_none()),
+                    "{sport:?} reports no head yet another head widens to it"
+                ),
+            }
+        }
     }
 }
