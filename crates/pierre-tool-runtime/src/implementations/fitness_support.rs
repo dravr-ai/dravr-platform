@@ -995,6 +995,24 @@ fn sport_type_matches(
                 SportType::Run | SportType::TrailRunning | SportType::VirtualRun
             );
         }
+        // The cycling family reads the same way: a generic ride/vélo filter
+        // covers road Ride, MountainBike, GravelRide, EbikeRide and the
+        // trainer's VirtualRide, because "how much did I ride" means all of
+        // them to the athlete who rode. Exact equality made a cycling coach
+        // blind to cycling — an athlete with 22 mountain-bike and 7 gravel
+        // rides in the window matched none of them. A specific MountainBike /
+        // GravelRide / EbikeRide / VirtualRide filter stays exact, so "gravel
+        // rides" still means gravel only.
+        if *canonical == SportType::Ride {
+            return matches!(
+                activity_sport,
+                SportType::Ride
+                    | SportType::MountainBike
+                    | SportType::GravelRide
+                    | SportType::EbikeRide
+                    | SportType::VirtualRide
+            );
+        }
         return activity_sport == canonical;
     }
     let activity_str = to_value(activity_sport).map_or_else(

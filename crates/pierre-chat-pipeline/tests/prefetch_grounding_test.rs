@@ -21,9 +21,10 @@
 //! window; inject conservatively when the window cannot be parsed).
 
 use pierre_chat_pipeline::stages::prefetch::{
-    get_startup_context_if_applicable, inject_activity_refresh, should_refresh_activity_context,
-    startup_query_preview,
+    build_prefetch_params, get_startup_context_if_applicable, inject_activity_refresh,
+    should_refresh_activity_context, startup_query_preview,
 };
+use pierre_core::models::coaches::ActivityDataRequirements;
 use pierre_core::models::{CoachCategory, CoachRuntimeContext};
 use pierre_llm::{ChatMessage, MessageRole};
 
@@ -381,5 +382,63 @@ fn an_unrecognised_payload_is_injected_verbatim() {
             .content
             .contains("something this stage has never seen"),
         "a shape without activity_list must fall back to the raw payload"
+    );
+}
+
+/// The declared window reaches `get_activities` unnarrowed by sport.
+///
+/// A Marathon Coach declares `sport_types: ["Run"]`, and the prefetch used to
+/// forward that as a `sport_type` filter whenever exactly one sport was named.
+/// On 2026-08-27 that turned a 106-activity window into 24 run-family sessions,
+/// which were then injected under a block instructing the model to "infer the
+/// sport mix from them rather than asking" — so the coach told an athlete who
+/// had ridden 18 km of singletrack that morning he had no mountain-bike history
+/// and was 100% trail running. The coach's specialization belongs in its
+/// prompt, never in a filter over the athlete's training.
+#[test]
+fn a_single_sport_coach_still_gets_an_unfiltered_window() {
+    let marathon_coach = ActivityDataRequirements {
+        count: 30,
+        sport_types: vec!["Run".to_owned()],
+        time_frame: Some("16w".to_owned()),
+        mode: "summary".to_owned(),
+        format: "toon".to_owned(),
+        analysis_type: "race_preparation".to_owned(),
+    };
+
+    let params = build_prefetch_params(&marathon_coach);
+
+    assert!(
+        params.get("sport_type").is_none(),
+        "a coach's sport_types must never narrow the grounding window, got {params}"
+    );
+    assert_eq!(
+        params.get("limit").and_then(serde_json::Value::as_u64),
+        Some(30),
+        "the declared count still bounds the window"
+    );
+    assert!(
+        params.get("after").is_some() && params.get("before").is_some(),
+        "the declared time_frame still bounds the window as a paired range, got {params}"
+    );
+}
+
+/// The multi-sport case was already unfiltered and must stay that way.
+#[test]
+fn a_multi_sport_coach_still_gets_an_unfiltered_window() {
+    let endurance_coach = ActivityDataRequirements {
+        count: 30,
+        sport_types: vec!["Run".to_owned(), "Ride".to_owned()],
+        time_frame: Some("4w".to_owned()),
+        mode: "detailed".to_owned(),
+        format: "toon".to_owned(),
+        analysis_type: "race_preparation".to_owned(),
+    };
+
+    let params = build_prefetch_params(&endurance_coach);
+
+    assert!(
+        params.get("sport_type").is_none(),
+        "a multi-sport coach must not acquire a filter either, got {params}"
     );
 }

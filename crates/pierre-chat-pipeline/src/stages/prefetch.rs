@@ -36,7 +36,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use pierre_core::models::coaches::DataRequirements;
+use pierre_core::models::coaches::{ActivityDataRequirements, DataRequirements};
 use pierre_core::models::CoachRuntimeContext;
 use pierre_database::database::MessageRecord;
 use tracing::{info, warn};
@@ -145,40 +145,33 @@ pub fn startup_query_preview(query: &str) -> String {
 /// built from pre-loaded data reads as invented and gets refused.
 pub const PREFETCH_TOOL: &str = "get_activities";
 
-/// Pre-fetch activity data based on structured `DataRequirements`.
+/// Build the `get_activities` parameters for a coach's declared activity window.
 ///
-/// Calls `get_activities` deterministically with exact parameters from the
-/// coach definition, bypassing LLM interpretation. Returns the activity
-/// data as a formatted string for injection into the conversation context,
-/// or `None` when the coach has no activity requirements or the tool call
-/// fails.
-pub async fn prefetch_activity_context(
-    executor: &Arc<UniversalExecutor>,
-    user_id: &str,
-    tenant_id: TenantId,
-    data_reqs: &DataRequirements,
-) -> Option<String> {
-    use pierre_tool_runtime::protocol::UniversalRequest;
-
-    let activities_req = data_reqs.activities.as_ref()?;
-
-    // Build parameters JSON matching what `get_activities` expects.
+/// The window is never narrowed by sport, whatever the coach declares.
+/// `sport_types` says what the coach specializes in, not what the athlete does,
+/// and the block this window is injected under tells the model to base its plan
+/// on these activities and to "infer the sport mix from them rather than
+/// asking". Over a filtered window that instruction is false and the model has
+/// no way to tell: on 2026-08-27 a Marathon Coach (`sport_types: ["Run"]`)
+/// turned a 106-activity window into 24 run-family sessions, was told they were
+/// the athlete's training, answered "no mountain-bike history, 100% trail
+/// running" to an athlete who had ridden 18 km of singletrack that morning, and
+/// dosed the next day's session on that reading. Cross-sport load is load: the
+/// ride the run coach cannot see is the ride it plans on top of. A coach that
+/// wants more of its own sport in view raises `count`; it never gets there by
+/// hiding the rest. Over-fetching is corrected by later stages; dropped data is
+/// not.
+///
+/// Separated from the dispatch so the window contract is unit-testable without
+/// an executor.
+#[must_use]
+pub fn build_prefetch_params(activities_req: &ActivityDataRequirements) -> serde_json::Value {
     let mut params = serde_json::json!({
         "limit": activities_req.count,
         "mode": activities_req.mode,
         "format": activities_req.format,
         "analysis_type": activities_req.analysis_type,
     });
-
-    // Filter by sport_type only when the coach requests exactly one. The
-    // downstream `get_activities` filter accepts a single sport type, so a
-    // multi-sport coach (e.g. sport_types: [Run, Ride]) omits the filter and
-    // fetches across all sports — narrowing to `.first()` would silently drop
-    // every requested sport but the first. Over-fetching is corrected by later
-    // stages; dropped data is not.
-    if let [sport_type] = activities_req.sport_types.as_slice() {
-        params["sport_type"] = serde_json::Value::String(String::clone(sport_type));
-    }
 
     // Add time_frame as paired (after, before) timestamps.
     //
@@ -197,6 +190,27 @@ pub async fn prefetch_activity_context(
         params["after"] = serde_json::Value::Number(serde_json::Number::from(after));
         params["before"] = serde_json::Value::Number(serde_json::Number::from(now));
     }
+
+    params
+}
+
+/// Pre-fetch activity data based on structured `DataRequirements`.
+///
+/// Calls `get_activities` deterministically with exact parameters from the
+/// coach definition, bypassing LLM interpretation. Returns the activity
+/// data as a formatted string for injection into the conversation context,
+/// or `None` when the coach has no activity requirements or the tool call
+/// fails.
+pub async fn prefetch_activity_context(
+    executor: &Arc<UniversalExecutor>,
+    user_id: &str,
+    tenant_id: TenantId,
+    data_reqs: &DataRequirements,
+) -> Option<String> {
+    use pierre_tool_runtime::protocol::UniversalRequest;
+
+    let activities_req = data_reqs.activities.as_ref()?;
+    let params = build_prefetch_params(activities_req);
 
     // Dispatch through the canonical McpTool registry — same path the chat
     // tool loop uses. `execute_tool` lifts the response back into the

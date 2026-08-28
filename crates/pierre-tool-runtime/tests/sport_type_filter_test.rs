@@ -139,3 +139,124 @@ fn unknown_sport_still_matches_nothing() {
         "an unknown concrete sport must not act as a wildcard, got {filtered:?}"
     );
 }
+
+fn cycling_activities() -> Vec<Activity> {
+    let start = Utc.with_ymd_and_hms(2026, 8, 27, 12, 0, 0).unwrap();
+    vec![
+        ActivityBuilder::new(
+            "ride-1",
+            "Grosse boucane sul moteur",
+            SportType::Ride,
+            start,
+            5_953,
+            "sciotte",
+        )
+        .build(),
+        ActivityBuilder::new(
+            "mtb-2",
+            "Réveil matin",
+            SportType::MountainBike,
+            start,
+            5_496,
+            "sciotte",
+        )
+        .build(),
+        ActivityBuilder::new(
+            "gravel-1",
+            "Chemin du Roy",
+            SportType::GravelRide,
+            start,
+            4_100,
+            "sciotte",
+        )
+        .build(),
+        ActivityBuilder::new(
+            "ebike-1",
+            "Commute assisté",
+            SportType::EbikeRide,
+            start,
+            1_800,
+            "sciotte",
+        )
+        .build(),
+        ActivityBuilder::new(
+            "vride-1",
+            "Zwift sweet spot",
+            SportType::VirtualRide,
+            start,
+            3_600,
+            "sciotte",
+        )
+        .build(),
+        ActivityBuilder::new(
+            "walk-2",
+            "Post Canadian, gros show de boucane",
+            SportType::Walk,
+            start,
+            2_295,
+            "sciotte",
+        )
+        .build(),
+    ]
+}
+
+/// A generic `ride` ask means every discipline the athlete rode.
+///
+/// Exact equality made a cycling coach blind to cycling: an athlete whose
+/// window held 22 mountain-bike and 7 gravel rides matched none of them, so a
+/// `sport_types: ["Ride"]` coach saw an empty cycling history (2026-08-27).
+#[test]
+fn ride_filter_covers_the_whole_cycling_family() {
+    let filtered = filter_activities_by_sport_type(cycling_activities(), Some("ride"));
+    let mut names: Vec<&str> = filtered.iter().map(Activity::name).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec![
+            "Chemin du Roy",
+            "Commute assisté",
+            "Grosse boucane sul moteur",
+            "Réveil matin",
+            "Zwift sweet spot",
+        ],
+        "'ride' must cover Ride, MountainBike, GravelRide, EbikeRide and VirtualRide, and only those"
+    );
+}
+
+#[test]
+fn french_velo_filter_covers_the_whole_cycling_family() {
+    let filtered = filter_activities_by_sport_type(cycling_activities(), Some("vélo"));
+    assert_eq!(
+        filtered.len(),
+        5,
+        "'vélo' resolves to Ride and must cover the same family, got {filtered:?}"
+    );
+}
+
+/// The mirror of the run-family rule: a *specific* discipline stays exact.
+#[test]
+fn a_specific_cycling_filter_stays_exact() {
+    let filtered = filter_activities_by_sport_type(cycling_activities(), Some("gravel"));
+    assert_eq!(filtered.len(), 1, "'gravel' must keep only the gravel ride");
+    assert_eq!(filtered[0].name(), "Chemin du Roy");
+
+    let filtered = filter_activities_by_sport_type(cycling_activities(), Some("vtt"));
+    assert_eq!(
+        filtered.len(),
+        1,
+        "'vtt' must keep only the mountain-bike ride"
+    );
+    assert_eq!(filtered[0].name(), "Réveil matin");
+}
+
+/// The incident shape: a mountain-bike ride must survive a generic ride ask.
+#[test]
+fn a_mountain_bike_ride_survives_a_generic_ride_filter() {
+    let filtered = filter_activities_by_sport_type(seeded_activities(), Some("ride"));
+    assert_eq!(
+        filtered.len(),
+        1,
+        "the MTB session must not vanish from a 'ride' window, got {filtered:?}"
+    );
+    assert_eq!(filtered[0].name(), "Fin de ma job de testeur");
+}
