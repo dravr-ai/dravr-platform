@@ -39,14 +39,22 @@ export async function loginWithCredentials(
     // Use a longer timeout for CI environments where server startup may be slower
     const loginTimeout = process.env.CI ? 30000 : 15000;
 
-    // First, check if an error message appears quickly (within 5 seconds)
+    // First, check if an error message appears quickly (within 5 seconds).
+    //
+    // Matched on the ARIA role the login form actually publishes, not on a
+    // utility class. `.bg-red-50` had stopped existing in Login.tsx — the error
+    // banner carries `role="alert"` and paints from a CSS custom property — so
+    // this probe could only ever time out, and a genuinely failed login fell
+    // through to the form-disappear wait and burned the full test timeout
+    // instead of reporting in five seconds. A role is part of the contract the
+    // page owes a screen reader; a Tailwind class is a restyle away from gone.
     console.log('[Login] Checking for error message...');
-    const errorAppeared = await page.waitForSelector('.bg-red-50', { timeout: 5000 })
+    const errorAppeared = await page.waitForSelector('[role="alert"]', { timeout: 5000 })
       .then(() => true)
       .catch(() => false);
 
     if (errorAppeared) {
-      const errorElement = page.locator('.bg-red-50');
+      const errorElement = page.locator('[role="alert"]');
       const errorText = await errorElement.textContent().catch(() => 'Unknown error');
       console.log(`[Login] Error appeared: ${errorText}`);
       return { success: false, error: errorText || 'Login failed' };

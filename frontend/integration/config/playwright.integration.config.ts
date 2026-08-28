@@ -36,6 +36,18 @@ export default defineConfig({
 
   use: {
     baseURL: 'http://localhost:5173',
+    // The product default is French (`DEFAULT_LANGUAGE` in @pierre/i18n), so an
+    // unauthenticated first paint renders "Se connecter", not "Sign in". These
+    // specs assert English copy, so they state the language they are testing
+    // instead of depending on the chrome being untranslated — the same pin the
+    // e2e suite carries, on this suite's own origin (5173, not e2e's 5174).
+    //
+    // Without it every auth spec waited 60s for a button that would never bear
+    // that name, and the retries walked the job into its 45-minute ceiling: the
+    // lane reported "cancelled", which reads as preempted rather than broken,
+    // and stayed unvalidated on main for eight consecutive runs after the
+    // athlete-facing i18n change (2026-08-27).
+    storageState: path.join(__dirname, 'storage-state.json'),
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
