@@ -41,7 +41,7 @@ describe('client locale corpus', () => {
     expect(defaultI18nConfig.fallbackLng).toBe('fr');
   });
 
-  it('carries the same 1061 keys in every locale', () => {
+  it('carries the same 1062 keys in every locale', () => {
     // 201 before the Chat-First Cutover retired the 23-key `social`
     // namespace with the feature it named, and 178 until the 14-key
     // `insights` namespace was dropped for the same reason — it outlived the
@@ -49,8 +49,14 @@ describe('client locale corpus', () => {
     // and Settings brought the rest across: profile, password, tokens,
     // credentials, account and about, plus the provider strings that
     // surface owns. The number only moves when a surface does.
+    //
+    // 1061 until `notifPrefs.loadFailedMobile` joined it: the notification
+    // preferences screen exists on both surfaces and shares every other string,
+    // but its load failure cannot — the web copy says "reload the page", and a
+    // phone has no page to reload. One key, five locales, because a surface
+    // gained a sentence rather than a feature.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(1061);
+    expect(reference).toHaveLength(1062);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

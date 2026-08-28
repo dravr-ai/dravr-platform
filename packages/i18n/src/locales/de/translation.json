@@ -557,6 +557,7 @@
   "notifPrefs": {
     "title": "Benachrichtigungen",
     "loadFailed": "Deine Benachrichtigungseinstellungen konnten nicht geladen werden. Lade die Seite neu und versuch es erneut.",
+    "loadFailedMobile": "Deine Benachrichtigungseinstellungen konnten nicht geladen werden. Geh zurück und versuch es erneut.",
     "loading": "Benachrichtigungseinstellungen werden geladen…",
     "maxPerDay": "Maximal pro Tag",
     "off": "Aus",

@@ -557,6 +557,7 @@
   "notifPrefs": {
     "title": "Notifications",
     "loadFailed": "Could not load your notification preferences. Reload the page to try again.",
+    "loadFailedMobile": "Could not load your notification preferences. Go back and try again.",
     "loading": "Loading notification preferences…",
     "maxPerDay": "Max per day",
     "off": "Off",

@@ -28,18 +28,20 @@ import { useTranslation } from '@pierre/i18n';
 /**
  * What each category actually sends, in the athlete's words.
  *
- * Kept identical to the web tab's copy: the two surfaces describe the same
- * switch, so a difference here would be a difference in what the athlete
- * believes muting costs them.
+ * Keys, not copy, and identical to the web tab's map: the two surfaces describe
+ * the same switch, so a difference here would be a difference in what the
+ * athlete believes muting costs them. Holding the English sentences inline was
+ * that difference — the default locale is French, so this screen described every
+ * category in a language the rest of the screen was not speaking.
  */
-const CATEGORY_BLURB: Record<NotificationCategory, string> = {
-  training: 'Planned sessions, workout reminders and training-load changes.',
-  recovery: 'Sleep, HRV and readiness alerts from your connected devices.',
-  coach: 'Messages your coach sends you, including commitment check-ins.',
-  achievement: 'Personal bests, streaks and milestones.',
-  system: 'Account, connection and service notices.',
-  ai: 'Proactive insights your coach surfaces between conversations.',
-  reminders: 'Anything you asked to be reminded about.',
+const CATEGORY_BLURB_KEYS: Record<NotificationCategory, string> = {
+  training: 'notifPrefs.blurbTraining',
+  recovery: 'notifPrefs.blurbRecovery',
+  coach: 'notifPrefs.blurbCoach',
+  achievement: 'notifPrefs.blurbAchievement',
+  system: 'notifPrefs.blurbSystem',
+  ai: 'notifPrefs.blurbAi',
+  reminders: 'notifPrefs.blurbReminders',
 };
 
 /** Quiet-hours boundaries on the hour, plus "Off" as an empty value. */
@@ -57,10 +59,15 @@ function localTimezone(): string {
   }
 }
 
-/** Label for one daily-cap choice. */
-function capLabel(choice: number | null): string {
-  if (choice === null) return 'No limit';
-  return choice === 1 ? '1/day' : `${choice}/day`;
+/**
+ * Label for one daily-cap choice.
+ *
+ * Takes `t` rather than reading a module-level instance: the caller is inside
+ * the component, so the label re-renders when the athlete changes language.
+ */
+function capLabel(choice: number | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  if (choice === null) return t('frag.noLimit');
+  return choice === 1 ? t('frag.perDayOne') : t('frag.perDayN', { count: choice });
 }
 
 /**
@@ -132,7 +139,7 @@ export function NotificationPreferencesScreen() {
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>
-          Notifications
+          {t('notifPrefs.title')}
         </Text>
       </View>
 
@@ -146,14 +153,13 @@ export function NotificationPreferencesScreen() {
             style={{ color: colors.text.secondary, textAlign: 'center' }}
             testID="notification-prefs-error"
           >
-            Could not load your notification preferences. Pull back and try again.
+            {t('notifPrefs.loadFailedMobile')}
           </Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
           <Text style={{ fontSize: 14, color: colors.text.tertiary, lineHeight: 20 }}>
-            Choose what reaches you, when it may arrive, and how often. These settings apply to push
-            notifications and to anything your coach sends you between conversations.
+            {t('notifPrefs.intro')}
           </Text>
 
           <View style={cardStyle} testID="notification-prefs-list">
@@ -192,7 +198,9 @@ export function NotificationPreferencesScreen() {
                         {meta ? t(meta.labelKey) : pref.category}
                       </Text>
                       <Text style={{ fontSize: 13, color: colors.text.tertiary, marginTop: 2 }}>
-                        {CATEGORY_BLURB[pref.category] ?? 'Notifications in this category.'}
+                        {CATEGORY_BLURB_KEYS[pref.category]
+                          ? t(CATEGORY_BLURB_KEYS[pref.category])
+                          : t('notifPrefs.categoryBlurbFallback')}
                       </Text>
                     </View>
                     <Switch
@@ -217,7 +225,7 @@ export function NotificationPreferencesScreen() {
                       style={{ paddingHorizontal: 16, paddingBottom: 12 }}
                     >
                       <Text style={{ fontSize: 13, color: colors.pierre.violet }}>
-                        {isOpen ? 'Hide quiet hours & limit' : 'Quiet hours & limit'}
+                        {isOpen ? t('notifPrefs.hideQuietHours') : t('notifPrefs.quietHoursAndLimit')}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -225,8 +233,18 @@ export function NotificationPreferencesScreen() {
                   {pref.enabled && isOpen && (
                     <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
                       <View>
-                        <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 6 }}>
-                          MAX PER DAY
+                        <Text style={{
+                            fontSize: 12,
+                            color: colors.text.tertiary,
+                            marginBottom: 6,
+                            // The literals here were typed in capitals; the
+                            // corpus strings are sentence case, so the capitals
+                            // move to the style where they belong. Uppercasing
+                            // the string instead would have shouted in five
+                            // languages whose rules for it are not English's.
+                            textTransform: 'uppercase',
+                          }}>
+                          {t('notifPrefs.maxPerDay')}
                         </Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                           {NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => (
@@ -251,7 +269,7 @@ export function NotificationPreferencesScreen() {
                                       : colors.text.secondary,
                                 }}
                               >
-                                {capLabel(choice)}
+                                {capLabel(choice, t)}
                               </Text>
                             </TouchableOpacity>
                           ))}
@@ -259,8 +277,18 @@ export function NotificationPreferencesScreen() {
                       </View>
 
                       <View>
-                        <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 6 }}>
-                          QUIET FROM
+                        <Text style={{
+                            fontSize: 12,
+                            color: colors.text.tertiary,
+                            marginBottom: 6,
+                            // The literals here were typed in capitals; the
+                            // corpus strings are sentence case, so the capitals
+                            // move to the style where they belong. Uppercasing
+                            // the string instead would have shouted in five
+                            // languages whose rules for it are not English's.
+                            textTransform: 'uppercase',
+                          }}>
+                          {t('notifPrefs.quietFrom')}
                         </Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                           {QUIET_HOUR_VALUES.map((value) => (
@@ -286,7 +314,7 @@ export function NotificationPreferencesScreen() {
                                       : colors.text.secondary,
                                 }}
                               >
-                                {value === '' ? 'Off' : value}
+                                {value === '' ? t('notifPrefs.off') : value}
                               </Text>
                             </TouchableOpacity>
                           ))}
@@ -294,8 +322,18 @@ export function NotificationPreferencesScreen() {
                       </View>
 
                       <View>
-                        <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 6 }}>
-                          QUIET UNTIL
+                        <Text style={{
+                            fontSize: 12,
+                            color: colors.text.tertiary,
+                            marginBottom: 6,
+                            // The literals here were typed in capitals; the
+                            // corpus strings are sentence case, so the capitals
+                            // move to the style where they belong. Uppercasing
+                            // the string instead would have shouted in five
+                            // languages whose rules for it are not English's.
+                            textTransform: 'uppercase',
+                          }}>
+                          {t('notifPrefs.quietUntil')}
                         </Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                           {QUIET_HOUR_VALUES.map((value) => (
@@ -321,7 +359,7 @@ export function NotificationPreferencesScreen() {
                                       : colors.text.secondary,
                                 }}
                               >
-                                {value === '' ? 'Off' : value}
+                                {value === '' ? t('notifPrefs.off') : value}
                               </Text>
                             </TouchableOpacity>
                           ))}

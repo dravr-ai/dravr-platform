@@ -557,6 +557,7 @@
   "notifPrefs": {
     "title": "Notifications",
     "loadFailed": "Impossible de charger tes préférences de notification. Recharge la page pour réessayer.",
+    "loadFailedMobile": "Impossible de charger tes préférences de notification. Reviens en arrière pour réessayer.",
     "loading": "Chargement des préférences de notification…",
     "maxPerDay": "Maximum par jour",
     "off": "Désactivé",
