@@ -135,13 +135,20 @@ describe('carnet #64 — mobile MCP token revocation', () => {
     const confirm = (Alert.alert as jest.Mock).mock.calls.at(-1) as [
       string,
       string,
-      Array<{ text: string; onPress?: () => void }>,
+      Array<{ text: string; style?: string; onPress?: () => void }>,
     ];
     expect(confirm[0]).toBe('Revoke Token');
     expect(confirm[1]).toContain('Vieux portable');
 
+    // Found by its ROLE, not its label. The label is a corpus string now, and
+    // this screen renders in the app's default locale — French — so matching
+    // on "Revoke" silently found nothing and `?.onPress?.()` swallowed it: the
+    // test passed its earlier assertions and then reported no DELETE at all.
+    const confirmButton = confirm[2].find((button) => button.style === 'destructive');
+    expect(confirmButton).toBeDefined();
+
     await act(async () => {
-      await confirm[2].find((button) => button.text === 'Revoke')?.onPress?.();
+      await confirmButton?.onPress?.();
     });
 
     // The revoke hit the per-token endpoint...
