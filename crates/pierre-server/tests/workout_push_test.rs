@@ -30,7 +30,8 @@ use anyhow::Result;
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc, Weekday};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{
-    CalendarEventSource, CalendarKey, ConnectionType, PrescribedWorkout, TenantId, UserOAuthToken,
+    CalendarEventSource, CalendarKey, ConnectionType, PrescribedWorkout, SportType, TenantId,
+    UserOAuthToken, WorkoutStep,
 };
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{BlockPhase, GoalRace, PlanBlock, PlannedDay, RacePriority};
@@ -533,11 +534,31 @@ fn planned(
         workout: workout.to_owned(),
         duration_min: minutes,
         intensity: intensity.to_owned(),
+        steps: Vec::new(),
     }
 }
 
 fn rest_day(date: NaiveDate) -> PlannedDay {
     planned(date, "rest", "", None, "")
+}
+
+/// The steps of a threshold session as a coach states them: 15 min warm-up,
+/// 3 × (8 min on / 4 min off), 10 min cool-down — 61 minutes.
+fn threshold_steps() -> Vec<WorkoutStep> {
+    let step = |label: &str, seconds: u32, zone: &str, repeat: u32| WorkoutStep {
+        label: label.to_owned(),
+        duration_seconds: seconds,
+        distance_meters: None,
+        target_zone: zone.to_owned(),
+        repeat,
+        note: None,
+    };
+    vec![
+        step("Warm-up", 900, "Z1", 1),
+        step("Work", 480, "88-93% FTP", 3),
+        step("Recovery", 240, "Z1", 3),
+        step("Cool-down", 600, "Z1", 1),
+    ]
 }
 
 fn iso(date: NaiveDate) -> String {
@@ -1379,6 +1400,93 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
         .await
         .expect_err("a plan entry is withdrawn by adjusting the plan");
     assert!(format!("{err:?}").contains("training plan"), "got: {err:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result<()> {
+    // carnet#125: Phil's first real push landed four days with the right sport
+    // and duration and a week header reading "Load 0" — interval structure
+    // stated as prose reaches Intervals.icu as a timed entry it cannot build
+    // a workout from. A day saved with steps goes out as the workout-builder
+    // DSL, repeats grouped into one block, so the provider computes the load.
+    let stub = stub_live(2000).await;
+    let fixture = fixture(&stub.base_url, true).await?;
+    let user = fixture.user_id;
+    let monday = next_plan_monday();
+    let d = |offset: i64| monday + Duration::days(offset);
+    let workout = "Threshold 3x8. Keep the recoveries easy";
+    let mut structured = planned(d(2), "vélo", workout, Some(61), "Z4");
+    structured.steps = threshold_steps();
+    fixture
+        .save_weeks(
+            true,
+            &[(
+                d(0),
+                "",
+                vec![
+                    planned(d(0), "vélo", "Endurance", Some(60), "Z2"),
+                    structured,
+                ],
+            )],
+        )
+        .await;
+
+    let report = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(report["created"].as_u64(), Some(2), "got: {report}");
+
+    let key = CalendarKey::plan_day(user, d(2), 0);
+    let event = stub
+        .event_by_key(&key)
+        .await
+        .expect("the structured day is on the calendar");
+    assert_eq!(
+        event.body["moving_time"].as_u64(),
+        Some(3660),
+        "summed from the steps, not read from the day"
+    );
+    let text = event.body["description"].as_str().unwrap_or_default();
+    assert!(text.starts_with(workout), "coach prose first; got: {text}");
+    assert!(
+        text.contains(
+            "- Warm-up 15m Z1\n\n3x\n- Work 8m 88-93%\n- Recovery 4m Z1\n\n- Cool-down 10m Z1"
+        ),
+        "the workout-builder DSL with the repeats as one block; got: {text}"
+    );
+
+    // The coach re-saves the day without its steps: the calendar follows,
+    // visibly — one update, a prose-only entry — rather than keeping a
+    // structure the plan no longer states.
+    fixture
+        .save_weeks(
+            false,
+            &[(
+                d(0),
+                "",
+                vec![
+                    planned(d(0), "vélo", "Endurance", Some(60), "Z2"),
+                    planned(d(2), "vélo", workout, Some(61), "Z4"),
+                ],
+            )],
+        )
+        .await;
+    let again = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(again["updated"].as_u64(), Some(1), "got: {again}");
+    assert_eq!(again["unchanged"].as_u64(), Some(1), "got: {again}");
+    let event = stub
+        .event_by_key(&key)
+        .await
+        .expect("still on the calendar");
+    let text = event.body["description"].as_str().unwrap_or_default();
+    assert_eq!(event.body["moving_time"].as_u64(), Some(3660));
+    assert!(
+        !text.lines().any(|line| line == "3x"),
+        "no repeat block once the steps are gone; got: {text}"
+    );
+    assert!(
+        text.ends_with(&format!("\n\n- {} 61m Z4", SportType::Ride.display_name())),
+        "back to the single intensity step, cued by the sport; got: {text}"
+    );
     Ok(())
 }
 

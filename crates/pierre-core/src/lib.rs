@@ -63,6 +63,9 @@ pub mod feature_flags;
 /// Character-based LLM token estimation (single source of truth for the ~4 chars/token heuristic)
 pub mod tokens;
 
+/// Deserializers that accept a whole-valued float where a schema declares an integer
+pub mod serde_num;
+
 /// Plain-text markdown stripper for messaging output
 pub mod markdown;
 

@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Datelike, NaiveDate};
-use pierre_core::models::{ConversationRecord, Pillar, TenantId};
+use pierre_core::models::{ConversationRecord, Pillar, TenantId, WorkoutStep};
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
 };
@@ -34,12 +34,13 @@ use pierre_memory::training_plans::{
 use pierre_memory::{FactKind, FactSource, MemoryScope};
 use pierre_services::ramp_check::assess_ramp;
 use pierre_services::training_plan_render::plan_goal_is_stale;
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::warn;
 
+use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN};
 use super::training_plan_push::{calendar_block, calendar_preview_after_save};
+use super::training_plan_schema::{outline_schema, parse_payload_part, string_prop, weeks_schema};
 use super::training_plan_telemetry::{
     athlete_today, emit_coverage_check, emit_plan_saved, emit_ramp_verdict, ramp_baseline,
 };
@@ -87,281 +88,6 @@ fn ctx_user_id(context: &ToolExecutionContext) -> String {
     context.user_id.to_string()
 }
 
-/// String schema property with a description.
-fn string_prop(description: &str) -> PropertySchema {
-    PropertySchema {
-        property_type: "string".to_owned(),
-        description: Some(description.to_owned()),
-        ..Default::default()
-    }
-}
-
-/// Number schema property with a description.
-fn number_prop(description: &str) -> PropertySchema {
-    PropertySchema {
-        property_type: "number".to_owned(),
-        description: Some(description.to_owned()),
-        ..Default::default()
-    }
-}
-
-/// Integer schema property with a description. Whole-valued floats are
-/// still accepted at deserialization (LLM callers emit 60.0 for integers).
-fn integer_prop(description: &str) -> PropertySchema {
-    PropertySchema {
-        property_type: "integer".to_owned(),
-        description: Some(description.to_owned()),
-        ..Default::default()
-    }
-}
-
-/// Object schema property with nested fields.
-fn object_prop(
-    description: &str,
-    properties: HashMap<String, PropertySchema>,
-    required: Vec<String>,
-) -> PropertySchema {
-    PropertySchema {
-        property_type: "object".to_owned(),
-        description: Some(description.to_owned()),
-        properties: Some(properties),
-        required: Some(required),
-        ..Default::default()
-    }
-}
-
-/// Array schema property with an item schema.
-fn array_prop(description: &str, items: PropertySchema) -> PropertySchema {
-    PropertySchema {
-        property_type: "array".to_owned(),
-        description: Some(description.to_owned()),
-        items: Some(Box::new(items)),
-        ..Default::default()
-    }
-}
-
-/// Schema for one race entry (goal or secondary).
-fn race_schema(description: &str) -> PropertySchema {
-    let mut p = HashMap::new();
-    p.insert(
-        "name".to_owned(),
-        string_prop("Race name as the athlete calls it."),
-    );
-    p.insert("date".to_owned(), string_prop("Race date, YYYY-MM-DD."));
-    p.insert(
-        "discipline".to_owned(),
-        string_prop("Discipline: gravel, xco, road, trail run, …"),
-    );
-    p.insert(
-        "priority".to_owned(),
-        string_prop("A = goal race, B = tune-up, C = training race."),
-    );
-    object_prop(
-        description,
-        p,
-        vec![
-            "name".to_owned(),
-            "date".to_owned(),
-            "discipline".to_owned(),
-            "priority".to_owned(),
-        ],
-    )
-}
-
-/// Schema for one outline block.
-fn block_schema() -> PropertySchema {
-    let mut p = HashMap::new();
-    p.insert(
-        "phase".to_owned(),
-        string_prop("One of: rest | base | build | peak | taper."),
-    );
-    p.insert(
-        "start".to_owned(),
-        string_prop("Block start date, YYYY-MM-DD."),
-    );
-    p.insert("weeks".to_owned(), integer_prop("Block length in weeks."));
-    p.insert(
-        "intent".to_owned(),
-        string_prop("What this block is for, in coach voice."),
-    );
-    p.insert(
-        "target_hours".to_owned(),
-        number_prop("Optional target weekly volume in hours."),
-    );
-    object_prop(
-        "One training block (mesocycle).",
-        p,
-        vec![
-            "phase".to_owned(),
-            "start".to_owned(),
-            "weeks".to_owned(),
-            "intent".to_owned(),
-        ],
-    )
-}
-
-/// Schema for one planned day.
-fn day_schema() -> PropertySchema {
-    let mut p = HashMap::new();
-    p.insert("date".to_owned(), string_prop("Day date, YYYY-MM-DD."));
-    p.insert(
-        "sport".to_owned(),
-        string_prop("Sport (mtb, gravel, run, …) or 'rest'."),
-    );
-    p.insert(
-        "workout".to_owned(),
-        string_prop("What to do, in coach voice."),
-    );
-    p.insert(
-        "duration_min".to_owned(),
-        integer_prop("Planned duration in minutes; omit for rest days."),
-    );
-    p.insert(
-        "intensity".to_owned(),
-        string_prop(
-            "Intensity RELATIVE to thresholds ('Z2', '3x8min @ 88-93% FTP'). Never absolute watts.",
-        ),
-    );
-    object_prop(
-        "One prescribed day.",
-        p,
-        vec!["date".to_owned(), "sport".to_owned(), "workout".to_owned()],
-    )
-}
-
-/// Schema for the outline half of the save payload.
-///
-/// A named function rather than an inline block so the rejection skeleton in
-/// [`shape_hint`] is generated from the very schema the tool advertises. A
-/// hand-written copy of the expected shape would be free to drift from what
-/// the deserializer actually accepts, which is the whole defect being fixed.
-fn outline_schema() -> PropertySchema {
-    let mut p = HashMap::new();
-    p.insert(
-        "goal_race".to_owned(),
-        race_schema("The goal (A) race this plan builds toward."),
-    );
-    p.insert(
-        "races".to_owned(),
-        array_prop(
-            "Other races on the calendar (B/C priorities).",
-            race_schema("A secondary race."),
-        ),
-    );
-    p.insert(
-        "strategy".to_owned(),
-        string_prop(
-            "The coach's strategy in prose — what the athlete sees as the long-term direction.",
-        ),
-    );
-    p.insert(
-        "blocks".to_owned(),
-        array_prop(
-            "Ordered training blocks from now to the goal race. Omit for a short plan that has no mesocycle structure.",
-            block_schema(),
-        ),
-    );
-    // `blocks` is deliberately absent from the required list: a two-week
-    // "hold form then taper" plan has no mesocycle structure, and demanding
-    // one forced the coach to invent phase/start/weeks/intent before any plan
-    // could be saved at all. The outline still needs a race to aim at and a
-    // stated strategy.
-    object_prop(
-        "The plan outline (goal race + strategy, optionally blocks). Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan.",
-        p,
-        vec!["goal_race".to_owned(), "strategy".to_owned()],
-    )
-}
-
-/// Schema for the `weeks` half of the save payload.
-fn weeks_schema() -> PropertySchema {
-    array_prop(
-        "Day-by-day weeks to save. Send the full multi-week detail when the athlete asks to see the whole plan; send a single adjusted week for 'move Tuesday to Wednesday' changes.",
-        week_schema(),
-    )
-}
-
-/// A shape-correct JSON skeleton for `prop`, each leaf carrying its own
-/// description as the placeholder value.
-///
-/// Handed back when a payload fails to deserialize so the model's next
-/// iteration can see the exact field names it got wrong — the tool loop runs
-/// another LLM turn after a tool error, so an actionable rejection can convert
-/// into a successful save within the same turn. Using the description as the
-/// placeholder keeps the format hints ("Race date, YYYY-MM-DD.") in the hint
-/// itself rather than stripping them to an empty string.
-fn shape_hint(prop: &PropertySchema) -> Value {
-    match prop.property_type.as_str() {
-        "object" => {
-            let mut map = serde_json::Map::new();
-            if let Some(props) = prop.properties.as_ref() {
-                for (name, child) in props {
-                    map.insert(name.clone(), shape_hint(child));
-                }
-            }
-            Value::Object(map)
-        }
-        "array" => prop
-            .items
-            .as_ref()
-            .map_or_else(|| json!([]), |item| json!([shape_hint(item)])),
-        "integer" => json!(0),
-        "number" => json!(0.0),
-        "boolean" => json!(false),
-        _ => Value::String(prop.description.clone().unwrap_or_default()),
-    }
-}
-
-/// Deserialize one half of the save payload, turning a shape mismatch into a
-/// message that carries the schema the tool actually accepts.
-///
-/// `Ok(None)` when the field was simply not sent — both halves are optional on
-/// their own, and "nothing to save" is caught separately.
-fn parse_payload_part<T: DeserializeOwned>(
-    raw: Option<&Value>,
-    field: &str,
-    schema: &PropertySchema,
-) -> Result<Option<T>, String> {
-    let Some(value) = raw.filter(|v| !v.is_null()) else {
-        return Ok(None);
-    };
-    serde_json::from_value(value.clone())
-        .map(Some)
-        .map_err(|e| {
-            format!(
-                "`{field}` does not match the schema: {e}. Send exactly this shape \
-                 (each value below describes the field): {}",
-                shape_hint(schema)
-            )
-        })
-}
-
-/// Schema for one week entry in the save payload.
-fn week_schema() -> PropertySchema {
-    let mut p = HashMap::new();
-    p.insert(
-        "week_start".to_owned(),
-        string_prop("Date of the week's first day, YYYY-MM-DD."),
-    );
-    p.insert(
-        "focus".to_owned(),
-        string_prop("The week's intent in one line."),
-    );
-    p.insert(
-        "days".to_owned(),
-        array_prop("The day rows, in date order (max 7).", day_schema()),
-    );
-    p.insert(
-        "adjustment_reason".to_owned(),
-        string_prop("Why this week is being re-saved; omit on first save."),
-    );
-    object_prop(
-        "One week of day-by-day prescriptions. Re-saving a week_start supersedes the previous version (prospective adjustment).",
-        p,
-        vec!["week_start".to_owned(), "days".to_owned()],
-    )
-}
-
 // ============================================================================
 // Save payload deserialization
 // ============================================================================
@@ -398,7 +124,6 @@ struct WeekPayload {
 /// plan hits them.
 const MAX_STRATEGY_LEN: usize = 4_000;
 const MAX_TEXT_LEN: usize = 1_000;
-const MAX_SHORT_TEXT_LEN: usize = 200;
 const MAX_RACES: usize = 12;
 const MAX_BLOCKS: usize = 24;
 /// Two full seasons. The longest real single-payload plan is one season (52
@@ -423,17 +148,6 @@ const MAX_DURATION_MIN: u32 = 24 * 60;
 /// overflow rather than merely unlikely.
 const MIN_PLAN_YEAR: i32 = 1000;
 const MAX_PLAN_YEAR: i32 = 9999;
-
-/// Reject a text field longer than `max` Unicode scalar values.
-fn bounded(field: &str, value: &str, max: usize) -> AppResult<()> {
-    let len = value.chars().count();
-    if len > max {
-        return Err(AppError::invalid_input(format!(
-            "{field} is too long ({len} chars; max {max})"
-        )));
-    }
-    Ok(())
-}
 
 /// Parse a plan date, accepting only a canonical `YYYY-MM-DD` inside the
 /// calendar domain plans are rendered in (see [`MIN_PLAN_YEAR`]).
@@ -513,8 +227,11 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
     Ok(())
 }
 
-/// Validate one week payload (dates, day count, day dates inside the week).
-fn validate_week(week: &WeekPayload) -> AppResult<()> {
+/// Validate one week payload (dates, day count, day dates inside the week,
+/// step bounds), and complete a structured day's `duration_min` from its
+/// steps when the coach left it out — the stored day never contradicts its
+/// own structure, and a stated duration that does is refused.
+fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
     let start = plan_date("week_start", &week.week_start)?;
     if week.days.is_empty() {
         return Err(AppError::invalid_input(format!(
@@ -535,7 +252,7 @@ fn validate_week(week: &WeekPayload) -> AppResult<()> {
         &week.adjustment_reason,
         MAX_TEXT_LEN,
     )?;
-    for day in &week.days {
+    for day in &mut week.days {
         let date = plan_date("day date", &day.date)?;
         let offset = (date - start).num_days();
         if !(0..7).contains(&offset) {
@@ -560,6 +277,49 @@ fn validate_week(week: &WeekPayload) -> AppResult<()> {
                     day.date
                 )));
             }
+        }
+        if day.steps.is_empty() {
+            continue;
+        }
+        if day.is_rest() {
+            return Err(AppError::invalid_input(format!(
+                "day {} is a rest day and carries steps — drop the steps or give the day a sport",
+                day.date
+            )));
+        }
+        if day.steps.len() > MAX_SESSION_STEPS {
+            return Err(AppError::invalid_input(format!(
+                "day {} has {} steps; max {MAX_SESSION_STEPS}",
+                day.date,
+                day.steps.len()
+            )));
+        }
+        for (index, step) in day.steps.iter().enumerate() {
+            validate_step(
+                &format!("day {} steps[{index}]", day.date),
+                step,
+                TargetRule::Resolvable,
+            )?;
+        }
+        let minutes = WorkoutStep::total_seconds(&day.steps).div_ceil(60);
+        if minutes > u64::from(MAX_DURATION_MIN) {
+            return Err(AppError::invalid_input(format!(
+                "day {} steps total {minutes} minutes; max {MAX_DURATION_MIN}",
+                day.date
+            )));
+        }
+        let minutes = u32::try_from(minutes)
+            .map_err(|e| AppError::internal(format!("day duration does not fit in u32: {e}")))?;
+        match day.duration_min {
+            Some(stated) if stated != minutes => {
+                return Err(AppError::invalid_input(format!(
+                    "day {} duration_min {stated} contradicts its steps, which total {minutes} \
+                     minutes — omit duration_min or make it {minutes}",
+                    day.date
+                )));
+            }
+            Some(_) => {}
+            None => day.duration_min = Some(minutes),
         }
     }
     Ok(())
@@ -888,7 +648,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         };
         tool_definition(
             "save_training_plan",
-            "Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan.",
+            "Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan.",
             schema,
             Some(write_annotations()),
         )
@@ -931,7 +691,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                         None
                     }
                 };
-            let weeks: Vec<WeekPayload> =
+            let mut weeks: Vec<WeekPayload> =
                 match parse_payload_part(args.get("weeks"), "weeks", &weeks_schema()) {
                     Ok(parsed) => parsed.unwrap_or_default(),
                     Err(message) => {
@@ -958,7 +718,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     weeks.len()
                 )));
             }
-            for week in &weeks {
+            for week in &mut weeks {
                 validate_week(week)?;
             }
 

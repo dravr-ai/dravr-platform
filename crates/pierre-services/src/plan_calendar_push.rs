@@ -13,10 +13,11 @@
 //! becomes one [`PlannedSession`] keyed by [`CalendarKey::plan_day`]; a plan
 //! week with a focus becomes one week note keyed by
 //! [`CalendarKey::plan_week_note`]. The mapping is deterministic and holds no
-//! model in the loop: the coach's prose goes out verbatim, and a day gets a
-//! single structured step only when its `intensity` is inside
-//! [`RelativeIntensity`]'s grammar — otherwise it is a timed entry carrying the
-//! coach's words, never a step the coach did not state.
+//! model in the loop: the coach's prose goes out verbatim, and the structure
+//! beside it is only what the coach stated — a day's `steps` when it has
+//! them, else a single step when its `intensity` is inside
+//! [`RelativeIntensity`]'s grammar, else a timed entry carrying the coach's
+//! words, never a step the coach did not state.
 //!
 //! **Reconciling.** Desired sessions are diffed against the ledger's live rows
 //! for the same provider and against what the provider's calendar actually
@@ -124,7 +125,13 @@ fn day_title(workout: &str, sport: &SportType) -> String {
 /// Render one plan day as a calendar session, or `None` for a rest day or a
 /// day whose date is not a plan date.
 ///
-/// LIMITATION(registre#125): `plan_day_session` renders a `PlannedDay` into at most one step — a plan day carries no structured steps, so interval structure in its prose reaches intervals.icu as a timed entry rather than as workout-builder steps, and no planned load is computed for it.
+/// A day with `steps` is the structured case: the steps go out as they are
+/// and the session lasts as long as they add up to, which is what lets the
+/// provider build the workout and compute its planned load. A day without
+/// them gets one structured step only when the coach stated an intensity
+/// Dravr can express as a target; the sport name is the cue because a cue
+/// drawn from the prose could carry a "2h" the provider's parser would read
+/// as a duration.
 #[must_use]
 pub fn plan_day_session(user_id: Uuid, day: &PlannedDay, ordinal: usize) -> Option<PlannedSession> {
     if day.is_rest() {
@@ -141,24 +148,28 @@ pub fn plan_day_session(user_id: Uuid, day: &PlannedDay, ordinal: usize) -> Opti
         }
         notes.push_str(intensity);
     }
-    let duration_seconds = day
-        .duration_min
-        .filter(|minutes| *minutes > 0)
-        .map(|minutes| minutes.saturating_mul(60));
-    // One structured step only when the coach stated an intensity Dravr can
-    // express as a target; the sport name is the cue because a cue drawn from
-    // the prose could carry a "2h" the provider's parser would read as a
-    // duration.
-    let steps = match (duration_seconds, RelativeIntensity::parse(intensity)) {
-        (Some(seconds), Some(_)) => vec![WorkoutStep {
-            label: sport.display_name().to_owned(),
-            duration_seconds: seconds,
-            distance_meters: None,
-            target_zone: intensity.to_owned(),
-            repeat: 1,
-            note: None,
-        }],
-        _ => Vec::new(),
+    let (duration_seconds, steps) = if day.steps.is_empty() {
+        let duration_seconds = day
+            .duration_min
+            .filter(|minutes| *minutes > 0)
+            .map(|minutes| minutes.saturating_mul(60));
+        let steps = match (duration_seconds, RelativeIntensity::parse(intensity)) {
+            (Some(seconds), Some(_)) => vec![WorkoutStep {
+                label: sport.display_name().to_owned(),
+                duration_seconds: seconds,
+                distance_meters: None,
+                target_zone: intensity.to_owned(),
+                repeat: 1,
+                note: None,
+            }],
+            _ => Vec::new(),
+        };
+        (duration_seconds, steps)
+    } else {
+        // The save bounds a day at 24 hours, so the total fits; saturating
+        // is the honest answer for a row that somehow does not.
+        let total = u32::try_from(WorkoutStep::total_seconds(&day.steps)).unwrap_or(u32::MAX);
+        (Some(total), day.steps.clone())
     };
     Some(PlannedSession {
         external_id: CalendarKey::plan_day(user_id, date, ordinal),

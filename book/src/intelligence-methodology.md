@@ -527,7 +527,11 @@ When a session is written to a provider calendar (intervals.icu today), each ste
 | `75%`, `88-93%`, `88-93% FTP` (1–300) | `Percent { low, high }` | cycling `88-93%` · run / swim `88-93% Pace` · otherwise `88-93% HR` |
 | anything else (`3x8min @ 88-93% FTP`, `comfortably hard`, `250w`) | — | **no target**: the step goes out timed, carrying the coach's words |
 
-The target *family* follows the sport — power for every cycling discipline, pace for running and swimming, heart rate otherwise. intervals.icu resolves `Z2` against the athlete's own zones, so the platform sends **no numeric bounds**; the tables above remain the analytics-side definition. Source: `IntervalsIcuProvider::dsl_target` (`crates/pierre-providers/src/intervals_icu_provider.rs`) and `plan_calendar_push::plan_day_session` (`crates/pierre-services/src/plan_calendar_push.rs`), pinned by `crates/pierre-server/tests/plan_calendar_push_test.rs` and `workout_push_test.rs`.
+The target *family* follows the sport — power for every cycling discipline, pace for running and swimming, heart rate otherwise. A `pace` suffix (`Z2 pace`) names the family the sport already decides and is dropped; an en dash between a band's bounds (`88–93%`) reads as the hyphen. intervals.icu resolves `Z2` against the athlete's own zones, so the platform sends **no numeric bounds**; the tables above remain the analytics-side definition.
+
+**Which structure a plan day sends.** A plan day saved with `steps` — the same `WorkoutStep` vocabulary `prescribe_workout` pushes — goes out as those steps, repeats grouped into `Nx` blocks, with `moving_time` summed from them; every step's `target_zone` must sit inside the grammar above, and the save refuses one that does not, naming the vocabulary, because a step the provider cannot target earns no planned load. A day without steps gets one step only when its `intensity` is inside the grammar and it has a `duration_min`; otherwise it is a timed entry carrying the coach's words — never a step the coach did not state.
+
+Source: `IntervalsIcuProvider::dsl_target` (`crates/pierre-providers/src/intervals_icu_calendar.rs`), `plan_calendar_push::plan_day_session` (`crates/pierre-services/src/plan_calendar_push.rs`) and `implementations::calendar::validate_step` (`crates/pierre-tool-runtime/src/implementations/calendar.rs`), pinned by `crates/pierre-server/tests/plan_calendar_push_test.rs`, `training_plan_tools_test.rs` and `workout_push_test.rs`.
 
 ---
 

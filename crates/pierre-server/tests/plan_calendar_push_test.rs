@@ -14,7 +14,7 @@
 use chrono::{NaiveDate, Utc};
 use pierre_core::models::{
     CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind, PrescribedWorkout,
-    RelativeIntensity, SportType,
+    RelativeIntensity, SportType, WorkoutStep,
 };
 use pierre_memory::training_plans::{PlanWeek, PlannedDay, WeekStatus};
 use pierre_services::plan_calendar_push::{
@@ -39,11 +39,31 @@ fn day(
         workout: workout.to_owned(),
         duration_min: minutes,
         intensity: intensity.to_owned(),
+        steps: Vec::new(),
     }
 }
 
 fn rest(date: &str) -> PlannedDay {
     day(date, "rest", "", None, "")
+}
+
+/// The steps of a classic threshold session as a coach states them: 15 min
+/// warm-up, 3 × (8 min on / 4 min off), 10 min cool-down — 61 minutes.
+fn threshold_steps() -> Vec<WorkoutStep> {
+    let step = |label: &str, seconds: u32, zone: &str, repeat: u32| WorkoutStep {
+        label: label.to_owned(),
+        duration_seconds: seconds,
+        distance_meters: None,
+        target_zone: zone.to_owned(),
+        repeat,
+        note: None,
+    };
+    vec![
+        step("Warm-up", 900, "Z1", 1),
+        step("Work", 480, "88-93% FTP", 3),
+        step("Recovery", 240, "Z1", 3),
+        step("Cool-down", 600, "Z1", 1),
+    ]
 }
 
 fn week(id: &str, week_start: &str, focus: &str, days: Vec<PlannedDay>) -> PlanWeek {
@@ -169,6 +189,49 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
     assert!(untimed.steps.is_empty());
     assert_eq!(untimed.duration_seconds, None);
     assert!(plan_day_session(user, &rest("2026-09-10"), 0).is_none());
+}
+
+#[test]
+fn a_structured_day_renders_its_steps_and_sums_its_duration() {
+    let user = Uuid::new_v4();
+    let workout = "Threshold 3x8. Keep the recoveries easy";
+    let mut structured = day("2026-09-08", "vélo", workout, Some(61), "Z4");
+    structured.steps = threshold_steps();
+    assert_eq!(WorkoutStep::total_seconds(&structured.steps), 3660);
+
+    let session = plan_day_session(user, &structured, 0).expect("a structured day renders");
+    assert_eq!(
+        session.steps.len(),
+        4,
+        "the coach's steps, not one derived from the intensity"
+    );
+    assert_eq!(
+        session.steps[0].label, "Warm-up",
+        "the coach's cue, not the sport"
+    );
+    assert_eq!(session.steps[1].repeat, 3);
+    assert_eq!(session.steps[1].target_zone, "88-93% FTP");
+    assert_eq!(session.steps[2].duration_seconds, 240);
+    assert_eq!(
+        session.duration_seconds,
+        Some(3660),
+        "15 + 3×8 + 3×4 + 10 minutes, from the steps"
+    );
+    assert_eq!(session.notes, format!("{workout}\nZ4"));
+    assert_eq!(session.name, "Threshold 3x8");
+    assert_eq!(session.sport, SportType::Ride);
+
+    // Structure is content: the same day pushed as prose has a different
+    // hash, so a re-push after the coach adds steps updates the entry —
+    // and the prose day still gets its single intensity-derived step.
+    let prose =
+        plan_day_session(user, &day("2026-09-08", "vélo", workout, Some(61), "Z4"), 0).unwrap();
+    assert_eq!(prose.steps.len(), 1);
+    assert_eq!(prose.steps[0].label, SportType::Ride.display_name());
+    assert_ne!(
+        prose.payload_hash().unwrap(),
+        session.payload_hash().unwrap()
+    );
 }
 
 #[test]
@@ -330,6 +393,14 @@ fn the_intensity_grammar_is_closed() {
     assert_eq!(parsed("sweet spot"), Some(SweetSpot));
     assert_eq!(parsed("75%"), Some(Percent { low: 75, high: 75 }));
     assert_eq!(parsed("88-93% FTP"), Some(Percent { low: 88, high: 93 }));
+    // A pace-family label names what the sport already decides, and an en
+    // dash between a band's bounds is the hyphen a keyboard offered.
+    assert_eq!(parsed("Z2 pace"), Some(Zone(2)));
+    assert_eq!(parsed("zone 3 Pace"), Some(Zone(3)));
+    assert_eq!(
+        parsed("88\u{2013}93% FTP"),
+        Some(Percent { low: 88, high: 93 })
+    );
     // Outside the grammar: structure, inverted bands, absolute watts, prose.
     assert_eq!(parsed("3x8min @ 88-93% FTP"), None);
     assert_eq!(parsed("93-88%"), None);

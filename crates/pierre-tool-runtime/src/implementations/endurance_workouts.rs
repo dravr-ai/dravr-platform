@@ -23,7 +23,10 @@ use uuid::Uuid;
 use pierre_services::plan_calendar_push::CALENDAR_PROVIDER;
 use pierre_services::workout_library::{cornerstone_by_slug, cornerstone_templates};
 
-use super::calendar::{calendar_provider, destructive_annotations};
+use super::calendar::{
+    calendar_provider, destructive_annotations, required_text, step_schema, validate_step,
+    TargetRule, MAX_SESSION_STEPS,
+};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -39,18 +42,12 @@ use pierre_tools_core::ToolResult;
 const PRESCRIBE_TOOL: &str = "prescribe_workout";
 const WITHDRAW_TOOL: &str = "withdraw_prescribed_workout";
 
-/// Upper bounds on an inline session. A session is serialized into the audit
-/// row and rendered into the calendar event body, so an unbounded payload
-/// inflates both; these keep one degenerate call from doing that while staying
-/// far above any real coached session.
-const MAX_SESSION_STEPS: usize = 50;
-const MAX_STEP_REPEAT: u32 = 100;
-const MAX_STEP_DURATION_SECONDS: u32 = 6 * 60 * 60;
+/// Upper bounds on an inline session beyond the per-step ones in
+/// [`super::calendar`]: its name, and its total once the steps are summed. A
+/// session is serialized into the audit row and rendered into the calendar
+/// event body, so an unbounded payload inflates both.
 const MAX_SESSION_DURATION_MINUTES: u64 = 24 * 60;
-const MAX_STEP_DISTANCE_METERS: f64 = 1_000_000.0;
 const MAX_NAME_LEN: usize = 200;
-const MAX_SHORT_TEXT_LEN: usize = 200;
-const MAX_NOTE_LEN: usize = 1_000;
 
 fn read_only_annotations() -> ToolAnnotations {
     ToolAnnotations {
@@ -99,63 +96,6 @@ struct SessionPayload {
     structure: Vec<WorkoutStep>,
 }
 
-/// Reject a text field longer than `max` Unicode scalar values.
-fn bounded(field: &str, value: &str, max: usize) -> AppResult<()> {
-    let len = value.chars().count();
-    if len > max {
-        return Err(AppError::invalid_input(format!(
-            "{field} is too long ({len} chars; max {max})"
-        )));
-    }
-    Ok(())
-}
-
-/// Reject a text field that is blank or over-long.
-fn required_text(field: &str, value: &str, max: usize) -> AppResult<()> {
-    if value.trim().is_empty() {
-        return Err(AppError::invalid_input(format!(
-            "{field} must not be empty"
-        )));
-    }
-    bounded(field, value, max)
-}
-
-/// Validate one step and return the seconds it contributes to the session.
-///
-/// `index` names the offending step in every rejection, so a model fixing a
-/// 12-step payload learns which one to change rather than re-guessing.
-fn step_seconds(index: usize, step: &WorkoutStep) -> AppResult<u64> {
-    let at = |field: &str| format!("session.structure[{index}].{field}");
-    required_text(&at("label"), &step.label, MAX_SHORT_TEXT_LEN)?;
-    required_text(&at("target_zone"), &step.target_zone, MAX_SHORT_TEXT_LEN)?;
-    if let Some(note) = step.note.as_deref() {
-        bounded(&at("note"), note, MAX_NOTE_LEN)?;
-    }
-    if !(1..=MAX_STEP_DURATION_SECONDS).contains(&step.duration_seconds) {
-        return Err(AppError::invalid_input(format!(
-            "{} must be between 1 and {MAX_STEP_DURATION_SECONDS}, got {}",
-            at("duration_seconds"),
-            step.duration_seconds
-        )));
-    }
-    if !(1..=MAX_STEP_REPEAT).contains(&step.repeat) {
-        return Err(AppError::invalid_input(format!(
-            "{} must be between 1 and {MAX_STEP_REPEAT}, got {}",
-            at("repeat"),
-            step.repeat
-        )));
-    }
-    if let Some(distance) = step.distance_meters {
-        if !distance.is_finite() || distance <= 0.0 || distance > MAX_STEP_DISTANCE_METERS {
-            return Err(AppError::invalid_input(format!(
-                "{} must be between 0 and {MAX_STEP_DISTANCE_METERS}, got {distance}",
-                at("distance_meters")
-            )));
-        }
-    }
-    Ok(u64::from(step.duration_seconds) * u64::from(step.repeat))
-}
-
 /// Validate an inline session and return its total duration in minutes.
 ///
 /// The total is derived from the steps rather than accepted as an argument so
@@ -178,7 +118,11 @@ fn session_duration_minutes(session: &SessionPayload) -> AppResult<u32> {
 
     let mut total_seconds: u64 = 0;
     for (index, step) in session.structure.iter().enumerate() {
-        total_seconds += step_seconds(index, step)?;
+        total_seconds += validate_step(
+            &format!("session.structure[{index}]"),
+            step,
+            TargetRule::AnyLabel,
+        )?;
     }
 
     let minutes = total_seconds.div_ceil(60);
@@ -413,81 +357,6 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
     }
 }
 
-/// Schema for one step of an inline structured session.
-fn session_step_schema() -> PropertySchema {
-    let mut p = HashMap::new();
-    p.insert(
-        "label".to_owned(),
-        PropertySchema {
-            property_type: "string".to_owned(),
-            description: Some(
-                "What this step is (\"Warm-up\", \"Montées\", \"Interval\", \"Cool-down\")."
-                    .to_owned(),
-            ),
-            ..Default::default()
-        },
-    );
-    p.insert(
-        "duration_seconds".to_owned(),
-        PropertySchema {
-            property_type: "integer".to_owned(),
-            description: Some("How long ONE repetition of this step lasts, in seconds.".to_owned()),
-            ..Default::default()
-        },
-    );
-    p.insert(
-        "target_zone".to_owned(),
-        PropertySchema {
-            property_type: "string".to_owned(),
-            description: Some(
-                "Intensity RELATIVE to the athlete's thresholds (\"Z2\", \"Threshold\", \
-                 \"88-93% FTP\"). Never absolute watts."
-                    .to_owned(),
-            ),
-            ..Default::default()
-        },
-    );
-    p.insert(
-        "repeat".to_owned(),
-        PropertySchema {
-            property_type: "integer".to_owned(),
-            description: Some("Repetitions of this step; omit for a single block.".to_owned()),
-            ..Default::default()
-        },
-    );
-    p.insert(
-        "distance_meters".to_owned(),
-        PropertySchema {
-            property_type: "number".to_owned(),
-            description: Some("Distance in metres for a distance-based step.".to_owned()),
-            ..Default::default()
-        },
-    );
-    p.insert(
-        "note".to_owned(),
-        PropertySchema {
-            property_type: "string".to_owned(),
-            description: Some(
-                "Coaching cue for this step, in your own voice — it reaches the athlete's \
-                 calendar entry."
-                    .to_owned(),
-            ),
-            ..Default::default()
-        },
-    );
-    PropertySchema {
-        property_type: "object".to_owned(),
-        description: Some("One step of the session.".to_owned()),
-        properties: Some(p),
-        required: Some(vec![
-            "label".to_owned(),
-            "duration_seconds".to_owned(),
-            "target_zone".to_owned(),
-        ]),
-        ..Default::default()
-    }
-}
-
 /// Schema for an inline structured session.
 fn session_schema() -> PropertySchema {
     let mut p = HashMap::new();
@@ -522,7 +391,7 @@ fn session_schema() -> PropertySchema {
         PropertySchema {
             property_type: "array".to_owned(),
             description: Some("The steps in order. Total duration is summed from them.".to_owned()),
-            items: Some(Box::new(session_step_schema())),
+            items: Some(Box::new(step_schema())),
             ..Default::default()
         },
     );

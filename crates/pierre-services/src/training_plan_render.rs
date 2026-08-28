@@ -18,7 +18,7 @@
 
 use chrono::NaiveDate;
 use pierre_core::errors::AppResult;
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, WorkoutStep};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_memory::FactKind;
@@ -135,6 +135,11 @@ const MAX_RACES_RENDERED: usize = 6;
 /// over the save-time validation, since older rows predate those caps).
 const MAX_FIELD_LEN: usize = 1_000;
 const MAX_STRATEGY_LEN: usize = 4_000;
+/// Most steps of a structured day rendered into the prompt. The plan is
+/// injected into every turn, so a 50-step session is summarized past this
+/// point rather than listed; the full structure stays one `get_training_plan`
+/// away.
+const MAX_PROMPT_STEPS: usize = 12;
 
 /// Neutralize a free-text plan field before it enters the **unfenced** system
 /// prompt. Plan text is coach/LLM/athlete-authored (an athlete can call
@@ -157,6 +162,51 @@ fn sanitize_prompt_field(s: &str, max_len: usize) -> String {
         format!("{head}…")
     } else {
         cleaned
+    }
+}
+
+/// One clause naming a structured day's steps — `Warm-up 15min Z1; Work 8min
+/// 88-93% FTP ×3; …` — so the coach re-saving the week carries the structure
+/// forward instead of re-deriving it from the prose and losing it.
+fn steps_summary(steps: &[WorkoutStep]) -> String {
+    let mut parts: Vec<String> = steps
+        .iter()
+        .take(MAX_PROMPT_STEPS)
+        .map(step_summary)
+        .collect();
+    if steps.len() > MAX_PROMPT_STEPS {
+        parts.push(format!("+{} more", steps.len() - MAX_PROMPT_STEPS));
+    }
+    parts.join("; ")
+}
+
+fn step_summary(step: &WorkoutStep) -> String {
+    let mut out = sanitize_prompt_field(&step.label, MAX_FIELD_LEN);
+    out.push(' ');
+    out.push_str(&step_extent(step));
+    out.push(' ');
+    out.push_str(&sanitize_prompt_field(&step.target_zone, MAX_FIELD_LEN));
+    if step.repeat > 1 {
+        let _ = write!(out, " ×{}", step.repeat);
+    }
+    out
+}
+
+/// A step's extent: its distance when it has one, otherwise its duration —
+/// `min` spelled out so a minute is never read as a metre.
+fn step_extent(step: &WorkoutStep) -> String {
+    if let Some(distance) = step.distance_meters {
+        if distance >= 1000.0 {
+            return format!("{}km", distance / 1000.0);
+        }
+        return format!("{}m", distance.round());
+    }
+    let minutes = step.duration_seconds / 60;
+    let seconds = step.duration_seconds % 60;
+    match (minutes, seconds) {
+        (0, s) => format!("{s}s"),
+        (m, 0) => format!("{m}min"),
+        (m, s) => format!("{m}min{s}s"),
     }
 }
 
@@ -271,9 +321,14 @@ pub fn render_training_plan_block(
                         sanitize_prompt_field(&day.intensity, MAX_FIELD_LEN)
                     )
                 };
+                let structure = if day.steps.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · steps: {}", steps_summary(&day.steps))
+                };
                 let _ = writeln!(
                     out,
-                    "- {}: {elapsed}{}{duration}{intensity} — {}",
+                    "- {}: {elapsed}{}{duration}{intensity} — {}{structure}",
                     day.date,
                     sanitize_prompt_field(&day.sport, MAX_FIELD_LEN),
                     sanitize_prompt_field(&day.workout, MAX_FIELD_LEN),
@@ -410,6 +465,7 @@ mod tests {
                     workout: "off".to_owned(),
                     duration_min: None,
                     intensity: String::new(),
+                    steps: Vec::new(),
                 },
                 PlannedDay {
                     date: start.to_owned(), // same-day is fine for render tests
@@ -417,6 +473,7 @@ mod tests {
                     workout: "tempo 3x8min".to_owned(),
                     duration_min: Some(60),
                     intensity: "88-93% FTP".to_owned(),
+                    steps: Vec::new(),
                 },
             ],
             status: WeekStatus::Active,
@@ -615,6 +672,7 @@ mod tests {
                 workout: "40/20 intervals".to_owned(),
                 duration_min: Some(60),
                 intensity: "390-425W".to_owned(),
+                steps: Vec::new(),
             },
             PlannedDay {
                 date: "2026-08-28".to_owned(),
@@ -622,6 +680,7 @@ mod tests {
                 workout: "endurance".to_owned(),
                 duration_min: Some(105),
                 intensity: "Z1-Z2".to_owned(),
+                steps: Vec::new(),
             },
         ];
 

@@ -174,6 +174,285 @@ fn full_plan_payload() -> Value {
     })
 }
 
+/// A threshold session as a coach states it in steps: 15 min warm-up,
+/// 3 × (8 min at 88-93 % / 4 min easy), 10 min cool-down — 61 minutes.
+fn structured_day(date: &str) -> Value {
+    json!({
+        "date": date,
+        "sport": "gravel",
+        "workout": "Threshold 3x8. Keep the recoveries easy",
+        "intensity": "Z4",
+        "steps": [
+            {"label": "Warm-up", "duration_seconds": 900, "target_zone": "Z1"},
+            {"label": "Work", "duration_seconds": 480, "target_zone": "88-93% FTP", "repeat": 3, "note": "seated, steady cadence"},
+            {"label": "Recovery", "duration_seconds": 240, "target_zone": "Z1", "repeat": 3},
+            {"label": "Cool-down", "duration_seconds": 600, "target_zone": "Z1"}
+        ]
+    })
+}
+
+/// The full plan with Thursday of week one stated as steps.
+fn plan_with_a_structured_day() -> Value {
+    let mut payload = full_plan_payload();
+    payload["weeks"][0]["days"]
+        .as_array_mut()
+        .expect("days")
+        .push(structured_day("2026-07-16"));
+    payload
+}
+
+/// The whole save was refused: not even the valid outline landed.
+async fn assert_no_plan(
+    executor: &UniversalToolExecutor,
+    user_id: Uuid,
+    tenant_id: &str,
+) -> Result<()> {
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(tenant_id),
+        ))
+        .await?;
+    let fetched = get.result.expect("get result");
+    assert!(
+        fetched["plan"].is_null(),
+        "no partial plan may survive a rejected save: {fetched}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_structured_day_saves_and_reads_back() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            plan_with_a_structured_day(),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(save.success, "a structured day must save: {:?}", save.error);
+
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let fetched = get.result.expect("get result");
+    let thursday = &fetched["weeks"][0]["days"][3];
+    assert_eq!(thursday["date"], "2026-07-16");
+    let steps = thursday["steps"].as_array().expect("the steps come back");
+    assert_eq!(steps.len(), 4);
+    assert_eq!(steps[1]["label"], "Work");
+    assert_eq!(steps[1]["duration_seconds"], 480);
+    assert_eq!(steps[1]["target_zone"], "88-93% FTP");
+    assert_eq!(steps[1]["repeat"], 3);
+    assert_eq!(steps[1]["note"], "seated, steady cadence");
+    assert_eq!(
+        steps[0]["repeat"], 1,
+        "a single block reads back as one repeat"
+    );
+    assert_eq!(
+        thursday["duration_min"], 61,
+        "omitted on save, so summed from the steps: 15 + 3×8 + 3×4 + 10"
+    );
+    // A day stated in prose carries no steps key at all — which is also how
+    // every row stored before the field existed reads back.
+    let tuesday = &fetched["weeks"][0]["days"][1];
+    assert!(tuesday.get("steps").is_none(), "got: {tuesday}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_step_outside_the_zone_grammar_is_rejected_with_no_write() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = plan_with_a_structured_day();
+    payload["weeks"][0]["days"][3]["steps"][1]["target_zone"] = json!("comfortably hard");
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("day 2026-07-16 steps[1].target_zone"),
+        "the rejection names the step: {message}"
+    );
+    assert!(
+        message.contains("sweet spot"),
+        "and the vocabulary the calendar resolves: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn a_day_whose_duration_contradicts_its_steps_is_rejected() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = plan_with_a_structured_day();
+    payload["weeks"][0]["days"][3]["duration_min"] = json!(45);
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("day 2026-07-16 duration_min 45 contradicts its steps, which total 61"),
+        "the rejection names the total: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn a_rest_day_cannot_carry_steps() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = plan_with_a_structured_day();
+    payload["weeks"][0]["days"][3]["sport"] = json!("rest");
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("day 2026-07-16 is a rest day and carries steps"),
+        "got: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+#[tokio::test]
+async fn float_shaped_step_numbers_from_the_llm_are_accepted() -> Result<()> {
+    // The same model that sends duration_min as 60.0 sends duration_seconds
+    // as 480.0 and repeat as 3.0; a stated duration that matches the steps
+    // is accepted alongside them.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = plan_with_a_structured_day();
+    let day = &mut payload["weeks"][0]["days"][3];
+    day["duration_min"] = json!(61.0);
+    day["steps"][1]["duration_seconds"] = json!(480.0);
+    day["steps"][1]["repeat"] = json!(3.0);
+
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        save.success,
+        "float-shaped step numbers must save: {:?}",
+        save.error
+    );
+
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach"}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let fetched = get.result.expect("get result");
+    let thursday = &fetched["weeks"][0]["days"][3];
+    assert_eq!(thursday["steps"][1]["duration_seconds"], 480);
+    assert_eq!(thursday["steps"][1]["repeat"], 3);
+    assert_eq!(thursday["duration_min"], 61);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_structured_day_shows_its_steps_in_the_prompt() -> Result<()> {
+    // The plan is re-injected into every turn, and the coach re-saves a week
+    // from what it sees there. Without the structure in the prompt, the
+    // re-save would carry the prose and drop the steps — and the next push
+    // would put the calendar back to a timed entry with no planned load.
+    use pierre_chat_pipeline::stages::memory::inject_training_plan;
+
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+
+    let mut payload = plan_with_a_structured_day();
+    // A session longer than the prompt shows in full: 20 one-minute reps.
+    let reps: Vec<Value> = (1..=20)
+        .map(|n| json!({"label": format!("Rep {n}"), "duration_seconds": 60, "target_zone": "Z5"}))
+        .collect();
+    payload["weeks"][0]["days"]
+        .as_array_mut()
+        .expect("days")
+        .push(json!({
+            "date": "2026-07-17",
+            "sport": "run",
+            "workout": "Hill reps",
+            "steps": reps,
+        }));
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(save.success, "save failed: {:?}", save.error);
+
+    let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
+    let prompt = inject_training_plan(
+        executor.resources.repos().training_plans.as_ref(),
+        &tenant_id,
+        &user_id.to_string(),
+        Some("endurance-coach"),
+        today,
+        false,
+        "BASE PROMPT".to_owned(),
+    )
+    .await;
+
+    assert!(
+        prompt.contains(
+            "- 2026-07-16: gravel 61min [Z4] — Threshold 3x8. Keep the recoveries easy · steps: \
+             Warm-up 15min Z1; Work 8min 88-93% FTP ×3; Recovery 4min Z1 ×3; Cool-down 10min Z1"
+        ),
+        "the structure follows the prose:\n{prompt}"
+    );
+    let prose_day = prompt
+        .lines()
+        .find(|line| line.contains("2026-07-15"))
+        .expect("Wednesday is rendered");
+    assert!(
+        !prose_day.contains("steps:"),
+        "a prose day has no structure clause: {prose_day}"
+    );
+    let long_day = prompt
+        .lines()
+        .find(|line| line.contains("2026-07-17"))
+        .expect("Friday is rendered");
+    assert_eq!(
+        long_day.matches("Rep ").count(),
+        12,
+        "the prompt shows at most twelve steps: {long_day}"
+    );
+    assert!(
+        long_day.ends_with("+8 more"),
+        "and says how many it left out: {long_day}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn save_full_plan_then_get_roundtrip_with_goal_fact_writeback() -> Result<()> {
     let executor = create_executor().await?;
@@ -1643,10 +1922,28 @@ async fn rendered_tool_catalog_exposes_the_nested_field_names() {
         "duration_min",
         "intensity",
         "phase",
+        "steps",
+        "label",
+        "duration_seconds",
+        "target_zone",
+        "repeat",
+        "distance_meters",
+        "note",
     ] {
         assert!(
             catalog.contains(&format!("`{field}`")),
             "the model must see `{field}` in the catalog:\n{catalog}"
+        );
+    }
+    // A step field sits at `weeks[].days[].steps[]` — three levels down, two
+    // spaces of indent per level. embacle renders nested parameters to
+    // `MAX_PARAM_DEPTH` (8 in 0.22); this is the depth the plan-day steps
+    // need, and a later embacle that lowered the cap would fail here rather
+    // than in a live save loop (2026-07-27).
+    for field in ["label", "duration_seconds", "target_zone", "repeat"] {
+        assert!(
+            catalog.contains(&format!("      - `{field}`")),
+            "step field `{field}` must render at depth 3:\n{catalog}"
         );
     }
     // The format hints that make those names fillable.

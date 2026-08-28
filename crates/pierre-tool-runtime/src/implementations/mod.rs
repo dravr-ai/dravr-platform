@@ -121,6 +121,8 @@ pub mod memory;
 pub mod playbooks;
 /// `push_training_plan` — the athlete's active plan onto their provider calendar, reconciled.
 pub mod training_plan_push;
+/// The schema `save_training_plan` advertises, and the rejection skeleton generated from it.
+pub mod training_plan_schema;
 /// Notify telemetry for training-plan writes: what was saved, and what it leaves uncovered.
 pub mod training_plan_telemetry;
 pub mod training_plans;

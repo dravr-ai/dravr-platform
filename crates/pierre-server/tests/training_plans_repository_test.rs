@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_core::models::WorkoutStep;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::{
@@ -67,6 +68,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             workout: "off — legs up".to_owned(),
             duration_min: None,
             intensity: String::new(),
+            steps: Vec::new(),
         },
         PlannedDay {
             date: "2026-07-14".to_owned(),
@@ -74,6 +76,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             workout: "tempo 3x8min".to_owned(),
             duration_min: Some(60),
             intensity: "3x8min @ 88-93% FTP".to_owned(),
+            steps: Vec::new(),
         },
         PlannedDay {
             date: "2026-07-15".to_owned(),
@@ -81,6 +84,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             workout: "endurance, low HR on climbs".to_owned(),
             duration_min: Some(105),
             intensity: "Z2".to_owned(),
+            steps: Vec::new(),
         },
     ]
 }
@@ -167,6 +171,79 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
     assert_eq!(weeks[0].days[1].intensity, "3x8min @ 88-93% FTP");
     assert_eq!(weeks[0].days[2].duration_min, Some(105));
     assert_eq!(weeks[0].focus, "volume back up");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Result<()> {
+    let db = open_test_db().await?;
+    let repos = db.repositories();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = blocks();
+    let plan = repos
+        .training_plans
+        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
+        .await?;
+
+    let mut days = week_days("2026-07-13");
+    days[1].steps = vec![
+        WorkoutStep {
+            label: "Work".to_owned(),
+            duration_seconds: 480,
+            distance_meters: None,
+            target_zone: "88-93% FTP".to_owned(),
+            repeat: 3,
+            note: Some("seated, steady cadence".to_owned()),
+        },
+        WorkoutStep {
+            label: "Recovery".to_owned(),
+            duration_seconds: 240,
+            distance_meters: Some(1500.0),
+            target_zone: "Z1".to_owned(),
+            repeat: 3,
+            note: None,
+        },
+    ];
+    repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            coach_slug: Some("endurance-coach"),
+            goal_fact_id: None,
+            outline: None,
+            weeks: &[PlanWeekInput {
+                week_start: "2026-07-13",
+                focus: "volume back up",
+                days: &days,
+                adjustment_reason: "",
+            }],
+        })
+        .await?;
+
+    let weeks = repos
+        .training_plans
+        .list_plan_weeks(&tenant, &user, &plan.id, false)
+        .await?;
+    assert_eq!(weeks.len(), 1);
+    assert_eq!(
+        weeks[0].days[1].steps, days[1].steps,
+        "every step field survives the days_json column"
+    );
+    assert!(weeks[0].days[2].steps.is_empty());
+
+    // A row stored before the field existed carries no `steps` key; it reads
+    // back as a day with none, not as a deserialization failure — and a
+    // prose day still serializes without the key, so its stored JSON is what
+    // it was.
+    let stored: PlannedDay = serde_json::from_str(
+        r#"{"date":"2026-07-14","sport":"gravel","workout":"tempo 3x8min","duration_min":60,"intensity":"3x8min @ 88-93% FTP"}"#,
+    )?;
+    assert!(stored.steps.is_empty());
+    assert_eq!(stored.duration_min, Some(60));
+    assert!(!serde_json::to_string(&days[2])?.contains("steps"));
     Ok(())
 }
 
@@ -732,6 +809,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             workout: "off before the peak block".to_owned(),
             duration_min: None,
             intensity: String::new(),
+            steps: Vec::new(),
         },
         PlannedDay {
             date: "2026-08-26".to_owned(),
@@ -739,6 +817,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             workout: "VO2max 6x3min".to_owned(),
             duration_min: Some(75),
             intensity: "6x3min @ 95-100%".to_owned(),
+            steps: Vec::new(),
         },
         PlannedDay {
             date: "2026-08-29".to_owned(),
@@ -746,6 +825,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             workout: "long trail simulating race pace and aid stations".to_owned(),
             duration_min: Some(110),
             intensity: "race effort".to_owned(),
+            steps: Vec::new(),
         },
     ];
     let race_b = GoalRace {

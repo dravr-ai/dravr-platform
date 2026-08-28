@@ -1226,7 +1226,7 @@ export interface PrescribeWorkoutParams {
   /** Repetitions of this step; omit for a single block. */
   repeat?: number;
 
-  /** Intensity RELATIVE to the athlete's thresholds ("Z2", "Threshold", "88-93% FTP"). Never absolute watts. */
+  /** Intensity RELATIVE to the athlete's thresholds ("Z2", "Z2 HR", "Threshold", "sweet spot", "88-93% FTP"). Never absolute watts. */
   target_zone: string;
 }[];
 };
@@ -1345,7 +1345,7 @@ export interface SaveRecipeParams {
 
 
 /**
- * Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan.
+ * Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan.
  */
 export interface SaveTrainingPlanParams {
 
@@ -1428,14 +1428,36 @@ export interface SaveTrainingPlanParams {
   /** Day date, YYYY-MM-DD. */
   date: string;
 
-  /** Planned duration in minutes; omit for rest days. */
+  /** Planned duration in minutes; omit for rest days, and omit when steps are given — it is summed from them. */
   duration_min?: number;
 
-  /** Intensity RELATIVE to thresholds ('Z2', '3x8min @ 88-93% FTP'). Never absolute watts. */
+  /** Intensity RELATIVE to thresholds ('Z2', 'tempo', '88-93% FTP'). Never absolute watts. With steps, the day's summary label. */
   intensity?: string;
 
   /** Sport (mtb, gravel, run, …) or 'rest'. */
   sport: string;
+
+  /** The session's steps, in order — the same shape as prescribe_workout's session.structure. Give them for any day with interval structure (warm-up, work, recovery, cool-down; repeat on the work and recovery steps): that is what puts workout-builder steps and a planned load on the athlete's calendar. Prose alone reaches the calendar as a timed entry. Omit for a steady or unstructured day. */
+  steps?: {
+
+  /** Distance in metres for a distance-based step. */
+  distance_meters?: number;
+
+  /** How long ONE repetition of this step lasts, in seconds. */
+  duration_seconds: number;
+
+  /** What this step is ("Warm-up", "Montées", "Interval", "Cool-down"). */
+  label: string;
+
+  /** Coaching cue for this step, in your own voice — it reaches the athlete's calendar entry. */
+  note?: string;
+
+  /** Repetitions of this step; omit for a single block. */
+  repeat?: number;
+
+  /** Intensity RELATIVE to the athlete's thresholds ("Z2", "Z2 HR", "Threshold", "sweet spot", "88-93% FTP"). Never absolute watts. */
+  target_zone: string;
+}[];
 
   /** What to do, in coach voice. */
   workout: string;

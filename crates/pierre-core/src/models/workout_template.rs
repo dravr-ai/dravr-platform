@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::SportType;
+use crate::serde_num::whole_u32;
 
 /// Intensity distribution model for a workout (Seiler-influenced).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +36,7 @@ pub struct WorkoutStep {
     /// Human-readable label ("Warm-up", "Interval", "Recovery", "Cool-down").
     pub label: String,
     /// Duration in seconds (use the lower bound for distance-based intervals).
+    #[serde(deserialize_with = "whole_u32")]
     pub duration_seconds: u32,
     /// Optional distance in metres for distance-based intervals.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,7 +45,7 @@ pub struct WorkoutStep {
     pub target_zone: String,
     /// Optional integer repeat count when this step is part of a set
     /// (e.g. `repeat = 4` for 4×8 min threshold). Defaults to 1.
-    #[serde(default = "default_repeat")]
+    #[serde(default = "default_repeat", deserialize_with = "whole_u32")]
     pub repeat: u32,
     /// Optional free-form note for the coach to surface in the prescription.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -52,6 +54,19 @@ pub struct WorkoutStep {
 
 const fn default_repeat() -> u32 {
     1
+}
+
+impl WorkoutStep {
+    /// Seconds a sequence of steps asks of the athlete: each step's duration
+    /// times its repeat count, summed. `u64` so a payload past every bound
+    /// still totals without wrapping; the callers bound it.
+    #[must_use]
+    pub fn total_seconds(steps: &[Self]) -> u64 {
+        steps
+            .iter()
+            .map(|step| u64::from(step.duration_seconds) * u64::from(step.repeat))
+            .sum()
+    }
 }
 
 /// Per-template target zone overlay (applied on top of the user's own
@@ -153,16 +168,20 @@ impl RelativeIntensity {
     /// Highest percentage the grammar admits (sprint work sits above 200 %).
     const MAX_PERCENT: u16 = 300;
 
-    /// Parse a coach-vocabulary label: `Z2`, `zone 4`, `Z2 HR`, `tempo`,
-    /// `threshold`, `VO2max`, `sweet spot`, `75%`, `88-93% FTP`. Case and
-    /// surrounding whitespace do not matter. Returns `None` for anything else.
+    /// Parse a coach-vocabulary label: `Z2`, `zone 4`, `Z2 HR`, `Z2 pace`,
+    /// `tempo`, `threshold`, `VO2max`, `sweet spot`, `75%`, `88-93% FTP`. Case
+    /// and surrounding whitespace do not matter, and an en dash between the
+    /// bounds of a band reads as the hyphen. Returns `None` for anything else.
     #[must_use]
     pub fn parse(label: &str) -> Option<Self> {
-        let lowered = label.trim().to_lowercase();
+        let lowered = label.trim().to_lowercase().replace('\u{2013}', "-");
         let label = lowered.strip_prefix("zone ").unwrap_or(&lowered).trim();
         if let Some(rest) = label.strip_suffix(" hr") {
             return Self::zone_number(rest.trim()).map(Self::HeartRateZone);
         }
+        // "Z2 pace" names the family the sport already decides, so the
+        // suffix is dropped and the zone or band stays relative.
+        let label = label.strip_suffix(" pace").unwrap_or(label).trim();
         if matches!(label, "sweet spot" | "sweetspot" | "sweet-spot") {
             return Some(Self::SweetSpot);
         }

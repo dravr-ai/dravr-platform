@@ -14,7 +14,8 @@
 //!   strategy. One `active` outline per (tenant, user, coach).
 //! - [`PlanWeek`] — one **microcycle**: seven [`PlannedDay`] rows with
 //!   intensity expressed *relative to thresholds* (zones, %FTP) so an FTP
-//!   retest never invalidates a stored plan.
+//!   retest never invalidates a stored plan, and — when the coach states
+//!   it — the session's structure as [`WorkoutStep`]s.
 //!
 //! Plans are captured by explicit coach tool calls, never post-hoc
 //! extraction — Tier-2 extraction minting coach prescriptions as `user_facts`
@@ -31,7 +32,8 @@
 //! semantics) and never a playbook (not evidence-scored).
 
 use chrono::{DateTime, NaiveDate, Utc};
-use serde::de::Error as DeError;
+use pierre_core::models::WorkoutStep;
+use pierre_core::serde_num::{whole_u32_opt, whole_u8};
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle of a [`TrainingPlan`] outline.
@@ -181,44 +183,6 @@ impl BlockPhase {
     }
 }
 
-/// Deserialize a whole-valued JSON number (int or float) into `u8`.
-///
-/// LLM callers routinely emit `3.0` where a schema says number; strict serde
-/// rejects floats for integer types, and that rejection killed seven
-/// consecutive live `save_training_plan` calls on 2026-07-12. Whole floats
-/// are accepted; fractional values are rejected with a message the model can
-/// act on.
-fn whole_u8<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
-    let n = f64::deserialize(deserializer)?;
-    // In-range whole doubles convert exactly; the guard runs first.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    if n.fract() == 0.0 && (0.0..=f64::from(u8::MAX)).contains(&n) {
-        Ok(n as u8)
-    } else {
-        Err(D::Error::custom(format!(
-            "expected a whole number of weeks between 0 and 255, got {n}"
-        )))
-    }
-}
-
-/// Deserialize an optional whole-valued JSON number into `Option<u32>`.
-/// Same LLM-robustness rationale as [`whole_u8`].
-fn whole_u32_opt<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<u32>, D::Error> {
-    let Some(n) = Option::<f64>::deserialize(deserializer)? else {
-        return Ok(None);
-    };
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    if n.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&n) {
-        Ok(Some(n as u32))
-    } else {
-        Err(D::Error::custom(format!(
-            "expected a whole number of minutes, got {n}"
-        )))
-    }
-}
-
 /// One block of the outline (mesocycle): a phase with a start date, a length
 /// in weeks, and the coach's intent for it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -240,7 +204,7 @@ pub struct PlanBlock {
 }
 
 /// One prescribed day inside a [`PlanWeek`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlannedDay {
     /// Civil date, `YYYY-MM-DD`.
     pub date: String,
@@ -257,9 +221,18 @@ pub struct PlannedDay {
     pub duration_min: Option<u32>,
     /// Intensity relative to the athlete's thresholds ("Z2", "3x8min @
     /// 88-93% FTP"). Empty for rest days. Stored relative — never absolute
-    /// watts — so the plan survives an FTP retest.
+    /// watts — so the plan survives an FTP retest. With `steps`, the day's
+    /// summary label.
     #[serde(default)]
     pub intensity: String,
+    /// The session's structure, when the coach states it as steps rather
+    /// than prose: the same [`WorkoutStep`] vocabulary a single prescription
+    /// carries, so a plan day reaches a provider calendar as workout-builder
+    /// steps with a computable planned load. Empty for a steady day, a rest
+    /// day, or a day the coach described in words only — `intensity` is then
+    /// the only structure the day has.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<WorkoutStep>,
 }
 
 impl PlannedDay {
@@ -309,7 +282,7 @@ pub struct TrainingPlan {
 
 /// One microcycle: the day-by-day prescription for a single calendar week of
 /// a [`TrainingPlan`]. At most one `active` per (plan, `week_start`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanWeek {
     /// Stable identifier.
     pub id: String,
@@ -413,6 +386,7 @@ mod tests {
             workout: "off — legs up".to_owned(),
             duration_min: None,
             intensity: String::new(),
+            steps: Vec::new(),
         };
         assert!(rest.is_rest());
         // duration_min: None must not serialize a null (schema hygiene for
