@@ -88,6 +88,41 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
     })
 }
 
+/// Whether `activity` satisfies a filter naming the sport `filter`.
+///
+/// A generic `run`/`course` or `ride`/`vélo` filter covers its whole family:
+/// road `Run`, `TrailRunning` and treadmill `VirtualRun`; road `Ride`,
+/// `MountainBike`, `GravelRide`, `EbikeRide` and trainer `VirtualRide`.
+/// Providers tag the same effort inconsistently — an athlete who runs almost
+/// only on trails still has many logged as a plain "Run" — and "how much did I
+/// ride" means every discipline to the athlete who rode them. Exact equality on
+/// the cycling side made a cycling coach blind to cycling: a
+/// `sport_types: ["Ride"]` coach matched none of an athlete's 22 mountain-bike
+/// and 7 gravel rides (2026-08-27).
+///
+/// A filter naming a specific member — `TrailRunning`, `MountainBike`,
+/// `GravelRide`, `EbikeRide`, `VirtualRide`, `VirtualRun` — stays exact, so
+/// "gravel rides" still means gravel only. Every other sport compares by
+/// equality.
+#[must_use]
+pub fn sport_matches_family(activity: &SportType, filter: &SportType) -> bool {
+    match filter {
+        SportType::Run => matches!(
+            activity,
+            SportType::Run | SportType::TrailRunning | SportType::VirtualRun
+        ),
+        SportType::Ride => matches!(
+            activity,
+            SportType::Ride
+                | SportType::MountainBike
+                | SportType::GravelRide
+                | SportType::EbikeRide
+                | SportType::VirtualRide
+        ),
+        _ => activity == filter,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

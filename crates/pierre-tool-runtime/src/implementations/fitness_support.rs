@@ -25,7 +25,9 @@ use crate::protocol::format::build_formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::protocol::ProtocolError;
-use pierre_core::models::{resolve_sport_type, Activity, Athlete, SportType, Stats, TenantId};
+use pierre_core::models::{
+    resolve_sport_type, sport_matches_family, Activity, Athlete, SportType, Stats, TenantId,
+};
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_intelligence::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
@@ -983,37 +985,9 @@ fn sport_type_matches(
     normalised_filter: &str,
 ) -> bool {
     if let Some(canonical) = canonical_filter {
-        // A generic run/course filter covers the whole on-foot running family —
-        // road Run, TrailRunning, treadmill VirtualRun — because the same effort
-        // is tagged inconsistently on the provider (an athlete who runs almost
-        // only on trails still has many logged as a plain "Run"). A specific
-        // TrailRunning / VirtualRun filter stays exact, so "trail runs" means
-        // trails only.
-        if *canonical == SportType::Run {
-            return matches!(
-                activity_sport,
-                SportType::Run | SportType::TrailRunning | SportType::VirtualRun
-            );
-        }
-        // The cycling family reads the same way: a generic ride/vélo filter
-        // covers road Ride, MountainBike, GravelRide, EbikeRide and the
-        // trainer's VirtualRide, because "how much did I ride" means all of
-        // them to the athlete who rode. Exact equality made a cycling coach
-        // blind to cycling — an athlete with 22 mountain-bike and 7 gravel
-        // rides in the window matched none of them. A specific MountainBike /
-        // GravelRide / EbikeRide / VirtualRide filter stays exact, so "gravel
-        // rides" still means gravel only.
-        if *canonical == SportType::Ride {
-            return matches!(
-                activity_sport,
-                SportType::Ride
-                    | SportType::MountainBike
-                    | SportType::GravelRide
-                    | SportType::EbikeRide
-                    | SportType::VirtualRide
-            );
-        }
-        return activity_sport == canonical;
+        // Family-aware, so a generic "run" or "ride" ask covers the disciplines
+        // the athlete logged under it — see `sport_matches_family`.
+        return sport_matches_family(activity_sport, canonical);
     }
     let activity_str = to_value(activity_sport).map_or_else(
         |_| String::new(),
