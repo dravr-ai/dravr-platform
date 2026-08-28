@@ -2,7 +2,7 @@
   "cookies": [],
   "origins": [
     {
-      "origin": "http://127.0.0.1:8081",
+      "origin": "http://localhost:5173",
       "localStorage": [
         { "name": "pierre_app_language", "value": "en" }
       ]

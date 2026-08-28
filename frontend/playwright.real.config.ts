@@ -23,10 +23,16 @@ export default defineConfig({
     // /open settings/, /coaching style/ — so it states the language it is testing
     // rather than depending on the chrome being untranslated.
     //
-    // Third suite, third origin: e2e pins 5174, integration pins 5173, and this one
-    // pins the backend that serves the SPA in the real-server run. Same mechanism in
-    // all three, deliberately — a per-spec selector workaround would fix the login
-    // click and then fail on the next English label down.
+    // Pinned on `FRONTEND_URL` (http://localhost:5173), NOT on the `baseURL` above.
+    // `baseURL` here is the API the request-context tests talk to; the one spec that
+    // drives a browser loads the SPA from Vite via its own `FRONTEND_URL`, and
+    // `localhost` and `127.0.0.1` are distinct localStorage origins — a state pinned
+    // on the wrong one is silently inert, which is how the first attempt at this
+    // failed CI identically.
+    //
+    // Same mechanism as the other two suites (e2e pins 5174, integration pins 5173):
+    // a per-spec selector workaround would fix the login click and then fail on the
+    // next English label down, of which this spec has five more.
     storageState: 'e2e-real/storage-state.json',
     trace: 'on-first-retry',
   },
