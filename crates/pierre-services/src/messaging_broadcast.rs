@@ -54,6 +54,38 @@ pub fn proactive_text(
     }
 }
 
+/// Build a proactive message whose body carries the constrained markup subset
+/// (`<b>`, `<i>`, `<code>`), for each channel's renderer to translate into that
+/// channel's native formatting.
+///
+/// Separate from [`proactive_text`] rather than replacing it, because the two
+/// make opposite promises about the body. A `Text` body is escaped on the way
+/// out — Telegram's renderer runs `encode_text` over it — which is what keeps
+/// coach prose like "HR <100 bpm" from mangling the parse, and what makes
+/// interpolated values (coach titles, provider names) inert. A `RichText` body
+/// is parsed, so markup in it becomes formatting. Routing every proactive push
+/// through this one would turn a stored value that happens to contain a tag
+/// into live formatting.
+///
+/// Reach for it when the *string* owns the markup, as the intake questions do:
+/// they ship `<b>1</b>` in all five locales, and in a `Text` envelope the
+/// athlete reads the angle brackets instead of a bold numeral.
+#[must_use]
+pub fn proactive_rich_text(
+    channel_type: ChannelType,
+    recipient_id: String,
+    body: String,
+) -> OutgoingMessage {
+    OutgoingMessage {
+        channel_type,
+        recipient_id,
+        content: MessageContent::RichText { body },
+        turn_id: ConversationTurnId::new(),
+        reply_to: None,
+        thread_id: None,
+    }
+}
+
 /// One channel a user can be reached on: which adapter, which recipient id
 /// there, and which locale that link speaks.
 #[derive(Debug, Clone, PartialEq, Eq)]

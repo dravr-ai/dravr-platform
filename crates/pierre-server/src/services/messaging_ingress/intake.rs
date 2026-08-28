@@ -54,7 +54,7 @@ use uuid::Uuid;
 
 use super::session::maybe_start_pillar_walk;
 use crate::mcp::resources::ServerContext;
-use pierre_services::messaging_broadcast::proactive_text;
+use pierre_services::messaging_broadcast::{proactive_rich_text, proactive_text};
 
 /// How many onboarding-sourced facts to scan when counting raised flags.
 ///
@@ -298,7 +298,11 @@ async fn deliver(args: DeliverArgs<'_>) -> Option<OutgoingMessage> {
     write_state(resources, conversation_id, tenant_id, raw_state, &state).await;
 
     let body = render_question(resources, locale, topic, is_retry);
-    Some(proactive_text(channel_type, sender_id.to_owned(), body))
+    Some(proactive_rich_text(
+        channel_type,
+        sender_id.to_owned(),
+        body,
+    ))
 }
 
 /// Compose the message for one question, with the framing its position earns.

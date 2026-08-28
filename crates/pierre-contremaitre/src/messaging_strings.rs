@@ -1022,7 +1022,7 @@ pub(crate) const FR_CALIBRATE_START_FAILED: &str =
     "Je n'ai pas réussi à démarrer le calibrage sur cette conversation. Réessaie dans un instant.";
 pub(crate) const FR_CALIBRATE_COMPLETE_HEADER: &str =
     "Calibrage terminé — j'ai retenu {0} réponses sur {1}.";
-pub(crate) const FR_CALIBRATE_COMPLETE_MISSING: &str = "Il me manque ta réponse sur {0}. C'est ce qui limite jusqu'où je peux pousser, alors reprenons cette question — écris <code>/calibrate</code>.";
+pub(crate) const FR_CALIBRATE_COMPLETE_MISSING: &str = "Il me manque ta réponse sur {0}. C'est ce qui limite jusqu'où je peux pousser, alors reprenons cette question — écris /calibrate.";
 pub(crate) const FR_CALIBRATE_FOLLOWUP_PLAN: &str =
     "Tu veux que je reconstruise tes semaines à venir avec ça ?";
 pub(crate) const FR_CALIBRATE_FOLLOWUP_NO_PLAN: &str =
@@ -1357,7 +1357,7 @@ pub(crate) const EN_CALIBRATE_START_FAILED: &str =
     "I couldn't start calibration on this conversation. Try again in a moment.";
 pub(crate) const EN_CALIBRATE_COMPLETE_HEADER: &str =
     "Calibration done — I captured {0} of {1} answers.";
-pub(crate) const EN_CALIBRATE_COMPLETE_MISSING: &str = "I'm missing your answer on {0}. That's what bounds how hard I can push, so let's redo that one — send <code>/calibrate</code>.";
+pub(crate) const EN_CALIBRATE_COMPLETE_MISSING: &str = "I'm missing your answer on {0}. That's what bounds how hard I can push, so let's redo that one — send /calibrate.";
 pub(crate) const EN_CALIBRATE_FOLLOWUP_PLAN: &str =
     "Want me to rebuild your upcoming weeks with this?";
 pub(crate) const EN_CALIBRATE_FOLLOWUP_NO_PLAN: &str = "Want me to build a plan around this?";
@@ -1663,7 +1663,7 @@ pub(crate) const ES_CALIBRATE_START_FAILED: &str =
     "No pude iniciar el calibrado en esta conversación. Vuelve a intentarlo en un momento.";
 pub(crate) const ES_CALIBRATE_COMPLETE_HEADER: &str =
     "Calibrado terminado — he retenido {0} respuestas de {1}.";
-pub(crate) const ES_CALIBRATE_COMPLETE_MISSING: &str = "Me falta tu respuesta sobre {0}. Eso es lo que limita hasta dónde puedo empujar, así que repitamos esa pregunta — escribe <code>/calibrate</code>.";
+pub(crate) const ES_CALIBRATE_COMPLETE_MISSING: &str = "Me falta tu respuesta sobre {0}. Eso es lo que limita hasta dónde puedo empujar, así que repitamos esa pregunta — escribe /calibrate.";
 pub(crate) const ES_CALIBRATE_FOLLOWUP_PLAN: &str =
     "¿Quieres que reconstruya tus próximas semanas con esto?";
 pub(crate) const ES_CALIBRATE_FOLLOWUP_NO_PLAN: &str =
@@ -1967,7 +1967,7 @@ pub(crate) const DE_CALIBRATE_START_FAILED: &str =
     "Ich konnte die Kalibrierung in dieser Unterhaltung nicht starten. Versuch es gleich noch einmal.";
 pub(crate) const DE_CALIBRATE_COMPLETE_HEADER: &str =
     "Kalibrierung fertig — ich habe {0} von {1} Antworten aufgenommen.";
-pub(crate) const DE_CALIBRATE_COMPLETE_MISSING: &str = "Mir fehlt deine Antwort zu {0}. Genau das begrenzt, wie weit ich dich pushen kann — lass uns die Frage nachholen, schreib <code>/calibrate</code>.";
+pub(crate) const DE_CALIBRATE_COMPLETE_MISSING: &str = "Mir fehlt deine Antwort zu {0}. Genau das begrenzt, wie weit ich dich pushen kann — lass uns die Frage nachholen, schreib /calibrate.";
 pub(crate) const DE_CALIBRATE_FOLLOWUP_PLAN: &str =
     "Soll ich deine kommenden Wochen damit neu aufbauen?";
 pub(crate) const DE_CALIBRATE_FOLLOWUP_NO_PLAN: &str = "Soll ich dir damit einen Plan bauen?";
@@ -2276,7 +2276,7 @@ pub(crate) const PT_CALIBRATE_START_FAILED: &str =
     "Não consegui iniciar a calibração nesta conversa. Tenta outra vez dentro de um momento.";
 pub(crate) const PT_CALIBRATE_COMPLETE_HEADER: &str =
     "Calibração terminada — retive {0} respostas de {1}.";
-pub(crate) const PT_CALIBRATE_COMPLETE_MISSING: &str = "Falta-me a tua resposta sobre {0}. É isso que limita até onde te posso empurrar, por isso vamos repetir essa pergunta — escreve <code>/calibrate</code>.";
+pub(crate) const PT_CALIBRATE_COMPLETE_MISSING: &str = "Falta-me a tua resposta sobre {0}. É isso que limita até onde te posso empurrar, por isso vamos repetir essa pergunta — escreve /calibrate.";
 pub(crate) const PT_CALIBRATE_FOLLOWUP_PLAN: &str =
     "Queres que reconstrua as tuas próximas semanas com isto?";
 pub(crate) const PT_CALIBRATE_FOLLOWUP_NO_PLAN: &str = "Queres que te construa um plano com isto?";

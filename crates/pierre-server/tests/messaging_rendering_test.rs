@@ -45,6 +45,9 @@
 
 #[cfg(feature = "client-messaging")]
 mod rendering_snapshots {
+    use pierre_contremaitre::messaging_strings::{
+        MessagingStringsRegistry, KEY_INTAKE_PERSONA, KEY_INTAKE_YESNO_HINT,
+    };
     use pierre_core::models::ConversationTurnId;
     use pierre_messaging::channels::discord::renderer::DiscordRenderer;
     use pierre_messaging::channels::messenger::renderer::MessengerRenderer;
@@ -53,6 +56,7 @@ mod rendering_snapshots {
     use pierre_messaging::channels::whatsapp::renderer::WhatsAppRenderer;
     use pierre_messaging::models::{ChannelType, MessageContent, OutgoingMessage};
     use pierre_messaging::renderer::ResponseRenderer;
+    use pierre_services::messaging_broadcast::proactive_rich_text;
     use serde_json::json;
 
     /// Build a canonical short-plain outgoing message for channel `ct`
@@ -110,7 +114,81 @@ mod rendering_snapshots {
 
         assert_eq!(
             rendered, expected,
-            "Telegram sendMessage shape drifted; `parse_mode: HTML` is load-bearing — coaches emit HTML-formatted content"
+            "Telegram sendMessage shape drifted. `parse_mode: HTML` serves the RichText and Card arms; on this Text arm it is inert, because the body is escaped before Telegram ever parses it — which is the point, so coach prose cannot inject markup."
+        );
+    }
+
+    /// The intake questions ship their own markup, so they must ride a
+    /// `RichText` envelope — in a `Text` one the athlete reads the angle
+    /// brackets.
+    ///
+    /// Shipped broken to production on 2026-08-28: the persona question
+    /// rendered as a literal `<b>1</b> — Je m'entraîne pour moi` on Telegram,
+    /// because `proactive_text` hardcodes `MessageContent::Text` and the Text
+    /// arm escapes. The opener paragraph above it carries no tags and rendered
+    /// fine, which is what made the break look cosmetic rather than structural.
+    ///
+    /// Asserted against the real catalogue in all five locales rather than a
+    /// fixture string: the tags live in the strings, so a locale added without
+    /// them — or a sixth locale added later — has to fail here.
+    #[test]
+    fn telegram_renders_intake_questions_as_formatting_not_visible_tags() {
+        let reg = MessagingStringsRegistry::new();
+
+        for locale in ["fr", "en", "es", "de", "pt"] {
+            for key in [KEY_INTAKE_PERSONA, KEY_INTAKE_YESNO_HINT] {
+                let body = reg.get(key, locale);
+                assert!(
+                    body.contains("<b>"),
+                    "{key}/{locale} lost its markup; this test guards the envelope, so it is \
+                     vacuous once the string is plain: {body}"
+                );
+
+                let msg = proactive_rich_text(ChannelType::Telegram, "123456789".to_owned(), body);
+                let rendered = TelegramRenderer
+                    .render(&msg)
+                    .expect("telegram render succeeds");
+                let text = rendered["text"]
+                    .as_str()
+                    .expect("telegram payload must have a text field");
+
+                assert!(
+                    !text.contains("&lt;b&gt;"),
+                    "{key}/{locale} reached the wire escaped, so the athlete sees the tags: {text}"
+                );
+                assert!(
+                    text.contains("<b>"),
+                    "{key}/{locale} lost its bold on the way to the wire: {text}"
+                );
+            }
+        }
+    }
+
+    /// The same strings in the envelope they used to ship in — proof this test
+    /// pair fails on the old code rather than passing either way.
+    #[test]
+    fn a_text_envelope_would_still_escape_those_tags() {
+        let reg = MessagingStringsRegistry::new();
+        let msg = OutgoingMessage {
+            channel_type: ChannelType::Telegram,
+            recipient_id: "123456789".to_owned(),
+            content: MessageContent::Text {
+                body: reg.get(KEY_INTAKE_PERSONA, "fr"),
+            },
+            turn_id: ConversationTurnId::nil().into(),
+            reply_to: None,
+            thread_id: None,
+        };
+        let rendered = TelegramRenderer
+            .render(&msg)
+            .expect("telegram render succeeds");
+        let text = rendered["text"]
+            .as_str()
+            .expect("telegram payload must have a text field");
+
+        assert!(
+            text.contains("&lt;b&gt;"),
+            "the Text arm must keep escaping — that is what protects coach prose: {text}"
         );
     }
 

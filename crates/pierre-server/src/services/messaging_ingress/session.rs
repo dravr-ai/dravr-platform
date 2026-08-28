@@ -25,7 +25,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
-use pierre_services::messaging_broadcast::proactive_text;
+use pierre_services::messaging_broadcast::{proactive_rich_text, proactive_text};
 use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
 
 use super::linking::hydrate_analytics_consent;
@@ -212,7 +212,11 @@ pub(super) async fn handle_reset(
             format_template(&registry.get(KEY_ERROR_GENERIC, DEFAULT_LOCALE), &["reset"])
         }
     };
-    proactive_text(channel_type, sender_id.to_owned(), body)
+    // Rich, because the interrupted-walk branch above appends
+    // `KEY_RESET_WALK_INTERRUPTED`, which names the command as `<code>/pillars</code>`.
+    // The other two bodies this arm can produce carry no markup, so the envelope is
+    // a no-op for them.
+    proactive_rich_text(channel_type, sender_id.to_owned(), body)
 }
 
 /// Best-effort `coach_assignments.use_count++` for messaging-channel
