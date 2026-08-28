@@ -103,7 +103,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
 
               <h1 className="text-xl font-bold text-error mb-2">{t('shell.oauthConnectionFailed')}</h1>
               <p className="text-sm text-on-surface-variant mb-6">
-                {error || `Failed to connect your ${providerDisplay} account. Please try again.`}
+                {error || t('app.failedConnectProviderAccount', { provider: providerDisplay })}
               </p>
             </>
           )}

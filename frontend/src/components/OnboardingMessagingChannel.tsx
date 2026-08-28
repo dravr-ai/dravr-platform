@@ -38,7 +38,7 @@ export default function OnboardingMessagingChannel({
 
   return (
     <OnboardingShell
-      heading={userDisplayName ? `Almost there, ${userDisplayName}` : t('onboarding.almostThere')}
+      heading={userDisplayName ? t('app.obAlmostThereGreeting', { name: userDisplayName }) : t('onboarding.almostThere')}
     >
       <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
         {t('onboarding.messagingChannelIntro')}

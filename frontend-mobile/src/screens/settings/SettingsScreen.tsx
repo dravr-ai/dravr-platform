@@ -221,7 +221,7 @@ export function SettingsScreen() {
   const handleRevokeToken = (token: McpToken) => {
     Alert.alert(
       t('app.revokeTokenTitle'),
-      `Revoke "${token.name}"? Any client still using it loses access immediately.`,
+      t('app.confirmRevokeToken', { token: token.name }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {

@@ -26,7 +26,7 @@ import path from 'path';
  * by an expression — `Your coaches{isLoading ? '' : ` (${n})`}` read as no text
  * node at all while it only closed on a tag.
  */
-const JSX_TEXT = />\s*([A-Za-z][^<>{}]{2,200}?)\s*[<{]/g;
+const JSX_TEXT = /(?<!=)>\s*([A-Za-z][^<>{}]{2,200}?)\s*[<{]/g;
 /**
  * A quoted prop that carries prose.
  *
@@ -37,7 +37,7 @@ const JSX_TEXT = />\s*([A-Za-z][^<>{}]{2,200}?)\s*[<{]/g;
  * `accessibilityLabel` does not match it.
  */
 const STRING_PROP =
-  /\b(?:placeholder|aria-label|accessibilityLabel|accessibilityHint|title|alt|label)="([A-Z][^"]{2,120})"/g;
+  /\b(?:placeholder|aria-label|accessibilityLabel|accessibilityHint|title|alt|label|helpText|subtitle|hint|emptyText|submitText|cancelText|confirmLabel|cancelLabel)="([A-Z][^"]{2,120})"/g;
 
 /**
  * Prose handed to a function, rather than rendered.
@@ -56,8 +56,19 @@ const STRING_PROP =
  * That gap is how SettingsScreen scored zero while holding three English
  * strings.
  */
-const CALL_ARG_PROSE =
-  /(?:\(|,|\|\||\?\?)\s*'([A-Z][a-z]+(?: [^']{2,110})?)'/g;
+const CALL_ARG_PROSE = /(?:\(|\|\||\?\?)\s*'([A-Z][a-z]+(?: [^']{2,110})?)'/g;
+
+/**
+ * Prose in a LATER argument: `Alert.alert(t('…'), 'Failed to revoke token')`.
+ *
+ * Requires two words, which is what keeps `const TABS = ['Overview', 'Details']`
+ * out. A comma is an argument separator and an array separator both, and a
+ * regex cannot tell them apart — but a one-word capture after a comma is far
+ * more often an array element or an enum member than a sentence, and a real
+ * sentence has a space in it. Anchoring on `(` alone was the previous bug: it
+ * saw the first argument of a call and nothing after it.
+ */
+const CALL_LATER_ARG_PROSE = /,\s*'([A-Z][a-z]+ [^']{2,110})'/g;
 const OBJECT_LITERAL =
   /\b(?:name|label|title|description|heading|text|message|placeholder)\s*:\s*'([A-Z][^']{2,120})'/g;
 /**
@@ -142,6 +153,11 @@ const ATHLETE_SURFACES = [
   'SciotteLoginModal.tsx', 'IntervalsIcuLinkModal.tsx',
   'OAuthCredentialsSection.tsx', 'OAuthAppSetupModal.tsx',
   'CommandPalette.tsx', 'MentionPalette.tsx', 'VoiceButton.tsx',
+  // Offline and error copy. Mobile has no operator console, so nothing under
+  // frontend-mobile is operator chrome — these three only scored that way for
+  // sitting outside `screens/`, which is the class of copy an athlete reads at
+  // the exact moment something has gone wrong.
+  'ServerStatusBanner.tsx', 'QueryProvider.tsx', 'toast.tsx',
 
   // ── frontend (web) ───────────────────────────────────────────────────────
   'components/chat', 'components/groups', 'components/discover',
@@ -157,6 +173,11 @@ const ATHLETE_SURFACES = [
   'IntervalsIcuLinkModal.tsx', 'ConnectPreview.tsx', 'ConnectProviderBanner.tsx',
   'BillingPage.tsx', 'BillingTab.tsx', 'ErrorBoundary.tsx', 'OAuthCallback.tsx',
   'ImpersonationBanner.tsx', 'LanguageSwitcher.tsx',
+  // A privacy disclosure is athlete-facing by definition. Its absence here is
+  // why the ratchet scored six hardcoded English promises as operator chrome —
+  // while the mobile twin's own comment says the two surfaces "cannot promise
+  // different things about what leaves the device".
+  'PrivacySettingsTab.tsx',
 ];
 
 /** Whether a component renders on a surface an athlete can reach. */
@@ -219,14 +240,69 @@ function stripFontFamily(source: string): string {
  * would silently break the auto-reload. Nothing user-facing is ever passed to
  * `.includes()`, `.startsWith()` or `.endsWith()`, so the arguments are blanked.
  */
+/**
+ * Props whose value is never copy: styling and test hooks.
+ *
+ * Widening the template-literal filter to admit sentence punctuation also
+ * admitted `className={`text-xs font-medium`}` and
+ * `testID={`notification-pref-cap-${id}`}` — hyphenated lowercase tokens read
+ * as a sentence once hyphens are allowed. Blanking the props is precise and
+ * needs no guessing about shape; a className is never shown to anyone.
+ */
+function stripNonCopyProps(source: string): string {
+  return source.replace(
+    /\b(?:className|testID|style|key|id|htmlFor|data-testid)=\{`(?:[^`]|\$\{[^}]*\})*`\}/g,
+    ' ',
+  )
+    .replace(/\b(?:className|testID|style|key|id|htmlFor|data-testid)="[^"]*"/g, ' ')
+    // A filename or URL being ASSIGNED is not copy either:
+    // `a.download = \`billing-${period}.${format}\`` is what a saved export is
+    // called on disk, and translating it would rename the file.
+    .replace(/\.(?:download|href|src|action|pathname)\s*=\s*`(?:[^`]|\$\{[^}]*\})*`/g, ' ');
+}
+
+/**
+ * React Native's dev log-suppression list.
+ *
+ * `LogBox.ignoreLogs(['Failed to send message:', …])` is a set of PREFIXES
+ * matched against warnings in development. They are shaped exactly like error
+ * copy because they are quoting error copy — but translating them would only
+ * stop the suppression matching.
+ */
+function stripLogBox(source: string): string {
+  return source.replace(/LogBox\.\w+\(\[[^\]]*\]\)/g, ' ');
+}
+
 function stripMatchers(source: string): string {
   return source.replace(/\.(?:includes|startsWith|endsWith)\([^)]*\)/g, ' ');
 }
 
 function collect(input: string): string[] {
-  const source = stripMatchers(stripFontFamily(stripConsole(stripComments(input))));
+  const source = stripLogBox(
+    stripNonCopyProps(
+      stripMatchers(stripFontFamily(stripConsole(stripComments(input)))),
+    ),
+  );
   const found = new Set<string>();
-  for (const re of [JSX_TEXT, STRING_PROP, OBJECT_LITERAL, CALL_ARG_PROSE]) {
+  /**
+   * Captures whose SYNTAX already proves they are copy — the key names them
+   * (`text:`, `helpText=`). CODE_SHAPE is not applied to these.
+   *
+   * `{ text: 'Member (athlete)' }` is a dialog button label that stayed English
+   * because CODE_SHAPE rejects anything containing a parenthesis. That filter
+   * exists to throw out loose JSX-text captures that are really code; a value
+   * sitting behind `text:` is not a guess, and real copy contains brackets.
+   */
+  const trusted = new Set<string>();
+  for (const re of [STRING_PROP, OBJECT_LITERAL]) {
+    re.lastIndex = 0;
+    let m = re.exec(source);
+    while (m !== null) {
+      trusted.add(m[1].replace(/\s+/g, ' ').trim());
+      m = re.exec(source);
+    }
+  }
+  for (const re of [JSX_TEXT, STRING_PROP, OBJECT_LITERAL, CALL_ARG_PROSE, CALL_LATER_ARG_PROSE]) {
     re.lastIndex = 0;
     let m = re.exec(source);
     while (m !== null) {
@@ -260,8 +336,13 @@ function collect(input: string): string[] {
   while (g !== null) {
     // The words around the holes. Two or more of them is a sentence, not a
     // class list or a URL fragment.
-    const words = g[0].slice(1, -1).replace(/\$\{[^}]*\}/g, ' ').trim();
-    if (/^[A-Za-z][A-Za-z' ]{4,}$/.test(words) && words.includes(' ')) {
+    const words = g[0].slice(1, -1).replace(/\$\{[^}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+    // Sentence punctuation is allowed. The previous charset was
+    // `[A-Za-z' ]`, which rejected every capture containing `?` or `"` — i.e.
+    // every confirmation prompt in the app (`Leave "${name}"?`). Ten Alert
+    // bodies stayed English behind that one character class while their titles
+    // translated around them.
+    if (/^[A-Za-z][A-Za-z'"?!.,:; —-]{4,}$/.test(words) && words.includes(' ')) {
       found.add(words);
     }
     g = TEMPLATE_PROSE.exec(source);
@@ -271,7 +352,9 @@ function collect(input: string): string[] {
       text.length >= 3 &&
       /[a-z]/.test(text) &&
       !NOT_PROSE.test(text) &&
-      !CODE_SHAPE.test(decodeEntities(text)),
+      // CODE_SHAPE only applies to the LOOSE captures. A value behind a named
+      // label key is copy by construction, and real copy contains brackets.
+      (trusted.has(text) || !CODE_SHAPE.test(decodeEntities(text))),
   );
 }
 

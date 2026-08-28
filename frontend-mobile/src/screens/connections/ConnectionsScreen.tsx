@@ -134,7 +134,7 @@ export function ConnectionsScreen() {
           if (providerId === 'strava') {
             setSciotteTarget('strava');
           } else {
-            Alert.alert(t('app.connectionFailed'), `Failed to connect: ${error}`);
+            Alert.alert(t('app.connectionFailed'), t('app.failedToConnectReason', { reason: error }));
           }
         } else {
           // No explicit success/error in the callback — refresh status to
@@ -173,8 +173,8 @@ export function ConnectionsScreen() {
 
   const handleDisconnect = async (providerId: string, providerName: string) => {
     Alert.alert(
-      `Disconnect ${providerName}`,
-      `Are you sure you want to disconnect ${providerName}? You will need to reconnect to sync new data.`,
+      t('app.disconnectProvider', { provider: providerName }),
+      t('app.confirmDisconnect', { provider: providerName }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -188,10 +188,10 @@ export function ConnectionsScreen() {
                 await oauthApi.disconnectProvider(providerId);
               }
               await loadConnectionStatus();
-              Alert.alert(t('common.success'), `${providerName} has been disconnected.`);
+              Alert.alert(t('common.success'), t('app.providerDisconnected', { provider: providerName }));
             } catch (error) {
               console.error('Failed to disconnect provider:', error);
-              Alert.alert(t('common.error'), `Failed to disconnect ${providerName}. Please try again.`);
+              Alert.alert(t('common.error'), t('app.failedDisconnect', { provider: providerName }));
             }
           },
         },

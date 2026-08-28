@@ -14,6 +14,7 @@ import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
 import { useTranslation } from '@pierre/i18n';
+import { SPORT_LABEL_KEY, isOnboardingSport } from '@pierre/shared-constants';
 
 /**
  * Onboarding coach proposal (mobile).
@@ -92,7 +93,17 @@ export function OnboardingCoachProposalScreen() {
                 count: profile.total_activities,
               })}
               {profile.primary_sport
-                ? t('app.obMostlySport', { sport: profile.primary_sport })
+                ? t('app.obMostlySport', {
+                    // The READ side of the value/label split. `primary_sport`
+                    // is the wire value — 'Running' — because that is what the
+                    // chip saved and what the coach reads. Interpolating it raw
+                    // put English inside French prose: ", surtout Running."
+                    // A sport the server sends that is not one of ours falls
+                    // back to its own name rather than to a missing key.
+                    sport: isOnboardingSport(profile.primary_sport)
+                      ? t(SPORT_LABEL_KEY[profile.primary_sport])
+                      : profile.primary_sport,
+                  })
                 : ''}
             </Text>
             <View className="mt-3 gap-2">

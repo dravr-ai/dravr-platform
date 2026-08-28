@@ -207,7 +207,7 @@ export function CoachEditorScreen() {
     if (!coachId) return;
     Alert.alert(
       t('app.deleteCoachQ'),
-      `Delete coach "${title}"? This cannot be undone.`,
+      t('app.confirmDeleteCoach', { coach: title }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -613,7 +613,7 @@ export function CoachEditorScreen() {
                         backgroundColor: detailMode === 'detailed' ? colors.pierre.violet : 'transparent',
                       }}
                     />
-                    <Text className="text-text-secondary text-xs">Detailed (laps, splits)</Text>
+                    <Text className="text-text-secondary text-xs">{t('app.detailedLapsSplits')}</Text>
                   </TouchableOpacity>
                 </View>
 

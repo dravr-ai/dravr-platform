@@ -444,8 +444,8 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         onClose={() => setConfirmLeave(false)}
         onConfirm={() => void handleLeave()}
         title={t('groups.leaveGroup')}
-        message={`Are you sure you want to leave "${group.name}"? You will need a new invite to rejoin.`}
-        confirmLabel="Leave Group"
+        message={t('app.confirmLeaveGroupWeb', { group: group.name })}
+        confirmLabel={t('app.leaveGroup')}
         variant="warning"
         isLoading={isLeaving}
       />
@@ -455,8 +455,8 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => void handleDelete()}
         title={t('groups.deleteGroup')}
-        message={`This will permanently archive "${group.name}" and remove all members. This action cannot be undone.`}
-        confirmLabel="Delete Group"
+        message={t('app.confirmArchiveGroupWeb', { group: group.name })}
+        confirmLabel={t('app.deleteGroup')}
         variant="danger"
         isLoading={isDeleting}
       />
@@ -467,7 +467,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         onConfirm={() => void handleRemoveCoach()}
         title={t('groups.removeCoach')}
         message="Detach the human coach from this group? They will lose access to the group's roster. You can invite a coach again later."
-        confirmLabel="Remove Coach"
+        confirmLabel={t('app.removeCoach')}
         variant="warning"
         isLoading={isRemovingCoach}
       />

@@ -90,7 +90,7 @@ export default function MemberList({
     if (!confirmRemove) return;
     try {
       await removeMember(confirmRemove.user_id);
-      showSuccess(t('app.memberRemoved'), `${confirmRemove.display_name ?? t('groups.member')} has been removed from the group.`);
+      showSuccess(t('app.memberRemoved'), t('app.memberRemovedFrom', { member: confirmRemove.display_name ?? t('groups.member') }));
       setConfirmRemove(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.removeFailed');
@@ -102,7 +102,7 @@ export default function MemberList({
     const newRole: GroupRole = member.role === 'member' ? 'admin' : 'member';
     try {
       await updateRole({ userId: member.user_id, role: newRole });
-      showSuccess(t('app.roleUpdated'), `${member.display_name ?? t('groups.member')} is now ${newRole}.`);
+      showSuccess(t('app.roleUpdated'), t('app.memberIsNowRole', { member: member.display_name ?? t('groups.member'), role: newRole }));
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.roleUpdateFailed');
       showError(t('app.updateFailed'), message);
@@ -260,8 +260,8 @@ export default function MemberList({
         onClose={() => setConfirmRemove(null)}
         onConfirm={handleRemove}
         title={t('groups.removeMember')}
-        message={`Are you sure you want to remove ${confirmRemove?.display_name ?? 'this member'} from the group? They can rejoin with a new invite.`}
-        confirmLabel="Remove"
+        message={t('app.confirmRemoveMemberWeb', { member: confirmRemove?.display_name ?? t('app.thisMember') })}
+        confirmLabel={t('app.remove')}
         variant="danger"
         isLoading={isRemoving}
       />

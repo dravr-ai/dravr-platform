@@ -41,7 +41,7 @@ describe('client locale corpus', () => {
     expect(defaultI18nConfig.fallbackLng).toBe('fr');
   });
 
-  it('carries the same 1061 keys in every locale', () => {
+  it('carries the same key set in every locale', () => {
     // 201 before the Chat-First Cutover retired the 23-key `social`
     // namespace with the feature it named, and 178 until the 14-key
     // `insights` namespace was dropped for the same reason — it outlived the
@@ -62,7 +62,7 @@ describe('client locale corpus', () => {
     // was un-narrowed (2026-08-27) — so the label was captioning a promise the
     // product no longer made. A surface moved: the number moved with it.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(1731);
+    expect(reference).toHaveLength(1806);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

@@ -119,12 +119,12 @@ export function CoachingStyleScreen() {
     setIsPending(true);
     try {
       const result = await userApi.setCoachingPersona(persona);
-      setMessage({ type: 'success', text: `Coaching style updated to ${result.persona}.` });
+      setMessage({ type: 'success', text: t('app.coachingStyleUpdated', { style: result.persona }) });
       // Sync the AuthContext user so other screens see the new persona.
       await updateUser({ coaching_persona: result.persona });
     } catch {
       setSelected(previous);
-      setMessage({ type: 'error', text: `Failed to update coaching style to ${persona}.` });
+      setMessage({ type: 'error', text: t('app.coachingStyleUpdateFailed', { style: persona }) });
     } finally {
       setIsPending(false);
       setTimeout(() => setMessage(null), 3000);

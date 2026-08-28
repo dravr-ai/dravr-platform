@@ -94,7 +94,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
         onLongPress={() => onLongPress(row)}
         delayLongPress={300}
         accessibilityRole="button"
-        accessibilityLabel={unread ? `Open ${row.title}, ${row.unreadCount} unread` : `Open ${row.title}`}
+        accessibilityLabel={unread ? t('app.openRowUnread', { title: row.title, count: row.unreadCount }) : t('app.openRow', { title: row.title })}
         testID={`conversation-row-${row.id}`}
       >
         <InitialsAvatar initials={row.initials} slot={row.avatarSlot} testID={`conversation-avatar-${row.id}`} />
@@ -141,7 +141,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
               <View
                 className="flex-row items-center rounded-full px-1.5 py-0.5 mr-1.5"
                 style={{ backgroundColor: `${colors.pierre.violet}26` }}
-                accessibilityLabel={`From ${row.channel.label}`}
+                accessibilityLabel={t('app.fromChannel', { channel: row.channel.label })}
                 testID={`conversation-channel-badge-${row.id}`}
               >
                 <Text className="text-[10px] font-medium" style={{ color: colors.pierre.violet }}>

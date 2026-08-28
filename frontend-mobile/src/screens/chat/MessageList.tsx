@@ -74,7 +74,7 @@ function FeedbackReasonInput({
           setSaved(false);
         }}
         onSubmitEditing={submit}
-        placeholder="What went wrong? (optional)"
+        placeholder={t('app.whatWentWrongOptional')}
         placeholderTextColor={colors.text.tertiary}
         returnKeyType="done"
         className="flex-1 px-3 py-1.5 rounded-lg text-xs"
@@ -212,12 +212,13 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
 
 // Collapsible section for the activity list — closed by default
 function CollapsibleActivities({ activityText }: { activityText: string }) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
   const [expanded, setExpanded] = useState(false);
 
   const activityCount = countActivities(activityText);
-  const label = `Your Activities (${activityCount})`;
+  const label = t('app.yourActivitiesCount', { count: activityCount });
 
   return (
     <View className="mb-2">
@@ -415,7 +416,7 @@ export function MessageList({
           <View
             key={key}
             testID="verdict-chip"
-            accessibilityLabel={`Claim verdicts: ${summary.worstStatus}`}
+            accessibilityLabel={t('app.claimVerdictsStatus', { status: summary.worstStatus })}
             className="flex-row items-center self-start mt-2 px-2 py-1 rounded-full"
             style={{ backgroundColor: `${tint}26` }}
           >

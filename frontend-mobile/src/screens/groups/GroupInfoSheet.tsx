@@ -103,7 +103,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
   const handleRemoveMember = useCallback(
     (member: GroupMember) => {
-      Alert.alert(t('app.removeMember'), `Remove ${member.display_name ?? 'this member'} from the group?`, [
+      Alert.alert(t('app.removeMember'), t('app.confirmRemoveMember', { member: member.display_name ?? t('app.thisMember') }), [
         { text: t('common.cancel'), style: 'cancel' },
         {
           text: t('app.remove'),
@@ -161,7 +161,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
   const handleShareInvite = useCallback(() => {
     Alert.alert(t('app.createInvite'), t('app.whoIsInviteFor'), [
-      { text: 'Member (athlete)', onPress: () => void createInviteOfKind('member') },
+      { text: t('app.inviteKindMember'), onPress: () => void createInviteOfKind('member') },
       { text: t('app.coach'), onPress: () => void createInviteOfKind('coach') },
       { text: t('common.cancel'), style: 'cancel' },
     ]);
@@ -169,7 +169,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
   const handleDeactivateInvite = useCallback(
     (inviteId: string, code: string) => {
-      Alert.alert(t('app.deactivateInvite'), `Stop accepting code ${code}?`, [
+      Alert.alert(t('app.deactivateInvite'), t('app.confirmDeactivateInvite', { code }), [
         { text: t('common.cancel'), style: 'cancel' },
         {
           text: t('app.deactivate'),
@@ -239,7 +239,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   );
 
   const handleLeave = useCallback(() => {
-    Alert.alert(t('app.leaveGroup'), `Leave "${group?.name ?? 'this group'}"?`, [
+    Alert.alert(t('app.leaveGroup'), t('app.confirmLeaveGroup', { group: group?.name ?? t('app.thisGroup') }), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('app.leave'),
@@ -260,7 +260,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const handleDelete = useCallback(() => {
     Alert.alert(
       t('app.archiveGroupTitle'),
-      `Archive "${group?.name ?? 'this group'}"? Members lose access to its shared coaching.`,
+      t('app.confirmArchiveGroup', { group: group?.name ?? t('app.thisGroup') }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -301,7 +301,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
       <View className="mt-4">
         <CollapsibleSection
-          title={`Members (${members.length})`}
+          title={t('app.membersCount', { count: members.length })}
           defaultExpanded
           testID="group-info-members"
         >

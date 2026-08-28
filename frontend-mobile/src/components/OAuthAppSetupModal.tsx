@@ -102,7 +102,7 @@ export function OAuthAppSetupModal({
     } catch {
       Alert.alert(
         t('app.unableOpenBrowser'),
-        `Open ${devPortalUrl} manually to create your ${displayName} app.`,
+        t('app.openPortalManually', { url: devPortalUrl, provider: displayName }),
       );
     }
   };
@@ -211,7 +211,7 @@ export function OAuthAppSetupModal({
               label={t('app.clientSecret')}
               placeholder={
                 existingApp
-                  ? `Re-enter your ${displayName} Client Secret`
+                  ? t('app.reenterProviderClientSecret', { provider: displayName })
                   : t('app.pasteProviderClientSecret', { provider: displayName })
               }
               value={clientSecret}

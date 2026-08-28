@@ -114,7 +114,7 @@ export default function SciotteLoginModal({
       setIsLoading(true);
       setError(null);
       setPhase('logging-in');
-      setStatus(`Connecting to ${target === 'garmin' ? t('shell.sciotteProviderGarmin') : t('shell.sciotteTargetStrava')}...`);
+      setStatus(t('app.connectingToProvider', { provider: target === 'garmin' ? t('shell.sciotteProviderGarmin') : t('shell.sciotteTargetStrava') }));
 
       try {
         const data = await oauthApi.sciotteLogin({ email, password, method, target });
@@ -239,9 +239,9 @@ export default function SciotteLoginModal({
   const progressLabel = (() => {
     if (phase !== 'logging-in') return status;
     if (elapsedSecs < 4) return 'Launching headless browser…';
-    if (elapsedSecs < 10) return `Navigating to ${providerLabel}…`;
+    if (elapsedSecs < 10) return t('app.navigatingTo', { provider: providerLabel });
     if (elapsedSecs < 18) return 'Submitting credentials…';
-    if (elapsedSecs < 28) return `Waiting for ${providerLabel} to respond…`;
+    if (elapsedSecs < 28) return t('app.waitingForProvider', { provider: providerLabel });
     return 'Still working… provider login can be slow.';
   })();
 
@@ -451,7 +451,7 @@ export default function SciotteLoginModal({
                   {(() => {
                     const budget = loginTimeoutSecs === null ? 'a few minutes' : formatTimeout(loginTimeoutSecs);
                     return elapsedSecs > 0
-                      ? `${elapsedSecs}s elapsed — this may take up to ${budget}`
+                      ? t('app.elapsedMayTake', { elapsed: elapsedSecs, budget })
                       : t('frag.mayTakeUpTo', { budget });
                   })()}
                 </p>

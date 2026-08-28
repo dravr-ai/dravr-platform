@@ -152,7 +152,7 @@ export function OnboardingConnectScreen() {
             if (providerId === 'strava') {
               setSciotteTarget('strava');
             } else {
-              setConnectError(`Failed to connect ${providerName}: ${error}`);
+              setConnectError(t('app.failedConnectProviderReason', { provider: providerName, reason: error }));
             }
           } else {
             // No explicit success/error — refetch to see if the row landed.

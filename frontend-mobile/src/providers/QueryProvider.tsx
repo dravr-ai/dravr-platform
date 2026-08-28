@@ -16,6 +16,7 @@ import {
 import { extractErrorMessage } from '../utils/errorMessages';
 import { idleAbort, registerIdleWatch, resetIdleAbort } from '../services/idleSignal';
 import { useAuth } from '../contexts/AuthContext';
+import { useTranslation } from '@pierre/i18n';
 
 interface QueryProviderProps {
   children: React.ReactNode;
@@ -29,7 +30,11 @@ interface QueryProviderProps {
  * - 7-day garbage collection for offline access
  * - Graceful degradation when offline (no error screens for stale data)
  */
-function createQueryClient(): QueryClient {
+function createQueryClient(
+  // Module scope has no hook, so the provider — which is a component — hands
+  // its `t` down. The mutation-cache error toast is the only copy in here.
+  t: (key: string) => string,
+): QueryClient {
   return new QueryClient({
     mutationCache: new MutationCache({
       onError: (error: Error) => {
@@ -38,11 +43,11 @@ function createQueryClient(): QueryClient {
           return;
         }
 
-        const message = extractErrorMessage(error, 'Something went wrong. Please try again.');
+        const message = extractErrorMessage(error, t('app.somethingWentWrongRetry'));
 
         Toast.show({
           type: 'error',
-          text1: 'Error',
+          text1: t('common.error'),
           text2: message,
           visibilityTime: 4000,
         });
@@ -93,8 +98,9 @@ function createQueryClient(): QueryClient {
  * - Automatic cache clear on logout
  */
 export function QueryProvider({ children }: QueryProviderProps) {
+  const { t } = useTranslation();
   const { isAuthenticated, user } = useAuth();
-  const queryClient = useMemo(() => createQueryClient(), []);
+  const queryClient = useMemo(() => createQueryClient(t), [t]);
 
   // Clear cache when user logs out
   React.useEffect(() => {

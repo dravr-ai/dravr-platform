@@ -7,6 +7,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from '@pierre/i18n';
 
 interface ServerStatusBannerProps {
   onRetry: () => void;
@@ -14,6 +15,7 @@ interface ServerStatusBannerProps {
 }
 
 export function ServerStatusBanner({ onRetry, isChecking }: ServerStatusBannerProps) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   return (
@@ -24,17 +26,17 @@ export function ServerStatusBanner({ onRetry, isChecking }: ServerStatusBannerPr
       <View className="flex-row items-center flex-1 mr-3">
         <Feather name="wifi-off" size={14} color="#fca5a5" />
         <Text className="text-red-300 text-sm font-medium ml-2">
-          Server unreachable
+          {t('app.serverUnreachable')}
         </Text>
       </View>
       <TouchableOpacity
         onPress={onRetry}
         disabled={isChecking}
         className="bg-red-800 px-3 py-1 rounded-md"
-        accessibilityLabel="Retry server connection"
+        accessibilityLabel={t('app.retryServerConnection')}
       >
         <Text className="text-red-200 text-xs font-medium">
-          {isChecking ? 'Checking...' : 'Retry'}
+          {isChecking ? t('app.checking') : t('common.retry')}
         </Text>
       </TouchableOpacity>
     </View>

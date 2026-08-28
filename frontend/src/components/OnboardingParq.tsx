@@ -73,7 +73,7 @@ export default function OnboardingParq({
 
   return (
     <OnboardingShell
-      heading={userDisplayName ? `A quick health check, ${userDisplayName}` : t('onboarding.parqHeading')}
+      heading={userDisplayName ? t('app.obParqGreeting', { name: userDisplayName }) : t('onboarding.parqHeading')}
     >
       <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
         {t('onboarding.parqIntro')}

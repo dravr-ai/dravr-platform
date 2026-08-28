@@ -121,7 +121,7 @@ export function StoreCoachDetailScreen() {
 
     Alert.alert(
       t('app.uninstallCoachQ'),
-      `Remove "${coach.title}" from your coaches? You can always reinstall it later.`,
+      t('app.confirmUninstallCoach', { coach: coach.title }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {

@@ -113,7 +113,7 @@ export function OAuthCredentialsSection() {
   const handleDelete = (provider: string, providerName: string) => {
     Alert.alert(
       t('app.removeCredentials'),
-      `Are you sure you want to remove ${providerName} credentials? You'll need to re-enter them to use a custom OAuth app.`,
+      t('app.confirmRemoveProviderCreds', { provider: providerName }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {

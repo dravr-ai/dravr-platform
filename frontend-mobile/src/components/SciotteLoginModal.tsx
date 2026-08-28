@@ -172,7 +172,7 @@ export function SciotteLoginModal({
           onConnected();
           onClose();
         } else if (oauthError) {
-          Alert.alert(t('app.connectionFailed'), `Strava error: ${oauthError}`);
+          Alert.alert(t('app.connectionFailed'), t('app.stravaErrorReason', { reason: oauthError }));
         }
       }
       // type === 'cancel' / 'dismiss' — user backed out; no error to surface.
@@ -188,7 +188,7 @@ export function SciotteLoginModal({
     setIsLoading(true);
     setError(null);
     setPhase('logging-in');
-    setStatus(`Signing in to ${platformName}...`);
+    setStatus(t('app.signingInTo', { provider: platformName }));
 
     try {
       const data = await oauthApi.sciotteLogin({ email, password, method, target });

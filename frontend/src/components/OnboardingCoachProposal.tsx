@@ -93,7 +93,7 @@ export default function OnboardingCoachProposal({
   return (
     <OnboardingShell
       heading={
-        userDisplayName ? `Here's your starting lineup, ${userDisplayName}` : t('frag.startingLineup')
+        userDisplayName ? t('app.obStartingLineup', { name: userDisplayName }) : t('frag.startingLineup')
       }
     >
       {/* Inferred profile summary */}

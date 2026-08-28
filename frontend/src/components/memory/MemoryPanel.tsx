@@ -225,8 +225,8 @@ export default function MemoryPanel() {
         <ConfirmDialog
           isOpen
           title={t('shell.memoryForgetConfirm')}
-          message={`The coach will stop using "${factSentence(pendingForget)}" on the next turn. This cannot be undone.`}
-          confirmLabel="Forget"
+          message={t('app.confirmForgetFact', { fact: factSentence(pendingForget) })}
+          confirmLabel={t('app.forget')}
           cancelLabel={t('common.cancel')}
           variant="danger"
           isLoading={forgetMutation.isPending}

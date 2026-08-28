@@ -218,9 +218,9 @@ export default function ChatTab({
 
   const handleAskAboutClaim = useCallback((verdict: ClaimVerdict) => {
     setNewMessage(
-      `Can you back up this claim with evidence? "${verdict.claim_text}"`,
+      t('app.backUpClaim', { claim: verdict.claim_text }),
     );
-  }, []);
+  }, [t]);
 
   // Mutations. Takes an optional coach ID; the server resolves the
   // coach's system prompt at runtime from the coaches table.

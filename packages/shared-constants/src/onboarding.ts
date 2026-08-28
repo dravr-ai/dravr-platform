@@ -261,3 +261,16 @@ export const SPORT_LABEL_KEY: Record<OnboardingSport, string> = {
   Strength: 'app.sportStrength',
   Hiking: 'app.sportHiking',
 };
+
+/**
+ * Whether a stored sport is one of the one-tap choices.
+ *
+ * The profile field is free text — the onboarding screen offers these six and
+ * lets an athlete type anything else — so a read-back has to check before
+ * reaching for a label key, or an unlisted sport renders as a missing-key
+ * string instead of what the athlete actually typed.
+ */
+export function isOnboardingSport(value: string): value is OnboardingSport {
+  return (ONBOARDING_SPORTS as readonly string[]).includes(value);
+}
+

@@ -98,7 +98,7 @@ export default function OnboardingMessagingConfigure({
 
   return (
     <OnboardingShell
-      heading={userDisplayName ? `Connect ${displayName}, ${userDisplayName}` : `Connect ${displayName}`}
+      heading={userDisplayName ? t('app.obConnectGreeting', { channel: displayName, name: userDisplayName }) : `Connect ${displayName}`}
     >
       <div className="mt-6 flex flex-col items-center gap-5">
         {isDeepLink && link.qr_svg ? (

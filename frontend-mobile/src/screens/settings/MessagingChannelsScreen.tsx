@@ -69,7 +69,7 @@ export function MessagingChannelsScreen() {
   const handleUnlink = (link: ChannelLink) => {
     const name = available.find((c) => c.channel === link.channel)?.display_name ?? link.channel;
     Alert.alert(
-      `Unlink ${name}?`,
+      t('app.confirmUnlinkChannel', { channel: name }),
       t('app.unlinkChannelWarning'),
       [
         { text: t('common.cancel'), style: 'cancel' },

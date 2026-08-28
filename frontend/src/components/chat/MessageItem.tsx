@@ -247,7 +247,7 @@ const MessageItem = memo(function MessageItem({
               type="button"
               onClick={detail && onShowVerdict ? () => onShowVerdict(detail) : undefined}
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors ${chipClassForTone(summary.tone)}`}
-              title={`${summary.count} claim verdict${summary.count === 1 ? '' : 's'} — worst: ${summary.worstStatus}, ${summary.worstStrength ?? summary.worstStatus}`}
+              title={t('app.claimVerdictSummary', { count: summary.count, status: summary.worstStatus, strength: summary.worstStrength ?? summary.worstStatus })}
             >
               <ShieldAlert className="w-3 h-3" />
               <span>{verdictSummaryLabel(summary)}</span>

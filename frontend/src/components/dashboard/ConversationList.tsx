@@ -138,8 +138,8 @@ export default function ConversationList({
       <ConfirmDialog
         isOpen={!!deleteConfirmation}
         title={t('convPanel.deleteOne')}
-        message={`Are you sure you want to delete "${deleteConfirmation?.title ?? ''}"? This action cannot be undone.`}
-        confirmLabel="Delete"
+        message={t('app.confirmDeleteConversation', { title: deleteConfirmation?.title ?? '' })}
+        confirmLabel={t('common.delete')}
         cancelLabel={t('common.cancel')}
         onConfirm={() => void handleConfirmDelete()}
         onClose={() => setDeleteConfirmation(null)}

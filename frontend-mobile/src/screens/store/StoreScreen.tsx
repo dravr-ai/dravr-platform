@@ -292,7 +292,7 @@ export function StoreScreen() {
       </Text>
       <Text className="text-base text-text-secondary text-center">
         {searchQuery
-          ? `No coaches match "${searchQuery}"`
+          ? t('app.noCoachesMatch', { query: searchQuery })
           : t('app.noPublishedCoaches')}
       </Text>
     </View>

@@ -9,8 +9,10 @@ import { useMutation } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { Card } from './ui';
 import { useAuth } from '../hooks/useAuth';
+import { useTranslation } from '@pierre/i18n';
 
 export default function PrivacySettingsTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [enabled, setEnabled] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -29,7 +31,7 @@ export default function PrivacySettingsTab() {
     },
     onError: () => {
       setEnabled(!enabled);
-      setMessage({ type: 'error', text: 'Failed to update analytics consent' });
+      setMessage({ type: 'error', text: t('app.failedAnalyticsConsent') });
       setTimeout(() => setMessage(null), 3000);
     },
   });
@@ -42,7 +44,7 @@ export default function PrivacySettingsTab() {
 
   return (
     <Card variant="dark">
-      <h2 className="text-lg font-semibold text-on-surface mb-6">Privacy & Data</h2>
+      <h2 className="text-lg font-semibold text-on-surface mb-6">{t('app.privacyAndData')}</h2>
 
       <div className="space-y-6">
         {/* Analytics Consent Toggle */}
@@ -54,7 +56,7 @@ export default function PrivacySettingsTab() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
-              <h3 className="text-sm font-medium text-on-surface">Usage Analytics</h3>
+              <h3 className="text-sm font-medium text-on-surface">{t('app.usageAnalytics')}</h3>
             </div>
             <p className="text-sm text-on-surface-variant leading-relaxed">
               Help improve Dravr by sharing anonymized usage data. We track general usage
@@ -85,47 +87,47 @@ export default function PrivacySettingsTab() {
 
         {/* What We Track */}
         <div className="p-4 bg-surface-container-low rounded-xl border ghost-border">
-          <h3 className="text-sm font-medium text-on-surface mb-3">What we collect when enabled</h3>
+          <h3 className="text-sm font-medium text-on-surface mb-3">{t('app.whatWeCollect')}</h3>
           <ul className="space-y-2 text-sm text-on-surface-variant">
             <li className="flex items-start gap-2">
               <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              Feature usage patterns (which tools and commands you use)
+              {t('app.analyticsCollect0')}
             </li>
             <li className="flex items-start gap-2">
               <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              Session frequency and messaging channel usage
+              {t('app.analyticsCollect1')}
             </li>
             <li className="flex items-start gap-2">
               <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              Error rates and performance metrics
+              {t('app.analyticsCollect2')}
             </li>
           </ul>
 
-          <h3 className="text-sm font-medium text-on-surface mt-4 mb-3">What we never collect</h3>
+          <h3 className="text-sm font-medium text-on-surface mt-4 mb-3">{t('app.whatWeNeverCollect')}</h3>
           <ul className="space-y-2 text-sm text-on-surface-variant">
             <li className="flex items-start gap-2">
               <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
-              Your messages, conversations, or fitness data
+              {t('app.analyticsNever0')}
             </li>
             <li className="flex items-start gap-2">
               <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
-              Personal information (email, name, location)
+              {t('app.analyticsNever1')}
             </li>
             <li className="flex items-start gap-2">
               <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
-              Your real user ID (all identifiers are SHA-256 hashed)
+              {t('app.analyticsNever2')}
             </li>
           </ul>
         </div>

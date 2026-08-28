@@ -545,7 +545,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               setConnectingProvider(null);
 
               if (result.success) {
-                setProviderMessage({ type: 'success', text: `${providerId} connected successfully!` });
+                setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: providerId }) });
                 refetchProviders();
               } else if (providerId === 'strava') {
                 // Strava OAuth failed (shared-app athlete cap actually exceeded
@@ -1750,8 +1750,8 @@ Authorization: Bearer <your-token-here>`}
         onClose={() => setProviderToDelete(null)}
         onConfirm={() => providerToDelete && deleteMutation.mutate(providerToDelete)}
         title={t('credentials.remove')}
-        message={`Are you sure you want to remove the ${getProviderInfo(providerToDelete || '').name} credentials? You'll need to use the shared server credentials after this.`}
-        confirmLabel="Remove"
+        message={t('app.confirmRemoveProviderCredsWeb', { provider: getProviderInfo(providerToDelete || '').name })}
+        confirmLabel={t('app.remove')}
         variant="danger"
         isLoading={deleteMutation.isPending}
       />
@@ -1762,8 +1762,8 @@ Authorization: Bearer <your-token-here>`}
         onClose={() => setTokenToRevoke(null)}
         onConfirm={() => tokenToRevoke && revokeTokenMutation.mutate(tokenToRevoke.id)}
         title={t('tokens.revoke')}
-        message={`Are you sure you want to revoke "${tokenToRevoke?.name}"? Any AI clients using this token will lose access immediately.`}
-        confirmLabel="Revoke Token"
+        message={t('app.confirmRevokeTokenWeb', { token: tokenToRevoke?.name ?? '' })}
+        confirmLabel={t('app.revokeTokenTitle')}
         cancelLabel={t('common.cancel')}
         variant="danger"
         isLoading={revokeTokenMutation.isPending}
@@ -1775,8 +1775,8 @@ Authorization: Bearer <your-token-here>`}
         onClose={() => setAppToRevoke(null)}
         onConfirm={() => appToRevoke && revokeConnectedAppMutation.mutate(appToRevoke.id)}
         title={t('tokens.revokeAccess')}
-        message={`Revoke access for "${appToRevoke?.client_id}"? It will need to be re-authorized on its next connection.`}
-        confirmLabel="Revoke"
+        message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_id ?? '' })}
+        confirmLabel={t('app.revoke')}
         variant="danger"
         isLoading={revokeConnectedAppMutation.isPending}
       />
@@ -1787,8 +1787,8 @@ Authorization: Bearer <your-token-here>`}
         onClose={() => setProviderToDisconnect(null)}
         onConfirm={() => providerToDisconnect && handleDisconnectProvider(providerToDisconnect)}
         title={t('providers.disconnectProvider')}
-        message={`Are you sure you want to disconnect ${providerToDisconnect}? You will need to reconnect to sync new data.`}
-        confirmLabel="Disconnect"
+        message={t('app.confirmDisconnect', { provider: providerToDisconnect })}
+        confirmLabel={t('app.disconnect')}
         variant="danger"
       />
 
@@ -1815,8 +1815,8 @@ Authorization: Bearer <your-token-here>`}
           }
         }}
         title={t('providers.switchProvider')}
-        message={`Connecting ${providerConflict?.connecting} will disconnect ${providerConflict?.disconnecting}. Both providers access Strava data — only one can be active at a time. Continue?`}
-        confirmLabel="Switch"
+        message={t('app.providerConflictWarning', { connecting: providerConflict?.connecting ?? '', disconnecting: providerConflict?.disconnecting ?? '' })}
+        confirmLabel={t('app.switch')}
         variant="danger"
       />
 

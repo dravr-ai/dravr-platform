@@ -5,6 +5,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, type ViewStyle } from 'react-native';
 import { PRIMARY_PALETTE, useThemeColors } from '../constants/theme';
 import type { ToastConfig, ToastConfigParams, BaseToastProps } from 'react-native-toast-message';
+import { useTranslation } from '@pierre/i18n';
 
 interface VoiceToastProps extends BaseToastProps {
   onRetry?: () => void;
@@ -26,6 +27,7 @@ function useToastShadow(): ViewStyle {
 
 // Custom toast component for voice input errors
 function VoiceToast({ text1, text2, onRetry, onOpenSettings }: VoiceToastProps) {
+  const { t } = useTranslation();
   const toastShadow = useToastShadow();
   return (
     <View
@@ -39,12 +41,12 @@ function VoiceToast({ text1, text2, onRetry, onOpenSettings }: VoiceToastProps) 
       <View className="flex-row gap-2">
         {onOpenSettings && (
           <TouchableOpacity onPress={onOpenSettings} className="bg-background-tertiary px-3 py-1 rounded-lg">
-            <Text className="text-sm font-medium text-primary-400">Settings</Text>
+            <Text className="text-sm font-medium text-primary-400">{t('common.settings')}</Text>
           </TouchableOpacity>
         )}
         {onRetry && (
           <TouchableOpacity onPress={onRetry} className="bg-background-tertiary px-3 py-1 rounded-lg">
-            <Text className="text-sm font-medium text-primary-400">Retry</Text>
+            <Text className="text-sm font-medium text-primary-400">{t('common.retry')}</Text>
           </TouchableOpacity>
         )}
       </View>

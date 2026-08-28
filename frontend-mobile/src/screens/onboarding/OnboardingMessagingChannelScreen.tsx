@@ -30,7 +30,7 @@ export function OnboardingMessagingChannelScreen() {
     await messaging.chooseChannel(channel);
   };
 
-  const heading = user?.display_name ? `Almost there, ${user.display_name}` : t('app.almostThere');
+  const heading = user?.display_name ? t('app.obAlmostThereGreeting', { name: user.display_name }) : t('app.almostThere');
 
   return (
     <Shell heading={heading}>

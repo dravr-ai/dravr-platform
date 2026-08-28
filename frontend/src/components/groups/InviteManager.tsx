@@ -332,7 +332,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
         onConfirm={handleDeactivate}
         title={t('groups.inviteDeactivate')}
         message="This invite link will stop working immediately. Anyone who hasn't used it yet will need a new invite."
-        confirmLabel="Deactivate"
+        confirmLabel={t('app.deactivate')}
         variant="warning"
         isLoading={isDeactivating}
       />

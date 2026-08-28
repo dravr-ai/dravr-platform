@@ -30,7 +30,7 @@ export function ChatPlusFlows({ flows }: ChatPlusFlowsProps) {
         title={t('app.newGroupChat')}
         message="What is this group called?"
         placeholder={t('app.groupNamePlaceholder')}
-        submitText="Create"
+        submitText={t('app.create')}
         cancelText={t('common.cancel')}
         onSubmit={flows.submitGroupName}
         onCancel={flows.closeGroupNamePrompt}

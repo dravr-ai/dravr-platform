@@ -114,7 +114,7 @@ export function ConversationsScreen() {
 
   const confirmDelete = useCallback(
     (row: ConversationRowModel) => {
-      Alert.alert(t('app.convDeleteTitle'), `Are you sure you want to delete "${row.title}"?`, [
+      Alert.alert(t('app.convDeleteTitle'), t('app.confirmDeleteConversation', { title: row.title }), [
         { text: t('common.cancel'), style: 'cancel' },
         {
           text: t('common.delete'),
@@ -332,7 +332,7 @@ export function ConversationsScreen() {
         title={t('app.convRenameTitle')}
         message="Enter a new name for this conversation"
         defaultValue={selectedRow?.title ?? ''}
-        submitText="Save"
+        submitText={t('common.save')}
         cancelText={t('common.cancel')}
         onSubmit={handleRenameSubmit}
         onCancel={handleRenameCancel}

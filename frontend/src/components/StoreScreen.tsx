@@ -516,7 +516,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
             </h3>
             <p className="text-sm text-on-surface-variant mt-1">
               {searchQuery
-                ? `No coaches match "${searchQuery}"`
+                ? t('app.noCoachesMatch', { query: searchQuery })
                 : t('discover.noPublishedCoaches')}
             </p>
           </div>

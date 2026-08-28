@@ -64,7 +64,7 @@ export default function OnboardingAboutYou({
 
   return (
     <OnboardingShell
-      heading={userDisplayName ? `Tell me about your training, ${userDisplayName}` : t('onboarding.tellMeAboutTraining')}
+      heading={userDisplayName ? t('app.obTellMeGreeting', { name: userDisplayName }) : t('onboarding.tellMeAboutTraining')}
     >
       <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
         {t('onboarding.aboutYouHint')}
@@ -122,7 +122,7 @@ export default function OnboardingAboutYou({
             rows={3}
             label={t('onboarding.northStarLabel')}
             placeholder={t('onboarding.northStarPlaceholder')}
-            helpText="This is the one your coach comes back to when the training gets hard."
+            helpText={t('app.obWhyHint')}
             value={northStar}
             onChange={(e) => setNorthStar(e.target.value)}
           />

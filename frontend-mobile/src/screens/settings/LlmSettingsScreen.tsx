@@ -72,7 +72,7 @@ export function LlmSettingsScreen() {
         api_key: apiKey.trim(),
       });
       if (!check.valid) {
-        Alert.alert(t('app.keyRejected'), check.error ?? `${selectedProvider} did not accept that key.`);
+        Alert.alert(t('app.keyRejected'), check.error ?? t('app.providerRejectedKey', { provider: selectedProvider }));
         return;
       }
       await userApi.saveLlmCredentials({ provider: selectedProvider, api_key: apiKey.trim() });
@@ -89,7 +89,7 @@ export function LlmSettingsScreen() {
 
   const handleDelete = (provider: string) => {
     Alert.alert(
-      `Remove your ${provider} key?`,
+      t('app.confirmRemoveKey', { provider }),
       t('app.coachingFallsBack'),
       [
         { text: t('common.cancel'), style: 'cancel' },

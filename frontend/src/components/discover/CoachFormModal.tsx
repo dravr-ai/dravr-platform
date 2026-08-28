@@ -150,8 +150,8 @@ export default function CoachFormModal({
 
               <div className="mb-3">
                 <Textarea
-                  label="Startup Query (optional)"
-                  placeholder="What should the coach analyze on first message? e.g., Analyze my training load and identify trends"
+                  label={t('app.startupQueryOptional')}
+                  placeholder={t('app.startupQueryPlaceholder')}
                   value={formData.startup_query}
                   onChange={(e) => onFormDataChange({ ...formData, startup_query: e.target.value })}
                   rows={2}
@@ -206,7 +206,7 @@ export default function CoachFormModal({
                     />
                     <Radio
                       name="detail_mode"
-                      label="Detailed (laps, splits)"
+                      label={t('app.detailedLapsSplits')}
                       checked={formData.detail_mode === 'detailed'}
                       onChange={() => onFormDataChange({ ...formData, detail_mode: 'detailed' })}
                     />

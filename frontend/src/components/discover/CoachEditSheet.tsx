@@ -114,8 +114,8 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
         onClose={() => setConfirmingDelete(false)}
         onConfirm={() => remove.mutate()}
         title={t('discover.deleteCoachConfirm')}
-        message={`Delete coach "${formData.title}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        message={t('app.confirmDeleteCoach', { coach: formData.title })}
+        confirmLabel={t('common.delete')}
         cancelLabel={t('common.cancel')}
         variant="danger"
         isLoading={remove.isPending}

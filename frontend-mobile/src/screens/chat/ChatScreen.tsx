@@ -370,7 +370,7 @@ export function ChatScreen() {
 
     Alert.alert(
       t('app.convDeleteTitle'),
-      `Are you sure you want to delete "${conversations.currentConversation.title || 'this conversation'}"?`,
+      t('app.confirmDeleteConversation', { title: conversations.currentConversation.title || t('app.thisConversation') }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -533,7 +533,7 @@ export function ChatScreen() {
           title={t('app.chatRenameTitle')}
           message="Enter a new name for this conversation"
           defaultValue={renameDefaultTitle}
-          submitText="Save"
+          submitText={t('common.save')}
           cancelText={t('common.cancel')}
           onSubmit={handleRenameSubmit}
           onCancel={handleRenameCancel}

@@ -14,9 +14,6 @@ import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useTranslation } from '@pierre/i18n';
 import { ONBOARDING_SPORTS as SPORTS, SPORT_LABEL_KEY } from '@pierre/shared-constants';
 
-/** Sports offered as one-tap choices; anything else is typed. */
-
-
 /** Web-matching storage key prefix for this step. */
 const STORAGE_PREFIX = 'dravr.about_you_done.';
 

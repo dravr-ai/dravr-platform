@@ -111,7 +111,7 @@ export function ProviderModal({
                 )}
                 <View className="flex-1">
                   <Text className={`text-base font-medium ${isOtherConnecting ? 'text-text-tertiary' : 'text-text-primary'}`}>
-                    {isConnecting ? `Connecting ${displayName}...` : isConnected ? displayName : `Connect ${displayName}`}
+                    {isConnecting ? t('app.connectingProvider', { provider: displayName }) : isConnected ? displayName : t('app.connectProvider', { provider: displayName })}
                   </Text>
                   {isConnected && (
                     <Text className="text-xs text-accent-primary">{t('app.connectedCheck')}</Text>
