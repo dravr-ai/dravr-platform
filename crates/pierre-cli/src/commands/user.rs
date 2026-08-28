@@ -8,6 +8,7 @@ use std::str::FromStr;
 
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
+use pierre_cli::admin_role::forced_admin_role;
 use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
@@ -111,14 +112,19 @@ async fn update_existing_admin_user(
         ));
     }
 
-    let role_str = if super_admin { "super admin" } else { "admin" };
-    info!("Updating existing {} user...", role_str);
+    // `--super-admin` promotes; its absence must never demote. See
+    // `forced_admin_role` for the incident this closes.
+    let role = forced_admin_role(super_admin, existing_user.role);
 
-    let role = if super_admin {
-        UserRole::SuperAdmin
+    // Names the role actually being written, not the flag that was passed: on a
+    // preserved super-admin those two disagree, and the log is the only place an
+    // operator would notice.
+    let role_str = if role == UserRole::SuperAdmin {
+        "super admin"
     } else {
-        UserRole::Admin
+        "admin"
     };
+    info!("Updating existing {} user...", role_str);
 
     // NOTE: tenant_id is managed via tenant_users junction table, not on User struct
     let updated_user = User {

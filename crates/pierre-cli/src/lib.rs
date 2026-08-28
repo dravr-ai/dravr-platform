@@ -11,4 +11,5 @@
 //! it directly (the crate has no `src`-level unit tests by project convention).
 //! The command dispatch and clap surface stay binary-private in `src/main.rs`.
 
+pub mod admin_role;
 pub mod remote;
