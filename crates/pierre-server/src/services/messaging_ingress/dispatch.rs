@@ -34,6 +34,7 @@ use super::block_render::{render_reply, RenderedReply};
 use super::connect;
 use super::identity_leak_notify::{emit_identity_leak, LeakContext};
 use super::intake;
+use super::otp::apply_conversation_recipient;
 use super::turn_guard::{
     acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_bounded, run_guarded,
     TurnInterruption, TurnOutcome,
@@ -113,7 +114,7 @@ async fn maybe_send_connect_card(dispatch: &PendingDispatch, channel_config: &Ch
 /// Best-effort throughout: a failed send costs the intake this turn, and the
 /// next conversation opens it again.
 async fn maybe_send_intake_question(dispatch: &PendingDispatch, channel_config: &ChannelConfig) {
-    let Some(question) = intake::try_build_first_question(intake::FirstQuestionParams {
+    let Some(question) = intake::try_build_pending_question(intake::PendingQuestionParams {
         resources: &dispatch.resources,
         tenant_id: dispatch.session_tenant_id,
         conversation_id: &dispatch.session.conversation,
@@ -128,8 +129,14 @@ async fn maybe_send_intake_question(dispatch: &PendingDispatch, channel_config: 
         return;
     };
 
+    // Same recipient rewrite the ingress path applies: on Slack and Discord a DM
+    // is addressed by conversation, not by sender, so sending raw would deliver
+    // the question to the wrong place.
+    let mut question = question;
+    apply_conversation_recipient(&mut question, dispatch.conversation_id.as_deref());
+
     if let Err(e) = dispatch.adapter.send(&question, channel_config).await {
-        warn!(error = %e, "intake: opening question failed to send; will re-open next conversation");
+        warn!(error = %e, "intake: question failed to send; the ledger already charged the attempt");
     }
 }
 

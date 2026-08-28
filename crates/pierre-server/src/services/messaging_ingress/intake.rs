@@ -89,12 +89,38 @@ pub(super) struct IntakeParams<'a> {
     pub is_direct_message: bool,
 }
 
+/// What the intake did with an inbound message.
+///
+/// Distinguishes "nothing to do here" from "a question is outstanding and this
+/// was not its answer", because the two fall through to different amounts of the
+/// ingress pipeline: an outstanding question suppresses the coach-choice band,
+/// where a bare digit would otherwise be read as picking a coach.
+#[derive(Debug)]
+pub(super) enum IntakeOutcome {
+    /// No intake is awaiting an answer — no flow, a group, or not yet opened.
+    Idle,
+    /// A question is outstanding and this message did not answer it. The turn
+    /// belongs to the coach; the re-ask rides behind its reply.
+    Unanswered,
+    /// The message answered the outstanding question, and this is the reply it
+    /// earned — the next question, or the completion notice.
+    Answered(Box<OutgoingMessage>),
+}
+
 /// Handle this turn if the conversation is mid-intake.
 ///
-/// Returns `None` — leaving the turn to the coach untouched — when the
-/// conversation carries no active intake, when the athlete is in a group, or
-/// when the intake has just stood aside.
-pub(super) async fn try_handle_intake(params: IntakeParams<'_>) -> Option<OutgoingMessage> {
+/// Only a message that PARSES as an answer takes the turn. A message that does
+/// not is [`IntakeOutcome::Unanswered`]: the athlete asked something, and being
+/// mid-form is no reason to refuse to answer it. On 2026-08-28 an athlete asked
+/// whether tomorrow's climb suited his week and got "Désolé — j'ai besoin du
+/// chiffre seul" instead; the question was swallowed and never answered. The
+/// re-ask now rides behind the coach's reply, the way the opener already does.
+///
+/// Deliberately no test of what the message says. A keyword gate for "is this a
+/// coaching question" is the 61-term list 71dd378de deleted, and it failed the
+/// way substring routing always fails. The signal is structural: the parser
+/// either claimed the message or it did not.
+pub(super) async fn try_handle_intake(params: IntakeParams<'_>) -> IntakeOutcome {
     let IntakeParams {
         resources,
         tenant_id,
@@ -108,48 +134,44 @@ pub(super) async fn try_handle_intake(params: IntakeParams<'_>) -> Option<Outgoi
     } = params;
 
     if !is_direct_message {
-        return None;
+        return IntakeOutcome::Idle;
     }
 
     let chat: &dyn ChatRepository = resources.common.repos.chat.as_ref();
     let user_id_str = user_id.to_string();
-    let conv = chat
+    let Ok(Some(conv)) = chat
         .get_conversation(conversation_id, &user_id_str, tenant_id)
         .await
-        .ok()
-        .flatten()?;
+    else {
+        return IntakeOutcome::Idle;
+    };
 
     let raw_state = conv.onboarding_state.clone();
-    let state = OnboardingState::from_column(raw_state.as_deref())?;
+    let Some(state) = OnboardingState::from_column(raw_state.as_deref()) else {
+        return IntakeOutcome::Idle;
+    };
     if state.flow != GuidedFlow::Intake {
-        return None;
+        return IntakeOutcome::Idle;
     }
 
     // The question this message answers is the last one delivered. An empty
     // ledger means the first question has not gone out yet, and this message is
     // not answering anything — the coach takes the turn, and
-    // [`try_build_first_question`] appends the opener behind its reply.
-    let awaiting = IntakeTopic::awaiting(&state.probed)?;
+    // [`try_build_pending_question`] appends the opener behind its reply.
+    let Some(awaiting) = IntakeTopic::awaiting(&state.probed) else {
+        return IntakeOutcome::Idle;
+    };
 
     let Some(answer) = interpret(awaiting, text) else {
-        return handle_unparsed(UnparsedArgs {
-            resources,
-            tenant_id,
-            conversation_id,
-            channel_type,
-            sender_id,
-            user_id: &user_id_str,
-            locale,
-            state,
-            raw_state,
-            awaiting,
-        })
-        .await;
+        // Not an answer. The coach takes the turn; the bottom-of-turn hook
+        // re-derives the outstanding question from the ledger and re-asks
+        // behind the reply, or retires the walk once the budget is spent.
+        return IntakeOutcome::Unanswered;
     };
 
     persist_answer(resources, tenant_id, &user_id_str, awaiting, answer).await;
 
-    match IntakeTopic::next(&state.probed) {
+    let reply = match IntakeTopic::next(&state.probed) {
         Some(next) => {
             deliver(DeliverArgs {
                 resources,
@@ -178,7 +200,11 @@ pub(super) async fn try_handle_intake(params: IntakeParams<'_>) -> Option<Outgoi
             })
             .await
         }
-    }
+    };
+
+    reply.map_or(IntakeOutcome::Idle, |m| {
+        IntakeOutcome::Answered(Box::new(m))
+    })
 }
 
 /// What an athlete's reply resolved to, in whichever question asked it.
@@ -295,7 +321,14 @@ async fn deliver(args: DeliverArgs<'_>) -> Option<OutgoingMessage> {
     } = args;
 
     state.probed.push(topic.slug());
-    write_state(resources, conversation_id, tenant_id, raw_state, &state).await;
+    // A question that could not be recorded is a question that must not be
+    // asked. The ledger IS the attempt counter — every re-ask is bounded by
+    // `MAX_ANSWER_ATTEMPTS` counted out of `probed` — so sending after a failed
+    // compare-and-set would ask without charging, and an athlete who never
+    // answers would be asked forever.
+    if !write_state(resources, conversation_id, tenant_id, raw_state, &state).await {
+        return None;
+    }
 
     let body = render_question(resources, locale, topic, is_retry);
     Some(proactive_rich_text(
@@ -333,76 +366,6 @@ fn render_question(
         return reg.render(KEY_INTAKE_RETRY, locale, &[&block]);
     }
     block
-}
-
-/// Arguments for the unparsed-answer path.
-struct UnparsedArgs<'a> {
-    resources: &'a ServerContext,
-    tenant_id: TenantId,
-    conversation_id: &'a str,
-    channel_type: ChannelType,
-    sender_id: &'a str,
-    user_id: &'a str,
-    locale: &'a str,
-    state: OnboardingState,
-    raw_state: Option<String>,
-    awaiting: IntakeTopic,
-}
-
-/// Re-ask once, then stand aside.
-async fn handle_unparsed(args: UnparsedArgs<'_>) -> Option<OutgoingMessage> {
-    let UnparsedArgs {
-        resources,
-        tenant_id,
-        conversation_id,
-        channel_type,
-        sender_id,
-        user_id,
-        locale,
-        state,
-        raw_state,
-        awaiting,
-    } = args;
-
-    if awaiting.attempts(&state.probed) < MAX_ANSWER_ATTEMPTS {
-        return deliver(DeliverArgs {
-            resources,
-            tenant_id,
-            conversation_id,
-            channel_type,
-            sender_id,
-            locale,
-            state,
-            raw_state,
-            topic: awaiting,
-            is_retry: true,
-        })
-        .await;
-    }
-
-    info!(
-        topic = awaiting.slug().as_str(),
-        "intake: standing aside after an unanswered question — the coach takes the turn"
-    );
-    // Profile type is recorded as answered when the walk got past it: topics are
-    // strictly sequential, so a delivered PAR-Q question proves the persona
-    // question was answered.
-    let persona_status = if persona_answered(&state.probed) {
-        STATUS_COMPLETE
-    } else {
-        STATUS_SKIPPED
-    };
-    finish(FinishArgs {
-        resources,
-        tenant_id,
-        conversation_id,
-        user_id,
-        raw_state,
-        persona_status,
-        parq_status: STATUS_SKIPPED,
-    })
-    .await;
-    None
 }
 
 /// Whether the walk got past the profile-type question.
@@ -559,10 +522,10 @@ async fn write_state(
     tenant_id: TenantId,
     raw_state: Option<String>,
     state: &OnboardingState,
-) {
+) -> bool {
     let Ok(json) = state.to_column() else {
         warn!("intake: could not serialize the intake state; the question will be re-asked");
-        return;
+        return false;
     };
     let chat: &dyn ChatRepository = resources.common.repos.chat.as_ref();
     match chat
@@ -574,17 +537,23 @@ async fn write_state(
         )
         .await
     {
-        Ok(true) => {}
-        Ok(false) => warn!(
-            conversation_id,
-            "intake: a newer state owns the column; leaving it alone"
-        ),
-        Err(e) => warn!(error = %e, "intake: failed to record the delivered question"),
+        Ok(true) => true,
+        Ok(false) => {
+            warn!(
+                conversation_id,
+                "intake: a newer state owns the column; leaving it alone"
+            );
+            false
+        }
+        Err(e) => {
+            warn!(error = %e, "intake: failed to record the delivered question");
+            false
+        }
     }
 }
 
-/// Everything [`try_build_first_question`] needs to open an intake.
-pub(super) struct FirstQuestionParams<'a> {
+/// Everything [`try_build_pending_question`] needs to open an intake.
+pub(super) struct PendingQuestionParams<'a> {
     /// Server context: repositories and the strings registry.
     pub resources: &'a ServerContext,
     /// Tenant that owns the conversation.
@@ -603,21 +572,31 @@ pub(super) struct FirstQuestionParams<'a> {
     pub is_direct_message: bool,
 }
 
-/// Open the intake by asking its first question, if one is owed.
+/// Ask whatever intake question is outstanding, behind the turn just served.
 ///
 /// Rides *behind* a served turn rather than replacing it, the way the connect
 /// card and the coach proposal already do. An athlete who said "hey, can you
 /// help me train for a marathon?" should be answered before being handed a
-/// form; hijacking that first message to ask about heart conditions is how a
-/// helpful bot becomes an intake desk.
+/// form; hijacking that message to ask about heart conditions is how a helpful
+/// bot becomes an intake desk.
 ///
-/// Returns `None` in a group, when no intake is active on the conversation, and
-/// once the first question has been delivered — from then on each answer is
-/// replied to directly by [`try_handle_intake`].
-pub(super) async fn try_build_first_question(
-    params: FirstQuestionParams<'_>,
+/// Owns the whole decision, derived from the ledger alone:
+/// - no intake on the conversation, or a group → `None`
+/// - `probed` empty → the intake has never opened → ask the opener
+/// - `probed` non-empty → a coached turn ran while a question was outstanding,
+///   which is only reachable because [`try_handle_intake`] declined it, and
+///   mid-intake it declines exactly one thing: a message that did not parse as
+///   an answer → re-ask it, or retire the walk once its budget is spent.
+///
+/// That last inference is why no "was it an answer?" signal has to be threaded
+/// from the webhook into the dispatch task. The state says it. A turn that
+/// failed, was quota-denied, or produced no reply returns before this hook and
+/// leaves the ledger untouched, so the next served turn reaches the same
+/// conclusion.
+pub(super) async fn try_build_pending_question(
+    params: PendingQuestionParams<'_>,
 ) -> Option<OutgoingMessage> {
-    let FirstQuestionParams {
+    let PendingQuestionParams {
         resources,
         tenant_id,
         conversation_id,
@@ -641,23 +620,66 @@ pub(super) async fn try_build_first_question(
 
     let raw_state = conv.onboarding_state.clone();
     let state = OnboardingState::from_column(raw_state.as_deref())?;
-    if state.flow != GuidedFlow::Intake || !state.probed.is_empty() {
+    if state.flow != GuidedFlow::Intake {
         return None;
     }
 
-    deliver(DeliverArgs {
+    let Some(awaiting) = IntakeTopic::awaiting(&state.probed) else {
+        // Nothing asked yet: open with the first question.
+        return deliver(DeliverArgs {
+            resources,
+            tenant_id,
+            conversation_id,
+            channel_type,
+            sender_id,
+            locale,
+            state,
+            raw_state,
+            topic: IntakeTopic::Persona,
+            is_retry: false,
+        })
+        .await;
+    };
+
+    if awaiting.attempts(&state.probed) < MAX_ANSWER_ATTEMPTS {
+        return deliver(DeliverArgs {
+            resources,
+            tenant_id,
+            conversation_id,
+            channel_type,
+            sender_id,
+            locale,
+            state,
+            raw_state,
+            topic: awaiting,
+            is_retry: true,
+        })
+        .await;
+    }
+
+    info!(
+        topic = awaiting.slug().as_str(),
+        "intake: standing aside after an unanswered question — the coach keeps the turn"
+    );
+    // Profile type is recorded as answered when the walk got past it: topics are
+    // strictly sequential, so a delivered PAR-Q question proves the persona
+    // question was answered.
+    let persona_status = if persona_answered(&state.probed) {
+        STATUS_COMPLETE
+    } else {
+        STATUS_SKIPPED
+    };
+    finish(FinishArgs {
         resources,
         tenant_id,
         conversation_id,
-        channel_type,
-        sender_id,
-        locale,
-        state,
+        user_id: &user_id.to_string(),
         raw_state,
-        topic: IntakeTopic::Persona,
-        is_retry: false,
+        persona_status,
+        parq_status: STATUS_SKIPPED,
     })
-    .await
+    .await;
+    None
 }
 
 /// Start an intake on a conversation when the athlete still owes both steps.

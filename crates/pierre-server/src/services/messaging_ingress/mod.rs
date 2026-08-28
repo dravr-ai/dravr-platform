@@ -696,9 +696,11 @@ async fn persist_single_message(
     // intake is outstanding before a proposal ever goes out, so a bare "1" here
     // is answering the intake, not choosing a coach.
     //
-    // Returns None for a group chat, a conversation with no intake running, and
-    // the turn the intake stands aside on — ordinary messages fall through.
-    if let Some(mut intake_reply) = intake::try_handle_intake(intake::IntakeParams {
+    // Only a message that PARSES as an answer is handled here. One that does not
+    // yields the turn to the coach — the athlete asked something, and being
+    // mid-form is no reason to refuse it — and the re-ask rides behind the reply
+    // from `maybe_send_intake_question`.
+    let intake_outcome = intake::try_handle_intake(intake::IntakeParams {
         resources,
         // The conversation, and the facts the intake writes, both live under the
         // session tenant — for a DM that is the athlete's own tenant. Reading it
@@ -715,8 +717,17 @@ async fn persist_single_message(
             .as_str(),
         is_direct_message: message.is_direct_message,
     })
-    .await
-    {
+    .await;
+
+    // A question is outstanding and this message did not answer it. That
+    // suppresses the coach-proposal band below: `parse_choice` claims ANY bare
+    // digit, so a "3" typed mid-PAR-Q would bind a coach the athlete never
+    // picked. Skipping it preserves exactly today's ordering, where the intake
+    // shadowed that band by handling the turn outright.
+    let intake_awaiting = matches!(intake_outcome, intake::IntakeOutcome::Unanswered);
+
+    if let intake::IntakeOutcome::Answered(intake_reply) = intake_outcome {
+        let mut intake_reply = *intake_reply;
         intake_reply.thread_id = thread_id;
         apply_conversation_recipient(&mut intake_reply, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, intake_reply).await;
@@ -730,7 +741,9 @@ async fn persist_single_message(
     //
     // Returns None for anything that is not a bare in-range number against an
     // outstanding proposal, so ordinary messages fall through untouched.
-    if let Some(mut choice_reply) =
+    let choice_outcome = if intake_awaiting {
+        None
+    } else {
         coach_choice::try_handle_coach_choice(coach_choice::CoachChoiceParams {
             resources,
             tenant_id,
@@ -744,7 +757,9 @@ async fn persist_single_message(
                 .as_str(),
         })
         .await
-    {
+    };
+
+    if let Some(mut choice_reply) = choice_outcome {
         choice_reply.thread_id = thread_id;
         apply_conversation_recipient(&mut choice_reply, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, choice_reply).await;

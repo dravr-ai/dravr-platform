@@ -332,6 +332,50 @@ mod intake_tests {
     /// The coach's answer is persisted before `deliver_reply` sends it, so this
     /// is the observable "the turn was served" signal a test can order the
     /// intake against.
+    /// Poll until `fragment` appears in the model transcript.
+    ///
+    /// The call COUNTER cannot stand in for this: background memory extraction
+    /// is an LLM call too, so a rising count says nothing about WHICH message
+    /// reached the model — the same reason `assert_instrument_never_paraphrased`
+    /// reads the transcript rather than the counter.
+    async fn wait_for_transcript(seen: &Arc<Mutex<Vec<String>>>, fragment: &str) -> bool {
+        for _ in 0..60 {
+            if seen
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|body| body.contains(fragment))
+            {
+                return true;
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        false
+    }
+
+    /// Poll until `step` is recorded with `status`.
+    ///
+    /// The retirement now runs in the bottom-of-turn hook, AFTER the coach's
+    /// reply is delivered, so a test that reads the steps the moment the model
+    /// was called reads them before they are written.
+    async fn wait_for_step(
+        resources: &ServerContext,
+        user_id: Uuid,
+        step: &str,
+        status: &str,
+    ) -> bool {
+        for _ in 0..60 {
+            if onboarding_steps(resources, user_id)
+                .await
+                .contains(&(step.to_owned(), status.to_owned()))
+            {
+                return true;
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        false
+    }
+
     async fn assistant_message_count(resources: &ServerContext, user_id: Uuid) -> usize {
         let pool = resources.coach.database.sqlite_pool().unwrap();
         let row: Option<(i64,)> = sqlx::query_as(
@@ -653,6 +697,119 @@ mod intake_tests {
     }
 
     /// Someone who wants to talk gets one re-ask, then the coach takes over.
+    /// The re-ask rides BEHIND the coach's answer, never in front of it.
+    ///
+    /// Production Telegram, 2026-08-28 17:34. With the persona question
+    /// outstanding, the athlete asked "Demain j'attaque Alfred Kelly la Moc et
+    /// son ascension. C'est bon basé sur ma semaine?" — a real training
+    /// question. He got "Désolé — j'ai besoin du chiffre seul" and the form
+    /// again. His question was swallowed: `HandledNotStored`, so it reached
+    /// neither the transcript nor the model, and no answer was ever written.
+    ///
+    /// Ordering is only observable WHILE the turn is in flight, so the model is
+    /// slow on purpose and the ledger is sampled mid-turn. On the old code
+    /// `handle_unparsed` ran synchronously inside the webhook handler, so the
+    /// ledger reached 2 before `send_turn` even returned — the sample at t=1s
+    /// reads 2 and fails deterministically. After the fix the re-ask cannot fire
+    /// before `deliver_reply`, i.e. no earlier than t=4s. Sampling after the
+    /// turn settles cannot tell the two apart: both end at 2.
+    #[tokio::test]
+    #[serial]
+    async fn the_re_ask_rides_behind_the_answer_not_in_front_of_it() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let think = Duration::from_secs(4);
+        let mock = MockLlm::slow(think);
+        let calls = mock.counter();
+        let seen = mock.transcript();
+        let resources = create_test_server_resources_with_llm(Arc::new(mock))
+            .await
+            .unwrap();
+
+        let (user_id, tenant_id) =
+            create_user_with_own_tenant(&resources, "intake_reask@example.com").await;
+        link_channel(&resources, tenant_id, user_id, "84").await;
+
+        // Turn 1 arms the walk: the opener goes out behind an ordinary reply.
+        send_turn(&resources, 8401, 84, "Salut", false).await;
+        assert!(wait_for_turns(&calls, 1).await);
+        assert!(wait_for_probes(&resources, user_id, 1).await);
+
+        // Turn 2 is the incident message — a question, not an answer.
+        send_turn(
+            &resources,
+            8402,
+            84,
+            "Demain j'attaque Alfred Kelly la Moc et son ascension. C'est bon basé sur ma semaine?",
+            false,
+        )
+        .await;
+
+        sleep(think / 4).await;
+        assert_eq!(
+            probed_count(&resources, user_id).await,
+            1,
+            "the re-ask went out before the coach answered — the athlete asked a question \
+             and was handed the form instead"
+        );
+
+        // The question itself must reach the coach. On the old code it was
+        // HandledNotStored and never reached the model at all, so this fragment
+        // can only appear if the turn genuinely ran.
+        assert!(
+            wait_for_transcript(&seen, "Alfred Kelly la Moc").await,
+            "the athlete's question was swallowed instead of answered"
+        );
+        assert!(
+            wait_for_probes(&resources, user_id, 2).await,
+            "and the re-ask must still go out, once the answer is served"
+        );
+        assert!(
+            assistant_message_count(&resources, user_id).await >= 2,
+            "the coach's answer must be durable before the re-ask"
+        );
+        assert_instrument_never_paraphrased(&seen);
+    }
+
+    /// A parsed answer still takes the turn — it earns the next question, not a
+    /// coaching detour.
+    ///
+    /// The guard on the other side of the fix: only the UNPARSED case yields.
+    /// Passes before and after, so it proves nothing about the change; it exists
+    /// so a future "just let everything through" cannot pass unnoticed.
+    #[tokio::test]
+    #[serial]
+    async fn a_parsed_answer_still_replaces_the_turn() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let mock = MockLlm::new();
+        let calls = mock.counter();
+        let seen = mock.transcript();
+        let resources = create_test_server_resources_with_llm(Arc::new(mock))
+            .await
+            .unwrap();
+
+        let (user_id, tenant_id) =
+            create_user_with_own_tenant(&resources, "intake_parsed@example.com").await;
+        link_channel(&resources, tenant_id, user_id, "85").await;
+
+        send_turn(&resources, 8501, 85, "Salut", false).await;
+        assert!(wait_for_turns(&calls, 1).await);
+        assert!(wait_for_probes(&resources, user_id, 1).await);
+        let served_before = assistant_message_count(&resources, user_id).await;
+
+        // "1" IS the answer, so it must advance the walk and produce no coaching.
+        send_turn(&resources, 8502, 85, "1", false).await;
+        assert!(
+            wait_for_probes(&resources, user_id, 2).await,
+            "a parsed answer must be replied to with the next question"
+        );
+        assert_eq!(
+            assistant_message_count(&resources, user_id).await,
+            served_before,
+            "answering the form must not also spend a coaching turn"
+        );
+        assert_instrument_never_paraphrased(&seen);
+    }
+
     #[tokio::test]
     #[serial]
     async fn two_unparsed_answers_stand_aside_for_the_coach() {
@@ -678,23 +835,46 @@ mod intake_tests {
             wait_for_probes(&resources, user_id, 2).await,
             "an unparsed answer must be re-asked once"
         );
+        assert!(
+            wait_for_transcript(&seen, "c'est quoi Dravr").await,
+            "the first non-answer must ALSO reach the coach — being mid-form is no reason \
+             to refuse the athlete's question"
+        );
         assert_instrument_never_paraphrased(&seen);
 
-        // Second non-answer: the intake retires and the coach answers.
-        send_turn(&resources, 8303, 83, "je veux juste discuter", false).await;
+        // Second non-answer: the budget is spent, so the intake retires.
+        //
+        // `calls >= 3`, not 2. Every message now reaches the coach — that is the
+        // fix — so turn 1 plus both non-answers is three. The old assertion said
+        // 2, which the first non-answer alone already satisfies, making it
+        // impossible to fail once the coach stopped being skipped. The claim is
+        // tightened rather than relaxed: the count is paired with the third
+        // message's own text, so it pins WHICH message reached the model instead
+        // of only that some message did.
+        send_turn(
+            &resources,
+            8303,
+            83,
+            "je veux juste discuter de mon plan",
+            false,
+        )
+        .await;
         assert!(
-            wait_for_turns(&calls, 2).await,
-            "after standing aside, the athlete's message must reach the coach"
+            wait_for_transcript(&seen, "je veux juste discuter de mon plan").await,
+            "the stood-aside message itself must reach the model. The call COUNTER is not \
+             enough — background memory extraction raises it too, so it reaches three \
+             without this turn having run."
         );
 
-        let steps = onboarding_steps(&resources, user_id).await;
         assert!(
-            steps.contains(&("parq".to_owned(), "skipped".to_owned())),
-            "standing aside must record the PAR-Q as skipped so it does not reopen, got {steps:?}"
+            wait_for_step(&resources, user_id, "parq", "skipped").await,
+            "standing aside must record the PAR-Q as skipped so it does not reopen, got {:?}",
+            onboarding_steps(&resources, user_id).await
         );
         assert!(
-            steps.contains(&("profile_type".to_owned(), "skipped".to_owned())),
-            "profile type was never answered, so it is skipped too, got {steps:?}"
+            wait_for_step(&resources, user_id, "profile_type", "skipped").await,
+            "profile type was never answered, so it is skipped too, got {:?}",
+            onboarding_steps(&resources, user_id).await
         );
     }
 
