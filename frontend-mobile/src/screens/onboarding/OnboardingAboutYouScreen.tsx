@@ -11,6 +11,7 @@ import { Button, Input } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { userApi } from '../../services/api';
 import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
+import { useTranslation } from '@pierre/i18n';
 
 /** Sports offered as one-tap choices; anything else is typed. */
 const SPORTS = ['Running', 'Cycling', 'Swimming', 'Triathlon', 'Strength', 'Hiking'];
@@ -27,6 +28,7 @@ const STORAGE_PREFIX = 'dravr.about_you_done.';
  * Every field is optional and the step is skippable.
  */
 export function OnboardingAboutYouScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { mark } = useOnboardingFlag(STORAGE_PREFIX, user?.id);
   const [sport, setSport] = useState('');
@@ -56,14 +58,13 @@ export function OnboardingAboutYouScreen() {
     <SafeAreaView className="flex-1 bg-surface">
       <ScrollView contentContainerClassName="px-6 py-10" keyboardShouldPersistTaps="handled">
         <Text className="text-2xl font-bold text-on-surface text-center">
-          Tell me about your training
+          {t('app.obTellMeTitle')}
         </Text>
         <Text className="mt-3 text-sm text-on-surface-variant text-center">
-          Three quick questions so your coach starts out knowing you. Skip any of them — we&apos;ll
-          pick the rest up as we go.
+          {t('app.obThreeQuestions')}
         </Text>
 
-        <Text className="mt-8 text-sm font-medium text-on-surface">What do you mostly do?</Text>
+        <Text className="mt-8 text-sm font-medium text-on-surface">{t('app.obSportQuestion')}</Text>
         <View className="mt-3 flex-row flex-wrap gap-2">
           {SPORTS.map((option) => {
             const selected = sport === option;
@@ -86,7 +87,7 @@ export function OnboardingAboutYouScreen() {
         </View>
 
         <Text className="mt-6 text-sm font-medium text-on-surface">
-          What are you working toward?
+          {t('app.obGoalQuestion')}
         </Text>
         {/*
           The question above is the label, so `Input` renders without one: its
@@ -97,29 +98,29 @@ export function OnboardingAboutYouScreen() {
         <Input
           value={goal}
           onChangeText={setGoal}
-          placeholder="A first half-marathon in the spring, say"
+          placeholder={t('app.obGoalPlaceholder')}
           containerStyle={{ marginTop: 8, marginBottom: 0 }}
         />
 
         <Text className="mt-6 text-sm font-medium text-on-surface">
-          And why does it matter to you?
+          {t('app.obWhyMatters')}
         </Text>
         <Input
           value={northStar}
           onChangeText={setNorthStar}
-          placeholder="Keeping up with my kids on the trail"
+          placeholder={t('app.obWhyPlaceholder')}
           multiline
           numberOfLines={3}
           containerStyle={{ marginTop: 8, marginBottom: 0 }}
         />
         <Text className="mt-1.5 text-xs text-on-surface-variant">
-          This is the one your coach comes back to when the training gets hard.
+          {t('app.obWhyHint')}
         </Text>
 
         <View className="mt-8 gap-3">
-          <Button title={saving ? 'Saving…' : 'Continue'} onPress={() => void finish('complete')} disabled={saving} />
+          <Button title={saving ? t('app.saving') : t('app.continue')} onPress={() => void finish('complete')} disabled={saving} />
           <Pressable onPress={() => void finish('skipped')} disabled={saving} accessibilityRole="button">
-            <Text className="text-center text-sm text-on-surface-variant">Skip for now</Text>
+            <Text className="text-center text-sm text-on-surface-variant">{t('app.skipForNow')}</Text>
           </Pressable>
         </View>
       </ScrollView>

@@ -15,6 +15,7 @@ import { PRIMARY_PALETTE, PROVIDER_COLORS } from '../constants/theme';
 import { Card, Button, Input } from './ui';
 import { userApi } from '../services/api';
 import type { OAuthApp, OAuthProvider } from '../types';
+import { useTranslation } from '@pierre/i18n';
 
 const PROVIDERS: OAuthProvider[] = [
   { id: 'whoop', name: 'WHOOP', color: PROVIDER_COLORS.whoop },
@@ -25,6 +26,7 @@ const DEFAULT_REDIRECT_URI = 'https://pierre.fit/api/oauth/callback';
 type ModalView = 'form' | 'providerPicker';
 
 export function OAuthCredentialsSection() {
+  const { t } = useTranslation();
   const [oauthApps, setOauthApps] = useState<OAuthApp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -77,15 +79,15 @@ export function OAuthCredentialsSection() {
 
   const handleSave = async () => {
     if (!selectedProvider) {
-      Alert.alert('Error', 'Please select a provider');
+      Alert.alert(t('common.error'), 'Please select a provider');
       return;
     }
     if (!clientId.trim()) {
-      Alert.alert('Error', 'Please enter a Client ID');
+      Alert.alert(t('common.error'), 'Please enter a Client ID');
       return;
     }
     if (!clientSecret.trim()) {
-      Alert.alert('Error', 'Please enter a Client Secret');
+      Alert.alert(t('common.error'), 'Please enter a Client Secret');
       return;
     }
 
@@ -97,12 +99,12 @@ export function OAuthCredentialsSection() {
         client_secret: clientSecret.trim(),
         redirect_uri: `${DEFAULT_REDIRECT_URI}/${selectedProvider.id}`,
       });
-      Alert.alert('Success', `${selectedProvider.name} credentials saved successfully`);
+      Alert.alert(t('common.success'), t('app.credentialsSavedFor', { provider: selectedProvider.name }));
       handleCloseModal();
       await loadOAuthApps();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save credentials';
-      Alert.alert('Error', message);
+      const message = error instanceof Error ? error.message : t('app.failedToSaveCredentials');
+      Alert.alert(t('common.error'), message);
     } finally {
       setIsSaving(false);
     }
@@ -113,16 +115,16 @@ export function OAuthCredentialsSection() {
       'Remove Credentials',
       `Are you sure you want to remove ${providerName} credentials? You'll need to re-enter them to use a custom OAuth app.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Remove',
+          text: t('app.remove'),
           style: 'destructive',
           onPress: async () => {
             try {
               await userApi.deleteOAuthApp(provider);
               await loadOAuthApps();
             } catch {
-              Alert.alert('Error', 'Failed to remove credentials');
+              Alert.alert(t('common.error'), t('app.failedRemoveCredentials'));
             }
           },
         },
@@ -148,7 +150,7 @@ export function OAuthCredentialsSection() {
   return (
     <View className="mt-3">
       <View className="flex-row justify-between items-center mb-1">
-        <Text className="text-lg font-semibold text-text-primary">OAuth Credentials</Text>
+        <Text className="text-lg font-semibold text-text-primary">{t('app.oauthCredentials')}</Text>
         {availableProviders.length > 0 && (
           <TouchableOpacity
             className="px-3 py-2 min-h-[44px] justify-center"
@@ -162,7 +164,7 @@ export function OAuthCredentialsSection() {
       </View>
 
       <Text className="text-sm text-text-secondary mb-3">
-        Configure custom OAuth app credentials to use your own developer applications instead of the server defaults.
+        {t('app.oauthCredsBlurb')}
       </Text>
 
       <Card className="mb-3">
@@ -170,7 +172,7 @@ export function OAuthCredentialsSection() {
           <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
         ) : oauthApps.length === 0 ? (
           <Text className="text-sm text-text-secondary text-center py-3">
-            No custom OAuth credentials configured
+            {t('app.noOauthCreds')}
           </Text>
         ) : (
           oauthApps.map((app, index) => {
@@ -195,16 +197,16 @@ export function OAuthCredentialsSection() {
                         {providerInfo.name}
                       </Text>
                       <View className="bg-success/20 px-1 py-0.5 rounded">
-                        <Text className="text-xs text-success font-medium">Configured</Text>
+                        <Text className="text-xs text-success font-medium">{t('app.configured')}</Text>
                       </View>
                     </View>
                     <Text className="text-sm text-text-tertiary font-mono">
-                      Client ID: {maskClientId(app.client_id)}
+                      {t('app.clientIdColon')} {maskClientId(app.client_id)}
                     </Text>
                   </View>
                 </View>
                 <TouchableOpacity onPress={() => handleDelete(app.provider, providerInfo.name)}>
-                  <Text className="text-sm text-error font-medium">Remove</Text>
+                  <Text className="text-sm text-error font-medium">{t('app.remove')}</Text>
                 </TouchableOpacity>
               </View>
             );
@@ -224,11 +226,11 @@ export function OAuthCredentialsSection() {
             {modalView === 'form' ? (
               <View className="bg-background-secondary rounded-xl p-4 max-h-[80%]">
                 <Text className="text-xl font-semibold text-text-primary mb-4 text-center">
-                  Add OAuth Credentials
+                  {t('app.addOauthCredentials')}
                 </Text>
 
                 {/* Provider Picker */}
-                <Text className="text-sm font-medium text-text-secondary mb-1">Provider</Text>
+                <Text className="text-sm font-medium text-text-secondary mb-1">{t('app.provider')}</Text>
                 <TouchableOpacity
                   className="flex-row items-center justify-between bg-background-tertiary rounded-lg p-3 mb-3 border border-border-subtle"
                   onPress={() => setModalView('providerPicker')}
@@ -248,14 +250,14 @@ export function OAuthCredentialsSection() {
                       <Text className="text-base text-text-primary">{selectedProvider.name}</Text>
                     </View>
                   ) : (
-                    <Text className="text-base text-text-tertiary">Select a provider...</Text>
+                    <Text className="text-base text-text-tertiary">{t('app.selectProviderPlaceholder')}</Text>
                   )}
                   <Text className="text-lg text-text-tertiary">{'>'}</Text>
                 </TouchableOpacity>
 
                 <Input
-                  label="Client ID"
-                  placeholder="Enter your OAuth client ID"
+                  label={t('app.clientId')}
+                  placeholder={t('app.enterOauthClientId')}
                   value={clientId}
                   onChangeText={setClientId}
                   autoCapitalize="none"
@@ -263,8 +265,8 @@ export function OAuthCredentialsSection() {
                 />
 
                 <Input
-                  label="Client Secret"
-                  placeholder="Enter your OAuth client secret"
+                  label={t('app.clientSecret')}
+                  placeholder={t('app.enterOauthClientSecret')}
                   value={clientSecret}
                   onChangeText={setClientSecret}
                   secureTextEntry
@@ -285,13 +287,13 @@ export function OAuthCredentialsSection() {
 
                 <View className="flex-row gap-3 mt-3">
                   <Button
-                    title="Cancel"
+                    title={t('common.cancel')}
                     onPress={handleCloseModal}
                     variant="secondary"
                     style={{ flex: 1 }}
                   />
                   <Button
-                    title="Save"
+                    title={t('common.save')}
                     onPress={handleSave}
                     loading={isSaving}
                     style={{ flex: 1 }}
@@ -301,7 +303,7 @@ export function OAuthCredentialsSection() {
             ) : (
               <View className="bg-background-secondary rounded-xl p-4 max-h-[60%]">
                 <Text className="text-xl font-semibold text-text-primary mb-4 text-center">
-                  Select Provider
+                  {t('app.selectProvider')}
                 </Text>
                 <FlatList
                   data={availableProviders}
@@ -326,7 +328,7 @@ export function OAuthCredentialsSection() {
                   ItemSeparatorComponent={() => <View className="h-px bg-border-subtle" />}
                 />
                 <Button
-                  title="Back"
+                  title={t('common.back')}
                   onPress={() => setModalView('form')}
                   variant="secondary"
                   fullWidth

@@ -59,7 +59,7 @@ describe('IntervalsIcuLinkModal', () => {
 
   it('shows an error when the server rejects the credentials', async () => {
     vi.mocked(providersApi.linkIntervalsIcu).mockRejectedValue({
-      response: { data: { message: 'Intervals.icu rejected those credentials' } },
+      response: { status: 400, data: { message: 'Intervals.icu rejected those credentials' } },
     });
     const user = userEvent.setup();
     renderModal();

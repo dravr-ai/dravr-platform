@@ -117,8 +117,8 @@ function healthStatus(metrics: UserFactMetrics): {
 // A token tint tracks the theme on its own, so these no longer need a dark:
 // variant to restate the same intent in a second palette.
 const STATUS_CLASS: Record<ReturnType<typeof healthStatus>['variant'], string> = {
-  healthy: 'bg-success/15 text-success',
-  warning: 'bg-warning/15 text-warning',
+  healthy: 'bg-success/15 text-on-success-container',
+  warning: 'bg-warning/15 text-on-warning-container',
   idle: 'bg-surface-container-high text-on-surface-variant',
   stalled: 'bg-error/15 text-error',
 };

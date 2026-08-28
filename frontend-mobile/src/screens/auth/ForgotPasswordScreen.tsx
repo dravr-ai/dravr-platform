@@ -17,8 +17,10 @@ import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
 import { PRIMARY_PALETTE, spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
 import { useRouter } from 'expo-router';
+import { useTranslation } from '@pierre/i18n';
 
 export function ForgotPasswordScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -49,7 +51,7 @@ export function ForgotPasswordScreen() {
       if (error instanceof Error) {
         message = error.message;
       }
-      Alert.alert('Error', message);
+      Alert.alert(t('common.error'), message);
     } finally {
       setIsLoading(false);
     }
@@ -93,17 +95,17 @@ export function ForgotPasswordScreen() {
                   <Ionicons name="lock-closed-outline" size={28} color={PRIMARY_PALETTE[500]} />
                 </View>
                 <Text className="text-xl font-bold text-text-primary mb-1">
-                  Reset Your Password
+                  {t('app.resetYourPassword')}
                 </Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  Enter your email and we&apos;ll send you a reset code
+                  {t('app.forgotPasswordBlurb')}
                 </Text>
               </View>
 
               {/* Form */}
               <View className="mb-4">
                 <Input
-                  label="Email"
+                  label={t('common.email')}
                   placeholder="you@example.com"
                   value={email}
                   onChangeText={setEmail}
@@ -117,7 +119,7 @@ export function ForgotPasswordScreen() {
                 />
 
                 <Button
-                  title="Send reset code"
+                  title={t('app.sendResetCode')}
                   onPress={handleSubmit}
                   loading={isLoading}
                   fullWidth
@@ -129,7 +131,7 @@ export function ForgotPasswordScreen() {
               {/* Back to Login */}
               <View className="flex-row justify-center items-center gap-1 pt-2">
                 <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
-                  <Text className="text-sm font-semibold text-primary-500">Back to sign in</Text>
+                  <Text className="text-sm font-semibold text-primary-500">{t('app.backToSignIn')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

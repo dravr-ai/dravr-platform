@@ -4,9 +4,10 @@
 // ABOUTME: Reusable Modal component with Pierre design system styling
 // ABOUTME: Features smooth animations, gradient accent bar, and accessible focus management
 
-import React, { useEffect, useRef } from 'react';
+import React, { useId } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from '@pierre/i18n';
+import { useDialog } from '../../hooks/useDialog';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -32,12 +33,14 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
 }) => {
   const { t } = useTranslation();
-  const modalRef = useRef<HTMLDivElement>(null);
-  // Stable refs so the escape/close handlers don't trigger effect re-runs
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const closeOnEscapeRef = useRef(closeOnEscape);
-  closeOnEscapeRef.current = closeOnEscape;
+  // Focus trap, focus restore, Escape and the refcounted scroll lock all live
+  // in useDialog, shared with the two provider modals that render their own
+  // overlay rather than composing this one.
+  const { containerRef } = useDialog({ open: isOpen, onClose, closeOnEscape });
+  // A unique id per instance. This was the literal string 'modal-title', so two
+  // mounted dialogs put duplicate ids in the document and aria-labelledby
+  // resolved to whichever came first.
+  const titleId = useId();
 
   const sizeClasses = {
     sm: 'max-w-sm',
@@ -54,28 +57,6 @@ export const Modal: React.FC<ModalProps> = ({
     }
   };
 
-  // Escape key handler + focus on open (stable deps to avoid stealing focus)
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && closeOnEscapeRef.current) {
-        onCloseRef.current();
-      }
-    };
-
-    document.addEventListener('keydown', handleEscape);
-    document.body.style.overflow = 'hidden';
-
-    // Focus the modal container only on initial open
-    modalRef.current?.focus();
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   return createPortal(
@@ -84,10 +65,10 @@ export const Modal: React.FC<ModalProps> = ({
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
-      aria-labelledby={title ? 'modal-title' : undefined}
+      aria-labelledby={title ? titleId : undefined}
     >
       <div
-        ref={modalRef}
+        ref={containerRef}
         tabIndex={-1}
         className={`${sizeClasses[size]} w-full max-h-[90dvh] flex flex-col bg-surface-container-low border ghost-border rounded-xl shadow-xl overflow-hidden animate-scale-in`}
       >
@@ -98,7 +79,7 @@ export const Modal: React.FC<ModalProps> = ({
         {(title || showCloseButton) && (
           <div className="flex items-center justify-between px-6 py-4 border-b ghost-border flex-shrink-0">
             {title && (
-              <h2 id="modal-title" className="text-lg font-semibold text-on-surface">
+              <h2 id={titleId} className="text-lg font-semibold text-on-surface">
                 {title}
               </h2>
             )}

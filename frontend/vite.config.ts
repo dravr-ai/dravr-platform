@@ -24,18 +24,35 @@ export default defineConfig(({ mode }) => {
       // a shared SW cache would leak one tenant's data into the next session
       // (multi-tenant isolation rule). No runtimeCaching of API responses at all.
       VitePWA({
-        registerType: 'autoUpdate',
-        // injectRegister 'auto' (default) wires the registration script into
-        // index.html at build time, so no main.tsx import is needed.
+        // 'prompt', not 'autoUpdate'. autoUpdate activates a new worker and
+        // reloads the page underneath whoever is using it — and this is a chat
+        // app, so the reload lands mid-sentence and takes the unsent message
+        // with it. The app now asks, via ServiceWorkerUpdatePrompt.
+        registerType: 'prompt',
+        // The registration is owned by useServiceWorkerUpdate rather than
+        // injected into index.html, because the app has to hold the
+        // updateServiceWorker callback to offer the reload at all.
+        injectRegister: null,
         includeAssets: ['dravr-favicon.svg', 'apple-touch-icon.png'],
         manifest: {
+          // A stable identity, independent of start_url. Without `id` the app's
+          // identity IS its start_url, so ever moving the landing route would
+          // make an installed Dravr read as a different app and reinstall
+          // alongside the old one.
+          id: '/',
           name: 'Dravr',
           short_name: 'Dravr',
           description: 'Fitness intelligence for athletes and coaches.',
           start_url: '/',
           scope: '/',
           display: 'standalone',
-          orientation: 'portrait',
+          // `minimal-ui` before the implicit `browser` fallback, so a platform
+          // that will not grant standalone still gets app-shaped chrome.
+          display_override: ['standalone', 'minimal-ui'],
+          // NO orientation lock. This was 'portrait', which an installed
+          // desktop or tablet PWA honours — a laptop window that refuses to be
+          // wider than it is tall. Phones are portrait by habit, not by
+          // manifest.
           background_color: '#00241a',
           theme_color: '#00241a',
           categories: ['health', 'fitness', 'sports'],
@@ -43,6 +60,33 @@ export default defineConfig(({ mode }) => {
             { src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: '/pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
             { src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
+          // Chrome shows its rich install dialog — the one with a preview
+          // instead of a bare "Install?" — only when the manifest declares
+          // screenshots. These two have been sitting unreferenced in
+          // public/screenshots since February.
+          screenshots: [
+            {
+              src: '/screenshots/chat-connected-state.png',
+              sizes: '3420x1858',
+              type: 'image/png',
+              form_factor: 'wide',
+              label: 'A coaching conversation with connected training data',
+            },
+            {
+              src: '/screenshots/chat-new-conversation.png',
+              sizes: '3420x1858',
+              type: 'image/png',
+              form_factor: 'wide',
+              label: 'Starting a new conversation with a coach',
+            },
+          ],
+          // Long-press / jump-list entries. The routes are the same hash routes
+          // the shell already parses, so these need no routing of their own.
+          shortcuts: [
+            { name: 'Chat', short_name: 'Chat', url: '/#chat' },
+            { name: 'Discover coaches', short_name: 'Discover', url: '/#discover' },
+            { name: 'Notifications', short_name: 'Alerts', url: '/#notifications' },
           ],
         },
         workbox: {

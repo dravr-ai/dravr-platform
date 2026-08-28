@@ -11,6 +11,7 @@ import type { AvailableChannel } from '@pierre/api-client';
 import { Card, Button } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMessagingOnboarding } from '../../hooks/useMessagingOnboarding';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Messaging-channel picker (mobile). Reached post-connect when the tenant has
@@ -18,6 +19,7 @@ import { useMessagingOnboarding } from '../../hooks/useMessagingOnboarding';
  * shared cache so RootLayoutNav routes on to the configure step.
  */
 export function OnboardingMessagingChannelScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const messaging = useMessagingOnboarding(user?.id, true);
   const [choosing, setChoosing] = useState<string | null>(null);
@@ -28,13 +30,12 @@ export function OnboardingMessagingChannelScreen() {
     await messaging.chooseChannel(channel);
   };
 
-  const heading = user?.display_name ? `Almost there, ${user.display_name}` : 'Almost there';
+  const heading = user?.display_name ? `Almost there, ${user.display_name}` : t('app.almostThere');
 
   return (
     <Shell heading={heading}>
       <Text className="mt-3 text-sm text-on-surface-variant text-center">
-        Where do you want to chat with your coach? Pick the app you already use — you can add more
-        later in Settings.
+        {t('app.whereToChat')}
       </Text>
       <View className="mt-6 gap-4">
         {messaging.availableChannels.map((channel) => (
@@ -49,7 +50,7 @@ export function OnboardingMessagingChannelScreen() {
       </View>
       <View className="mt-6">
         <Button
-          title="Skip for now"
+          title={t('app.skipForNow')}
           variant="secondary"
           onPress={() => void messaging.skipMessaging()}
           disabled={choosing !== null}
@@ -70,7 +71,8 @@ function ChannelCard({
   disabled: boolean;
   onSelect: () => void;
 }) {
-  const hint = channel.method === 'deep_link' ? 'Scan a QR or tap to open the app' : 'Connect with one tap';
+  const { t } = useTranslation();
+  const hint = channel.method === 'deep_link' ? t('app.scanQrOrTap') : t('app.connectOneTap');
   return (
     <Pressable
       onPress={onSelect}
@@ -84,7 +86,7 @@ function ChannelCard({
         <Text className="text-base font-semibold text-on-surface">{channel.display_name}</Text>
         {channel.recommended ? (
           <Text className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
-            Recommended
+            {t('app.recommended')}
           </Text>
         ) : null}
       </View>
@@ -92,7 +94,7 @@ function ChannelCard({
       {busy ? (
         <View className="mt-2 flex-row items-center gap-2">
           <ActivityIndicator size="small" />
-          <Text className="text-xs text-on-surface-variant">Setting things up…</Text>
+          <Text className="text-xs text-on-surface-variant">{t('app.settingThingsUp')}</Text>
         </View>
       ) : null}
     </Pressable>

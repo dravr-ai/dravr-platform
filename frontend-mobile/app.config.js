@@ -8,7 +8,11 @@ module.exports = {
   runtimeVersion: {
     policy: 'sdkVersion',
   },
-  orientation: 'portrait',
+  // 'default' rather than 'portrait': supportsTablet is true below, and Apple
+  // expects a tablet-capable app to rotate and to support Split View. A phone
+  // still opens portrait because that is how it is held; it is no longer
+  // FORBIDDEN from rotating.
+  orientation: 'default',
   icon: './assets/icon.png',
   // Boreal Editorial is a light-first system; follow the OS so mobile falls
   // back to the tuned dark variant on OLED night use. See ThemeProvider in
@@ -19,6 +23,14 @@ module.exports = {
     image: './assets/splash-icon.png',
     resizeMode: 'contain',
     backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
+    // userInterfaceStyle is 'automatic', so a dark-mode launch flashed this
+    // light surface before the app painted its own dark canvas. The dark
+    // variant is the tuned surface from index.css, not black.
+    dark: {
+      image: './assets/splash-icon.png',
+      resizeMode: 'contain',
+      backgroundColor: '#11130f',
+    },
   },
   ios: {
     supportsTablet: true,
@@ -40,6 +52,18 @@ module.exports = {
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
+    },
+    // Same reasoning as splash.dark above: an Android dark-mode launch got the
+    // light surface first.
+    splash: {
+      image: './assets/splash-icon.png',
+      resizeMode: 'contain',
+      backgroundColor: '#f9f9f6',
+      dark: {
+        image: './assets/splash-icon.png',
+        resizeMode: 'contain',
+        backgroundColor: '#11130f',
+      },
     },
     edgeToEdgeEnabled: true,
     package: 'ai.dravr.app',

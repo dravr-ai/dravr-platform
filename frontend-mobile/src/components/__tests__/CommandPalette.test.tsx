@@ -53,6 +53,9 @@ function Composer() {
   const inputRef = React.useRef(null);
   return (
     <ChatInputBar
+      restingOffset={68}
+      keyboardHeight={0}
+      keyboardDuration={250}
       inputText={inputText}
       partialTranscript=""
       isListening={false}

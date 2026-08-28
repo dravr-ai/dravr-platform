@@ -107,11 +107,11 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
         inviteKind === 'coach'
           ? t('groups.inviteCoachShare')
           : t('groups.inviteReadyToShare');
-      showSuccess('Invite created', detail);
+      showSuccess(t('app.inviteCreated'), detail);
       setShowCreateForm(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.inviteCreateFailed');
-      showError('Creation failed', message);
+      showError(t('app.creationFailed'), message);
     }
   };
 
@@ -120,17 +120,17 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
     try {
       await navigator.clipboard.writeText(link);
       setCopiedId(inviteId);
-      showSuccess('Invite link copied!', 'Share this link with people you want to invite.');
+      showSuccess(t('app.inviteLinkCopied'), 'Share this link with people you want to invite.');
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
       // Fallback: copy just the code
       try {
         await navigator.clipboard.writeText(code);
         setCopiedId(inviteId);
-        showSuccess('Invite code copied!', 'Share this code with people you want to invite.');
+        showSuccess(t('app.inviteCodeCopied'), 'Share this code with people you want to invite.');
         setTimeout(() => setCopiedId(null), 2000);
       } catch {
-        showError('Copy failed', 'Could not copy to clipboard.');
+        showError(t('app.copyFailed'), 'Could not copy to clipboard.');
       }
     }
   };
@@ -139,11 +139,11 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
     if (!confirmDeactivate) return;
     try {
       await deactivateInvite(confirmDeactivate.id);
-      showSuccess('Invite deactivated', 'The invite link will no longer work.');
+      showSuccess(t('app.inviteDeactivated'), 'The invite link will no longer work.');
       setConfirmDeactivate(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.inviteDeactivateFailed');
-      showError('Deactivation failed', message);
+      showError(t('app.deactivationFailed'), message);
     }
   };
 

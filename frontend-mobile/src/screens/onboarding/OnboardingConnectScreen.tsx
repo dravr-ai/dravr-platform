@@ -28,6 +28,7 @@ import { getOAuthCallbackUrl } from '../../utils/oauth';
 import type { ExtendedProviderStatus } from '../../types';
 import { useProviderSkipped } from '../../hooks/useProviderSkipped';
 import { ConnectPreview } from '../../components/ConnectPreview';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Backed by the same source of truth (`provider_connections`) as the
@@ -46,6 +47,7 @@ import { ConnectPreview } from '../../components/ConnectPreview';
  * provider data. Skipping defers the ask; it does not buy access.
  */
 export function OnboardingConnectScreen() {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const { isAuthenticated, user, logout } = useAuth();
@@ -134,7 +136,7 @@ export function OnboardingConnectScreen() {
 
         if (result.type === 'success' && result.url) {
           if (!result.url.startsWith(returnUrl)) {
-            Alert.alert('Connection Failed', 'Unexpected OAuth callback URL');
+            Alert.alert(t('app.connectionFailed'), 'Unexpected OAuth callback URL');
             return;
           }
           const parsed = Linking.parse(result.url);
@@ -161,7 +163,7 @@ export function OnboardingConnectScreen() {
         // that's a deliberate choice, so we do NOT push the Sciotte fallback.
       } catch (err) {
         setAwaitingOAuthFor(null);
-        const message = err instanceof Error ? err.message : 'Failed to connect';
+        const message = err instanceof Error ? err.message : t('app.failedToConnect');
         console.error('Onboarding OAuth flow failed:', err);
         if (providerId === 'whoop') {
           // No BYO app registered yet — open the in-place setup modal so the
@@ -181,12 +183,12 @@ export function OnboardingConnectScreen() {
         setConnectingProvider(null);
       }
     },
-    [finalizeConnection],
+    [finalizeConnection, t],
   );
 
   const handleConnect = (provider: ExtendedProviderStatus) => {
     setConnectError(null);
-    // The Sciotte card is the user-facing "Strava" card. While shared-app OAuth
+    // The Sciotte card is the user-facing t('app.brandStrava') card. While shared-app OAuth
     // seats remain the server recommends `oauth`, so connect via the official
     // Strava OAuth flow. Once the athlete cap is reached the server recommends
     // `mirror`, and we silently fall back to the Sciotte credential login.
@@ -220,7 +222,7 @@ export function OnboardingConnectScreen() {
   // After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
   // (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`. Filter
   // out the bare `strava` row — official OAuth is reached exclusively through
-  // the Sciotte modal's "Use my own Strava OAuth app" button, so a separate
+  // the Sciotte modal's t('app.useOwnStravaApp') button, so a separate
   // strava card would just duplicate the entry. Mirror its `connected` state
   // onto the Sciotte card so the badge appears in the right place.
   const visibleProviders = (() => {
@@ -240,12 +242,12 @@ export function OnboardingConnectScreen() {
     // back to a neutral slate tile so the screen never crashes on an
     // unexpected payload.
     const config: Record<string, { color: string; icon: string; description: string }> = {
-      sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, swimming' },
-      sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities + health metrics' },
-      whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: 'Recovery, strain, sleep' },
-      intervals_icu: { color: '#1273DE', icon: 'I', description: 'Endurance analytics + wellness' },
+      sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: t('app.provRunCycleSwim') },
+      sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: t('app.provActivitiesHealth') },
+      whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: t('app.provRecoveryStrainSleep') },
+      intervals_icu: { color: '#1273DE', icon: 'I', description: t('app.provEnduranceWellness') },
     };
-    const c = config[provider.provider] ?? { color: '#607D8B', icon: '?', description: 'Fitness data' };
+    const c = config[provider.provider] ?? { color: '#607D8B', icon: '?', description: t('app.provFitnessData') };
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
 
@@ -264,7 +266,7 @@ export function OnboardingConnectScreen() {
           </View>
           {isConnected ? (
             <View className="bg-success/15 px-3 py-1.5 rounded-full">
-              <Text className="text-xs text-success font-semibold">Connected</Text>
+              <Text className="text-xs text-success font-semibold">{t('app.connected')}</Text>
             </View>
           ) : (
             <TouchableOpacity
@@ -278,7 +280,7 @@ export function OnboardingConnectScreen() {
               {isConnecting ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text className="text-sm font-semibold text-on-surface">Connect</Text>
+                <Text className="text-sm font-semibold text-on-surface">{t('app.connect')}</Text>
               )}
             </TouchableOpacity>
           )}
@@ -287,7 +289,7 @@ export function OnboardingConnectScreen() {
     );
   };
 
-  // Post-connect spinner: full-screen so the static "Connected" badge doesn't
+  // Post-connect spinner: full-screen so the static t('app.connected') badge doesn't
   // flash before RootLayoutNav flips. Matches the web onboarding UX.
   if (justConnected) {
     return (
@@ -309,15 +311,14 @@ export function OnboardingConnectScreen() {
       <SafeAreaView className="flex-1 bg-background-primary items-center justify-center px-8">
         <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
         <Text className="mt-4 text-base font-semibold text-text-primary text-center">
-          Awaiting {friendlyName} consent…
+          {t('app.awaiting')} {friendlyName} consent…
         </Text>
         <Text className="mt-2 text-sm text-text-tertiary text-center">
-          Finish the authorisation in the browser. We&apos;ll route you to your
-          dashboard automatically once {friendlyName} confirms.
+          {t('app.finishAuthInBrowser', { provider: friendlyName })}
         </Text>
         <View className="mt-6">
           <Button
-            title="Cancel and try a different provider"
+            title={t('app.cancelTryDifferentProvider')}
             variant="secondary"
             onPress={() => setAwaitingOAuthFor(null)}
           />
@@ -334,11 +335,10 @@ export function OnboardingConnectScreen() {
             className="text-3xl font-bold text-text-primary mb-3"
             accessibilityRole="header"
           >
-            {user?.display_name ? `Welcome, ${user.display_name}` : 'Welcome to Dravr'}
+            {user?.display_name ? `Welcome, ${user.display_name}` : t('app.welcomeToDravr')}
           </Text>
           <Text className="text-base text-text-secondary leading-6">
-            Connect a fitness service to get started. Dravr coaches you on the activities your
-            provider already tracks — without one, there&apos;s nothing for the model to read.
+            {t('app.obConnectBlurb')}
           </Text>
         </View>
 
@@ -360,7 +360,7 @@ export function OnboardingConnectScreen() {
         )}
 
         <Text className="text-xs text-text-tertiary text-center mt-6">
-          Your credentials are encrypted at rest and used only to fetch your activity data.
+          {t('app.credsEncrypted')}
         </Text>
 
         <ConnectPreview />
@@ -368,17 +368,17 @@ export function OnboardingConnectScreen() {
         <View className="mt-6 items-center">
           <TouchableOpacity onPress={skip} accessibilityRole="button">
             <Text className="text-sm font-medium text-text-secondary underline">
-              Continue without connecting
+              {t('app.continueWithoutConnecting')}
             </Text>
           </TouchableOpacity>
           <Text className="text-xs text-text-tertiary text-center mt-1">
-            You can connect anytime — your coach needs a provider to read your activity.
+            {t('app.connectAnytime')}
           </Text>
         </View>
 
         <View className="mt-8">
           <Button
-            title="Sign Out"
+            title={t('common.logout')}
             variant="secondary"
             onPress={() => void logout()}
             fullWidth
@@ -391,7 +391,7 @@ export function OnboardingConnectScreen() {
         onClose={() => setSciotteTarget(null)}
         onConnected={() => {
           const target = sciotteTarget ?? 'strava';
-          const friendly = target === 'garmin' ? 'Garmin' : 'Strava';
+          const friendly = target === 'garmin' ? t('app.brandGarmin') : t('app.brandStrava');
           setSciotteTarget(null);
           void finalizeConnection(friendly);
         }}

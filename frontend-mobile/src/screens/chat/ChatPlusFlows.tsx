@@ -8,6 +8,7 @@ import React from 'react';
 import { PromptDialog } from '../../components/ui';
 import { ConversationParticipantsModal } from './ConversationParticipantsModal';
 import type { ChatPlusFlowState } from './useChatPlusActions';
+import { useTranslation } from '@pierre/i18n';
 
 interface ChatPlusFlowsProps {
   flows: ChatPlusFlowState;
@@ -21,15 +22,16 @@ interface ChatPlusFlowsProps {
  * floor, so the host renders these as siblings and the menu only flips state.
  */
 export function ChatPlusFlows({ flows }: ChatPlusFlowsProps) {
+  const { t } = useTranslation();
   return (
     <>
       <PromptDialog
         visible={flows.groupNamePromptVisible}
-        title="New group chat"
+        title={t('app.newGroupChat')}
         message="What is this group called?"
-        placeholder="Harricana 2026"
+        placeholder={t('app.groupNamePlaceholder')}
         submitText="Create"
-        cancelText="Cancel"
+        cancelText={t('common.cancel')}
         onSubmit={flows.submitGroupName}
         onCancel={flows.closeGroupNamePrompt}
         testID="new-group-name-dialog"

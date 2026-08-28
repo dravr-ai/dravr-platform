@@ -25,6 +25,7 @@ import { ChatPlusFlows } from '../../screens/chat/ChatPlusFlows';
 import { useConversationRows } from '../../screens/conversations/useConversationList';
 import { GlassContainer } from './GlassContainer';
 import { TabMenuItem } from './TabMenuItem';
+import { useTranslation } from '@pierre/i18n';
 
 /** The route group a tab opens. */
 export type TabBarRoute = '(chat)' | '(discover)' | '(settings)';
@@ -32,7 +33,8 @@ export type TabBarRoute = '(chat)' | '(discover)' | '(settings)';
 /** One tab of the bar: the route group it opens, its label, icon and test id. */
 export interface TabBarTab {
   route: TabBarRoute;
-  label: string;
+  /** Corpus key; module scope cannot hold a hook, so the bar resolves it. */
+  labelKey: string;
   icon: LucideIcon;
   testID: string;
   /** A count drawn over the icon; the chat tab carries the unread total. */
@@ -52,9 +54,9 @@ function badgeLabel(count: number): string {
  * that let a tab be filtered from one list and not the other is gone.
  */
 export const TAB_BAR_TABS: readonly TabBarTab[] = [
-  { route: '(chat)', label: 'Chat', icon: MessageCircle, testID: 'tab-chat' },
-  { route: '(discover)', label: 'Discover', icon: Compass, testID: 'tab-discover' },
-  { route: '(settings)', label: 'Settings', icon: Settings, testID: 'tab-settings' },
+  { route: '(chat)', labelKey: 'app.navChat', icon: MessageCircle, testID: 'tab-chat' },
+  { route: '(discover)', labelKey: 'app.discover', icon: Compass, testID: 'tab-discover' },
+  { route: '(settings)', labelKey: 'common.settings', icon: Settings, testID: 'tab-settings' },
 ];
 const TAB_COUNT = TAB_BAR_TABS.length;
 
@@ -63,12 +65,31 @@ const COLLAPSED_HEIGHT = 56;
 const EXPANDED_HEIGHT = 380;
 const PLUS_BUTTON_SIZE = 48;
 
-/** Space screens should reserve at bottom to avoid overlapping the floating tab bar */
-export const TAB_BAR_BOTTOM_OFFSET = COLLAPSED_HEIGHT + 40;
+/**
+ * Space screens reserve at the bottom so nothing sits under the floating tab bar.
+ *
+ * The `+ 40` is a hardcoded stand-in for the home indicator, and it is wrong on
+ * most hardware: an iPhone SE has a bottom inset of 0 and gets 40dp of dead
+ * space, Android gesture navigation reports its own value, and a tablet
+ * reports another. `tabBarBottomOffset(insets.bottom)` is the honest version
+ * and is what every screen should call.
+ *
+ * The constant is kept because it is the correct value for an inset of 0 plus
+ * the bar's own breathing room, and it is what a component without access to
+ * the safe-area context falls back to.
+ */
+export const TAB_BAR_GAP = 12;
+export const TAB_BAR_BOTTOM_OFFSET = COLLAPSED_HEIGHT + TAB_BAR_GAP;
+
+/** The bottom space to reserve, given the device's real safe-area inset. */
+export function tabBarBottomOffset(bottomInset: number): number {
+  return COLLAPSED_HEIGHT + TAB_BAR_GAP + bottomInset;
+}
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function ExpandableTabBar() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const segments = useSegments();
   const globalParams = useGlobalSearchParams<{ conversationId?: string }>();
@@ -238,7 +259,7 @@ export function ExpandableTabBar() {
                 <TabMenuItem
                   key={tab.route}
                   icon={tab.icon}
-                  label={tab.label}
+                  label={t(tab.labelKey)}
                   isActive={activeIndex === index}
                   delay={index * 80}
                   onPress={() => handleTabPress(index)}
@@ -295,7 +316,11 @@ export function ExpandableTabBar() {
                     key={tab.route}
                     accessibilityRole="button"
                     accessibilityState={isFocused ? { selected: true } : {}}
-                    accessibilityLabel={badge > 0 ? `${tab.label}, ${badge} unread` : tab.label}
+                    accessibilityLabel={
+                      badge > 0
+                        ? t('app.tabWithUnread', { tab: t(tab.labelKey), count: badge })
+                        : t(tab.labelKey)
+                    }
                     onPress={() => handleTabPress(index)}
                     style={{
                       flex: 1,
@@ -371,7 +396,7 @@ export function ExpandableTabBar() {
             justifyContent: 'center',
           }}
           accessibilityRole="button"
-          accessibilityLabel={isExpanded ? 'Close menu' : 'Open menu'}
+          accessibilityLabel={isExpanded ? t('app.closeMenu') : t('app.openMenu')}
         >
           <Animated.View style={plusIconStyle}>
             <Plus size={24} color={colors.pierre.violet} />

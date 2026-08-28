@@ -12,6 +12,7 @@ import { Button } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { userApi } from '../../services/api';
 import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
+import { useTranslation } from '@pierre/i18n';
 
 /** Web-matching storage key prefix for this step. */
 const STORAGE_PREFIX = 'dravr.parq_done.';
@@ -24,6 +25,7 @@ const STORAGE_PREFIX = 'dravr.parq_done.';
  * freshness horizon.
  */
 export function OnboardingParqScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { mark } = useOnboardingFlag(STORAGE_PREFIX, user?.id);
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
@@ -69,10 +71,9 @@ export function OnboardingParqScreen() {
   return (
     <SafeAreaView className="flex-1 bg-surface">
       <ScrollView contentContainerClassName="px-6 py-10">
-        <Text className="text-2xl font-bold text-on-surface text-center">A quick health check</Text>
+        <Text className="text-2xl font-bold text-on-surface text-center">{t('app.parqTitle')}</Text>
         <Text className="mt-3 text-sm text-on-surface-variant text-center">
-          Standard pre-participation questions. Nothing here blocks your account — a yes just tells
-          your coach to be careful in the right places.
+          {t('app.parqBlurb')}
         </Text>
 
         <View className="mt-8 gap-3">
@@ -85,7 +86,7 @@ export function OnboardingParqScreen() {
               <View className="mt-3 flex-row gap-2">
                 {[
                   { label: 'No', value: false },
-                  { label: 'Yes', value: true },
+                  { label: t('common.yes'), value: true },
                 ].map(({ label, value }) => {
                   const selected = answers[q.id] === value;
                   return (
@@ -113,12 +114,12 @@ export function OnboardingParqScreen() {
 
         <View className="mt-8 gap-3">
           <Button
-            title={saving ? 'Saving…' : allAnswered ? 'Continue' : 'Answer all to continue'}
+            title={saving ? t('app.saving') : allAnswered ? t('app.continue') : t('app.parqAnswerAll')}
             onPress={() => void finish('complete')}
             disabled={saving || !allAnswered}
           />
           <Pressable onPress={() => void finish('skipped')} disabled={saving} accessibilityRole="button">
-            <Text className="text-center text-sm text-on-surface-variant">Skip for now</Text>
+            <Text className="text-center text-sm text-on-surface-variant">{t('app.skipForNow')}</Text>
           </Pressable>
         </View>
       </ScrollView>

@@ -4,11 +4,15 @@
 // ABOUTME: Login modal for sciotte provider — collects credentials, Pierre runs Chrome in-process
 // ABOUTME: Supports Google/Apple/email login methods with 2FA (OTP and phone tap)
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { oauthApi } from '../services/api';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { formatTimeout } from './sciotteLoginCopy';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useDialog } from '../hooks/useDialog';
+import { RevealButton } from './ui';
 
 type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
 
@@ -36,13 +40,6 @@ interface SciotteLoginModalProps {
 // AppError serialises as { code, message, ... }; legacy/in-band errors sometimes
 // expose { error }. Prefer message (current shape) then error, then the axios
 // error itself as a last resort.
-function extractErrorMessage(err: unknown, prefix: string): string {
-  const data = (err as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
-  const detail = data?.message || data?.error;
-  if (detail) return detail;
-  return `${prefix}: ${err}`;
-}
-
 const METHOD_LABELS: Record<LoginMethod, { titleKey: string; emailPlaceholderKey: string }> = {
   email: { titleKey: 'shell.sciotteStravaAccount', emailPlaceholderKey: 'shell.stravaEmail' },
   google: { titleKey: 'shell.sciotteGoogleAccount', emailPlaceholderKey: 'shell.googleEmail' },
@@ -57,6 +54,12 @@ export default function SciotteLoginModal({
   target = 'strava',
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
+  const online = useOnlineStatus();
+  // Credentials and a 2FA code, in an overlay that had no dialog semantics at
+  // all: nothing announced it as a dialog, Escape did nothing, and Tab left
+  // the password field for the page underneath.
+  const titleId = useId();
+  const { containerRef } = useDialog({ open: isOpen, onClose });
   const [phase, setPhase] = useState<LoginPhase>('choose');
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
@@ -68,7 +71,7 @@ export default function SciotteLoginModal({
   const [showPassword, setShowPassword] = useState(false);
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  // When the user picks "Use my own Strava OAuth app", we open the BYO setup
+  // When the user picks t('app.useOwnStravaApp'), we open the BYO setup
   // modal on top of this one. On save it kicks off the official OAuth flow
   // and closes this whole stack via `onConnected`. Only meaningful when
   // `target === 'strava'` — Garmin and others don't expose an OAuth backend.
@@ -124,10 +127,10 @@ export default function SciotteLoginModal({
         } else if (data.status === 'two_factor_choice') {
           setTwoFactorOptions(data.options || []);
           setPhase('two-factor');
-          setStatus('Choose verification method');
+          setStatus(t('app.chooseVerificationMethodShort'));
         } else if (data.status === 'otp_required') {
           setPhase('otp');
-          setStatus('Enter verification code');
+          setStatus(t('app.enterVerificationCode'));
           setOtpCode('');
         } else if (data.status === 'number_match') {
           // Defensive: only render the number-box UI when the server returned
@@ -142,17 +145,17 @@ export default function SciotteLoginModal({
             ? t('shell.sciotteTapMatchingNumber')
             : t('shell.sciotteApproveOnPhone'));
         } else {
-          setError(data.error || 'Login failed');
+          setError(data.error || t('auth.loginFailed'));
           setPhase('error');
         }
       } catch (err) {
-        setError(extractErrorMessage(err, 'Login failed'));
+        setError(describeApiError(err, { online, t, fallbackKey: 'auth.loginFailed' }));
         setPhase('error');
       } finally {
         setIsLoading(false);
       }
     },
-    [email, password, method, target, onClose, onConnected]
+    [email, password, method, target, onClose, onConnected, online, t]
   );
 
   // 2FA option selection
@@ -174,7 +177,7 @@ export default function SciotteLoginModal({
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
           setPhase('otp');
-          setStatus('Enter verification code');
+          setStatus(t('app.enterVerificationCode'));
           setOtpCode('');
         } else if (data.status === 'number_match') {
           // Defensive: only render the number-box UI when the server returned
@@ -189,17 +192,17 @@ export default function SciotteLoginModal({
             ? t('shell.sciotteTapMatchingNumber')
             : t('shell.sciotteApproveOnPhone'));
         } else {
-          setError(data.error || 'Verification failed');
+          setError(data.error || t('shell.sciotteVerificationFailed'));
           setPhase('error');
         }
       } catch (err) {
-        setError(extractErrorMessage(err, 'Verification failed'));
+        setError(describeApiError(err, { online, t, fallbackKey: 'shell.sciotteVerificationFailed' }));
         setPhase('error');
       } finally {
         setIsLoading(false);
       }
     },
-    [onClose, onConnected]
+    [onClose, onConnected, online, t]
   );
 
   // Auto-poll once when number-match phase is reached — the phone notification
@@ -250,7 +253,7 @@ export default function SciotteLoginModal({
 
       setIsLoading(true);
       setPhase('logging-in');
-      setStatus('Verifying code...');
+      setStatus(t('app.verifyingCode'));
 
       try {
         const data = await oauthApi.sciotteSubmitOTP(otpCode);
@@ -264,17 +267,17 @@ export default function SciotteLoginModal({
           setPhase('otp');
           setOtpCode('');
         } else {
-          setError(data.error || 'Verification failed');
+          setError(data.error || t('shell.sciotteVerificationFailed'));
           setPhase('error');
         }
       } catch (err) {
-        setError(extractErrorMessage(err, 'Verification failed'));
+        setError(describeApiError(err, { online, t, fallbackKey: 'shell.sciotteVerificationFailed' }));
         setPhase('error');
       } finally {
         setIsLoading(false);
       }
     },
-    [otpCode, onClose, onConnected]
+    [otpCode, onClose, onConnected, online, t]
   );
 
 
@@ -285,8 +288,17 @@ export default function SciotteLoginModal({
     : METHOD_LABELS[method];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-surface-container-highest rounded-2xl border ghost-border shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+    >
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="bg-surface-container-highest rounded-2xl border ghost-border shadow-2xl max-w-md w-full mx-4 overflow-hidden"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
           <div className="flex items-center gap-3">
@@ -299,7 +311,7 @@ export default function SciotteLoginModal({
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-on-surface">{t('frag.connectTo')} {providerLabel}</h2>
+              <h2 id={titleId} className="text-lg font-semibold text-on-surface">{t('frag.connectTo')} {providerLabel}</h2>
               {progressLabel && <p className="text-xs text-on-surface/50">{progressLabel}</p>}
             </div>
           </div>
@@ -415,24 +427,11 @@ export default function SciotteLoginModal({
                       autoComplete="current-password"
                       name="password"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/40 hover:text-on-surface/70 transition-colors"
-                      title={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
-                      aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
-                    >
-                      {showPassword ? (
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                        </svg>
-                      ) : (
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      )}
-                    </button>
+                    <RevealButton
+  revealed={showPassword}
+  onToggle={() => setShowPassword(!showPassword)}
+  label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
+/>
                   </div>
                 </div>
                 <button type="submit" disabled={isLoading || !email || !password} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium hover:shadow-lg hover:shadow-nutrition/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
@@ -600,7 +599,7 @@ export default function SciotteLoginModal({
             onOAuthLaunched?.('strava');
           } catch (err) {
             if (popup && !popup.closed) popup.close();
-            setError(extractErrorMessage(err, 'Strava OAuth init failed'));
+            setError(describeApiError(err, { online, t, fallbackKey: 'shell.sciotteStravaOauthFailed' }));
             setPhase('error');
           }
         }}

@@ -17,6 +17,7 @@ import { Button, Input } from './ui';
 import { userApi } from '../services/api';
 import { useThemeColors } from '../constants/theme';
 import type { OAuthApp } from '../types';
+import { useTranslation } from '@pierre/i18n';
 
 interface OAuthAppSetupModalProps {
   visible: boolean;
@@ -48,6 +49,7 @@ export function OAuthAppSetupModal({
   devPortalUrl,
   defaultRedirectUri,
 }: OAuthAppSetupModalProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const resolvedRedirectDefault =
     defaultRedirectUri ?? `${FALLBACK_REDIRECT_HOST}/api/oauth/callback/${provider}`;
@@ -111,7 +113,7 @@ export function OAuthAppSetupModal({
     const trimmedRedirect = redirectUri.trim();
 
     if (!trimmedId || !trimmedSecret || !trimmedRedirect) {
-      setError('Client ID, Client Secret, and Redirect URI are all required.');
+      setError(t('app.oauthAllFieldsRequired'));
       return;
     }
 
@@ -129,7 +131,7 @@ export function OAuthAppSetupModal({
       const message =
         err instanceof Error
           ? err.message
-          : `Failed to save ${displayName} OAuth app`;
+          : t('app.failedSaveOauthApp', { provider: displayName });
       setError(message);
     } finally {
       setIsSaving(false);
@@ -162,13 +164,13 @@ export function OAuthAppSetupModal({
 
           <View className="flex-row items-center justify-between mb-2">
             <Text className="text-xl font-semibold text-text-primary flex-1">
-              Set up your {displayName} OAuth app
+              {t('app.setUpOauthApp', { provider: displayName })}
             </Text>
             <TouchableOpacity
               onPress={onClose}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityRole="button"
-              accessibilityLabel="Close"
+              accessibilityLabel={t('common.close')}
             >
               <Feather name="x" size={22} color={colors.text.tertiary} />
             </TouchableOpacity>
@@ -197,8 +199,8 @@ export function OAuthAppSetupModal({
             ) : null}
 
             <Input
-              label="Client ID"
-              placeholder={`Paste your ${displayName} Client ID`}
+              label={t('app.clientId')}
+              placeholder={t('app.pasteProviderClientId', { provider: displayName })}
               value={clientId}
               onChangeText={setClientId}
               autoCapitalize="none"
@@ -206,11 +208,11 @@ export function OAuthAppSetupModal({
             />
 
             <Input
-              label="Client Secret"
+              label={t('app.clientSecret')}
               placeholder={
                 existingApp
                   ? `Re-enter your ${displayName} Client Secret`
-                  : `Paste your ${displayName} Client Secret`
+                  : t('app.pasteProviderClientSecret', { provider: displayName })
               }
               value={clientSecret}
               onChangeText={setClientSecret}
@@ -221,15 +223,14 @@ export function OAuthAppSetupModal({
             />
 
             <Input
-              label="Redirect URI"
+              label={t('app.redirectUri')}
               value={redirectUri}
               onChangeText={setRedirectUri}
               autoCapitalize="none"
               autoCorrect={false}
             />
             <Text className="text-xs text-text-tertiary mb-3">
-              Add this exact URI to your {displayName} app&apos;s allowed
-              redirect URIs.
+              {t('app.addExactUri', { provider: displayName })}
             </Text>
 
             {error ? (
@@ -243,13 +244,13 @@ export function OAuthAppSetupModal({
 
             <View className="flex-row gap-3 mt-2">
               <Button
-                title="Cancel"
+                title={t('common.cancel')}
                 onPress={onClose}
                 variant="secondary"
                 style={{ flex: 1 }}
               />
               <Button
-                title={isSaving ? 'Saving…' : 'Save and connect'}
+                title={isSaving ? t('app.saving') : t('app.saveAndConnect')}
                 onPress={handleSubmit}
                 loading={isSaving}
                 style={{ flex: 1 }}

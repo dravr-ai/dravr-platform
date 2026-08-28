@@ -33,6 +33,7 @@ import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
+import { useTranslation } from '@pierre/i18n';
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -50,6 +51,7 @@ function FeedbackReasonInput({
   onSubmit: (comment: string) => void;
   colors: ThemeColors;
 }) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(initialComment ?? '');
   const [saved, setSaved] = useState(false);
 
@@ -89,7 +91,7 @@ function FeedbackReasonInput({
         onPress={submit}
       >
         <Text className="text-xs" style={{ color: colors.pierre.violet }}>
-          {saved ? 'Saved' : 'Send'}
+          {saved ? t('app.blockSaved') : t('app.blockSend')}
         </Text>
       </TouchableOpacity>
     </View>
@@ -286,7 +288,19 @@ interface MessageListProps {
   onOpenUrl: (url: string) => void;
   /** Press handler for a control the reply's `actions` block carried. */
   onActionClick?: (action: ChatMessageAction) => void;
+  /**
+   * Space to keep clear at the bottom: whichever is taller, the resting
+   * composer or the open keyboard. Was a hardcoded 140, which was only ever
+   * right with the keyboard closed on a home-indicator phone.
+   */
+  bottomInset: number;
 }
+
+/**
+ * The composer pill's own height plus the vertical padding around it. The list
+ * has to clear the composer as well as whatever the composer is sitting on.
+ */
+const COMPOSER_CLEARANCE = 64;
 
 export function MessageList({
   messages,
@@ -304,13 +318,15 @@ export function MessageList({
   onRetryMessage,
   onOpenUrl,
   onActionClick,
+  bottomInset,
 }: MessageListProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
   const handleCopyMessage = async (content: string) => {
     try {
       await Clipboard.setStringAsync(content);
-      Alert.alert('Copied', 'Message copied to clipboard');
+      Alert.alert(t('app.copiedTitle'), t('app.copiedBody'));
     } catch (error) {
       console.error('Failed to copy:', error);
     }
@@ -387,7 +403,7 @@ export function MessageList({
             source={{ uri: block.url }}
             className="w-full h-48 rounded-xl mt-3"
             resizeMode="contain"
-            accessibilityLabel={block.caption ?? 'Chart'}
+            accessibilityLabel={block.caption ?? t('app.chartFallbackAria')}
           />
         );
 
@@ -439,7 +455,7 @@ export function MessageList({
             onPress={() => onOpenUrl(block.url)}
           >
             <Text className="text-sm font-medium text-on-primary">
-              Reconnect {block.display_name}
+              {t('app.reconnect')} {block.display_name}
             </Text>
           </TouchableOpacity>
         );
@@ -501,7 +517,7 @@ export function MessageList({
                 onPress={() => onRetryMessage(item.id)}
               >
                 <Ionicons name="refresh-outline" size={14} color={colors.text.primary} />
-                <Text className="text-xs text-text-primary font-medium">Retry</Text>
+                <Text className="text-xs text-text-primary font-medium">{t('common.retry')}</Text>
               </TouchableOpacity>
             ) : (
               <>
@@ -599,7 +615,7 @@ export function MessageList({
       testID="chat-empty-state"
     >
       <Text className="text-base text-text-secondary text-center leading-6">
-        Ask anything about your training.
+        {t('app.emptyThreadPrompt')}
       </Text>
       <Text className="text-sm text-text-tertiary text-center mt-2" testID="chat-slash-hint">
         {SLASH_HINT}
@@ -627,7 +643,13 @@ export function MessageList({
         renderItem={renderMessage}
         keyExtractor={(item, index) => item?.id ?? `fallback-${index}`}
 
-        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, paddingBottom: 140 }}
+        contentContainerStyle={{
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.md,
+          // COMPOSER_CLEARANCE is the pill's own height plus its padding; the
+          // inset above it is the resting bar or the raised keyboard.
+          paddingBottom: bottomInset + COMPOSER_CLEARANCE,
+        }}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={onScrollToBottom}
         ListFooterComponent={isSending ? renderThinkingIndicator : null}

@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { WarningLevel } from './useUsageStatus';
+import { useTranslation } from '@pierre/i18n';
 
 interface UsageWarningBannerProps {
   /** The warning severity level */
@@ -47,6 +48,7 @@ const LEVEL_CONFIG: Record<Exclude<WarningLevel, 'none'>, {
 };
 
 export function UsageWarningBanner({ level, message }: UsageWarningBannerProps) {
+  const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(false);
 
   if (level === 'none' || dismissed || !message) {
@@ -68,7 +70,7 @@ export function UsageWarningBanner({ level, message }: UsageWarningBannerProps) 
         <TouchableOpacity
           onPress={() => setDismissed(true)}
           className="p-1"
-          accessibilityLabel="Dismiss warning"
+          accessibilityLabel={t('app.dismissWarning')}
           testID="dismiss-warning-button"
         >
           <Ionicons name="close" size={14} color={config.iconColor} />

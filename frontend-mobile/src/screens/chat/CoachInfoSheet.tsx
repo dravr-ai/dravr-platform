@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Coach info for a coach-bound thread — title, @handle, description, detach, and edit for own coaches
-// ABOUTME: "Remove from this chat" sends /coach remove; the command is the only implementation of detaching
+// ABOUTME: t('app.removeFromChat') sends /coach remove; the command is the only implementation of detaching
 
 import React, { useCallback } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
@@ -12,6 +12,7 @@ import { COMMAND_DRAFTS, MENTION_PREFIX } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { COACH_EDIT_ROUTE } from '../../navigation/routes';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
+import { useTranslation } from '@pierre/i18n';
 
 export interface CoachInfoSheetProps {
   /** The coach the open thread is bound to. */
@@ -32,6 +33,7 @@ export interface CoachInfoSheetProps {
  * app has no private path to a state the command cannot reach.
  */
 export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose }: CoachInfoSheetProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { coach, isLoading } = useCoachInfo(coachId);
@@ -49,7 +51,7 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
   return (
     <ScrollView testID="coach-info-sheet" keyboardShouldPersistTaps="handled">
       <Text className="text-lg font-bold text-text-primary" testID="coach-info-title">
-        {coach?.title ?? fallbackTitle ?? 'Coach'}
+        {coach?.title ?? fallbackTitle ?? t('app.coach')}
       </Text>
 
       {coach?.handle && (
@@ -69,7 +71,7 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
 
       {coach?.handle && (
         <Text className="text-xs text-text-tertiary mt-3">
-          Mention {MENTION_PREFIX}
+          {t('app.mention')} {MENTION_PREFIX}
           {coach.handle} in any chat to bring this coach in for one turn.
         </Text>
       )}
@@ -82,7 +84,7 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
           testID="coach-info-remove"
         >
           <Feather name="user-minus" size={18} color={colors.text.primary} />
-          <Text className="text-base text-text-primary ml-3">Remove from this chat</Text>
+          <Text className="text-base text-text-primary ml-3">{t('app.removeFromChat')}</Text>
         </TouchableOpacity>
 
         {/* Only the athlete's own coaches are editable; a system coach is
@@ -95,7 +97,7 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
             testID="coach-info-edit"
           >
             <Feather name="edit-2" size={18} color={colors.text.primary} />
-            <Text className="text-base text-text-primary ml-3">Edit coach</Text>
+            <Text className="text-base text-text-primary ml-3">{t('app.editCoach')}</Text>
           </TouchableOpacity>
         )}
       </View>

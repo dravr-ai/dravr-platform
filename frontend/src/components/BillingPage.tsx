@@ -197,7 +197,7 @@ export default function BillingPage() {
             </div>
             <div>
               <div className="text-on-surface-variant">{t('shell.billingCancelAtPeriodEnd')}</div>
-              <div className="font-medium text-on-surface">{sub.cancel_at_period_end ? 'Yes' : 'No'}</div>
+              <div className="font-medium text-on-surface">{sub.cancel_at_period_end ? t('common.yes') : 'No'}</div>
             </div>
           </div>
         ) : (

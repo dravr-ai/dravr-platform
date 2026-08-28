@@ -5,6 +5,7 @@
 // ABOUTME: Tapping the avatar or the title opens the thread's info sheet, the way every messaging app does it
 
 import React from 'react';
+import { useTranslation } from '@pierre/i18n';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { avatarSlot, deriveKind, initialsFor, UNTITLED_CONVERSATION } from '@pierre/chat-utils';
@@ -36,6 +37,7 @@ export function ChatHeader({
   onPlusPress,
   onTitlePress,
 }: ChatHeaderProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const title = currentConversation?.title?.trim() || (currentConversation ? UNTITLED_CONVERSATION : NEW_CHAT_TITLE);
   const kind = currentConversation ? deriveKind(currentConversation) : null;
@@ -51,7 +53,7 @@ export function ChatHeader({
         className="w-10 h-10 items-center justify-center"
         onPress={onBackPress}
         accessibilityRole="button"
-        accessibilityLabel="Back to chats"
+        accessibilityLabel={t('app.headerBackToChatsAria')}
         testID="back-button"
       >
         <Ionicons name="chevron-back" size={26} color={colors.text.primary} />
@@ -105,7 +107,7 @@ export function ChatHeader({
         className="w-10 h-10 items-center justify-center"
         onPress={onPlusPress}
         accessibilityRole="button"
-        accessibilityLabel="New chat, new group chat, or add someone"
+        accessibilityLabel={t('app.headerPlusAria')}
         testID="chat-plus-button"
       >
         <Ionicons name="add" size={26} color={colors.pierre.violet} />

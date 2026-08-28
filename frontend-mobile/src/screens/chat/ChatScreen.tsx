@@ -22,6 +22,8 @@ import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
 import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID } from '../../navigation/routes';
 import { ChatInputBar } from './ChatInputBar';
+import { tabBarBottomOffset } from '../../components/ui';
+import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { ChatProgressStrip } from './ChatProgressStrip';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { MessageList } from './MessageList';
@@ -36,10 +38,19 @@ import { useProviderStatus } from './useProviderStatus';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import { useUsageStatus } from './useUsageStatus';
 import { UsageWarningBanner } from './UsageWarningBanner';
+import { useTranslation } from '@pierre/i18n';
 
 export function ChatScreen() {
+  const { t } = useTranslation();
   const { isAuthenticated } = useAuth();
   const insets = useSafeAreaInsets();
+  // One keyboard reading, shared by the composer and the list. They used to
+  // disagree: the composer listened and moved, the list reserved a fixed 140dp
+  // and did not, so the newest messages hid behind the raised composer.
+  const keyboard = useKeyboardOffset();
+  // The resting position, from the device's REAL bottom inset rather than the
+  // hardcoded 40dp that assumed every phone has a home indicator.
+  const composerResting = tabBarBottomOffset(insets.bottom);
   const router = useRouter();
   const params = useLocalSearchParams<{ conversationId?: string; draft?: string; send?: string }>();
   const inputRef = useRef<TextInput>(null);
@@ -57,6 +68,17 @@ export function ChatScreen() {
   // Custom hooks
   const conversations = useConversations();
   const messagesHook = useMessages();
+
+  // Opening the keyboard shortens the visible list. `onContentSizeChange` only
+  // fires when the CONTENT changes, so tapping into the composer on an existing
+  // thread left the newest messages above the fold with nothing to bring them
+  // back.
+  const scrollToBottom = messagesHook.scrollToBottom;
+  useEffect(() => {
+    if (keyboard.height > 0) {
+      scrollToBottom();
+    }
+  }, [keyboard.height, scrollToBottom]);
   const providerStatus = useProviderStatus();
   const usageStatus = useUsageStatus();
   // The "+" and the info sheet's "Participants" share one flow state, so
@@ -176,23 +198,23 @@ export function ChatScreen() {
         parsedUrl = new URL(url);
       } catch {
         console.error('Invalid URL:', url);
-        Alert.alert('Error', 'Invalid link format');
+        Alert.alert(t('app.linkErrorTitle'), t('app.linkInvalidFormat'));
         return;
       }
 
       const scheme = parsedUrl.protocol.toLowerCase();
       if (scheme !== 'http:' && scheme !== 'https:') {
         console.warn('Blocked non-HTTP URL scheme:', scheme);
-        Alert.alert('Blocked', 'Only HTTP and HTTPS links can be opened.');
+        Alert.alert(t('app.linkBlockedTitle'), t('app.linkBlockedBody'));
         return;
       }
 
       await Linking.openURL(url);
     } catch (error) {
       console.error('Failed to open URL:', error);
-      Alert.alert('Error', 'Failed to open link');
+      Alert.alert(t('app.linkErrorTitle'), t('app.linkOpenFailed'));
     }
-  }, []);
+  }, [t]);
 
   // A turn's pre-turn quota check reports its counters as a `notice` reply
   // block. Hand it to the banner, which is the one place a cap is stated.
@@ -207,7 +229,7 @@ export function ChatScreen() {
    *
    * Everything that produces a turn goes through here — the composer, a
    * reply's postback button, a command an info sheet issues, and the `send`
-   * param an invite link or a "New group chat" prompt arrives with — so quota
+   * param an invite link or a t('app.newGroupChat') prompt arrives with — so quota
    * accounting and thread creation have exactly one implementation.
    */
   const sendText = useCallback(async (text: string) => {
@@ -328,12 +350,12 @@ export function ChatScreen() {
   const handleInfoRename = useCallback(() => {
     setInfoVisible(false);
     if (conversations.currentConversation) {
-      const title = conversations.currentConversation.title || 'New Chat';
+      const title = conversations.currentConversation.title || t('app.chatUntitled');
       setRenameConversationId(conversations.currentConversation.id);
       setRenameDefaultTitle(title);
       setRenamePromptVisible(true);
     }
-  }, [conversations.currentConversation]);
+  }, [conversations.currentConversation, t]);
 
   const handleInfoParticipants = useCallback(() => {
     setInfoVisible(false);
@@ -350,9 +372,9 @@ export function ChatScreen() {
       'Delete Conversation',
       `Are you sure you want to delete "${conversations.currentConversation.title || 'this conversation'}"?`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             await conversations.deleteConversation(conversations.currentConversation!.id);
@@ -362,7 +384,7 @@ export function ChatScreen() {
         },
       ]
     );
-  }, [conversations, goBackToList]);
+  }, [conversations, goBackToList, t]);
 
   const handleRenameSubmit = useCallback(async (newTitle: string) => {
     setRenamePromptVisible(false);
@@ -425,6 +447,7 @@ export function ChatScreen() {
           onRetryMessage={handleRetryMessage}
           onOpenUrl={handleOpenUrl}
           onActionClick={handleActionClick}
+          bottomInset={Math.max(composerResting, keyboard.height)}
         />
 
         <ChatProgressStrip statusText={messagesHook.progressText} />
@@ -442,6 +465,9 @@ export function ChatScreen() {
           onChangeText={setInputText}
           onVoicePress={voiceInput.handleVoicePress}
           onSendMessage={handleSendMessage}
+          restingOffset={composerResting}
+          keyboardHeight={keyboard.height}
+          keyboardDuration={keyboard.duration}
         />
 
         <ProviderModal
@@ -495,7 +521,7 @@ export function ChatScreen() {
                   className="mt-4 py-3 items-center"
                   onPress={() => providerStatus.setNeedsCredentialsProvider(null)}
                 >
-                  <Text className="text-base text-text-tertiary">Close</Text>
+                  <Text className="text-base text-text-tertiary">{t('common.close')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -504,11 +530,11 @@ export function ChatScreen() {
 
         <PromptDialog
           visible={renamePromptVisible}
-          title="Rename Chat"
+          title={t('app.chatRenameTitle')}
           message="Enter a new name for this conversation"
           defaultValue={renameDefaultTitle}
           submitText="Save"
-          cancelText="Cancel"
+          cancelText={t('common.cancel')}
           onSubmit={handleRenameSubmit}
           onCancel={handleRenameCancel}
           testID="rename-conversation-dialog"

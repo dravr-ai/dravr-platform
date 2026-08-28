@@ -12,6 +12,9 @@ import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingFlow from './components/OnboardingFlow';
 import ImpersonationBanner from './components/ImpersonationBanner';
+import OfflineBanner from './components/OfflineBanner';
+import InstallAppBanner from './components/InstallAppBanner';
+import ServiceWorkerUpdatePrompt from './components/ServiceWorkerUpdatePrompt';
 import OAuthCallback from './components/OAuthCallback';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
@@ -21,7 +24,7 @@ import { useAuth } from './hooks/useAuth';
 import { QUERY_KEYS } from './constants/queryKeys';
 import { useOnboardingState } from './hooks/useOnboardingState';
 import { useIdleWatch } from './hooks/useIdleWatch';
-import { useLanguageSwitcher } from '@pierre/i18n';
+import { useLanguageSwitcher, useTranslation } from '@pierre/i18n';
 import { QUERY_FOCUS_POLICY } from '@pierre/shared-constants';
 import './App.css';
 
@@ -68,6 +71,7 @@ function getGroupInviteCode(): string | null {
 type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';
 
 function AppContent() {
+  const { t } = useTranslation();
   const { user, isAuthenticated, isLoading } = useAuth();
   const [authView, setAuthView] = useState<AuthView>('login');
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
@@ -191,9 +195,15 @@ function AppContent() {
   if (isLoading) {
     return (
       <div className="min-h-dvh bg-surface flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-on-surface-variant">Loading...</p>
+        {/* role=status so the wait is announced; the spinner itself is decorative.
+            A 128px ring dominated the viewport on a phone — 48px reads as a
+            spinner rather than as a broken layout. */}
+        <div className="text-center" role="status" aria-live="polite">
+          <div
+            aria-hidden="true"
+            className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"
+          />
+          <p className="mt-4 text-on-surface-variant">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -245,8 +255,12 @@ function AppContent() {
 
     return (
       <div className="min-h-dvh bg-surface">
+        <OfflineBanner />
         {registrationMessage && (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full px-4">
+          <div
+            className="fixed left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full px-4"
+            style={{ top: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+          >
             <div className="bg-activity/20 border border-activity text-on-surface px-4 py-3 rounded-lg shadow-lg backdrop-blur-sm">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium">{registrationMessage}</p>
@@ -286,9 +300,11 @@ function AppContent() {
             <svg className="w-16 h-16 text-error mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
             </svg>
-            <h1 className="text-xl font-bold text-on-surface mb-2">Account Suspended</h1>
+            <h1 className="text-xl font-bold text-on-surface mb-2">
+              {t('shell.accountSuspendedTitle')}
+            </h1>
             <p className="text-sm text-on-surface-variant mb-6">
-              Your account has been suspended. Please contact an administrator for assistance.
+              {t('shell.accountSuspendedBody')}
             </p>
           </div>
         </div>
@@ -302,6 +318,8 @@ function AppContent() {
   // live in `useOnboardingState` and the step registry (`onboarding/steps`).
   return (
     <div className="min-h-dvh bg-surface">
+      <OfflineBanner />
+      <InstallAppBanner />
       <ImpersonationBanner />
       <OnboardingFlow
         state={onboarding}
@@ -332,6 +350,7 @@ function App() {
           <AuthProvider>
             <ToastProvider>
               <AppContent />
+              <ServiceWorkerUpdatePrompt />
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>

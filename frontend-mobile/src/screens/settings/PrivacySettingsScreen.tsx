@@ -20,6 +20,7 @@ import { Feather } from '@expo/vector-icons';
 import { spacing, glassCard, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTranslation } from '@pierre/i18n';
 
 // Glass card style with shadow (React Native shadows cannot use className)
 const sectionCardStyle: ViewStyle = {
@@ -43,6 +44,7 @@ const NEVER_COLLECTED = [
 ] as const;
 
 export function PrivacySettingsScreen(): React.JSX.Element {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { user, updateUser } = useAuth();
@@ -70,8 +72,8 @@ export function PrivacySettingsScreen(): React.JSX.Element {
     },
     onError: (err: unknown, value) => {
       setAnalyticsConsent(!value);
-      const message = err instanceof Error ? err.message : 'Failed to update analytics consent';
-      Alert.alert('Could not save preference', message);
+      const message = err instanceof Error ? err.message : t('app.failedAnalyticsConsent');
+      Alert.alert(t('app.couldNotSavePreference'), message);
     },
   });
 
@@ -87,13 +89,13 @@ export function PrivacySettingsScreen(): React.JSX.Element {
         <TouchableOpacity className="p-2 mr-2" onPress={() => router.back()} testID="back-button">
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text className="flex-1 text-lg font-bold text-text-primary">Privacy & Data</Text>
+        <Text className="flex-1 text-lg font-bold text-text-primary">{t('app.privacyAndData')}</Text>
       </View>
 
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {/* Analytics consent */}
         <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2 uppercase tracking-wide">
-          Usage Analytics
+          {t('app.usageAnalytics')}
         </Text>
         <View style={sectionCardStyle}>
           <View className="flex-row items-center py-2">
@@ -104,10 +106,9 @@ export function PrivacySettingsScreen(): React.JSX.Element {
               <Feather name="bar-chart-2" size={20} color={colors.pierre.violet} />
             </View>
             <View className="flex-1 mr-4">
-              <Text className="text-text-primary text-base font-semibold">Usage Analytics</Text>
+              <Text className="text-text-primary text-base font-semibold">{t('app.usageAnalytics')}</Text>
               <Text className="text-text-tertiary text-sm mt-0.5">
-                Share anonymised usage patterns to help improve Dravr. Never your messages,
-                fitness data, or personal information.
+                {t('app.analyticsBlurb')}
               </Text>
             </View>
             <Switch
@@ -123,7 +124,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
 
         {/* What we collect */}
         <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2 uppercase tracking-wide">
-          What we collect when enabled
+          {t('app.whatWeCollect')}
         </Text>
         <View style={sectionCardStyle}>
           {COLLECTED_WHEN_ENABLED.map((item) => (
@@ -135,7 +136,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
         </View>
 
         <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2 uppercase tracking-wide">
-          What we never collect
+          {t('app.whatWeNeverCollect')}
         </Text>
         <View style={sectionCardStyle}>
           {NEVER_COLLECTED.map((item) => (

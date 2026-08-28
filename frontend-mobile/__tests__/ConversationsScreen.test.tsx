@@ -308,7 +308,9 @@ describe('ConversationsScreen — one flat list', () => {
     expect(getByTestId('conversation-row-c2')).toBeTruthy();
 
     fireEvent.changeText(getByTestId('conversation-search-input'), 'nothing here');
-    expect(await findByText('No chat matches "nothing here"')).toBeTruthy();
+    // Typographic quotes: the line is a corpus string now, and every locale
+    // uses its own pair — « » in French, „ " in German.
+    expect(await findByText('No chat matches \u201Cnothing here\u201D')).toBeTruthy();
   });
 
   // The list is virtualised, so the fifty-first row is off screen by

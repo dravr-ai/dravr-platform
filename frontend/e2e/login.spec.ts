@@ -292,8 +292,12 @@ test.describe('Login Page', () => {
     await page.locator('input[name="password"]').fill('TestPassword123');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
-    // Should display generic error message
-    await expect(page.getByText('Login failed')).toBeVisible();
+    // The request never reached a server, so the failure is the network — not
+    // the password. This used to read "Login failed", the same sentence a
+    // rejected credential produced, which is how an athlete on a dead
+    // connection was told to check their password.
+    await expect(page.getByText('Network error. Check your connection.')).toBeVisible();
+    await expect(page.getByText('Invalid email or password')).not.toBeVisible();
   });
 
   test('validates required fields before submission', async ({ page }) => {

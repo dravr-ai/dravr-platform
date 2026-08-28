@@ -140,7 +140,7 @@ export default function ConversationList({
         title={t('convPanel.deleteOne')}
         message={`Are you sure you want to delete "${deleteConfirmation?.title ?? ''}"? This action cannot be undone.`}
         confirmLabel="Delete"
-        cancelLabel="Cancel"
+        cancelLabel={t('common.cancel')}
         onConfirm={() => void handleConfirmDelete()}
         onClose={() => setDeleteConfirmation(null)}
         variant="danger"

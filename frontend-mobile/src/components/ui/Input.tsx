@@ -12,6 +12,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { BOREAL_LIGHT, PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
+import { useTranslation } from '@pierre/i18n';
 
 interface InputProps extends Omit<TextInputProps, 'style'> {
   label?: string;
@@ -44,6 +45,7 @@ export function Input({
   testID,
   ...props
 }: InputProps) {
+  const { t } = useTranslation();
   const themeColors = useThemeColors();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
@@ -123,7 +125,7 @@ export function Input({
               className="text-sm font-medium"
               style={{ color: fieldColors.accent }}
             >
-              {isPasswordVisible ? 'Hide' : 'Show'}
+              {isPasswordVisible ? t('app.hide') : t('app.show')}
             </Text>
           </TouchableOpacity>
         )}

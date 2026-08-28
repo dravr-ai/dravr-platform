@@ -17,6 +17,7 @@ import { Feather } from '@expo/vector-icons';
 import type { AvailableChannel, ChannelLink } from '@pierre/api-client';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { messagingApi } from '../../services/api';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Manage which chat apps are linked to the account.
@@ -27,6 +28,7 @@ import { messagingApi } from '../../services/api';
  * `listLinks` / `initLink` / `deleteLink` calls onboarding already uses.
  */
 export function MessagingChannelsScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const colors = useThemeColors();
 
@@ -50,11 +52,11 @@ export function MessagingChannelsScreen() {
       // Surface the failure rather than rendering an empty list, which would
       // read as "no channels linked" and invite someone to re-link one they
       // already have.
-      setError(err instanceof Error ? err.message : 'Failed to load channels');
+      setError(err instanceof Error ? err.message : t('app.failedLoadChannels'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -70,9 +72,9 @@ export function MessagingChannelsScreen() {
       `Unlink ${name}?`,
       'Your coach will stop sending messages there. You can link it again at any time.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Unlink',
+          text: t('app.unlink'),
           style: 'destructive',
           onPress: () => {
             void (async () => {
@@ -81,8 +83,8 @@ export function MessagingChannelsScreen() {
                 await messagingApi.deleteLink(link.channel);
                 await load();
               } catch (err) {
-                const message = err instanceof Error ? err.message : 'Failed to unlink channel';
-                Alert.alert('Could not unlink', message);
+                const message = err instanceof Error ? err.message : t('app.failedUnlinkChannel');
+                Alert.alert(t('app.couldNotUnlink'), message);
               } finally {
                 setBusyChannel(null);
               }
@@ -114,7 +116,7 @@ export function MessagingChannelsScreen() {
         <TouchableOpacity onPress={() => router.back()} testID="back-button" style={{ padding: 8, marginRight: 8 }}>
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>Messaging</Text>
+        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('app.messaging')}</Text>
       </View>
 
       {isLoading ? (
@@ -125,18 +127,18 @@ export function MessagingChannelsScreen() {
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: 12 }}>
           <Text style={{ color: colors.text.secondary, textAlign: 'center' }} testID="messaging-error">{error}</Text>
           <TouchableOpacity onPress={() => { void load(); }} testID="messaging-retry" style={{ paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.background.tertiary }}>
-            <Text style={{ color: colors.text.primary, fontWeight: '600' }}>Retry</Text>
+            <Text style={{ color: colors.text.primary, fontWeight: '600' }}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
           <View>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Linked</Text>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.linked')}</Text>
             <View style={cardStyle}>
               {links.length === 0 ? (
                 <View style={{ padding: spacing.md }} testID="messaging-no-links">
                   <Text style={{ color: colors.text.tertiary }}>
-                    No chat apps linked yet. Link one below to message your coach from it.
+                    {t('app.noChatAppsLinked')}
                   </Text>
                 </View>
               ) : (
@@ -167,7 +169,7 @@ export function MessagingChannelsScreen() {
                         testID={`messaging-unlink-${link.channel}`}
                         style={{ paddingHorizontal: 12, paddingVertical: 8 }}
                       >
-                        <Text style={{ color: colors.pierre.red, fontWeight: '600' }}>Unlink</Text>
+                        <Text style={{ color: colors.pierre.red, fontWeight: '600' }}>{t('app.unlink')}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -177,7 +179,7 @@ export function MessagingChannelsScreen() {
           </View>
 
           <View>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Available</Text>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.available')}</Text>
             <View style={cardStyle}>
               {available
                 .filter((channel) => !linkedChannels.has(channel.channel))
@@ -204,7 +206,7 @@ export function MessagingChannelsScreen() {
                 ))}
               {available.filter((c) => !linkedChannels.has(c.channel)).length === 0 && (
                 <View style={{ padding: spacing.md }} testID="messaging-all-linked">
-                  <Text style={{ color: colors.text.tertiary }}>Every available chat app is linked.</Text>
+                  <Text style={{ color: colors.text.tertiary }}>{t('app.everyChatAppLinked')}</Text>
                 </View>
               )}
             </View>

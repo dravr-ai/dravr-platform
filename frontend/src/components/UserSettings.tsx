@@ -292,7 +292,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     enabled: isAuthenticated,
     // Always refetch when the Data Providers tab is opened — a provider connected
     // elsewhere (onboarding/chat OAuth, which uses a different query key) would
-    // otherwise show stale "Connect" here until a manual reconnect.
+    // otherwise show stale t('app.connect') here until a manual reconnect.
     refetchOnMount: 'always',
   });
 
@@ -355,7 +355,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       setClientSecret('');
     },
     onError: (error: Error) => {
-      setCredentialMessage({ type: 'error', text: error.message || 'Failed to save credentials' });
+      setCredentialMessage({ type: 'error', text: error.message || t('app.failedToSaveCredentials') });
     },
   });
 
@@ -368,7 +368,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       setProviderToDelete(null);
     },
     onError: (error: Error) => {
-      setCredentialMessage({ type: 'error', text: error.message || 'Failed to remove credentials' });
+      setCredentialMessage({ type: 'error', text: error.message || t('app.failedRemoveCredentials') });
       setProviderToDelete(null);
     },
   });
@@ -382,7 +382,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.all });
     },
     onError: (error: Error) => {
-      setMessage({ type: 'error', text: error.message || 'Failed to update profile' });
+      setMessage({ type: 'error', text: error.message || t('app.failedToUpdateProfile') });
     },
     onSettled: () => {
       setIsSaving(false);
@@ -433,7 +433,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       }, 2000);
     },
     onError: (error: Error) => {
-      setPasswordMessage({ type: 'error', text: error.message || 'Failed to change password' });
+      setPasswordMessage({ type: 'error', text: error.message || t('app.failedChangePassword') });
     },
   });
 
@@ -701,7 +701,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     </div>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xl font-semibold text-on-surface break-words">{user?.display_name || 'No name set'}</p>
+                    <p className="text-xl font-semibold text-on-surface break-words">{user?.display_name || t('app.noNameSet')}</p>
                     <p className="text-sm text-on-surface-variant break-all">{user?.email}</p>
                     <Badge variant={user?.user_status === 'active' ? 'success' : 'warning'} className="mt-1">
                       {user?.user_status?.charAt(0).toUpperCase()}{user?.user_status?.slice(1)}
@@ -728,7 +728,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   <div
                     className={`p-3 rounded-lg text-sm ${
                       message.type === 'success'
-                        ? 'bg-activity/20 text-activity border border-activity/30'
+                        ? 'bg-activity/20 text-on-activity-container border border-activity/30'
                         : 'bg-error/20 text-error border border-error/30'
                     }`}
                   >
@@ -830,7 +830,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                   className={clsx(
                     'p-3 rounded-lg text-sm mb-4',
                     providerMessage.type === 'success'
-                      ? 'bg-activity/20 text-activity border border-activity/30'
+                      ? 'bg-activity/20 text-on-activity-container border border-activity/30'
                       : 'bg-error/20 text-error border border-error/30'
                   )}
                 >
@@ -894,7 +894,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                           </div>
                           <div className="flex-shrink-0">
                             {/* A connected-but-dead session (needs_reauth) falls through to the
-                                connect flow below, relabelled "Reconnect", so the user can revive
+                                connect flow below, relabelled t('app.reconnect'), so the user can revive
                                 it rather than being stuck looking at a healthy-seeming row. */}
                             {provider.connected && !provider.needs_reauth ? (
                               (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (
@@ -920,7 +920,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 variant="gradient"
                                 size="sm"
                                 onClick={() => {
-                                  // The `sciotte` card is the user-facing "Strava" card. OAuth is
+                                  // The `sciotte` card is the user-facing t('app.brandStrava') card. OAuth is
                                   // the default while shared-app seats remain (server recommends
                                   // `oauth`); once the athlete cap is reached it recommends `mirror`
                                   // and we open the Sciotte credential login. If the OAuth attempt
@@ -992,7 +992,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               <div
                 className={`p-3 rounded-lg text-sm mb-4 ${
                   credentialMessage.type === 'success'
-                    ? 'bg-activity/20 text-activity border border-activity/30'
+                    ? 'bg-activity/20 text-on-activity-container border border-activity/30'
                     : 'bg-error/20 text-error border border-error/30'
                 }`}
               >
@@ -1093,7 +1093,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               {credentialMessage && (
                 <div className={`p-3 rounded-lg text-sm mb-4 ${
                   credentialMessage.type === 'success'
-                    ? 'bg-activity/20 text-activity border border-activity/30'
+                    ? 'bg-activity/20 text-on-activity-container border border-activity/30'
                     : 'bg-error/20 text-error border border-error/30'
                 }`}>
                   {credentialMessage.text}
@@ -1474,8 +1474,8 @@ Authorization: Bearer <your-token-here>`}
                   <span
                     className={`px-2 py-1 rounded-full text-xs font-medium ${
                       user?.user_status === 'active'
-                        ? 'bg-success/20 text-success'
-                        : 'bg-warning/20 text-warning'
+                        ? 'bg-success/20 text-on-success-container'
+                        : 'bg-warning/20 text-on-warning-container'
                     }`}
                   >
                     {user?.user_status?.charAt(0).toUpperCase()}
@@ -1708,7 +1708,7 @@ Authorization: Bearer <your-token-here>`}
             <div
               className={`p-3 rounded-lg text-sm ${
                 passwordMessage.type === 'success'
-                  ? 'bg-activity/20 text-activity border border-activity/30'
+                  ? 'bg-activity/20 text-on-activity-container border border-activity/30'
                   : 'bg-error/20 text-error border border-error/30'
               }`}
             >
@@ -1764,7 +1764,7 @@ Authorization: Bearer <your-token-here>`}
         title={t('tokens.revoke')}
         message={`Are you sure you want to revoke "${tokenToRevoke?.name}"? Any AI clients using this token will lose access immediately.`}
         confirmLabel="Revoke Token"
-        cancelLabel="Cancel"
+        cancelLabel={t('common.cancel')}
         variant="danger"
         isLoading={revokeTokenMutation.isPending}
       />

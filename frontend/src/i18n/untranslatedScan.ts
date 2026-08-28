@@ -27,7 +27,29 @@ import path from 'path';
  * node at all while it only closed on a tag.
  */
 const JSX_TEXT = />\s*([A-Za-z][^<>{}]{2,200}?)\s*[<{]/g;
-const STRING_PROP = /\b(?:placeholder|aria-label|title|alt|label)="([A-Z][^"]{2,120})"/g;
+/**
+ * A quoted prop that carries prose.
+ *
+ * `accessibilityLabel` and `accessibilityHint` are React Native's spelling of
+ * `aria-label`, and their absence here is why the entire mobile app's screen
+ * reader vocabulary sat in English behind a gate reporting zero. They are not
+ * covered by the lowercase `label` alternative — the capital L in
+ * `accessibilityLabel` does not match it.
+ */
+const STRING_PROP =
+  /\b(?:placeholder|aria-label|accessibilityLabel|accessibilityHint|title|alt|label)="([A-Z][^"]{2,120})"/g;
+
+/**
+ * Prose handed to a function, rather than rendered.
+ *
+ * `setError('Login failed')` and `err.message || 'Could not connect'` are both
+ * strings a user reads, and neither is a text node, a prop, an object literal
+ * or a ternary — so every pattern above walked past them. The login form's
+ * hardcoded English survived three i18n passes in that blind spot.
+ *
+ * Requires two words to stay out of identifiers and enum-ish arguments.
+ */
+const CALL_ARG_PROSE = /(?:\(|\|\|\s|\?\?\s)'([A-Z][a-z]+(?: [^']{2,110})?)'/g;
 const OBJECT_LITERAL =
   /\b(?:name|label|title|description|heading|text|message|placeholder)\s*:\s*'([A-Z][^']{2,120})'/g;
 /**
@@ -77,7 +99,7 @@ const NOT_PROSE = /^(?:https?:|\/|#|[A-Z_]+$)|^[A-Z][a-z]+[A-Z]|\{|\}|=>|\.tsx?$
  * `(key: string, opts?: Record<string, unknown>) => string` puts `=>` and
  * `Record<` on the page, and the pair between them read as a text node.
  */
-const CODE_SHAPE = /[()[\]]|=>|\w\.\w/;
+const CODE_SHAPE = /[()[\]]|=>|\w\.\w|\?\.|\$\{|`/;
 
 const ENTITIES: Record<string, string> = {
   '&apos;': "'", '&quot;': '"', '&amp;': '&',
@@ -101,6 +123,19 @@ function decodeEntities(text: string): string {
  * the ceiling below then covers it.
  */
 const ATHLETE_SURFACES = [
+  // ── frontend-mobile ──────────────────────────────────────────────────────
+  // The mobile app is athlete-facing almost end to end: it has no operator
+  // console. Its paths are `screens/<area>`, which none of the web entries
+  // below match, so before these were listed the whole app scored as operator
+  // chrome and the ceiling never saw it.
+  'screens/chat', 'screens/conversations', 'screens/groups', 'screens/coaches',
+  'screens/connections', 'screens/settings', 'screens/onboarding',
+  'screens/notifications', 'screens/store', 'screens/memory', 'screens/auth',
+  'SciotteLoginModal.tsx', 'IntervalsIcuLinkModal.tsx',
+  'OAuthCredentialsSection.tsx', 'OAuthAppSetupModal.tsx',
+  'CommandPalette.tsx', 'MentionPalette.tsx', 'VoiceButton.tsx',
+
+  // ── frontend (web) ───────────────────────────────────────────────────────
   'components/chat', 'components/groups', 'components/discover',
   'components/notifications', 'components/dashboard', 'components/ui',
   'components/memory', 'components/layout', 'onboarding',
@@ -141,10 +176,49 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 }
 
+/**
+ * Console output is read by developers, not athletes.
+ *
+ * The call-argument pattern cannot tell `setError('Could not connect')` from
+ * `console.error('Failed to open URL:', err)`, and the second is not copy. The
+ * calls are blanked before scanning rather than filtered afterwards, so a
+ * sentence that appears BOTH in a console call and in real UI is still caught
+ * where it matters.
+ */
+function stripConsole(source: string): string {
+  return source.replace(/console\.\w+\([^)]*\)/g, ' ');
+}
+
+/**
+ * A font family is a typeface's name, not copy.
+ *
+ * `fontFamily: 'Menlo'` and `fontFamily: 'Inter_Medium'` read as capitalised
+ * words to every pattern above, and translating either would silently break
+ * the type rather than the sentence. Blanked for the same reason console calls
+ * are: the alternative is an exception list naming individual typefaces, which
+ * would need editing every time a face is added.
+ */
+function stripFontFamily(source: string): string {
+  return source.replace(/fontFamily:\s*(?:'[^']*'|"[^"]*"|[^,\n}]+)/g, ' ');
+}
+
+/**
+ * A string being MATCHED is not a string being shown.
+ *
+ * ErrorBoundary tests `error.message.includes('Loading chunk')` to detect a
+ * stale bundle after a deploy and reload the page. That literal is the
+ * browser's own wording, and translating it would not change a sentence — it
+ * would silently break the auto-reload. Nothing user-facing is ever passed to
+ * `.includes()`, `.startsWith()` or `.endsWith()`, so the arguments are blanked.
+ */
+function stripMatchers(source: string): string {
+  return source.replace(/\.(?:includes|startsWith|endsWith)\([^)]*\)/g, ' ');
+}
+
 function collect(input: string): string[] {
-  const source = stripComments(input);
+  const source = stripMatchers(stripFontFamily(stripConsole(stripComments(input))));
   const found = new Set<string>();
-  for (const re of [JSX_TEXT, STRING_PROP, OBJECT_LITERAL]) {
+  for (const re of [JSX_TEXT, STRING_PROP, OBJECT_LITERAL, CALL_ARG_PROSE]) {
     re.lastIndex = 0;
     let m = re.exec(source);
     while (m !== null) {
@@ -214,7 +288,9 @@ export function scanUntranslated(roots: string[]): UntranslatedString[] {
     if (!fs.existsSync(root)) {
       continue;
     }
-    for (const file of walk(root, [])) {
+    // A root may be a single file (App.tsx) rather than a directory.
+    const files = fs.statSync(root).isDirectory() ? walk(root, []) : [root];
+    for (const file of files) {
       const scope = isAthleteSurface(file) ? 'athlete' : 'operator';
       for (const text of collect(fs.readFileSync(file, 'utf-8'))) {
         hits.push({ file, text, scope });

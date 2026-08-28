@@ -30,6 +30,7 @@ import { ChatPlusFlows } from '../chat/ChatPlusFlows';
 import { useChatPlusActions } from '../chat/useChatPlusActions';
 import { ConversationRow } from './ConversationRow';
 import { useConversationList } from './useConversationList';
+import { useTranslation } from '@pierre/i18n';
 
 // Glassmorphic menu style
 const menuStyle: ViewStyle = {
@@ -46,6 +47,7 @@ function describeError(err: unknown, fallback: string): string {
 }
 
 export function ConversationsScreen() {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const list = useConversationList();
@@ -112,10 +114,10 @@ export function ConversationsScreen() {
 
   const confirmDelete = useCallback(
     (row: ConversationRowModel) => {
-      Alert.alert('Delete Conversation', `Are you sure you want to delete "${row.title}"?`, [
-        { text: 'Cancel', style: 'cancel' },
+      Alert.alert(t('app.convDeleteTitle'), `Are you sure you want to delete "${row.title}"?`, [
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
             list.remove(row.id).catch((err: unknown) => {
@@ -125,7 +127,7 @@ export function ConversationsScreen() {
         },
       ]);
     },
-    [list],
+    [list, t],
   );
 
   const handleMenuRename = useCallback(() => {
@@ -188,7 +190,7 @@ export function ConversationsScreen() {
       {/* Header — the landing screen's chrome: title, appearance, bell, and the chat "+" */}
       <View className="flex-row items-center px-4 py-2 border-b border-border-subtle">
         <Text className="flex-1 text-xl font-bold text-text-primary" testID="conversations-title">
-          Chats
+          {t('app.convListTitle')}
         </Text>
         <AppearanceToggleButton size={20} color={colors.text.secondary} />
         <NotificationBellButton size={20} color={colors.text.secondary} />
@@ -196,7 +198,7 @@ export function ConversationsScreen() {
           className="w-10 h-10 items-center justify-center"
           onPress={() => setPlusVisible(true)}
           accessibilityRole="button"
-          accessibilityLabel="New chat or new group chat"
+          accessibilityLabel={t('app.convNewAria')}
           testID="chat-plus-button"
         >
           <Feather name="plus" size={24} color={colors.pierre.violet} />
@@ -217,7 +219,7 @@ export function ConversationsScreen() {
             }}
             testID="conversations-retry"
           >
-            <Text className="text-error text-sm font-semibold">Retry</Text>
+            <Text className="text-error text-sm font-semibold">{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -249,7 +251,9 @@ export function ConversationsScreen() {
           ListEmptyComponent={
             <View className="flex-1 items-center justify-center pt-16 px-8" testID="conversations-empty">
               {searchQuery.trim() ? (
-                <Text className="text-base text-text-secondary text-center">No chat matches "{searchQuery.trim()}"</Text>
+                <Text className="text-base text-text-secondary text-center">
+                  {t('app.convNoSearchMatch', { query: searchQuery.trim() })}
+                </Text>
               ) : (
                 <>
                   <Text className="text-base text-text-secondary text-center">{EMPTY_LIST_LINE}</Text>
@@ -258,7 +262,7 @@ export function ConversationsScreen() {
                     style={{ backgroundColor: `${colors.pierre.violet}26` }}
                     onPress={() => setPlusVisible(true)}
                     accessibilityRole="button"
-                    accessibilityLabel="New chat or new group chat"
+                    accessibilityLabel={t('app.convNewAria')}
                     testID="conversations-empty-plus"
                   >
                     <Feather name="plus" size={24} color={colors.pierre.violet} />
@@ -274,7 +278,7 @@ export function ConversationsScreen() {
       <FloatingSearchBar
         value={searchQuery}
         onChangeText={setSearchQuery}
-        placeholder="Search chats"
+        placeholder={t('app.convSearchPlaceholder')}
         testID="conversation-search-input"
       />
 
@@ -298,7 +302,7 @@ export function ConversationsScreen() {
                 testID="conversation-action-rename"
               >
                 <Feather name="edit-2" size={18} color={colors.text.primary} />
-                <Text className="text-base text-text-primary ml-3">Rename</Text>
+                <Text className="text-base text-text-primary ml-3">{t('app.convMenuRename')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -307,7 +311,7 @@ export function ConversationsScreen() {
                 testID="conversation-action-mark-unread"
               >
                 <Feather name="mail" size={18} color={colors.text.primary} />
-                <Text className="text-base text-text-primary ml-3">Mark unread</Text>
+                <Text className="text-base text-text-primary ml-3">{t('app.convMenuMarkUnread')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -316,7 +320,7 @@ export function ConversationsScreen() {
                 testID="conversation-action-delete"
               >
                 <Feather name="trash-2" size={18} color={colors.error} />
-                <Text className="text-base text-error ml-3">Delete</Text>
+                <Text className="text-base text-error ml-3">{t('common.delete')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -325,11 +329,11 @@ export function ConversationsScreen() {
 
       <PromptDialog
         visible={renamePromptVisible}
-        title="Rename Conversation"
+        title={t('app.convRenameTitle')}
         message="Enter a new name for this conversation"
         defaultValue={selectedRow?.title ?? ''}
         submitText="Save"
-        cancelText="Cancel"
+        cancelText={t('common.cancel')}
         onSubmit={handleRenameSubmit}
         onCancel={handleRenameCancel}
         testID="rename-conversation-dialog"

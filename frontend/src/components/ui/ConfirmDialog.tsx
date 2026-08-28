@@ -7,6 +7,7 @@
 import React from 'react';
 import { Modal, ModalActions } from './Modal';
 import { Button } from './Button';
+import { useTranslation } from '@pierre/i18n';
 
 export type ConfirmDialogVariant = 'danger' | 'warning' | 'info';
 
@@ -65,12 +66,17 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onConfirm,
   title,
   message,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   variant = 'danger',
   isLoading = false,
   icon,
 }) => {
+  const { t } = useTranslation();
+  // Resolved in the body, not in the parameter list: a destructuring default
+  // cannot call a hook, and both of these are copy rather than configuration.
+  const confirmText = confirmLabel ?? t('common.confirm');
+  const cancelText = cancelLabel ?? t('common.cancel');
   const styles = variantStyles[variant];
   const displayIcon = icon || defaultIcons[variant];
 
@@ -108,7 +114,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           onClick={onClose}
           disabled={isLoading}
         >
-          {cancelLabel}
+          {cancelText}
         </Button>
         <Button
           variant={styles.buttonVariant}
@@ -116,7 +122,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           loading={isLoading}
           disabled={isLoading}
         >
-          {confirmLabel}
+          {confirmText}
         </Button>
       </ModalActions>
     </Modal>

@@ -17,8 +17,10 @@ import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
 import { spacing, glassCard, buttonGlow, gradients, useThemeColors } from '../../constants/theme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useTranslation } from '@pierre/i18n';
 
 export function ResetPasswordScreen() {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { email } = useLocalSearchParams<{ email: string }>();
@@ -38,19 +40,19 @@ export function ResetPasswordScreen() {
     if (!code.trim()) {
       newErrors.code = 'Reset code is required';
     } else if (!/^[A-Za-z0-9]+\.[A-Za-z0-9]+$/.test(code.trim())) {
-      newErrors.code = 'Please enter the reset code from your email';
+      newErrors.code = t('app.enterResetCodeFromEmail');
     }
 
     if (!newPassword) {
       newErrors.newPassword = 'New password is required';
     } else if (newPassword.length < 8) {
-      newErrors.newPassword = 'Password must be at least 8 characters';
+      newErrors.newPassword = t('app.passwordTooShort');
     }
 
     if (!confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (newPassword !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+      newErrors.confirmPassword = t('app.passwordsDoNotMatch');
     }
 
     setErrors(newErrors);
@@ -72,12 +74,12 @@ export function ResetPasswordScreen() {
       let message = 'Reset failed. Please try again.';
       if (error instanceof Error) {
         if (error.message.includes('404') || error.message.includes('not found')) {
-          message = 'Invalid or expired code. Please request a new one.';
+          message = t('app.codeInvalidOrExpired');
         } else {
           message = error.message;
         }
       }
-      Alert.alert('Reset Failed', message);
+      Alert.alert(t('app.resetFailed'), message);
     } finally {
       setIsLoading(false);
     }
@@ -125,18 +127,18 @@ export function ResetPasswordScreen() {
                   <Ionicons name="shield-checkmark-outline" size={28} color={colors.success} />
                 </View>
                 <Text className="text-xl font-bold text-text-primary mb-1">
-                  Enter Reset Code
+                  {t('app.enterResetCode')}
                 </Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  We sent a reset code to {email}
+                  {t('app.sentResetCodeTo', { email })}
                 </Text>
               </View>
 
               {/* Form */}
               <View className="mb-4">
                 <Input
-                  label="Reset Code"
-                  placeholder="Paste the code from your email"
+                  label={t('app.resetCode')}
+                  placeholder={t('app.pasteCodeFromEmail')}
                   value={code}
                   onChangeText={setCode}
                   autoCapitalize="none"
@@ -147,8 +149,8 @@ export function ResetPasswordScreen() {
                 />
 
                 <Input
-                  label="New Password"
-                  placeholder="Minimum 8 characters"
+                  label={t('app.newPassword')}
+                  placeholder={t('app.minEightChars')}
                   value={newPassword}
                   onChangeText={setNewPassword}
                   secureTextEntry
@@ -158,8 +160,8 @@ export function ResetPasswordScreen() {
                 />
 
                 <Input
-                  label="Confirm New Password"
-                  placeholder="Re-enter your password"
+                  label={t('app.confirmNewPassword')}
+                  placeholder={t('app.reenterPassword')}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   secureTextEntry
@@ -171,7 +173,7 @@ export function ResetPasswordScreen() {
                 />
 
                 <Button
-                  title="Reset password"
+                  title={t('app.resetPassword')}
                   onPress={handleSubmit}
                   loading={isLoading}
                   fullWidth
@@ -183,10 +185,10 @@ export function ResetPasswordScreen() {
               {/* Actions */}
               <View className="flex-row justify-between items-center pt-2">
                 <TouchableOpacity onPress={handleResendCode}>
-                  <Text className="text-sm text-text-tertiary">Resend code</Text>
+                  <Text className="text-sm text-text-tertiary">{t('app.resendCode')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
-                  <Text className="text-sm font-semibold text-primary-500">Back to sign in</Text>
+                  <Text className="text-sm font-semibold text-primary-500">{t('app.backToSignIn')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

@@ -28,8 +28,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
+import { useTranslation } from '@pierre/i18n';
 
 export function ConnectionsScreen() {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -58,14 +60,14 @@ export function ConnectionsScreen() {
       const response = await oauthApi.getProvidersStatus();
       setProviders(response.providers || []);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load connections';
+      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadConnections');
       setError(errorMessage);
       console.error('Failed to load connection status:', err);
       // Don't show alert on auth errors - screen will reload when auth is ready
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -108,7 +110,7 @@ export function ConnectionsScreen() {
         const expectedPrefix = getOAuthCallbackUrl();
         if (!result.url.startsWith(expectedPrefix)) {
           console.error('OAuth callback URL does not match expected scheme:', result.url);
-          Alert.alert('Connection Failed', 'Unexpected OAuth callback URL');
+          Alert.alert(t('app.connectionFailed'), 'Unexpected OAuth callback URL');
           return;
         }
 
@@ -132,7 +134,7 @@ export function ConnectionsScreen() {
           if (providerId === 'strava') {
             setSciotteTarget('strava');
           } else {
-            Alert.alert('Connection Failed', `Failed to connect: ${error}`);
+            Alert.alert(t('app.connectionFailed'), `Failed to connect: ${error}`);
           }
         } else {
           // No explicit success/error in the callback — refresh status to
@@ -144,7 +146,7 @@ export function ConnectionsScreen() {
         console.log('OAuth cancelled by user');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to connect';
+      const errorMessage = err instanceof Error ? err.message : t('app.failedToConnect');
       // Couldn't start the OAuth flow at all. For Strava this also covers the
       // platform Strava app being unconfigured — fall back to the Sciotte
       // credential login rather than bouncing to the BYO-credentials sheet or
@@ -162,7 +164,7 @@ export function ConnectionsScreen() {
         setShowCredentials(true);
       } else {
         console.error('Failed to start OAuth flow:', err);
-        Alert.alert('Error', 'Failed to start authentication. Please try again.');
+        Alert.alert(t('common.error'), 'Failed to start authentication. Please try again.');
       }
     } finally {
       setConnectingProvider(null);
@@ -174,9 +176,9 @@ export function ConnectionsScreen() {
       `Disconnect ${providerName}`,
       `Are you sure you want to disconnect ${providerName}? You will need to reconnect to sync new data.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Disconnect',
+          text: t('app.disconnect'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -186,10 +188,10 @@ export function ConnectionsScreen() {
                 await oauthApi.disconnectProvider(providerId);
               }
               await loadConnectionStatus();
-              Alert.alert('Success', `${providerName} has been disconnected.`);
+              Alert.alert(t('common.success'), `${providerName} has been disconnected.`);
             } catch (error) {
               console.error('Failed to disconnect provider:', error);
-              Alert.alert('Error', `Failed to disconnect ${providerName}. Please try again.`);
+              Alert.alert(t('common.error'), `Failed to disconnect ${providerName}. Please try again.`);
             }
           },
         },
@@ -203,20 +205,20 @@ export function ConnectionsScreen() {
   // neutral slate tile so the screen never crashes on an unexpected payload.
   const getProviderConfig = (providerId: string) => {
     const configs: Record<string, { color: string; icon: string; description: string }> = {
-      sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: 'Running, cycling, and swimming activities' },
-      sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: 'Activities and health metrics from Garmin devices' },
-      whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: 'Recovery, strain, and sleep metrics' },
-      intervals_icu: { color: '#1273DE', icon: 'I', description: 'Endurance analytics, activities, and wellness' },
+      sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: t('app.provStravaBlurb') },
+      sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: t('app.provGarminBlurb') },
+      whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: t('app.provWhoopBlurb') },
+      intervals_icu: { color: '#1273DE', icon: 'I', description: t('app.provIntervalsBlurb') },
     };
-    return configs[providerId] || { color: '#607D8B', icon: '?', description: 'Fitness data provider' };
+    return configs[providerId] || { color: '#607D8B', icon: '?', description: t('app.fitnessDataProvider') };
   };
 
   const renderProvider = (provider: ExtendedProviderStatus) => {
     const config = getProviderConfig(provider.provider);
     const isConnected = provider.connected;
     // A connected-but-dead session (dead sciotte scrape / failed OAuth refresh):
-    // show "Reconnect needed" and route the action to the connect flow instead of
-    // a healthy-looking "Connected" pill with only a disconnect affordance.
+    // show t('app.reconnectNeeded') and route the action to the connect flow instead of
+    // a healthy-looking t('app.connected') pill with only a disconnect affordance.
     const needsReauth = provider.connected && provider.needs_reauth;
     const isConnecting = connectingProvider === provider.provider;
     const requiresOAuth = provider.requires_oauth;
@@ -240,7 +242,7 @@ export function ConnectionsScreen() {
             <Text className="text-base font-semibold text-text-primary">{provider.display_name}</Text>
             {needsReauth ? (
               <Text className="text-xs text-warning font-semibold mt-0.5" numberOfLines={1}>
-                Reconnect needed
+                {t('app.reconnectNeeded')}
               </Text>
             ) : (
               <Text className="text-xs text-text-secondary mt-0.5" numberOfLines={1}>{config.description}</Text>
@@ -251,7 +253,7 @@ export function ConnectionsScreen() {
           {isConnected && !needsReauth ? (
             <View className="flex-row items-center">
               <View className="flex-row items-center bg-success/15 px-3 py-1.5 rounded-full mr-1">
-                <Text className="text-xs text-success font-semibold">Connected</Text>
+                <Text className="text-xs text-success font-semibold">{t('app.connected')}</Text>
               </View>
               {(requiresOAuth || isSciotte || isIntervals) && (
                 <TouchableOpacity
@@ -272,7 +274,7 @@ export function ConnectionsScreen() {
               className="px-5 py-2 rounded-full bg-primary"
               onPress={() => {
                 if (isSciotte) {
-                  // The `sciotte` card is the user-facing "Strava" card. OAuth is
+                  // The `sciotte` card is the user-facing t('app.brandStrava') card. OAuth is
                   // the default while shared-app seats remain (server recommends
                   // `oauth`); once the athlete cap is reached it recommends
                   // `mirror` and we go straight to the Sciotte credential login.
@@ -304,7 +306,7 @@ export function ConnectionsScreen() {
                 <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
               ) : (
                 <Text className="text-sm font-semibold text-on-primary">
-                  {needsReauth ? 'Reconnect' : 'Connect'}
+                  {needsReauth ? t('app.reconnect') : t('app.connect')}
                 </Text>
               )}
             </TouchableOpacity>
@@ -326,7 +328,7 @@ export function ConnectionsScreen() {
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text className="flex-1 text-lg font-semibold text-text-primary text-center">Connections</Text>
+        <Text className="flex-1 text-lg font-semibold text-text-primary text-center">{t('app.connections')}</Text>
         <View className="w-10" />
       </View>
 
@@ -334,15 +336,15 @@ export function ConnectionsScreen() {
         contentContainerStyle={{ padding: spacing.lg }}
         showsVerticalScrollIndicator={false}
       >
-        <Text className="text-xl font-bold text-text-primary mb-1">Fitness Providers</Text>
+        <Text className="text-xl font-bold text-text-primary mb-1">{t('app.fitnessProviders')}</Text>
         <Text className="text-base text-text-secondary mb-4 leading-[22px]">
-          Connect your fitness accounts to sync activities, health metrics, and more.
+          {t('app.connectAccountsBlurb')}
         </Text>
 
         {isLoading ? (
           <View className="items-center py-12">
             <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
-            <Text className="mt-3 text-text-secondary text-base">Loading connections...</Text>
+            <Text className="mt-3 text-text-secondary text-base">{t('app.loadingConnections')}</Text>
           </View>
         ) : error ? (
           <View className="p-4 bg-error/10 border border-error/30 rounded-lg">
@@ -354,7 +356,7 @@ export function ConnectionsScreen() {
                 loadConnectionStatus();
               }}
             >
-              <Text className="text-error font-semibold">Retry</Text>
+              <Text className="text-error font-semibold">{t('common.retry')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -362,7 +364,7 @@ export function ConnectionsScreen() {
             {/* After the 2026-Q2 provider cleanup the API surfaces only three:
                 sciotte, sciotte_garmin, and whoop. Filter out the bare `strava`
                 row — official OAuth is reached exclusively through the Sciotte
-                modal's "Use my own Strava OAuth app" button, so a separate
+                modal's t('app.useOwnStravaApp') button, so a separate
                 strava card would just duplicate the entry. Mirror its
                 `connected` state onto the Sciotte card so the badge appears in
                 the right place. Mirrors frontend/src/components/ProviderConnectionCards.tsx. */}
@@ -391,11 +393,9 @@ export function ConnectionsScreen() {
             style={{ height: 3, width: '100%' }}
           />
           <View className="p-4">
-            <Text className="text-sm font-semibold text-text-primary mb-1">Privacy Note</Text>
+            <Text className="text-sm font-semibold text-text-primary mb-1">{t('app.privacyNote')}</Text>
             <Text className="text-sm text-text-secondary leading-5">
-              Dravr only accesses the data you authorize. We never share your
-              fitness data with third parties. You can disconnect any provider at
-              any time.
+              {t('app.privacyNoteBlurb')}
             </Text>
           </View>
         </View>
@@ -434,7 +434,7 @@ export function ConnectionsScreen() {
               className="mt-4 py-3 items-center"
               onPress={() => setShowCredentials(false)}
             >
-              <Text className="text-base text-text-tertiary">Close</Text>
+              <Text className="text-base text-text-tertiary">{t('common.close')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -471,7 +471,7 @@ export function ConnectionsScreen() {
             onPress={() => setJustConnected(null)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text className="text-sm text-text-tertiary">Dismiss</Text>
+            <Text className="text-sm text-text-tertiary">{t('app.dismiss')}</Text>
           </TouchableOpacity>
         </View>
       </Modal>

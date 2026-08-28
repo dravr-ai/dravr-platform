@@ -32,6 +32,7 @@ import { GroupInsightsSection } from './GroupInsightsSection';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
 import type { GroupMember, GroupRole } from '../../types';
+import { useTranslation } from '@pierre/i18n';
 
 /** How long an invite created from this sheet stays redeemable. */
 const INVITE_LIFETIME_DAYS = 7;
@@ -64,6 +65,7 @@ function errorText(err: unknown, fallback: string): string {
  * advertise a 403.
  */
 export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: GroupInfoSheetProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const { user } = useAuth();
 
@@ -101,17 +103,17 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
   const handleRemoveMember = useCallback(
     (member: GroupMember) => {
-      Alert.alert('Remove Member', `Remove ${member.display_name ?? 'this member'} from the group?`, [
-        { text: 'Cancel', style: 'cancel' },
+      Alert.alert(t('app.removeMember'), `Remove ${member.display_name ?? 'this member'} from the group?`, [
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Remove',
+          text: t('app.remove'),
           style: 'destructive',
           onPress: async () => {
             try {
               setRemovingMemberId(member.user_id);
               await removeMember(member.user_id);
             } catch (err) {
-              Alert.alert('Error', errorText(err, 'Failed to remove member'));
+              Alert.alert(t('common.error'), errorText(err, 'Failed to remove member'));
             } finally {
               setRemovingMemberId(null);
             }
@@ -119,7 +121,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         },
       ]);
     },
-    [removeMember],
+    [removeMember, t],
   );
 
   const handleChangeRole = useCallback(
@@ -128,12 +130,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         setRoleChangingUserId(member.user_id);
         await updateRole({ userId: member.user_id, role });
       } catch (err) {
-        Alert.alert('Error', errorText(err, 'Failed to update role'));
+        Alert.alert(t('common.error'), errorText(err, 'Failed to update role'));
       } finally {
         setRoleChangingUserId(null);
       }
     },
-    [updateRole],
+    [updateRole, t],
   );
 
   const createInviteOfKind = useCallback(
@@ -151,56 +153,56 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               : `Join ${group?.name ?? 'our group'}: ${INVITE_LINK_BASE}/${invite.code}`,
         });
       } catch (err) {
-        Alert.alert('Error', errorText(err, 'Failed to create invite'));
+        Alert.alert(t('common.error'), errorText(err, 'Failed to create invite'));
       }
     },
-    [createInvite, group?.name],
+    [createInvite, group?.name, t],
   );
 
   const handleShareInvite = useCallback(() => {
-    Alert.alert('Create Invite', 'Who is this invite for?', [
+    Alert.alert(t('app.createInvite'), 'Who is this invite for?', [
       { text: 'Member (athlete)', onPress: () => void createInviteOfKind('member') },
-      { text: 'Coach', onPress: () => void createInviteOfKind('coach') },
-      { text: 'Cancel', style: 'cancel' },
+      { text: t('app.coach'), onPress: () => void createInviteOfKind('coach') },
+      { text: t('common.cancel'), style: 'cancel' },
     ]);
-  }, [createInviteOfKind]);
+  }, [createInviteOfKind, t]);
 
   const handleDeactivateInvite = useCallback(
     (inviteId: string, code: string) => {
-      Alert.alert('Deactivate Invite', `Stop accepting code ${code}?`, [
-        { text: 'Cancel', style: 'cancel' },
+      Alert.alert(t('app.deactivateInvite'), `Stop accepting code ${code}?`, [
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Deactivate',
+          text: t('app.deactivate'),
           style: 'destructive',
           onPress: async () => {
             try {
               await deactivateInvite(inviteId);
             } catch (err) {
-              Alert.alert('Error', errorText(err, 'Failed to deactivate invite'));
+              Alert.alert(t('common.error'), errorText(err, 'Failed to deactivate invite'));
             }
           },
         },
       ]);
     },
-    [deactivateInvite],
+    [deactivateInvite, t],
   );
 
   const handleRemoveCoach = useCallback(() => {
-    Alert.alert('Remove Coach', 'Detach the human coach from this group?', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('app.removeCoach'), 'Detach the human coach from this group?', [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Remove',
+        text: t('app.remove'),
         style: 'destructive',
         onPress: async () => {
           try {
             await removeCoach();
           } catch (err) {
-            Alert.alert('Error', errorText(err, 'Failed to remove coach'));
+            Alert.alert(t('common.error'), errorText(err, t('app.failedRemoveCoach')));
           }
         },
       },
     ]);
-  }, [removeCoach]);
+  }, [removeCoach, t]);
 
   const saveIdentity = useCallback(async () => {
     const name = (nameDraft ?? group?.name ?? '').trim();
@@ -210,19 +212,19 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       setNameDraft(null);
       setDescriptionDraft(null);
     } catch (err) {
-      Alert.alert('Error', errorText(err, 'Failed to update group'));
+      Alert.alert(t('common.error'), errorText(err, 'Failed to update group'));
     }
-  }, [nameDraft, descriptionDraft, group?.name, group?.description, updateGroup]);
+  }, [nameDraft, descriptionDraft, group?.name, group?.description, updateGroup, t]);
 
   const setGroupFlag = useCallback(
     async (patch: { peer_data_sharing?: boolean; respond_mode?: 'all' | 'mentions' }) => {
       try {
         await updateGroup(patch);
       } catch (err) {
-        Alert.alert('Error', errorText(err, 'Failed to update group'));
+        Alert.alert(t('common.error'), errorText(err, 'Failed to update group'));
       }
     },
-    [updateGroup],
+    [updateGroup, t],
   );
 
   const handleConsentChange = useCallback(
@@ -230,17 +232,17 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       try {
         await updateConsent(consent);
       } catch (err) {
-        Alert.alert('Error', errorText(err, 'Failed to update sharing consent'));
+        Alert.alert(t('common.error'), errorText(err, 'Failed to update sharing consent'));
       }
     },
-    [updateConsent],
+    [updateConsent, t],
   );
 
   const handleLeave = useCallback(() => {
-    Alert.alert('Leave Group', `Leave "${group?.name ?? 'this group'}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('app.leaveGroup'), `Leave "${group?.name ?? 'this group'}"?`, [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Leave',
+        text: t('app.leave'),
         style: 'destructive',
         onPress: async () => {
           try {
@@ -248,21 +250,21 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             onClose();
             onLeft();
           } catch (err) {
-            Alert.alert('Error', errorText(err, 'Failed to leave group'));
+            Alert.alert(t('common.error'), errorText(err, 'Failed to leave group'));
           }
         },
       },
     ]);
-  }, [group?.name, groupId, leaveGroup, onClose, onLeft]);
+  }, [group?.name, groupId, leaveGroup, onClose, onLeft, t]);
 
   const handleDelete = useCallback(() => {
     Alert.alert(
       'Archive Group',
       `Archive "${group?.name ?? 'this group'}"? Members lose access to its shared coaching.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Archive',
+          text: t('app.archive'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -270,13 +272,13 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               onClose();
               onLeft();
             } catch (err) {
-              Alert.alert('Error', errorText(err, 'Failed to archive group'));
+              Alert.alert(t('common.error'), errorText(err, 'Failed to archive group'));
             }
           },
         },
       ],
     );
-  }, [group?.name, groupId, deleteGroup, onClose, onLeft]);
+  }, [group?.name, groupId, deleteGroup, onClose, onLeft, t]);
 
   if (isLoadingGroup && !group) {
     return (
@@ -289,7 +291,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   return (
     <ScrollView testID="group-info-sheet" keyboardShouldPersistTaps="handled">
       <Text className="text-lg font-bold text-text-primary" testID="group-info-name">
-        {group?.name ?? fallbackName ?? 'Group'}
+        {group?.name ?? fallbackName ?? t('app.group')}
       </Text>
       {group?.description ? (
         <Text className="text-sm text-text-secondary mt-1" testID="group-info-description">
@@ -335,14 +337,14 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               ) : (
                 <Feather name="share" size={18} color={colors.pierre.violet} />
               )}
-              <Text className="text-base text-text-primary ml-3">Create and share an invite</Text>
+              <Text className="text-base text-text-primary ml-3">{t('app.createShareInvite')}</Text>
             </TouchableOpacity>
 
             {isLoadingInvites ? (
               <ActivityIndicator size="small" color={colors.pierre.violet} />
             ) : activeInvites.length === 0 ? (
               <Text className="text-sm text-text-tertiary py-2" testID="group-invites-empty">
-                No active invites.
+                {t('app.noActiveInvites')}
               </Text>
             ) : (
               activeInvites.map((invite) => (
@@ -354,7 +356,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                   <View className="flex-1 pr-3">
                     <Text className="text-sm font-mono text-text-primary">{invite.code}</Text>
                     <Text className="text-xs text-text-tertiary mt-0.5">
-                      {invite.kind === 'coach' ? 'Coach invite' : 'Member invite'} · used {invite.use_count}×
+                      {invite.kind === 'coach' ? t('app.coachInvite') : t('app.memberInvite')} · used {invite.use_count}×
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -362,7 +364,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     onPress={() => handleDeactivateInvite(invite.id, invite.code)}
                     testID={`deactivate-invite-${invite.id}`}
                   >
-                    <Text className="text-error text-sm font-semibold">Deactivate</Text>
+                    <Text className="text-error text-sm font-semibold">{t('app.deactivate')}</Text>
                   </TouchableOpacity>
                 </View>
               ))
@@ -370,42 +372,42 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           </CollapsibleSection>
         )}
 
-        <CollapsibleSection title="Coach" testID="group-info-coach">
+        <CollapsibleSection title={t('app.coach')} testID="group-info-coach">
           <View className="flex-row items-center py-2">
             <Feather name="cpu" size={16} color={colors.pierre.violet} />
             <Text className="text-sm text-text-primary ml-2 flex-1" testID="group-info-ai-coach">
-              {aiCoach?.title ?? 'AI coach'}
+              {aiCoach?.title ?? t('app.aiCoach')}
               {aiCoach?.handle ? ` · ${MENTION_PREFIX}${aiCoach.handle}` : ''}
             </Text>
           </View>
           {group?.coach_user_id ? (
             <View className="flex-row items-center py-2" testID="group-info-human-coach">
               <Feather name="user-check" size={16} color={colors.pierre.violet} />
-              <Text className="text-sm text-text-primary ml-2 flex-1">Human coach attached</Text>
+              <Text className="text-sm text-text-primary ml-2 flex-1">{t('app.humanCoachAttached')}</Text>
               {isAdmin && (
                 <TouchableOpacity onPress={handleRemoveCoach} testID="remove-coach-button">
-                  <Text className="text-sm font-semibold text-text-secondary">Remove</Text>
+                  <Text className="text-sm font-semibold text-text-secondary">{t('app.remove')}</Text>
                 </TouchableOpacity>
               )}
             </View>
           ) : (
             <Text className="text-xs text-text-tertiary py-2">
-              No human coach attached. Share a coach invite to bring one in.
+              {t('app.noHumanCoach')}
             </Text>
           )}
         </CollapsibleSection>
 
-        <CollapsibleSection title="Settings" testID="group-info-settings">
+        <CollapsibleSection title={t('common.settings')} testID="group-info-settings">
           {isAdmin && group && (
             <>
               <Input
-                label="Name"
+                label={t('app.name')}
                 value={nameDraft ?? group.name}
                 onChangeText={setNameDraft}
                 testID="group-name-input"
               />
               <Input
-                label="Description"
+                label={t('app.description')}
                 value={descriptionDraft ?? group.description ?? ''}
                 onChangeText={setDescriptionDraft}
                 testID="group-description-input"
@@ -419,15 +421,15 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 testID="group-save-identity"
               >
                 <Text className="text-sm font-semibold" style={{ color: colors.tokens.onPrimary }}>
-                  Save
+                  {t('common.save')}
                 </Text>
               </TouchableOpacity>
 
               <View className="flex-row items-center justify-between py-3 border-b border-border-subtle">
                 <View className="flex-1 pr-3">
-                  <Text className="text-sm font-semibold text-text-primary">Peer data sharing</Text>
+                  <Text className="text-sm font-semibold text-text-primary">{t('app.peerDataSharing')}</Text>
                   <Text className="text-xs text-text-tertiary mt-1">
-                    Allows consenting members to be compared with each other.
+                    {t('app.peerCompareBlurb')}
                   </Text>
                 </View>
                 <Switch
@@ -441,9 +443,9 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
               <View className="flex-row items-center justify-between py-3 border-b border-border-subtle">
                 <View className="flex-1 pr-3">
-                  <Text className="text-sm font-semibold text-text-primary">Reply on mention only</Text>
+                  <Text className="text-sm font-semibold text-text-primary">{t('app.replyOnMentionOnly')}</Text>
                   <Text className="text-xs text-text-tertiary mt-1">
-                    Off, the coach answers every message in the bound channel.
+                    {t('app.mentionOnlyOffNote')}
                   </Text>
                 </View>
                 <Switch
@@ -463,11 +465,11 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           {myMembership && (
             <View className="flex-row items-center justify-between py-3" testID="peer-consent-card">
               <View className="flex-1 pr-3">
-                <Text className="text-sm font-semibold text-text-primary">Share my training data</Text>
+                <Text className="text-sm font-semibold text-text-primary">{t('app.shareMyTrainingData')}</Text>
                 <Text className="text-xs text-text-tertiary mt-1">
                   {group?.peer_data_sharing
-                    ? 'Lets the coach compare you with the rest of the group.'
-                    : 'Group sharing is off, so this stays private either way.'}
+                    ? t('app.shareTrainingBlurb')
+                    : t('app.groupSharingOffNote')}
                 </Text>
               </View>
               <Switch
@@ -481,19 +483,19 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           )}
         </CollapsibleSection>
 
-        <CollapsibleSection title="Analytics" testID="group-info-analytics">
+        <CollapsibleSection title={t('app.analytics')} testID="group-info-analytics">
           <View className="flex-row py-2">
             <View className="flex-1 items-center">
               <Text className="text-lg font-bold text-text-primary" testID="group-stat-members">
                 {members.length}
               </Text>
-              <Text className="text-xs text-text-tertiary mt-0.5">Members</Text>
+              <Text className="text-xs text-text-tertiary mt-0.5">{t('app.members')}</Text>
             </View>
             <View className="flex-1 items-center">
               <Text className="text-lg font-bold text-text-primary" testID="group-stat-active">
                 {isLoadingStats ? '…' : String(stats?.active_members ?? members.length)}
               </Text>
-              <Text className="text-xs text-text-tertiary mt-0.5">Active</Text>
+              <Text className="text-xs text-text-tertiary mt-0.5">{t('app.active')}</Text>
             </View>
             <View className="flex-1 items-center">
               <Text className="text-lg font-bold text-text-primary" testID="group-stat-volume">
@@ -509,7 +511,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           <GroupInsightsSection groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
         </CollapsibleSection>
 
-        <CollapsibleSection title="Room" testID="group-info-room">
+        <CollapsibleSection title={t('app.room')} testID="group-info-room">
           <GroupTranscriptSection groupId={groupId} />
         </CollapsibleSection>
       </View>
@@ -527,7 +529,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           ) : (
             <>
               <Feather name="log-out" size={18} color={colors.error} />
-              <Text className="text-base font-semibold text-error">Leave group</Text>
+              <Text className="text-base font-semibold text-error">{t('app.leaveGroupLower')}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -546,7 +548,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           ) : (
             <>
               <Feather name="archive" size={18} color={colors.error} />
-              <Text className="text-base font-semibold text-error">Archive group</Text>
+              <Text className="text-base font-semibold text-error">{t('app.archiveGroup')}</Text>
             </>
           )}
         </TouchableOpacity>

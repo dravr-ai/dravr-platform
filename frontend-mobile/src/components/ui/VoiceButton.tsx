@@ -17,6 +17,7 @@ import Animated, {
   cancelAnimation,
 } from 'react-native-reanimated';
 import { borderRadius, useThemeColors } from '../../constants/theme';
+import { useTranslation } from '@pierre/i18n';
 
 interface VoiceButtonProps {
   isListening: boolean;
@@ -47,6 +48,7 @@ export function VoiceButton({
   size = 'md',
   testID,
 }: VoiceButtonProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const pulseScale = useSharedValue(1);
   const buttonSize = BUTTON_SIZES[size];
@@ -121,7 +123,7 @@ export function VoiceButton({
       disabled={isDisabled}
       activeOpacity={0.7}
       testID={testID}
-      accessibilityLabel={isListening ? 'Stop voice input' : 'Start voice input'}
+      accessibilityLabel={isListening ? t('app.stopVoiceInput') : t('app.startVoiceInput')}
       accessibilityRole="button"
       accessibilityState={{ disabled: isDisabled }}
     >

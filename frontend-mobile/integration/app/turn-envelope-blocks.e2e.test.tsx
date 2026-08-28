@@ -29,6 +29,7 @@ const VERDICTS_URL = `/api/chat/conversations/${CONVERSATION_ID}/verdicts`;
 function renderList(messages: Message[], messageBlocks: Record<string, ReplyBlock[]> = {}) {
   return render(
     <MessageList
+      bottomInset={0}
       messages={messages}
       isLoading={false}
       isSending={false}
@@ -242,6 +243,7 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
 
     const view = render(
       <MessageList
+      bottomInset={0}
         messages={result.current.messages}
         isLoading={false}
         isSending={false}
@@ -304,6 +306,7 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
 
     const view = render(
       <MessageList
+      bottomInset={0}
         messages={result.current.messages}
         isLoading={false}
         isSending={false}

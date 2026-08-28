@@ -64,13 +64,13 @@ interface MessageItemProps {
 function chipClassForTone(tone: VerdictTone): string {
   switch (tone) {
     case 'success':
-      return 'bg-success/15 text-success hover:bg-success/25';
+      return 'bg-success/15 text-on-success-container hover:bg-success/25';
     case 'warning':
-      return 'bg-warning/15 text-warning hover:bg-warning/25';
+      return 'bg-warning/15 text-on-warning-container hover:bg-warning/25';
     case 'error':
       return 'bg-error/15 text-error hover:bg-error/25';
     case 'info':
-      return 'bg-info/15 text-info hover:bg-info/25';
+      return 'bg-info/15 text-on-info-container hover:bg-info/25';
     case 'secondary':
     default:
       return 'bg-surface-container-high/15 text-on-surface hover:bg-surface-container-high/25';

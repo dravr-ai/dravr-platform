@@ -82,8 +82,6 @@ test.describe('Store Pages Accessibility', () => {
 
       const accessibilityScanResults = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
-        // Exclude color-contrast until UI design fixes are implemented
-        .disableRules(['color-contrast'])
         .analyze();
 
       if (accessibilityScanResults.violations.length > 0) {

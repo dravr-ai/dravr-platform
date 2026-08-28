@@ -9,6 +9,7 @@ import { Input } from '../../components/ui';
 import { chatApi } from '../../services/api';
 import { extractErrorMessage } from '../../utils/errorMessages';
 import { useThemeColors } from '../../constants/theme';
+import { useTranslation } from '@pierre/i18n';
 
 interface ConversationParticipantsModalProps {
   visible: boolean;
@@ -29,6 +30,7 @@ export function ConversationParticipantsModal({
   conversationId,
   onClose,
 }: ConversationParticipantsModalProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const [participants, setParticipants] = useState<ConversationParticipant[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -97,8 +99,8 @@ export function ConversationParticipantsModal({
           testID="conversation-participants-modal"
         >
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-text-primary">Participants</Text>
-            <TouchableOpacity onPress={onClose} testID="participants-close" accessibilityLabel="Close">
+            <Text className="text-lg font-semibold text-text-primary">{t('app.participants')}</Text>
+            <TouchableOpacity onPress={onClose} testID="participants-close" accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
@@ -137,7 +139,7 @@ export function ConversationParticipantsModal({
               containerStyle={{ flex: 1, marginRight: 8 }}
               value={newUserId}
               onChangeText={setNewUserId}
-              placeholder="User id to add"
+              placeholder={t('app.userIdToAdd')}
               autoCapitalize="none"
               autoCorrect={false}
               testID="participant-user-id-input"
@@ -146,10 +148,10 @@ export function ConversationParticipantsModal({
               className="px-3 py-2 rounded-lg bg-primary"
               onPress={handleAdd}
               disabled={isSaving || newUserId.trim() === ''}
-              accessibilityLabel="Add participant"
+              accessibilityLabel={t('app.addParticipant')}
               testID="participant-add-button"
             >
-              <Text className="text-sm font-medium text-white">Add</Text>
+              <Text className="text-sm font-medium text-white">{t('app.add')}</Text>
             </TouchableOpacity>
           </View>
 

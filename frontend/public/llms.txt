@@ -1,0 +1,18 @@
+# Dravr
+
+> Multi-tenant fitness intelligence for athletes and coaches. Dravr connects an athlete's training, nutrition, recovery and mobility data from their existing providers and exposes it both as a conversational coach and as a machine-readable API over MCP, A2A and REST.
+
+Dravr is an authenticated product: the web app at `/` is a sign-in page, and everything beyond it needs a session. There are no public content pages to crawl. What is genuinely useful to an agent is the protocol surface, which is documented and discoverable.
+
+## Protocol surfaces
+
+- [MCP endpoint](/mcp): JSON-RPC 2.0 over HTTP. Tool discovery is auth-gated — an unauthenticated `tools/list` returns only the public subset.
+- [OAuth 2.0 authorization server metadata](/.well-known/oauth-authorization-server): RFC 8414 discovery document.
+- [OAuth 2.0 protected resource metadata](/.well-known/oauth-protected-resource): RFC 9728 discovery document.
+- [A2A agent card](/a2a/agent-card): the agent-to-agent capability descriptor.
+
+## Notes for agents
+
+- Authentication is OAuth 2.0 with PKCE. Tokens are per-tenant; there is no global or shared credential.
+- Rate limits and tool availability vary by tenant plan, so `tools/list` is the authority on what a given credential can call — not this file.
+- `/api/*`, `/admin/*` and `/oauth/*` are disallowed in robots.txt for indexing purposes; they remain the correct programmatic endpoints for an authenticated client.

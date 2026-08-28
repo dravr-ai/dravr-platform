@@ -13,6 +13,7 @@ import { Card, Button } from '../../components/ui';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Onboarding coach proposal (mobile).
@@ -25,6 +26,7 @@ import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
  * cache, which routes the user on to chat.
  */
 export function OnboardingCoachProposalScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { markSeen } = useCoachProposalSeen(user?.id);
   const [selecting, setSelecting] = useState<string | null>(null);
@@ -55,10 +57,9 @@ export function OnboardingCoachProposalScreen() {
       <Shell>
         <View className="items-center gap-4 py-10">
           <ActivityIndicator size="large" />
-          <Text className="text-base text-on-surface font-medium">Analyzing your training data…</Text>
+          <Text className="text-base text-on-surface font-medium">{t('app.obAnalyzing')}</Text>
           <Text className="text-sm text-on-surface-variant text-center px-6">
-            We&apos;re reading the activities your provider tracks to find the coaches that fit how
-            you actually train.
+            {t('app.obReadingActivities')}
           </Text>
         </View>
       </Shell>
@@ -70,9 +71,9 @@ export function OnboardingCoachProposalScreen() {
       <Shell>
         <View className="items-center gap-4 py-10">
           <Text className="text-base text-on-surface font-medium text-center">
-            We couldn&apos;t build your coach suggestions just now.
+            {t('app.obNoSuggestions')}
           </Text>
-          <Button title="Continue" onPress={finish} />
+          <Button title={t('app.continue')} onPress={finish} />
         </View>
       </Shell>
     );
@@ -86,8 +87,13 @@ export function OnboardingCoachProposalScreen() {
         {profile.has_profile ? (
           <>
             <Text className="text-sm text-on-surface">
-              Over the last {profile.window_days} days we logged {profile.total_activities} activities
-              {profile.primary_sport ? `, mostly ${profile.primary_sport}` : ''}.
+              {t('app.obWindowSummary', {
+                days: profile.window_days,
+                count: profile.total_activities,
+              })}
+              {profile.primary_sport
+                ? t('app.obMostlySport', { sport: profile.primary_sport })
+                : ''}
             </Text>
             <View className="mt-3 gap-2">
               {profile.sport_mix.map((s) => (
@@ -108,8 +114,7 @@ export function OnboardingCoachProposalScreen() {
           </>
         ) : (
           <Text className="text-sm text-on-surface-variant">
-            We didn&apos;t find recent activities yet — here are some coaches to start with. Your
-            picks sharpen as your provider syncs more data.
+            {t('app.obNoActivitiesYet')}
           </Text>
         )}
       </View>
@@ -127,7 +132,7 @@ export function OnboardingCoachProposalScreen() {
       </View>
 
       <View className="mt-6">
-        <Button title="Skip for now" variant="secondary" onPress={finish} disabled={selecting !== null} />
+        <Button title={t('app.skipForNow')} variant="secondary" onPress={finish} disabled={selecting !== null} />
       </View>
     </Shell>
   );
@@ -144,6 +149,7 @@ function CoachProposalCard({
   disabled: boolean;
   onStart: () => void;
 }) {
+  const { t } = useTranslation();
   const { coach, reason } = proposed;
   return (
     <View className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-4">
@@ -155,7 +161,7 @@ function CoachProposalCard({
           <Text className="mt-0.5 text-xs uppercase text-on-surface-variant">{coach.category}</Text>
         </View>
         <Button
-          title={selecting ? 'Starting…' : 'Start'}
+          title={selecting ? t('app.starting') : t('app.start')}
           onPress={onStart}
           disabled={disabled}
         />

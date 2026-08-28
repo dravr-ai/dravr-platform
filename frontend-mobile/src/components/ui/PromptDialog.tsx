@@ -15,6 +15,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { PRIMARY_PALETTE, useThemeColors } from '../../constants/theme';
+import { useTranslation } from '@pierre/i18n';
 
 interface PromptDialogProps {
   visible: boolean;
@@ -35,12 +36,18 @@ export function PromptDialog({
   message,
   placeholder = '',
   defaultValue = '',
-  submitText = 'Save',
-  cancelText = 'Cancel',
+  submitText,
+  cancelText,
   onSubmit,
   onCancel,
   testID,
 }: PromptDialogProps) {
+  const { t } = useTranslation();
+  // Defaults are resolved HERE, not in the parameter list: a destructuring
+  // default cannot call a hook, and these two are copy, so they have to come
+  // from the corpus rather than being English literals in a signature.
+  const submitLabel = submitText ?? t('common.save');
+  const cancelLabel = cancelText ?? t('common.cancel');
   const colors = useThemeColors();
   // Shadow styles need style objects in React Native; track active scheme.
   const containerShadow: ViewStyle = {
@@ -133,7 +140,7 @@ export function PromptDialog({
                   testID={testID ? `${testID}-cancel` : undefined}
                 >
                   <Text className="text-base font-medium text-text-secondary">
-                    {cancelText}
+                    {cancelLabel}
                   </Text>
                 </TouchableOpacity>
 
@@ -150,7 +157,7 @@ export function PromptDialog({
                       isSubmitDisabled ? 'text-text-tertiary' : 'text-text-primary'
                     }`}
                   >
-                    {submitText}
+                    {submitLabel}
                   </Text>
                 </TouchableOpacity>
               </View>

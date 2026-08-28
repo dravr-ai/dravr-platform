@@ -14,6 +14,7 @@ const sectionCardStyle: ViewStyle = {
   ...glassCard,
 };
 import { useGroupTranscript } from '../../hooks/useGroups';
+import { useTranslation } from '@pierre/i18n';
 
 interface GroupTranscriptSectionProps {
   /** The group whose room to read. */
@@ -28,6 +29,7 @@ interface GroupTranscriptSectionProps {
  * applies before the coach reasons over the room.
  */
 export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
 
@@ -43,7 +45,7 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
     return (
       <View style={sectionCardStyle}>
         <Text style={{ fontSize: 13, color: colors.text.tertiary, textAlign: 'center' }}>
-          The room transcript could not be loaded.
+          {t('app.roomTranscriptFailed')}
         </Text>
       </View>
     );
@@ -52,12 +54,11 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
   return (
     <View style={sectionCardStyle} testID="group-transcript">
       <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text.primary, marginBottom: 8 }}>
-        Room
+        {t('app.room')}
       </Text>
       {transcript.entries.length === 0 ? (
         <Text style={{ fontSize: 13, color: colors.text.tertiary }}>
-          Nothing said in the room yet. Messages from every surface land here once the group starts
-          talking.
+          {t('app.roomEmpty')}
         </Text>
       ) : (
         transcript.entries.map((entry) => (

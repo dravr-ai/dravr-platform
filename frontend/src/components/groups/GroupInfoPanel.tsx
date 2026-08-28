@@ -140,7 +140,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.consentFailed');
-      showError('Update failed', message);
+      showError(t('app.updateFailed'), message);
     }
   };
 
@@ -153,43 +153,43 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         peer_data_sharing: editPeerSharing,
         respond_mode: editRespondMode,
       });
-      showSuccess('Settings saved', 'Group settings have been updated.');
+      showSuccess(t('app.settingsSaved'), 'Group settings have been updated.');
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.saveFailed');
-      showError('Save failed', message);
+      showError(t('app.saveFailed'), message);
     }
   };
 
   const handleRemoveCoach = async () => {
     try {
       await removeCoach();
-      showSuccess('Coach removed', 'The human coach has been detached from this group.');
+      showSuccess(t('app.coachRemoved'), 'The human coach has been detached from this group.');
       setConfirmRemoveCoach(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.removeCoachFailed');
-      showError('Remove failed', message);
+      showError(t('app.removeFailed'), message);
     }
   };
 
   const handleLeave = async () => {
     try {
       await leaveGroup(groupId);
-      showSuccess('Left group', 'You have left the group.');
+      showSuccess(t('app.leftGroup'), 'You have left the group.');
       onMembershipEnded();
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.leaveFailed');
-      showError('Leave failed', message);
+      showError(t('app.leaveFailed'), message);
     }
   };
 
   const handleDelete = async () => {
     try {
       await deleteGroup(groupId);
-      showSuccess('Group deleted', 'The group has been permanently archived.');
+      showSuccess(t('app.groupDeleted'), 'The group has been permanently archived.');
       onMembershipEnded();
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.deleteFailed');
-      showError('Delete failed', message);
+      showError(t('app.deleteFailed'), message);
     }
   };
 

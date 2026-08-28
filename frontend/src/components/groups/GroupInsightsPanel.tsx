@@ -29,7 +29,7 @@ const FLAG_LABEL_KEYS: Record<MemberFlag, string> = {
 
 const SEVERITY_STYLES: Record<HealthFlagSeverity, string> = {
   info: 'bg-surface-container-high/30 text-on-surface-variant',
-  warning: 'bg-warning/20 text-warning',
+  warning: 'bg-warning/20 text-on-warning-container',
   critical: 'bg-error/20 text-error',
 };
 

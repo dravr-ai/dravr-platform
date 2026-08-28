@@ -124,7 +124,7 @@ export default function SystemPromptsTab() {
                   className={clsx(
                     'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
                     status.configured
-                      ? 'bg-activity/10 text-activity'
+                      ? 'bg-activity/10 text-on-activity-container'
                       : 'bg-on-surface-variant/10 text-on-surface-variant',
                   )}
                 >
@@ -205,7 +205,7 @@ export default function SystemPromptsTab() {
                       className={clsx(
                         'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
                         prompt.source === 'contremaitre'
-                          ? 'bg-activity/10 text-activity'
+                          ? 'bg-activity/10 text-on-activity-container'
                           : 'bg-on-surface-variant/10 text-on-surface-variant',
                       )}
                     >
@@ -244,7 +244,7 @@ export default function SystemPromptsTab() {
                       className={clsx(
                         'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
                         promptDetail.source === 'contremaitre'
-                          ? 'bg-activity/10 text-activity'
+                          ? 'bg-activity/10 text-on-activity-container'
                           : 'bg-on-surface-variant/10 text-on-surface-variant',
                       )}
                     >

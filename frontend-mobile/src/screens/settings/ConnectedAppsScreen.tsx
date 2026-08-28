@@ -20,6 +20,7 @@ import { Feather } from '@expo/vector-icons';
 import type { OAuthGrant } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { oauthApi } from '../../services/api';
+import { useTranslation } from '@pierre/i18n';
 
 const CONNECTED_APPS_QUERY_KEY = ['oauth', 'connected-apps'] as const;
 
@@ -32,6 +33,7 @@ function formatGrantedDate(iso: string): string {
 }
 
 export function ConnectedAppsScreen(): React.JSX.Element {
+  const { t } = useTranslation();
   const router = useRouter();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
@@ -48,7 +50,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
-      Alert.alert('Could not revoke app', msg);
+      Alert.alert(t('app.couldNotRevokeApp'), msg);
     },
   });
 
@@ -59,9 +61,9 @@ export function ConnectedAppsScreen(): React.JSX.Element {
       'Revoke access?',
       `"${grant.client_id}" will lose access to your data and must ask for your approval again the next time it connects. This cannot be undone.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Revoke',
+          text: t('app.revoke'),
           style: 'destructive',
           onPress: () => revokeMutation.mutate(grant.id),
         },
@@ -87,7 +89,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
             {item.scope}
           </Text>
           <Text className="text-xs text-text-tertiary mt-1">
-            Connected {formatGrantedDate(item.granted_at)}
+            {t('app.connected')} {formatGrantedDate(item.granted_at)}
           </Text>
         </View>
         <TouchableOpacity
@@ -103,7 +105,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
           ) : (
             <>
               <Feather name="trash-2" size={16} color={colors.pierre.red} />
-              <Text className="text-sm font-semibold text-red-400">Revoke</Text>
+              <Text className="text-sm font-semibold text-red-400">{t('app.revoke')}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -126,7 +128,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <Text className="flex-1 text-lg font-bold text-text-primary">
-          Connected apps
+          {t('app.connectedAppsLower')}
         </Text>
       </View>
 
@@ -137,7 +139,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
       ) : isError ? (
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-red-400 text-center">
-            Failed to load connected apps:{' '}
+            {t('app.failedLoadConnectedApps')}{' '}
             {error instanceof Error ? error.message : String(error)}
           </Text>
         </View>
@@ -171,11 +173,10 @@ export function ConnectedAppsScreen(): React.JSX.Element {
             <View className="flex-1 items-center justify-center py-16">
               <Feather name="link-2" size={48} color={colors.text.tertiary} />
               <Text className="text-text-secondary mt-3 text-center">
-                No connected apps
+                {t('app.noConnectedApps')}
               </Text>
               <Text className="text-text-tertiary text-xs mt-1 text-center px-6">
-                When you approve an external app on the OAuth consent screen, it
-                will appear here.
+                {t('app.connectedAppsEmpty')}
               </Text>
             </View>
           }

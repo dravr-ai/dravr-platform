@@ -15,6 +15,8 @@ export type { StatusFilterProps, StatusFilterValue } from './StatusFilter';
 
 // Form components
 export { Input } from './Input';
+export { RevealButton } from './RevealButton';
+export type { RevealButtonProps } from './RevealButton';
 export type { InputProps } from './Input';
 export { Textarea } from './Textarea';
 export type { TextareaProps } from './Textarea';

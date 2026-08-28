@@ -31,23 +31,26 @@ const coachCardShadow: ViewStyle = {
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoach, CoachCategory } from '../../types';
-// Category filter options
-const CATEGORY_FILTERS: Array<{ key: CoachCategory | 'all'; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'training', label: 'Training' },
-  { key: 'nutrition', label: 'Nutrition' },
-  { key: 'recovery', label: 'Recovery' },
-  { key: 'recipes', label: 'Recipes' },
-  { key: 'mobility', label: 'Mobility' },
-  { key: 'custom', label: 'Custom' },
+import { useTranslation } from '@pierre/i18n';
+// Category filter options. `key` is the value sent to the API and must stay
+// English; `labelKey` is what the chip shows and is resolved at render, since
+// module scope cannot hold a hook.
+const CATEGORY_FILTERS: Array<{ key: CoachCategory | 'all'; labelKey: string }> = [
+  { key: 'all', labelKey: 'app.filterAll' },
+  { key: 'training', labelKey: 'app.training' },
+  { key: 'nutrition', labelKey: 'app.nutrition' },
+  { key: 'recovery', labelKey: 'app.recovery' },
+  { key: 'recipes', labelKey: 'app.recipes' },
+  { key: 'mobility', labelKey: 'app.mobility' },
+  { key: 'custom', labelKey: 'app.custom' },
 ];
 
 // Sort options
 type SortOption = 'newest' | 'popular' | 'title';
-const SORT_OPTIONS: Array<{ key: SortOption; label: string }> = [
-  { key: 'popular', label: 'Popular' },
-  { key: 'newest', label: 'Newest' },
-  { key: 'title', label: 'A-Z' },
+const SORT_OPTIONS: Array<{ key: SortOption; labelKey: string }> = [
+  { key: 'popular', labelKey: 'app.sortPopular' },
+  { key: 'newest', labelKey: 'app.sortNewest' },
+  { key: 'title', labelKey: 'app.sortAlphabetical' },
 ];
 
 // Coach category colors
@@ -61,6 +64,7 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
 };
 
 export function StoreScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [coaches, setCoaches] = useState<StoreCoach[]>([]);
@@ -105,14 +109,14 @@ export function StoreScreen() {
       setNextCursor(response.next_cursor ?? null);
       setHasMore(response.has_more ?? false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load coaches';
+      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadCoaches');
       setError(errorMessage);
       console.error('Failed to load store coaches:', err);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [isAuthenticated, selectedCategory, selectedSort]);
+  }, [isAuthenticated, selectedCategory, selectedSort, t]);
 
   const loadMoreCoaches = useCallback(async () => {
     if (!isAuthenticated || !hasMore || isLoadingMore || !nextCursor) return;
@@ -129,13 +133,13 @@ export function StoreScreen() {
       setNextCursor(response.next_cursor ?? null);
       setHasMore(response.has_more ?? false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load more coaches';
+      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadMoreCoaches');
       setError(errorMessage);
       console.error('Failed to load more coaches:', err);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isAuthenticated, hasMore, isLoadingMore, nextCursor, selectedCategory, selectedSort]);
+  }, [isAuthenticated, hasMore, isLoadingMore, nextCursor, selectedCategory, selectedSort, t]);
 
   const searchCoaches = useCallback(async (query: string) => {
     if (!isAuthenticated || !query.trim()) {
@@ -151,13 +155,13 @@ export function StoreScreen() {
       setNextCursor(null);
       setHasMore(false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to search coaches';
+      const errorMessage = err instanceof Error ? err.message : t('app.failedSearchCoaches');
       setError(errorMessage);
       console.error('Failed to search coaches:', err);
     } finally {
       setIsSearching(false);
     }
-  }, [isAuthenticated, loadCoaches]);
+  }, [isAuthenticated, loadCoaches, t]);
 
   // Reload when screen focuses or filters change
   useFocusEffect(
@@ -190,7 +194,7 @@ export function StoreScreen() {
     router.push({ pathname: '/(app)/(tabs)/(discover)/[coachId]', params: { coachId: coach.id } });
   };
 
-  const renderCategoryChip = ({ key, label }: { key: CoachCategory | 'all'; label: string }) => (
+  const renderCategoryChip = ({ key, labelKey }: { key: CoachCategory | 'all'; labelKey: string }) => (
     <TouchableOpacity
       key={key}
       className={`px-3 py-1 rounded-full mr-1 border ${
@@ -207,12 +211,12 @@ export function StoreScreen() {
             : 'text-text-secondary'
         }`}
       >
-        {label}
+        {t(labelKey)}
       </Text>
     </TouchableOpacity>
   );
 
-  const renderSortChip = ({ key, label }: { key: SortOption; label: string }) => (
+  const renderSortChip = ({ key, labelKey }: { key: SortOption; labelKey: string }) => (
     <TouchableOpacity
       key={key}
       className={`px-2 py-1 rounded mr-1 ${
@@ -227,7 +231,7 @@ export function StoreScreen() {
             : 'text-text-secondary'
         }`}
       >
-        {label}
+        {t(labelKey)}
       </Text>
     </TouchableOpacity>
   );
@@ -284,12 +288,12 @@ export function StoreScreen() {
   const renderEmptyState = () => (
     <View className="flex-1 justify-center items-center py-16">
       <Text className="text-lg font-semibold text-text-primary mb-1">
-        {searchQuery ? 'No coaches found' : 'No coaches available'}
+        {searchQuery ? t('app.noCoachesFound') : t('app.noCoachesAvailable')}
       </Text>
       <Text className="text-base text-text-secondary text-center">
         {searchQuery
           ? `No coaches match "${searchQuery}"`
-          : 'No published coaches available yet'}
+          : t('app.noPublishedCoaches')}
       </Text>
     </View>
   );
@@ -306,7 +310,7 @@ export function StoreScreen() {
           loadCoaches();
         }}
       >
-        <Text className="text-error text-sm font-semibold">Retry</Text>
+        <Text className="text-error text-sm font-semibold">{t('common.retry')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -316,7 +320,7 @@ export function StoreScreen() {
       <SafeAreaView className="flex-1 bg-background-primary" testID="store-screen">
         <View className="flex-1 justify-center items-center" testID="loading-indicator">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
-          <Text className="mt-3 text-text-secondary text-base">Loading coaches...</Text>
+          <Text className="mt-3 text-text-secondary text-base">{t('app.loadingCoaches')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -327,7 +331,7 @@ export function StoreScreen() {
       {/* Header */}
       <View className="flex-row items-center px-3 py-2 border-b border-border-default">
         <View className="w-10" />
-        <Text className="flex-1 text-xl font-semibold text-text-primary text-center">Discover</Text>
+        <Text className="flex-1 text-xl font-semibold text-text-primary text-center">{t('app.discover')}</Text>
         <View className="w-10" />
       </View>
 
@@ -345,7 +349,7 @@ export function StoreScreen() {
 
       {/* Sort Options */}
       <View className="flex-row items-center px-3 py-1 bg-background-secondary">
-        <Text className="text-sm text-text-secondary mr-2">Sort by:</Text>
+        <Text className="text-sm text-text-secondary mr-2">{t('app.sortBy')}</Text>
         {SORT_OPTIONS.map((option) => renderSortChip(option))}
       </View>
 
@@ -367,7 +371,7 @@ export function StoreScreen() {
           isLoadingMore ? (
             <View className="flex-row items-center justify-center py-4 gap-2">
               <ActivityIndicator size="small" color={PRIMARY_PALETTE[500]} />
-              <Text className="text-sm text-text-secondary">Loading more coaches...</Text>
+              <Text className="text-sm text-text-secondary">{t('app.loadingMoreCoaches')}</Text>
             </View>
           ) : null
         }
@@ -385,7 +389,7 @@ export function StoreScreen() {
         value={searchQuery}
         onChangeText={handleSearch}
         onSubmit={() => searchCoaches(searchQuery)}
-        placeholder="Search coaches..."
+        placeholder={t('app.searchCoaches')}
         isSearching={isSearching}
         testID="search-input"
       />

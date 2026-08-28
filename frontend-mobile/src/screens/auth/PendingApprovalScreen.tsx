@@ -18,6 +18,7 @@ import { spacing, glassCard, gradients } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { authApi } from '../../services/api';
+import { useTranslation } from '@pierre/i18n';
 
 // Logo style (pixel-specific dimensions)
 const logoStyle: ImageStyle = { width: 100, height: 100, marginBottom: spacing.md };
@@ -55,6 +56,7 @@ const stepBadgeStyle: ViewStyle = {
  * switches to confirm-your-email mode.
  */
 export function PendingApprovalScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
@@ -98,22 +100,19 @@ export function PendingApprovalScreen() {
 
             {/* Message */}
             <Text className="text-xl font-bold text-text-primary text-center mb-3">
-              {needsEmailConfirmation ? 'Confirm your email' : 'Account Pending Approval'}
+              {needsEmailConfirmation ? t('app.confirmYourEmail') : t('app.pendingApprovalTitle')}
             </Text>
             {needsEmailConfirmation ? (
               <Text className="text-sm text-text-secondary text-center leading-5 mb-4">
-                We sent a confirmation link to your inbox. Open it to finish setting up your
-                account — check your spam folder if it hasn&apos;t arrived.
+                {t('app.sentConfirmationLink')}
               </Text>
             ) : (
               <>
                 <Text className="text-sm text-text-secondary text-center leading-5 mb-2">
-                  Thank you for registering with Dravr! Your account is currently
-                  being reviewed by our team.
+                  {t('app.thanksForRegistering')}
                 </Text>
                 <Text className="text-sm text-text-secondary text-center leading-5 mb-4">
-                  You'll receive an email notification once your account has been
-                  approved and is ready to use.
+                  {t('app.approvalEmailBlurb')}
                 </Text>
               </>
             )}
@@ -121,19 +120,19 @@ export function PendingApprovalScreen() {
             {needsEmailConfirmation && (
               <View className="mb-4">
                 <Button
-                  title={resendState === 'sending' ? 'Sending…' : 'Send the link again'}
+                  title={resendState === 'sending' ? t('app.sending') : t('app.sendLinkAgain')}
                   onPress={() => void handleResend()}
                   disabled={resendState === 'sending'}
                   fullWidth
                 />
                 {resendState === 'sent' && (
                   <Text className="text-xs text-text-tertiary text-center mt-2">
-                    Sent. Give it a minute, then check your inbox and spam folder.
+                    {t('app.sentCheckInbox')}
                   </Text>
                 )}
                 {resendState === 'failed' && (
                   <Text className="text-xs text-error text-center mt-2">
-                    Couldn&apos;t send it just now. Try again in a moment.
+                    {t('app.couldNotSendJustNow')}
                   </Text>
                 )}
               </View>
@@ -142,7 +141,7 @@ export function PendingApprovalScreen() {
             {/* Info Box with glassmorphism */}
             <View className="bg-background-tertiary rounded-xl p-4 mb-6 border border-border-subtle">
               <Text className="text-base font-semibold text-text-primary mb-3">
-                What happens next?
+                {t('app.whatHappensNext')}
               </Text>
               <View className="flex-row items-center mb-3">
                 <LinearGradient
@@ -153,8 +152,8 @@ export function PendingApprovalScreen() {
                 </LinearGradient>
                 <Text className="flex-1 text-sm text-text-secondary">
                   {needsEmailConfirmation
-                    ? 'Open the confirmation link we emailed you'
-                    : 'Our team reviews your registration'}
+                    ? t('app.openConfirmationLink')
+                    : t('app.teamReviewsRegistration')}
                 </Text>
               </View>
               <View className="flex-row items-center mb-3">
@@ -166,8 +165,8 @@ export function PendingApprovalScreen() {
                 </LinearGradient>
                 <Text className="flex-1 text-sm text-text-secondary">
                   {needsEmailConfirmation
-                    ? 'Your account activates as soon as it is confirmed'
-                    : "You'll receive an approval email"}
+                    ? t('app.accountActivatesOnConfirm')
+                    : t('app.youllReceiveApproval')}
                 </Text>
               </View>
               <View className="flex-row items-center">
@@ -178,14 +177,14 @@ export function PendingApprovalScreen() {
                   <Text className="text-on-surface text-xs font-bold">3</Text>
                 </LinearGradient>
                 <Text className="flex-1 text-sm text-text-secondary">
-                  Sign in and connect your fitness accounts
+                  {t('app.signInAndConnect')}
                 </Text>
               </View>
             </View>
 
             {/* Back to Login */}
             <Button
-              title="Back to Sign In"
+              title={t('app.backToSignInTitle')}
               onPress={() => router.replace('/(auth)/login')}
               variant="secondary"
               fullWidth

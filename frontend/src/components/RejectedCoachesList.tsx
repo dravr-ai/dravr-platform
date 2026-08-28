@@ -12,11 +12,11 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-activity border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-nutrition border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-recovery border-recovery/20',
-  Recipes: 'bg-warning/10 text-warning border-warning/20',
-  Mobility: 'bg-mobility/10 text-mobility border-mobility/20',
+  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
+  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
+  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
+  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
+  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
   Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 

@@ -494,7 +494,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       return ['users', 'coaches', 'coach-store'];
     }
     return ['chat', 'discover', 'notifications'];
-  }, [isAdminUser]);
+  }, [isAdminUser, t]);
   const primaryMobileTabs: MobileNavTab[] = useMemo(() => {
     return primaryTabIds
       .map((id) => tabs.find((t) => t.id === id))

@@ -11,16 +11,18 @@ import { Card } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProfileTypeChosen } from '../../hooks/useProfileTypeChosen';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Athlete-vs-coach onboarding step (mobile).
  *
  * Reached via RootLayoutNav for a fresh account before the connect-provider step.
- * Picking "I coach others" persists `coaching_persona=coach`; either choice marks
+ * Picking t('app.iCoachOthers') persists `coaching_persona=coach`; either choice marks
  * the profile-type step done (locally + on the server) and flips the shared
  * `useProfileTypeChosen` cache, which routes the user on.
  */
 export function OnboardingProfileTypeScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { markChosen } = useProfileTypeChosen(user?.id);
   const [choosing, setChoosing] = useState<'athlete' | 'coach' | null>(null);
@@ -39,24 +41,23 @@ export function OnboardingProfileTypeScreen() {
     await markChosen();
   };
 
-  const heading = user?.display_name ? `Welcome, ${user.display_name}` : 'Welcome to Dravr';
+  const heading = user?.display_name ? `Welcome, ${user.display_name}` : t('app.welcomeToDravr');
 
   return (
     <Shell heading={heading}>
       <Text className="mt-3 text-sm text-on-surface-variant text-center">
-        How will you use Dravr? This tailors the coaches we suggest. You can change it anytime in
-        Settings.
+        {t('app.profileTypeBlurb')}
       </Text>
       <View className="mt-6 gap-4">
         <ChoiceCard
-          title="I'm an athlete"
+          title={t('app.imAnAthlete')}
           description="Track your own training and get coaching tuned to how you actually train."
           busy={choosing === 'athlete'}
           disabled={choosing !== null}
           onSelect={() => void finish('athlete')}
         />
         <ChoiceCard
-          title="I coach others"
+          title={t('app.iCoachOthers')}
           description="Build plans and manage the athletes you coach. Unlocks coach-facing plan builders."
           busy={choosing === 'coach'}
           disabled={choosing !== null}
@@ -80,6 +81,7 @@ function ChoiceCard({
   disabled: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Pressable
       onPress={onSelect}
@@ -94,7 +96,7 @@ function ChoiceCard({
       {busy ? (
         <View className="mt-2 flex-row items-center gap-2">
           <ActivityIndicator size="small" />
-          <Text className="text-xs text-on-surface-variant">Setting things up…</Text>
+          <Text className="text-xs text-on-surface-variant">{t('app.settingThingsUp')}</Text>
         </View>
       ) : null}
     </Pressable>

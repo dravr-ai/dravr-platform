@@ -13,6 +13,7 @@ import { DragIndicator } from '../../components/ui';
 import type { Conversation } from '../../types';
 import { GroupInfoSheet } from '../groups/GroupInfoSheet';
 import { CoachInfoSheet } from './CoachInfoSheet';
+import { useTranslation } from '@pierre/i18n';
 
 export interface ConversationInfoSheetProps {
   visible: boolean;
@@ -46,6 +47,7 @@ export function ConversationInfoSheet({
   onDelete,
   onLeaveThread,
 }: ConversationInfoSheetProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   if (!conversation) return null;
   const kind = deriveKind(conversation);
@@ -66,7 +68,7 @@ export function ConversationInfoSheet({
         >
           <DragIndicator />
           <View className="flex-row items-center justify-end mb-1">
-            <TouchableOpacity onPress={onClose} accessibilityLabel="Close" testID="conversation-info-close">
+            <TouchableOpacity onPress={onClose} accessibilityLabel={t('common.close')} testID="conversation-info-close">
               <Feather name="x" size={22} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
@@ -88,7 +90,7 @@ export function ConversationInfoSheet({
           ) : (
             <View testID="conversation-info-plain">
               <Text className="text-lg font-bold text-text-primary" testID="conversation-info-title">
-                {conversation.title || 'Untitled chat'}
+                {conversation.title || t('app.untitledChat')}
               </Text>
               <TouchableOpacity
                 className="flex-row items-center py-3 mt-2"
@@ -97,7 +99,7 @@ export function ConversationInfoSheet({
                 testID="conversation-info-rename"
               >
                 <Feather name="edit-2" size={18} color={colors.text.primary} />
-                <Text className="text-base text-text-primary ml-3">Rename</Text>
+                <Text className="text-base text-text-primary ml-3">{t('app.convMenuRename')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 className="flex-row items-center py-3"
@@ -106,7 +108,7 @@ export function ConversationInfoSheet({
                 testID="conversation-info-participants"
               >
                 <Feather name="users" size={18} color={colors.text.primary} />
-                <Text className="text-base text-text-primary ml-3">Participants</Text>
+                <Text className="text-base text-text-primary ml-3">{t('app.participants')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 className="flex-row items-center py-3"
@@ -115,7 +117,7 @@ export function ConversationInfoSheet({
                 testID="conversation-info-delete"
               >
                 <Feather name="trash-2" size={18} color={colors.error} />
-                <Text className="text-base text-error ml-3">Delete</Text>
+                <Text className="text-base text-error ml-3">{t('common.delete')}</Text>
               </TouchableOpacity>
             </View>
           )}

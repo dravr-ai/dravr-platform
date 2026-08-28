@@ -97,11 +97,11 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
   const getTierBadgeColor = (tier: string) => {
     switch (tier.toLowerCase()) {
       case 'trial':
-        return 'bg-nutrition/20 text-nutrition border border-nutrition/30';
+        return 'bg-nutrition/20 text-on-nutrition-container border border-nutrition/30';
       case 'standard':
         return 'bg-primary-container/20 text-primary-container border border-primary-container/30';
       case 'professional':
-        return 'bg-activity/20 text-activity border border-activity/30';
+        return 'bg-activity/20 text-on-activity-container border border-activity/30';
       case 'enterprise':
         return 'bg-primary/20 text-primary border border-primary/30';
       default:
@@ -112,11 +112,11 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
   const getCapabilityBadgeColor = (capability: string) => {
     const colorMap: { [key: string]: string } = {
       'fitness-data-analysis': 'bg-primary-container/20 text-primary-container border border-primary-container/30',
-      'activity-intelligence': 'bg-activity/20 text-activity border border-activity/30',
+      'activity-intelligence': 'bg-activity/20 text-on-activity-container border border-activity/30',
       'goal-management': 'bg-primary/20 text-primary border border-primary/30',
-      'performance-prediction': 'bg-nutrition/20 text-nutrition border border-nutrition/30',
+      'performance-prediction': 'bg-nutrition/20 text-on-nutrition-container border border-nutrition/30',
       'training-analytics': 'bg-primary-container/20 text-primary-container border border-primary-container/30',
-      'provider-integration': 'bg-recovery/20 text-recovery border border-recovery/30',
+      'provider-integration': 'bg-recovery/20 text-on-recovery-container border border-recovery/30',
     };
     return colorMap[capability] || 'bg-surface-container-high text-on-surface-variant border ghost-border';
   };
@@ -227,7 +227,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       size="sm"
                     />
                     {client.is_verified && (
-                      <Badge variant="success" className="bg-activity/20 text-activity border border-activity/30">
+                      <Badge variant="success" className="bg-activity/20 text-on-activity-container border border-activity/30">
                         Verified
                       </Badge>
                     )}

@@ -27,6 +27,7 @@ module.exports = {
         },
         'on-primary': 'rgb(var(--color-on-primary) / <alpha-value>)',
         'on-primary-container': 'rgb(var(--color-on-primary-container) / <alpha-value>)',
+        'primary-hover': 'rgb(var(--color-primary-hover) / <alpha-value>)',
 
         tertiary: {
           DEFAULT: 'rgb(var(--color-tertiary) / <alpha-value>)',
@@ -54,6 +55,16 @@ module.exports = {
         nutrition: 'rgb(var(--color-nutrition) / <alpha-value>)',
         recovery: 'rgb(var(--color-recovery) / <alpha-value>)',
         mobility: 'rgb(var(--color-mobility) / <alpha-value>)',
+
+        // Text that sits ON a tint of the hue above. See index.css.
+        'on-activity-container': 'rgb(var(--color-on-activity-container) / <alpha-value>)',
+        'on-nutrition-container': 'rgb(var(--color-on-nutrition-container) / <alpha-value>)',
+        'on-recovery-container': 'rgb(var(--color-on-recovery-container) / <alpha-value>)',
+        'on-mobility-container': 'rgb(var(--color-on-mobility-container) / <alpha-value>)',
+        'on-info-container': 'rgb(var(--color-on-info-container) / <alpha-value>)',
+        'on-success-container': 'rgb(var(--color-on-success-container) / <alpha-value>)',
+        'on-warning-container': 'rgb(var(--color-on-warning-container) / <alpha-value>)',
+
 
         surface: {
           DEFAULT: 'rgb(var(--color-surface) / <alpha-value>)',
@@ -96,7 +107,6 @@ module.exports = {
         display: ['Space Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
         headline: ['Space Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
         label: ['Inter', 'system-ui', 'sans-serif'],
-        serif: ['Newsreader', 'Georgia', 'serif'],
         mono: ['JetBrains Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'monospace'],
       },
       fontSize: {

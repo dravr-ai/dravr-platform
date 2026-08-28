@@ -17,10 +17,10 @@ import { AVATAR_SLOTS } from '@pierre/chat-utils';
 export const AVATAR_SLOT_CLASSES: readonly string[] = [
   'bg-primary/15 text-primary',
   'bg-tertiary/15 text-tertiary',
-  'bg-activity/15 text-activity',
-  'bg-nutrition/15 text-nutrition',
-  'bg-recovery/15 text-recovery',
-  'bg-mobility/15 text-mobility',
+  'bg-activity/15 text-on-activity-container',
+  'bg-nutrition/15 text-on-nutrition-container',
+  'bg-recovery/15 text-on-recovery-container',
+  'bg-mobility/15 text-on-mobility-container',
 ];
 
 /** The colour classes for a row, wrapping so a hash beyond the palette never reads undefined. */

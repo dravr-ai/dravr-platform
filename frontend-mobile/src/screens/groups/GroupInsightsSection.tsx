@@ -10,19 +10,21 @@ import { Feather } from '@expo/vector-icons';
 import { glassCard, useThemeColors } from '../../constants/theme';
 import { useGroupHealthFlags, useGroupWeeklyReport } from '../../hooks/useGroups';
 import type { HealthFlagSeverity, MemberFlag } from '../../types';
+import { useTranslation } from '@pierre/i18n';
 
 const sectionCardStyle: ViewStyle = {
   borderRadius: 12,
   ...glassCard,
 };
 
-const FLAG_LABELS: Record<MemberFlag, string> = {
-  overreaching: 'Overreaching',
-  fresh_form: 'Fresh form',
-  personal_record: 'Personal record',
-  deep_fatigue: 'Deep fatigue',
-  inactive: 'Inactive',
-  volume_drop: 'Volume drop',
+/** Corpus key per flag. Module scope, so the section resolves it at render. */
+const FLAG_LABEL_KEYS: Record<MemberFlag, string> = {
+  overreaching: 'app.overreaching',
+  fresh_form: 'app.freshForm',
+  personal_record: 'app.personalRecord',
+  deep_fatigue: 'app.deepFatigue',
+  inactive: 'app.inactive',
+  volume_drop: 'app.volumeDrop',
 };
 
 interface GroupInsightsSectionProps {
@@ -45,6 +47,7 @@ export function GroupInsightsSection({
   isAdmin,
   weeklyDigestEnabled,
 }: GroupInsightsSectionProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const enabled = isAdmin && weeklyDigestEnabled;
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
@@ -63,10 +66,9 @@ export function GroupInsightsSection({
   if (!weeklyDigestEnabled) {
     return (
       <View className="p-4 mb-4" style={sectionCardStyle} testID="group-insights-tier-locked">
-        <Text className="text-text-primary text-sm font-semibold">Weekly report</Text>
+        <Text className="text-text-primary text-sm font-semibold">{t('app.weeklyReport')}</Text>
         <Text className="text-text-tertiary text-xs mt-1">
-          The weekly group report and member health flags come with the Professional plan. Your
-          current plan does not include them.
+          {t('app.weeklyReportGated')}
         </Text>
       </View>
     );
@@ -84,14 +86,14 @@ export function GroupInsightsSection({
     <View testID="group-insights-section">
       {report && (
         <View className="p-4 mb-4" style={sectionCardStyle}>
-          <Text className="text-text-primary text-base font-bold mb-2">This week</Text>
+          <Text className="text-text-primary text-base font-bold mb-2">{t('app.thisWeek')}</Text>
           <Text className="text-text-secondary text-sm" testID="group-report-summary">
             {report.summary}
           </Text>
 
           {report.highlights.length > 0 && (
             <View className="mt-3">
-              <Text className="text-text-tertiary text-xs font-semibold mb-1">Highlights</Text>
+              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('app.highlights')}</Text>
               {report.highlights.map((highlight) => (
                 <View key={highlight} className="flex-row items-start mt-1" testID="group-report-highlight">
                   <Feather name="check-circle" size={12} color={colors.pierre.activity} />
@@ -103,7 +105,7 @@ export function GroupInsightsSection({
 
           {report.concerns.length > 0 && (
             <View className="mt-3">
-              <Text className="text-text-tertiary text-xs font-semibold mb-1">Concerns</Text>
+              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('app.concerns')}</Text>
               {report.concerns.map((concern) => (
                 <View key={concern} className="flex-row items-start mt-1" testID="group-report-concern">
                   <Feather name="alert-triangle" size={12} color={colors.error} />
@@ -115,7 +117,7 @@ export function GroupInsightsSection({
 
           {report.recommendations.length > 0 && (
             <View className="mt-3">
-              <Text className="text-text-tertiary text-xs font-semibold mb-1">Recommendations</Text>
+              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('app.recommendations')}</Text>
               {report.recommendations.map((recommendation) => (
                 <View
                   key={recommendation}
@@ -137,7 +139,7 @@ export function GroupInsightsSection({
         </Text>
         {flags.length === 0 ? (
           <Text className="text-text-tertiary text-sm" testID="group-health-flags-empty">
-            No member is flagged this week.
+            {t('app.noMemberFlagged')}
           </Text>
         ) : (
           flags.map((flag) => (
@@ -160,7 +162,7 @@ export function GroupInsightsSection({
                   className="text-[10px] font-semibold"
                   style={{ color: severityColors[flag.severity] }}
                 >
-                  {FLAG_LABELS[flag.flag_type]}
+                  {t(FLAG_LABEL_KEYS[flag.flag_type])}
                 </Text>
               </View>
             </View>

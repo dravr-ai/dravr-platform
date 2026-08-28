@@ -71,6 +71,7 @@ function renderList(
 ) {
   return render(
     <MessageList
+      bottomInset={0}
       messages={messages}
       isLoading={false}
       isSending={false}

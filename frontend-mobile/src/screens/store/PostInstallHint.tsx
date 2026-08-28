@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The card shown after a coach is installed from Discover — teaches /coach add @handle and @handle
-// ABOUTME: Dismissible; "Open chat" hands the /coach add draft to the caller and starts a conversation
+// ABOUTME: Dismissible; t('app.openChat') hands the /coach add draft to the caller and starts a conversation
 
 import React from 'react';
 import { View, Text } from 'react-native';
 import { Button, Card } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { coachAddDraft, coachMention } from './coachDraft';
+import { useTranslation } from '@pierre/i18n';
 
 export interface PostInstallHintProps {
   coachTitle: string;
@@ -23,6 +24,7 @@ export interface PostInstallHintProps {
 }
 
 export function PostInstallHint({ coachTitle, handle, onOpenChat, onDismiss }: PostInstallHintProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const draft = coachAddDraft(handle);
   const mention = coachMention(handle);
@@ -33,15 +35,15 @@ export function PostInstallHint({ coachTitle, handle, onOpenChat, onDismiss }: P
           {'“'}{coachTitle}{'”'} is in your coaches
         </Text>
         <Text className="text-sm text-text-secondary leading-5" testID="post-install-body">
-          Use it in any chat:{' '}
+          {t('app.useItInAnyChat')}{' '}
           <Text className="font-mono" style={{ color: colors.pierre.violet }}>{draft}</Text>
           {' — or mention '}
           <Text className="font-mono" style={{ color: colors.pierre.violet }}>{mention}</Text>
           {' for one turn'}
         </Text>
         <View className="flex-row gap-2 mt-3">
-          <Button title="Open chat" size="sm" onPress={() => onOpenChat(draft)} testID="post-install-open-chat" />
-          <Button title="Dismiss" size="sm" variant="secondary" onPress={onDismiss} testID="post-install-dismiss" />
+          <Button title={t('app.openChat')} size="sm" onPress={() => onOpenChat(draft)} testID="post-install-open-chat" />
+          <Button title={t('app.dismiss')} size="sm" variant="secondary" onPress={onDismiss} testID="post-install-dismiss" />
         </View>
       </Card>
     </View>

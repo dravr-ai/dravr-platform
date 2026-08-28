@@ -444,7 +444,7 @@ export default function LlmSettingsTab() {
             className={clsx(
               'p-3 rounded-lg text-sm',
               message.type === 'success'
-                ? 'bg-activity/30 text-activity'
+                ? 'bg-activity/30 text-on-activity-container'
                 : 'bg-error text-error'
             )}
           >

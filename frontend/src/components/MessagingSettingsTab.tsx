@@ -203,7 +203,7 @@ export default function MessagingSettingsTab() {
                     <div
                       className={clsx(
                         'p-2 rounded-lg',
-                        isConfigured ? 'bg-activity/20 text-activity' : 'bg-surface-container-high text-on-surface/60'
+                        isConfigured ? 'bg-activity/20 text-on-activity-container' : 'bg-surface-container-high text-on-surface/60'
                       )}
                     >
                       {info.icon}
@@ -297,7 +297,7 @@ export default function MessagingSettingsTab() {
             className={clsx(
               'p-3 rounded-lg text-sm',
               message.type === 'success'
-                ? 'bg-activity/30 text-activity'
+                ? 'bg-activity/30 text-on-activity-container'
                 : 'bg-error text-error'
             )}
           >

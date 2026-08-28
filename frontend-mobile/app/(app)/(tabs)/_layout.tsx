@@ -10,8 +10,10 @@ import { Tabs } from 'expo-router';
 import { ServerStatusBanner } from '../../../src/components/ServerStatusBanner';
 import { useServerStatus } from '../../../src/hooks/useServerStatus';
 import { ExpandableTabBar, TAB_BAR_TABS } from '../../../src/components/ui/ExpandableTabBar';
+import { useTranslation } from '@pierre/i18n';
 
 export default function TabsLayout() {
+  const { t } = useTranslation();
   const { isServerReachable, isChecking, checkNow } = useServerStatus();
 
   return (
@@ -24,7 +26,7 @@ export default function TabsLayout() {
         screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}
       >
         {TAB_BAR_TABS.map((tab) => (
-          <Tabs.Screen key={tab.route} name={tab.route} options={{ title: tab.label }} />
+          <Tabs.Screen key={tab.route} name={tab.route} options={{ title: t(tab.labelKey) }} />
         ))}
       </Tabs>
     </View>

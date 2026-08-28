@@ -2,11 +2,15 @@
 // Copyright (c) 2026 dravr.ai
 
 import React, { useState, useEffect } from 'react';
-import { useAsyncAction } from '@pierre/ui-logic';
+import { useAsyncAction, classifyApiError } from '@pierre/ui-logic';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
-import { signInWithGoogle, getGoogleRedirectResult, isFirebaseEnabled } from '../firebase/firebase';
-import { Button, Input } from './ui';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
+// Only the configured-flag is static. The SDK itself is imported at the point
+// of use — on mount to complete a redirect, and on click to start a sign-in —
+// so a password login never downloads it.
+import { isFirebaseEnabled } from '../firebase/config';
+import { Button, Input, RevealButton } from './ui';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
@@ -15,6 +19,70 @@ interface LoginProps {
   onNavigateToRegister?: () => void;
   onNavigateToForgotPassword?: () => void;
   prefilledEmail?: string;
+}
+
+/**
+ * Turn a failed sign-in into a sentence the athlete can act on.
+ *
+ * The sign-in form is the one screen where a 401 means "wrong password"
+ * rather than "your session expired", so it maps that kind itself instead of
+ * taking the shared default.
+ *
+ * Before this, an offline device produced the same message as a rejected
+ * password: the request never reached a server, so there was no
+ * `response.data.error`, and the code fell through to a hardcoded English
+ * t('auth.loginFailed'). An athlete in a tunnel was told their credentials were wrong.
+ */
+function describeLoginFailure(
+  err: unknown,
+  online: boolean,
+  t: (key: string) => string,
+): string {
+  const { kind } = classifyApiError(err, { online });
+  if (kind === 'credentials' || kind === 'unauthorized' || kind === 'validation') {
+    return t('auth.invalidCredentials');
+  }
+  if (kind === 'offline') {
+    return t('errors.offline');
+  }
+  if (kind === 'network' || kind === 'timeout') {
+    return t('errors.network');
+  }
+  if (kind === 'server') {
+    return t('errors.serverError');
+  }
+  return t('auth.loginFailed');
+}
+
+/**
+ * The same, for the Google button.
+ *
+ * Firebase reports a dead network as `auth/network-request-failed` rather than
+ * as an absent HTTP response, so that code is folded in before the shared
+ * classifier sees the error. The previous version fell back to
+ * `firebaseError.message`, which put raw SDK strings ("A network AuthError…")
+ * in front of athletes in every locale.
+ */
+function describeGoogleFailure(
+  err: unknown,
+  online: boolean,
+  t: (key: string) => string,
+): string {
+  const code = (err as { code?: string }).code;
+  if (code === 'auth/network-request-failed') {
+    return online ? t('errors.network') : t('errors.offline');
+  }
+  const { kind } = classifyApiError(err, { online });
+  if (kind === 'offline') {
+    return t('errors.offline');
+  }
+  if (kind === 'network' || kind === 'timeout') {
+    return t('errors.network');
+  }
+  if (kind === 'server') {
+    return t('errors.serverError');
+  }
+  return t('auth.googleSignInFailed');
 }
 
 export default function Login({ onNavigateToRegister, onNavigateToForgotPassword, prefilledEmail }: LoginProps) {
@@ -26,19 +94,12 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const { login, loginWithFirebase } = useAuth();
   const { scheme, toggle } = useTheme();
+  const online = useOnlineStatus();
 
   // Delegate email/password login loading lifecycle to @pierre/ui-logic
   const loginAction = useAsyncAction({
     action: () => login(email, password),
-    onError: (err: unknown) => {
-      const apiError = err as { response?: { data?: { error?: string } } };
-      const errorMsg = apiError.response?.data?.error || 'Login failed';
-      if (errorMsg === 'invalid_grant' || errorMsg.includes('Invalid') || errorMsg.includes('credentials')) {
-        setError('Invalid email or password');
-      } else {
-        setError(errorMsg);
-      }
-    },
+    onError: (err: unknown) => setError(describeLoginFailure(err, online, t)),
     successResetDelay: 0,
     errorResetDelay: 0,
   });
@@ -50,6 +111,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
     let cancelled = false;
     void (async () => {
       try {
+        const { getGoogleRedirectResult } = await import('../firebase/firebase');
         const idToken = await getGoogleRedirectResult();
         if (!idToken || cancelled) {
           return;
@@ -60,9 +122,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
         if (cancelled) {
           return;
         }
-        const apiError = err as { response?: { data?: { error?: string } } };
-        const firebaseError = err as { message?: string };
-        setError(apiError.response?.data?.error || firebaseError.message || 'Google sign-in failed');
+        setError(describeGoogleFailure(err, online, t));
       } finally {
         if (!cancelled) {
           setIsGoogleLoading(false);
@@ -89,6 +149,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
       // (in-app browsers), signInWithGoogle falls back to a full-page redirect
       // and returns null — the result is then picked up by the redirect effect
       // above on the next page load, so there is nothing more to do here.
+      const { signInWithGoogle } = await import('../firebase/firebase');
       const idToken = await signInWithGoogle();
       if (idToken) {
         await loginWithFirebase(idToken);
@@ -96,17 +157,10 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
       }
       // idToken === null → redirecting away; keep the spinner up until navigation.
     } catch (err: unknown) {
-      const firebaseError = err as { code?: string; message?: string };
-      const apiError = err as { response?: { data?: { error?: string } } };
-
-      if (firebaseError.code === 'auth/popup-closed-by-user') {
-        // User closed the popup — not an error
-      } else if (firebaseError.code === 'auth/network-request-failed') {
-        setError('Network error. Please check your connection.');
-      } else if (apiError.response?.data?.error) {
-        setError(apiError.response.data.error);
-      } else {
-        setError(firebaseError.message || 'Google sign-in failed');
+      const firebaseError = err as { code?: string };
+      // Closing the popup is a decision, not a failure — say nothing.
+      if (firebaseError.code !== 'auth/popup-closed-by-user') {
+        setError(describeGoogleFailure(err, online, t));
       }
       setIsGoogleLoading(false);
     }
@@ -209,7 +263,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
 
         <div className="w-full max-w-sm space-y-8 lg:space-y-10">
           {/* Mobile-only brand mark. Was previously `absolute top-6 left-6`,
-              which collided with the vertically-centered "Sign in" heading
+              which collided with the vertically-centered t('common.login') heading
               at narrow viewports. Now it sits inline above the heading on
               mobile and centers both the mark and the heading; desktop
               (lg+) keeps the left-aligned form layout because the hero
@@ -267,23 +321,11 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 rightIcon={
-                  <button
-                    type="button"
-                    aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
-                    className="text-on-surface-variant hover:text-on-surface transition-colors"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? (
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                      </svg>
-                    ) : (
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    )}
-                  </button>
+                  <RevealButton
+  revealed={showPassword}
+  onToggle={() => setShowPassword(!showPassword)}
+  label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
+/>
                 }
               />
             </div>

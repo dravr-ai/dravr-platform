@@ -1,0 +1,17 @@
+# The SPA fallback serves index.html for any unmatched path, so without this
+# file a crawler asking for /robots.txt received the app shell with HTTP 200
+# and parsed "<!doctype html>" as a directive. Lighthouse reported the file as
+# invalid for exactly that reason.
+#
+# Dravr is an authenticated product: everything past the landing page needs a
+# session, and the hash routes below it are not separately addressable to a
+# crawler anyway.
+User-agent: *
+Allow: /$
+Disallow: /api/
+Disallow: /admin/
+Disallow: /oauth/
+Disallow: /a2a/
+Disallow: /mcp
+Disallow: /r/
+Disallow: /providers/

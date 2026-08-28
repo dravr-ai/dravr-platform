@@ -8,7 +8,15 @@
          safe-area padding already in the tree. Never add user-scalable=no /
          maximum-scale (breaks pinch-zoom, WCAG 1.4.4). -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#00241a" />
+    <!-- Two theme-colors, not one. A single dark value painted the installed
+         app's title bar and the mobile browser's address bar deep-forest even
+         for a viewer who had chosen the light scheme. Browsers pick the tag
+         whose media query matches; the manifest's own theme_color stays dark
+         as the install-time default. `color-scheme` tells the engine to render
+         native form controls and scrollbars to match, which nothing did. -->
+    <meta name="theme-color" content="#f9f9f6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#00241a" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="dark light" />
     <meta name="description" content="Dravr — fitness intelligence for athletes and coaches." />
     <!-- Add-to-Home-Screen: the web app manifest <link> is injected at build by
          vite-plugin-pwa. iOS Safari ignores the manifest's display/icons, so the
@@ -21,7 +29,12 @@
     <meta name="apple-mobile-web-app-title" content="Dravr" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Newsreader:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Newsreader was in this list and `font-serif` is used in exactly zero
+         components, so every visitor downloaded a serif family to render
+         nothing. The remaining four are all reachable: Space Grotesk on
+         headings, Plus Jakarta Sans as the body face, Inter for labels, and
+         JetBrains Mono in the chat verdict and mention surfaces. -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <title>Dravr</title>
     <script>
       // Dark-first brand. Apply `.dark` on <html> before React boots so the

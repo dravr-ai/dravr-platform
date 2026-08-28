@@ -18,6 +18,7 @@ import { Activity, X, CheckCircle2 } from 'lucide-react-native';
 import { useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { Input } from './ui';
+import { useTranslation } from '@pierre/i18n';
 
 interface IntervalsIcuLinkModalProps {
   visible: boolean;
@@ -34,6 +35,7 @@ function extractErrorMessage(err: unknown, prefix: string): string {
 }
 
 export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: IntervalsIcuLinkModalProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const [athleteId, setAthleteId] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -95,7 +97,7 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
               </View>
               <View>
                 <Text className="text-lg font-semibold text-text-primary">Connect Intervals.icu</Text>
-                <Text className="text-xs text-text-tertiary">API key — no OAuth redirect</Text>
+                <Text className="text-xs text-text-tertiary">{t('app.apiKeyNoOauth')}</Text>
               </View>
             </View>
             <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -118,7 +120,7 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
                   editorial underline never reached them — the same bypass that
                   put a boxed textarea beside an underline on web. */}
               <Input
-                label="Athlete ID"
+                label={t('app.athleteId')}
                 placeholder="i123456"
                 value={athleteId}
                 onChangeText={setAthleteId}
@@ -128,8 +130,8 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
               />
 
               <Input
-                label="API Key"
-                placeholder="API key"
+                label={t('app.apiKey')}
+                placeholder={t('app.apiKeyLower')}
                 value={apiKey}
                 onChangeText={setApiKey}
                 secureTextEntry
@@ -156,7 +158,7 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
                 {isLoading ? (
                   <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
                 ) : (
-                  <Text className="text-base font-semibold text-on-primary">Connect</Text>
+                  <Text className="text-base font-semibold text-on-primary">{t('app.connect')}</Text>
                 )}
               </TouchableOpacity>
             </>

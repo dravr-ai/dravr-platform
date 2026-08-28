@@ -64,7 +64,7 @@ export default function ConversationParticipants({
     onSuccess: async () => {
       setNewUserId('');
       await invalidate();
-      successToast('Participant added');
+      successToast(t('app.participantAdded'));
     },
     onError: (error: unknown) => {
       errorToast(error instanceof Error ? error.message : t('chat.addParticipantFailed'));
@@ -75,7 +75,7 @@ export default function ConversationParticipants({
     mutationFn: (userId: string) => chatApi.removeParticipant(conversationId, userId),
     onSuccess: async () => {
       await invalidate();
-      successToast('Participant removed');
+      successToast(t('app.participantRemoved'));
     },
     onError: (error: unknown) => {
       errorToast(error instanceof Error ? error.message : t('chat.removeParticipantFailed'));

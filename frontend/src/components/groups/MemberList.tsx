@@ -26,7 +26,7 @@ type SortDirection = 'asc' | 'desc';
 const ROLE_ORDER: Record<GroupRole, number> = { owner: 0, admin: 1, member: 2 };
 
 const ROLE_BADGE: Record<GroupRole, { labelKey: string; color: string; Icon: typeof Crown }> = {
-  owner: { labelKey: 'groups.owner', color: 'bg-warning/20 text-warning', Icon: Crown },
+  owner: { labelKey: 'groups.owner', color: 'bg-warning/20 text-on-warning-container', Icon: Crown },
   admin: { labelKey: 'groups.admin', color: 'bg-primary/20 text-primary', Icon: Shield },
   member: { labelKey: 'groups.member', color: 'bg-surface-container-high/20 text-on-surface-variant', Icon: User },
 };
@@ -90,11 +90,11 @@ export default function MemberList({
     if (!confirmRemove) return;
     try {
       await removeMember(confirmRemove.user_id);
-      showSuccess('Member removed', `${confirmRemove.display_name ?? t('groups.member')} has been removed from the group.`);
+      showSuccess(t('app.memberRemoved'), `${confirmRemove.display_name ?? t('groups.member')} has been removed from the group.`);
       setConfirmRemove(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.removeFailed');
-      showError('Remove failed', message);
+      showError(t('app.removeFailed'), message);
     }
   };
 
@@ -102,10 +102,10 @@ export default function MemberList({
     const newRole: GroupRole = member.role === 'member' ? 'admin' : 'member';
     try {
       await updateRole({ userId: member.user_id, role: newRole });
-      showSuccess('Role updated', `${member.display_name ?? t('groups.member')} is now ${newRole}.`);
+      showSuccess(t('app.roleUpdated'), `${member.display_name ?? t('groups.member')} is now ${newRole}.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.roleUpdateFailed');
-      showError('Update failed', message);
+      showError(t('app.updateFailed'), message);
     }
   };
 

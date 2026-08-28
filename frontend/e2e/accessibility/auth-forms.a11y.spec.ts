@@ -18,8 +18,6 @@ test.describe('Auth Forms Accessibility', () => {
     test('should have no WCAG 2.1 AA violations on login page', async ({ page }) => {
       const accessibilityScanResults = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
-        // Exclude color-contrast until UI design fixes are implemented
-        .disableRules(['color-contrast'])
         .analyze();
 
       // Log violations for awareness
@@ -199,8 +197,6 @@ test.describe('Auth Forms Accessibility', () => {
     test('should have no WCAG 2.1 AA violations on registration form', async ({ page }) => {
       const accessibilityScanResults = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
-        // Exclude color-contrast until UI design fixes are implemented
-        .disableRules(['color-contrast'])
         .analyze();
 
       if (accessibilityScanResults.violations.length > 0) {
@@ -292,8 +288,6 @@ test.describe('Auth Forms Accessibility', () => {
       // Check axe for error message accessibility
       const accessibilityScanResults = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa'])
-        // Exclude color-contrast until UI design fixes are implemented
-        .disableRules(['color-contrast'])
         .analyze();
 
       if (accessibilityScanResults.violations.length > 0) {

@@ -235,7 +235,7 @@ export function NotificationCenterScreen() {
 
         <View className="flex-1 flex-row items-center">
           <Bell size={20} color={colors.pierre.violet} />
-          <Text className="text-lg font-semibold text-on-surface ml-2">Notifications</Text>
+          <Text className="text-lg font-semibold text-on-surface ml-2">{t('common.notifications')}</Text>
           {unreadCount > 0 && (
             <View
               className="ml-2 px-2 py-0.5 rounded-full"
@@ -260,7 +260,7 @@ export function NotificationCenterScreen() {
           >
             <CheckCheck size={14} color={colors.pierre.violet} />
             <Text className="text-xs ml-1" style={{ color: colors.pierre.violet }}>
-              Read all
+              {t('app.readAll')}
             </Text>
           </TouchableOpacity>
         )}
@@ -314,16 +314,16 @@ export function NotificationCenterScreen() {
       >
         {isLoading && !isRefetching ? (
           <View className="items-center py-12">
-            <Text className="text-outline">Loading notifications...</Text>
+            <Text className="text-outline">{t('app.loadingNotifications')}</Text>
           </View>
         ) : notifications.length === 0 ? (
           <View className="items-center py-16">
             <Bell size={48} color="#475569" />
-            <Text className="text-on-surface-variant mt-4 text-base">No notifications yet</Text>
+            <Text className="text-on-surface-variant mt-4 text-base">{t('app.noNotificationsYet')}</Text>
             <Text className="text-outline mt-1 text-sm">
               {selectedCategory === 'all'
-                ? "You're all caught up!"
-                : `No ${selectedCategory} notifications`}
+                ? t('app.allCaughtUp')
+                : t('app.noCategoryNotifications', { category: selectedCategory })}
             </Text>
           </View>
         ) : (

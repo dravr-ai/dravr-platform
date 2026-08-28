@@ -10,6 +10,7 @@ import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import type { ConversationKind, ConversationRowModel } from '@pierre/chat-utils';
 import { MENTION_PREFIX } from '@pierre/shared-constants';
+import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 import { SwipeableRow, type SwipeAction } from '../../components/ui/SwipeableRow';
@@ -21,9 +22,9 @@ type FeatherIconName = ComponentProps<typeof Feather>['name'];
  * label a screen reader announces in its place — the glyph is the only thing
  * on the row that says "group" or "from a messaging channel".
  */
-const KIND_GLYPH: Partial<Record<ConversationKind, { icon: FeatherIconName; label: string }>> = {
-  group: { icon: 'users', label: 'Group chat' },
-  channel: { icon: 'send', label: 'Messaging chat' },
+const KIND_GLYPH: Partial<Record<ConversationKind, { icon: FeatherIconName; labelKey: string }>> = {
+  group: { icon: 'users', labelKey: 'app.rowKindGroup' },
+  channel: { icon: 'send', labelKey: 'app.rowKindChannel' },
 };
 
 /** A `@handle` token the way the mention grammar spells one. */
@@ -60,6 +61,7 @@ export interface ConversationRowProps {
  * right, the unread count, and the `@` badge when that unread is a mention.
  */
 export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDelete }: ConversationRowProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const unread = row.unreadCount > 0;
   const mentioned = unread && previewMentionsSomeone(row.preview);
@@ -68,7 +70,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
   const leftActions: SwipeAction[] = [
     {
       icon: 'mail',
-      label: 'Mark unread',
+      label: t('app.rowMarkUnread'),
       color: colors.tokens.onPrimary,
       backgroundColor: colors.tokens.primary,
       onPress: () => onMarkUnread(row),
@@ -77,7 +79,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
   const rightActions: SwipeAction[] = [
     {
       icon: 'trash-2',
-      label: 'Delete',
+      label: t('common.delete'),
       color: colors.tokens.onError,
       backgroundColor: colors.error,
       onPress: () => onDelete(row),
@@ -105,7 +107,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
                 size={14}
                 color={colors.text.tertiary}
                 style={{ marginRight: 6 }}
-                accessibilityLabel={glyph.label}
+                accessibilityLabel={t(glyph.labelKey)}
                 testID={`conversation-kind-${row.id}`}
               />
             )}
@@ -158,7 +160,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
               <View
                 className="w-[18px] h-[18px] rounded-full items-center justify-center ml-2"
                 style={{ backgroundColor: colors.pierre.nutrition }}
-                accessibilityLabel="Mentions you"
+                accessibilityLabel={t('app.rowMentionsYou')}
                 testID={`conversation-mention-${row.id}`}
               >
                 <Text className="text-[11px] font-bold" style={{ color: colors.tokens.onPrimary }}>

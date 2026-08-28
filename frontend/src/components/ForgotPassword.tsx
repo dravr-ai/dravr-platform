@@ -25,7 +25,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
     setError('');
 
     if (!email.trim()) {
-      setError('Please enter your email address');
+      setError(t('app.enterEmailAddress'));
       return;
     }
 

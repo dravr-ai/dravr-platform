@@ -23,15 +23,18 @@ import { PRIMARY_PALETTE, spacing, glassCard, gradients, buttonGlow, useThemeCol
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import type { UpdateCoachRequest } from '../../types';
+import { useTranslation } from '@pierre/i18n';
 
 // Category options with colors matching Stitch UX spec
-const CATEGORY_OPTIONS: Array<{ key: string; label: string; color: string }> = [
-  { key: 'training', label: 'Training', color: '#3c6658' },
-  { key: 'nutrition', label: 'Nutrition', color: '#8f6a2e' },
-  { key: 'recovery', label: 'Recovery', color: '#0d3b2e' },
-  { key: 'recipes', label: 'Recipes', color: '#8f6a2e' },
-  { key: 'mobility', label: 'Mobility', color: '#7a4d5e' },
-  { key: 'custom', label: 'Custom', color: '#00241a' },
+// `key` is the value stored on the coach and sent to the API, so it stays
+// English; `labelKey` is what the chip shows and is resolved at render.
+const CATEGORY_OPTIONS: Array<{ key: string; labelKey: string; color: string }> = [
+  { key: 'training', labelKey: 'app.training', color: '#3c6658' },
+  { key: 'nutrition', labelKey: 'app.nutrition', color: '#8f6a2e' },
+  { key: 'recovery', labelKey: 'app.recovery', color: '#0d3b2e' },
+  { key: 'recipes', labelKey: 'app.recipes', color: '#8f6a2e' },
+  { key: 'mobility', labelKey: 'app.mobility', color: '#7a4d5e' },
+  { key: 'custom', labelKey: 'app.custom', color: '#00241a' },
 ];
 
 // Validation constants
@@ -41,6 +44,7 @@ const MAX_SYSTEM_PROMPT_LENGTH = 8000;
 const CONTEXT_WINDOW_SIZE = 128000;
 
 export function CoachEditorScreen() {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId: string }>();
@@ -88,12 +92,12 @@ export function CoachEditorScreen() {
       }
     } catch (error) {
       console.error('Failed to load coach:', error);
-      Alert.alert('Error', 'Failed to load coach data');
+      Alert.alert(t('common.error'), 'Failed to load coach data');
       router.back();
     } finally {
       setIsLoading(false);
     }
-  }, [router]);
+  }, [router, t]);
 
   useEffect(() => {
     if (coachId) {
@@ -115,22 +119,22 @@ export function CoachEditorScreen() {
     if (!title.trim()) {
       newErrors.title = 'Title is required';
     } else if (title.length > MAX_TITLE_LENGTH) {
-      newErrors.title = `Title must be ${MAX_TITLE_LENGTH} characters or less`;
+      newErrors.title = t('app.maxLengthTitle', { max: MAX_TITLE_LENGTH });
     }
 
     if (description.length > MAX_DESCRIPTION_LENGTH) {
-      newErrors.description = `Description must be ${MAX_DESCRIPTION_LENGTH} characters or less`;
+      newErrors.description = t('app.maxLengthDescription', { max: MAX_DESCRIPTION_LENGTH });
     }
 
     if (!systemPrompt.trim()) {
       newErrors.systemPrompt = 'System prompt is required';
     } else if (systemPrompt.length > MAX_SYSTEM_PROMPT_LENGTH) {
-      newErrors.systemPrompt = `System prompt must be ${MAX_SYSTEM_PROMPT_LENGTH} characters or less`;
+      newErrors.systemPrompt = t('app.maxLengthSystemPrompt', { max: MAX_SYSTEM_PROMPT_LENGTH });
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [title, description, systemPrompt]);
+  }, [title, description, systemPrompt, t]);
 
   // Show category picker as a React Native Modal (cross-platform, Maestro-compatible)
   const showCategoryPicker = () => {
@@ -192,7 +196,7 @@ export function CoachEditorScreen() {
       router.back();
     } catch (error) {
       console.error('Failed to save coach:', error);
-      Alert.alert('Error', 'Failed to update coach');
+      Alert.alert(t('common.error'), 'Failed to update coach');
     } finally {
       setIsSaving(false);
     }
@@ -205,9 +209,9 @@ export function CoachEditorScreen() {
       'Delete Coach?',
       `Delete coach "${title}"? This cannot be undone.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -217,7 +221,7 @@ export function CoachEditorScreen() {
               router.back();
             } catch (error) {
               console.error('Failed to delete coach:', error);
-              Alert.alert('Error', 'Failed to delete coach');
+              Alert.alert(t('common.error'), 'Failed to delete coach');
             } finally {
               setIsDeleting(false);
             }
@@ -234,13 +238,13 @@ export function CoachEditorScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background-primary" testID="coach-editor-missing">
         <View className="flex-1 justify-center items-center p-6">
-          <Text className="text-lg text-text-secondary mb-3">Coach not found</Text>
+          <Text className="text-lg text-text-secondary mb-3">{t('app.coachNotFound')}</Text>
           <TouchableOpacity
             className="px-5 py-2 bg-primary-500 rounded-lg"
             onPress={() => router.back()}
             testID="back-button"
           >
-            <Text className="text-text-primary text-base font-medium">Go Back</Text>
+            <Text className="text-text-primary text-base font-medium">{t('app.goBack')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -252,7 +256,7 @@ export function CoachEditorScreen() {
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
-          <Text className="text-text-secondary mt-3 text-base">Loading coach...</Text>
+          <Text className="text-text-secondary mt-3 text-base">{t('app.loadingCoach')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -274,7 +278,7 @@ export function CoachEditorScreen() {
             <Text className="text-2xl text-text-primary">{'←'}</Text>
           </TouchableOpacity>
           <Text className="flex-1 text-lg font-semibold text-text-primary text-center">
-            Edit Coach
+            {t('app.editCoachTitle')}
           </Text>
           <TouchableOpacity
             className={`px-4 py-1.5 rounded-xl min-w-[60px] items-center ${isSaving ? 'opacity-60' : ''}`}
@@ -289,7 +293,7 @@ export function CoachEditorScreen() {
             {isSaving ? (
               <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
             ) : (
-              <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Save</Text>
+              <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>{t('common.save')}</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -301,7 +305,7 @@ export function CoachEditorScreen() {
         >
           {/* Title Field */}
           <View className="mb-5">
-            <Text className="text-text-primary text-sm font-semibold mb-2">Title *</Text>
+            <Text className="text-text-primary text-sm font-semibold mb-2">{t('app.titleRequired')}</Text>
             <TextInput
               testID="coach-title-input"
               className="p-3.5 text-text-primary text-base"
@@ -312,7 +316,7 @@ export function CoachEditorScreen() {
               }}
               value={title}
               onChangeText={setTitle}
-              placeholder="Enter coach title"
+              placeholder={t('app.enterCoachTitle')}
               placeholderTextColor={colors.text.tertiary}
               maxLength={MAX_TITLE_LENGTH}
             />
@@ -328,7 +332,7 @@ export function CoachEditorScreen() {
 
           {/* Category Field */}
           <View className="mb-5">
-            <Text className="text-text-primary text-sm font-semibold mb-2">Category</Text>
+            <Text className="text-text-primary text-sm font-semibold mb-2">{t('app.category')}</Text>
             <TouchableOpacity
               className="flex-row items-center justify-between p-3.5"
               style={{
@@ -344,7 +348,7 @@ export function CoachEditorScreen() {
                 testID="selected-category"
               >
                 <Text className="text-on-surface text-sm font-semibold">
-                  {currentCategory?.label}
+                  {currentCategory ? t(currentCategory.labelKey) : undefined}
                 </Text>
               </View>
               <Text className="text-text-secondary text-sm">{'▼'}</Text>
@@ -353,7 +357,7 @@ export function CoachEditorScreen() {
 
           {/* Description Field */}
           <View className="mb-5">
-            <Text className="text-text-primary text-sm font-semibold mb-2">Description</Text>
+            <Text className="text-text-primary text-sm font-semibold mb-2">{t('app.description')}</Text>
             <TextInput
               testID="coach-description-input"
               className="p-3.5 text-text-primary text-base min-h-[100px]"
@@ -364,7 +368,7 @@ export function CoachEditorScreen() {
               }}
               value={description}
               onChangeText={setDescription}
-              placeholder="Briefly describe what this coach does"
+              placeholder={t('app.describeCoachPlaceholder')}
               placeholderTextColor={colors.text.tertiary}
               multiline
               numberOfLines={3}
@@ -383,7 +387,7 @@ export function CoachEditorScreen() {
 
           {/* System Prompt Section (collapsible, expanded by default) */}
           <CollapsibleSection
-            title="System Prompt *"
+            title={t('app.systemPromptRequired')}
             defaultExpanded
             testID="system-prompt-section"
           >
@@ -393,7 +397,7 @@ export function CoachEditorScreen() {
                 testID="expand-prompt-button"
               >
                 <Text style={{ color: colors.pierre.violet }} className="text-sm">
-                  Expand {'↗'}
+                  {t('app.expand')} {'↗'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -407,7 +411,7 @@ export function CoachEditorScreen() {
               }}
               value={systemPrompt}
               onChangeText={setSystemPrompt}
-              placeholder="Define how this coach should behave and respond..."
+              placeholder={t('app.definePromptPlaceholderLong')}
               placeholderTextColor={colors.text.tertiary}
               multiline
               textAlignVertical="top"
@@ -446,7 +450,7 @@ export function CoachEditorScreen() {
           </CollapsibleSection>
 
           {/* Tags Section (collapsible, collapsed by default) */}
-          <CollapsibleSection title="Tags" defaultExpanded={false} testID="tags-section">
+          <CollapsibleSection title={t('app.tags')} defaultExpanded={false} testID="tags-section">
             <View className="flex-row gap-2">
               <TextInput
                 testID="tag-input"
@@ -457,7 +461,7 @@ export function CoachEditorScreen() {
                 }}
                 value={newTag}
                 onChangeText={setNewTag}
-                placeholder="Add a tag"
+                placeholder={t('app.addATag')}
                 placeholderTextColor={colors.text.tertiary}
                 onSubmitEditing={addTag}
                 returnKeyType="done"
@@ -502,16 +506,16 @@ export function CoachEditorScreen() {
               ))}
               {tags.length === 0 && (
                 <Text className="text-text-tertiary text-sm italic" testID="no-tags-message">
-                  No tags added yet
+                  {t('app.noTagsYet')}
                 </Text>
               )}
             </View>
           </CollapsibleSection>
 
           {/* Data Context Section (collapsible) */}
-          <CollapsibleSection title="Data Context" defaultExpanded={false} testID="data-context-section">
+          <CollapsibleSection title={t('app.dataContext')} defaultExpanded={false} testID="data-context-section">
             <View className="mb-4">
-              <Text className="text-text-primary text-sm font-semibold mb-2">Startup Query</Text>
+              <Text className="text-text-primary text-sm font-semibold mb-2">{t('app.startupQuery')}</Text>
               <TextInput
                 testID="startup-query-input"
                 className="p-3.5 text-text-primary text-base min-h-[80px]"
@@ -521,7 +525,7 @@ export function CoachEditorScreen() {
                 }}
                 value={startupQuery}
                 onChangeText={setStartupQuery}
-                placeholder="What should the coach analyze first?"
+                placeholder={t('app.whatAnalyzeFirst')}
                 placeholderTextColor={colors.text.tertiary}
                 multiline
                 textAlignVertical="top"
@@ -545,14 +549,14 @@ export function CoachEditorScreen() {
                   <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimary }}>{'✓'}</Text>
                 )}
               </View>
-              <Text className="text-text-primary text-sm">Pre-fetch activity data</Text>
+              <Text className="text-text-primary text-sm">{t('app.prefetchActivity')}</Text>
             </TouchableOpacity>
 
             {prefetchEnabled && (
               <View className="pl-3" style={{ borderLeftWidth: 2, borderLeftColor: colors.border.default }}>
                 <View className="flex-row gap-3 mb-3">
                   <View className="flex-1">
-                    <Text className="text-text-secondary text-xs font-semibold mb-1">Activity count</Text>
+                    <Text className="text-text-secondary text-xs font-semibold mb-1">{t('app.activityCount')}</Text>
                     <TextInput
                       testID="activity-count-input"
                       className="p-2.5 text-text-primary text-sm"
@@ -563,7 +567,7 @@ export function CoachEditorScreen() {
                     />
                   </View>
                   <View className="flex-1">
-                    <Text className="text-text-secondary text-xs font-semibold mb-1">Time frame</Text>
+                    <Text className="text-text-secondary text-xs font-semibold mb-1">{t('app.timeFrame')}</Text>
                     <TouchableOpacity
                       className="p-2.5 flex-row items-center justify-between"
                       style={{ ...glassCard, borderRadius: 10 }}
@@ -595,7 +599,7 @@ export function CoachEditorScreen() {
                         backgroundColor: detailMode === 'summary' ? colors.pierre.violet : 'transparent',
                       }}
                     />
-                    <Text className="text-text-secondary text-xs">Summary</Text>
+                    <Text className="text-text-secondary text-xs">{t('app.summary')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     className="flex-row items-center"
@@ -629,7 +633,7 @@ export function CoachEditorScreen() {
                       <Text className="text-[10px] font-bold" style={{ color: colors.tokens.onPrimary }}>{'✓'}</Text>
                     )}
                   </View>
-                  <Text className="text-text-secondary text-xs">Also fetch athlete profile</Text>
+                  <Text className="text-text-secondary text-xs">{t('app.alsoFetchProfile')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -646,7 +650,7 @@ export function CoachEditorScreen() {
             {isDeleting ? (
               <ActivityIndicator size="small" color={colors.error} />
             ) : (
-              <Text className="text-base font-semibold" style={{ color: colors.error }}>Delete coach</Text>
+              <Text className="text-base font-semibold" style={{ color: colors.error }}>{t('app.deleteCoach')}</Text>
             )}
           </TouchableOpacity>
         </ScrollView>
@@ -664,9 +668,9 @@ export function CoachEditorScreen() {
               onPress={() => setExpandedTextArea(false)}
               testID="modal-done-button"
             >
-              <Text className="text-primary-500 text-base font-semibold">Done</Text>
+              <Text className="text-primary-500 text-base font-semibold">{t('app.done')}</Text>
             </TouchableOpacity>
-            <Text className="text-text-primary text-base font-semibold">System Prompt</Text>
+            <Text className="text-text-primary text-base font-semibold">{t('app.systemPrompt')}</Text>
             <View className="w-[50px]" />
           </View>
           <TextInput
@@ -674,7 +678,7 @@ export function CoachEditorScreen() {
             className="flex-1 p-3 text-text-primary text-base"
             value={systemPrompt}
             onChangeText={setSystemPrompt}
-            placeholder="Define how this coach should behave..."
+            placeholder={t('app.definePromptPlaceholder')}
             placeholderTextColor={colors.text.tertiary}
             multiline
             textAlignVertical="top"
@@ -706,7 +710,7 @@ export function CoachEditorScreen() {
             onPress={() => {/* prevent dismiss when tapping content */}}
           >
             <Text className="text-text-primary text-lg font-bold text-center mb-4">
-              Select Category
+              {t('app.selectCategory')}
             </Text>
             {CATEGORY_OPTIONS.map((cat) => (
               <TouchableOpacity
@@ -722,7 +726,7 @@ export function CoachEditorScreen() {
                   className="w-3 h-3 rounded-full mr-3"
                   style={{ backgroundColor: cat.color }}
                 />
-                <Text className="text-text-primary text-base">{cat.label}</Text>
+                <Text className="text-text-primary text-base">{t(cat.labelKey)}</Text>
               </TouchableOpacity>
             ))}
             <TouchableOpacity
@@ -732,7 +736,7 @@ export function CoachEditorScreen() {
               testID="category-cancel"
             >
               <Text className="text-text-secondary text-base text-center font-semibold">
-                Cancel
+                {t('common.cancel')}
               </Text>
             </TouchableOpacity>
           </Pressable>

@@ -40,13 +40,13 @@ function formatTimestamp(iso: string): string {
 function statusToneClass(verdict: ClaimVerdict): string {
   switch (VERDICT_STATUS_TONE[verdict.status]) {
     case 'success':
-      return 'bg-success/15 text-success';
+      return 'bg-success/15 text-on-success-container';
     case 'warning':
-      return 'bg-warning/15 text-warning';
+      return 'bg-warning/15 text-on-warning-container';
     case 'error':
       return 'bg-error/15 text-error';
     case 'info':
-      return 'bg-info/15 text-info';
+      return 'bg-info/15 text-on-info-container';
     case 'secondary':
     default:
       return 'bg-surface-container-high/15 text-on-surface';

@@ -25,12 +25,12 @@ interface SourceBadgeSpec {
 const SOURCE_BADGES: Record<UserToolSource, SourceBadgeSpec> = {
   user_override: {
     label: 'User Override',
-    classes: 'bg-info/15 text-info',
+    classes: 'bg-info/15 text-on-info-container',
     title: 'Per-user admin override — takes precedence over plan and tenant settings',
   },
   plan_restriction: {
     label: 'Plan Restricted',
-    classes: 'bg-warning/15 text-warning',
+    classes: 'bg-warning/15 text-on-warning-container',
     title: "Disabled because the tenant's plan does not meet this tool's minimum plan",
   },
   global_disabled: {
@@ -40,7 +40,7 @@ const SOURCE_BADGES: Record<UserToolSource, SourceBadgeSpec> = {
   },
   tenant_override: {
     label: 'Tenant Override',
-    classes: 'bg-info/15 text-info',
+    classes: 'bg-info/15 text-on-info-container',
     title: 'Set by a tenant-level override (Tool Management tab)',
   },
   default: {

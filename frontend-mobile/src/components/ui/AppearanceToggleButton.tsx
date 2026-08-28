@@ -5,6 +5,7 @@ import React from 'react';
 import { TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemeColors } from '../../constants/theme';
+import { useTranslation } from '@pierre/i18n';
 
 interface AppearanceToggleButtonProps {
   /** Icon size in pixels. Defaults to 20 to match the notification bell. */
@@ -24,6 +25,7 @@ export function AppearanceToggleButton({
   color,
   testID,
 }: AppearanceToggleButtonProps) {
+  const { t } = useTranslation();
   const { scheme, setPref } = useTheme();
   const colors = useThemeColors();
   const isDark = scheme === 'dark';
@@ -39,7 +41,7 @@ export function AppearanceToggleButton({
       onPress={handlePress}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
-      accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      accessibilityLabel={isDark ? t('app.switchToLight') : t('app.switchToDark')}
       testID={testID ?? 'appearance-toggle-button'}
     >
       <Ionicons

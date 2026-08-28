@@ -158,7 +158,7 @@ export function NotificationDetailModal({
                     className="text-sm font-semibold ml-2"
                     style={{ color: colors.tokens.onPrimary }}
                   >
-                    View Details
+                    {t('app.viewDetails')}
                   </Text>
                 </TouchableOpacity>
               )}

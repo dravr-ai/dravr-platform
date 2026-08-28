@@ -22,6 +22,7 @@ import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
 import { PostInstallHint } from './PostInstallHint';
 import type { StoreCoach, StoreCoachDetail } from '../../types';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * The athlete's installed copy of a listing, if any. An install mints a copy
@@ -50,6 +51,7 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
 };
 
 export function StoreCoachDetailScreen() {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { coachId } = useLocalSearchParams<{ coachId: string }>();
@@ -74,11 +76,11 @@ export function StoreCoachDetailScreen() {
       setInstalledCopy(findInstalledCopy(response, installations.coaches));
     } catch (error) {
       console.error('Failed to load coach detail:', error);
-      Alert.alert('Error', 'Failed to load coach details');
+      Alert.alert(t('common.error'), 'Failed to load coach details');
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, coachId]);
+  }, [isAuthenticated, coachId, t]);
 
   useEffect(() => {
     loadCoachDetail();
@@ -95,13 +97,13 @@ export function StoreCoachDetailScreen() {
       trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     } catch (error) {
       console.error('Failed to install coach:', error);
-      Alert.alert('Error', 'Failed to install coach. Please try again.');
+      Alert.alert(t('common.error'), 'Failed to install coach. Please try again.');
     } finally {
       setIsInstalling(false);
     }
   };
 
-  // "Open chat" on the post-install hint: a fresh thread. The hint hands over
+  // t('app.openChat') on the post-install hint: a fresh thread. The hint hands over
   // the `/coach add @handle` draft the athlete types there.
   const handleOpenChat = () => {
     setPostInstall(null);
@@ -121,9 +123,9 @@ export function StoreCoachDetailScreen() {
       'Uninstall Coach?',
       `Remove "${coach.title}" from your coaches? You can always reinstall it later.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Uninstall',
+          text: t('app.uninstall'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -132,10 +134,10 @@ export function StoreCoachDetailScreen() {
               await storeApi.uninstall(copyId);
               setInstalledCopy(null);
               setPostInstall(null);
-              Alert.alert('Uninstalled', 'Coach has been removed from your library.');
+              Alert.alert(t('app.uninstalled'), 'Coach has been removed from your library.');
             } catch (error) {
               console.error('Failed to uninstall coach:', error);
-              Alert.alert('Error', 'Failed to uninstall coach. Please try again.');
+              Alert.alert(t('common.error'), 'Failed to uninstall coach. Please try again.');
             } finally {
               setIsInstalling(false);
             }
@@ -150,7 +152,7 @@ export function StoreCoachDetailScreen() {
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color={PRIMARY_PALETTE[500]} />
-          <Text className="mt-3 text-text-secondary text-base">Loading coach details...</Text>
+          <Text className="mt-3 text-text-secondary text-base">{t('app.loadingCoachDetails')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -160,12 +162,12 @@ export function StoreCoachDetailScreen() {
     return (
       <SafeAreaView className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center p-6">
-          <Text className="text-lg text-text-secondary mb-3">Coach not found</Text>
+          <Text className="text-lg text-text-secondary mb-3">{t('app.coachNotFound')}</Text>
           <TouchableOpacity
             className="px-5 py-2 bg-primary-500 rounded-lg"
             onPress={() => router.push('/(app)/(tabs)/(discover)')}
           >
-            <Text className="text-text-primary text-base font-medium">Go Back</Text>
+            <Text className="text-text-primary text-base font-medium">{t('app.goBack')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -219,7 +221,7 @@ export function StoreCoachDetailScreen() {
         {/* Tags */}
         {coach.tags.length > 0 && (
           <View className="px-4 py-3">
-            <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Tags</Text>
+            <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">{t('app.tags')}</Text>
             <View className="flex-row flex-wrap">
               {coach.tags.map((tag) => (
                 <View
@@ -241,7 +243,7 @@ export function StoreCoachDetailScreen() {
         {/* Sample Prompts */}
         {coach.sample_prompts.length > 0 && (
           <View className="px-4 py-3">
-            <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Sample Prompts</Text>
+            <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">{t('app.samplePrompts')}</Text>
             {coach.sample_prompts.map((prompt) => (
               <View
                 key={prompt}
@@ -260,7 +262,7 @@ export function StoreCoachDetailScreen() {
 
         {/* System Prompt Preview */}
         <View className="px-4 py-3">
-          <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">System Prompt</Text>
+          <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">{t('app.systemPrompt')}</Text>
           <View
             className="rounded-xl overflow-hidden"
             style={{
@@ -290,7 +292,7 @@ export function StoreCoachDetailScreen() {
 
         {/* Metadata */}
         <View className="px-4 py-3">
-          <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Details</Text>
+          <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">{t('app.details')}</Text>
           <View
             className="rounded-xl overflow-hidden"
             style={{
@@ -300,12 +302,12 @@ export function StoreCoachDetailScreen() {
             }}
           >
             <View className="flex-row justify-between items-center px-4 py-3 border-b border-border-subtle">
-              <Text className="text-sm text-text-secondary">Token Count</Text>
+              <Text className="text-sm text-text-secondary">{t('app.tokenCount')}</Text>
               <Text className="text-sm text-text-primary font-medium">{coach.token_count}</Text>
             </View>
             {coach.published_at && (
               <View className="flex-row justify-between items-center px-4 py-3">
-                <Text className="text-sm text-text-secondary">Published</Text>
+                <Text className="text-sm text-text-secondary">{t('app.published')}</Text>
                 <Text className="text-sm text-text-primary font-medium">
                   {new Date(coach.published_at).toLocaleDateString()}
                 </Text>
@@ -346,11 +348,11 @@ export function StoreCoachDetailScreen() {
               onPress={handleEdit}
               disabled={isInstalling}
               accessibilityRole="button"
-              accessibilityLabel="Edit coach"
+              accessibilityLabel={t('app.editCoach')}
               testID="edit-coach-button"
             >
               <Feather name="edit-2" size={18} color={colors.pierre.violet} />
-              <Text className="text-text-primary text-base font-medium ml-2">Edit coach</Text>
+              <Text className="text-text-primary text-base font-medium ml-2">{t('app.editCoach')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               className="flex-1 flex-row items-center justify-center py-3.5 rounded-xl"
@@ -368,7 +370,7 @@ export function StoreCoachDetailScreen() {
               ) : (
                 <>
                   <Feather name="check" size={18} color={colors.pierre.activity} />
-                  <Text className="text-text-primary text-base font-medium ml-2">Installed</Text>
+                  <Text className="text-text-primary text-base font-medium ml-2">{t('app.installed')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -388,7 +390,7 @@ export function StoreCoachDetailScreen() {
             ) : (
               <>
                 <Feather name="download" size={18} color={colors.tokens.onPrimary} />
-                <Text className="text-base font-semibold ml-2" style={{ color: colors.tokens.onPrimary }}>Install Coach</Text>
+                <Text className="text-base font-semibold ml-2" style={{ color: colors.tokens.onPrimary }}>{t('app.installCoach')}</Text>
               </>
             )}
           </TouchableOpacity>

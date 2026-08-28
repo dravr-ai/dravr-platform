@@ -9,6 +9,7 @@ import { View, Text, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../../constants/theme';
 import type { ChatPlusAction } from './useChatPlusActions';
+import { useTranslation } from '@pierre/i18n';
 
 interface ChatPlusSheetProps {
   visible: boolean;
@@ -24,6 +25,7 @@ interface ChatPlusSheetProps {
  * this one.
  */
 export function ChatPlusSheet({ visible, onClose, actions }: ChatPlusSheetProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
 
   return (
@@ -41,8 +43,8 @@ export function ChatPlusSheet({ visible, onClose, actions }: ChatPlusSheetProps)
           testID="chat-plus-sheet"
         >
           <View className="flex-row items-center justify-between mb-2">
-            <Text className="text-lg font-semibold text-text-primary">Start</Text>
-            <TouchableOpacity onPress={onClose} testID="chat-plus-close" accessibilityLabel="Close">
+            <Text className="text-lg font-semibold text-text-primary">{t('app.start')}</Text>
+            <TouchableOpacity onPress={onClose} testID="chat-plus-close" accessibilityLabel={t('common.close')}>
               <Ionicons name="close" size={22} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>

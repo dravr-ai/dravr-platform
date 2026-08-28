@@ -18,6 +18,7 @@ import type { LlmSettingsResponse } from '@pierre/api-client';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { Input } from '../../components/ui';
 import { userApi } from '../../services/api';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Manage the athlete's own AI provider credentials.
@@ -28,6 +29,7 @@ import { userApi } from '../../services/api';
  * so a typo fails here rather than silently breaking every later coaching turn.
  */
 export function LlmSettingsScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const colors = useThemeColors();
 
@@ -45,11 +47,11 @@ export function LlmSettingsScreen() {
       setError(null);
       setSettings(await userApi.getLlmSettings());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load AI provider settings');
+      setError(err instanceof Error ? err.message : t('app.failedLoadAiSettings'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -70,16 +72,16 @@ export function LlmSettingsScreen() {
         api_key: apiKey.trim(),
       });
       if (!check.valid) {
-        Alert.alert('Key rejected', check.error ?? `${selectedProvider} did not accept that key.`);
+        Alert.alert(t('app.keyRejected'), check.error ?? `${selectedProvider} did not accept that key.`);
         return;
       }
       await userApi.saveLlmCredentials({ provider: selectedProvider, api_key: apiKey.trim() });
       setApiKey('');
       setSelectedProvider(null);
       await load();
-      Alert.alert('Provider saved', 'Your key was validated and saved.');
+      Alert.alert(t('app.providerSaved'), 'Your key was validated and saved.');
     } catch (err) {
-      Alert.alert('Could not save key', err instanceof Error ? err.message : 'Unknown error');
+      Alert.alert(t('app.couldNotSaveKey'), err instanceof Error ? err.message : t('app.unknownError'));
     } finally {
       setIsSaving(false);
     }
@@ -90,9 +92,9 @@ export function LlmSettingsScreen() {
       `Remove your ${provider} key?`,
       'Coaching falls back to the system provider until you add another key.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Remove',
+          text: t('app.remove'),
           style: 'destructive',
           onPress: () => {
             void (async () => {
@@ -100,7 +102,7 @@ export function LlmSettingsScreen() {
                 await userApi.deleteLlmCredentials(provider);
                 await load();
               } catch (err) {
-                Alert.alert('Could not remove key', err instanceof Error ? err.message : 'Unknown error');
+                Alert.alert(t('app.couldNotRemoveKey'), err instanceof Error ? err.message : t('app.unknownError'));
               }
             })();
           },
@@ -133,7 +135,7 @@ export function LlmSettingsScreen() {
         <TouchableOpacity onPress={() => router.back()} testID="back-button" style={{ padding: 8, marginRight: 8 }}>
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>AI Provider</Text>
+        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('app.aiProvider')}</Text>
       </View>
 
       {isLoading ? (
@@ -144,13 +146,13 @@ export function LlmSettingsScreen() {
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: 12 }}>
           <Text style={{ color: colors.text.secondary, textAlign: 'center' }} testID="llm-error">{error}</Text>
           <TouchableOpacity onPress={() => { void load(); }} testID="llm-retry" style={{ paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.background.tertiary }}>
-            <Text style={{ color: colors.text.primary, fontWeight: '600' }}>Retry</Text>
+            <Text style={{ color: colors.text.primary, fontWeight: '600' }}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
           <View>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Providers</Text>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.providers')}</Text>
             <View style={cardStyle}>
               {providers.map((provider, index) => (
                 <View
@@ -167,8 +169,8 @@ export function LlmSettingsScreen() {
                     <Text style={{ fontSize: 16, color: colors.text.primary }}>{provider.display_name}</Text>
                     <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
                       {provider.has_credentials
-                        ? `Key from ${provider.credential_source ?? 'system'}`
-                        : 'No key configured'}
+                        ? t('app.keyFromSource', { source: provider.credential_source ?? 'system' })
+                        : t('app.noKeyConfigured')}
                       {provider.is_active ? ' · Active' : ''}
                     </Text>
                   </View>
@@ -178,7 +180,7 @@ export function LlmSettingsScreen() {
                       testID={`llm-remove-${provider.name}`}
                       style={{ paddingHorizontal: 12, paddingVertical: 8 }}
                     >
-                      <Text style={{ color: colors.pierre.red, fontWeight: '600' }}>Remove</Text>
+                      <Text style={{ color: colors.pierre.red, fontWeight: '600' }}>{t('app.remove')}</Text>
                     </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
@@ -186,7 +188,7 @@ export function LlmSettingsScreen() {
                       testID={`llm-select-${provider.name}`}
                       style={{ paddingHorizontal: 12, paddingVertical: 8 }}
                     >
-                      <Text style={{ color: colors.pierre.violet, fontWeight: '600' }}>Add key</Text>
+                      <Text style={{ color: colors.pierre.violet, fontWeight: '600' }}>{t('app.addKey')}</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -203,7 +205,7 @@ export function LlmSettingsScreen() {
                 <Input
                   value={apiKey}
                   onChangeText={setApiKey}
-                  placeholder="Paste your API key"
+                  placeholder={t('app.pasteApiKey')}
                   autoCapitalize="none"
                   secureTextEntry
                   testID="llm-api-key-input"
@@ -223,7 +225,7 @@ export function LlmSettingsScreen() {
                     <ActivityIndicator color={colors.tokens.onPrimary} />
                   ) : (
                     <Text style={{ fontWeight: '600', color: apiKey.trim().length > 0 ? colors.tokens.onPrimary : colors.text.tertiary }}>
-                      Validate and save
+                      {t('app.validateAndSave')}
                     </Text>
                   )}
                 </TouchableOpacity>

@@ -227,7 +227,7 @@ export default function MemoryPanel() {
           title={t('shell.memoryForgetConfirm')}
           message={`The coach will stop using "${factSentence(pendingForget)}" on the next turn. This cannot be undone.`}
           confirmLabel="Forget"
-          cancelLabel="Cancel"
+          cancelLabel={t('common.cancel')}
           variant="danger"
           isLoading={forgetMutation.isPending}
           onConfirm={() => forgetMutation.mutate(pendingForget.id)}

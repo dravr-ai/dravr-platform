@@ -23,8 +23,10 @@ import { PROVIDER_COLORS, spacing, glassCard, buttonGlow, BOREAL_LIGHT } from '.
 import { isFirebaseEnabled, signInWithGoogle } from '../../firebase';
 import { AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from '@pierre/i18n';
 
 export function LoginScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { login, loginWithFirebase } = useAuth();
   const [email, setEmail] = useState('');
@@ -64,13 +66,13 @@ export function LoginScreen() {
         // Parse API error responses
         if (error.message.includes('400') || error.message.includes('invalid')) {
           message = 'Invalid email or password. Please check your credentials.';
-        } else if (error.message.includes('Network')) {
+        } else if (error.message.includes(t('app.networkTitle'))) {
           message = 'Network error. Please check your connection.';
         } else {
           message = error.message;
         }
       }
-      Alert.alert('Login Failed', message);
+      Alert.alert(t('app.loginFailedTitle'), message);
     } finally {
       setIsLoading(false);
     }
@@ -90,7 +92,7 @@ export function LoginScreen() {
       if (error instanceof Error) {
         message = error.message;
       }
-      Alert.alert('Sign In Failed', message);
+      Alert.alert(t('app.signInFailedTitle'), message);
     } finally {
       setIsGoogleLoading(false);
     }
@@ -104,7 +106,7 @@ export function LoginScreen() {
     color: '#a3d0be', // primaryFixedDim — reads on deep-forest backdrop
   };
 
-  // Editorial over-line ("The Technical Naturalist") — tiny tracked label
+  // Editorial over-line (t('app.heroPersona')) — tiny tracked label
   const kickerStyle: TextStyle = {
     fontFamily: 'Inter_Medium',
     fontSize: 11,
@@ -175,12 +177,12 @@ export function LoginScreen() {
               />
               <Text style={wordmarkStyle}>DRAVR</Text>
             </View>
-            <Text style={kickerStyle}>The Technical Naturalist</Text>
+            <Text style={kickerStyle}>{t('app.heroPersona')}</Text>
             <Text style={[heroHeadlineStyle, { marginTop: spacing.sm, marginBottom: spacing.sm }]}>
-              Fitness intelligence,{'\n'}rendered in ink.
+              {t('app.heroLead')}{'\n'}rendered in ink.
             </Text>
             <Text style={heroLeadStyle}>
-              Every session, meal, and hour of recovery — a single, legible story.
+              {t('app.heroBlurb')}
             </Text>
           </View>
 
@@ -199,17 +201,17 @@ export function LoginScreen() {
                     color: BOREAL_LIGHT.onSurface,
                   }}
                 >
-                  Sign in
+                  {t('common.login')}
                 </Text>
                 <Text style={{ fontSize: 14, color: BOREAL_LIGHT.onSurfaceVariant }}>
-                  Welcome back. Enter your credentials to continue.
+                  {t('app.welcomeBack')}
                 </Text>
               </View>
 
               {/* Login Form */}
               <View className="mb-2">
                 <Input
-                  label="Email"
+                  label={t('common.email')}
                   placeholder="you@example.com"
                   value={email}
                   onChangeText={setEmail}
@@ -222,8 +224,8 @@ export function LoginScreen() {
                 />
 
                 <Input
-                  label="Password"
-                  placeholder="Enter your password"
+                  label={t('common.password')}
+                  placeholder={t('app.enterYourPassword')}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
@@ -241,12 +243,12 @@ export function LoginScreen() {
                   testID="forgot-password-link"
                 >
                   <Text style={{ fontSize: 12, color: BOREAL_LIGHT.outline }}>
-                    Forgot password?
+                    {t('app.forgotPasswordLink')}
                   </Text>
                 </TouchableOpacity>
 
                 <Button
-                  title="Sign In"
+                  title={t('common.login')}
                   onPress={handleLogin}
                   loading={isLoading}
                   fullWidth
@@ -266,7 +268,7 @@ export function LoginScreen() {
                         className="px-3"
                         style={{ fontSize: 13, color: BOREAL_LIGHT.onSurfaceVariant }}
                       >
-                        or continue with
+                        {t('app.orContinueWith')}
                       </Text>
                       <View
                         style={{ flex: 1, height: 1, backgroundColor: BOREAL_LIGHT.outlineVariant }}
@@ -303,7 +305,7 @@ export function LoginScreen() {
                           color: BOREAL_LIGHT.onSurface,
                         }}
                       >
-                        {isGoogleLoading ? 'Signing in…' : 'Continue with Google'}
+                        {isGoogleLoading ? t('app.signingIn') : t('app.continueWithGoogle')}
                       </Text>
                     </TouchableOpacity>
                   </>
@@ -313,13 +315,13 @@ export function LoginScreen() {
               {/* Register Link */}
               <View className="flex-row justify-center items-center gap-1 pt-4">
                 <Text style={{ fontSize: 13, color: BOREAL_LIGHT.onSurfaceVariant }}>
-                  Don&apos;t have an account?
+                  {t('app.noAccountYet')}
                 </Text>
                 <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
                   <Text
                     style={{ fontSize: 13, fontWeight: '600', color: BOREAL_LIGHT.primary }}
                   >
-                    Create one
+                    {t('app.createOne')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -331,7 +333,7 @@ export function LoginScreen() {
             className="flex-row items-center justify-center"
             style={{ gap: spacing.md, marginTop: spacing.xl, opacity: 0.7 }}
           >
-            {['Activity', 'Nutrition', 'Recovery', 'Mobility'].map((pillar, i) => (
+            {['Activity', t('app.nutrition'), t('app.recovery'), t('app.mobility')].map((pillar, i) => (
               <React.Fragment key={pillar}>
                 {i > 0 && (
                   <Text style={{ color: '#a3d0be', opacity: 0.5 }} aria-hidden>

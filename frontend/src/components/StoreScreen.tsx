@@ -42,11 +42,11 @@ type SortOption = typeof SORT_OPTIONS[number]['key'];
 
 // Coach category colors (dark theme)
 const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: 'bg-activity/20 text-activity',
-  nutrition: 'bg-nutrition/20 text-nutrition',
-  recovery: 'bg-recovery/20 text-recovery',
-  recipes: 'bg-nutrition/20 text-nutrition',
-  mobility: 'bg-mobility/20 text-mobility',
+  training: 'bg-activity/20 text-on-activity-container',
+  nutrition: 'bg-nutrition/20 text-on-nutrition-container',
+  recovery: 'bg-recovery/20 text-on-recovery-container',
+  recipes: 'bg-nutrition/20 text-on-nutrition-container',
+  mobility: 'bg-mobility/20 text-on-mobility-container',
   custom: 'bg-surface-container-high text-on-surface-variant',
 };
 
@@ -78,7 +78,7 @@ interface InstalledCopy {
 
 interface StoreScreenProps {
   /**
-   * Dashboard route navigator, `tab[/subview]`. "Open chat" on the post-install
+   * Dashboard route navigator, `tab[/subview]`. t('app.openChat') on the post-install
    * hint starts a conversation and routes to `chat/<conversationId>`; closing
    * the edit sheet opened by route returns to `discover`.
    */
@@ -216,7 +216,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     },
     onError: (error: Error) => {
       setInstalledCopy(null);
-      setActionError(error.message || 'Failed to add coach');
+      setActionError(error.message || t('app.failedAddCoach'));
     },
   });
 
@@ -232,11 +232,11 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     },
     onError: (error: Error) => {
       setSuccessMessage(null);
-      setActionError(error.message || 'Failed to remove coach');
+      setActionError(error.message || t('app.failedRemoveCoach'));
     },
   });
 
-  // "Open chat" on the post-install hint: a fresh conversation, then the chat
+  // t('app.openChat') on the post-install hint: a fresh conversation, then the chat
   // tab. The hint hands over the `/coach add @handle` draft the athlete types
   // there.
   const openChat = useMutation({
@@ -248,7 +248,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       onNavigate?.(`chat/${encodeURIComponent(conversation.id)}`);
     },
     onError: (error: Error) => {
-      setActionError(error.message || 'Could not open a chat');
+      setActionError(error.message || t('app.couldNotOpenChat'));
     },
   });
 

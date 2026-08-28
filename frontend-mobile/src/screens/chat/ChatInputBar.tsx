@@ -5,11 +5,12 @@
 // ABOUTME: Keyboard-aware positioning — animates above keyboard or tab bar
 
 import React, { useEffect, useRef, useState } from 'react';
-import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, Keyboard, Platform, Animated } from 'react-native';
+import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COMMAND_PREFIX, isCommandDraft } from '@pierre/shared-constants';
+import { useTranslation } from '@pierre/i18n';
 import { spacing, useThemeColors, useTheme } from '../../constants/theme';
-import { VoiceButton, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
+import { VoiceButton } from '../../components/ui';
 import { CommandPalette } from '../../components/CommandPalette';
 import { MentionPalette } from '../../components/MentionPalette';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
@@ -28,6 +29,12 @@ interface ChatInputBarProps {
   onChangeText: (text: string) => void;
   onVoicePress: () => void;
   onSendMessage: () => void;
+  /** Where the composer sits with the keyboard closed, safe-area included. */
+  restingOffset: number;
+  /** Keyboard height in dp, 0 when closed. */
+  keyboardHeight: number;
+  /** The OS keyboard animation duration, so the composer moves with it. */
+  keyboardDuration: number;
 }
 
 export function ChatInputBar({
@@ -41,7 +48,11 @@ export function ChatInputBar({
   onChangeText,
   onVoicePress,
   onSendMessage,
+  restingOffset,
+  keyboardHeight,
+  keyboardDuration,
 }: ChatInputBarProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const { scheme } = useTheme();
   const displayText = isListening ? partialTranscript : inputText;
@@ -100,36 +111,28 @@ export function ChatInputBar({
     ? 'rgba(192, 200, 195, 0.18)'
     : 'rgba(26, 28, 27, 0.10)';
 
-  const bottomAnim = useRef(new Animated.Value(TAB_BAR_BOTTOM_OFFSET)).current;
+  // How far the composer must rise above its resting place. `bottom` stays
+  // fixed and the movement is a transform, because `bottom` cannot be animated
+  // on the native driver: the old version ran useNativeDriver:false and drove a
+  // LAYOUT property from JS on every keyboard frame, which is the textbook way
+  // to drop frames on the exact interaction the app is built around.
+  const rise = Math.max(0, keyboardHeight - restingOffset);
+  const riseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (e) => {
-      Animated.timing(bottomAnim, {
-        toValue: e.endCoordinates.height,
-        duration: Platform.OS === 'ios' ? e.duration : 250,
-        useNativeDriver: false,
-      }).start();
-    });
-
-    const hideSub = Keyboard.addListener(hideEvent, (e) => {
-      Animated.timing(bottomAnim, {
-        toValue: TAB_BAR_BOTTOM_OFFSET,
-        duration: Platform.OS === 'ios' ? (e.duration ?? 250) : 250,
-        useNativeDriver: false,
-      }).start();
-    });
-
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, [bottomAnim]);
+    Animated.timing(riseAnim, {
+      toValue: -rise,
+      duration: keyboardDuration,
+      useNativeDriver: true,
+    }).start();
+  }, [rise, keyboardDuration, riseAnim]);
 
   return (
     <Animated.View
       style={{
         position: 'absolute',
-        bottom: bottomAnim,
+        bottom: restingOffset,
+        transform: [{ translateY: riseAnim }],
         left: 0,
         right: 0,
         paddingHorizontal: spacing.md,
@@ -167,7 +170,7 @@ export function ChatInputBar({
           onPress={openCommandPalette}
           disabled={isListening || disabled}
           accessibilityRole="button"
-          accessibilityLabel="Commands"
+          accessibilityLabel={t('app.composerCommandsAria')}
           testID="slash-command-button"
         >
           <Text className="text-lg font-bold" style={{ color: colors.pierre.violet }}>
@@ -177,7 +180,7 @@ export function ChatInputBar({
         <TextInput
           ref={inputRef}
           className="flex-1 text-base text-text-primary py-2 max-h-[100px]"
-          placeholder={isListening ? 'Listening...' : 'Message Dravr...'}
+          placeholder={isListening ? t('app.composerListening') : t('app.composerPlaceholder')}
           placeholderTextColor={isListening ? colors.error : colors.text.tertiary}
           value={displayText}
           onChangeText={onChangeText}
@@ -205,6 +208,9 @@ export function ChatInputBar({
           style={canSend ? { backgroundColor: colors.pierre.violet } : undefined}
           onPress={onSendMessage}
           disabled={!canSend}
+          accessibilityRole="button"
+          accessibilityLabel={t('app.composerSendAria')}
+          accessibilityState={{ disabled: !canSend }}
           testID={canSend ? 'send-button' : 'send-button-disabled'}
         >
           {isSending ? (
@@ -220,7 +226,7 @@ export function ChatInputBar({
       </View>
       {isListening && (
         <View className="pt-1 items-center">
-          <Text className="text-xs text-error">Tap mic to stop recording</Text>
+          <Text className="text-xs text-error">{t('app.composerTapMicToStop')}</Text>
         </View>
       )}
     </Animated.View>

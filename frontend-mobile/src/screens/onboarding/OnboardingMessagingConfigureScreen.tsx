@@ -14,6 +14,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { messagingApi } from '../../services/api';
 import { useMessagingOnboarding } from '../../hooks/useMessagingOnboarding';
 import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Connect the chosen messaging channel (mobile). Deep-link channels show a QR
@@ -22,6 +23,7 @@ import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
  * and flips the shared cache the instant the link lands, routing on to chat.
  */
 export function OnboardingMessagingConfigureScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const messaging = useMessagingOnboarding(user?.id, true);
   const channel = messaging.chosenChannel;
@@ -67,7 +69,7 @@ export function OnboardingMessagingConfigureScreen() {
       <Shell heading={`Connect ${displayName}`}>
         <View className="items-center gap-4 py-10">
           <ActivityIndicator size="large" />
-          <Text className="text-sm text-on-surface">Preparing your {displayName} link…</Text>
+          <Text className="text-sm text-on-surface">{t('app.preparingLink', { channel: displayName })}</Text>
         </View>
       </Shell>
     );
@@ -78,10 +80,10 @@ export function OnboardingMessagingConfigureScreen() {
       <Shell heading={`Connect ${displayName}`}>
         <View className="items-center gap-4 py-10">
           <Text className="text-base text-on-surface font-medium text-center">
-            We couldn&apos;t start the {displayName} connection just now.
+            {t('app.couldNotStartConnection', { channel: displayName })}
           </Text>
-          <Button title="Try again" onPress={() => void refetch()} disabled={isFetching} />
-          <Button title="Skip for now" variant="secondary" onPress={() => void messaging.skipMessaging()} />
+          <Button title={t('app.tryAgainLower')} onPress={() => void refetch()} disabled={isFetching} />
+          <Button title={t('app.skipForNow')} variant="secondary" onPress={() => void messaging.skipMessaging()} />
         </View>
       </Shell>
     );
@@ -106,31 +108,37 @@ export function OnboardingMessagingConfigureScreen() {
               />
             </View>
             <Text className="max-w-xs text-center text-sm text-on-surface-variant">
-              Scan the QR with another device, or tap below to open {displayName}. Then press Start to
+              {t('app.scanQrOtherDevice')} {displayName}. Then press Start to
               finish.
             </Text>
           </>
         ) : (
           <Text className="max-w-xs text-center text-sm text-on-surface-variant">
-            Tap below to connect {displayName}. You&apos;ll come back here automatically once it&apos;s
+            {t('app.tapBelowToConnect')} {displayName}. You&apos;ll come back here automatically once it&apos;s
             done.
           </Text>
         )}
 
         <Button
-          title={isDeepLink ? `Open ${displayName}` : `Connect with ${displayName}`}
+          title={
+            isDeepLink
+              ? t('app.openChannel', { channel: displayName })
+              : t('app.connectWithChannel', { channel: displayName })
+          }
           onPress={() => void Linking.openURL(link.linking_url)}
           fullWidth
         />
 
         <View className="flex-row items-center gap-2">
           <ActivityIndicator size="small" />
-          <Text className="text-xs text-on-surface-variant">Waiting for you to finish in {displayName}…</Text>
+          <Text className="text-xs text-on-surface-variant">
+            {t('app.waitingToFinishIn', { channel: displayName })}
+          </Text>
         </View>
       </View>
 
       <View className="mt-6">
-        <Button title="Skip for now" variant="secondary" onPress={() => void messaging.skipMessaging()} />
+        <Button title={t('app.skipForNow')} variant="secondary" onPress={() => void messaging.skipMessaging()} />
       </View>
     </Shell>
   );

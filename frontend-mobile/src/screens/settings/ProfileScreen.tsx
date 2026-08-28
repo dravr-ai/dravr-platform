@@ -1,5 +1,5 @@
 // ABOUTME: Profile screen — edit display name, view the account email
-// ABOUTME: Mobile counterpart of the web Settings "Profile" tab, sharing its updateProfile call
+// ABOUTME: Mobile counterpart of the web Settings t('common.profile') tab, sharing its updateProfile call
 
 import React, { useState } from 'react';
 import {
@@ -18,6 +18,7 @@ import { spacing, useThemeColors } from '../../constants/theme';
 import { Input } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Edit the account profile.
@@ -25,11 +26,12 @@ import { useAuth } from '../../contexts/AuthContext';
  * The Settings screen previously offered "Edit Profile" and "Personal
  * Information" as two separate rows, neither of which was wired to anything —
  * both promised a destination that did not exist. They now both lead here, and
- * this screen mirrors the web Settings "Profile" tab field for field so the two
+ * this screen mirrors the web Settings t('common.profile') tab field for field so the two
  * platforms cannot drift: display name is editable, email is shown read-only
  * because it is the account identifier and is not changeable from this surface.
  */
 export function ProfileScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const colors = useThemeColors();
   const { user, updateUser } = useAuth();
@@ -60,11 +62,11 @@ export function ProfileScreen() {
       // Reflect the saved value locally so the Settings header and avatar
       // initial update without a round-trip through a refetch.
       await updateUser({ display_name: response.user?.display_name ?? trimmed });
-      Alert.alert('Profile updated', 'Your display name has been saved.');
+      Alert.alert(t('app.profileUpdated'), 'Your display name has been saved.');
       router.back();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update profile';
-      Alert.alert('Could not save profile', message);
+      const message = err instanceof Error ? err.message : t('app.failedToUpdateProfile');
+      Alert.alert(t('app.couldNotSaveProfile'), message);
     } finally {
       setIsSaving(false);
     }
@@ -78,7 +80,7 @@ export function ProfileScreen() {
         <TouchableOpacity onPress={() => router.back()} testID="back-button" style={{ padding: 8, marginRight: 8 }}>
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>Profile</Text>
+        <Text style={{ fontSize: 20, fontWeight: '600', color: colors.text.primary }}>{t('common.profile')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
@@ -102,18 +104,18 @@ export function ProfileScreen() {
 
         <View style={cardStyle}>
           <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.secondary, marginBottom: 8 }}>
-            Display Name
+            {t('app.displayName')}
           </Text>
           <Input
             value={displayName}
             onChangeText={setDisplayName}
-            placeholder="How your coach addresses you"
+            placeholder={t('app.howCoachAddressesYou')}
             autoCapitalize="words"
             testID="profile-display-name-input"
           />
 
           <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.secondary, marginTop: 20, marginBottom: 8 }}>
-            Email
+            {t('common.email')}
           </Text>
           {/* Read-only: the email identifies the account and is not editable here. */}
           <View
@@ -152,7 +154,7 @@ export function ProfileScreen() {
                 color: isDirty ? colors.tokens.onPrimary : colors.text.tertiary,
               }}
             >
-              Save Changes
+              {t('app.saveChanges')}
             </Text>
           )}
         </TouchableOpacity>

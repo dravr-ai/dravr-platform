@@ -210,8 +210,8 @@ export default function ChatTab({
   const headerTitle = useMemo<string>(() => {
     if (activeConversation?.group_name) return activeConversation.group_name;
     if (activeCoachTitle) return activeCoachTitle;
-    return activeConversation?.title?.trim() || 'New conversation';
-  }, [activeConversation, activeCoachTitle]);
+    return activeConversation?.title?.trim() || t('app.newConversation');
+  }, [activeConversation, activeCoachTitle, t]);
 
   // Drawer state for the claim verdict detail surface.
   const [selectedVerdict, setSelectedVerdict] = useState<ClaimVerdict | null>(null);
@@ -597,8 +597,8 @@ export default function ChatTab({
   // Message action handlers
   const handleCopyMessage = useCallback((content: string) => {
     navigator.clipboard.writeText(content);
-    showSuccessToast('Copied', 'Message copied to clipboard', 2000);
-  }, [showSuccessToast]);
+    showSuccessToast(t('app.copiedTitle'), 'Message copied to clipboard', 2000);
+  }, [showSuccessToast, t]);
 
   /**
    * Press handler for a control the reply's `actions` block carried.
@@ -630,9 +630,9 @@ export default function ChatTab({
       });
     } else {
       navigator.clipboard.writeText(content);
-      showInfoToast('Copied', 'Message copied to clipboard for sharing', 2000);
+      showInfoToast(t('app.copiedTitle'), 'Message copied to clipboard for sharing', 2000);
     }
-  }, [showInfoToast]);
+  }, [showInfoToast, t]);
 
   // Apply a rating change optimistically and persist it. Clicking the active
   // rating again toggles it off (DELETE); otherwise the rating is upserted.
@@ -674,7 +674,7 @@ export default function ChatTab({
       });
       setErrorMessage(error instanceof Error ? error.message : t('chat.feedbackSaveFailed'));
     }
-  }, [selectedConversation, messageFeedback]);
+  }, [selectedConversation, messageFeedback, t]);
 
   const handleThumbsUp = useCallback((messageId: string) => {
     void applyFeedback(messageId, 'up');
@@ -705,7 +705,7 @@ export default function ChatTab({
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : t('chat.feedbackSaveFailed'));
     }
-  }, [selectedConversation]);
+  }, [selectedConversation, t]);
 
   /**
    * Retry a failed assistant turn.

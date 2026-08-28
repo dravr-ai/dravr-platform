@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * A short illustrative exchange, collapsed by default, mirroring the web
@@ -22,6 +23,7 @@ import { View, Text, Pressable } from 'react-native';
  * an unpersuasive gate.
  */
 export function ConnectPreview() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   return (
@@ -32,21 +34,21 @@ export function ConnectPreview() {
         accessibilityState={{ expanded: open }}
       >
         <Text className="text-center text-sm font-medium text-text-secondary underline">
-          {open ? 'Hide the example' : 'See what coaching looks like first'}
+          {open ? t('app.previewHide') : t('app.previewSeeFirst')}
         </Text>
       </Pressable>
 
       {open && (
         <View className="mt-4 rounded-xl border border-outline-variant bg-surface-container-low p-4">
-          <Text className="text-xs uppercase text-text-tertiary">Example — not your data</Text>
+          <Text className="text-xs uppercase text-text-tertiary">{t('app.previewNotYourData')}</Text>
           <Text className="mt-1 text-xs text-text-tertiary">
-            A made-up athlete, Maya, three weeks into marathon training.
+            {t('app.previewAthlete')}
           </Text>
 
           <View className="mt-4 gap-3">
             <View className="self-end max-w-[85%] rounded-2xl border border-primary bg-primary/10 px-3.5 py-2">
               <Text className="text-sm text-on-surface">
-                Legs felt heavy on today&apos;s tempo. Should I still do Saturday&apos;s long run?
+                {t('app.previewQuestion')}
               </Text>
             </View>
             <View className="self-start max-w-[90%] rounded-2xl border border-outline-variant bg-surface-container px-3.5 py-2">
@@ -59,8 +61,7 @@ export function ConnectPreview() {
           </View>
 
           <Text className="mt-4 text-xs text-text-tertiary">
-            The specifics are read from the service you connect. Without one, a coach can only give
-            you the generic answer.
+            {t('app.previewSpecifics')}
           </Text>
         </View>
       )}

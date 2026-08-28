@@ -176,7 +176,7 @@ export default function CoachingPersonaTab() {
           data-testid="persona-status"
           className={`mt-4 p-3 rounded-lg text-sm ${
             message.type === 'success'
-              ? 'bg-success/10 text-success border border-success/20'
+              ? 'bg-success/10 text-on-success-container border border-success/20'
               : 'bg-error/10 text-error border border-error/20'
           }`}
         >

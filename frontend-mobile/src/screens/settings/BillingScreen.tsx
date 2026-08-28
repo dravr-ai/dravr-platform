@@ -19,6 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { apiClient } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
+import { useTranslation } from '@pierre/i18n';
 
 interface SubscriptionView {
   id: string;
@@ -70,10 +71,11 @@ interface PlanView {
   included_usd: number | null;
 }
 
-const TIER_LABEL: Record<string, string> = {
-  starter: 'Starter',
-  professional: 'Professional',
-  enterprise: 'Enterprise',
+/** Corpus key per tier. Module scope holds keys; the screen resolves them. */
+const TIER_LABEL_KEY: Record<string, string> = {
+  starter: 'app.planStarter',
+  professional: 'app.planProfessional',
+  enterprise: 'app.planEnterprise',
 };
 
 /** Subscription statuses that mean the user must fix their payment. */
@@ -93,6 +95,7 @@ function formatCompact(value: number): string {
 }
 
 export function BillingScreen(): React.ReactElement {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { flags: featureFlags } = useFeatureFlags();
   const showBillingHeader = featureFlags[FEATURE_KEYS.billingHeader];
@@ -153,7 +156,7 @@ export function BillingScreen(): React.ReactElement {
     onSuccess: ({ checkout_url }) => {
       void Linking.openURL(checkout_url);
     },
-    onError: (e) => setError(e instanceof Error ? e.message : 'Checkout failed'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('app.checkoutFailed')),
   });
 
   const portalMutation = useMutation({
@@ -169,7 +172,7 @@ export function BillingScreen(): React.ReactElement {
     onSuccess: ({ portal_url }) => {
       void Linking.openURL(portal_url);
     },
-    onError: (e) => setError(e instanceof Error ? e.message : 'Portal open failed'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('app.portalOpenFailed')),
   });
 
   const sub = subscriptionQuery.data;
@@ -183,10 +186,12 @@ export function BillingScreen(): React.ReactElement {
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       {hasPaymentProblem && (
         <View style={[styles.card, styles.dunningCard]}>
-          <Text style={styles.dunningTitle}>Payment problem — action needed</Text>
+          <Text style={styles.dunningTitle}>{t('app.paymentProblem')}</Text>
           <Text style={styles.muted}>
-            Your last payment for the {TIER_LABEL[tier] ?? tier} plan didn&apos;t go through
-            (status: {sub?.status}). Update your payment method to keep your plan.
+            {t('app.lastPaymentFailed', {
+              plan: TIER_LABEL_KEY[tier] ? t(TIER_LABEL_KEY[tier]) : tier,
+              status: sub?.status ?? '',
+            })}
           </Text>
           <TouchableOpacity
             style={[styles.button, styles.buttonDanger]}
@@ -194,7 +199,7 @@ export function BillingScreen(): React.ReactElement {
             onPress={() => portalMutation.mutate()}
           >
             <Text style={styles.buttonText}>
-              {portalMutation.isPending ? 'Opening…' : 'Update payment'}
+              {portalMutation.isPending ? t('app.opening') : t('app.updatePayment')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -202,19 +207,19 @@ export function BillingScreen(): React.ReactElement {
       {showBillingHeader && (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Current Plan</Text>
-          <Text style={styles.tierBadge}>{TIER_LABEL[tier] ?? tier}</Text>
+          <Text style={styles.cardTitle}>{t('app.currentPlan')}</Text>
+          <Text style={styles.tierBadge}>{t(TIER_LABEL_KEY[tier]) ?? tier}</Text>
         </View>
         {subscriptionQuery.isLoading ? (
           <ActivityIndicator />
         ) : sub ? (
           <View style={styles.row}>
-            <Text style={styles.label}>Status</Text>
+            <Text style={styles.label}>{t('app.status')}</Text>
             <Text style={styles.value}>{sub.status}</Text>
           </View>
         ) : (
           <Text style={styles.muted}>
-            You're on Starter. Upgrade to Professional for higher daily caps and overage billing.
+            {t('app.onStarterUpgrade')}
           </Text>
         )}
 
@@ -225,7 +230,7 @@ export function BillingScreen(): React.ReactElement {
             onPress={() => checkoutMutation.mutate('professional')}
           >
             <Text style={styles.buttonText}>
-              {checkoutMutation.isPending ? 'Opening Checkout…' : 'Upgrade to Professional'}
+              {checkoutMutation.isPending ? t('app.openingCheckout') : t('app.upgradeToProfessional')}
             </Text>
           </TouchableOpacity>
         )}
@@ -237,7 +242,7 @@ export function BillingScreen(): React.ReactElement {
             onPress={() => portalMutation.mutate()}
           >
             <Text style={styles.buttonText}>
-              {portalMutation.isPending ? 'Opening…' : 'Manage Subscription'}
+              {portalMutation.isPending ? t('app.opening') : t('app.manageSubscription')}
             </Text>
           </TouchableOpacity>
         )}
@@ -245,30 +250,30 @@ export function BillingScreen(): React.ReactElement {
         {sub != null && (
           <Text style={styles.fineprint}>
             {sub.cancel_at_period_end
-              ? 'Your plan is scheduled to cancel at the end of the current period. Use Manage Subscription to resume.'
-              : 'Use Manage Subscription to update your payment method, change plan, or cancel.'}
+              ? t('app.planCancelScheduled')
+              : t('app.useManageSubscription')}
           </Text>
         )}
 
-        {error != null && <Text style={styles.error}>Error: {error}</Text>}
+        {error != null && <Text style={styles.error}>{t('app.errorWithReason', { reason: error })}</Text>}
       </View>
       )}
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Plans</Text>
+        <Text style={styles.cardTitle}>{t('app.plans')}</Text>
         <Text style={styles.muted}>
-          Compare what each plan includes. Limits shown are the caps the app enforces.
+          {t('app.planCompareBlurb')}
         </Text>
         {plansQuery.isLoading ? (
           <ActivityIndicator />
         ) : plansQuery.data ? (
           plansQuery.data.plans.map((plan) => {
-            const cap = (v: number): string => (plan.unlimited ? 'Unlimited' : formatCompact(v));
+            const cap = (v: number): string => (plan.unlimited ? t('app.unlimited') : formatCompact(v));
             const includedUsage =
               plan.included_usd != null
                 ? `$${plan.included_usd}/mo`
                 : plan.unlimited
-                ? 'Custom'
+                ? t('app.custom')
                 : '—';
             const isCurrent = plan.tier === tier;
             return (
@@ -278,7 +283,7 @@ export function BillingScreen(): React.ReactElement {
               >
                 <View style={styles.cardHeader}>
                   <Text style={styles.planTitle}>{plan.label}</Text>
-                  {isCurrent && <Text style={styles.tierBadge}>Current</Text>}
+                  {isCurrent && <Text style={styles.tierBadge}>{t('app.current')}</Text>}
                 </View>
                 {(
                   [
@@ -301,7 +306,7 @@ export function BillingScreen(): React.ReactElement {
                     onPress={() => checkoutMutation.mutate('professional')}
                   >
                     <Text style={styles.buttonText}>
-                      {checkoutMutation.isPending ? 'Opening Checkout…' : 'Upgrade'}
+                      {checkoutMutation.isPending ? t('app.openingCheckout') : t('app.upgrade')}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -311,19 +316,19 @@ export function BillingScreen(): React.ReactElement {
                     disabled={checkoutMutation.isPending}
                     onPress={() => checkoutMutation.mutate('enterprise')}
                   >
-                    <Text style={styles.buttonText}>Talk to Sales</Text>
+                    <Text style={styles.buttonText}>{t('app.talkToSales')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
             );
           })
         ) : (
-          <Text style={styles.muted}>Plan information unavailable.</Text>
+          <Text style={styles.muted}>{t('app.planInfoUnavailable')}</Text>
         )}
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Usage Quota</Text>
+        <Text style={styles.cardTitle}>{t('app.usageQuota')}</Text>
         {quotaQuery.isLoading ? (
           <ActivityIndicator />
         ) : quotaQuery.data ? (
@@ -350,12 +355,12 @@ export function BillingScreen(): React.ReactElement {
             );
           })
         ) : (
-          <Text style={styles.muted}>Quota information unavailable.</Text>
+          <Text style={styles.muted}>{t('app.quotaInfoUnavailable')}</Text>
         )}
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Invoices</Text>
+        <Text style={styles.cardTitle}>{t('app.invoices')}</Text>
         {invoicesQuery.isLoading ? (
           <ActivityIndicator />
         ) : invoicesQuery.data && invoicesQuery.data.invoices.length > 0 ? (
@@ -384,7 +389,7 @@ export function BillingScreen(): React.ReactElement {
           ))
         ) : (
           <Text style={styles.muted}>
-            {sub ? 'No invoices yet.' : 'Invoices appear after your first paid period.'}
+            {sub ? t('app.noInvoicesYet') : t('app.invoicesAppearAfter')}
           </Text>
         )}
       </View>

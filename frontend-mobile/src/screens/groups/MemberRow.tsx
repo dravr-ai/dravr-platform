@@ -11,16 +11,20 @@ import { avatarSlot, initialsFor } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 import type { GroupMember, GroupRole } from '../../types';
+import { useTranslation } from '@pierre/i18n';
 
-/** What each role is called in the badge under a member's name. */
-export const ROLE_LABELS: Record<GroupRole, string> = {
-  owner: 'Owner',
-  admin: 'Admin',
-  member: 'Member',
+/**
+ * The corpus key for each role badge. Module scope, so it holds keys and the
+ * row resolves one — the same shape every other label table in the app uses.
+ */
+export const ROLE_LABEL_KEYS: Record<GroupRole, string> = {
+  owner: 'app.roleOwner',
+  admin: 'app.roleAdmin',
+  member: 'app.roleMember',
 };
 
 /** What a member row says when the server has no display name for the row. */
-const UNKNOWN_MEMBER = 'Unknown';
+const UNKNOWN_MEMBER_KEY = 'app.unknownMember';
 
 export interface MemberRowProps {
   member: GroupMember;
@@ -43,6 +47,7 @@ export function MemberRow({
   isRemoving,
   isChangingRole,
 }: MemberRowProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const roleColors = useMemo<Record<GroupRole, string>>(
     () => ({
@@ -53,7 +58,7 @@ export function MemberRow({
     [colors],
   );
   const roleColor = roleColors[member.role];
-  const displayName = member.display_name ?? UNKNOWN_MEMBER;
+  const displayName = member.display_name ?? t(UNKNOWN_MEMBER_KEY);
   // The same initials and the same colour hash the conversation list uses, so
   // one person looks like one person wherever the app draws them.
   const slot = avatarSlot({ id: member.user_id, coach_id: null, group_id: null });
@@ -68,13 +73,13 @@ export function MemberRow({
         <View className="flex-row items-center mt-0.5">
           <View className="px-1.5 py-0.5 rounded" style={{ backgroundColor: `${roleColor}20` }}>
             <Text className="text-[10px] font-semibold" style={{ color: roleColor }}>
-              {ROLE_LABELS[member.role]}
+              {t(ROLE_LABEL_KEYS[member.role])}
             </Text>
           </View>
           {member.peer_sharing_consent && (
             <View className="flex-row items-center ml-2">
               <Feather name="eye" size={10} color={colors.text.tertiary} />
-              <Text className="text-[10px] text-text-tertiary ml-0.5">Sharing</Text>
+              <Text className="text-[10px] text-text-tertiary ml-0.5">{t('app.sharing')}</Text>
             </View>
           )}
         </View>
@@ -92,7 +97,7 @@ export function MemberRow({
             <ActivityIndicator size="small" color={colors.text.secondary} />
           ) : (
             <Text className="text-xs font-semibold text-text-secondary">
-              {member.role === 'admin' ? 'Demote' : 'Promote'}
+              {member.role === 'admin' ? t('app.demote') : t('app.promote')}
             </Text>
           )}
         </TouchableOpacity>

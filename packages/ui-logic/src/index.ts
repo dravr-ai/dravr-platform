@@ -53,3 +53,15 @@ export {
   type UseConfirmDialogReturn,
   useConfirmDialog,
 } from './useModal';
+
+// API error classification — one classifier for web and mobile, so a failed
+// request is named by its transport state and status, never by matching on
+// the server's own prose.
+export {
+  type ApiErrorKind,
+  type ClassifiedApiError,
+  classifyApiError,
+  API_ERROR_KEYS,
+  prefersServerDetail,
+  describeApiError,
+} from './apiError';

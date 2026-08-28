@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The card shown after a coach is installed from Discover — teaches /coach add @handle and @handle
-// ABOUTME: Dismissible; "Open chat" hands the /coach add draft to the caller and starts a conversation
+// ABOUTME: Dismissible; t('app.openChat') hands the /coach add draft to the caller and starts a conversation
 
 import { Button, Card } from '../ui';
 import { coachAddDraft, coachMention } from './coachDraft';

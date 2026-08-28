@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Button, Input } from './ui';
+import { useTranslation } from '@pierre/i18n';
 
 interface OAuthAppSetupModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ export default function OAuthAppSetupModal({
   displayName,
   devPortalUrl,
 }: OAuthAppSetupModalProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const defaultRedirectUri = `${window.location.origin}/api/oauth/callback/${provider}`;
   const [clientId, setClientId] = useState('');
@@ -72,7 +74,7 @@ export default function OAuthAppSetupModal({
     onError: (err: unknown) => {
       const message =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        `Failed to save ${displayName} OAuth app`;
+        t('app.failedSaveOauthApp', { provider: displayName });
       setError(message);
     },
   });
@@ -82,7 +84,7 @@ export default function OAuthAppSetupModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientId.trim() || !clientSecret.trim() || !redirectUri.trim()) {
-      setError('Client ID, Client Secret, and Redirect URI are all required.');
+      setError(t('app.oauthAllFieldsRequired'));
       return;
     }
     saveMutation.mutate({
@@ -102,13 +104,13 @@ export default function OAuthAppSetupModal({
       <div className="w-full max-w-md rounded-2xl bg-surface-container border border-outline-variant/30 shadow-xl">
         <div className="px-6 py-5 border-b border-outline-variant/30 flex items-center justify-between">
           <h2 id="oauth-setup-title" className="text-lg font-semibold text-on-surface">
-            Set up your {displayName} OAuth app
+            {t('app.setUpOauthApp', { provider: displayName })}
           </h2>
           <button
             type="button"
             onClick={onClose}
             className="text-on-surface-variant hover:text-on-surface"
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -141,7 +143,7 @@ export default function OAuthAppSetupModal({
               id="oauth-client-id"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              placeholder={`paste your ${displayName} Client ID`}
+              placeholder={t('app.pasteProviderClientIdLower', { provider: displayName })}
               autoComplete="off"
               required
             />
@@ -159,7 +161,7 @@ export default function OAuthAppSetupModal({
               type="password"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
-              placeholder={`paste your ${displayName} Client Secret`}
+              placeholder={t('app.pasteProviderClientSecretLower', { provider: displayName })}
               autoComplete="off"
               required
             />
@@ -180,7 +182,7 @@ export default function OAuthAppSetupModal({
               required
             />
             <p className="text-xs text-on-surface-variant/70 mt-1.5">
-              Add this exact URI to your {displayName} app&apos;s allowed redirect URIs.
+              {t('app.addExactUri', { provider: displayName })}
             </p>
           </div>
 
@@ -195,10 +197,10 @@ export default function OAuthAppSetupModal({
 
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" disabled={saveMutation.isPending} className="flex-1">
-              {saveMutation.isPending ? 'Saving…' : 'Save and connect'}
+              {saveMutation.isPending ? t('app.saving') : t('app.saveAndConnect')}
             </Button>
           </div>
         </form>

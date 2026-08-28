@@ -126,8 +126,11 @@ describe('Login Component', () => {
     const user = userEvent.setup()
     const { authApi } = await import('../../services/api')
 
+    // A real axios rejection always carries the status alongside the body;
+    // the classifier reads the status, so the fixture has to have one.
     const mockError = {
       response: {
+        status: 401,
         data: {
           error: 'Invalid credentials'
         }
@@ -156,24 +159,67 @@ describe('Login Component', () => {
     expect(submitButton).not.toBeDisabled()
   })
 
-  it('should handle generic error when no specific error message', async () => {
+  /** Fill the form and submit it, returning once the request has been made. */
+  async function submitCredentials() {
     const user = userEvent.setup()
-    const { authApi } = await import('../../services/api')
-
-    vi.mocked(authApi.login).mockRejectedValue(new Error('Network error'))
-
     await renderLogin()
+    await user.type(screen.getByLabelText(/email address/i), 'test@example.com')
+    await user.type(screen.getByLabelText(/^password$/i), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+  }
 
-    const emailInput = screen.getByLabelText(/email address/i)
-    const passwordInput = screen.getByLabelText(/^password$/i)
-    const submitButton = screen.getByRole('button', { name: /sign in/i })
+  /** Pin navigator.onLine for one test; jsdom reports true by default. */
+  function setOnline(value: boolean) {
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      get: () => value,
+    })
+  }
 
-    await user.type(emailInput, 'test@example.com')
-    await user.type(passwordInput, 'password123')
-    await user.click(submitButton)
+  it('reads a reachable-but-failing network as a network error, not a bad password', async () => {
+    const { authApi } = await import('../../services/api')
+    vi.mocked(authApi.login).mockRejectedValue(new Error('Network error'))
+    setOnline(true)
+
+    await submitCredentials()
 
     await waitFor(() => {
-      expect(screen.getByText('Login failed')).toBeInTheDocument()
+      expect(screen.getByText('Network error. Check your connection.')).toBeInTheDocument()
+    })
+    // The defect this replaced: every non-credential failure read as one.
+    expect(screen.queryByText('Invalid email or password')).not.toBeInTheDocument()
+  })
+
+  it('tells an OFFLINE athlete they are offline instead of blaming their password', async () => {
+    const { authApi } = await import('../../services/api')
+    // A request that never reached a server: no `response` on the rejection.
+    vi.mocked(authApi.login).mockRejectedValue(new Error('Network Error'))
+    setOnline(false)
+
+    await submitCredentials()
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("You're offline. Check your connection and try again."),
+      ).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Invalid email or password')).not.toBeInTheDocument()
+    setOnline(true)
+  })
+
+  it('still names a genuinely rejected credential, in any server language', async () => {
+    const { authApi } = await import('../../services/api')
+    // A French backend: the old code matched on the substring "Invalid" and
+    // would have fallen through to the generic failure here.
+    vi.mocked(authApi.login).mockRejectedValue({
+      response: { status: 401, data: { error: 'Identifiants invalides' } },
+    })
+    setOnline(true)
+
+    await submitCredentials()
+
+    await waitFor(() => {
+      expect(screen.getByText('Invalid email or password')).toBeInTheDocument()
     })
   })
 

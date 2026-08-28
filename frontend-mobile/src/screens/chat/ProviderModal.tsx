@@ -6,6 +6,7 @@ import { View, Text, TouchableOpacity, Modal, ActivityIndicator } from 'react-na
 import type { ViewStyle } from 'react-native';
 import { PRIMARY_PALETTE, spacing, borderRadius, useThemeColors } from '../../constants/theme';
 import type { ExtendedProviderStatus } from '../../types';
+import { useTranslation } from '@pierre/i18n';
 
 // After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
 // (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`. Unknown ids
@@ -38,6 +39,7 @@ export function ProviderModal({
   onConnectSciotte,
   onConnectIntervals,
 }: ProviderModalProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const providerModalContainerStyle: ViewStyle = useMemo(() => ({
     backgroundColor: colors.background.primary,
@@ -67,9 +69,9 @@ export function ProviderModal({
           style={providerModalContainerStyle}
           onStartShouldSetResponder={() => true}
         >
-          <Text className="text-lg font-semibold text-text-primary text-center mb-1">Connect a Provider</Text>
+          <Text className="text-lg font-semibold text-text-primary text-center mb-1">{t('app.connectAProvider')}</Text>
           <Text className="text-sm text-text-secondary text-center mb-6">
-            To analyze your fitness data, please connect a provider first.
+            {t('app.connectFirstBlurb')}
           </Text>
 
           {providers.map((provider) => {
@@ -112,7 +114,7 @@ export function ProviderModal({
                     {isConnecting ? `Connecting ${displayName}...` : isConnected ? displayName : `Connect ${displayName}`}
                   </Text>
                   {isConnected && (
-                    <Text className="text-xs text-accent-primary">Connected ✓</Text>
+                    <Text className="text-xs text-accent-primary">{t('app.connectedCheck')}</Text>
                   )}
                 </View>
               </TouchableOpacity>
@@ -123,7 +125,7 @@ export function ProviderModal({
             className="items-center p-4 mt-1"
             onPress={onClose}
           >
-            <Text className="text-base text-text-tertiary">Cancel</Text>
+            <Text className="text-base text-text-tertiary">{t('common.cancel')}</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>

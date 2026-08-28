@@ -17,62 +17,69 @@ import type { CoachingPersona } from '@pierre/shared-types';
 import { colors, spacing, glassCard } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTranslation } from '@pierre/i18n';
+import { PERSONA_NAME } from '../../constants/brands';
 
+/**
+ * A coaching-style card.
+ *
+ * The table below is module scope, so it cannot call t(). It carries corpus
+ * KEYS and the render resolves them — the same shape SciotteLoginModal's
+ * method table uses. `name` is the persona's own label and is deliberately not
+ * translated: it is the value stored on the account and shown in the coach
+ * prompt, so it has to read the same everywhere.
+ */
 interface PersonaOption {
   id: CoachingPersona;
   name: string;
-  tagline: string;
-  description: string;
-  bullets: string[];
+  taglineKey: string;
+  descriptionKey: string;
+  bulletKeys: string[];
 }
 
 const PERSONA_OPTIONS: PersonaOption[] = [
   {
     id: 'casual',
-    name: 'Casual',
-    tagline: 'Friendly, encouraging, no jargon',
-    description:
-      'Talks to you like a knowledgeable friend texting a quick reply. Round numbers, plain language, short replies.',
-    bullets: [
-      'Prose, not bullet lists. No structured blocks.',
-      'No framework citations or technical acronyms.',
-      'Only urgent (P0) push notifications — weekly digest otherwise.',
+    name: PERSONA_NAME.casual,
+    taglineKey: 'app.styleCasualTag',
+    descriptionKey: 'app.styleCasualBlurb',
+    bulletKeys: [
+      'app.styleCasualBullet1',
+      'app.styleCasualBullet2',
+      'app.styleCasualBullet3',
     ],
   },
   {
     id: 'enthusiast',
-    name: 'Enthusiast',
-    tagline: 'Prose plus the numbers that matter',
-    description:
-      'Mostly prose, with a small data block when it actually changes the recommendation. Citations only when you ask why.',
-    bullets: [
-      'Headline answer first, key datum second. Replies under ~250 words.',
-      'Acronyms (CTL, ACWR) glossed on first use, then used freely.',
-      'P0 + P1 unsolicited push (acute injury risk, near-overreached).',
+    name: PERSONA_NAME.enthusiast,
+    taglineKey: 'app.styleEnthusiastTag',
+    descriptionKey: 'app.styleEnthusiastBlurb',
+    bulletKeys: [
+      'app.styleEnthusiastBullet1',
+      'app.styleEnthusiastBullet2',
+      'app.styleEnthusiastBullet3',
     ],
   },
   {
     id: 'power_athlete',
-    name: 'Power-athlete',
-    tagline: 'Endurance discipline — line-by-line, framework-cited',
-    description:
-      'Deterministic, auditable output. Per-activity reports with exact numbers. Framework citations on every numeric claim.',
-    bullets: [
-      'Line-by-line activity blocks with framework labels (Coggan, Banister, Foster).',
-      'Full P0–P3 readiness ladder verbatim. 10-point validation checklist.',
-      'Full P0/P1/P2 unsolicited push. Pre-workout briefing on request.',
+    name: PERSONA_NAME.power_athlete,
+    taglineKey: 'app.stylePowerTag',
+    descriptionKey: 'app.stylePowerBlurb',
+    bulletKeys: [
+      'app.stylePowerBullet1',
+      'app.stylePowerBullet2',
+      'app.stylePowerBullet3',
     ],
   },
   {
     id: 'coach',
-    name: 'Coach',
-    tagline: 'Inherits Power-athlete + roster framing for managing other athletes',
-    description:
-      'Same Power-athlete discipline, plus per-athlete tenant-scoped reports and roster-wide summaries.',
-    bullets: [
-      'Athlete-scoped queries — never cross-aggregate the coach and their athletes.',
-      'Roster-wide blocks (e.g. ACWR > 1.3 across the squad).',
-      'Full P0/P1/P2 push for every athlete; P3 only for the coach themselves.',
+    name: PERSONA_NAME.coach,
+    taglineKey: 'app.styleCoachTag',
+    descriptionKey: 'app.styleCoachBlurb',
+    bulletKeys: [
+      'app.styleCoachBullet1',
+      'app.styleCoachBullet2',
+      'app.styleCoachBullet3',
     ],
   },
 ];
@@ -90,6 +97,7 @@ const cardSelectedStyle: ViewStyle = {
 };
 
 export function CoachingStyleScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { user, updateUser } = useAuth();
   const [selected, setSelected] = useState<CoachingPersona>('casual');
@@ -137,7 +145,7 @@ export function CoachingStyleScreen() {
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text className="flex-1 text-lg font-bold text-text-primary">Coaching style</Text>
+        <Text className="flex-1 text-lg font-bold text-text-primary">{t('app.coachingStyleLower')}</Text>
       </View>
 
       <ScrollView
@@ -194,7 +202,7 @@ export function CoachingStyleScreen() {
                         className="text-xs font-semibold uppercase tracking-wide"
                         style={{ color: colors.pierre.violet }}
                       >
-                        Active
+                        {t('app.active')}
                       </Text>
                     )}
                   </View>
@@ -204,14 +212,14 @@ export function CoachingStyleScreen() {
                 className="text-sm mb-2"
                 style={{ color: colors.pierre.violet }}
               >
-                {option.tagline}
+                {t(option.taglineKey)}
               </Text>
               <Text className="text-sm text-text-secondary leading-relaxed mb-3">
-                {option.description}
+                {t(option.descriptionKey)}
               </Text>
               <View>
-                {option.bullets.map((bullet) => (
-                  <View key={bullet} className="flex-row mb-1.5">
+                {option.bulletKeys.map((bulletKey) => (
+                  <View key={bulletKey} className="flex-row mb-1.5">
                     <Text
                       className="text-sm mr-2 mt-0.5"
                       style={{ color: colors.pierre.violet }}
@@ -219,7 +227,7 @@ export function CoachingStyleScreen() {
                       ›
                     </Text>
                     <Text className="text-xs text-text-tertiary flex-1 leading-relaxed">
-                      {bullet}
+                      {t(bulletKey)}
                     </Text>
                   </View>
                 ))}

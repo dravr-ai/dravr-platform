@@ -10,7 +10,7 @@ import { useTranslation } from '@pierre/i18n';
 /**
  * Surfaces the "connect a provider" nudge on coach surfaces (the chat flow has its
  * own modal). Hidden once a provider is connected or the user dismisses it for the
- * session. "Connect" deep-links to the top-level Data Providers tab.
+ * session. t('app.connect') deep-links to the top-level Data Providers tab.
  */
 export function ConnectProviderBanner() {
   const { t } = useTranslation();

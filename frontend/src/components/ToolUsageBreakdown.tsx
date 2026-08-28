@@ -228,9 +228,9 @@ export default function ToolUsageBreakdownComponent({
                       return (
                         <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
                           errorCount === 0
-                            ? 'bg-activity/20 text-activity border border-activity/30'
+                            ? 'bg-activity/20 text-on-activity-container border border-activity/30'
                             : errorCount < 10
-                            ? 'bg-nutrition/20 text-nutrition border border-nutrition/30'
+                            ? 'bg-nutrition/20 text-on-nutrition-container border border-nutrition/30'
                             : 'bg-error/20 text-error border border-error/30'
                         }`}>
                           {errorCount}

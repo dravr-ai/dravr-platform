@@ -19,21 +19,30 @@ import { Feather } from '@expo/vector-icons';
 import type { MemoryFactRow } from '@pierre/api-client';
 import { spacing, borderRadius, fontSize, fontWeight, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
+import { useTranslation } from '@pierre/i18n';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
-const KIND_LABELS: Record<string, string> = {
-  preference: 'Preferences',
-  physiology: 'Physiology',
-  injury: 'Injuries',
-  goal: 'Goals',
-  schedule: 'Schedules',
-  equipment: 'Equipment',
-  other: 'Other',
+/**
+ * The corpus key for each fact kind. Module scope, so it holds keys rather than
+ * sentences; `humanizeKind` takes the caller's `t` and resolves one.
+ *
+ * A kind the server sends that is not listed here falls back to its own name
+ * capitalised, which is what it did before and is still better than blank.
+ */
+const KIND_LABEL_KEYS: Record<string, string> = {
+  preference: 'app.preferences',
+  physiology: 'app.physiology',
+  injury: 'app.injuries',
+  goal: 'app.goals',
+  schedule: 'app.schedules',
+  equipment: 'app.equipment',
+  other: 'app.other',
 };
 
-function humanizeKind(kind: string): string {
-  return KIND_LABELS[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
+function humanizeKind(kind: string, t: (key: string) => string): string {
+  const key = KIND_LABEL_KEYS[kind];
+  return key ? t(key) : kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
 function formatTimestamp(iso: string): string {
@@ -58,6 +67,7 @@ function capitalizeFirst(text: string): string {
 }
 
 export function MemoryScreen(): React.JSX.Element {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<string>('');
@@ -78,7 +88,7 @@ export function MemoryScreen(): React.JSX.Element {
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
-      Alert.alert('Could not forget fact', msg);
+      Alert.alert(t('app.couldNotForgetFact'), msg);
     },
   });
 
@@ -102,9 +112,9 @@ export function MemoryScreen(): React.JSX.Element {
       'Forget this fact?',
       `The coach will stop using "${fact.subject} ${fact.predicate} ${fact.object}" on the next turn. This cannot be undone.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Forget',
+          text: t('app.forget'),
           style: 'destructive',
           onPress: () => forgetMutation.mutate(fact.id),
         },
@@ -113,14 +123,14 @@ export function MemoryScreen(): React.JSX.Element {
   };
 
   const kindOptions: { value: string; label: string }[] = [
-    { value: '', label: 'All' },
-    { value: 'preference', label: 'Preferences' },
-    { value: 'physiology', label: 'Physiology' },
-    { value: 'injury', label: 'Injuries' },
-    { value: 'goal', label: 'Goals' },
-    { value: 'schedule', label: 'Schedules' },
-    { value: 'equipment', label: 'Equipment' },
-    { value: 'other', label: 'Other' },
+    { value: '', label: t('app.filterAll') },
+    { value: 'preference', label: t('app.preferences') },
+    { value: 'physiology', label: t('app.physiology') },
+    { value: 'injury', label: t('app.injuries') },
+    { value: 'goal', label: t('app.goals') },
+    { value: 'schedule', label: t('app.schedules') },
+    { value: 'equipment', label: t('app.equipment') },
+    { value: 'other', label: t('app.other') },
   ];
 
   return (
@@ -149,11 +159,10 @@ export function MemoryScreen(): React.JSX.Element {
               marginBottom: spacing.xs,
             }}
           >
-            What the coach remembers about you
+            {t('app.whatCoachRemembers')}
           </Text>
           <Text style={{ fontSize: fontSize.sm, color: colors.text.secondary }}>
-            Facts the platform extracted from your conversations. Forget any
-            one and the coach stops using it next turn.
+            {t('app.memoryBlurb')}
           </Text>
         </View>
 
@@ -205,8 +214,9 @@ export function MemoryScreen(): React.JSX.Element {
         ) : isError ? (
           <View style={{ paddingVertical: spacing.lg }}>
             <Text style={{ color: colors.pierre.red }}>
-              Failed to load memory facts:{' '}
-              {error instanceof Error ? error.message : String(error)}
+              {t('app.failedLoadMemoryFacts', {
+                reason: error instanceof Error ? error.message : String(error),
+              })}
             </Text>
           </View>
         ) : facts.length === 0 ? (
@@ -224,7 +234,7 @@ export function MemoryScreen(): React.JSX.Element {
                 textAlign: 'center',
               }}
             >
-              No facts stored yet.
+              {t('app.noFactsYet')}
             </Text>
             <Text
               style={{
@@ -234,8 +244,7 @@ export function MemoryScreen(): React.JSX.Element {
                 fontSize: fontSize.xs,
               }}
             >
-              Talk to a coach for a few turns and the platform will start
-              building your memory profile.
+              {t('app.memoryEmptyBlurb')}
             </Text>
           </View>
         ) : (
@@ -268,7 +277,7 @@ export function MemoryScreen(): React.JSX.Element {
                     fontWeight: fontWeight.semibold,
                   }}
                 >
-                  {humanizeKind(kind)}
+                  {humanizeKind(kind, t)}
                 </Text>
                 <Text
                   style={{ color: colors.text.tertiary, fontSize: fontSize.xs }}
@@ -324,7 +333,7 @@ export function MemoryScreen(): React.JSX.Element {
                         marginTop: spacing.xs,
                       }}
                     >
-                      Confidence {(fact.confidence * 100).toFixed(0)}% ·
+                      {t('app.confidence')} {(fact.confidence * 100).toFixed(0)}% ·
                       Updated {formatTimestamp(fact.updated_at)}
                     </Text>
                   </View>

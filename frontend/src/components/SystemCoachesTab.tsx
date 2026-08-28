@@ -17,11 +17,11 @@ const COACH_CATEGORIES = ['Training', 'Nutrition', 'Recovery', 'Recipes', 'Mobil
 
 // Category colors for visual differentiation
 const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-activity border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-nutrition border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-recovery border-recovery/20',
-  Recipes: 'bg-warning/10 text-warning border-warning/20',
-  Mobility: 'bg-mobility/10 text-mobility border-mobility/20',
+  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
+  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
+  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
+  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
+  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
   Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 
@@ -279,7 +279,7 @@ export default function SystemCoachesTab() {
                         <span className={clsx(
                           'inline-block px-1.5 py-0.5 text-[10px] font-medium rounded',
                           coach.source === 'contremaitre'
-                            ? 'bg-activity/10 text-activity'
+                            ? 'bg-activity/10 text-on-activity-container'
                             : 'bg-on-surface-variant/10 text-on-surface-variant'
                         )}>
                           {coach.source === 'contremaitre' ? 'git' : coach.source}
@@ -656,7 +656,7 @@ export default function SystemCoachesTab() {
                         </div>
                         <span className={clsx(
                           'px-2 py-0.5 text-xs rounded-full',
-                          user.user_status === 'active' ? 'bg-activity/20 text-activity' : 'bg-surface-container-high text-on-surface-variant'
+                          user.user_status === 'active' ? 'bg-activity/20 text-on-activity-container' : 'bg-surface-container-high text-on-surface-variant'
                         )}>
                           {user.user_status}
                         </span>

@@ -575,7 +575,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             placeholder="e.g., Security concern, Maintenance, Feature deprecation..."
           />
 
-          <div className="p-3 bg-warning/20 text-warning rounded-lg text-sm">
+          <div className="p-3 bg-warning/20 text-on-warning-container rounded-lg text-sm">
             <strong>Note:</strong> This override can be removed later to restore the tool to its default state.
           </div>
 

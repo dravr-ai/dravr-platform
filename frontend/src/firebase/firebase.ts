@@ -17,48 +17,22 @@ import {
   type User,
 } from 'firebase/auth';
 
-// Firebase configuration - all values from environment variables
-// Set these in frontend/.env or frontend/.env.local:
-//   VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID,
-//   VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
-//
-// authDomain points at Firebase's hosted handler ({projectId}.firebaseapp.com).
-// A same-origin authDomain (window.location.host) was tried to fix mobile
-// redirect sign-in but broke local dev — vite serves http, so Firebase's
-// https://localhost:<port>/__/auth/handler URL fails to load and the popup
-// hangs on "Signing in…". The mobile redirect-completion issue is tracked
-// separately; this value is the one that authenticates reliably everywhere.
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
+// Config and the configured-flag live in ./config, which imports no SDK, so
+// the login screen can ask "is Google sign-in available?" without pulling this
+// module — and the Firebase SDK — into the entry chunk.
+import { firebaseConfig, isFirebaseEnabled } from './config';
 
-// Check if Firebase is configured
-const isFirebaseConfigured = Boolean(
-  firebaseConfig.apiKey &&
-  firebaseConfig.projectId
-);
+export { isFirebaseEnabled };
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
-
-/**
- * Check if Firebase is properly configured via environment variables
- */
-export function isFirebaseEnabled(): boolean {
-  return isFirebaseConfigured;
-}
 
 /**
  * Initialize Firebase app (lazy initialization)
  * Returns null if Firebase is not configured
  */
 export function getFirebaseApp(): FirebaseApp | null {
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseEnabled()) {
     return null;
   }
   if (!app) {
@@ -72,7 +46,7 @@ export function getFirebaseApp(): FirebaseApp | null {
  * Returns null if Firebase is not configured
  */
 export function getFirebaseAuth(): Auth | null {
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseEnabled()) {
     return null;
   }
   if (!auth) {

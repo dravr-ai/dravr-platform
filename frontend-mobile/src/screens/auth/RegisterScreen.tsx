@@ -18,8 +18,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
 import { spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
 import { useRouter } from 'expo-router';
+import { useTranslation } from '@pierre/i18n';
 
 export function RegisterScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { register } = useAuth();
   const [displayName, setDisplayName] = useState('');
@@ -49,13 +51,13 @@ export function RegisterScreen() {
     if (!password) {
       newErrors.password = 'Password is required';
     } else if (password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
+      newErrors.password = t('app.passwordTooShort');
     }
 
     if (!confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+      newErrors.confirmPassword = t('app.passwordsDoNotMatch');
     }
 
     setErrors(newErrors);
@@ -69,8 +71,8 @@ export function RegisterScreen() {
       router.replace('/(auth)/pending-approval');
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : 'Registration failed';
-      Alert.alert('Registration Failed', message);
+      const message = error instanceof Error ? error.message : t('app.registrationFailedLower');
+      Alert.alert(t('app.registrationFailedTitle'), message);
     },
     successResetDelay: 0,
     errorResetDelay: 0,
@@ -122,17 +124,17 @@ export function RegisterScreen() {
                 >
                   <Text className="text-[28px] font-bold text-on-surface">P</Text>
                 </LinearGradient>
-                <Text className="text-xl font-bold text-text-primary mb-1">Create Account</Text>
+                <Text className="text-xl font-bold text-text-primary mb-1">{t('app.createAccount')}</Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  Join Dravr to unlock AI-powered fitness insights
+                  {t('app.joinDravrBlurb')}
                 </Text>
               </View>
 
               {/* Registration Form */}
               <View className="mb-4">
                 <Input
-                  label="Display Name"
-                  placeholder="How should we call you?"
+                  label={t('app.displayName')}
+                  placeholder={t('app.howShouldWeCallYou')}
                   value={displayName}
                   onChangeText={setDisplayName}
                   autoCapitalize="words"
@@ -140,7 +142,7 @@ export function RegisterScreen() {
                 />
 
                 <Input
-                  label="Email"
+                  label={t('common.email')}
                   placeholder="you@example.com"
                   value={email}
                   onChangeText={setEmail}
@@ -151,8 +153,8 @@ export function RegisterScreen() {
                 />
 
                 <Input
-                  label="Password"
-                  placeholder="Minimum 8 characters"
+                  label={t('common.password')}
+                  placeholder={t('app.minEightChars')}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
@@ -161,8 +163,8 @@ export function RegisterScreen() {
                 />
 
                 <Input
-                  label="Confirm Password"
-                  placeholder="Re-enter your password"
+                  label={t('app.confirmPassword')}
+                  placeholder={t('app.reenterPassword')}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   secureTextEntry
@@ -171,7 +173,7 @@ export function RegisterScreen() {
                 />
 
                 <Button
-                  title="Create Account"
+                  title={t('app.createAccount')}
                   onPress={handleRegister}
                   loading={registerAction.isLoading}
                   fullWidth
@@ -181,9 +183,9 @@ export function RegisterScreen() {
 
               {/* Login Link */}
               <View className="flex-row justify-center items-center gap-1 pt-2">
-                <Text className="text-sm text-text-secondary">Already have an account?</Text>
+                <Text className="text-sm text-text-secondary">{t('app.alreadyHaveAccount')}</Text>
                 <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
-                  <Text className="text-sm font-semibold text-primary-500">Sign in</Text>
+                  <Text className="text-sm font-semibold text-primary-500">{t('common.login')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

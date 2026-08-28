@@ -136,7 +136,7 @@ export default function AdminSettings() {
           {autoApprovalData && (
             <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
               autoApprovalData.enabled
-                ? 'bg-activity/15 text-activity border border-activity/30'
+                ? 'bg-activity/15 text-on-activity-container border border-activity/30'
                 : 'bg-surface-container-low text-on-surface-variant border ghost-border'
             }`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -156,7 +156,7 @@ export default function AdminSettings() {
 
           {/* Mutation status */}
           {updateAutoApprovalMutation.isSuccess && (
-            <div className="p-3 rounded-lg bg-activity/15 text-activity text-sm border border-activity/30">
+            <div className="p-3 rounded-lg bg-activity/15 text-on-activity-container text-sm border border-activity/30">
               Setting updated successfully.
             </div>
           )}
@@ -201,7 +201,7 @@ export default function AdminSettings() {
           {/* Status indicator */}
           <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
             groupCreationPolicy === 'everyone'
-              ? 'bg-activity/15 text-activity border border-activity/30'
+              ? 'bg-activity/15 text-on-activity-container border border-activity/30'
               : 'bg-surface-container-low text-on-surface-variant border ghost-border'
           }`}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -220,7 +220,7 @@ export default function AdminSettings() {
 
           {/* Mutation status */}
           {updateGroupPolicyMutation.isSuccess && (
-            <div className="p-3 rounded-lg bg-activity/15 text-activity text-sm border border-activity/30">
+            <div className="p-3 rounded-lg bg-activity/15 text-on-activity-container text-sm border border-activity/30">
               Group creation policy updated successfully.
             </div>
           )}

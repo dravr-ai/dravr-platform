@@ -17,6 +17,12 @@
   --color-primary-container: 13 59 46;
   --color-on-primary-container: 121 166 148;
   --color-primary-fixed-dim: 163 208 190;
+  /* The filled button's hover fill. This used to be `primary-container`, which
+     is a DARKER green — fine under white text in light mode, but in dark mode
+     the button is light mint with near-black `on-primary` text, so hovering
+     dropped it to 1.82:1. An explicit per-scheme hover keeps the same
+     foreground legible in both. */
+  --color-primary-hover: 13 59 46;
 
   --color-tertiary: 3 35 29;
   --color-on-tertiary: 255 255 255;
@@ -48,7 +54,34 @@
   --color-on-surface: 26 28 27;
   --color-on-surface-variant: 65 72 69;
 
-  --color-outline: 113 121 116;
+  /* `outline` is used as a TEXT colour in 182 places — de-emphasised labels,
+     timestamps, counts, the sidebar section headers. That is a foreground
+     role, so it answers to WCAG 1.4.3's 4.5:1, not to the 3:1 a border needs.
+     At its original value it measured 4.06:1 on surface-container-low and
+     3.20:1 on surface-dim, and no test had ever checked: every axe scan in
+     this suite disabled the colour-contrast rule.
+     Both values below now clear 4.5:1 against every surface tone in their
+     scheme, with the darkest/lightest container as the binding case. */
+
+  /* Foreground pairs for the pillar and feedback hues.
+     The `bg-X/10 text-X` chip is used in 115 places — coach categories, verdict
+     badges, status pills — and every one of them failed WCAG 1.4.3 as text: the
+     hue sitting on a tint of itself measured 4.17:1 at best (recovery) and
+     2.79:1 at worst (nutrition) against the required 4.5:1.
+     The fill keeps the brand hue; only the LABEL uses these, which are the same
+     hue moved along its own lightness axis until it clears 4.5:1 against tints
+     from /10 to /25 over every surface tone in the scheme. The system already
+     had this pattern for primary, tertiary and error — the pillars simply never
+     got their half of it. */
+  --color-on-activity-container: 12 98 81;
+  --color-on-nutrition-container: 117 87 25;
+  --color-on-recovery-container: 51 93 107;
+  --color-on-mobility-container: 134 60 88;
+  --color-on-info-container: 51 93 107;
+  --color-on-success-container: 36 98 71;
+  --color-on-warning-container: 117 87 25;
+
+  --color-outline: 90 97 93;
   --color-outline-variant: 192 200 195;
 
   /* Ghost border — visible enough to anchor cards on the light canvas
@@ -72,6 +105,7 @@ html.dark {
   --color-primary-container: 35 78 64;
   --color-on-primary-container: 190 237 217;
   --color-primary-fixed-dim: 163 208 190;
+  --color-primary-hover: 140 186 168;
 
   --color-tertiary: 173 205 195;
   --color-on-tertiary: 1 32 26;
@@ -103,7 +137,15 @@ html.dark {
   --color-on-surface: 225 227 222;
   --color-on-surface-variant: 192 200 195;
 
-  --color-outline: 138 147 137;
+  --color-on-activity-container: 154 188 174;
+  --color-on-nutrition-container: 216 188 129;
+  --color-on-recovery-container: 169 192 198;
+  --color-on-mobility-container: 209 171 180;
+  --color-on-info-container: 169 192 198;
+  --color-on-success-container: 154 188 174;
+  --color-on-warning-container: 216 188 129;
+
+  --color-outline: 176 182 175;
   --color-outline-variant: 65 72 69;
 
   /* Dark canvas needs more shadow opacity to read elevation against near-black. */
@@ -169,7 +211,7 @@ html.dark {
      ancestor text-on-surface / text-pierre-* style from bleeding through
      onto a filled primary surface and producing the dark-on-dark bug. */
   .btn-primary {
-    @apply btn-base bg-primary !text-on-primary hover:bg-primary-container disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply btn-base bg-primary !text-on-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed;
     box-shadow: var(--shadow-card);
   }
 
@@ -777,6 +819,22 @@ html.dark {
     box-shadow: none !important;
     outline: none !important;
     padding-bottom: calc(0.5rem - 1px);
+  }
+
+  /* The underline growth above is the editorial focus treatment, and it is a
+     one-pixel change that also clears both outline and box-shadow with
+     !important — so nothing downstream could add an indicator either. That is
+     under the WCAG 2.4.7 bar for anyone navigating by keyboard.
+
+     :focus-visible restores a real indicator for keyboard focus only, so the
+     mouse-click aesthetic is untouched. It sits AFTER the :focus rule
+     deliberately: the two have equal specificity, both carry !important, and
+     at that point the later declaration is the one that wins. */
+  .boreal-underline-input:focus-visible,
+  .input-field:focus-visible,
+  .ai-input-focus:focus-visible {
+    outline: 2px solid rgb(var(--color-primary)) !important;
+    outline-offset: 3px;
   }
 
   /* The rules above carry !important to beat @tailwindcss/forms, which also

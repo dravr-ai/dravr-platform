@@ -41,11 +41,13 @@ const TERMS_PRIVACY_URL = 'https://dravr.ai/privacy';
  * unhandled rejection here would look identical to the row doing nothing —
  * which is the defect these rows already had.
  */
-async function openExternal(url: string): Promise<void> {
+async function openExternal(url: string, t: (key: string, opts?: Record<string, unknown>) => string): Promise<void> {
   try {
     await Linking.openURL(url);
   } catch {
-    Alert.alert('Could not open link', `Open ${url} in your browser instead.`);
+    // Module scope has no hook, so the caller — which is inside the component —
+    // hands its `t` down rather than this reaching for one it cannot have.
+    Alert.alert(t('app.couldNotOpenLink'), t('app.openInBrowserInstead', { url }));
   }
 }
 
@@ -136,12 +138,6 @@ export function SettingsScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  useEffect(() => {
-    if (isAuthenticated && apiTokensEnabled) {
-      loadTokens();
-    }
-  }, [isAuthenticated, apiTokensEnabled]);
-
   // Reload provider status when screen comes into focus (e.g., after OAuth connection)
   useFocusEffect(
     useCallback(() => {
@@ -151,25 +147,36 @@ export function SettingsScreen() {
     }, [isAuthenticated])
   );
 
-  const loadTokens = async () => {
+  // Memoised because it now closes over `t`, which makes it a reactive value:
+  // the effect below calls it, and without this the effect would re-run on
+  // every render. The filter parameter is `token`, not `t` — it shadowed the
+  // translator, which was harmless while the catch block held the only t() call
+  // and would not have stayed harmless.
+  const loadTokens = useCallback(async () => {
     try {
       setLoadError(null);
       const response = await userApi.getMcpTokens();
       const tokenList = response.tokens || [];
       const seen = new Set<string>();
-      const deduplicated = tokenList.filter((t: { id: string; is_revoked: boolean }) => {
-        if (t.is_revoked || seen.has(t.id)) return false;
-        seen.add(t.id);
+      const deduplicated = tokenList.filter((token: { id: string; is_revoked: boolean }) => {
+        if (token.is_revoked || seen.has(token.id)) return false;
+        seen.add(token.id);
         return true;
       });
       setTokens(deduplicated);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load tokens';
+      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadTokens');
       setLoadError(errorMessage);
       console.error('Failed to load tokens:', err);
       setTokens([]);
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    if (isAuthenticated && apiTokensEnabled) {
+      loadTokens();
+    }
+  }, [isAuthenticated, apiTokensEnabled, loadTokens]);
 
   const loadProviderStatus = async () => {
     try {
@@ -183,7 +190,7 @@ export function SettingsScreen() {
 
   const handleCreateToken = async () => {
     if (!newTokenName.trim()) {
-      Alert.alert('Error', 'Please enter a token name');
+      Alert.alert(t('common.error'), 'Please enter a token name');
       return;
     }
 
@@ -193,11 +200,11 @@ export function SettingsScreen() {
         name: newTokenName.trim(),
         expires_in_days: 365,
       });
-      setNewToken(token.token_value || 'Token created successfully');
+      setNewToken(token.token_value || t('app.tokenCreatedBody'));
       await loadTokens();
       setNewTokenName('');
     } catch {
-      Alert.alert('Error', 'Failed to create token');
+      Alert.alert(t('common.error'), 'Failed to create token');
     } finally {
       setIsCreatingToken(false);
     }
@@ -216,9 +223,9 @@ export function SettingsScreen() {
       'Revoke Token',
       `Revoke "${token.name}"? Any client still using it loses access immediately.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Revoke',
+          text: t('app.revoke'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -226,7 +233,7 @@ export function SettingsScreen() {
               await userApi.revokeMcpToken(token.id);
               setTokens((prev) => prev.filter((t) => t.id !== token.id));
             } catch {
-              Alert.alert('Error', 'Failed to revoke token');
+              Alert.alert(t('common.error'), 'Failed to revoke token');
             } finally {
               setRevokingTokenId(null);
             }
@@ -238,30 +245,30 @@ export function SettingsScreen() {
 
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert(t('common.error'), 'Please fill in all fields');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'New passwords do not match');
+      Alert.alert(t('common.error'), 'New passwords do not match');
       return;
     }
 
     if (newPassword.length < 8) {
-      Alert.alert('Error', 'Password must be at least 8 characters');
+      Alert.alert(t('common.error'), t('app.passwordTooShort'));
       return;
     }
 
     try {
       setIsChangingPassword(true);
       await userApi.changePassword(currentPassword, newPassword);
-      Alert.alert('Success', 'Password changed successfully');
+      Alert.alert(t('common.success'), 'Password changed successfully');
       setShowChangePassword(false);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch {
-      Alert.alert('Error', 'Failed to change password. Please check your current password.');
+      Alert.alert(t('common.error'), 'Failed to change password. Please check your current password.');
     } finally {
       setIsChangingPassword(false);
     }
@@ -269,12 +276,12 @@ export function SettingsScreen() {
 
   const handleLogout = () => {
     Alert.alert(
-      'Sign Out',
+      t('common.logout'),
       'Are you sure you want to sign out?',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Sign Out',
+          text: t('common.logout'),
           style: 'destructive',
           onPress: logout,
         },
@@ -288,13 +295,13 @@ export function SettingsScreen() {
   const usageBars = useMemo(() => {
     if (!usageData) return [];
     return [
-      { label: 'Daily Messages', counter: usageData.daily.messages, compact: false },
-      { label: 'Daily Tokens', counter: usageData.daily.tokens, compact: true },
-      { label: 'Weekly Messages', counter: usageData.weekly.messages, compact: false },
+      { label: t('app.dailyMessages'), counter: usageData.daily.messages, compact: false },
+      { label: t('app.dailyTokens'), counter: usageData.daily.tokens, compact: true },
+      { label: t('app.weeklyMessages'), counter: usageData.weekly.messages, compact: false },
     ] as { label: string; counter: LimitCheckResult; compact: boolean }[];
-  }, [usageData]);
+  }, [usageData, t]);
 
-  const displayName = user?.display_name || user?.email?.split('@')[0] || 'Athlete';
+  const displayName = user?.display_name || user?.email?.split('@')[0] || t('app.athlete');
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="settings-screen">
@@ -320,7 +327,7 @@ export function SettingsScreen() {
                   loadTokens();
                 }}
               >
-                <Text className="text-error text-sm font-semibold">Retry</Text>
+                <Text className="text-error text-sm font-semibold">{t('common.retry')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -372,14 +379,14 @@ export function SettingsScreen() {
             onPress={() => router.push('/(app)/(tabs)/(settings)/profile')}
             testID="settings-edit-profile-button"
           >
-            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.tokens.onPrimary }}>Edit Profile</Text>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.tokens.onPrimary }}>{t('app.editProfile')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Data Providers Section - navigates to Connections screen */}
         {!isAdminUser && (
           <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-data-section">
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Data</Text>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.data')}</Text>
             <View style={glassCardStyle}>
               <TouchableOpacity
                 style={settingsRowStyle}
@@ -390,7 +397,7 @@ export function SettingsScreen() {
                   <Feather name="link" size={20} color={colors.text.secondary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, color: colors.text.primary }}>Data Providers</Text>
+                  <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.dataProviders')}</Text>
                   <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
                     {connectedProviders.filter(p => p.connected).length} connected
                   </Text>
@@ -403,7 +410,7 @@ export function SettingsScreen() {
 
         {/* Coaching Style Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-coaching-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Coaching</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.coaching')}</Text>
           <View style={glassCardStyle}>
             <TouchableOpacity
               style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
@@ -414,7 +421,7 @@ export function SettingsScreen() {
                 <Feather name="message-square" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: colors.text.primary }}>Coaching Style</Text>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.coachingStyle')}</Text>
                 <Text style={{ fontSize: 14, color: colors.text.tertiary, textTransform: 'capitalize' }}>
                   {(user?.coaching_persona ?? 'casual').replace('_', '-')}
                 </Text>
@@ -433,7 +440,7 @@ export function SettingsScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="message-circle" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Messaging</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{t('app.messaging')}</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
@@ -448,7 +455,7 @@ export function SettingsScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="cpu" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>AI Provider</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{t('app.aiProvider')}</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
@@ -464,8 +471,8 @@ export function SettingsScreen() {
                 <Feather name="bell" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: colors.text.primary }}>Notifications</Text>
-                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>What reaches you, and when</Text>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('common.notifications')}</Text>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.notifPrefsSubtitle')}</Text>
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
@@ -474,7 +481,7 @@ export function SettingsScreen() {
 
         {/* Account Settings Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-account-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Account</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.account')}</Text>
           <View style={glassCardStyle}>
             {/* Same destination as the header's Edit Profile. Web exposes a
                 single Profile tab, so two rows leading to two different places
@@ -487,7 +494,7 @@ export function SettingsScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="user" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Personal Information</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{t('app.personalInformation')}</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
@@ -499,7 +506,7 @@ export function SettingsScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="lock" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Change Password</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{t('app.changePassword')}</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
@@ -516,7 +523,7 @@ export function SettingsScreen() {
                   <Feather name="key" size={20} color={colors.text.secondary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, color: colors.text.primary }}>MCP Tokens</Text>
+                  <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.mcpTokens')}</Text>
                   <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{tokens.length} active</Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
@@ -532,8 +539,8 @@ export function SettingsScreen() {
                 <Feather name="grid" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: colors.text.primary }}>Connected Apps</Text>
-                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>External MCP clients</Text>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.connectedApps')}</Text>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.externalMcpClients')}</Text>
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
@@ -549,8 +556,8 @@ export function SettingsScreen() {
                 <Feather name="cpu" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: colors.text.primary }}>Memory</Text>
-                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>What your coach remembers</Text>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.memory')}</Text>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.whatYourCoachRemembers')}</Text>
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
@@ -568,8 +575,8 @@ export function SettingsScreen() {
                   <Feather name="credit-card" size={20} color={colors.text.secondary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, color: colors.text.primary }}>Billing</Text>
-                  <Text style={{ fontSize: 14, color: colors.text.tertiary }}>Plan and usage</Text>
+                  <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.billing')}</Text>
+                  <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.planAndUsage')}</Text>
                 </View>
                 <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
               </TouchableOpacity>
@@ -650,7 +657,7 @@ export function SettingsScreen() {
 
         {/* Usage Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-usage-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Usage</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.usage')}</Text>
           <View style={glassCardStyle}>
             {usageLoading ? (
               <View style={{ paddingVertical: 24, alignItems: 'center' }}>
@@ -658,7 +665,7 @@ export function SettingsScreen() {
               </View>
             ) : !usageData ? (
               <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>Usage data unavailable</Text>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{t('app.usageDataUnavailable')}</Text>
               </View>
             ) : (
               <View style={{ padding: 16 }}>
@@ -695,20 +702,22 @@ export function SettingsScreen() {
 
                 {/* Reset time */}
                 <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 16 }}>
-                  Daily limits reset at {formatResetTime(usageData.daily.messages.resets_at)}
+                  {t('app.dailyLimitsResetAt', {
+                    time: formatResetTime(usageData.daily.messages.resets_at),
+                  })}
                 </Text>
 
                 {/* Resource counts */}
                 <View style={{ borderTopWidth: 1, borderTopColor: colors.border.default, paddingTop: 16 }}>
                   <View style={{ flexDirection: 'row', gap: 12 }}>
                     <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
-                      <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>Coaches</Text>
+                      <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>{t('app.coaches')}</Text>
                       <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
                         {usageData.resources.coaches} / {usageData.resources.max_coaches}
                       </Text>
                     </View>
                     <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
-                      <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>Conversations</Text>
+                      <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>{t('app.conversations')}</Text>
                       <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
                         {usageData.resources.conversations} / {usageData.resources.max_conversations}
                       </Text>
@@ -722,7 +731,7 @@ export function SettingsScreen() {
 
         {/* Privacy Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Privacy</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('app.privacy')}</Text>
           <View style={glassCardStyle}>
             {/* The privacy screen carries the analytics-consent control,
                 matching what the web Privacy & Data tab covers. */}
@@ -734,7 +743,7 @@ export function SettingsScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="shield" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Privacy Settings</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{t('app.privacySettings')}</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
           </View>
@@ -742,7 +751,7 @@ export function SettingsScreen() {
 
         {/* About Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>About</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>{t('common.about')}</Text>
           <View style={glassCardStyle}>
             {/* Informational only — rendered as a plain row so it does not
                 advertise a tap it cannot service. */}
@@ -751,32 +760,32 @@ export function SettingsScreen() {
                 <Feather name="info" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: colors.text.primary }}>Version</Text>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>{t('app.version')}</Text>
                 <Text style={{ fontSize: 14, color: colors.text.tertiary }}>1.0.0</Text>
               </View>
             </View>
 
             <TouchableOpacity
               style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: colors.border.subtle }]}
-              onPress={() => { void openExternal(HELP_CENTER_URL); }}
+              onPress={() => { void openExternal(HELP_CENTER_URL, t); }}
               testID="settings-help-center-button"
             >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="help-circle" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Help Center</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{t('app.helpCenter')}</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={settingsRowStyle}
-              onPress={() => { void openExternal(TERMS_PRIVACY_URL); }}
+              onPress={() => { void openExternal(TERMS_PRIVACY_URL, t); }}
               testID="settings-terms-privacy-button"
             >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="file-text" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Terms & Privacy</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>{t('app.termsAndPrivacy')}</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
           </View>
@@ -789,7 +798,7 @@ export function SettingsScreen() {
             onPress={handleLogout}
             testID="settings-logout-button"
           >
-            <Text style={{ fontSize: 16, fontWeight: '600', color: colors.pierre.red }}>Log Out</Text>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: colors.pierre.red }}>{t('app.logOut')}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -813,10 +822,10 @@ export function SettingsScreen() {
             testID="mcp-token-manager"
           >
             <Text className="text-xl font-semibold text-on-surface mb-1 text-center">
-              MCP Tokens
+              {t('app.mcpTokens')}
             </Text>
             <Text className="text-sm text-on-surface-variant mb-4 text-center">
-              Bearer credentials external MCP clients use to read your fitness data.
+              {t('app.mcpTokenBlurb')}
             </Text>
 
             {tokens.length === 0 ? (
@@ -824,7 +833,7 @@ export function SettingsScreen() {
                 className="text-sm text-on-surface-variant text-center py-6"
                 testID="mcp-token-empty"
               >
-                No active tokens.
+                {t('app.noActiveTokens')}
               </Text>
             ) : (
               <ScrollView style={{ maxHeight: 320 }} testID="mcp-token-list">
@@ -851,7 +860,7 @@ export function SettingsScreen() {
                       {revokingTokenId === token.id ? (
                         <ActivityIndicator size="small" color={colors.error} />
                       ) : (
-                        <Text className="text-error text-sm font-semibold">Revoke</Text>
+                        <Text className="text-error text-sm font-semibold">{t('app.revoke')}</Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -866,7 +875,7 @@ export function SettingsScreen() {
                 onPress={() => setShowTokenManager(false)}
                 testID="close-token-manager"
               >
-                <Text className="text-base font-semibold text-on-surface">Close</Text>
+                <Text className="text-base font-semibold text-on-surface">{t('common.close')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 className="flex-1 py-3 rounded-full items-center"
@@ -878,7 +887,7 @@ export function SettingsScreen() {
                 testID="new-token-button"
               >
                 <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>
-                  New Token
+                  {t('app.newToken')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -902,13 +911,13 @@ export function SettingsScreen() {
             style={{ borderRadius: borderRadius.xl }}
           >
             <Text className="text-xl font-semibold text-on-surface mb-5 text-center">
-              {newToken ? 'Token Created' : 'Create MCP Token'}
+              {newToken ? t('app.tokenCreatedTitle') : t('app.createMcpToken')}
             </Text>
 
             {newToken ? (
               <>
                 <Text className="text-sm text-amber-500 text-center mb-3">
-                  Copy this token now. You won't be able to see it again!
+                  {t('app.copyTokenNow')}
                 </Text>
                 <View className="bg-surface rounded-lg p-3 mb-5">
                   <Text className="text-sm text-on-surface font-mono" selectable>
@@ -926,13 +935,13 @@ export function SettingsScreen() {
                   }}
                   testID="token-created-done"
                 >
-                  <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Done</Text>
+                  <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>{t('app.done')}</Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
                 <Input
-                  label="Token Name"
+                  label={t('app.tokenName')}
                   placeholder="e.g., Claude Desktop"
                   value={newTokenName}
                   onChangeText={setNewTokenName}
@@ -943,7 +952,7 @@ export function SettingsScreen() {
                     style={{ backgroundColor: colors.background.tertiary }}
                     onPress={() => setShowCreateToken(false)}
                   >
-                    <Text className="text-base font-semibold text-on-surface">Cancel</Text>
+                    <Text className="text-base font-semibold text-on-surface">{t('common.cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     className="flex-1 py-3 rounded-full items-center"
@@ -954,7 +963,7 @@ export function SettingsScreen() {
                     {isCreatingToken ? (
                       <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
                     ) : (
-                      <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Create</Text>
+                      <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>{t('app.create')}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -980,25 +989,25 @@ export function SettingsScreen() {
             style={{ borderRadius: borderRadius.xl }}
           >
             <Text className="text-xl font-semibold text-on-surface mb-5 text-center">
-              Change Password
+              {t('app.changePassword')}
             </Text>
 
             <Input
-              label="Current Password"
+              label={t('app.currentPassword')}
               value={currentPassword}
               onChangeText={setCurrentPassword}
               secureTextEntry
               showPasswordToggle
             />
             <Input
-              label="New Password"
+              label={t('app.newPassword')}
               value={newPassword}
               onChangeText={setNewPassword}
               secureTextEntry
               showPasswordToggle
             />
             <Input
-              label="Confirm New Password"
+              label={t('app.confirmNewPassword')}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
@@ -1011,7 +1020,7 @@ export function SettingsScreen() {
                 style={{ backgroundColor: colors.background.tertiary }}
                 onPress={() => setShowChangePassword(false)}
               >
-                <Text className="text-base font-semibold text-on-surface">Cancel</Text>
+                <Text className="text-base font-semibold text-on-surface">{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 className="flex-1 py-3 rounded-full items-center"
@@ -1022,7 +1031,7 @@ export function SettingsScreen() {
                 {isChangingPassword ? (
                   <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
                 ) : (
-                  <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>Change</Text>
+                  <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>{t('app.change')}</Text>
                 )}
               </TouchableOpacity>
             </View>

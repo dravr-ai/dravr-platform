@@ -26,6 +26,8 @@ import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
 import { StravaLogo, GarminLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
+import { useTranslation } from '@pierre/i18n';
+import { PROVIDER_BRAND } from '../constants/brands';
 
 type LoginPhase =
   | 'choose'
@@ -55,8 +57,12 @@ const BRAND_COLORS = {
 };
 
 interface MethodConfig {
-  title: string;
-  emailPlaceholder: string;
+  /** Corpus key for the row's title. Resolved at render — module scope has no hook. */
+  titleKey: string;
+  /** Corpus key for the e-mail field's placeholder. */
+  emailPlaceholderKey: string;
+  /** The provider's own name. A proper noun; the same in every locale. */
+  brandName: string;
   renderIcon: (size: number) => React.ReactNode;
   brandGradient: [string, string];
   textColor: string;
@@ -65,24 +71,27 @@ interface MethodConfig {
 
 const METHOD_CONFIGS: Record<LoginMethod, MethodConfig> = {
   email: {
-    title: 'Email & Password',
-    emailPlaceholder: 'Email address',
+    titleKey: 'app.emailAndPassword',
+    emailPlaceholderKey: 'app.emailAddress',
+    brandName: '',
     renderIcon: (size: number) => <Mail size={size} color="#FFFFFF" />,
     brandGradient: BRAND_COLORS.strava.gradient,
     textColor: '#FFFFFF',
     bgColor: `${BRAND_COLORS.strava.primary}20`,
   },
   google: {
-    title: 'Google',
-    emailPlaceholder: 'Google email',
+    titleKey: 'app.brandGoogle',
+    emailPlaceholderKey: 'app.googleEmail',
+    brandName: PROVIDER_BRAND.google,
     renderIcon: (size: number) => <GoogleLogo size={size} />,
     brandGradient: BRAND_COLORS.google.gradient,
     textColor: '#FFFFFF',
     bgColor: '#FFFFFF',
   },
   apple: {
-    title: 'Apple',
-    emailPlaceholder: 'Apple ID email',
+    titleKey: 'app.brandApple',
+    emailPlaceholderKey: 'app.appleIdEmail',
+    brandName: PROVIDER_BRAND.apple,
     renderIcon: (size: number) => <AppleLogo size={size} color="#FFFFFF" />,
     brandGradient: BRAND_COLORS.apple.gradient,
     textColor: '#000000',
@@ -96,6 +105,7 @@ export function SciotteLoginModal({
   onConnected,
   target,
 }: SciotteLoginModalProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const [phase, setPhase] = useState<LoginPhase>('choose');
   const [method, setMethod] = useState<LoginMethod>('email');
@@ -113,7 +123,8 @@ export function SciotteLoginModal({
   const [showStravaBYO, setShowStravaBYO] = useState(false);
 
   const brandColor = target === 'garmin' ? BRAND_COLORS.garmin : BRAND_COLORS.strava;
-  const platformName = target === 'garmin' ? 'Garmin Connect' : 'Strava';
+  // Brand names, not copy: identical in every locale.
+  const platformName = target === 'garmin' ? t('app.brandGarminConnect') : t('app.brandStrava');
 
   useEffect(() => {
     if (visible) {
@@ -151,7 +162,7 @@ export function SciotteLoginModal({
       );
       if (result.type === 'success' && result.url) {
         if (!result.url.startsWith(returnUrl)) {
-          Alert.alert('Connection Failed', 'Unexpected OAuth callback URL');
+          Alert.alert(t('app.connectionFailed'), 'Unexpected OAuth callback URL');
           return;
         }
         const parsed = Linking.parse(result.url);
@@ -161,15 +172,15 @@ export function SciotteLoginModal({
           onConnected();
           onClose();
         } else if (oauthError) {
-          Alert.alert('Connection Failed', `Strava error: ${oauthError}`);
+          Alert.alert(t('app.connectionFailed'), `Strava error: ${oauthError}`);
         }
       }
       // type === 'cancel' / 'dismiss' — user backed out; no error to surface.
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to launch Strava OAuth';
-      Alert.alert('Connection Failed', message);
+      const message = err instanceof Error ? err.message : t('app.stravaOauthLaunchFailed');
+      Alert.alert(t('app.connectionFailed'), message);
     }
-  }, [onConnected, onClose]);
+  }, [onConnected, onClose, t]);
 
   const handleLogin = useCallback(async () => {
     if (!email || !password) return;
@@ -190,33 +201,33 @@ export function SciotteLoginModal({
       } else if (data.status === 'two_factor_choice') {
         setTwoFactorOptions(data.options || []);
         setPhase('two-factor');
-        setStatus('Verification required');
+        setStatus(t('app.verificationRequired'));
       } else if (data.status === 'otp_required') {
         setPhase('otp');
-        setStatus('Enter verification code');
+        setStatus(t('app.enterVerificationCode'));
         setOtpCode('');
       } else if (data.status === 'number_match') {
         setMatchNumber(data.number || null);
         setPhase('number-match');
-        setStatus('Confirm on your device');
+        setStatus(t('app.confirmOnDevice'));
       } else {
-        setError(data.error || 'Login failed');
+        setError(data.error || t('auth.loginFailed'));
         setPhase('error');
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed';
+      const message = err instanceof Error ? err.message : t('auth.loginFailed');
       setError(message);
       setPhase('error');
     } finally {
       setIsLoading(false);
     }
-  }, [email, password, method, target, platformName, onClose, onConnected]);
+  }, [email, password, method, target, platformName, onClose, onConnected, t]);
 
   const handleSelect2FA = useCallback(async (optionId: string) => {
     setIsLoading(true);
     if (optionId === 'app') setPhase('waiting-approval');
     else if (optionId !== 'poll') setPhase('logging-in');
-    setStatus(optionId === 'app' ? 'Approve on your device...' : 'Verifying...');
+    setStatus(optionId === 'app' ? t('app.approveOnDevice') : t('app.verifying'));
 
     try {
       const data = await oauthApi.sciotteSelect2FA(optionId);
@@ -228,23 +239,23 @@ export function SciotteLoginModal({
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');
-        setStatus('Enter verification code');
+        setStatus(t('app.enterVerificationCode'));
         setOtpCode('');
       } else if (data.status === 'number_match') {
         setMatchNumber(data.number || null);
         setPhase('number-match');
-        setStatus('Confirm on your device');
+        setStatus(t('app.confirmOnDevice'));
       } else {
-        setError(data.error || 'Verification failed');
+        setError(data.error || t('app.verificationFailed'));
         setPhase('error');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verification failed');
+      setError(err instanceof Error ? err.message : t('app.verificationFailed'));
       setPhase('error');
     } finally {
       setIsLoading(false);
     }
-  }, [onClose, onConnected]);
+  }, [onClose, onConnected, t]);
 
   const [pollingStarted, setPollingStarted] = useState(false);
   useEffect(() => {
@@ -262,7 +273,7 @@ export function SciotteLoginModal({
 
     setIsLoading(true);
     setPhase('logging-in');
-    setStatus('Verifying code...');
+    setStatus(t('app.verifyingCode'));
 
     try {
       const data = await oauthApi.sciotteSubmitOTP(otpCode);
@@ -276,19 +287,19 @@ export function SciotteLoginModal({
         setPhase('otp');
         setOtpCode('');
       } else {
-        setError(data.error || 'Verification failed');
+        setError(data.error || t('app.verificationFailed'));
         setPhase('error');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verification failed');
+      setError(err instanceof Error ? err.message : t('app.verificationFailed'));
       setPhase('error');
     } finally {
       setIsLoading(false);
     }
-  }, [otpCode, onClose, onConnected]);
+  }, [otpCode, onClose, onConnected, t]);
 
   const methodConfig = target === 'garmin'
-    ? { ...METHOD_CONFIGS.email, title: 'Garmin Account', emailPlaceholder: 'Garmin email' }
+    ? { ...METHOD_CONFIGS.email, title: t('app.garminAccount'), emailPlaceholder: t('app.garminEmail') }
     : METHOD_CONFIGS[method];
 
   const canGoBack = phase === 'credentials' && target === 'strava';
@@ -299,7 +310,7 @@ export function SciotteLoginModal({
       return (
         <View className="gap-3">
           <Text className="text-sm text-text-secondary text-center mb-2">
-            Choose how you sign in to {platformName}
+            {t('app.chooseHowYouSignIn')} {platformName}
           </Text>
 
           {(['email', 'google', 'apple'] as LoginMethod[]).map((m) => {
@@ -327,13 +338,19 @@ export function SciotteLoginModal({
                         className="text-base font-semibold"
                         style={{ color: m === 'apple' ? '#000000' : colors.text.primary }}
                       >
-                        {m === 'email' ? `${platformName} Email` : `Continue with ${cfg.title}`}
+                        {m === 'email'
+                          ? t('app.providerEmailLabel', { provider: platformName })
+                          : t('app.continueWithProvider', { provider: cfg.brandName })}
                       </Text>
                       <Text
                         className="text-xs mt-0.5"
                         style={{ color: m === 'apple' ? '#666666' : colors.text.tertiary }}
                       >
-                        {m === 'email' ? 'Sign in with your email and password' : m === 'google' ? 'Use your Google account' : 'Use your Apple ID'}
+                        {m === 'email'
+                          ? t('app.signInWithEmailPassword')
+                          : m === 'google'
+                            ? t('app.useGoogleAccount')
+                            : t('app.useAppleId')}
                       </Text>
                     </View>
                   </View>
@@ -363,10 +380,10 @@ export function SciotteLoginModal({
                 </View>
                 <View className="flex-1">
                   <Text className="text-base font-semibold text-text-primary">
-                    Use my own Strava OAuth app
+                    {t('app.useOwnStravaApp')}
                   </Text>
                   <Text className="text-xs mt-0.5 text-text-tertiary">
-                    For users with a registered Strava developer app
+                    {t('app.stravaDevAppHint')}
                   </Text>
                 </View>
               </View>
@@ -374,7 +391,7 @@ export function SciotteLoginModal({
           ) : null}
 
           <Text className="text-xs text-text-tertiary text-center mt-2 px-4">
-            Dravr uses a secure browser session to connect your account. Your credentials are never stored.
+            {t('app.secureSessionBlurb')}
           </Text>
         </View>
       );
@@ -392,15 +409,15 @@ export function SciotteLoginModal({
               {methodConfig.renderIcon(16)}
             </View>
             <Text className="text-sm text-text-secondary font-medium">
-              {methodConfig.title}
+              {t(methodConfig.titleKey)}
             </Text>
           </View>
 
           <View className="mb-3">
-            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium uppercase tracking-wide">Email</Text>
+            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium uppercase tracking-wide">{t('common.email')}</Text>
             <TextInput
               className="bg-background-secondary rounded-xl px-4 py-3.5 text-base text-text-primary border border-border-default"
-              placeholder={methodConfig.emailPlaceholder}
+              placeholder={t(methodConfig.emailPlaceholderKey)}
               placeholderTextColor={colors.text.tertiary}
               value={email}
               onChangeText={setEmail}
@@ -412,11 +429,11 @@ export function SciotteLoginModal({
           </View>
 
           <View className="mb-4">
-            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium uppercase tracking-wide">Password</Text>
+            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium uppercase tracking-wide">{t('common.password')}</Text>
             <View className="flex-row items-center bg-background-secondary rounded-xl border border-border-default">
               <TextInput
                 className="flex-1 px-4 py-3.5 text-base text-text-primary"
-                placeholder="Enter your password"
+                placeholder={t('app.enterYourPassword')}
                 placeholderTextColor={colors.text.tertiary}
                 value={password}
                 onChangeText={setPassword}
@@ -452,7 +469,7 @@ export function SciotteLoginModal({
               style={{ borderRadius: 12, paddingVertical: 16, alignItems: 'center' }}
             >
               <Text className="text-base font-bold text-on-surface">
-                Sign In
+                {t('common.login')}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -463,7 +480,7 @@ export function SciotteLoginModal({
               onPress={() => setPhase('choose')}
             >
               <ArrowLeft size={14} color={colors.text.tertiary} />
-              <Text className="text-sm text-text-tertiary ml-1">Other sign-in methods</Text>
+              <Text className="text-sm text-text-tertiary ml-1">{t('app.otherSignInMethods')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -480,8 +497,8 @@ export function SciotteLoginModal({
           <Text className="text-base font-medium text-text-primary mb-1">{status}</Text>
           <Text className="text-sm text-text-tertiary text-center px-6">
             {phase === 'waiting-approval'
-              ? 'Open your authenticator app and approve the sign-in request'
-              : 'This may take a moment while we securely connect your account'}
+              ? t('app.openAuthenticatorApp')
+              : t('app.connectingMoment')}
           </Text>
         </View>
       );
@@ -495,8 +512,8 @@ export function SciotteLoginModal({
             <View className="w-12 h-12 rounded-2xl items-center justify-center mb-3" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
               <Shield size={24} color={colors.pierre.violet} />
             </View>
-            <Text className="text-base font-medium text-text-primary">Two-Factor Authentication</Text>
-            <Text className="text-sm text-text-tertiary mt-1">Choose a verification method</Text>
+            <Text className="text-base font-medium text-text-primary">{t('app.twoFactorAuth')}</Text>
+            <Text className="text-sm text-text-tertiary mt-1">{t('app.chooseVerificationMethod')}</Text>
           </View>
           <View className="gap-2">
             {twoFactorOptions.map((option) => (
@@ -524,7 +541,7 @@ export function SciotteLoginModal({
           <View className="w-12 h-12 rounded-2xl items-center justify-center mb-4" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
             <Shield size={24} color={colors.pierre.violet} />
           </View>
-          <Text className="text-sm text-text-secondary mb-4">Tap this number on your device</Text>
+          <Text className="text-sm text-text-secondary mb-4">{t('app.tapThisNumber')}</Text>
           {matchNumber && (
             <View
               className="rounded-2xl px-12 py-6 mb-5"
@@ -536,7 +553,7 @@ export function SciotteLoginModal({
             </View>
           )}
           <ActivityIndicator size="small" color={colors.text.tertiary} />
-          <Text className="text-xs text-text-tertiary mt-3">Waiting for confirmation...</Text>
+          <Text className="text-xs text-text-tertiary mt-3">{t('app.waitingConfirmation')}</Text>
         </View>
       );
     }
@@ -549,8 +566,8 @@ export function SciotteLoginModal({
             <View className="w-12 h-12 rounded-2xl items-center justify-center mb-3" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
               <Shield size={24} color={colors.pierre.violet} />
             </View>
-            <Text className="text-base font-medium text-text-primary">Verification Code</Text>
-            <Text className="text-sm text-text-tertiary mt-1">Enter the code from your authenticator</Text>
+            <Text className="text-base font-medium text-text-primary">{t('app.verificationCode')}</Text>
+            <Text className="text-sm text-text-tertiary mt-1">{t('app.enterAuthenticatorCode')}</Text>
           </View>
 
           <TextInput
@@ -579,7 +596,7 @@ export function SciotteLoginModal({
               {isLoading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text className="text-base font-bold text-on-surface">Verify</Text>
+                <Text className="text-base font-bold text-on-surface">{t('app.verify')}</Text>
               )}
             </LinearGradient>
           </TouchableOpacity>
@@ -594,7 +611,7 @@ export function SciotteLoginModal({
           <View className="w-16 h-16 rounded-full items-center justify-center mb-4" style={{ backgroundColor: `${colors.success}15` }}>
             <CheckCircle2 size={32} color={colors.success} />
           </View>
-          <Text className="text-lg font-bold text-text-primary">Connected!</Text>
+          <Text className="text-lg font-bold text-text-primary">{t('app.connectedBang')}</Text>
           <Text className="text-sm text-text-secondary mt-1">{platformName} is ready to sync</Text>
         </View>
       );
@@ -607,7 +624,7 @@ export function SciotteLoginModal({
           <View className="w-16 h-16 rounded-full items-center justify-center mb-4" style={{ backgroundColor: `${colors.error}15` }}>
             <AlertCircle size={32} color={colors.error} />
           </View>
-          <Text className="text-base font-medium text-text-primary mb-1">Connection Failed</Text>
+          <Text className="text-base font-medium text-text-primary mb-1">{t('app.connectionFailed')}</Text>
           <Text className="text-sm text-error text-center mb-5 px-4">{error}</Text>
           <TouchableOpacity
             onPress={() => setPhase('credentials')}
@@ -619,7 +636,7 @@ export function SciotteLoginModal({
               end={{ x: 1, y: 0 }}
               style={{ borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12 }}
             >
-              <Text className="text-base font-semibold text-on-surface">Try Again</Text>
+              <Text className="text-base font-semibold text-on-surface">{t('app.tryAgain')}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -680,7 +697,7 @@ export function SciotteLoginModal({
                   {status && phase !== 'choose' && phase !== 'credentials' ? (
                     <Text className="text-xs text-text-tertiary">{status}</Text>
                   ) : (
-                    <Text className="text-xs text-text-tertiary">Secure connection</Text>
+                    <Text className="text-xs text-text-tertiary">{t('app.secureConnection')}</Text>
                   )}
                 </View>
               </View>

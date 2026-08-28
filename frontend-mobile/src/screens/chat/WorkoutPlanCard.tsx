@@ -5,6 +5,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import type { WorkoutPlan, WorkoutSession, WorkoutDay, WorkoutRange } from '@pierre/shared-types';
 import { useThemeColors } from '../../constants/theme';
+import { useTranslation } from '@pierre/i18n';
 
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
@@ -17,7 +18,14 @@ function formatRange(range: WorkoutRange | undefined, suffix = ''): string | nul
   return `${range[0]}–${range[1]}${suffix}`;
 }
 
-function sessionLine(session: WorkoutSession): string {
+/**
+ * The one-line summary under a session.
+ *
+ * Takes `t` because it is a module-level helper, not a component — the only
+ * translated fragment in it is the threshold suffix, and the rest are units
+ * that do not vary by locale.
+ */
+function sessionLine(session: WorkoutSession, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const lactate = formatRange(session.lactate_target_mmol, ' mmol/L');
   const pacePower = formatRange(session.pace_power_target_pct);
   const parts = [
@@ -28,24 +36,26 @@ function sessionLine(session: WorkoutSession): string {
   if (lactate) {
     parts.push(`lactate ${lactate}`);
   } else if (pacePower) {
-    parts.push(`${pacePower} of threshold`);
+    parts.push(t('app.pctOfThreshold', { value: pacePower }));
   }
   return parts.join(' · ');
 }
 
 function SessionRow({ session, label }: { session: WorkoutSession; label?: string }) {
+  const { t } = useTranslation();
   return (
     <View className="mb-1">
       <Text className="text-sm text-text-primary">
         {label ? <Text className="text-text-tertiary">{label} </Text> : null}
         <Text className="font-semibold">{session.name}</Text>
       </Text>
-      <Text className="text-xs text-text-secondary">{sessionLine(session)}</Text>
+      <Text className="text-xs text-text-secondary">{sessionLine(session, t)}</Text>
     </View>
   );
 }
 
 export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const { compliance } = plan;
 
@@ -74,7 +84,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
         style={{ backgroundColor: colors.tokens.surfaceContainerHigh }}
       >
         <Text className="text-sm font-semibold text-text-primary">
-          Training plan{' '}
+          {t('app.trainingPlan')}{' '}
           <Text className="font-normal text-text-secondary">
             {plan.plan_window.start} → {plan.plan_window.end}
           </Text>
@@ -99,7 +109,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
           <View key={week.week_index} className="mb-3">
             {plan.weeks.length > 1 ? (
               <Text className="text-xs font-semibold uppercase text-text-tertiary mb-1">
-                Week {week.week_index}
+                {t('app.week')} {week.week_index}
                 {typeof week.ctl_target === 'number' ? `  ·  CTL ${week.ctl_target}` : ''}
               </Text>
             ) : null}
@@ -113,7 +123,7 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
                 >
                   <Text className="w-10 text-sm font-semibold text-text-primary">{day.day}</Text>
                   <View className="flex-1">
-                    {rest ? <Text className="text-sm text-text-secondary">Rest</Text> : null}
+                    {rest ? <Text className="text-sm text-text-secondary">{t('app.rest')}</Text> : null}
                     {day.session ? (
                       <SessionRow session={day.session} label={day.am_pm_split ? 'AM' : undefined} />
                     ) : null}
