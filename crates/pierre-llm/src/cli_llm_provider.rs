@@ -518,12 +518,29 @@ const fn runner_display_name(runner_type: CliRunnerType) -> &'static str {
 /// unified `runner` field) and as a typed `Arc` (for `converse()` access).
 ///
 /// LIMITATION(registre#102): nothing on this path marks the system-prompt +
-/// tool-surface prefix cacheable, because the platform does not own the upstream
-/// request the ACP agent makes — `cache_control` can only be set on a path we
-/// build ourselves. Copilot caches the prefix on its own regardless (a live
-/// claude-opus-4.8 turn read 15,320 of 27,862 prompt tokens from cache), and
-/// since embacle 0.22.0 that count is reported and billed; what remains absent
-/// is any ability to *ask* for it.
+/// tool-surface prefix cacheable, and nothing can. `cache_control` is settable
+/// only on a request we build ourselves; here the ACP agent builds it. The gap
+/// is not an omission on our side — the ACP schema defines the two cache counts
+/// on `Usage` and no way to influence them (no `cache_control`, no breakpoint,
+/// no ephemeral marker anywhere in the protocol), and Copilot CLI 1.0.81
+/// advertises `loadSession`, `mcpCapabilities`, `promptCapabilities` and
+/// `sessionCapabilities{close,list}`, with no caching capability at all.
+///
+/// Copilot does cache, and since embacle 0.22.0 the counts are reported and
+/// billed — but it caches its OWN preamble, never our prompt. Measured
+/// 2026-08-29 by `examples/acp_cache_boundary_probe.rs` in dravr-embacle, on
+/// CLI 1.0.81 / claude-sonnet-5: prefixes of 32, 10k, 20k and 40k tokens were
+/// each served exactly 13,964 cached tokens on the following turn — identical
+/// to the token across a 1,250x change in what we send — while the cache
+/// *write* tracked our prompt size (14,214 / 26,276 / 38,371 / 62,564). We pay
+/// the write premium on the whole prompt every turn and are served none of it
+/// back.
+///
+/// So prompt LAYOUT is not a lever on this path: no ordering of our blocks can
+/// move `cachedReadTokens`, because our bytes are never in the cached region.
+/// Prompt SIZE is the only thing on our side of the boundary. Re-run the probe
+/// before believing otherwise; a vendor that began honouring our prefix would
+/// show the cached read growing with it.
 struct HeadlessRunnerAdapter(Arc<CopilotHeadlessRunner>);
 
 #[async_trait]
