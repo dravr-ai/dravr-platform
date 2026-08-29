@@ -19,6 +19,7 @@
 //! `build_activities_success_response`, etc.) are `pub(crate)` so the same
 //! tool modules can call them directly.
 
+use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::ActivitySummary;
 use crate::implementations::data::activity_coverage_note;
 use crate::protocol::format::build_formatted_response;
@@ -41,7 +42,6 @@ use serde::Serialize;
 use serde_json::{json, to_value, Value};
 use std::cmp::Reverse;
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
@@ -197,136 +197,6 @@ pub fn localized_sport_name(sport: &SportType, locale: &str) -> String {
         _ => 1,
     };
     names[idx].to_owned()
-}
-
-/// Format activities as a numbered human-readable list for LLM output.
-///
-/// This helps smaller models include the list in their response without
-/// transforming JSON. Activities render in the order the caller established
-/// (`get_activities` sorts by the requested `sort_by` before the display
-/// limit).
-///
-/// `backfill_temps` carries weather-backfilled temperatures keyed by activity id;
-/// used when the provider didn't surface ambient temp on the row itself
-/// (sciotte / Whoop / Fitbit / Terra all leave it empty).
-///
-/// `fragment_report` carries fragment-deduplication metadata when overlapping
-/// recordings of the same workout were detected; when `Some` and at least one
-/// group is present, a header note is prepended so the LLM sees the
-/// session-vs-row distinction inline with the list (smaller models that skip
-/// the structured `retrieval_context` JSON still get the cue from the prose).
-fn format_activities_as_list(
-    activities: &[Activity],
-    backfill_temps: &HashMap<String, f32>,
-    fragment_report: Option<&FragmentReport>,
-    locale: &str,
-) -> String {
-    let mut lines = Vec::with_capacity(activities.len() + 6);
-    lines.push("Your Activities:".to_owned());
-    lines.push(String::new());
-    if let Some(report) = fragment_report {
-        if report.has_fragments() {
-            lines.push(format!(
-                "[Note] {raw} GPS recordings detected, representing ~{sessions} distinct training sessions.",
-                raw = report.raw_count,
-                sessions = report.session_count,
-            ));
-            lines.push(
-                "[Note] The following appear to be fragments of the same workout (count sessions, not rows):"
-                    .to_owned(),
-            );
-            for group in &report.groups {
-                let ids = group.fragment_ids.join(", ");
-                lines.push(format!(
-                    "       - canonical {canon}; group: [{ids}] ({sport}, {start} → {end})",
-                    canon = group.canonical_id,
-                    sport = localized_sport_name(&group.sport_type, locale),
-                    start = group.window_start.format("%Y-%m-%d %H:%M UTC"),
-                    end = group.window_end.format("%Y-%m-%d %H:%M UTC"),
-                ));
-            }
-            lines.push(String::new());
-        }
-    }
-
-    // Render in the order the caller already established (get_activities sorts
-    // by the requested `sort_by` before the display limit). Re-sorting here
-    // would override "longest to shortest" / "oldest first" back to date order.
-    for (i, activity) in activities.iter().enumerate() {
-        let date = activity.start_date().format("%Y-%m-%d").to_string();
-        // Render the sport with its localized short label (fr "trail"/"rando",
-        // not the English "trail run") so the list reads natively in the user's
-        // chat language; `Other` keeps its provider-supplied label, unknown
-        // locales fall back to English.
-        let sport = localized_sport_name(activity.sport_type(), locale);
-        let distance_km = activity.distance_meters().unwrap_or(0.0) / 1000.0;
-        let duration_secs = activity.duration_seconds();
-        let hours = duration_secs / 3600;
-        let minutes = (duration_secs % 3600) / 60;
-        let seconds = duration_secs % 60;
-
-        let duration_str = if hours > 0 {
-            format!("{hours}:{minutes:02}:{seconds:02}")
-        } else {
-            format!("{minutes}:{seconds:02}")
-        };
-
-        // Append scalar sensor fields when the provider returned them.
-        // Small models that skip the JSON tool result still see the
-        // enrichment inline — no more "I don't have HR" when the data
-        // was on the row all along. `write!` on a String is infallible
-        // so the Result is intentionally discarded — matches
-        // clippy::format_push_string guidance.
-        let mut extras = String::new();
-        match (activity.average_heart_rate(), activity.max_heart_rate()) {
-            (Some(avg), Some(max)) => {
-                let _ = write!(extras, " - HR {avg}/{max}");
-            }
-            (Some(avg), None) => {
-                let _ = write!(extras, " - HR {avg} avg");
-            }
-            (None, Some(max)) => {
-                let _ = write!(extras, " - HR {max} max");
-            }
-            (None, None) => {}
-        }
-        if let Some(elevation) = activity.elevation_gain() {
-            // Round to whole meters — the coach reasoning doesn't need
-            // decimals and the Strava field comes as Option<f32> which
-            // sometimes carries spurious fractional noise.
-            #[allow(clippy::cast_possible_truncation)]
-            let rounded = elevation.round() as i64;
-            let _ = write!(extras, " - +{rounded}m");
-        }
-        if let Some(calories) = activity.calories() {
-            let _ = write!(extras, " - {calories} kcal");
-        }
-        // Prefer the provider-surfaced temperature; fall back to the
-        // weather-backfill side-table for activities whose provider
-        // didn't capture ambient temp (sciotte / Whoop / Fitbit / Terra).
-        let temp = activity
-            .temperature()
-            .or_else(|| backfill_temps.get(activity.id()).copied());
-        if let Some(temp) = temp {
-            // Round to whole degrees — sub-degree precision is meaningless to
-            // the coach reasoning loop and the providers report 1-decimal at
-            // best. The leading sign survives `{:.0}` for sub-zero readings.
-            let _ = write!(extras, " - {temp:.0}°C");
-        }
-
-        lines.push(format!(
-            "{}. [{}] {} - {} - {:.2} km - {}{}",
-            i + 1,
-            sport,
-            activity.name(),
-            date,
-            distance_km,
-            duration_str,
-            extras
-        ));
-    }
-
-    lines.join("\n")
 }
 
 /// Pagination metadata for list responses
@@ -1186,8 +1056,13 @@ pub(crate) fn build_activities_success_response(
     let fragment_report = detect_fragments(activities, &DedupConfig::default());
 
     // Create pre-formatted activity list for LLM output (helps models include the list)
-    let activity_list =
-        format_activities_as_list(activities, backfill_temps, Some(&fragment_report), &locale);
+    let activity_list = format_activities_as_list(
+        activities,
+        backfill_temps,
+        Some(&fragment_report),
+        &locale,
+        user_timezone.as_deref(),
+    );
 
     // Calculate token estimate for context management
     let token_estimate = TokenEstimate::from_activities(activities.len(), mode_used);

@@ -94,6 +94,10 @@ pub mod physiology;
 pub mod activity_summary;
 
 /// Shared support for the fitness-provider API tools.
+/// Renders the activity window as the prose list the coach reads and cites
+#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+pub mod activity_list_render;
+
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 pub mod fitness_support;
 

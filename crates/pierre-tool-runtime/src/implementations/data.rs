@@ -1022,7 +1022,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // rather than letting the LLM anchor on the oldest activity in the
             // truncated slice. No-op on the live-fetch path (already <= limit).
             let window_total = filtered_activities.len();
-            let window_span = activity_date_span(&filtered_activities);
+            let window_span = activity_date_span(&filtered_activities, user_timezone.as_deref());
             filtered_activities.truncate(limit);
 
             // Auto-promote small-limit queries to detailed by issuing

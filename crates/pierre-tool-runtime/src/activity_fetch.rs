@@ -426,12 +426,24 @@ pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
 /// the response can frame the served window's true span — otherwise the LLM
 /// anchors on the oldest activity in the truncated slice (e.g. "depuis le 21
 /// août") instead of the window's real start.
+///
+/// Rendered in the athlete's timezone, because this span reaches them as prose:
+/// `activity_coverage_note` interpolates it into "spanning …". A bare date has no
+/// offset to disambiguate it, so rendering the UTC day moves an evening session
+/// to the next one — the same defect that had a 22:59 hike reported as "ce
+/// matin" (2026-08-28). An absent or unparseable zone falls back to UTC.
 #[must_use]
-pub fn activity_date_span(activities: &[Activity]) -> Option<(String, String)> {
+pub fn activity_date_span(
+    activities: &[Activity],
+    user_timezone: Option<&str>,
+) -> Option<(String, String)> {
+    let zone = user_timezone
+        .and_then(|tz| tz.parse::<chrono_tz::Tz>().ok())
+        .unwrap_or(chrono_tz::UTC);
     let oldest = activities.iter().map(Activity::start_date).min()?;
     let newest = activities.iter().map(Activity::start_date).max()?;
     Some((
-        oldest.format("%Y-%m-%d").to_string(),
-        newest.format("%Y-%m-%d").to_string(),
+        oldest.with_timezone(&zone).format("%Y-%m-%d").to_string(),
+        newest.with_timezone(&zone).format("%Y-%m-%d").to_string(),
     ))
 }

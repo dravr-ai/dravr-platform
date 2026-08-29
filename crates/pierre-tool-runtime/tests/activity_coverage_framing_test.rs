@@ -137,12 +137,12 @@ fn date_span_spans_oldest_to_newest_regardless_of_order() {
         act_on("b", 2024, 1, 15),
         act_on("c", 2024, 6, 1),
     ];
-    let (oldest, newest) = activity_date_span(&activities).expect("non-empty span");
+    let (oldest, newest) = activity_date_span(&activities, None).expect("non-empty span");
     assert_eq!(oldest, "2024-01-15");
     assert_eq!(newest, "2024-12-28");
 }
 
 #[test]
 fn date_span_is_none_for_empty_slice() {
-    assert!(activity_date_span(&[]).is_none());
+    assert!(activity_date_span(&[], None).is_none());
 }
