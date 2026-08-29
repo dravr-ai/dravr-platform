@@ -13,7 +13,7 @@ use pierre_core::models::{ActivityBuilder, SportType};
 use pierre_intelligence::MetricType;
 use pierre_llm::prompts::{
     get_messaging_context_prompt, get_pierre_system_prompt, get_tool_discipline_prompt,
-    PLATFORM_CONTRACT_PROMPT,
+    get_tool_discipline_shared_prompt, PLATFORM_CONTRACT_PROMPT,
 };
 
 /// The base prompt the chat pipeline actually assembles: the platform contract
@@ -333,9 +333,25 @@ fn test_activity_intelligence_fallback_on_not_found() {
 // get_activities.
 // =============================================================================
 
+/// The tool-discipline document as the model actually receives it.
+///
+/// Assembly appends the rules shared by every surface after the surface-specific
+/// half, so a rule can satisfy these tests from either file. Reading only the
+/// surface half made these assertions depend on which file a rule happened to
+/// live in: moving the backfilling section into the shared block broke
+/// `test_tool_discipline_prompt_relays_backfilling_status` without changing one
+/// byte of what the model is told.
+fn composed_tool_discipline() -> String {
+    format!(
+        "{}\n\n{}",
+        get_tool_discipline_prompt(),
+        get_tool_discipline_shared_prompt()
+    )
+}
+
 #[test]
 fn test_tool_discipline_prompt_mandates_discover_routes() {
-    let prompt = get_tool_discipline_prompt();
+    let prompt = composed_tool_discipline();
 
     assert!(
         !prompt.is_empty(),
@@ -357,7 +373,7 @@ fn test_tool_discipline_prompt_mandates_discover_routes() {
 
 #[test]
 fn test_tool_discipline_prompt_covers_get_activities() {
-    let prompt = get_tool_discipline_prompt();
+    let prompt = composed_tool_discipline();
 
     assert!(
         prompt.contains("get_activities"),
@@ -371,7 +387,7 @@ fn test_tool_discipline_prompt_covers_get_activities() {
 
 #[test]
 fn test_tool_discipline_prompt_relays_backfilling_status() {
-    let prompt = get_tool_discipline_prompt();
+    let prompt = composed_tool_discipline();
 
     assert!(
         prompt.contains("backfilling"),
@@ -385,7 +401,7 @@ fn test_tool_discipline_prompt_relays_backfilling_status() {
 
 #[test]
 fn test_tool_discipline_prompt_forbids_gratuitous_connection_check() {
-    let prompt = get_tool_discipline_prompt();
+    let prompt = composed_tool_discipline();
 
     assert!(
         prompt.contains("get_connection_status"),
