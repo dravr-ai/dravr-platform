@@ -25,6 +25,17 @@ permissions:
   id-token: write
   security-events: write  # For Trivy SARIF upload
 
+# A push burst on main queues one deploy per push: the workflow_run trigger fires
+# for every completed Backend CI run, and every deploy pulls the multi-GB registry
+# buildcache back out of Artifact Registry — billed internet egress, because the
+# runners sit outside GCP. A superseded deploy never reaches traffic anyway (Cloud
+# Run shifts only once a revision is healthy), so collapsing a burst onto its
+# newest SHA drops the redundant builds without changing what lands on dev. Tags
+# group on their own ref, so a release build is never cancelled by a main push.
+concurrency:
+  group: deploy-dev-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   # ---------------------------------------------------------------------------
   # Resolve the commit SHA to use for image tagging

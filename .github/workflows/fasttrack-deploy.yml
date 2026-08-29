@@ -70,9 +70,14 @@ jobs:
           tags: ${{ steps.tags.outputs.server_tag }}
           # Registry-backed buildx cache (Artifact Registry) — durable + reliable
           # vs the flaky type=gha cache; reuses the cargo-chef dep layer so cold
-          # fasttrack server builds drop from ~20min to ~3-5min.
-          cache-from: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server:buildcache
-          cache-to: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          # fasttrack server builds drop from ~20min to ~3-5min. It lives in the
+          # server-cache package that publish-images.yml writes, never in server:
+          # the retention policy's keep-recent-versions floor counts versions per
+          # package, so cache manifests sharing the image package would consume
+          # the rollback window that is meant to hold images. Sharing the one
+          # package is also what gives a fasttrack build a warm dep layer.
+          cache-from: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server-cache:buildcache
+          cache-to: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server-cache:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
           build-args: |
             GIT_COMMIT_SHA=${{ github.sha }}
           secrets: |
@@ -88,9 +93,10 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.frontend_tag }}
           no-cache: true
-          # Registry-backed buildx cache (see server step) — replaces the flaky
+          # Registry-backed buildx cache in the frontend-cache package (see the
+          # server step for both halves of the reasoning) — replaces the flaky
           # type=gha cache-to export that intermittently failed the build.
-          cache-to: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/frontend:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          cache-to: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/frontend-cache:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
           build-args: |
             COMMIT_SHA=${{ github.sha }}
             VITE_FIREBASE_API_KEY=${{ vars.VITE_FIREBASE_API_KEY }}
