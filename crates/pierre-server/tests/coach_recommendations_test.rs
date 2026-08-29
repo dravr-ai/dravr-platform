@@ -391,9 +391,9 @@ fn a_split_cycling_athlete_is_not_reported_as_a_runner() {
         ("ride", 10),
     ]);
 
-    let primary = mixed.primary_sport().expect("a profile with rows has one");
     assert_eq!(
-        primary, "mountain_bike",
+        mixed.primary_sport().as_deref(),
+        Some("mountain_bike"),
         "cycling is 33 of 53 activities; the athlete should be told the bike he \
          rides most, not the one sport whose label happens to lead"
     );
@@ -410,8 +410,8 @@ fn a_trail_runner_keeps_the_discipline_they_actually_log() {
     let trail = profile(&[("trail_running", 18), ("hike", 3)]);
 
     assert_eq!(
-        trail.primary_sport().expect("non-empty"),
-        "trail_running",
+        trail.primary_sport().as_deref(),
+        Some("trail_running"),
         "the family won, but the label reported must be the one he logs"
     );
 }
@@ -424,10 +424,11 @@ fn a_trail_runner_keeps_the_discipline_they_actually_log() {
 fn an_exact_tie_is_stable_across_calls() {
     let tied = profile(&[("run", 10), ("swim", 10)]);
 
-    let first = tied.primary_sport().expect("non-empty");
+    let first = tied.primary_sport();
+    assert!(first.is_some(), "a profile with rows has a primary sport");
     for _ in 0..20 {
         assert_eq!(
-            tied.primary_sport().expect("non-empty"),
+            tied.primary_sport(),
             first,
             "a tie must not depend on hash order"
         );
