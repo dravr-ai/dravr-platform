@@ -115,3 +115,70 @@ fn an_unresolvable_shared_block_leaves_the_variant_untouched() {
         "an empty shared block must not append a separator"
     );
 }
+
+/// Neither surface document carries a copy of a shared rule.
+///
+/// This is the assertion the whole split exists to make possible. Both
+/// documents once held these five sections verbatim, and had already drifted —
+/// a later edit reached whichever file the author happened to open. If a shared
+/// heading reappears in a surface document, the duplication is back and this
+/// fails before it can drift again.
+#[test]
+fn no_surface_document_re_duplicates_a_shared_rule() {
+    let registry = PromptRegistry::new();
+    let shared_text = shared();
+
+    let shared_headings: Vec<&str> = shared_text
+        .lines()
+        .filter(|l| l.starts_with("### "))
+        .collect();
+    assert_eq!(
+        shared_headings.len(),
+        5,
+        "expected the five shared sections, found {shared_headings:?}"
+    );
+
+    for (surface, variant) in [
+        ("web", registry.tool_discipline_prompt()),
+        ("messaging", registry.tool_discipline_messaging_prompt()),
+    ] {
+        for heading in &shared_headings {
+            assert!(
+                !variant.contains(heading),
+                "{surface} still carries {heading:?} — that rule is held once, in the \
+                 shared block, and a copy here is the drift this split removed"
+            );
+        }
+    }
+}
+
+/// The composed document is not shorter than the surface half it was built from,
+/// and carries both halves' headings.
+///
+/// Guards the failure that would be invisible otherwise: if the shared block
+/// stopped resolving, every surface would silently lose five sections of
+/// data-honesty rules and still produce a perfectly well-formed prompt.
+#[test]
+fn composition_restores_every_section_to_both_surfaces() {
+    let registry = PromptRegistry::new();
+
+    for (surface, variant) in [
+        ("web", registry.tool_discipline_prompt()),
+        ("messaging", registry.tool_discipline_messaging_prompt()),
+    ] {
+        let composed = registry.tool_discipline_with_shared_rules(&variant);
+        let sections = composed.lines().filter(|l| l.starts_with("### ")).count();
+        assert!(
+            sections >= 8,
+            "{surface} composed to only {sections} sections; the surface half plus \
+             the five shared ones cannot be fewer than eight"
+        );
+        assert!(
+            composed.len() > variant.len() + 3_000,
+            "{surface} composed to {} bytes from a {} byte variant — the shared \
+             block is ~5.4 KB and must actually be present",
+            composed.len(),
+            variant.len()
+        );
+    }
+}
