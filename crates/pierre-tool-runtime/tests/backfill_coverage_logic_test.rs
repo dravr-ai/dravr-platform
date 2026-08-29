@@ -11,10 +11,10 @@ use chrono::{TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_tool_runtime::activity_backfill::backfill_covered_floor_ts;
-use pierre_tool_runtime::activity_fetch::sort_activities;
-use pierre_tool_runtime::implementations::data::{
-    historical_depth_covered, historical_head_slice, response_cache_eligible,
+use pierre_tool_runtime::activity_fetch::{
+    historical_depth_covered, historical_head_slice, sort_activities,
 };
+use pierre_tool_runtime::implementations::data::response_cache_eligible;
 
 // Jan 1 2022 and a few reference points (unix seconds).
 const JAN_2022: i64 = 1_640_995_200;

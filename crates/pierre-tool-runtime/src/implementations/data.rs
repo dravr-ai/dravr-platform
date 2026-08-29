@@ -37,7 +37,8 @@ use crate::activity_backfill::{
     is_historical_backfill_window, spawn_activity_backfill, ActivityBackfillJob,
 };
 use crate::activity_fetch::{
-    activity_date_span, maybe_merge_other_connections, read_cached_window, sort_activities,
+    activity_date_span, historical_depth_covered, historical_head_slice,
+    maybe_merge_other_connections, read_cached_window, refresh_stale_head, sort_activities,
 };
 use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
 use crate::context::ToolExecutionContext;
@@ -57,7 +58,6 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::config::fitness::{activity_detail_threshold, EXPENSIVE_DETAIL_PROMOTION_BUDGET};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::repositories::BackfillCoverage;
 use pierre_fitness_compute::weather::build_provider as build_weather_provider;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::{format_output, OutputFormat};
@@ -118,41 +118,6 @@ fn historical_backfill_fetch_limit() -> usize {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|n| *n > 0)
         .unwrap_or(DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT)
-}
-
-/// Whether a cached historical window is deep enough to serve as-is.
-///
-/// Cached rows alone are not enough — a prior limit-capped backfill leaves only
-/// the recent slice of a deep window. The window is covered when a backfill
-/// reached at least as far back as `after_ts`, OR exhausted the provider feed
-/// (`hit_feed_end`, so no older data exists). No coverage record ⇒ not covered.
-/// `pub` so the gate decision is exercisable by the integration test suite.
-#[must_use]
-pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i64) -> bool {
-    coverage.is_some_and(|c| c.hit_feed_end || c.oldest_reached_ts <= after_ts)
-}
-
-/// Lower bound of the disjoint head slice `(coverage_bound, now]` an
-/// open-`before` historical serve must append to the coverage read.
-///
-/// The coverage read is clipped at `after + 1 year` so recent rows can't mask
-/// a missing season — but rows above the clip are still inside the requested
-/// window. Served without this slice, the list tops out a year above `after`
-/// and the coach falsely reports "nothing newer" while newer rows sit in the
-/// durable cache. `None` when the caller bounded `before` (nothing was
-/// clipped) or the clip already reaches `now`.
-/// `pub` so the slice decision is exercisable by the integration test suite.
-#[must_use]
-pub fn historical_head_slice(
-    before: Option<i64>,
-    coverage_bound: Option<i64>,
-    now_ts: i64,
-) -> Option<i64> {
-    if before.is_some() {
-        return None;
-    }
-    let bound = coverage_bound?;
-    (bound < now_ts).then_some(bound)
 }
 
 /// Whether `provider`'s connection is in an unusable state (`NeedsReauth` /
@@ -860,6 +825,18 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             served.extend(head.into_iter().filter(|a| !seen.contains(a.id())));
                         }
                     }
+                    // The covered gate proves the window is deep enough; it says
+                    // nothing about whether it is current. Top up the head when the
+                    // provider may be holding something we have never seen.
+                    refresh_stale_head(
+                        &context.resources,
+                        &provider_name,
+                        context.user_id,
+                        tenant_id,
+                        before,
+                        &mut served,
+                    )
+                    .await;
                     (served, None)
                 } else {
                     // Synchronous reconnect (priority): if this provider's

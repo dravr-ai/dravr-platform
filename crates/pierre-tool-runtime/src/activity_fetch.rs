@@ -12,12 +12,14 @@
 //! owns that single path so neither re-implements it.
 
 use std::cmp::{Ordering, Reverse};
+use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
 
 use chrono::{Duration, TimeZone, Utc};
+use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, TenantId};
-use pierre_database::repositories::ActivityCacheRepository;
+use pierre_database::repositories::{ActivityCacheRepository, BackfillCoverage};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -135,6 +137,131 @@ pub async fn maybe_merge_other_connections(
     }
     activities
 }
+
+/// Whether a cached historical window is deep enough to serve as-is.
+///
+/// Cached rows alone are not enough — a prior limit-capped backfill leaves only
+/// the recent slice of a deep window. The window is covered when a backfill
+/// reached at least as far back as `after_ts`, OR exhausted the provider feed
+/// (`hit_feed_end`, so no older data exists). No coverage record ⇒ not covered.
+/// `pub` so the gate decision is exercisable by the integration test suite.
+#[must_use]
+pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i64) -> bool {
+    coverage.is_some_and(|c| c.hit_feed_end || c.oldest_reached_ts <= after_ts)
+}
+
+/// Lower bound of the disjoint head slice `(coverage_bound, now]` an
+/// open-`before` historical serve must append to the coverage read.
+///
+/// The coverage read is clipped at `after + 1 year` so recent rows can't mask
+/// a missing season — but rows above the clip are still inside the requested
+/// window. Served without this slice, the list tops out a year above `after`
+/// and the coach falsely reports "nothing newer" while newer rows sit in the
+/// durable cache. `None` when the caller bounded `before` (nothing was
+/// clipped) or the clip already reaches `now`.
+/// `pub` so the slice decision is exercisable by the integration test suite.
+#[must_use]
+pub fn historical_head_slice(
+    before: Option<i64>,
+    coverage_bound: Option<i64>,
+    now_ts: i64,
+) -> Option<i64> {
+    if before.is_some() {
+        return None;
+    }
+    let bound = coverage_bound?;
+    (bound < now_ts).then_some(bound)
+}
+
+/// How far back a stale-head refresh re-reads from the provider.
+///
+/// Thirty days, not the served window. The covered gate exists so a sixteen-week
+/// ask is not re-scraped on every turn — a sciotte scrape is a headless browser
+/// session costing tens of seconds — and the only thing a stale head can be
+/// missing is recent. Deep history is immutable once backfilled.
+const STALE_HEAD_REFRESH_DAYS: i64 = 30;
+
+/// Top up a cache-served window with a live read when the head has gone stale.
+///
+/// The covered-historical path serves the durable cache with no freshness test:
+/// `read_cached_window` consults neither `synced_at` nor `activity_fetch_freshness`,
+/// and `historical_depth_covered` asks only whether the window is DEEP enough,
+/// never whether it is CURRENT. A coach whose window declares sixteen weeks takes
+/// that path on every single turn, so its grounding block was as old as whatever
+/// last happened to write through — while the block itself instructs the model to
+/// "base your analysis on these specific activities" and not to answer from memory.
+///
+/// The freshness mark was already written and already read, but only by the
+/// `get_data_freshness` REPORTING tool. Nothing acted on it. Now the same
+/// [`DataFreshness`] bands the coach is TOLD about also decide whether to look
+/// again, so the report and the behaviour cannot disagree.
+///
+/// Bounded windows are exempt: a closed `before` names a period that is over, so
+/// there is no live head it could be missing, and refreshing one would re-scrape
+/// history that cannot have changed.
+///
+/// Best-effort. A failed refresh leaves the cached window exactly as it was —
+/// slightly old data beats no data, which is the same posture
+/// [`fetch_provider_activities`] already takes on a provider blip.
+pub async fn refresh_stale_head(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    before: Option<i64>,
+    served: &mut Vec<Activity>,
+) {
+    if before.is_some() {
+        return;
+    }
+
+    let last_sync = runtime
+        .repos()
+        .activity_cache
+        .latest_activity_sync(user_id, &tenant_id, provider_slug)
+        .await
+        .unwrap_or(None);
+
+    let freshness = DataFreshness::from_last_sync(last_sync);
+    if matches!(freshness, DataFreshness::Fresh | DataFreshness::Recent) {
+        return;
+    }
+
+    let head_after = Utc::now().timestamp() - STALE_HEAD_REFRESH_DAYS * 86_400;
+    info!(
+        user_id = %user_id,
+        provider = %provider_slug,
+        ?last_sync,
+        freshness = freshness.label(),
+        "activity head is stale; re-reading the recent window before grounding"
+    );
+
+    let params = ActivityQueryParams {
+        after: Some(head_after),
+        before: None,
+        limit: Some(STALE_HEAD_REFRESH_LIMIT),
+        offset: None,
+    };
+    let Some(live) = fetch_provider_activities(
+        runtime,
+        provider_slug,
+        user_id,
+        &tenant_id.to_string(),
+        &params,
+    )
+    .await
+    else {
+        return;
+    };
+
+    let seen: HashSet<String> = served.iter().map(|a| a.id().to_owned()).collect();
+    let added = live.into_iter().filter(|a| !seen.contains(a.id()));
+    served.extend(added);
+    served.sort_by_key(|a| Reverse(a.start_date()));
+}
+
+/// Cap on rows a stale-head refresh reads back.
+const STALE_HEAD_REFRESH_LIMIT: usize = 200;
 
 /// Fetch activities for a single provider connection, authenticating (and
 /// refreshing tokens) as needed.
