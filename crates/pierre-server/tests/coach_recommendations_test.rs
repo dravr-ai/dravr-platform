@@ -374,6 +374,66 @@ fn an_inserted_family_head_does_not_make_a_specialist_coach_match() {
     );
 }
 
+/// The primary sport is the family the athlete trains most, named by the
+/// discipline they actually log.
+///
+/// A bare `max_by_key` over labels answered the wrong question for anyone whose
+/// provider splits one sport across several. These counts are the 2026-08-28
+/// athlete's shape: 20 runs against 33 rides spread over three bikes. Cycling is
+/// 62% of his training and the old code returned "run", which reached him as
+/// "Welcome! Based on your recent Run training".
+#[test]
+fn a_split_cycling_athlete_is_not_reported_as_a_runner() {
+    let mixed = profile(&[
+        ("run", 20),
+        ("mountain_bike", 12),
+        ("gravel_ride", 11),
+        ("ride", 10),
+    ]);
+
+    let primary = mixed.primary_sport().expect("a profile with rows has one");
+    assert_eq!(
+        primary, "mountain_bike",
+        "cycling is 33 of 53 activities; the athlete should be told the bike he \
+         rides most, not the one sport whose label happens to lead"
+    );
+}
+
+/// Naming the family head would trade one wrong label for another.
+///
+/// An athlete who logs every run as `TrailRunning` is a trail runner. Reporting
+/// "Run" because that is the family head is the same class of error in the
+/// opposite direction, which is why the winner is resolved to a family and then
+/// back down to a discipline.
+#[test]
+fn a_trail_runner_keeps_the_discipline_they_actually_log() {
+    let trail = profile(&[("trail_running", 18), ("hike", 3)]);
+
+    assert_eq!(
+        trail.primary_sport().expect("non-empty"),
+        "trail_running",
+        "the family won, but the label reported must be the one he logs"
+    );
+}
+
+/// Ties resolve the same way every time.
+///
+/// `sport_counts` is a `HashMap`, so without an explicit tie-break the answer
+/// would depend on iteration order — and this string is shown to the athlete.
+#[test]
+fn an_exact_tie_is_stable_across_calls() {
+    let tied = profile(&[("run", 10), ("swim", 10)]);
+
+    let first = tied.primary_sport().expect("non-empty");
+    for _ in 0..20 {
+        assert_eq!(
+            tied.primary_sport().expect("non-empty"),
+            first,
+            "a tie must not depend on hash order"
+        );
+    }
+}
+
 #[test]
 fn overlap_normalizes_titlecase_coach_activity_types() {
     let cfg = CoachRecommendationConfig::default();

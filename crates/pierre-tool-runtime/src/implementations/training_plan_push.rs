@@ -85,12 +85,26 @@ pub(super) async fn calendar_block(
             })
         })
         .collect();
-    Ok(json!({
+    let mut block = json!({
         "provider": CALENDAR_PROVIDER,
         "entries": entries,
         "pending": pending,
         "stale": pending.is_stale(),
-    }))
+    });
+    if block["entries"].as_array().is_some_and(Vec::is_empty) {
+        // An empty ledger is not an empty calendar, and the difference is the
+        // whole answer to "do I have a race today". This block is Dravr's record
+        // of what Dravr pushed; nothing here reads the athlete's own calendar,
+        // and for an athlete with no calendar provider connected it is empty
+        // permanently. Said plainly next to the emptiness, because a model shown
+        // `entries: []` under a key called `calendar` will otherwise report it as
+        // "nothing on your calendar" — which it did, to an athlete asking whether
+        // he had a race (2026-08-28).
+        block["scope"] = json!(
+            "Dravr has scheduled nothing. This lists only what Dravr pushed to              the athlete's calendar provider — it is NOT a view of their calendar.              An empty list says nothing about races or events they entered              themselves; say so rather than reporting they have none."
+        );
+    }
+    Ok(block)
 }
 
 /// What a push would change, for the `save_training_plan` reply — only once

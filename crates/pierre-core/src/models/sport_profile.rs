@@ -45,12 +45,60 @@ impl SportProfile {
         }
     }
 
-    /// The most frequently logged sport, as a canonical `snake_case` label.
+    /// The sport the athlete mainly trains, as a canonical `snake_case` label.
+    ///
+    /// Decided in two steps: the winning FAMILY by total volume, then the
+    /// dominant discipline WITHIN it. A bare `max_by_key` over labels answered
+    /// the wrong question for anyone whose provider splits one sport across
+    /// several — an athlete logging 20 runs against 12 mountain-bike, 11 gravel
+    /// and 10 road rides came back `"run"` while 62% of his training was
+    /// cycling, and the coach proposal greeted him with "Based on your recent
+    /// Run training".
+    ///
+    /// The second step is why this does not simply return the family head:
+    /// reporting `Run` for an athlete who only ever logs `TrailRunning` would
+    /// trade one wrong label for another. A trail runner stays a trail runner; a
+    /// rider split across three bikes gets the bike he rides most.
+    ///
+    /// Ties break on the label to keep the answer stable across runs — a
+    /// `HashMap` iteration order must not decide what the athlete is told they
+    /// do. Labels that resolve to no known sport still count for themselves, so
+    /// a provider-specific `Other(...)` can win outright.
     #[must_use]
     pub fn primary_sport(&self) -> Option<String> {
+        // Keyed by the head's canonical label rather than the enum: `SportType`
+        // is not `Ord`, and the tie-break has to be deterministic or a `HashMap`
+        // iteration order decides what the athlete is told they do.
+        let mut family_totals: HashMap<String, u32> = HashMap::new();
+        for (label, &count) in &self.sport_counts {
+            let Some(sport) = resolve_sport_type(label) else {
+                continue;
+            };
+            let head = sport_family_head(&sport).unwrap_or(sport);
+            *family_totals.entry(sport_label(&head)).or_insert(0) += count;
+        }
+
+        let winner = family_totals
+            .iter()
+            .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+            .and_then(|(head, _)| resolve_sport_type(head));
+
+        let Some(winner) = winner else {
+            // Nothing resolved to a known sport — fall back to raw label volume
+            // so a purely `Other(...)` profile still answers.
+            return self
+                .sport_counts
+                .iter()
+                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+                .map(|(sport, _)| sport.clone());
+        };
+
         self.sport_counts
             .iter()
-            .max_by_key(|(_, count)| **count)
+            .filter(|(label, _)| {
+                resolve_sport_type(label).is_some_and(|s| sport_matches_family(&s, &winner))
+            })
+            .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
             .map(|(sport, _)| sport.clone())
     }
 
@@ -166,18 +214,18 @@ impl SportProfile {
             / f32::from(u16::try_from(coach_activity_types.len()).unwrap_or(u16::MAX));
         overlap
     }
+}
 
-    /// Whether the user actively trains at least one of the coach's required
-    /// `activity_types`.
-    #[must_use]
-    pub fn matches_activity_types(
-        &self,
-        coach_activity_types: &[String],
-        min_activities: u32,
-        min_share: f32,
-    ) -> bool {
-        self.activity_type_overlap(coach_activity_types, min_activities, min_share) > 0.0
-    }
+/// Canonical `snake_case` label for a [`SportType`], matching its serde form.
+///
+/// Falls back to the `Debug` rendering for a variant serde cannot express as a
+/// bare string, which keeps the label total rather than optional — callers use
+/// it as a map key and a tie-break, neither of which tolerates a gap.
+fn sport_label(sport: &SportType) -> String {
+    serde_json::to_value(sport)
+        .ok()
+        .and_then(|v| v.as_str().map(ToOwned::to_owned))
+        .unwrap_or_else(|| format!("{sport:?}"))
 }
 
 /// Canonical `snake_case` label for an activity's sport type, matching the
