@@ -83,7 +83,11 @@ describe('untranslated string ratchet', () => {
         .join('\n');
       throw new Error(
         `${count} hardcoded athlete-facing strings, ceiling is ${CEILING}.\n` +
-          `Translate them, or say why the ceiling should rise.\n${worst}`,
+          'Translate them, or — if one is a PROPER NOUN — move it to a brand\n' +
+          'constant instead. Shape cannot tell `Telegram` from `Cancel`: both are\n' +
+          'one capitalised word, so the scanner flags both, and translating a\n' +
+          'trademark into five languages is the wrong way to clear it.\n' +
+          `Or say why the ceiling should rise.\n${worst}`,
       );
     }
 

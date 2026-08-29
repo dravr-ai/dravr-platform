@@ -53,9 +53,7 @@ export function ConnectPreview() {
             </View>
             <View className="self-start max-w-[90%] rounded-2xl border border-outline-variant bg-surface-container px-3.5 py-2">
               <Text className="text-sm text-on-surface">
-                Your load is up 24% on last week and you slept under six hours twice — heavy legs
-                are the expected result, not a warning sign. Keep Saturday, drop it to easy pace
-                and cut the last 5k.
+                {t('onboarding.connectPreviewSampleShort')}
               </Text>
             </View>
           </View>

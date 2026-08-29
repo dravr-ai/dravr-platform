@@ -53,10 +53,7 @@ export default function ConnectPreview() {
 
             <div className="self-start max-w-[90%] rounded-2xl rounded-bl-sm border border-outline-variant bg-surface-container px-3.5 py-2">
               <p className="text-sm text-on-surface">
-                Your load is up 24% on last week and you slept under six hours twice — heavy legs
-                are the expected result, not a warning sign. Keep Saturday, drop it to easy pace
-                and cut the last 5k. That protects the long-run habit without adding to a week
-                that is already the biggest of your block.
+                {t('onboarding.connectPreviewSample')}
               </p>
             </div>
           </div>

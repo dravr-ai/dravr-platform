@@ -1,5 +1,5 @@
 // ABOUTME: Messaging channel configuration tab for user settings
-// ABOUTME: Allows admins to configure WhatsApp, Telegram, Slack, Discord, and Messenger channels
+// ABOUTME: Athletes configure their own WhatsApp, Telegram, Slack, Discord and Messenger credentials
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,90 +11,96 @@ import type { ChannelConfigSummary } from '../services/api/messaging';
 import { Card, Button, Input, Badge, ConfirmDialog } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useTranslation } from '@pierre/i18n';
+import { CHANNEL_BRAND } from '@pierre/shared-constants';
 
 interface ChannelField {
   key: string;
-  label: string;
+  labelKey: string;
   type: 'text' | 'password';
-  placeholder: string;
+  /** Corpus key, when the placeholder is a prose hint. */
+  placeholderKey?: string;
+  /** Verbatim format sample, when it is not. `xoxb-...` reads the same in
+   *  every locale, and a translator handed it has no way to know that. */
+  placeholderSample?: string;
 }
 
 interface ChannelInfo {
   name: string;
-  description: string;
+  descriptionKey: string;
   icon: React.ReactNode;
   fields: ChannelField[];
 }
 
 const CHANNEL_INFO: Record<string, ChannelInfo> = {
   whatsapp: {
-    name: 'WhatsApp',
-    description: 'WhatsApp Business Cloud API via Meta Graph API',
+    name: CHANNEL_BRAND.whatsapp,
+    descriptionKey: 'msgChan.whatsappDesc',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
       </svg>
     ),
     fields: [
-      { key: 'api_key', label: 'Access Token', type: 'password', placeholder: 'WhatsApp Cloud API access token' },
-      { key: 'webhook_secret', label: 'App Secret (HMAC)', type: 'password', placeholder: 'Meta App Secret for webhook signature verification' },
-      { key: 'verify_token', label: 'Verify Token', type: 'text', placeholder: 'Token for Meta webhook URL verification' },
-      { key: 'phone_number', label: 'Phone Number', type: 'text', placeholder: '+1 555 123 4567' },
+      { key: 'api_key', labelKey: 'msgChan.accessToken', type: 'password', placeholderKey: 'msgChan.whatsappAccessTokenHint' },
+      { key: 'webhook_secret', labelKey: 'msgChan.appSecretHmac', type: 'password', placeholderKey: 'msgChan.metaAppSecretHint' },
+      { key: 'verify_token', labelKey: 'msgChan.verifyToken', type: 'text', placeholderKey: 'msgChan.verifyTokenHint' },
+      { key: 'phone_number', labelKey: 'msgChan.phoneNumber', type: 'text', placeholderSample: '+1 555 123 4567' },
     ],
   },
   telegram: {
-    name: 'Telegram',
-    description: 'Telegram Bot API for messaging and channel linking',
+    name: CHANNEL_BRAND.telegram,
+    descriptionKey: 'msgChan.telegramDesc',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
       </svg>
     ),
     fields: [
-      { key: 'bot_token', label: 'Bot Token', type: 'password', placeholder: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11' },
-      { key: 'webhook_secret', label: 'Webhook Secret', type: 'password', placeholder: 'Secret token for X-Telegram-Bot-Api-Secret-Token header' },
+      { key: 'bot_token', labelKey: 'msgChan.botToken', type: 'password', placeholderSample: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11' },
+      { key: 'webhook_secret', labelKey: 'msgChan.webhookSecret', type: 'password', placeholderKey: 'msgChan.telegramWebhookSecretHint' },
     ],
   },
   slack: {
-    name: 'Slack',
-    description: 'Slack Events API for workspace messaging',
+    name: CHANNEL_BRAND.slack,
+    descriptionKey: 'msgChan.slackDesc',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
       </svg>
     ),
     fields: [
-      { key: 'api_key', label: 'Bot Token', type: 'password', placeholder: 'xoxb-...' },
-      { key: 'api_secret', label: 'Client Secret', type: 'password', placeholder: 'Slack app client secret' },
-      { key: 'webhook_secret', label: 'Signing Secret', type: 'password', placeholder: 'Slack signing secret for request verification' },
+      { key: 'api_key', labelKey: 'msgChan.botToken', type: 'password', placeholderSample: 'xoxb-...' },
+      { key: 'api_secret', labelKey: 'msgChan.clientSecret', type: 'password', placeholderKey: 'msgChan.slackClientSecretHint' },
+      { key: 'webhook_secret', labelKey: 'msgChan.signingSecret', type: 'password', placeholderKey: 'msgChan.slackSigningSecretHint' },
     ],
   },
   discord: {
-    name: 'Discord',
-    description: 'Discord Bot API for server messaging',
+    name: CHANNEL_BRAND.discord,
+    descriptionKey: 'msgChan.discordDesc',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ),
     fields: [
-      { key: 'bot_token', label: 'Bot Token', type: 'password', placeholder: 'Discord bot token' },
-      { key: 'webhook_secret', label: 'Public Key', type: 'password', placeholder: 'Ed25519 public key (hex) for interaction verification' },
-      { key: 'account_id', label: 'Application ID', type: 'text', placeholder: 'Discord application ID' },
+      { key: 'bot_token', labelKey: 'msgChan.botToken', type: 'password', placeholderKey: 'msgChan.discordBotTokenHint' },
+      { key: 'webhook_secret', labelKey: 'msgChan.publicKey', type: 'password', placeholderKey: 'msgChan.discordPublicKeyHint' },
+      { key: 'account_id', labelKey: 'msgChan.applicationId', type: 'text', placeholderKey: 'msgChan.discordAppIdHint' },
     ],
   },
   messenger: {
-    name: 'Messenger',
-    description: 'Meta Messenger Platform for page messaging',
+    name: CHANNEL_BRAND.messenger,
+    descriptionKey: 'msgChan.messengerDesc',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
     ),
     fields: [
-      { key: 'api_key', label: 'Page Access Token', type: 'password', placeholder: 'Messenger page access token' },
-      { key: 'webhook_secret', label: 'App Secret (HMAC)', type: 'password', placeholder: 'Meta App Secret for webhook signature verification' },
-      { key: 'verify_token', label: 'Verify Token', type: 'text', placeholder: 'Token for Meta webhook URL verification' },
+      { key: 'api_key', labelKey: 'msgChan.pageAccessToken', type: 'password', placeholderKey: 'msgChan.messengerPageTokenHint' },
+      { key: 'webhook_secret', labelKey: 'msgChan.appSecretHmac', type: 'password', placeholderKey: 'msgChan.metaAppSecretHint' },
+      { key: 'verify_token', labelKey: 'msgChan.verifyToken', type: 'text', placeholderKey: 'msgChan.verifyTokenHint' },
     ],
   },
 };
@@ -102,6 +108,7 @@ const CHANNEL_INFO: Record<string, ChannelInfo> = {
 const CHANNEL_ORDER = ['whatsapp', 'telegram', 'slack', 'discord', 'messenger'];
 
 export default function MessagingSettingsTab() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -121,11 +128,11 @@ export default function MessagingSettingsTab() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.messaging.channels() });
-      setMessage({ type: 'success', text: 'Channel configuration saved' });
+      setMessage({ type: 'success', text: t('msgChan.savedToast') });
       resetForm();
     },
     onError: (error: Error) => {
-      setMessage({ type: 'error', text: error.message || 'Failed to save configuration' });
+      setMessage({ type: 'error', text: error.message || t('msgChan.saveFailed') });
     },
   });
 
@@ -133,11 +140,11 @@ export default function MessagingSettingsTab() {
     mutationFn: (channel: string) => messagingApi.deleteChannel(channel),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.messaging.channels() });
-      setMessage({ type: 'success', text: 'Channel configuration removed' });
+      setMessage({ type: 'success', text: t('msgChan.removedToast') });
       setChannelToDelete(null);
     },
     onError: (error: Error) => {
-      setMessage({ type: 'error', text: error.message || 'Failed to remove configuration' });
+      setMessage({ type: 'error', text: error.message || t('msgChan.removeFailed') });
       setChannelToDelete(null);
     },
   });
@@ -177,11 +184,8 @@ export default function MessagingSettingsTab() {
   return (
     <>
       <Card variant="dark">
-        <h2 className="text-lg font-semibold text-on-surface mb-4">Messaging Channels</h2>
-        <p className="text-sm text-on-surface/60 mb-6">
-          Configure messaging channels to enable users to chat with Dravr through WhatsApp,
-          Telegram, Slack, Discord, or Messenger.
-        </p>
+        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('msgChan.title')}</h2>
+        <p className="text-sm text-on-surface/60 mb-6">{t('msgChan.intro')}</p>
 
         <div className="space-y-4">
           {CHANNEL_ORDER.map((channelId) => {
@@ -211,9 +215,9 @@ export default function MessagingSettingsTab() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-medium text-on-surface">{info.name}</h3>
-                        {isConfigured && <Badge variant="success">Configured</Badge>}
+                        {isConfigured && <Badge variant="success">{t('msgChan.configured')}</Badge>}
                       </div>
-                      <p className="text-sm text-on-surface/60">{info.description}</p>
+                      <p className="text-sm text-on-surface/60">{t(info.descriptionKey)}</p>
                     </div>
                   </div>
                   <div className="flex gap-2 ml-4">
@@ -223,7 +227,7 @@ export default function MessagingSettingsTab() {
                         size="sm"
                         onClick={() => setChannelToDelete(channelId)}
                       >
-                        Remove
+                        {t('app.remove')}
                       </Button>
                     )}
                     <Button
@@ -235,7 +239,7 @@ export default function MessagingSettingsTab() {
                         setMessage(null);
                       }}
                     >
-                      {isConfigured ? 'Update' : 'Configure'}
+                      {isConfigured ? t('common.update') : t('common.configure')}
                     </Button>
                   </div>
                 </div>
@@ -250,7 +254,7 @@ export default function MessagingSettingsTab() {
         <Card variant="dark">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-on-surface">
-              Configure {CHANNEL_INFO[selectedChannel].name}
+              {t('msgChan.configureChannel', { channel: CHANNEL_INFO[selectedChannel].name })}
             </h2>
             <button onClick={resetForm} className="text-on-surface/40 hover:text-on-surface/70">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -263,19 +267,19 @@ export default function MessagingSettingsTab() {
             {CHANNEL_INFO[selectedChannel].fields.map((field) => (
               <Input
                 key={field.key}
-                label={field.label}
+                label={t(field.labelKey)}
                 type={field.type}
                 value={formValues[field.key] || ''}
                 onChange={(e) =>
                   setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))
                 }
-                placeholder={field.placeholder}
+                placeholder={field.placeholderKey ? t(field.placeholderKey) : field.placeholderSample}
               />
             ))}
 
             <div className="flex gap-3 pt-2">
               <Button variant="outline" onClick={resetForm}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="gradient"
@@ -283,7 +287,7 @@ export default function MessagingSettingsTab() {
                 loading={saveMutation.isPending}
                 disabled={Object.values(formValues).every((v) => !v.trim())}
               >
-                Save Configuration
+                {t('msgChan.saveConfiguration')}
               </Button>
             </div>
           </div>
@@ -311,11 +315,11 @@ export default function MessagingSettingsTab() {
         isOpen={channelToDelete !== null}
         onClose={() => setChannelToDelete(null)}
         onConfirm={() => channelToDelete && deleteMutation.mutate(channelToDelete)}
-        title="Remove Channel Configuration"
-        message={`Are you sure you want to remove the ${
-          channelToDelete ? CHANNEL_INFO[channelToDelete]?.name : ''
-        } configuration? Users will no longer be able to chat through this channel.`}
-        confirmLabel="Remove"
+        title={t('msgChan.removeChannelConfig')}
+        message={t('msgChan.confirmRemove', {
+          channel: channelToDelete ? CHANNEL_INFO[channelToDelete]?.name : '',
+        })}
+        confirmLabel={t('app.remove')}
         variant="danger"
         isLoading={deleteMutation.isPending}
       />

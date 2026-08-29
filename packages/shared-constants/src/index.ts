@@ -3,6 +3,7 @@
 
 // Onboarding step registry (pure decision logic shared by web + mobile)
 export * from './onboarding';
+export * from './brands';
 
 // Coach tuning bounds (mirrors the server-side range checks)
 export {

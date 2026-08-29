@@ -62,7 +62,7 @@ describe('client locale corpus', () => {
     // was un-narrowed (2026-08-27) — so the label was captioning a promise the
     // product no longer made. A surface moved: the number moved with it.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(1806);
+    expect(reference).toHaveLength(1977);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

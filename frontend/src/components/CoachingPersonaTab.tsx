@@ -10,67 +10,68 @@ import type { CoachingPersona } from '@pierre/shared-types';
 import { userApi } from '../services/api';
 import { Card } from './ui';
 import { useAuth } from '../hooks/useAuth';
+import { useTranslation } from '@pierre/i18n';
+import { PERSONA_NAME } from '@pierre/shared-constants';
 
 interface PersonaOption {
   id: CoachingPersona;
+  /** The persona's own label. Stored on the account and quoted back inside the
+   *  coach's system prompt, so it is deliberately not translated. */
   name: string;
-  tagline: string;
-  description: string;
-  bullets: string[];
+  taglineKey: string;
+  descriptionKey: string;
+  bulletKeys: string[];
 }
 
 const PERSONA_OPTIONS: PersonaOption[] = [
   {
     id: 'casual',
-    name: 'Casual',
-    tagline: 'Friendly, encouraging, no jargon',
-    description:
-      "Talks to you like a knowledgeable friend texting a quick reply. Round numbers, plain language, short replies.",
-    bullets: [
-      'Prose, not bullet lists. No structured blocks.',
-      'No framework citations or technical acronyms.',
-      'Push notifications: urgent only — weekly digest otherwise.',
+    name: PERSONA_NAME.casual,
+    taglineKey: 'app.styleCasualTag',
+    descriptionKey: 'app.styleCasualBlurb',
+    bulletKeys: [
+      'app.styleCasualBullet1',
+      'app.styleCasualBullet2',
+      'app.styleCasualBullet3Web',
     ],
   },
   {
     id: 'enthusiast',
-    name: 'Enthusiast',
-    tagline: 'Prose plus the numbers that matter',
-    description:
-      "Mostly prose, with a small data block when it actually changes the recommendation. Citations only when you ask why.",
-    bullets: [
-      'Headline answer first, key datum second. Replies under ~250 words.',
-      'Acronyms (CTL, ACWR) glossed on first use, then used freely.',
-      'Push notifications: urgent and high priority (form deep below fitness, recovery breach).',
+    name: PERSONA_NAME.enthusiast,
+    taglineKey: 'app.styleEnthusiastTag',
+    descriptionKey: 'app.styleEnthusiastBlurb',
+    bulletKeys: [
+      'app.styleEnthusiastBullet1',
+      'app.styleEnthusiastBullet2',
+      'app.styleEnthusiastBullet3Web',
     ],
   },
   {
     id: 'power_athlete',
-    name: 'Power-athlete',
-    tagline: 'Line-by-line discipline, framework-cited',
-    description:
-      "Deterministic, auditable output. Per-activity reports with exact numbers. Framework citations on every numeric claim.",
-    bullets: [
-      'Line-by-line activity blocks with framework labels (Coggan, Banister, Foster).',
-      'Full readiness ladder verbatim with a multi-point validation checklist.',
-      'Push notifications: all priorities. Pre-workout briefing on request.',
+    name: PERSONA_NAME.power_athlete,
+    taglineKey: 'app.stylePowerTagWeb',
+    descriptionKey: 'app.stylePowerBlurb',
+    bulletKeys: [
+      'app.stylePowerBullet1',
+      'app.stylePowerBullet2Web',
+      'app.stylePowerBullet3Web',
     ],
   },
   {
     id: 'coach',
-    name: 'Coach',
-    tagline: 'Power-athlete discipline plus a roster view for the athletes you coach',
-    description:
-      "Same Power-athlete discipline, plus per-athlete reports and roster-wide summaries.",
-    bullets: [
-      'Athlete-scoped queries — never cross-aggregate the coach and their athletes.',
-      'Roster-wide blocks (e.g. ACWR > 1.3 across the squad).',
-      "Push notifications: all priorities for every athlete; lowest priority shown for the coach themselves.",
+    name: PERSONA_NAME.coach,
+    taglineKey: 'app.styleCoachTagWeb',
+    descriptionKey: 'app.styleCoachBlurbWeb',
+    bulletKeys: [
+      'app.styleCoachBullet1',
+      'app.styleCoachBullet2',
+      'app.styleCoachBullet3Web',
     ],
   },
 ];
 
 export default function CoachingPersonaTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<CoachingPersona>('casual');
@@ -85,7 +86,7 @@ export default function CoachingPersonaTab() {
   const mutation = useMutation({
     mutationFn: (persona: CoachingPersona) => userApi.setCoachingPersona(persona),
     onSuccess: (data) => {
-      setMessage({ type: 'success', text: `Coaching style updated to ${data.persona}.` });
+      setMessage({ type: 'success', text: t('app.coachingStyleUpdated', { style: data.persona }) });
       void queryClient.invalidateQueries({ queryKey: ['user'] });
       setTimeout(() => setMessage(null), 3000);
     },
@@ -96,7 +97,7 @@ export default function CoachingPersonaTab() {
       }
       setMessage({
         type: 'error',
-        text: `Failed to update coaching style to ${attempted}.`,
+        text: t('app.coachingStyleUpdateFailed', { style: attempted }),
       });
       setTimeout(() => setMessage(null), 3000);
     },
@@ -112,16 +113,12 @@ export default function CoachingPersonaTab() {
 
   return (
     <Card variant="dark">
-      <h2 className="text-lg font-semibold text-on-surface mb-2">Coaching style</h2>
-      <p className="text-sm text-on-surface-variant mb-6">
-        Choose how detailed and structured you want every coach&rsquo;s replies to be. This is
-        independent of which coach you talk to — the same coach speaks differently to a Casual user
-        than to a Power-athlete.
-      </p>
+      <h2 className="text-lg font-semibold text-on-surface mb-2">{t('app.coachingStyleLower')}</h2>
+      <p className="text-sm text-on-surface-variant mb-6">{t('app.coachingStyleIntro')}</p>
 
       <div
         role="radiogroup"
-        aria-label="Coaching style"
+        aria-label={t('app.coachingStyleLower')}
         className="grid grid-cols-1 md:grid-cols-2 gap-3"
       >
         {PERSONA_OPTIONS.map((option) => {
@@ -146,22 +143,22 @@ export default function CoachingPersonaTab() {
                 <h3 className="text-base font-semibold text-on-surface">{option.name}</h3>
                 {isSelected && (
                   <span className="text-xs font-medium text-primary uppercase tracking-wide">
-                    Active
+                    {t('common.active')}
                   </span>
                 )}
               </div>
-              <p className="text-sm text-primary/90 mb-2">{option.tagline}</p>
+              <p className="text-sm text-primary/90 mb-2">{t(option.taglineKey)}</p>
               <p className="text-sm text-on-surface-variant mb-3 leading-relaxed">
-                {option.description}
+                {t(option.descriptionKey)}
               </p>
               <ul className="space-y-1.5">
-                {option.bullets.map((bullet) => (
+                {option.bulletKeys.map((bulletKey) => (
                   <li
-                    key={bullet}
+                    key={bulletKey}
                     className="text-xs text-on-surface-variant/90 flex items-start gap-2"
                   >
                     <span className="text-primary/70 mt-0.5">›</span>
-                    <span>{bullet}</span>
+                    <span>{t(bulletKey)}</span>
                   </li>
                 ))}
               </ul>

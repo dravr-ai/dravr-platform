@@ -118,9 +118,7 @@ export default function MemoryPanel() {
               {t('shell.memoryTitle')}
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Facts the platform extracted from your conversations to give the
-              coach memory across sessions. You can forget any individual fact
-              and the coach will stop using it on the next turn.
+              {t('app.memoryPanelBlurb')}
             </p>
           </div>
           <Button variant="secondary" onClick={() => refetch()}>

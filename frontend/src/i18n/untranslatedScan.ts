@@ -26,7 +26,18 @@ import path from 'path';
  * by an expression — `Your coaches{isLoading ? '' : ` (${n})`}` read as no text
  * node at all while it only closed on a tag.
  */
-const JSX_TEXT = /(?<!=)>\s*([A-Za-z][^<>{}]{2,200}?)\s*[<{]/g;
+// The upper bound counts RAW SOURCE, not the collapsed sentence — indentation
+// and newlines included. Three of the seven strings a cap of 200 was hiding
+// were under 200 characters of actual copy; they lost on whitespace, wrapped
+// across five indented lines. So the cap silently drops prose well short of
+// its own number, and it drops it by never matching at all rather than by
+// filtering it as non-copy — the ceiling then reads 0 by measuring less.
+//
+// Among the seven was the sentence in PrivacySettingsTab naming what data
+// actually leaves the device, on the one surface whose own comment insists
+// both clients must promise the same thing. The longest real string in either
+// app is 379 raw characters.
+const JSX_TEXT = /(?<!=)>\s*([A-Za-z][^<>{}]{2,800}?)\s*[<{]/g;
 /**
  * A quoted prop that carries prose.
  *
@@ -130,62 +141,176 @@ function decodeEntities(text: string): string {
 }
 
 /**
- * Surfaces an athlete can reach, and therefore the ones that must speak their
- * language. Everything else in `components/` is operator chrome — user
- * management, the eval harness, tool and harness config, claim verdicts — and
- * ships in English deliberately, not by omission: operators are internal, and
- * nobody needs Harness Config in Portuguese.
+ * Where an athlete ENTERS the web app. Everything reachable from these is
+ * athlete scope, derived by import walk.
  *
- * A list of surfaces rather than a list of excused strings. It says which parts
- * of the product are athlete-facing, the same contract the shared surface
- * registry keeps for routes; adding an athlete surface means adding it here, and
- * the ceiling below then covers it.
+ * This was a list of ~60 surfaces, one entry per component, and it was wrong by
+ * 175 strings. `isAthleteSurface` matched a PATH, so listing `UserSettings.tsx`
+ * covered exactly that file and none of the six tabs it renders — every one of
+ * which an athlete opens. Five of those tabs had a mobile twin that WAS
+ * translated, because the twin lives under `screens/` and was listed: the same
+ * athlete read French AI settings, messaging settings and coaching style on
+ * their phone and English in the browser, off one `users.locale`.
+ *
+ * Entry points change when navigation changes. A component list changes every
+ * time anyone adds a tab, and nothing fails when they forget — which is how a
+ * GDPR disclosure came to be scored as operator chrome.
  */
-const ATHLETE_SURFACES = [
-  // ── frontend-mobile ──────────────────────────────────────────────────────
-  // The mobile app is athlete-facing almost end to end: it has no operator
-  // console. Its paths are `screens/<area>`, which none of the web entries
-  // below match, so before these were listed the whole app scored as operator
-  // chrome and the ceiling never saw it.
-  'screens/chat', 'screens/conversations', 'screens/groups', 'screens/coaches',
-  'screens/connections', 'screens/settings', 'screens/onboarding',
-  'screens/notifications', 'screens/store', 'screens/memory', 'screens/auth',
-  'SciotteLoginModal.tsx', 'IntervalsIcuLinkModal.tsx',
-  'OAuthCredentialsSection.tsx', 'OAuthAppSetupModal.tsx',
-  'CommandPalette.tsx', 'MentionPalette.tsx', 'VoiceButton.tsx',
-  // Offline and error copy. Mobile has no operator console, so nothing under
-  // frontend-mobile is operator chrome — these three only scored that way for
-  // sitting outside `screens/`, which is the class of copy an athlete reads at
-  // the exact moment something has gone wrong.
-  'ServerStatusBanner.tsx', 'QueryProvider.tsx', 'toast.tsx',
-
-  // ── frontend (web) ───────────────────────────────────────────────────────
-  'components/chat', 'components/groups', 'components/discover',
-  'components/notifications', 'components/dashboard', 'components/ui',
-  'components/memory', 'components/layout', 'onboarding',
-  'ChatTab.tsx', 'StoreScreen.tsx', 'UserSettings.tsx', 'NotificationSettingsTab.tsx',
-  'PromptSuggestions.tsx', 'Dashboard.tsx', 'CommandPalette.tsx',
-  'Login.tsx', 'Register.tsx', 'ForgotPassword.tsx', 'ResetPassword.tsx',
-  'VerifyEmail.tsx', 'PendingApproval.tsx', 'OnboardingFlow.tsx',
-  'OnboardingAboutYou.tsx', 'OnboardingParq.tsx', 'OnboardingCoachProposal.tsx',
-  'OnboardingConnectProvider.tsx', 'OnboardingMessagingChannel.tsx',
-  'OnboardingMessagingConfigure.tsx', 'SciotteLoginModal.tsx',
-  'IntervalsIcuLinkModal.tsx', 'ConnectPreview.tsx', 'ConnectProviderBanner.tsx',
-  'BillingPage.tsx', 'BillingTab.tsx', 'ErrorBoundary.tsx', 'OAuthCallback.tsx',
-  'ImpersonationBanner.tsx', 'LanguageSwitcher.tsx',
-  // A privacy disclosure is athlete-facing by definition. Its absence here is
-  // why the ratchet scored six hardcoded English promises as operator chrome —
-  // while the mobile twin's own comment says the two surfaces "cannot promise
-  // different things about what leaves the device".
-  'PrivacySettingsTab.tsx',
+const WEB_ENTRY_POINTS = [
+  // Sidebar destinations a non-admin gets — `regularTabs` in Dashboard.tsx.
+  'components/ChatTab.tsx',
+  'components/StoreScreen.tsx',
+  'components/notifications/NotificationsPanel.tsx',
+  'components/BillingPage.tsx',
+  // Settings, and the Data Providers pane, which renders as
+  // `<UserSettings initialTab="connections" hideTabNav />`. An athlete sees
+  // EVERY SETTINGS_TABS entry: ADMIN_HIDDEN_TABS removes tabs from admins.
+  'components/UserSettings.tsx',
+  // Signup through first coach.
+  'components/OnboardingFlow.tsx',
+  // Unauthenticated surfaces — reachable before any role exists.
+  'components/Login.tsx',
+  'components/Register.tsx',
+  'components/ForgotPassword.tsx',
+  'components/ResetPassword.tsx',
+  'components/VerifyEmail.tsx',
+  'components/PendingApproval.tsx',
+  'components/OAuthCallback.tsx',
+  'components/ErrorBoundary.tsx',
 ];
 
-/** Whether a component renders on a surface an athlete can reach. */
+/**
+ * The operator console ships English, and that is now a decision rather than an
+ * inference from an empty scan.
+ *
+ * 683 distinct strings once the athlete surface reached zero: user management,
+ * the eval harness,
+ * tool and harness config, claim verdicts, API-token administration. Operators
+ * are internal staff, the console has never been translated, and nothing in the
+ * product offers to translate it.
+ *
+ * What makes it a decision and not an omission is that the alternative was
+ * measured. `users.locale` is `NOT NULL DEFAULT 'fr'` on `users` — not on an
+ * athlete table — so every operator carries a locale, and `App.tsx` mounts the
+ * language switcher with no role gate. An operator on the default locale
+ * therefore reads French navigation around an English console today. That is
+ * accepted deliberately: the shell follows the viewer, the console does not,
+ * and translating 663 operator strings buys nothing for an internal audience.
+ *
+ * The figure ROSE from 668 while athlete strings were being translated, which
+ * looks wrong and is not. `countsByScope` gives a string rendered on both
+ * surfaces to the athlete, so a word like `Cancel` sitting in an athlete file
+ * and an operator one counted once, as athlete. Translating the athlete copy
+ * leaves the operator copy alone in the count. Nothing was added.
+ *
+ * The number is recorded rather than asserted, so it says what was decided
+ * without failing a build when an operator surface legitimately grows. The
+ * ratchet prints the live figure on every run; a reader comparing the two sees
+ * drift immediately.
+ *
+ * What IS asserted is the other direction. A derived scope can shrink silently
+ * — miss a barrel or a lazy import and those files leave athlete scope, the
+ * ceiling of 0 keeps passing, and the gate reports success while measuring
+ * less. That is how this ratchet failed three times in one day. The canaries in
+ * `untranslatedScanShapes.test.ts` pin both directions so it fails loudly
+ * instead.
+ */
+
+/** Resolve one relative import to a real file, following barrels. */
+function resolveImport(fromFile: string, spec: string): string | null {
+  if (!spec.startsWith('.')) {
+    return null;
+  }
+  const base = path.resolve(path.dirname(fromFile), spec);
+  const candidates = [
+    `${base}.tsx`,
+    `${base}.ts`,
+    // A barrel: `components/ui` and `components/dashboard` are reached this way,
+    // and a walk that stops at the directory loses everything behind them.
+    path.join(base, 'index.tsx'),
+    path.join(base, 'index.ts'),
+  ];
+  return candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile()) ?? null;
+}
+
+/**
+ * Every import specifier, in all three spellings that reach a component.
+ *
+ * The lazy form is not optional: `Dashboard.tsx` mounts most panes through
+ * `lazy(() => import('./X'))`, and a walk that sees only `from '…'` misses
+ * them. A first draft of this missed exactly that and misclassified
+ * `UnifiedConnections`.
+ */
+const IMPORT_SPEC =
+  /(?:(?:import|export)[\s\S]{0,400}?from\s*|import\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm;
+
+/** Memoised per web root — the walk reads ~125 files and the scan calls this per hit. */
+const reachableCache = new Map<string, Set<string>>();
+
+/** Every module an athlete can reach from `webRoot`, transitively. */
+function athleteReachable(webRoot: string): Set<string> {
+  const cached = reachableCache.get(webRoot);
+  if (cached) {
+    return cached;
+  }
+  const seen = new Set<string>();
+  const queue: string[] = [];
+  for (const entry of WEB_ENTRY_POINTS) {
+    const full = path.join(webRoot, entry);
+    if (fs.existsSync(full)) {
+      seen.add(full);
+      queue.push(full);
+    }
+  }
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (file === undefined) {
+      break;
+    }
+    let source: string;
+    try {
+      source = fs.readFileSync(file, 'utf-8');
+    } catch {
+      continue;
+    }
+    IMPORT_SPEC.lastIndex = 0;
+    let match = IMPORT_SPEC.exec(source);
+    while (match !== null) {
+      const resolved = resolveImport(file, match[1]);
+      if (resolved !== null && !seen.has(resolved)) {
+        seen.add(resolved);
+        queue.push(resolved);
+      }
+      match = IMPORT_SPEC.exec(source);
+    }
+  }
+  reachableCache.set(webRoot, seen);
+  return seen;
+}
+
+/** The `frontend/src` directory `file` lives under, or null if it does not. */
+function webRootOf(file: string): string | null {
+  const marker = `${path.sep}frontend${path.sep}src${path.sep}`;
+  const at = file.indexOf(marker);
+  return at === -1 ? null : file.slice(0, at + marker.length - 1);
+}
+
+/**
+ * Whether a component renders on a surface an athlete can reach.
+ *
+ * Mobile is unconditional: the app has no operator console, so every file in it
+ * is athlete-facing. Fifteen `screens/*` fragments used to stand in for that
+ * rule, and anything outside `screens/` fell through — which is how
+ * `Server unreachable`, `Checking...` and `Something went wrong. Please try
+ * again.` shipped in English to an app whose default locale is French.
+ */
 export function isAthleteSurface(file: string): boolean {
   const normalized = file.split(path.sep).join('/');
-  return ATHLETE_SURFACES.some(
-    (surface) => normalized.includes(`/${surface}/`) || normalized.endsWith(`/${surface}`),
-  );
+  if (normalized.includes('/frontend-mobile/')) {
+    return true;
+  }
+  const webRoot = webRootOf(file);
+  return webRoot === null ? false : athleteReachable(webRoot).has(file);
 }
 
 /** A hardcoded string and where it renders. */

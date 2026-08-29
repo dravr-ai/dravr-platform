@@ -7,6 +7,7 @@ import { a2aApi } from '../services/api';
 import type { A2AClientRegistrationRequest, A2AClientCredentials } from '../types/api';
 import { Button, Card, Textarea, Input } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useTranslation } from '@pierre/i18n';
 
 interface CreateA2AClientProps {
   onSuccess?: () => void;
@@ -16,37 +17,38 @@ interface CreateA2AClientProps {
 const AVAILABLE_CAPABILITIES = [
   {
     id: 'fitness-data-analysis',
-    name: 'Fitness Data Analysis',
-    description: 'Access to fitness data and performance analytics'
+    nameKey: 'a2a.capFitnessName',
+    descriptionKey: 'a2a.capFitnessDesc'
   },
   {
     id: 'activity-intelligence',
-    name: 'Activity Intelligence',
-    description: 'AI-powered activity analysis and insights'
+    nameKey: 'a2a.capActivityName',
+    descriptionKey: 'a2a.capActivityDesc'
   },
   {
     id: 'goal-management',
-    name: 'Goal Management',
-    description: 'Goal setting and tracking capabilities'
+    nameKey: 'a2a.capGoalName',
+    descriptionKey: 'a2a.capGoalDesc'
   },
   {
     id: 'performance-prediction',
-    name: 'Performance Prediction',
-    description: 'Predictive analytics for performance forecasting'
+    nameKey: 'a2a.capPredictionName',
+    descriptionKey: 'a2a.capPredictionDesc'
   },
   {
     id: 'training-analytics',
-    name: 'Training Analytics',
-    description: 'Training plan analysis and optimization'
+    nameKey: 'a2a.capTrainingName',
+    descriptionKey: 'a2a.capTrainingDesc'
   },
   {
     id: 'provider-integration',
-    name: 'Provider Integration',
-    description: 'Multi-provider data access and synchronization'
+    nameKey: 'a2a.capProviderName',
+    descriptionKey: 'a2a.capProviderDesc'
   }
 ];
 
 export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClientProps) {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState<A2AClientRegistrationRequest>({
     name: '',
     description: '',
@@ -80,7 +82,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
     setValidationError(null);
     
     if (formData.capabilities.length === 0) {
-      setValidationError('Please select at least one capability.');
+      setValidationError(t('a2a.selectCapability'));
       return;
     }
 
@@ -138,19 +140,19 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
       <Card variant="dark">
         <div className="text-center">
           <div className="text-6xl mb-4">🎉</div>
-          <h2 className="text-2xl font-bold text-on-surface mb-2">A2A Client Created!</h2>
+          <h2 className="text-2xl font-bold text-on-surface mb-2">{t('a2a.createdTitle')}</h2>
           <p className="text-on-surface-variant mb-6">
-            Your A2A client has been successfully registered. Save these credentials securely - they won't be shown again.
+            {t('a2a.createdBody')}
           </p>
         </div>
 
         <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-4 mb-6">
           <div className="flex items-center mb-2">
             <span className="text-nutrition mr-2">⚠️</span>
-            <h3 className="text-sm font-medium text-nutrition">Important Security Notice</h3>
+            <h3 className="text-sm font-medium text-nutrition">{t('a2a.securityNoticeTitle')}</h3>
           </div>
           <p className="text-sm text-on-surface">
-            Store these credentials securely. The client secret and API key will not be displayed again for security reasons.
+            {t('a2a.securityNoticeBody')}
           </p>
         </div>
 
@@ -158,7 +160,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           {/* Client ID */}
           <div>
             <label className="block text-sm font-medium text-on-surface mb-2">
-              Client ID
+              {t('a2a.clientId')}
             </label>
             <div className="flex items-center gap-2">
               <code className="flex-1 bg-surface-container-high p-3 rounded font-mono text-sm break-all text-on-surface border ghost-border">
@@ -169,7 +171,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                 size="sm"
                 onClick={() => copyToClipboard(credentials.client_id)}
               >
-                Copy
+                {t('common.copy')}
               </Button>
             </div>
           </div>
@@ -177,7 +179,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           {/* Client Secret */}
           <div>
             <label className="block text-sm font-medium text-on-surface mb-2">
-              Client Secret
+              {t('a2a.clientSecret')}
             </label>
             <div className="flex items-center gap-2">
               <code className="flex-1 bg-surface-container-high p-3 rounded font-mono text-sm break-all text-on-surface border ghost-border">
@@ -188,7 +190,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                 size="sm"
                 onClick={() => copyToClipboard(credentials.client_secret)}
               >
-                Copy
+                {t('common.copy')}
               </Button>
             </div>
           </div>
@@ -196,7 +198,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           {/* API Key */}
           <div>
             <label className="block text-sm font-medium text-on-surface mb-2">
-              API Key
+              {t('a2a.apiKey')}
             </label>
             <div className="flex items-center gap-2">
               <code className="flex-1 bg-surface-container-high p-3 rounded font-mono text-sm break-all text-on-surface border ghost-border">
@@ -207,7 +209,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                 size="sm"
                 onClick={() => copyToClipboard(credentials.api_key)}
               >
-                Copy
+                {t('common.copy')}
               </Button>
             </div>
           </div>
@@ -215,7 +217,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         <div className="mt-8 text-center">
           <Button onClick={handleDone}>
-            Done
+            {t('common.done')}
           </Button>
         </div>
       </Card>
@@ -226,9 +228,9 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
     <Card variant="dark">
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <h2 className="text-xl font-semibold text-on-surface mb-2">Register A2A Client</h2>
+          <h2 className="text-xl font-semibold text-on-surface mb-2">{t('a2a.registerTitle')}</h2>
           <p className="text-on-surface-variant">
-            Create a new Agent-to-Agent protocol client for AI agent communication.
+            {t('a2a.registerBlurb')}
           </p>
         </div>
 
@@ -237,17 +239,17 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           <Input
             type="text"
             id="name"
-            label="Client Name *"
+            label={t('a2a.clientNameRequired')}
             value={formData.name}
             onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            placeholder="My AI Agent"
+            placeholder={t('a2a.clientNamePlaceholder')}
             required
           />
 
           <Input
             type="email"
             id="contact_email"
-            label="Contact Email *"
+            label={t('a2a.contactEmailRequired')}
             value={formData.contact_email}
             onChange={(e) => setFormData(prev => ({ ...prev, contact_email: e.target.value }))}
             placeholder="contact@example.com"
@@ -257,11 +259,11 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         <Textarea
           id="description"
-          label="Description *"
+          label={t('a2a.descriptionRequired')}
           value={formData.description}
           onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
           rows={3}
-          placeholder="Describe what your AI agent does..."
+          placeholder={t('a2a.descriptionPlaceholder')}
           required
         />
 
@@ -270,7 +272,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           <Input
             type="text"
             id="agent_version"
-            label="Agent Version"
+            label={t('a2a.agentVersion')}
             value={formData.agent_version}
             onChange={(e) => setFormData(prev => ({ ...prev, agent_version: e.target.value }))}
             placeholder="1.0.0"
@@ -279,7 +281,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           <Input
             type="url"
             id="documentation_url"
-            label="Documentation URL"
+            label={t('a2a.documentationUrl')}
             value={formData.documentation_url}
             onChange={(e) => setFormData(prev => ({ ...prev, documentation_url: e.target.value }))}
             placeholder="https://docs.example.com"
@@ -311,8 +313,8 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                     onClick={(e) => e.stopPropagation()}
                   />
                   <div>
-                    <h4 className="font-medium text-on-surface">{capability.name}</h4>
-                    <p className="text-sm text-on-surface-variant">{capability.description}</p>
+                    <h4 className="font-medium text-on-surface">{t(capability.nameKey)}</h4>
+                    <p className="text-sm text-on-surface-variant">{t(capability.descriptionKey)}</p>
                   </div>
                 </div>
               </div>
@@ -339,7 +341,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                 onClick={handleAddRedirectUri}
                 disabled={!redirectUri.trim()}
               >
-                Add
+                {t('common.add')}
               </Button>
             </div>
             {formData.redirect_uris && formData.redirect_uris.length > 0 && (
@@ -353,7 +355,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                       size="sm"
                       onClick={() => handleRemoveRedirectUri(uri)}
                     >
-                      Remove
+                      {t('app.remove')}
                     </Button>
                   </div>
                 ))}
@@ -368,11 +370,11 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
             <div className="flex items-center">
               <span className="text-error mr-2">❌</span>
               <div>
-                <h3 className="text-sm font-medium text-error">Registration Failed</h3>
+                <h3 className="text-sm font-medium text-error">{t('a2a.registrationFailed')}</h3>
                 <p className="text-sm text-on-surface mt-1">
                   {createMutation.error instanceof Error
                     ? createMutation.error.message
-                    : 'An error occurred while registering the A2A client.'}
+                    : t('a2a.registerError')}
                 </p>
               </div>
             </div>
@@ -392,7 +394,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
             type="submit"
             disabled={createMutation.isPending || formData.capabilities.length === 0}
           >
-            {createMutation.isPending ? 'Creating...' : 'Register Client'}
+            {createMutation.isPending ? t('a2a.creating') : t('a2a.registerClient')}
           </Button>
           <Button
             type="button"
@@ -400,7 +402,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
             onClick={onCancel}
             disabled={createMutation.isPending}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
         </div>
       </form>

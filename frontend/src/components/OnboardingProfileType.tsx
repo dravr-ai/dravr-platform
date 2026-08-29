@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import OnboardingShell from './OnboardingShell';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Athlete-vs-coach onboarding step.
@@ -29,6 +30,7 @@ export default function OnboardingProfileType({
   userDisplayName?: string | null;
   onComplete: () => void;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [choosing, setChoosing] = useState<'athlete' | 'coach' | null>(null);
 
@@ -67,21 +69,26 @@ export default function OnboardingProfileType({
   };
 
   return (
-    <OnboardingShell heading={userDisplayName ? `Welcome, ${userDisplayName}` : 'Welcome to Dravr'}>
+    <OnboardingShell
+      heading={
+        userDisplayName
+          ? t('onboarding.welcomeNamed', { name: userDisplayName })
+          : t('onboarding.welcomeToDravr')
+      }
+    >
       <p className="mt-3 text-sm text-on-surface-variant font-label text-center">
-        How will you use Dravr? This tailors the coaches we suggest. You can change it anytime in
-        Settings.
+        {t('onboarding.profileTypeIntro')}
       </p>
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
         <ChoiceCard
-          title="I'm an athlete"
+          title={t('onboarding.imAnAthlete')}
           description="Track your own training and get coaching tuned to how you actually train."
           busy={choosing === 'athlete'}
           disabled={choosing !== null}
           onSelect={handleAthlete}
         />
         <ChoiceCard
-          title="I coach others"
+          title={t('onboarding.iCoachOthers')}
           description="Build plans and manage the athletes you coach. Unlocks coach-facing plan builders."
           busy={choosing === 'coach'}
           disabled={choosing !== null}
@@ -106,6 +113,7 @@ function ChoiceCard({
   disabled: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -118,7 +126,7 @@ function ChoiceCard({
       {busy ? (
         <span className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
           <span className="pierre-spinner w-4 h-4 border-on-surface border-t-transparent" />
-          Setting things up…
+          {t('onboarding.settingUp')}
         </span>
       ) : null}
     </button>

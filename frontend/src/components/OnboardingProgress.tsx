@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import type { OnboardingProgressItem, OnboardingStepStatus } from '../onboarding/steps';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * The labeled step-dots progress indicator shown above every onboarding step.
@@ -15,17 +16,22 @@ import type { OnboardingProgressItem, OnboardingStepStatus } from '../onboarding
  * (the full canonical pipeline), so the indicator never reflows mid-flow.
  */
 export default function OnboardingProgress({ steps }: { steps: OnboardingProgressItem[] }) {
+  const { t } = useTranslation();
   const currentIndex = steps.findIndex((s) => s.status === 'current');
   const current = currentIndex >= 0 ? steps[currentIndex] : undefined;
 
   return (
     <nav
-      aria-label="Onboarding progress"
+      aria-label={t('onboarding.progressAria')}
       className="pointer-events-none fixed inset-x-0 top-0 z-20 flex justify-center px-4 pt-6"
     >
       {current ? (
         <span className="sr-only">
-          Step {currentIndex + 1} of {steps.length}: {current.label}
+          {t('onboarding.stepOfLabel', {
+            current: currentIndex + 1,
+            total: steps.length,
+            label: current.label,
+          })}
         </span>
       ) : null}
       <ol className="flex items-start" aria-hidden="true">

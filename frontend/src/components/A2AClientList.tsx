@@ -8,6 +8,7 @@ import type { A2AClient, A2AUsageStats, A2ARateLimitStatus } from '../types/api'
 import { Button, Card, CardHeader, Badge, StatusIndicator, StatusFilter, ConfirmDialog } from './ui';
 import type { StatusFilterValue } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useTranslation } from '@pierre/i18n';
 // Helper functions for date formatting
 const formatDistanceToNow = (date: Date) => {
   const now = new Date();
@@ -43,6 +44,7 @@ interface A2AClientListProps {
 }
 
 export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
+  const { t } = useTranslation();
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
   const [showCredentials, setShowCredentials] = useState<{ [key: string]: boolean }>({});
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('active');
@@ -158,10 +160,10 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       <Card variant="dark">
         <div className="text-center py-8">
           <div className="text-error mb-4">❌</div>
-          <h3 className="text-lg font-medium text-on-surface mb-2">Failed to load A2A clients</h3>
-          <p className="text-on-surface-variant mb-4">There was an error loading your A2A clients.</p>
+          <h3 className="text-lg font-medium text-on-surface mb-2">{t('a2a.loadFailedTitle')}</h3>
+          <p className="text-on-surface-variant mb-4">{t('a2a.loadFailedBody')}</p>
           <Button onClick={() => window.location.reload()}>
-            Try Again
+            {t('common.tryAgain')}
           </Button>
         </div>
       </Card>
@@ -172,16 +174,16 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
     return (
       <div className="text-center py-16 bg-surface-container-low rounded-lg border-2 border-dashed ghost-border">
         <div className="text-6xl mb-4">🤖</div>
-        <h3 className="text-lg font-semibold text-on-surface mb-2">No Connected Apps Yet</h3>
+        <h3 className="text-lg font-semibold text-on-surface mb-2">{t('a2a.emptyTitle')}</h3>
         <p className="text-on-surface-variant mb-6 max-w-md mx-auto">
-          Register your first app to enable secure agent-to-agent communication with AI assistants and third-party integrations.
+          {t('a2a.emptyBody')}
         </p>
         <Button
           onClick={onCreateClient}
           className="inline-flex items-center space-x-2"
         >
           <span>+</span>
-          <span>Register Your First App</span>
+          <span>{t('a2a.emptyCta')}</span>
         </Button>
       </div>
     );
@@ -192,8 +194,8 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       {/* A2A Client List */}
       <Card variant="dark">
         <CardHeader
-          title="Your Connected Apps"
-          subtitle={`${allClients.length} total apps`}
+          title={t('a2a.yourConnectedApps')}
+          subtitle={t('a2a.totalAppsCount', { count: allClients.length })}
         />
 
         {/* Status Filter */}
@@ -228,7 +230,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                     />
                     {client.is_verified && (
                       <Badge variant="success" className="bg-activity/20 text-on-activity-container border border-activity/30">
-                        Verified
+                        {t('a2a.verified')}
                       </Badge>
                     )}
                   </div>
@@ -248,7 +250,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                   </div>
 
                   <div className="flex items-center gap-4 text-sm text-outline">
-                    <span>Created {formatDistanceToNow(new Date(client.created_at))} ago</span>
+                    <span>{t('a2a.createdAgo', { when: formatDistanceToNow(new Date(client.created_at)) })}</span>
                     {client.agent_version && <span>v{client.agent_version}</span>}
                   </div>
                 </div>
@@ -262,7 +264,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       toggleCredentials(client.id);
                     }}
                   >
-                    {showCredentials[client.id] ? 'Hide' : 'Show'} Credentials
+                    {showCredentials[client.id] ? t('a2a.hideCredentials') : t('a2a.showCredentials')}
                   </Button>
                   {client.is_active && (
                     <Button
@@ -274,7 +276,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       }}
                       disabled={deactivateMutation.isPending}
                     >
-                      Deactivate
+                      {t('app.deactivate')}
                     </Button>
                   )}
                 </div>
@@ -283,10 +285,10 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
               {/* Credentials (when expanded) */}
               {showCredentials[client.id] && (
                 <div className="mt-4 pt-4 border-t ghost-border">
-                  <h4 className="text-sm font-medium text-on-surface mb-2">Client Credentials</h4>
+                  <h4 className="text-sm font-medium text-on-surface mb-2">{t('a2a.clientCredentials')}</h4>
                   <div className="space-y-2 text-sm">
                     <div>
-                      <label className="text-on-surface-variant">Client ID:</label>
+                      <label className="text-on-surface-variant">{t('a2a.clientIdLabel')}</label>
                       <code className="block bg-surface-container-high p-2 rounded font-mono text-xs mt-1 text-on-surface">
                         {client.id}
                       </code>
@@ -306,29 +308,29 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       {selectedClient && clientUsage && clientRateLimit && (
         <Card variant="dark">
           <h3 className="text-lg font-semibold text-on-surface mb-4">
-            Client Usage & Rate Limits
+            {t('a2a.usageAndLimits')}
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Usage Stats */}
             <div>
-              <h4 className="text-sm font-medium text-on-surface mb-2">Usage Statistics</h4>
+              <h4 className="text-sm font-medium text-on-surface mb-2">{t('a2a.usageStatistics')}</h4>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant">Today:</span>
+                  <span className="text-on-surface-variant">{t('a2a.today')}</span>
                   <span className="font-medium text-on-surface">{clientUsage?.requests_today?.toLocaleString() || 0}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant">This Month:</span>
+                  <span className="text-on-surface-variant">{t('a2a.thisMonth')}</span>
                   <span className="font-medium text-on-surface">{clientUsage?.requests_this_month?.toLocaleString() || 0}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant">Total:</span>
+                  <span className="text-on-surface-variant">{t('a2a.total')}</span>
                   <span className="font-medium text-on-surface">{clientUsage?.total_requests?.toLocaleString() || 0}</span>
                 </div>
                 {clientUsage?.last_request_at && (
                   <div className="flex justify-between">
-                    <span className="text-on-surface-variant">Last Request:</span>
+                    <span className="text-on-surface-variant">{t('a2a.lastRequest')}</span>
                     <span className="font-medium text-on-surface">
                       {formatDistanceToNow(new Date(clientUsage.last_request_at))} ago
                     </span>
@@ -339,22 +341,22 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
             {/* Rate Limits */}
             <div>
-              <h4 className="text-sm font-medium text-on-surface mb-2">Rate Limits</h4>
+              <h4 className="text-sm font-medium text-on-surface mb-2">{t('a2a.rateLimits')}</h4>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant">Tier:</span>
+                  <span className="text-on-surface-variant">{t('a2a.tier')}</span>
                   <Badge variant="info" className={getTierBadgeColor(clientRateLimit?.tier || 'trial')}>
-                    {clientRateLimit?.tier || 'Trial'}
+                    {clientRateLimit?.tier || t('a2a.tierTrial')}
                   </Badge>
                 </div>
                 {clientRateLimit?.limit && (
                   <>
                     <div className="flex justify-between">
-                      <span className="text-on-surface-variant">Monthly Limit:</span>
+                      <span className="text-on-surface-variant">{t('a2a.monthlyLimit')}</span>
                       <span className="font-medium text-on-surface">{clientRateLimit.limit.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-on-surface-variant">Remaining:</span>
+                      <span className="text-on-surface-variant">{t('a2a.remaining')}</span>
                       <span className={`font-medium ${
                         clientRateLimit.remaining && clientRateLimit.remaining < clientRateLimit.limit * 0.1
                           ? 'text-error'
@@ -365,7 +367,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                     </div>
                     {clientRateLimit.reset_at && (
                       <div className="flex justify-between">
-                        <span className="text-on-surface-variant">Resets:</span>
+                        <span className="text-on-surface-variant">{t('a2a.resets')}</span>
                         <span className="font-medium text-on-surface">
                           {format(new Date(clientRateLimit.reset_at), 'MMM d, yyyy')}
                         </span>
@@ -378,7 +380,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
             {/* Tool Usage */}
             <div>
-              <h4 className="text-sm font-medium text-on-surface mb-2">Top Tools</h4>
+              <h4 className="text-sm font-medium text-on-surface mb-2">{t('a2a.topTools')}</h4>
               <div className="space-y-2">
                 {clientUsage?.tool_usage_breakdown?.slice(0, 3).map((tool: { tool_name: string; usage_count: number }) => (
                   <div key={tool.tool_name} className="flex justify-between">
@@ -387,7 +389,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                   </div>
                 ))}
                 {(!clientUsage?.tool_usage_breakdown || clientUsage.tool_usage_breakdown.length === 0) && (
-                  <div className="text-outline text-sm">No tool usage yet</div>
+                  <div className="text-outline text-sm">{t('a2a.noToolUsage')}</div>
                 )}
               </div>
             </div>
@@ -400,10 +402,10 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
         isOpen={clientToDeactivate !== null}
         onClose={() => setClientToDeactivate(null)}
         onConfirm={confirmDeactivate}
-        title="Deactivate A2A Client"
-        message={`Are you sure you want to deactivate "${clientToDeactivate?.name}"? This action cannot be undone and any applications using this client will lose access.`}
-        confirmLabel="Deactivate"
-        cancelLabel="Cancel"
+        title={t('a2a.deactivateTitle')}
+        message={t('a2a.confirmDeactivate', { name: clientToDeactivate?.name ?? '' })}
+        confirmLabel={t('app.deactivate')}
+        cancelLabel={t('common.cancel')}
         variant="danger"
         isLoading={deactivateMutation.isPending}
       />

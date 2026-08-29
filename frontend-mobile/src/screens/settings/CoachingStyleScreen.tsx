@@ -18,7 +18,7 @@ import { colors, spacing, glassCard } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
-import { PERSONA_NAME } from '../../constants/brands';
+import { PERSONA_NAME } from '@pierre/shared-constants';
 
 /**
  * A coaching-style card.
@@ -154,9 +154,7 @@ export function CoachingStyleScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text className="text-text-secondary text-sm leading-relaxed mb-4">
-          Choose how detailed and structured every coach&rsquo;s replies should be. This is independent of
-          which coach you talk to — the same coach speaks differently to a Casual user than to a
-          Power-athlete.
+          {t('app.coachingStyleIntro')}
         </Text>
 
         {message && (

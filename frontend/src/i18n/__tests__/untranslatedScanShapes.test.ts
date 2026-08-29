@@ -8,7 +8,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, it, expect, afterEach } from 'vitest';
-import { scanUntranslated } from '../untranslatedScan';
+import { scanUntranslated, isAthleteSurface } from '../untranslatedScan';
 
 /**
  * The ratchet counts. A count cannot tell you what it failed to look at.
@@ -139,6 +139,201 @@ describe('the scanner does NOT flag things that are not copy', () => {
   it('a comment', () => {
     expect(scan('// Something went wrong here\nconst a = 1;')).not.toContain(
       'Something went wrong here',
+    );
+  });
+});
+
+/**
+ * The scope itself, pinned in both directions.
+ *
+ * `isAthleteSurface` is derived now — a walk from the entry points an athlete
+ * enters through, not a hand-maintained list of components. That fixes a list
+ * that had rotted 175 strings behind the app, and introduces a failure the list
+ * could not have: a derived scope can SHRINK SILENTLY. Miss a barrel or a lazy
+ * import and those files leave athlete scope, the ceiling of 0 goes on passing,
+ * and the gate reports success while measuring less.
+ *
+ * Every one of this ratchet's three failures in a single day had that shape —
+ * the number looked like evidence and was not. So the classification is
+ * asserted for files whose answer we know, in both directions: a walk that
+ * under-includes fails here, and so does one that over-includes until the
+ * operator console vanishes into athlete scope and stops being anybody's
+ * decision.
+ *
+ * Not an exception list. Those excuse files from a rule and accumulate; this
+ * asserts a rule holds, and a file changing side is a bug rather than something
+ * to be pended.
+ */
+describe('athlete scope is derived, and pinned where we know the answer', () => {
+  const web = path.join(__dirname, '../..');
+  const mobile = path.join(__dirname, '../../../../frontend-mobile/src');
+
+  it.each([
+    // Reached only through `UserSettings` — the case the old list got wrong.
+    // Its mobile twin was translated while this stayed English, so one athlete
+    // read French AI settings on the phone and English in the browser.
+    ['components/LlmSettingsTab.tsx', 'one hop under UserSettings'],
+    ['components/MessagingSettingsTab.tsx', 'one hop under UserSettings'],
+    // The GDPR disclosure that started the audit.
+    ['components/PrivacySettingsTab.tsx', 'a privacy promise an athlete reads'],
+    // Reached through a barrel, not a direct file import.
+    ['components/ui/Card.tsx', 'reached through components/ui/index.ts'],
+    // Mounted as `lazy(() => import('./notifications/NotificationsPanel'))`.
+    ['components/notifications/NotificationsPanel.tsx', 'a lazy-imported route'],
+  ])('%s is athlete — %s', (relative) => {
+    expect(isAthleteSurface(path.join(web, relative))).toBe(true);
+  });
+
+  it.each([
+    // Admin-only: `activeTab === 'connections'` is in ADMIN_ONLY_TABS, while an
+    // athlete reaches Data Providers through UserSettings instead. Judged
+    // athlete by its name during the audit and it is not — the walk was right
+    // and the reading was wrong.
+    ['components/UnifiedConnections.tsx', "'connections' is an ADMIN_ONLY_TAB"],
+    ['components/EvalHarnessTab.tsx', 'the eval harness is operator chrome'],
+    ['components/UserDetailDrawer.tsx', 'user administration'],
+  ])('%s is operator — %s', (relative) => {
+    expect(isAthleteSurface(path.join(web, relative))).toBe(false);
+  });
+
+  it('every file in the mobile app is athlete, including outside screens/', () => {
+    // There is no operator console in the mobile app, so no file in it can be
+    // operator chrome. Fifteen `screens/*` fragments used to stand in for that
+    // rule and anything outside them fell through — which is how the offline
+    // banner shipped in English to an app whose default locale is French.
+    expect(isAthleteSurface(path.join(mobile, 'components/ServerStatusBanner.tsx'))).toBe(true);
+    expect(isAthleteSurface(path.join(mobile, 'providers/QueryProvider.tsx'))).toBe(true);
+    expect(isAthleteSurface(path.join(mobile, 'screens/chat/ChatScreen.tsx'))).toBe(true);
+  });
+
+  it('does not swallow the whole console into athlete scope', () => {
+    // The mirror failure of shrinking: a walk that over-includes makes the
+    // ceiling of 0 pass vacuously and dissolves the 663 English-by-decision
+    // strings into a number nobody has to answer for.
+    const hits = scanUntranslated([path.join(web, 'components')]);
+    const operator = hits.filter((h) => h.scope === 'operator');
+    expect(operator.length).toBeGreaterThan(0);
+  });
+
+  it('no import specifier is computed, because the walk could not follow one', () => {
+    // The walk resolves string literals. Every dynamic import in both apps is
+    // one today, so this boundary has no surface — and this test is what keeps
+    // it that way: add `import(someVariable)` and the walk stops seeing whatever
+    // is behind it, silently. Failing here is the warning.
+    const roots = [web, path.join(web, '../../frontend-mobile/src')];
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== '__tests__' && entry.name !== 'node_modules') {
+            walk(full);
+          }
+        } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+          const source = fs.readFileSync(full, 'utf-8');
+          for (const m of source.matchAll(/import\(\s*([^'"\s)])/g)) {
+            offenders.push(`${path.relative(web, full)}: import(${m[1]}…`);
+          }
+        }
+      }
+    };
+    for (const root of roots) {
+      if (fs.existsSync(root)) {
+        walk(root);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * A proper noun under a copy key, which shape cannot tell from copy.
+ *
+ * `name: 'Telegram'` and `name: 'Cancel'` are the same shape: one capitalised
+ * word behind a key that carries copy elsewhere. Every Dashboard tab is
+ * `name: t('shell.navUsers')`, so `name` cannot be dropped from the pattern
+ * without blinding the scanner to the tab strip — which is the exact miss this
+ * scanner was built for. Its opening comment records it: the first sweep
+ * "reported a file clean that still had 44 strings in it — `Cancel` is one
+ * word, and an entire tab strip was declared in an object literal".
+ *
+ * So the flag stays, and the remedy is a brand constant rather than a
+ * translation. Four channel names were flagged this way and moved to
+ * `CHANNEL_BRAND` instead of being keyed, which is the right outcome: they are
+ * identifiers now and no filter needs an opinion about them.
+ */
+describe('a proper noun is flagged, and a brand constant is the answer', () => {
+  it('flags a trademark behind a copy key, because it cannot know', () => {
+    expect(scan("const c = { name: 'Telegram' };")).toContain('Telegram');
+  });
+
+  it('flags one-word copy behind the same key, which is why it must', () => {
+    expect(scan("const c = { name: 'Cancel' };")).toContain('Cancel');
+  });
+
+  it('lets a CamelCase name through, as the identifier heuristic requires', () => {
+    // `WhatsApp` escapes on NOT_PROSE's `^[A-Z][a-z]+[A-Z]` — the rule that
+    // keeps `SomeComponent` out. So the two halves of one brand table are
+    // treated differently, and that asymmetry is the price of not flagging
+    // every identifier in the codebase. Pinned so it is a known boundary
+    // rather than a surprise at ceiling 0.
+    expect(scan("const c = { name: 'WhatsApp' };")).not.toContain('WhatsApp');
+  });
+});
+
+/**
+ * A paragraph long enough to fall off the end of the text pattern.
+ *
+ * `JSX_TEXT` bounds its capture, and the bound counts raw source — the
+ * indentation and newlines of wrapped JSX, not the sentence a reader sees. At
+ * 200 that hid seven strings, three of them under 200 characters of actual
+ * copy. They were not filtered as non-copy; they were never matched, which is
+ * the failure that makes a ceiling of 0 mean nothing.
+ *
+ * The bound is exactly the kind of constant someone tightens later for
+ * performance, so this is the test that argues back.
+ */
+describe('prose longer than the text pattern bound', () => {
+  it('finds a paragraph whose raw span exceeds 200 characters', () => {
+    // Wrapped and indented the way real JSX is, so the raw span is what grows.
+    const paragraph =
+      'Help improve Dravr by sharing anonymized usage data. We track general ' +
+      'usage patterns like which tools you reach for and how often you train, ' +
+      'never the content of your conversations and never your fitness data ' +
+      'itself, and every identifier is hashed before it leaves the device.';
+    const source = `<div>\n      <p>\n        ${paragraph}\n      </p>\n    </div>`;
+    expect(paragraph.length).toBeGreaterThan(200);
+    expect(scan(source)).toContain(paragraph);
+  });
+
+  it('still finds a sentence whose COPY is short but whose source span is not', () => {
+    // The case neither of us predicted, and the one the old bound hid most of:
+    // 180 visible characters wrapped across indented lines is well over 200 raw.
+    // The raw span is asserted rather than assumed — a first draft of this test
+    // built a span of ~152 characters, passed at the old bound, and proved
+    // nothing at all.
+    const sentence =
+      'Facts the platform extracted from your conversations so the coach keeps ' +
+      'memory across sessions, which you can review and remove at any time from ' +
+      'this screen whenever you want to.';
+    const wrapped = sentence.split(' ').reduce<string[]>((lines, word) => {
+      const last = lines[lines.length - 1];
+      if (last !== undefined && `${last} ${word}`.length < 40) {
+        lines[lines.length - 1] = `${last} ${word}`;
+      } else {
+        lines.push(word);
+      }
+      return lines;
+    }, []);
+    const indent = '\n            ';
+    const span = wrapped.join(indent);
+
+    expect(sentence.length).toBeLessThan(200);
+    // The bound counts THIS, which is the whole point.
+    expect(span.length).toBeGreaterThan(200);
+
+    expect(scan(`<div>\n          <p>${indent}${span}\n          </p>\n        </div>`)).toContain(
+      sentence,
     );
   });
 });

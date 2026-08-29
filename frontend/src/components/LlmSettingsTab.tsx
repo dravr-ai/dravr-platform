@@ -11,27 +11,29 @@ import { Card, Button, Input, Badge, ConfirmDialog } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useAuth } from '../hooks/useAuth';
+import { useTranslation } from '@pierre/i18n';
 
-const PROVIDER_INFO: Record<string, { description: string; docsUrl: string }> = {
+const PROVIDER_INFO: Record<string, { descriptionKey: string; docsUrl: string }> = {
   gemini: {
-    description: 'Google Gemini API for advanced reasoning and multimodal capabilities',
+    descriptionKey: 'llmTab.geminiDesc',
     docsUrl: 'https://ai.google.dev/docs',
   },
   groq: {
-    description: 'Groq cloud for fast inference with Llama, Mixtral, and other open-source models',
+    descriptionKey: 'llmTab.groqDesc',
     docsUrl: 'https://console.groq.com/docs',
   },
   cohere: {
-    description: 'Cohere Command A and Command R family — 256K context, agentic tool use',
+    descriptionKey: 'llmTab.cohereDesc',
     docsUrl: 'https://docs.cohere.com/docs/command-a',
   },
   local: {
-    description: 'Local LLM server via OpenAI-compatible API (Ollama, vLLM, LocalAI)',
+    descriptionKey: 'llmTab.localDesc',
     docsUrl: 'https://github.com/ollama/ollama',
   },
 };
 
 export default function LlmSettingsTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
@@ -67,7 +69,7 @@ export default function LlmSettingsTab() {
       resetForm();
     },
     onError: (error: Error) => {
-      setMessage({ type: 'error', text: error.message || 'Failed to save credentials' });
+      setMessage({ type: 'error', text: error.message || t('llmTab.saveFailed') });
     },
   });
 
@@ -80,7 +82,7 @@ export default function LlmSettingsTab() {
       setProviderToDelete(null);
     },
     onError: (error: Error) => {
-      setMessage({ type: 'error', text: error.message || 'Failed to delete credentials' });
+      setMessage({ type: 'error', text: error.message || t('llmTab.deleteFailed') });
       setProviderToDelete(null);
     },
   });
@@ -114,7 +116,7 @@ export default function LlmSettingsTab() {
     } catch (error) {
       setValidationResult({
         valid: false,
-        error: error instanceof Error ? error.message : 'Validation failed',
+        error: error instanceof Error ? error.message : t('llmTab.validationFailed'),
       });
     } finally {
       setIsValidating(false);
@@ -135,11 +137,11 @@ export default function LlmSettingsTab() {
   const getSourceBadge = (source: string | null) => {
     switch (source) {
       case 'user_specific':
-        return <Badge variant="info">Your Key</Badge>;
+        return <Badge variant="info">{t('llmTab.sourceUserKey')}</Badge>;
       case 'tenant_default':
-        return <Badge variant="secondary">Organization</Badge>;
+        return <Badge variant="secondary">{t('llmTab.sourceOrganization')}</Badge>;
       case 'environment':
-        return <Badge variant="warning">System</Badge>;
+        return <Badge variant="warning">{t('llmTab.sourceSystem')}</Badge>;
       default:
         return null;
     }
@@ -178,17 +180,17 @@ export default function LlmSettingsTab() {
           />
         </svg>
         <span className="text-sm font-medium text-activity">
-          Active for chat: {provider.display_name}
+          {t('llmTab.activeForChat', { provider: provider.display_name })}
         </span>
-        <Badge variant="warning">System</Badge>
+        <Badge variant="warning">{t('llmTab.sourceSystem')}</Badge>
       </div>
       {provider.model && (
         <p className="text-sm text-on-surface/60 ml-7">
-          Model: <code className="text-on-surface/80">{provider.model}</code>
+          {t('llmTab.modelLabel')} <code className="text-on-surface/80">{provider.model}</code>
         </p>
       )}
       <p className="text-sm text-on-surface/60 ml-7 mt-1">
-        Provider: <code className="text-on-surface/80">{provider.name}</code>
+        {t('llmTab.providerLabel')} <code className="text-on-surface/80">{provider.name}</code>
       </p>
     </div>
   );
@@ -197,10 +199,8 @@ export default function LlmSettingsTab() {
   if (user?.is_admin && systemProvider) {
     return (
       <Card variant="dark">
-        <h2 className="text-lg font-semibold text-on-surface mb-4">System AI Provider</h2>
-        <p className="text-sm text-on-surface/60 mb-6">
-          The platform uses a system-level AI provider configured by the server environment.
-        </p>
+        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('llmTab.systemProviderTitle')}</h2>
+        <p className="text-sm text-on-surface/60 mb-6">{t('llmTab.systemProviderBlurb')}</p>
         <SystemProviderBanner provider={systemProvider} />
       </Card>
     );
@@ -210,12 +210,8 @@ export default function LlmSettingsTab() {
     <>
       {/* Current Status */}
       <Card variant="dark">
-        <h2 className="text-lg font-semibold text-on-surface mb-4">AI Provider Configuration</h2>
-        <p className="text-sm text-on-surface/60 mb-6">
-          Chat currently routes through the system provider configured by the server. Configuring
-          your own API keys below stores them for future per-user routing — they do not change
-          which model answers your chats today.
-        </p>
+        <h2 className="text-lg font-semibold text-on-surface mb-4">{t('llmTab.title')}</h2>
+        <p className="text-sm text-on-surface/60 mb-6">{t('llmTab.routingBlurb')}</p>
 
         {/* System provider is the authoritative chat router today (PIERRE_LLM_PROVIDER) */}
         {systemProvider && (
@@ -242,7 +238,7 @@ export default function LlmSettingsTab() {
                 />
               </svg>
               <span className="text-sm font-medium text-activity">
-                Active Provider:{' '}
+                {t('llmTab.activeProvider')}{' '}
                 {providers.find((p) => p.name === currentProvider)?.display_name || currentProvider}
               </span>
             </div>
@@ -268,11 +264,11 @@ export default function LlmSettingsTab() {
                     <h3 className="font-medium text-on-surface">{provider.display_name}</h3>
                     {provider.has_credentials && getSourceBadge(provider.credential_source ?? null)}
                     {provider.name === currentProvider && (
-                      <Badge variant="success">Active</Badge>
+                      <Badge variant="success">{t('common.active')}</Badge>
                     )}
                   </div>
                   <p className="text-sm text-on-surface/60">
-                    {PROVIDER_INFO[provider.name]?.description}
+                    {t(PROVIDER_INFO[provider.name]?.descriptionKey ?? '')}
                   </p>
                   <a
                     href={PROVIDER_INFO[provider.name]?.docsUrl}
@@ -280,7 +276,7 @@ export default function LlmSettingsTab() {
                     rel="noopener noreferrer"
                     className="text-sm text-primary hover:underline mt-1 inline-block"
                   >
-                    Documentation
+                    {t('llmTab.documentation')}
                   </a>
                 </div>
                 <div className="flex gap-2 ml-4">
@@ -290,7 +286,7 @@ export default function LlmSettingsTab() {
                       size="sm"
                       onClick={() => setProviderToDelete(provider.name)}
                     >
-                      Remove
+                      {t('app.remove')}
                     </Button>
                   )}
                   <Button
@@ -302,7 +298,7 @@ export default function LlmSettingsTab() {
                       setValidationResult(null);
                     }}
                   >
-                    {provider.has_credentials ? 'Update' : 'Configure'}
+                    {provider.has_credentials ? t('common.update') : t('common.configure')}
                   </Button>
                 </div>
               </div>
@@ -316,7 +312,9 @@ export default function LlmSettingsTab() {
         <Card variant="dark">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-on-surface">
-              Configure {providers.find((p) => p.name === selectedProvider)?.display_name}
+              {t('llmTab.configureProvider', {
+                provider: providers.find((p) => p.name === selectedProvider)?.display_name ?? '',
+              })}
             </h2>
             <button
               onClick={resetForm}
@@ -335,25 +333,25 @@ export default function LlmSettingsTab() {
 
           <div className="space-y-4">
             <Input
-              label="API Key"
+              label={t('llmTab.apiKey')}
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={`Enter your ${selectedProvider.toUpperCase()} API key`}
+              placeholder={t('llmTab.enterApiKey', { provider: selectedProvider.toUpperCase() })}
             />
 
             {selectedProvider === 'local' && (
               <Input
-                label="Base URL"
+                label={t('llmTab.baseUrl')}
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder="http://localhost:11434/v1"
-                helpText="The base URL of your local LLM server (defaults to Ollama)"
+                helpText={t('llmTab.baseUrlHint')}
               />
             )}
 
             <Input
-              label="Default Model (Optional)"
+              label={t('llmTab.defaultModelOptional')}
               value={defaultModel}
               onChange={(e) => setDefaultModel(e.target.value)}
               placeholder={
@@ -365,7 +363,7 @@ export default function LlmSettingsTab() {
                       ? 'command-a-03-2025'
                       : 'qwen2.5:14b-instruct'
               }
-              helpText="Override the default model for this provider"
+              helpText={t('llmTab.defaultModelHint')}
             />
 
             {/* Validation Result */}
@@ -389,11 +387,11 @@ export default function LlmSettingsTab() {
                           d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                         />
                       </svg>
-                      API key is valid!
+                      {t('llmTab.keyValid')}
                     </div>
                     {validationResult.models && validationResult.models.length > 0 && (
                       <div className="text-sm text-on-surface/60">
-                        Available models: {validationResult.models.slice(0, 5).join(', ')}
+                        {t('llmTab.availableModels')} {validationResult.models.slice(0, 5).join(', ')}
                         {validationResult.models.length > 5 && ` (+${validationResult.models.length - 5} more)`}
                       </div>
                     )}
@@ -408,7 +406,7 @@ export default function LlmSettingsTab() {
                         d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                       />
                     </svg>
-                    {validationResult.error || 'Invalid API key'}
+                    {validationResult.error || t('llmTab.invalidApiKey')}
                   </div>
                 )}
               </div>
@@ -422,7 +420,7 @@ export default function LlmSettingsTab() {
                 loading={isValidating}
                 disabled={!apiKey.trim()}
               >
-                Test Connection
+                {t('llmTab.testConnection')}
               </Button>
               <Button
                 variant="gradient"
@@ -430,7 +428,7 @@ export default function LlmSettingsTab() {
                 loading={saveMutation.isPending}
                 disabled={!apiKey.trim() || (validationResult !== null && !validationResult.valid)}
               >
-                Save API Key
+                {t('llmTab.saveApiKey')}
               </Button>
             </div>
           </div>
@@ -458,9 +456,11 @@ export default function LlmSettingsTab() {
         isOpen={providerToDelete !== null}
         onClose={() => setProviderToDelete(null)}
         onConfirm={() => providerToDelete && deleteMutation.mutate(providerToDelete)}
-        title="Remove API Key"
-        message={`Are you sure you want to remove your ${providerToDelete?.toUpperCase()} API key? You'll fall back to organization or system defaults if available.`}
-        confirmLabel="Remove"
+        title={t('llmTab.removeApiKey')}
+        message={t('llmTab.confirmRemoveKey', {
+          provider: providerToDelete?.toUpperCase() ?? '',
+        })}
+        confirmLabel={t('app.remove')}
         variant="danger"
         isLoading={deleteMutation.isPending}
       />

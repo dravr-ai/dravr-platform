@@ -14,6 +14,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import SciotteLoginModal from './SciotteLoginModal';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
+import { useTranslation } from '@pierre/i18n';
 
 // Brand colors and hover colors for known providers. After the 2026-Q2 provider
 // cleanup the API surfaces only three: `sciotte` (Strava-branded), `sciotte_garmin`
@@ -125,6 +126,7 @@ export default function ProviderConnectionCards({
   onOAuthLaunched,
   oauthLaunchFailedNonce,
 }: ProviderConnectionCardsProps) {
+  const { t } = useTranslation();
   const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -332,10 +334,10 @@ export default function ProviderConnectionCards({
             className="w-full text-left focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl disabled:cursor-default group"
             aria-label={
               provider.connected
-                ? `${provider.display_name} is connected`
+                ? t('providers.isConnectedAria', { provider: provider.display_name })
                 : isNonOAuth
                   ? `${provider.display_name} - ${getProviderDescription(provider)}`
-                  : `Connect to ${provider.display_name}`
+                  : t('providers.connectToAria', { provider: provider.display_name })
             }
           >
             <Card
@@ -363,8 +365,8 @@ export default function ProviderConnectionCards({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-on-surface text-base leading-tight">{provider.display_name}</span>
-                    {provider.connected && <Badge variant="success">Connected</Badge>}
-                    {isNonOAuth && !provider.connected && <Badge variant="secondary">Demo</Badge>}
+                    {provider.connected && <Badge variant="success">{t('providers.connected')}</Badge>}
+                    {isNonOAuth && !provider.connected && <Badge variant="secondary">{t('providers.demoBadge')}</Badge>}
                   </div>
                   <p className="text-sm text-on-surface-variant mt-0.5 leading-snug">
                     {getProviderDescription(provider)}
@@ -372,7 +374,7 @@ export default function ProviderConnectionCards({
                 </div>
                 {isActionable && (
                   <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-on-surface-variant group-hover:text-on-surface transition-colors">
-                    Connect
+                    {t('providers.connect')}
                     <svg
                       className="w-4 h-4"
                       fill="none"
@@ -406,7 +408,7 @@ export default function ProviderConnectionCards({
           onClick={onSkip}
           disabled={isSkipPending}
           className="w-full text-left focus:outline-none focus:ring-2 focus:ring-primary/50 rounded-xl group"
-          aria-label="Skip and start chatting"
+          aria-label={t('providers.skipAndChat')}
         >
           <Card
             variant="dark"
@@ -424,14 +426,14 @@ export default function ProviderConnectionCards({
               </div>
               <div className="flex-1 min-w-0">
                 <span className="font-semibold text-on-surface text-base leading-tight">
-                  {isSkipPending ? 'Starting…' : 'Start chatting'}
+                  {isSkipPending ? t('providers.starting') : t('providers.startChatting')}
                 </span>
                 <p className="text-sm text-on-surface-variant mt-0.5 leading-snug">
-                  Connect providers later
+                  {t('providers.connectLater')}
                 </p>
               </div>
               <span className="flex-shrink-0 hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-on-surface-variant group-hover:text-on-surface transition-colors">
-                Skip
+                {t('common.skip')}
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
