@@ -1667,9 +1667,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.22.0"
+version = "0.22.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa62aeeef8d785c2f65c70d59f305cd3751c7526c4ebb3474af6eb5a3c69c75f"
+checksum = "2075b143bfdd44a546d8accd2cfd860d20f95c96aa5d46c45821a293e301eb88"
 dependencies = [
  "async-trait",
  "axum",
