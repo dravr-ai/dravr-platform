@@ -47,6 +47,13 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 /// respond` trigger. Spelling these with a space silently matches nothing;
 /// `group_setting_changes_are_announced_in_the_room` pins the real names
 /// against the loaded `commands/` catalog.
+///
+/// LIMITATION(registre#132): `ROOM_VISIBLE_COMMANDS` carries no `plan` entry, so
+/// `/plan` in a shared room is answered in the caller's DM and is left out of the
+/// room transcript; an athlete and a coach have no way to read or edit a training
+/// plan together there. Adding `plan` on its own would publish one member's plan
+/// to every other member of the coaching group, so a consent rule and a
+/// plan-write path have to land with it.
 pub const ROOM_VISIBLE_COMMANDS: [&str; 3] = ["group-respond", "group-coach", "coach-add"];
 
 /// `true` when a command's reply is posted to the room it was typed in.
