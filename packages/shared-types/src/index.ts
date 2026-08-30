@@ -116,6 +116,8 @@ export type {
   WorkoutCompliance,
   WorkoutBlockType,
   WorkoutBlock,
+  FuelingProtocol,
+  FluidProtocol,
   WorkoutSession,
   WorkoutDayName,
   WorkoutDay,

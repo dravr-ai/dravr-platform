@@ -1,5 +1,6 @@
 ---
-id: doi:10.1249/MSS.0000000000002237
+id: doi:10.1007/s40279-014-0148-z
+url: https://doi.org/10.1007/s40279-014-0148-z
 category: nutrition
 strength: strong
 citation: Jeukendrup 2014 review

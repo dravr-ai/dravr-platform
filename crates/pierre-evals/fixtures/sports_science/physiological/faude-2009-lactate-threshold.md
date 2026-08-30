@@ -1,5 +1,6 @@
 ---
-id: doi:10.1249/MSS.0000000000000842
+id: doi:10.2165/00007256-200939060-00003
+url: https://doi.org/10.2165/00007256-200939060-00003
 category: physiological
 strength: mixed
 citation: Faude et al. 2009 review

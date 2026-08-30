@@ -32,7 +32,7 @@
 //! semantics) and never a playbook (not evidence-scored).
 
 use chrono::{DateTime, NaiveDate, Utc};
-use pierre_core::models::WorkoutStep;
+use pierre_core::models::{FuelingProtocol, WorkoutStep};
 use pierre_core::serde_num::{whole_u32_opt, whole_u8};
 use serde::{Deserialize, Serialize};
 
@@ -233,6 +233,15 @@ pub struct PlannedDay {
     /// the only structure the day has.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<WorkoutStep>,
+    /// What to take in during the session, when the coach prescribes it.
+    ///
+    /// The builder coaches have emitted a `fueling_protocol` on every long
+    /// session since the structured-workout schema defined one; without a
+    /// field to land in, that prescription was discarded on the way to
+    /// storage and the athlete never saw it. Absent for a session short
+    /// enough not to need fuelling, and for a rest day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fueling: Option<FuelingProtocol>,
 }
 
 impl PlannedDay {
@@ -387,6 +396,7 @@ mod tests {
             duration_min: None,
             intensity: String::new(),
             steps: Vec::new(),
+            fueling: None,
         };
         assert!(rest.is_rest());
         // duration_min: None must not serialize a null (schema hygiene for

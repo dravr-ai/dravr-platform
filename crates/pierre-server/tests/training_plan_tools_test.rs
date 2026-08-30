@@ -313,6 +313,83 @@ async fn a_day_whose_duration_contradicts_its_steps_is_rejected() -> Result<()> 
     assert_no_plan(&executor, user_id, &tenant_id).await
 }
 
+/// The schema bounds what a coach may emit; nothing bounded what a plan could
+/// store, so a rate no gut can absorb reached the athlete's calendar unchecked.
+#[tokio::test]
+async fn a_fuelling_rate_past_absorption_is_rejected() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = plan_with_a_structured_day();
+    payload["weeks"][0]["days"][3]["fueling"] = json!({
+        "carbs_g_per_h": 400.0,
+        "fluid_ml_per_h": 700.0
+    });
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("fueling.carbs_g_per_h 400 is outside 0..=150"),
+        "the rejection names the field and its ceiling: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+/// Sodium is a loss estimate rather than a target, and is bounded all the same:
+/// an implausible estimate produces an implausible plan.
+#[tokio::test]
+async fn an_implausible_sodium_loss_is_rejected() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = plan_with_a_structured_day();
+    payload["weeks"][0]["days"][3]["fueling"] = json!({
+        "carbs_g_per_h": 90.0,
+        "fluid_ml_per_h": 700.0,
+        "sodium_mg_per_h": 9000.0
+    });
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("fueling.sodium_mg_per_h 9000 is outside 0..=2000"),
+        "the rejection names the field and its ceiling: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
+/// A rest day has no session to fuel.
+#[tokio::test]
+async fn a_rest_day_cannot_carry_a_fuelling_protocol() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = plan_with_a_structured_day();
+    let days = payload["weeks"][0]["days"]
+        .as_array_mut()
+        .expect("the fixture week carries days");
+    days.push(json!({
+        "date": "2026-07-19",
+        "sport": "rest",
+        "workout": "off",
+        "fueling": { "carbs_g_per_h": 60.0, "fluid_ml_per_h": 500.0 }
+    }));
+
+    let message = outcome_text(
+        &executor,
+        make_request("save_training_plan", payload, user_id, Some(&tenant_id)),
+    )
+    .await;
+    assert!(
+        message.contains("rest day and carries a fuelling protocol"),
+        "the rejection says why: {message}"
+    );
+    assert_no_plan(&executor, user_id, &tenant_id).await
+}
+
 #[tokio::test]
 async fn a_rest_day_cannot_carry_steps() -> Result<()> {
     let executor = create_executor().await?;

@@ -69,6 +69,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             duration_min: None,
             intensity: String::new(),
             steps: Vec::new(),
+            fueling: None,
         },
         PlannedDay {
             date: "2026-07-14".to_owned(),
@@ -77,6 +78,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             duration_min: Some(60),
             intensity: "3x8min @ 88-93% FTP".to_owned(),
             steps: Vec::new(),
+            fueling: None,
         },
         PlannedDay {
             date: "2026-07-15".to_owned(),
@@ -85,6 +87,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             duration_min: Some(105),
             intensity: "Z2".to_owned(),
             steps: Vec::new(),
+            fueling: None,
         },
     ]
 }
@@ -810,6 +813,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             duration_min: None,
             intensity: String::new(),
             steps: Vec::new(),
+            fueling: None,
         },
         PlannedDay {
             date: "2026-08-26".to_owned(),
@@ -818,6 +822,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             duration_min: Some(75),
             intensity: "6x3min @ 95-100%".to_owned(),
             steps: Vec::new(),
+            fueling: None,
         },
         PlannedDay {
             date: "2026-08-29".to_owned(),
@@ -826,6 +831,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             duration_min: Some(110),
             intensity: "race effort".to_owned(),
             steps: Vec::new(),
+            fueling: None,
         },
     ];
     let race_b = GoalRace {

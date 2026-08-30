@@ -326,9 +326,15 @@ pub fn render_training_plan_block(
                 } else {
                     format!(" · steps: {}", steps_summary(&day.steps))
                 };
+                let fuel = day.fueling.as_ref().map_or_else(String::new, |f| {
+                    format!(
+                        " · fuel: {}",
+                        sanitize_prompt_field(&f.summary(), MAX_FIELD_LEN)
+                    )
+                });
                 let _ = writeln!(
                     out,
-                    "- {}: {elapsed}{}{duration}{intensity} — {}{structure}",
+                    "- {}: {elapsed}{}{duration}{intensity} — {}{structure}{fuel}",
                     day.date,
                     sanitize_prompt_field(&day.sport, MAX_FIELD_LEN),
                     sanitize_prompt_field(&day.workout, MAX_FIELD_LEN),
@@ -466,6 +472,7 @@ mod tests {
                     duration_min: None,
                     intensity: String::new(),
                     steps: Vec::new(),
+                    fueling: None,
                 },
                 PlannedDay {
                     date: start.to_owned(), // same-day is fine for render tests
@@ -474,6 +481,7 @@ mod tests {
                     duration_min: Some(60),
                     intensity: "88-93% FTP".to_owned(),
                     steps: Vec::new(),
+                    fueling: None,
                 },
             ],
             status: WeekStatus::Active,
@@ -673,6 +681,7 @@ mod tests {
                 duration_min: Some(60),
                 intensity: "390-425W".to_owned(),
                 steps: Vec::new(),
+                fueling: None,
             },
             PlannedDay {
                 date: "2026-08-28".to_owned(),
@@ -681,6 +690,7 @@ mod tests {
                 duration_min: Some(105),
                 intensity: "Z1-Z2".to_owned(),
                 steps: Vec::new(),
+                fueling: None,
             },
         ];
 

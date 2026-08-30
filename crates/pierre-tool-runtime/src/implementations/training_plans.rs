@@ -134,6 +134,13 @@ const MAX_BLOCKS: usize = 24;
 const MAX_WEEKS: usize = 104;
 const MAX_TARGET_HOURS: f32 = 60.0;
 const MAX_DURATION_MIN: u32 = 24 * 60;
+/// Fuelling ceilings, mirroring `$defs.FuelingProtocol` in the
+/// structured-workout schema. The schema bounds what a coach may emit; nothing
+/// bounded what a plan could store, so a rate no gut can absorb reached the
+/// athlete's calendar unchallenged.
+const MAX_CARBS_G_PER_H: f32 = 150.0;
+const MAX_FLUID_ML_PER_H: f32 = 1_500.0;
+const MAX_SODIUM_MG_PER_H: f32 = 2_000.0;
 
 /// Calendar domain a plan date must fall in.
 ///
@@ -274,6 +281,41 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
             if mins > MAX_DURATION_MIN {
                 return Err(AppError::invalid_input(format!(
                     "day {} duration_min {mins} exceeds {MAX_DURATION_MIN}",
+                    day.date
+                )));
+            }
+        }
+        if let Some(fuel) = day.fueling.as_ref() {
+            // Rates are per hour and cannot be negative, and each ceiling is
+            // the schema's own. Sodium is checked like the rest even though it
+            // is a loss estimate rather than a target — an implausible estimate
+            // produces an implausible plan just as surely.
+            for (field, value, max) in [
+                ("carbs_g_per_h", fuel.carbs_g_per_h, MAX_CARBS_G_PER_H),
+                ("fluid_ml_per_h", fuel.fluid_ml_per_h, MAX_FLUID_ML_PER_H),
+            ] {
+                if !value.is_finite() || value < 0.0 || value > max {
+                    return Err(AppError::invalid_input(format!(
+                        "day {} fueling.{field} {value} is outside 0..={max}",
+                        day.date
+                    )));
+                }
+            }
+            if let Some(sodium) = fuel.sodium_mg_per_h {
+                if !sodium.is_finite() || sodium < 0.0 || sodium > MAX_SODIUM_MG_PER_H {
+                    return Err(AppError::invalid_input(format!(
+                        "day {} fueling.sodium_mg_per_h {sodium} is outside 0..={MAX_SODIUM_MG_PER_H}",
+                        day.date
+                    )));
+                }
+            }
+            if let Some(source) = fuel.carb_source.as_deref() {
+                bounded("day.fueling.carb_source", source, MAX_SHORT_TEXT_LEN)?;
+            }
+            if day.is_rest() {
+                return Err(AppError::invalid_input(format!(
+                    "day {} is a rest day and carries a fuelling protocol — there is no \
+                     session to fuel",
                     day.date
                 )));
             }

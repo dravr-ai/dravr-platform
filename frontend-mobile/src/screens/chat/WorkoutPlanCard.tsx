@@ -4,6 +4,8 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import type { WorkoutPlan, WorkoutSession, WorkoutDay, WorkoutRange } from '@pierre/shared-types';
+
+type Translate = (key: string, opts?: Record<string, unknown>) => string;
 import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 
@@ -41,8 +43,41 @@ function sessionLine(session: WorkoutSession, t: (key: string, opts?: Record<str
   return parts.join(' · ');
 }
 
+/**
+ * The fuelling fragments for one session, in display order.
+ *
+ * A session carries either a full `fueling_protocol` or, on heat sessions, the
+ * fluid-only `fluid_protocol`. Sodium is shown as an estimated sweat loss and
+ * never as a required intake: the evidence does not support prescribing a mg/h
+ * figure, and sodium supplementation does not prevent hyponatremia — fluid
+ * volume above sweat rate is what does.
+ */
+function fuelParts(session: WorkoutSession, t: Translate): string[] {
+  const fueling = session.fueling_protocol;
+  const fluid = session.fluid_protocol;
+  if (fueling) {
+    const parts = [
+      t('chat.fuelCarbs', { value: fueling.carbs_g_per_h }),
+      t('chat.fuelFluid', { value: fueling.fluid_ml_per_h }),
+      t('chat.fuelSodiumLoss', { value: fueling.sodium_mg_per_h }),
+    ];
+    if (fueling.carb_source) {
+      parts.push(fueling.carb_source);
+    }
+    return parts;
+  }
+  if (fluid) {
+    return [
+      t('chat.fuelFluid', { value: fluid.fluid_ml_per_h }),
+      t('chat.fuelSodiumLoss', { value: fluid.sodium_mg_per_h }),
+    ];
+  }
+  return [];
+}
+
 function SessionRow({ session, label }: { session: WorkoutSession; label?: string }) {
   const { t } = useTranslation();
+  const fuel = fuelParts(session, t);
   return (
     <View className="mb-1">
       <Text className="text-sm text-text-primary">
@@ -50,6 +85,12 @@ function SessionRow({ session, label }: { session: WorkoutSession; label?: strin
         <Text className="font-semibold">{session.name}</Text>
       </Text>
       <Text className="text-xs text-text-secondary">{sessionLine(session, t)}</Text>
+      {fuel.length > 0 ? (
+        <Text className="text-xs text-text-secondary">
+          <Text className="font-semibold text-text-primary">{t('chat.fuelLabel')}</Text>{' '}
+          {fuel.join(' · ')}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -111,6 +152,12 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
               <Text className="text-xs font-semibold uppercase text-text-tertiary mb-1">
                 {t('app.week')} {week.week_index}
                 {typeof week.ctl_target === 'number' ? `  ·  CTL ${week.ctl_target}` : ''}
+              </Text>
+            ) : null}
+            {week.gut_training_progression && week.gut_training_progression.length > 0 ? (
+              <Text className="text-xs text-text-secondary mb-1">
+                <Text className="font-semibold text-text-primary">{t('chat.fuelGutTraining')}</Text>{' '}
+                {week.gut_training_progression.join(' · ')}
               </Text>
             ) : null}
             {week.days.map((day: WorkoutDay) => {

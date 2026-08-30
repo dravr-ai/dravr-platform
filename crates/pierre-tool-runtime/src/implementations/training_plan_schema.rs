@@ -135,6 +135,42 @@ fn block_schema() -> PropertySchema {
 }
 
 /// Schema for one planned day.
+/// Schema for a day's fuelling prescription.
+///
+/// Mirrors `$defs.FuelingProtocol` in the structured-workout schema the
+/// builder coaches already emit against, minus the required sodium: a coach
+/// with no sweat estimate should omit it rather than invent one.
+fn fueling_schema() -> PropertySchema {
+    let mut p = HashMap::new();
+    p.insert(
+        "carbs_g_per_h".to_owned(),
+        number_prop(
+            "Carbohydrate target in grams per hour. Up to 60 g/h from any single source; above that requires multiple transportable carbohydrates, so state carb_source too.",
+        ),
+    );
+    p.insert(
+        "fluid_ml_per_h".to_owned(),
+        number_prop("Fluid target in millilitres per hour."),
+    );
+    p.insert(
+        "sodium_mg_per_h".to_owned(),
+        number_prop(
+            "ESTIMATED sodium LOSS in mg per hour, not a required intake. Give it only when the athlete has a sweat measurement behind it; omit it otherwise rather than guessing.",
+        ),
+    );
+    p.insert(
+        "carb_source".to_owned(),
+        string_prop(
+            "Carbohydrate source when the rate depends on it — 'glucose:fructose 1:0.8'. Required in practice for any rate above 60 g/h.",
+        ),
+    );
+    object_prop(
+        "What to take in during the session. Give it for any session long enough to need fuelling.",
+        p,
+        vec!["carbs_g_per_h".to_owned(), "fluid_ml_per_h".to_owned()],
+    )
+}
+
 fn day_schema() -> PropertySchema {
     let mut p = HashMap::new();
     p.insert("date".to_owned(), string_prop("Day date, YYYY-MM-DD."));
@@ -165,6 +201,7 @@ fn day_schema() -> PropertySchema {
             step_schema(),
         ),
     );
+    p.insert("fueling".to_owned(), fueling_schema());
     object_prop(
         "One prescribed day.",
         p,

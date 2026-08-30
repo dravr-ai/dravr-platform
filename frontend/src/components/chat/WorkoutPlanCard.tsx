@@ -12,6 +12,8 @@ import type {
   WorkoutRange,
 } from '@pierre/shared-types';
 
+type Translate = (key: string, opts?: Record<string, unknown>) => string;
+
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
 }
@@ -23,9 +25,43 @@ function formatRange(range: WorkoutRange | undefined, suffix = ''): string | nul
   return `${range[0]}–${range[1]}${suffix}`;
 }
 
+/**
+ * The fuelling fragments for one session, in display order.
+ *
+ * A session carries either a full `fueling_protocol` or, on heat sessions, the
+ * fluid-only `fluid_protocol`. Sodium is shown as an estimated sweat loss and
+ * never as a required intake: the evidence does not support prescribing a mg/h
+ * figure, and sodium supplementation does not prevent hyponatremia — fluid
+ * volume above sweat rate is what does.
+ */
+function fuelParts(session: WorkoutSession, t: Translate): string[] {
+  const fueling = session.fueling_protocol;
+  const fluid = session.fluid_protocol;
+  if (fueling) {
+    const parts = [
+      t('chat.fuelCarbs', { value: fueling.carbs_g_per_h }),
+      t('chat.fuelFluid', { value: fueling.fluid_ml_per_h }),
+      t('chat.fuelSodiumLoss', { value: fueling.sodium_mg_per_h }),
+    ];
+    if (fueling.carb_source) {
+      parts.push(fueling.carb_source);
+    }
+    return parts;
+  }
+  if (fluid) {
+    return [
+      t('chat.fuelFluid', { value: fluid.fluid_ml_per_h }),
+      t('chat.fuelSodiumLoss', { value: fluid.sodium_mg_per_h }),
+    ];
+  }
+  return [];
+}
+
 function SessionCell({ session, label }: { session: WorkoutSession; label?: string }) {
+  const { t } = useTranslation();
   const lactate = formatRange(session.lactate_target_mmol, ' mmol/L');
   const pacePower = formatRange(session.pace_power_target_pct);
+  const fuel = fuelParts(session, t);
   return (
     <div className="mb-1 last:mb-0">
       {label && (
@@ -41,6 +77,12 @@ function SessionCell({ session, label }: { session: WorkoutSession; label?: stri
       {lactate && <span className="text-on-surface-variant"> · lactate {lactate}</span>}
       {!lactate && pacePower && (
         <span className="text-on-surface-variant"> · {pacePower} of threshold</span>
+      )}
+      {fuel.length > 0 && (
+        <div className="text-xs text-on-surface-variant">
+          <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
+          {fuel.join(' · ')}
+        </div>
       )}
     </div>
   );
@@ -135,6 +177,12 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
                 {typeof week.ctl_target === 'number' && (
                   <span className="ml-2 font-normal normal-case">{t('frag.ctlTarget')} {week.ctl_target}</span>
                 )}
+              </div>
+            )}
+            {week.gut_training_progression && week.gut_training_progression.length > 0 && (
+              <div className="mb-1 text-xs text-on-surface-variant">
+                <span className="font-medium text-on-surface">{t('chat.fuelGutTraining')}</span>{' '}
+                {week.gut_training_progression.join(' · ')}
               </div>
             )}
             <table className="w-full text-sm">

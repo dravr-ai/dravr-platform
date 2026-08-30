@@ -310,6 +310,73 @@ PYCHECK
     fi
 fi
 
+# ---------------------------------------------------------------------------
+# Check 5: the in-tree evidence corpus matches the canonical evidence/ tree
+# ---------------------------------------------------------------------------
+# crates/pierre-evals/fixtures/sports_science is the compile-time fallback the
+# claim verifier uses whenever the runtime EvidenceRegistry is empty — an
+# unreachable contremaitre, a cold boot, an offline dev. It is a copy, and a
+# copy drifts silently: on 2026-08-30 it carried 24 identifiers belonging to
+# other papers and was missing 16 propositions outright, with every body still
+# byte-identical, so nothing failed and the coach cited the wrong work. Compare
+# the two trees on filename and on the id: line; bodies are compared too, since
+# a claim that drifts is worse than an identifier that does.
+if [[ -z "$CM_ROOT" ]]; then
+    echo -e "${YELLOW}⚠️  contremaitre corpus could not be resolved (offline?) — skipping the evidence check.${NC}"
+else
+    EVIDENCE_DRIFT="$(python3 - "$CM_ROOT" <<'PYEVID'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1]) / "evidence" / "sports_science"
+mine = pathlib.Path("crates/pierre-evals/fixtures/sports_science")
+if not root.is_dir():
+    sys.exit(0)
+
+def parse(p):
+    """Return (id, body) for a proposition file."""
+    text = p.read_text(encoding="utf-8")
+    ident = ""
+    for line in text.splitlines():
+        if line.startswith("id:"):
+            ident = line[3:].strip()
+            break
+    _, _, body = text.partition("---\n")
+    _, _, body = body.partition("---\n")
+    return ident, " ".join(body.split())
+
+hits = []
+for canon in sorted(root.rglob("*.md")):
+    rel = canon.relative_to(root)
+    local = mine / rel
+    if not local.is_file():
+        hits.append(f"{rel}: absent from the in-tree fallback")
+        continue
+    cid, cbody = parse(canon)
+    lid, lbody = parse(local)
+    if cid != lid:
+        hits.append(f"{rel}: id is {lid or '(none)'}, canonical is {cid}")
+    if cbody != lbody:
+        hits.append(f"{rel}: proposition text differs from canonical")
+for local in sorted(mine.rglob("*.md")):
+    if local.name == "README.md":
+        continue
+    if not (root / local.relative_to(mine)).is_file():
+        hits.append(f"{local.relative_to(mine)}: present in-tree but not in canonical evidence/")
+print("\n".join(hits))
+PYEVID
+)"
+
+    if [[ -n "$EVIDENCE_DRIFT" ]]; then
+        echo -e "${RED}❌ Evidence corpus drift between the in-tree fallback and canonical evidence/:${NC}"
+        printf '%s\n' "$EVIDENCE_DRIFT" | sed 's/^/   /'
+        echo -e "${YELLOW}   Copy the canonical files into crates/pierre-evals/fixtures/sports_science and${NC}"
+        echo -e "${YELLOW}   regenerate EMBEDDED_PROPOSITIONS in pierre-services/src/claim_verification.rs.${NC}"
+        FAILED=true
+    else
+        EVID_COUNT="$(find crates/pierre-evals/fixtures/sports_science -name '*.md' ! -name README.md | wc -l | tr -d ' ')"
+        echo -e "${GREEN}✅ Evidence corpus: all ${EVID_COUNT} propositions match canonical evidence/.${NC}"
+    fi
+fi
+
 if [[ "$FAILED" == "true" ]]; then
     echo -e "${RED}❌ CONTREMAITRE COUPLING CHECK FAILED${NC}"
     echo -e "${RED}Fix the drift above before pushing — these reds otherwise land on main post-merge.${NC}"

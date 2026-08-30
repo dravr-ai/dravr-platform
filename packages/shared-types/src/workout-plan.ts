@@ -39,6 +39,27 @@ export interface WorkoutBlock {
   target_hr_pct_max?: WorkoutRange;
 }
 
+/**
+ * Per-session fuelling target. Mirrors `$defs.FuelingProtocol` in
+ * structured-workout.schema.json, where all three rates are required.
+ * `sodium_mg_per_h` is an estimated sweat loss, never a required intake.
+ */
+export interface FuelingProtocol {
+  carbs_g_per_h: number;
+  fluid_ml_per_h: number;
+  sodium_mg_per_h: number;
+  carb_source?: string;
+}
+
+/**
+ * Fluid-only variant carried by heat sessions. Mirrors
+ * `$defs.FluidProtocol`, which omits the carbohydrate rate.
+ */
+export interface FluidProtocol {
+  fluid_ml_per_h: number;
+  sodium_mg_per_h: number;
+}
+
 export interface WorkoutSession {
   name: string;
   duration_min: number;
@@ -48,6 +69,8 @@ export interface WorkoutSession {
   lactate_target_mmol?: WorkoutRange;
   pace_power_target_pct?: WorkoutRange;
   hr_cap_bpm_over_lt?: number;
+  fueling_protocol?: FuelingProtocol;
+  fluid_protocol?: FluidProtocol;
 }
 
 export type WorkoutDayName = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
@@ -63,6 +86,7 @@ export interface WorkoutWeek {
   week_index: number;
   ctl_target?: number;
   days: WorkoutDay[];
+  gut_training_progression?: string[];
 }
 
 /**

@@ -1,5 +1,6 @@
 ---
-id: doi:10.1007/s40279-017-0819-7
+id: doi:10.1249/01.MSS.0000074448.73931.11
+url: https://doi.org/10.1249/01.MSS.0000074448.73931.11
 category: training_prescription
 strength: strong
 citation: Mujika and Padilla 2003 taper review

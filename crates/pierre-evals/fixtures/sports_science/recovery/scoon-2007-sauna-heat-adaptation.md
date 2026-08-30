@@ -1,5 +1,6 @@
 ---
-id: doi:10.1007/s40279-019-01147-0
+id: doi:10.1016/j.jsams.2006.06.009
+url: https://doi.org/10.1016/j.jsams.2006.06.009
 category: recovery
 strength: mixed
 citation: Scoon et al. 2007 trial

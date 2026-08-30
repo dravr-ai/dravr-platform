@@ -1,5 +1,6 @@
 ---
-id: issn:2018-bcaa
+id: doi:10.1186/s12970-017-0184-9
+url: https://doi.org/10.1186/s12970-017-0184-9
 category: supplement
 strength: mixed
 citation: Wolfe 2017 review

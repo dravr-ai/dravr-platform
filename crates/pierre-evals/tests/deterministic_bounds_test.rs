@@ -219,3 +219,88 @@ fn allows_safe_creatine_dose() {
     ));
     assert!(v.is_none());
 }
+
+// --- Nutrition: the three gaps found on 2026-08-30 -------------------------
+
+#[test]
+fn flags_absurd_hydration_in_a_sports_drink() {
+    // The probe used to gate on the literal token "water", so the identical
+    // volume of anything else walked past it.
+    let v = check(&claim(
+        "Drink 8 liters per hour of sports drink during the race.",
+        ClaimCategory::Nutrition,
+    ))
+    .expect("8 L/hour of any fluid is the hyponatremia mechanism");
+    assert!(v.reason.contains("hyponatremia"), "reason: {}", v.reason);
+}
+
+#[test]
+fn flags_absurd_hydration_in_french() {
+    let v = check(&claim(
+        "Bois 9 litres par heure de boisson isotonique.",
+        ClaimCategory::Nutrition,
+    ));
+    assert!(v.is_some(), "9 L/h is nonsense in any locale");
+}
+
+#[test]
+fn allows_plausible_hydration_in_a_sports_drink() {
+    let v = check(&claim(
+        "Drink 0.75 liters per hour of sports drink in the heat.",
+        ClaimCategory::Nutrition,
+    ));
+    assert!(v.is_none(), "0.75 L/hour is ordinary advice");
+}
+
+#[test]
+fn allows_carbohydrate_loading_above_the_protein_ceiling() {
+    // 10-12 g/kg/day is a documented pre-race carbohydrate load. The shared
+    // 5 g/kg protein ceiling used to contradict it.
+    let v = check(&claim(
+        "Load 10 g/kg of carbohydrate per day for the two days before the race.",
+        ClaimCategory::Nutrition,
+    ));
+    assert!(v.is_none(), "carbohydrate loading is not a bound violation");
+}
+
+#[test]
+fn still_flags_absurd_protein_dose_per_kg() {
+    let v = check(&claim(
+        "Eat 12 g/kg of protein every day.",
+        ClaimCategory::Nutrition,
+    ))
+    .expect("12 g/kg of protein is far outside consensus");
+    assert!(v.reason.contains("protein"), "reason: {}", v.reason);
+}
+
+#[test]
+fn still_flags_absurd_carbohydrate_dose_per_kg() {
+    let v = check(&claim(
+        "Load 40 g/kg of carbohydrate per day.",
+        ClaimCategory::Nutrition,
+    ));
+    assert!(v.is_some(), "40 g/kg is nonsense even for carbohydrate");
+}
+
+#[test]
+fn flags_impossible_carbohydrate_rate_per_hour() {
+    let v = check(&claim(
+        "Take 400 g per hour of carbs on the bike.",
+        ClaimCategory::Nutrition,
+    ))
+    .expect("400 g/hour is past any absorption rate");
+    assert!(v.reason.contains("g/hour"), "reason: {}", v.reason);
+}
+
+#[test]
+fn allows_an_aggressive_but_documented_carbohydrate_rate() {
+    // 90 g/h with multiple transportable carbohydrates is real practice, and
+    // trained field cases reach 120 g/h — this layer must not contradict them.
+    for text in [
+        "Target 90 g per hour of carbs with a glucose-fructose mix.",
+        "Gut-trained riders reach 120 g/h on long days.",
+    ] {
+        let v = check(&claim(text, ClaimCategory::Nutrition));
+        assert!(v.is_none(), "{text} should pass the bounds layer");
+    }
+}

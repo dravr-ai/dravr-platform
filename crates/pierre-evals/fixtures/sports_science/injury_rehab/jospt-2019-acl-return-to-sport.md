@@ -1,5 +1,6 @@
 ---
-id: doi:10.2519/jospt.2019.8402
+id: doi:10.2519/jospt.2019.8190
+url: https://doi.org/10.2519/jospt.2019.8190
 category: injury_rehab
 strength: strong
 citation: JOSPT ACL RTS 2019

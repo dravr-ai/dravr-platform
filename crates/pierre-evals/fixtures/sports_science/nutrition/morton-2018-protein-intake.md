@@ -1,5 +1,6 @@
 ---
 id: doi:10.1136/bjsports-2017-097608
+url: https://doi.org/10.1136/bjsports-2017-097608
 category: nutrition
 strength: strong
 citation: Morton et al. 2018 BJSM meta-analysis

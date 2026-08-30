@@ -30,6 +30,56 @@ pub enum IntensityDistribution {
     Pyramid,
 }
 
+/// Per-session fuelling target carried by a planned day.
+///
+/// Mirrors `$defs.FuelingProtocol` in dravr-contremaitre's
+/// `structured-workout.schema.json`, which the ultra and heat builder coaches
+/// already emit on every long session.
+///
+/// One deliberate divergence from that schema: `sodium_mg_per_h` is optional
+/// here. The schema requires it, which pushes a coach with no sweat estimate
+/// into inventing one — and sodium is where an invented number does the most
+/// harm. It is an estimated sweat *loss*, never a prescribed intake.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FuelingProtocol {
+    /// Carbohydrate target in grams per hour.
+    pub carbs_g_per_h: f32,
+    /// Fluid target in millilitres per hour.
+    pub fluid_ml_per_h: f32,
+    /// Estimated sodium loss in milligrams per hour, when the athlete has a
+    /// sweat measurement behind it. Absent means unknown, not zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sodium_mg_per_h: Option<f32>,
+    /// Carbohydrate source when the rate depends on it — "glucose:fructose
+    /// 1:0.8". A rate above 60 g/h is only reachable with multiple
+    /// transportable carbohydrates, so this is what makes such a rate honest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carb_source: Option<String>,
+}
+
+impl FuelingProtocol {
+    /// One-line summary for a prompt, a calendar note or a plan card.
+    ///
+    /// Sodium is worded as a loss because that is what it is. Naming it an
+    /// intake target would invert the evidence: hyponatremia is driven by
+    /// fluid volume above sweat rate, and sodium supplementation does not
+    /// prevent it.
+    #[must_use]
+    pub fn summary(&self) -> String {
+        let mut parts = vec![
+            format!("{:.0} g/h carbs", self.carbs_g_per_h),
+            format!("{:.0} ml/h fluid", self.fluid_ml_per_h),
+        ];
+        if let Some(sodium) = self.sodium_mg_per_h {
+            parts.push(format!("~{sodium:.0} mg/h sodium lost"));
+        }
+        if let Some(source) = &self.carb_source {
+            parts.push(source.clone());
+        }
+        parts.join(" · ")
+    }
+}
+
 /// Single step inside a structured workout (warmup, interval, recovery, cool-down).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkoutStep {

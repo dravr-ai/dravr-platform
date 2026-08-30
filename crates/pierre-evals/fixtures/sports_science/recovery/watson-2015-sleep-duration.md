@@ -1,5 +1,6 @@
 ---
-id: doi:10.1249/MSS.0000000000001937
+id: doi:10.5664/jcsm.4758
+url: https://doi.org/10.5664/jcsm.4758
 category: recovery
 strength: strong
 citation: Watson et al. 2015 AASM consensus

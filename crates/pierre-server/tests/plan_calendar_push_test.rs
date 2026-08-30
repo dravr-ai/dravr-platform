@@ -40,6 +40,7 @@ fn day(
         duration_min: minutes,
         intensity: intensity.to_owned(),
         steps: Vec::new(),
+        fueling: None,
     }
 }
 

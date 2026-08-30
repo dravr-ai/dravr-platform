@@ -61,8 +61,16 @@ describe('client locale corpus', () => {
     // the field behind it stopped filtering anything when the grounding window
     // was un-narrowed (2026-08-27) — so the label was captioning a promise the
     // product no longer made. A surface moved: the number moved with it.
+    //
+    // 1977 until the fuelling line reached the plan card. The ultra and heat
+    // builder coaches had been attaching a `fueling_protocol` to every long
+    // session since the structured-workout schema defined one — carbohydrate
+    // g/h, fluid mL/h, an estimated sodium loss — and neither plan card had
+    // anything to render it with, so the prescription was validated and then
+    // dropped. Five keys, five locales, because a surface finally displays
+    // something it had been sent all along.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(1977);
+    expect(reference).toHaveLength(1982);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

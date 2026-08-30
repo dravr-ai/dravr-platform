@@ -1,5 +1,6 @@
 ---
-id: doi:10.1136/bjsports-2019-101452
+id: doi:10.1519/JSC.0000000000002618
+url: https://doi.org/10.1519/JSC.0000000000002618
 category: training_prescription
 strength: strong
 citation: Rosenblat et al. 2020 meta-analysis

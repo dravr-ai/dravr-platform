@@ -206,20 +206,92 @@ fn check_training(lower: &str) -> Option<BoundViolation> {
     None
 }
 
+/// Tokens that mark a claim as dosing carbohydrate rather than protein.
+///
+/// The g/kg ceiling differs by an order of magnitude between the two, so the
+/// probe has to know which one it is reading.
+const CARB_TOKENS: [&str; 6] = [
+    "carbohydrate",
+    "carbs",
+    "carb ",
+    "glucide",
+    "glycogen",
+    "carb-load",
+];
+
+/// Tokens that mark a volume as something the athlete drinks.
+///
+/// The hydration probe used to gate on the literal token "water", so the same
+/// volume of sports drink — the identical hyponatremia risk — walked straight
+/// past it.
+const DRINK_TOKENS: [&str; 8] = [
+    "water",
+    "drink",
+    "fluid",
+    "electrolyte",
+    "hydrat",
+    "eau",
+    "boisson",
+    "liquide",
+];
+
 fn check_nutrition(lower: &str) -> Option<BoundViolation> {
-    // Protein: 0.8 to 3.0 g/kg/day spans the scientific consensus.
+    // Grams per kilogram of body mass. The ceiling depends on which
+    // macronutrient is being dosed: the protein consensus tops out near
+    // 3 g/kg/day, while a pre-race carbohydrate load is legitimately
+    // 10-12 g/kg/day, so a single 5 g/kg ceiling contradicted correct
+    // carbohydrate-loading advice. Both ceilings stay wide enough to catch
+    // only nonsense, per this layer's contract.
+    let (kg_limit, kg_range) = if CARB_TOKENS.iter().any(|t| lower.contains(t)) {
+        (15.0, "10-12 g/kg/day carbohydrate-loading")
+    } else {
+        (5.0, "0.8-3.0 g/kg protein")
+    };
     for kw in ["g per kg", "g/kg", "grams per kg"] {
         if let Some(v) = extract_number_near_lowercased(lower, kw) {
-            if v > 5.0 {
+            if v > kg_limit {
                 return Some(BoundViolation {
-                    reason: format!("{v} g/kg is far above the 0.8-3.0 g/kg nutrition range"),
+                    reason: format!("{v} g/kg is far above the {kg_range} range"),
                 });
             }
         }
     }
-    // Hydration: 1-3 L/hour during exercise; 10 L/hour is dangerous.
-    if lower.contains("water") {
-        for kw in ["liters per hour", "l per hour", "l/hour"] {
+    // Carbohydrate during exercise. Exogenous oxidation is capped by intestinal
+    // transport, not by appetite: glucose alone saturates SGLT1 near 60 g/h and
+    // a glucose-fructose mix reaches roughly 90 g/h, with trained field cases
+    // reported to 120 g/h. Anything past 150 g/h is not a target an athlete can
+    // absorb, so it is nonsense rather than an aggressive prescription.
+    for kw in [
+        "g per hour",
+        "g/hour",
+        "g/h",
+        "grams per hour",
+        "g par heure",
+        "g/heure",
+    ] {
+        if let Some(v) = extract_number_near_lowercased(lower, kw) {
+            if v > 150.0 {
+                return Some(BoundViolation {
+                    reason: format!(
+                        "{v} g/hour is beyond any documented intake rate during exercise"
+                    ),
+                });
+            }
+        }
+    }
+    // Hydration. Documented sweat rates top out near 3-3.7 L/h in the most
+    // extreme cases, so a sustained intake above 4 L/h exceeds any plausible
+    // loss and is the classic hyponatremia mechanism.
+    if DRINK_TOKENS.iter().any(|t| lower.contains(t)) {
+        for kw in [
+            "liters per hour",
+            "litres per hour",
+            "l per hour",
+            "l/hour",
+            "l/h",
+            "litres par heure",
+            "l par heure",
+        ] {
             if let Some(v) = extract_number_near_lowercased(lower, kw) {
                 if v > 4.0 {
                     return Some(BoundViolation {

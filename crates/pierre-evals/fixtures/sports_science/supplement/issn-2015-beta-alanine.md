@@ -1,5 +1,6 @@
 ---
-id: issn:2018-beta-alanine
+id: doi:10.1186/s12970-015-0090-y
+url: https://doi.org/10.1186/s12970-015-0090-y
 category: supplement
 strength: strong
 citation: ISSN 2015 beta-alanine position stand

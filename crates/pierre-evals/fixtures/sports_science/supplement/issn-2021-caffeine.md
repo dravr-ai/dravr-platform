@@ -1,5 +1,6 @@
 ---
-id: issn:2021-caffeine
+id: doi:10.1186/s12970-020-00383-4
+url: https://doi.org/10.1186/s12970-020-00383-4
 category: supplement
 strength: strong
 citation: ISSN 2021 position stand on caffeine

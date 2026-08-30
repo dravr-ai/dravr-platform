@@ -1,5 +1,6 @@
 ---
-id: doi:10.1249/MSS.0000000000001766
+id: doi:10.1007/s40279-016-0604-z
+url: https://doi.org/10.1007/s40279-016-0604-z
 category: training_prescription
 strength: mixed
 citation: Denadai et al. 2017 meta-analysis

@@ -1,5 +1,6 @@
 ---
-id: doi:10.1249/MSS.0000000000000950
+id: doi:10.1007/s40279-014-0246-y
+url: https://doi.org/10.1007/s40279-014-0246-y
 category: physiological
 strength: mixed
 citation: Barnes and Kilding 2015 review

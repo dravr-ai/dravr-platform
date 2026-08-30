@@ -1,5 +1,5 @@
 // ABOUTME: Claim verification service — lazy-loaded evidence corpus + pipeline runner
-// ABOUTME: Embeds 26 markdown propositions via include_str!; corpus moves to dravr-contremaitre in Phase A follow-up
+// ABOUTME: Embeds 42 markdown propositions via include_str!; corpus moves to dravr-contremaitre in Phase A follow-up
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -32,29 +32,23 @@ use std::slice;
 use std::sync::OnceLock;
 use tracing::{error, warn};
 
-/// All 26 embedded proposition files as (filename, contents) pairs.
+/// All 42 embedded proposition files as (filename, contents) pairs.
 /// Organized by category to match the `dravr-contremaitre` `evidence/`
 /// layout. Adding a new proposition means adding both a new `.md` file
 /// under `crates/pierre-evals/fixtures/sports_science/` and a new line
 /// in this table.
 const EMBEDDED_PROPOSITIONS: &[(&str, &str)] = &[
-    // Nutrition (5)
+    // Nutrition (7)
     (
-        "nutrition/morton-2018-protein-intake.md",
+        "nutrition/costa-2017-gi-syndrome.md",
         include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/morton-2018-protein-intake.md"
+            "../../pierre-evals/fixtures/sports_science/nutrition/costa-2017-gi-syndrome.md"
         ),
     ),
     (
-        "nutrition/jeukendrup-2014-carbs-during-exercise.md",
+        "nutrition/geesmann-2014-ultra-cycling.md",
         include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/jeukendrup-2014-carbs-during-exercise.md"
-        ),
-    ),
-    (
-        "nutrition/schoenfeld-aragon-2018-protein-timing.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/nutrition/schoenfeld-aragon-2018-protein-timing.md"
+            "../../pierre-evals/fixtures/sports_science/nutrition/geesmann-2014-ultra-cycling.md"
         ),
     ),
     (
@@ -64,12 +58,36 @@ const EMBEDDED_PROPOSITIONS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "nutrition/jeukendrup-2014-carbs-during-exercise.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/nutrition/jeukendrup-2014-carbs-during-exercise.md"
+        ),
+    ),
+    (
+        "nutrition/morton-2018-protein-intake.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/nutrition/morton-2018-protein-intake.md"
+        ),
+    ),
+    (
+        "nutrition/schoenfeld-aragon-2018-protein-timing.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/nutrition/schoenfeld-aragon-2018-protein-timing.md"
+        ),
+    ),
+    (
         "nutrition/sim-2019-iron-deficiency.md",
         include_str!(
             "../../pierre-evals/fixtures/sports_science/nutrition/sim-2019-iron-deficiency.md"
         ),
     ),
     // Supplement (4)
+    (
+        "supplement/issn-2015-beta-alanine.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/supplement/issn-2015-beta-alanine.md"
+        ),
+    ),
     (
         "supplement/issn-2017-creatine.md",
         include_str!(
@@ -84,33 +102,11 @@ const EMBEDDED_PROPOSITIONS: &[(&str, &str)] = &[
     ),
     (
         "supplement/wolfe-2017-bcaa.md",
-        include_str!("../../pierre-evals/fixtures/sports_science/supplement/wolfe-2017-bcaa.md"),
-    ),
-    (
-        "supplement/issn-2015-beta-alanine.md",
         include_str!(
-            "../../pierre-evals/fixtures/sports_science/supplement/issn-2015-beta-alanine.md"
+            "../../pierre-evals/fixtures/sports_science/supplement/wolfe-2017-bcaa.md"
         ),
     ),
-    // Physiological (5)
-    (
-        "physiological/tanaka-2001-hrmax-formula.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/tanaka-2001-hrmax-formula.md"
-        ),
-    ),
-    (
-        "physiological/saltin-1968-vo2max-elite.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/saltin-1968-vo2max-elite.md"
-        ),
-    ),
-    (
-        "physiological/faude-2009-lactate-threshold.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/physiological/faude-2009-lactate-threshold.md"
-        ),
-    ),
+    // Physiological (6)
     (
         "physiological/barnes-kilding-2015-running-economy.md",
         include_str!(
@@ -123,7 +119,67 @@ const EMBEDDED_PROPOSITIONS: &[(&str, &str)] = &[
             "../../pierre-evals/fixtures/sports_science/physiological/bergstrom-glycogen-depletion.md"
         ),
     ),
-    // Training prescription (5)
+    (
+        "physiological/faude-2009-lactate-threshold.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/physiological/faude-2009-lactate-threshold.md"
+        ),
+    ),
+    (
+        "physiological/saltin-1968-vo2max-elite.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/physiological/saltin-1968-vo2max-elite.md"
+        ),
+    ),
+    (
+        "physiological/sjodin-1982-obla.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/physiological/sjodin-1982-obla.md"
+        ),
+    ),
+    (
+        "physiological/tanaka-2001-hrmax-formula.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/physiological/tanaka-2001-hrmax-formula.md"
+        ),
+    ),
+    // Training prescription (13)
+    (
+        "training_prescription/bosquet-2007-taper-meta-analysis.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/training_prescription/bosquet-2007-taper-meta-analysis.md"
+        ),
+    ),
+    (
+        "training_prescription/casado-2021-world-class-distance.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/training_prescription/casado-2021-world-class-distance.md"
+        ),
+    ),
+    (
+        "training_prescription/denadai-2017-plyometrics.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/training_prescription/denadai-2017-plyometrics.md"
+        ),
+    ),
+    (
+        "training_prescription/foster-2022-polarized-optimal.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/training_prescription/foster-2022-polarized-optimal.md"
+        ),
+    ),
+    (
+        "training_prescription/haugen-2022-world-class-distance.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/training_prescription/haugen-2022-world-class-distance.md"
+        ),
+    ),
+    (
+        "training_prescription/mujika-padilla-2003-taper.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/training_prescription/mujika-padilla-2003-taper.md"
+        ),
+    ),
     (
         "training_prescription/nielsen-2012-volume-injury.md",
         include_str!(
@@ -143,28 +199,46 @@ const EMBEDDED_PROPOSITIONS: &[(&str, &str)] = &[
         ),
     ),
     (
-        "training_prescription/mujika-padilla-2003-taper.md",
+        "training_prescription/seiler-2010-best-practice.md",
         include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/mujika-padilla-2003-taper.md"
+            "../../pierre-evals/fixtures/sports_science/training_prescription/seiler-2010-best-practice.md"
         ),
     ),
     (
-        "training_prescription/denadai-2017-plyometrics.md",
+        "training_prescription/stoggl-sperlich-2014-polarized.md",
         include_str!(
-            "../../pierre-evals/fixtures/sports_science/training_prescription/denadai-2017-plyometrics.md"
-        ),
-    ),
-    // Recovery (4)
-    (
-        "recovery/watson-2015-sleep-duration.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/watson-2015-sleep-duration.md"
+            "../../pierre-evals/fixtures/sports_science/training_prescription/stoggl-sperlich-2014-polarized.md"
         ),
     ),
     (
-        "recovery/roberts-2015-cold-immersion.md",
+        "training_prescription/tjelta-2019-norwegian-elite.md",
         include_str!(
-            "../../pierre-evals/fixtures/sports_science/recovery/roberts-2015-cold-immersion.md"
+            "../../pierre-evals/fixtures/sports_science/training_prescription/tjelta-2019-norwegian-elite.md"
+        ),
+    ),
+    (
+        "training_prescription/treff-2019-polarization-index.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/training_prescription/treff-2019-polarization-index.md"
+        ),
+    ),
+    // Recovery (9)
+    (
+        "recovery/daanen-2018-heat-decay.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/recovery/daanen-2018-heat-decay.md"
+        ),
+    ),
+    (
+        "recovery/lorenzo-2010-heat-acclimation.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/recovery/lorenzo-2010-heat-acclimation.md"
+        ),
+    ),
+    (
+        "recovery/periard-2015-heat-mechanisms.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/recovery/periard-2015-heat-mechanisms.md"
         ),
     ),
     (
@@ -174,12 +248,42 @@ const EMBEDDED_PROPOSITIONS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "recovery/racinais-2015-bjsm-consensus.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/recovery/racinais-2015-bjsm-consensus.md"
+        ),
+    ),
+    (
+        "recovery/roberts-2015-cold-immersion.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/recovery/roberts-2015-cold-immersion.md"
+        ),
+    ),
+    (
         "recovery/scoon-2007-sauna-heat-adaptation.md",
         include_str!(
             "../../pierre-evals/fixtures/sports_science/recovery/scoon-2007-sauna-heat-adaptation.md"
         ),
     ),
+    (
+        "recovery/tyler-2016-heat-meta-analysis.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/recovery/tyler-2016-heat-meta-analysis.md"
+        ),
+    ),
+    (
+        "recovery/watson-2015-sleep-duration.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/recovery/watson-2015-sleep-duration.md"
+        ),
+    ),
     // Injury rehab (3)
+    (
+        "injury_rehab/alfredson-1998-eccentric-achilles.md",
+        include_str!(
+            "../../pierre-evals/fixtures/sports_science/injury_rehab/alfredson-1998-eccentric-achilles.md"
+        ),
+    ),
     (
         "injury_rehab/bjsm-2017-achilles-return-to-run.md",
         include_str!(
@@ -192,19 +296,13 @@ const EMBEDDED_PROPOSITIONS: &[(&str, &str)] = &[
             "../../pierre-evals/fixtures/sports_science/injury_rehab/jospt-2019-acl-return-to-sport.md"
         ),
     ),
-    (
-        "injury_rehab/alfredson-1998-eccentric-achilles.md",
-        include_str!(
-            "../../pierre-evals/fixtures/sports_science/injury_rehab/alfredson-1998-eccentric-achilles.md"
-        ),
-    ),
 ];
 
 static CORPUS: OnceLock<EvidenceCorpus> = OnceLock::new();
 
 /// Return the compiled-in fallback corpus.
 ///
-/// Parses the 26 embedded markdown propositions on first call. Parse
+/// Parses the 42 embedded markdown propositions on first call. Parse
 /// failures log an error and return an empty corpus so verification
 /// gracefully degrades rather than panicking.
 ///

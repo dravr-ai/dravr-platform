@@ -148,6 +148,15 @@ pub fn plan_day_session(user_id: Uuid, day: &PlannedDay, ordinal: usize) -> Opti
         }
         notes.push_str(intensity);
     }
+    // The fuelling line rides the note because that is the field every
+    // provider calendar renders. A protocol the coach prescribed and the
+    // athlete cannot see on the day is the same as no protocol at all.
+    if let Some(fueling) = day.fueling.as_ref() {
+        if !notes.is_empty() {
+            notes.push('\n');
+        }
+        notes.push_str(&fueling.summary());
+    }
     let (duration_seconds, steps) = if day.steps.is_empty() {
         let duration_seconds = day
             .duration_min

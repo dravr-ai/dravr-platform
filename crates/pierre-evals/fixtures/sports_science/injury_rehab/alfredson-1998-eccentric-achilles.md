@@ -1,5 +1,6 @@
 ---
-id: doi:10.1136/bjsports-2017-097787
+id: doi:10.1177/03635465980260030301
+url: https://doi.org/10.1177/03635465980260030301
 category: injury_rehab
 strength: strong
 citation: Alfredson 1998 and replication studies
