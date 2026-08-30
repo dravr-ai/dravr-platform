@@ -29,7 +29,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # On main the sha is part of the group, so every commit gets its own group
+  # and nothing can cancel another commit's verdict. Branches share a group per
+  # ref and keep cancelling, where fast feedback beats a stale result. The ref
+  # test lives in `group` rather than in `cancel-in-progress` because only the
+  # former is known to work here — see ci-backend.yml for the run that proved it.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 permissions:
