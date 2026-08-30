@@ -7,7 +7,7 @@ on:
   # touching pierre-server/src/mcp/. Watching only the latter let a
   # tenant-resolution change ship without the compliance suite ever running.
   push:
-    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'crates/pierre-server/src/mcp/**'
       - 'crates/pierre-mcp-transport/**'

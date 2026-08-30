@@ -12,7 +12,7 @@ name: "CI: Benchmarks"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'crates/**'
       - 'Cargo.toml'

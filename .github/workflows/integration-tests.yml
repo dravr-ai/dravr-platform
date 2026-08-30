@@ -2,7 +2,7 @@ name: "CI: Integration (HTTP/MCP)"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'crates/**'
       - 'frontend/**'

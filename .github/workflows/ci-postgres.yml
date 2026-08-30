@@ -4,7 +4,7 @@ name: "CI: Backend (PostgreSQL)"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       # Any crate change runs the backend suite. The prior explicit list
       # silently dropped each newly-extracted crate (a recurring false-green),

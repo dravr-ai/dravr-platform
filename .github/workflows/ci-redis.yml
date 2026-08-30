@@ -4,7 +4,7 @@ name: "CI: Backend (Redis)"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'crates/pierre-cache/**'
       - 'crates/pierre-server/src/cache/**'

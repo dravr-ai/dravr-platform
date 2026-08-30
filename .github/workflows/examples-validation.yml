@@ -5,7 +5,7 @@ name: "CI: Examples Validation"
 
 on:
   push:
-    branches: [ "main", "feature/*", "fix/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'examples/**'
       - 'crates/pierre-server/src/a2a/**'

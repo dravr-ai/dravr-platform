@@ -6,7 +6,7 @@ name: "CI: Design System"
 
 on:
   push:
-    branches: [ "main", "debug/*", "feature/*", "fix/*", "claude/*", "copilot/*" ]
+    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'frontend/src/**'
       - 'frontend/DESIGN.md'
