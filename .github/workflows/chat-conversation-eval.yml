@@ -112,19 +112,26 @@ jobs:
   # model + warm-up).
   # ---------------------------------------------------------------------------
   live-llm:
-    name: Live LLM execution (shard ${{ matrix.shard }}/3)
+    name: Live LLM execution (shard ${{ matrix.shard }}/5)
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # Restoring the platform contract to the live driver put the whole
+    # ~23.7 KB document in front of a CPU-only q4_K_M 7b at num_ctx 32768,
+    # which is the prompt production runs and the reason this lane grades the
+    # coach rather than a voice-only stub. It costs wall clock: shards that
+    # finished inside half an hour now take one to two, and one was killed at
+    # the ceiling with scenarios still to run. Five shards keeps each inside
+    # the box and the wider ceiling leaves room for the prompt to grow again.
+    timeout-minutes: 180
     needs: structural
     if: |
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-llm')
     strategy:
       # One shard failing must not cancel the others — each covers a
-      # disjoint slice of the scenarios, so we want all three verdicts.
+      # disjoint slice of the scenarios, so we want every verdict.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5]
 
     env:
       CHAT_SCENARIO_LIVE: "1"
@@ -135,11 +142,11 @@ jobs:
       # qwen2.5:7b-instruct with num_ctx 32768 so Pierre's full system
       # prompt + tool schemas fit without truncation.
       PIERRE_LLM_MODEL: "dravr-chateval"
-      # Fan the scenario files across 3 runners round-robin so each shard
+      # Fan the scenario files across 5 runners round-robin so each shard
       # stays inside the wall-clock cap (multi-turn CPU inference is minutes
       # per turn). Format is "<index>/<total>", consumed by
       # shard_scenario_files() in chat_scenario_test.rs.
-      CHAT_SCENARIO_SHARD: "${{ matrix.shard }}/3"
+      CHAT_SCENARIO_SHARD: "${{ matrix.shard }}/5"
       # On-demand carve-out: only a manual dispatch with include_ondemand=true
       # runs nightly_gate:false scenarios (e.g. today_anchor, which a local 7b
       # can't reliably clear). The nightly cron leaves this empty, so those
