@@ -39,6 +39,7 @@ use pierre_database::repositories::BackfillCoverage;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
+use tokio::time::sleep;
 
 use crate::common::{create_test_server_resources, create_test_user};
 
@@ -131,7 +132,7 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
 
     // Enough separation that a re-stamp is unambiguous rather than a sub-millisecond
     // tie the assertion could pass through by accident.
-    tokio::time::sleep(StdDuration::from_millis(1_100)).await;
+    sleep(StdDuration::from_millis(1_100)).await;
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let ctx = ToolContext::new()

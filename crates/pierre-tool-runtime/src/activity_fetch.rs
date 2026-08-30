@@ -656,9 +656,11 @@ async fn stamp_fetch_freshness(
     }
 }
 
-/// Persist a window `get_activities` just served, so the stale-while-revalidate
-/// path and later turns can answer it without re-fetching. Best-effort: a cache
-/// failure never blocks the response. An empty window writes nothing.
+/// Persist a window `get_activities` just served.
+///
+/// So the stale-while-revalidate path and later turns can answer it without
+/// re-fetching. Best-effort: a cache failure never blocks the response. An empty
+/// window writes nothing.
 ///
 /// The caller decides provenance, and only rows a PROVIDER produced belong here.
 /// Two kinds never do:
@@ -679,7 +681,11 @@ async fn stamp_fetch_freshness(
 ///   `activity_fetch_freshness` still held the last real fetch, five days older.
 ///   A stale-head top-up that does reach the provider is written through by
 ///   [`fetch_provider_activities`], which is what should move freshness.
-pub(crate) async fn write_through_served_window(
+///
+/// `pub` like its siblings here: the only caller is `implementations::data`, which is
+/// behind the `tools-data` feature, so a narrower visibility reads as dead code in a
+/// `--no-default-features` build.
+pub async fn write_through_served_window(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: &TenantId,
