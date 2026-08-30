@@ -117,22 +117,19 @@ Verify tests actually ran — exit code 0 is NOT sufficient (`cargo test` exits 
 - **A new chat surface, reply block, or notification screen is generated, not written.** `GET /api/surfaces/capabilities` serves the `SurfaceProfile::resolve` table; `cd packages/shared-constants && bun run generate` rewrites `src/surface-capabilities.generated.ts` from a running server, exactly as `packages/mcp-types` regenerates from the tool registry. Both clients read that file — the registry's per-surface `blocks` column, the notification screen vocabulary — so Tier 1d fails the push while it is behind the Rust source.
 - CI fires parallel jobs on push (`ci-backend.yml`: `fast-gate` ~30s, `preflight-clippy` ~3–5min, `clippy` ~10–12min gating `release-binary`, `deadlock-analysis`, `security-audit`, `doc-tests`, `contremaitre-sync` ~5min, `release-binary`; plus `ci-postgres.yml`, `integration-tests.yml`, `frontend-tests.yml`, `sdk-tests.yml`, `mobile-unit-tests.yml`, `mcp-compliance.yml`, each path-scoped). `cancel-in-progress` behaviour differs per workflow and it matters when diagnosing a missing run. **Protected on main:** `ci-backend.yml` and `frontend-tests.yml` append `github.sha` to the concurrency group when the ref is `main` (`...${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}`), so every commit gets its own group and nothing cancels another's verdict; `ci-postgres.yml` sets `cancel-in-progress: false` outright. **Still cancels on main:** `mobile-unit-tests.yml` and `ci-redis.yml` group by ref alone. So a missing `ci-backend` run on main is NOT a cancellation and needs another explanation (usually the commit was not the tip of its push — see below), while a missing `mobile-unit-tests` run may well be. Read the workflow's `group:` expression before blaming cancellation.
 
-**Push ONE commit at a time to main when each is independently meaningful.** GitHub fires one workflow run per PUSH, on the TIP — so a push carrying three commits tests only the third. The other two land on main, deploy, and are never independently validated. This is push semantics, not a misconfiguration; there is nothing to fix in CI.
+**A push's CI run belongs to the TIP, not to each commit.** GitHub fires one run per push, so a push carrying three commits produces one run, on the third. That run tests the tip's TREE — which contains all three — so a break that survives to the tip IS caught normally. Main's health is covered.
 
-On 2026-08-28 a commit adding a 13th system prompt without updating the counts that pin it went up alongside another commit, got no `ci-backend` run of its own, and left main broken for ~25 minutes behind a run list reading `success, success, success`. It surfaced only because an unrelated feature branch inherited the failure. Three further multi-commit pushes the same day left intermediate SHAs untested.
+What a burst does NOT give you is per-commit validation, and that costs you in two places: `git bisect` can land on a tree nothing ever ran, and reverting one commit out of a burst produces a combination no run has seen. A commit broken and then fixed inside the same burst is invisible, which is harmless.
 
-**"My commit is an ancestor of a green run" is NOT "my commit was tested."** A descendant's green run proves the tip's tree passes; it says nothing about whether an intermediate commit would have, and a break masked by the following commit never shows. There are three states, and the third is invisible:
+**Do NOT push commits one at a time to get per-commit runs.** `8897e9312` exists because burst pushes queued one deploy per push — 60 commits on 2026-08-26 became 44 image builds, each a full cargo-chef build pulling the multi-GB registry buildcache back as billed egress. Batching is the cheap direction and the fix now collapses bursts deliberately.
 
-| | visible? | how to see it |
-|---|---|---|
-| red | yes | the run list |
-| cancelled | yes | where the workflow cancels on main; two causes — preemption vs a 45-min job timeout — separate them by `createdAt`→`updatedAt` |
-| **absent** | **no** | ask whether each SHA appears in `gh run list --json headSha` AT ALL |
+**The real exposure is the window, not the batching.** On 2026-08-28 a commit adding a 13th system prompt without updating the counts that pin it went up in a burst; the tip's run reported `failure` correctly — 31 minutes later. Nothing was red in between because the run was still in flight, and nobody was watching it. An unrelated feature branch hit the break first. So: after pushing to main, watch the run to terminal (below). That is what would have caught it, not a different push shape.
+
+**When a run is genuinely ABSENT** — no row for that SHA at all — do not reach for "it was cancelled" without checking; on `ci-backend`/`frontend-tests` a main commit cannot be cancelled, so the explanation is that the SHA was never a push tip:
 
 ```bash
 git log --oneline <base>..origin/main        # every sha that landed
 gh run list --branch main --limit 15 --json headSha,conclusion,status
-# any sha in the first list and absent from the second was never tested
 ```
 
 **Push is the start of validation, not the end.** After every push, watch CI for the pushed commit until all relevant workflows reach a terminal status. If any fails, fix the underlying issue and re-push in the same session — work is not "done" until CI is green on the head commit (cancelled runs for older commits don't count).
