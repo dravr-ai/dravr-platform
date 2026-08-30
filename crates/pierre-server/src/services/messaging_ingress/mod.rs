@@ -330,37 +330,6 @@ async fn send_private_channel_response(
     }
 }
 
-/// Best-effort removal of a user's slash-command echo from a shared room.
-///
-/// When a slash command arrives in a shared room the reply is delivered
-/// privately to the caller (see `slash_reply_should_be_private`). This deletes
-/// the original command message so the room never shows it. Failures (bot not
-/// an admin with delete rights, message already gone, channel can't delete) are
-/// logged at debug and never affect the turn — the command was still handled
-/// and answered privately.
-async fn delete_room_command_echo(
-    db: &dyn MessagingRepository,
-    tenant_id: TenantId,
-    channel: &str,
-    adapter: &Arc<dyn MessagingChannel>,
-    room_id: &str,
-    channel_message_id: &str,
-) {
-    let Some(config) = load_channel_config(db, tenant_id, channel).await else {
-        return;
-    };
-    if let Err(e) = adapter
-        .delete_message(room_id, channel_message_id, &config)
-        .await
-    {
-        debug!(
-            channel = %channel,
-            error = %e,
-            "Could not delete slash-command echo from room (bot may lack admin rights)"
-        );
-    }
-}
-
 /// Emit the `messaging.intent` product notify event for a recognised intent.
 ///
 /// `user_id` is the raw (un-hashed) Pierre user id, or — for pre-link intents
@@ -483,15 +452,22 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         )
         .await;
         if let Some(room_id) = message.conversation_id.as_deref() {
-            delete_room_command_echo(
+            if let Some(notice) = slash::settle_room_echo(slash::RoomEchoSettlement {
+                resources,
                 db,
                 tenant_id,
                 channel,
+                channel_type,
                 adapter,
                 room_id,
-                &message.channel_message_id,
-            )
-            .await;
+                channel_message_id: &message.channel_message_id,
+                user_id: &session.user_id,
+                sender_id: &message.sender_id,
+            })
+            .await
+            {
+                send_channel_response(db, tenant_id, channel, adapter, notice).await;
+            }
         }
     } else {
         // Either a 1:1 DM (the conversation IS the private chat) or a

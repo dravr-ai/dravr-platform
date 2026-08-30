@@ -17,14 +17,16 @@ mod common;
 use std::sync::Arc;
 
 use chrono::Utc;
+use std::collections::HashMap;
+
 use pierre_chat_pipeline::detect_turn_locale;
 use pierre_commands::status::StatusHandler;
 use pierre_commands::{CommandHandler, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
     KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_GROUP_LIST_EMPTY,
-    KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_STATUS_CHANNEL_LABEL, KEY_STATUS_HEADER,
-    KEY_STATUS_PROVIDERS_NONE,
+    KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_SLASH_ANSWERED_PRIVATELY, KEY_STATUS_CHANNEL_LABEL,
+    KEY_STATUS_HEADER, KEY_STATUS_PROVIDERS_NONE,
 };
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::CreateChannelLinkParams;
@@ -36,6 +38,35 @@ use uuid::Uuid;
 /// Registry smoke test: every compiled-in locale resolves to a non-empty
 /// string for the hot-path keys used by the user-visible surface. Guards
 /// against an accidental drop when editing the `COMPILED_IN` table.
+/// The room note that a command was answered privately exists in every locale
+/// and never carries the answer itself.
+///
+/// It is posted into a shared room, which is exactly why it must say only where
+/// the answer went: the room is bound to a group that can hold several athletes,
+/// and the reply was redirected to a DM for that reason.
+///
+/// Distinctness is the real assertion. A key present in four locales is not a
+/// compile error — `get` silently falls back to French — so a missing
+/// translation would show up as two locales returning the same sentence, and an
+/// athlete reading Portuguese would be handed French.
+#[test]
+fn the_answered_privately_note_speaks_every_locale() {
+    let reg = MessagingStringsRegistry::new();
+    let mut seen: HashMap<String, &str> = HashMap::new();
+
+    for locale in ["fr", "en", "es", "de", "pt"] {
+        let value = reg.get(KEY_SLASH_ANSWERED_PRIVATELY, locale);
+        assert!(
+            !value.trim().is_empty(),
+            "no answered-privately note for {locale}; the room would stay silent \
+             on a command it was asked to acknowledge"
+        );
+        if let Some(other) = seen.insert(value.clone(), locale) {
+            panic!("{locale} and {other} return the same text — {locale} is missing and fell back");
+        }
+    }
+}
+
 #[test]
 fn registry_has_five_compiled_locales_for_hot_keys() {
     let reg = MessagingStringsRegistry::new();

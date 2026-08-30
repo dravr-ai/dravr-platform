@@ -532,6 +532,13 @@ pub const KEY_PILLARS_OPENER: &str = "commands.pillars.opener";
 /// shared room the answers would be stamped under the channel tenant, a fact
 /// space disjoint from the athlete's own dossier.
 pub const KEY_PILLARS_DM_ONLY: &str = "commands.pillars.dm_only";
+
+/// Posted in a shared room when a command was answered in the caller's DM.
+///
+/// Carries no answer, only its whereabouts: a room may hold several athletes,
+/// so the reply itself stays private. Without this the room shows a command
+/// and no response at all.
+pub const KEY_SLASH_ANSWERED_PRIVATELY: &str = "commands.answered_privately";
 /// Key: `/pillars` failure when the walk could not be activated on the
 /// conversation.
 pub const KEY_PILLARS_START_FAILED: &str = "commands.pillars.start_failed";
@@ -991,6 +998,7 @@ pub(crate) const FR_TIMEZONE_INVALID: &str = "Fuseau horaire invalide. Donne un 
 
 pub(crate) const FR_PILLARS_OPENER: &str = "On va construire ton profil ensemble — je te pose quelques questions, une à la fois. Pour commencer : qu'est-ce qui te motive profondément à t'entraîner (ton « North Star ») ?";
 pub(crate) const FR_PILLARS_DM_ONLY: &str = "Le profil se construit en privé. Écris-moi <code>/pillars</code> en message direct et on commence.";
+pub(crate) const FR_SLASH_ANSWERED_PRIVATELY: &str = "Je t'ai répondu en privé — c'est dans notre conversation directe. Une salle peut réunir plusieurs athlètes, alors les réponses personnelles n'y sont pas affichées.";
 
 pub(crate) const FR_INTAKE_OPENER: &str = "Pendant que j'y suis, quelques questions rapides — une minute, et tout le coaching à partir de là est plus précis et plus sûr.";
 pub(crate) const FR_INTAKE_PERSONA: &str = "D'abord : tu t'entraînes pour toi, ou tu entraînes d'autres personnes ?\n\n<b>1</b> — Je m'entraîne pour moi\n<b>2</b> — J'entraîne d'autres personnes";
@@ -1322,6 +1330,7 @@ pub(crate) const EN_TIMEZONE_INVALID: &str =
 
 pub(crate) const EN_PILLARS_OPENER: &str = "Let's build your profile together — I'll ask about a few areas, one at a time. To start: what's the deeper reason you train — your North Star?";
 pub(crate) const EN_PILLARS_DM_ONLY: &str = "Profile building happens in private. Send me <code>/pillars</code> in a direct message and we'll start.";
+pub(crate) const EN_SLASH_ANSWERED_PRIVATELY: &str = "I've answered you privately — it's in our direct chat. A room can hold several athletes, so personal answers aren't posted here.";
 
 pub(crate) const EN_INTAKE_OPENER: &str = "While I have you, a couple of quick questions — a minute, and every bit of coaching from here is sharper and safer.";
 pub(crate) const EN_INTAKE_PERSONA: &str = "First: do you train for yourself, or do you coach other people?\n\n<b>1</b> — I train for myself\n<b>2</b> — I coach others";
@@ -1629,6 +1638,7 @@ pub(crate) const ES_TIMEZONE_INVALID: &str = "Zona horaria no válida. Indica un
 
 pub(crate) const ES_PILLARS_OPENER: &str = "Vamos a construir tu perfil juntos — te haré preguntas sobre algunos temas, uno a uno. Para empezar: ¿cuál es la razón profunda por la que entrenas, tu «North Star»?";
 pub(crate) const ES_PILLARS_DM_ONLY: &str = "El perfil se construye en privado. Escríbeme <code>/pillars</code> por mensaje directo y empezamos.";
+pub(crate) const ES_SLASH_ANSWERED_PRIVATELY: &str = "Te he respondido en privado: está en nuestro chat directo. Una sala puede reunir a varios atletas, así que las respuestas personales no se publican aquí.";
 
 pub(crate) const ES_INTAKE_OPENER: &str = "Ya que estamos, unas preguntas rápidas: un minuto y todo el acompañamiento a partir de aquí será más preciso y más seguro.";
 pub(crate) const ES_INTAKE_PERSONA: &str = "Primero: ¿entrenas para ti o entrenas a otras personas?\n\n<b>1</b> — Entreno para mí\n<b>2</b> — Entreno a otras personas";
@@ -1935,6 +1945,7 @@ pub(crate) const DE_TIMEZONE_INVALID: &str =
 
 pub(crate) const DE_PILLARS_OPENER: &str = "Wir bauen dein Profil gemeinsam auf — ich frage dich zu einigen Themen, eines nach dem anderen. Zum Start: Was ist der tiefere Grund, warum du trainierst — dein North Star?";
 pub(crate) const DE_PILLARS_DM_ONLY: &str = "Das Profil entsteht privat. Schreib mir <code>/pillars</code> als Direktnachricht, dann legen wir los.";
+pub(crate) const DE_SLASH_ANSWERED_PRIVATELY: &str = "Ich habe dir privat geantwortet — es steht in unserem Direktchat. In einem Raum können mehrere Athleten sein, deshalb erscheinen persönliche Antworten hier nicht.";
 
 pub(crate) const DE_INTAKE_OPENER: &str = "Wo wir gerade dabei sind, ein paar kurze Fragen — eine Minute, und das gesamte Coaching ab hier ist genauer und sicherer.";
 pub(crate) const DE_INTAKE_PERSONA: &str = "Zuerst: Trainierst du für dich selbst, oder trainierst du andere?\n\n<b>1</b> — Ich trainiere für mich\n<b>2</b> — Ich trainiere andere";
@@ -2242,6 +2253,7 @@ pub(crate) const PT_TIMEZONE_INVALID: &str = "Fuso horário inválido. Indica um
 
 pub(crate) const PT_PILLARS_OPENER: &str = "Vamos construir o teu perfil juntos — vou fazer-te perguntas sobre alguns temas, um a um. Para começar: qual é a razão profunda pela qual treinas — o teu «North Star»?";
 pub(crate) const PT_PILLARS_DM_ONLY: &str = "O perfil constrói-se em privado. Escreve-me <code>/pillars</code> em mensagem direta e começamos.";
+pub(crate) const PT_SLASH_ANSWERED_PRIVATELY: &str = "Respondi-te em privado — está na nossa conversa direta. Uma sala pode juntar vários atletas, por isso as respostas pessoais não aparecem aqui.";
 
 pub(crate) const PT_INTAKE_OPENER: &str = "Já agora, algumas perguntas rápidas — um minuto, e todo o acompanhamento a partir daqui é mais preciso e mais seguro.";
 pub(crate) const PT_INTAKE_PERSONA: &str = "Primeiro: treinas para ti, ou treinas outras pessoas?\n\n<b>1</b> — Treino para mim\n<b>2</b> — Treino outras pessoas";
@@ -2535,6 +2547,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "fr", FR_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "fr", FR_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "fr", FR_PILLARS_DM_ONLY),
+    (KEY_SLASH_ANSWERED_PRIVATELY, "fr", FR_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "fr", FR_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "fr", FR_INTAKE_PERSONA),
     (KEY_INTAKE_PARQ_INTRO, "fr", FR_INTAKE_PARQ_INTRO),
@@ -2768,6 +2781,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "en", EN_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "en", EN_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "en", EN_PILLARS_DM_ONLY),
+    (KEY_SLASH_ANSWERED_PRIVATELY, "en", EN_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "en", EN_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "en", EN_INTAKE_PERSONA),
     (KEY_INTAKE_PARQ_INTRO, "en", EN_INTAKE_PARQ_INTRO),
@@ -3000,6 +3014,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "es", ES_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "es", ES_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "es", ES_PILLARS_DM_ONLY),
+    (KEY_SLASH_ANSWERED_PRIVATELY, "es", ES_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "es", ES_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "es", ES_INTAKE_PERSONA),
     (KEY_INTAKE_PARQ_INTRO, "es", ES_INTAKE_PARQ_INTRO),
@@ -3233,6 +3248,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "de", DE_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "de", DE_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "de", DE_PILLARS_DM_ONLY),
+    (KEY_SLASH_ANSWERED_PRIVATELY, "de", DE_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "de", DE_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "de", DE_INTAKE_PERSONA),
     (KEY_INTAKE_PARQ_INTRO, "de", DE_INTAKE_PARQ_INTRO),
@@ -3466,6 +3482,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_TIMEZONE_INVALID, "pt", PT_TIMEZONE_INVALID),
     (KEY_PILLARS_OPENER, "pt", PT_PILLARS_OPENER),
     (KEY_PILLARS_DM_ONLY, "pt", PT_PILLARS_DM_ONLY),
+    (KEY_SLASH_ANSWERED_PRIVATELY, "pt", PT_SLASH_ANSWERED_PRIVATELY),
     (KEY_INTAKE_OPENER, "pt", PT_INTAKE_OPENER),
     (KEY_INTAKE_PERSONA, "pt", PT_INTAKE_PERSONA),
     (KEY_INTAKE_PARQ_INTRO, "pt", PT_INTAKE_PARQ_INTRO),
