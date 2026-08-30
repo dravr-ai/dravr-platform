@@ -59,6 +59,13 @@ use pierre_tool_runtime::tool_results::format_tool_results_as_text;
 /// The read-only verification tool. Every connected provider serves it, so
 /// one fetch adjudicates the claim regardless of which backend the athlete
 /// uses.
+///
+/// LIMITATION(registre#138): `VERIFICATION_TOOL` always fetches the REQUESTER's activities, so an
+/// [`RecoveryTrigger::UngroundedDataAsk`] raised by a question about a group PEER adjudicates the
+/// wrong athlete, and [`REASK_INSTRUCTION`] then tells the model that data answers the question.
+/// Live 2026-08-30 (Telegram group): « as-tu regarde l'historique Strava de <peer> ? » re-asked
+/// with the requester's own activities and delivered a confident denial of peer access that three
+/// earlier turns had actually exercised. Routing the fetch by the subject of the ask is the fix.
 const VERIFICATION_TOOL: &str = "get_activities";
 
 /// How many activities the verification fetch asks for — enough for the
