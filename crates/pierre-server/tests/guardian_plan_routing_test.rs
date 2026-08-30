@@ -38,7 +38,8 @@ use pierre_llm::{
 };
 use pierre_tool_runtime::guardian::planner_system_prompt;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
-use pierre_tool_runtime::tool_execution::{run_tool_loop, ToolLoopParams};
+use pierre_tool_runtime::tool_execution::run_tool_loop;
+use pierre_tool_runtime::tool_loop_io::ToolLoopParams;
 use uuid::Uuid;
 
 /// Scripted provider: pops one canned response per `complete()` call and

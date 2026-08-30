@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_llm::{ChatMessage, FunctionResponse};
+use pierre_tool_runtime::implementations::data::provider_reconnect_note;
 use pierre_tool_runtime::tool_execution::add_function_responses_to_messages;
 use pierre_tool_runtime::tool_results::{format_tool_results_as_text, project_activities_payload};
 use serde_json::{json, Value};
@@ -113,6 +114,44 @@ fn the_projection_drops_the_duplicate_copies_and_the_sidecars() {
             "{dropped} should not survive projection"
         );
     }
+}
+
+/// The one sidecar that survives, and the reason it has to.
+///
+/// A window served without a dead connection is a PARTIAL window. The tool
+/// stamps `reconnect_required` into its own result to say so, and this
+/// projection is the only thing between that stamp and the prompt: a key
+/// absent from `ACTIVITIES_ENVELOPE_KEPT` reaches no model at all, so the coach
+/// answers a short history as if it were the whole one.
+#[test]
+fn the_projection_carries_the_reconnect_sidecar_to_the_model() {
+    let mut envelope = activities_envelope(3);
+    envelope["reconnect_required"] = provider_reconnect_note("Garmin", "sciotte_garmin");
+
+    let projected = project_activities_payload("get_activities", &envelope).unwrap();
+    let caveat = &projected["reconnect_required"];
+    assert_eq!(
+        caveat["provider"],
+        json!("Garmin"),
+        "the model is told which source is missing, in the athlete's vocabulary"
+    );
+    assert!(
+        caveat["note"]
+            .as_str()
+            .unwrap()
+            .contains("served WITHOUT Garmin"),
+        "the note that tells the coach not to imply a complete answer must survive"
+    );
+
+    // The text seam projects through the same allowlist, so it carries it too.
+    let text = format_tool_results_as_text(&[FunctionResponse {
+        name: "get_activities".to_owned(),
+        response: envelope,
+    }]);
+    assert!(
+        text.contains("reconnect_required") && text.contains("served WITHOUT Garmin"),
+        "the text tool loop's rendering must name the dead source: {text}"
+    );
 }
 
 #[test]

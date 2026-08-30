@@ -22,7 +22,7 @@ use pierre_chat_pipeline::stages::guardian_denied::apply_guardian_denied;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, EN_GUARDIAN_DENIED, FR_GUARDIAN_DENIED,
 };
-use pierre_tool_runtime::tool_execution::{GuardianDenial, ToolLoopResult};
+use pierre_tool_runtime::tool_loop_io::{GuardianDenial, ToolLoopResult};
 
 /// A `ToolLoopResult` with an empty body, optionally carrying a Guardian
 /// denial — the shape the tool loop hands the recovery stages.
@@ -35,6 +35,7 @@ fn loop_result(denied: Option<GuardianDenial>) -> ToolLoopResult {
         tool_calls_count: 1,
         tools_called: vec!["disconnect_provider".to_owned()],
         pending_provider_auth_required: None,
+        served_without_provider: None,
         guardian_denied: denied,
         guardian_confirm: None,
         capability_claim_unverified: false,

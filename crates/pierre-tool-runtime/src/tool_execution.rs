@@ -26,179 +26,23 @@ use tracing::{info, warn};
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
 use crate::headless_stream;
-use crate::protocol::{UniversalExecutor, UniversalResponse};
+use crate::protocol::UniversalResponse;
 use crate::registry::ToolRegistry;
+use crate::tool_loop_io::{
+    GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult, ToolLoopTally,
+    ToolRoundRecord,
+};
 use crate::tool_results::{
-    extract_activity_list, format_tool_results_as_text, render_tool_payload_for_prompt,
+    extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
+    reconnect_offer_in_steps, render_tool_payload_for_prompt,
 };
 use pierre_core::errors::AppError;
-use pierre_core::models::TenantId;
 use pierre_llm::{
-    ChatMessage, ChatProvider, ChatRequest, ChatResponseWithTools, FunctionCall,
-    FunctionDeclaration, FunctionResponse, McpServerConfig, MessageRole, TokenUsage, Tool,
+    ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
+    FunctionResponse, MessageRole, TokenUsage, Tool,
 };
-use pierre_services::chat_stream::TurnEventSink;
 
 use crate::llm_call_record::{accumulate_optional, LlmCallRecord, LlmCallRecorder};
-
-// ============================================================================
-// Shared Types
-// ============================================================================
-
-/// One round of tool dispatch as the in-memory loop sees it.
-///
-/// Carries an optional preamble of assistant text that accompanied the tool
-/// request, plus the formatted tool result text. Persisting both lets a
-/// follow-up turn replay the same [`ChatMessage`] sequence the in-memory
-/// loop produced and gives the model the same evidence base when answering
-/// grounded follow-ups.
-#[derive(Debug, Clone)]
-pub struct ToolRoundRecord {
-    /// Assistant text emitted alongside the tool call. Empty when the
-    /// model returned only a tool call (no preamble). The replay path
-    /// inserts this as `ChatMessage::assistant(content)`.
-    pub assistant_text: String,
-    /// Formatted tool result the loop pushes back to the model as a user
-    /// turn (e.g. `"[Tool Result for get_activities]: ..."`). Always set.
-    pub tool_result_text: String,
-}
-
-/// Sink that receives one [`ToolRoundRecord`] per tool dispatch round.
-///
-/// Implementations persist the round so subsequent turns rebuild the same
-/// `Vec<ChatMessage>` that the in-memory loop produced. Without this, the
-/// next turn sees only the final assistant text and the model — having no
-/// trace of the tool result it consumed — defaults to refusing grounded
-/// follow-ups ("I don't have access to your Strava data").
-///
-/// Invocations happen on the async runtime but the sink method itself is
-/// synchronous; implementers spawn a task or push to a channel if the
-/// underlying persistence is async.
-pub trait ToolMessageRecorder: Send + Sync {
-    /// Record a completed tool dispatch round.
-    fn record(&self, record: ToolRoundRecord);
-}
-
-/// Parameters for the multi-turn tool execution loop
-pub struct ToolLoopParams<'a> {
-    /// LLM provider to use for completions
-    pub provider: &'a ChatProvider,
-    /// MCP executor for running tool calls (Arc for sharing with SDK tool handler closures)
-    pub executor: Arc<UniversalExecutor>,
-    /// Tool definitions available for function calling
-    pub tools: &'a Tool,
-    /// Model identifier for the LLM request
-    pub model: &'a str,
-    /// User ID for tool execution context
-    pub user_id: &'a str,
-    /// Tenant ID for multi-tenant isolation
-    pub tenant_id: TenantId,
-    /// Maximum number of tool-calling iterations before forcing a response
-    pub max_iterations: usize,
-    /// Optional per-LLM-call sink. When set, each provider call inside
-    /// the loop produces a [`LlmCallRecord`] that the sink persists.
-    /// When absent, the loop still accumulates cumulative usage for
-    /// the returned [`ToolLoopResult`] without recording individual calls.
-    pub call_recorder: Option<Arc<dyn LlmCallRecorder>>,
-    /// Optional sink that persists each tool dispatch round (assistant
-    /// preamble + formatted tool result) so follow-up turns can replay
-    /// the grounded evidence the model already saw. Absent in callers
-    /// that have no conversation to attach the rows to (e.g. one-shot
-    /// non-conversational tool runs).
-    pub tool_message_recorder: Option<Arc<dyn ToolMessageRecorder>>,
-    /// Optional per-coach LLM sampling temperature. When `Some`, applied
-    /// to every `ChatRequest` in the loop via `with_temperature`. When
-    /// `None`, the provider/server default is used.
-    pub temperature: Option<f32>,
-    /// Optional sink for token-level streaming events. When set on the
-    /// headless tool loop branch, the loop calls Copilot's
-    /// `converse_stream()` instead of `converse()` and forwards each
-    /// observed text delta and tool-call snapshot through the sink.
-    /// The sink is a [`pierre_services::chat_stream::TurnEventSink`]
-    /// — see that type for the event shape.
-    pub stream_sink: Option<TurnEventSink>,
-    /// MCP servers exposed to an ACP-managed provider (Copilot Headless) so
-    /// the model can call Dravr tools natively over the Agent Client Protocol
-    /// instead of text-based `<tool_call>` simulation. Only the headless tool
-    /// loop forwards these into the ACP `session/new`; other loops ignore
-    /// them. Empty for providers without SDK tool calling.
-    pub mcp_servers: Vec<McpServerConfig>,
-}
-
-/// A tool blocked by the runtime Guardian while in `enforce` mode.
-///
-/// Surfaced out of the tool loop as an out-of-band signal (parallel to
-/// `pending_provider_auth_required`) so the chat pipeline can render a
-/// deterministic, localized "blocked for safety" reply instead of feeding the
-/// raw in-band denial back to the LLM and letting it paraphrase a refusal.
-/// Only ever set in `enforce` mode (the default) — `off` and `observe` log and
-/// fall through to execution, so this stays `None` there.
-#[derive(Debug, Clone)]
-pub struct GuardianDenial {
-    /// Name of the tool the Guardian blocked.
-    pub tool_name: String,
-    /// Machine-readable denial reason (`DenyReason::as_str`), e.g.
-    /// `budget_exceeded`, `tainted_sink`, `egress_forbidden`. Used for
-    /// structured logging — never shown verbatim to the user.
-    pub reason: String,
-}
-
-/// Result of running the multi-turn tool execution loop
-pub struct ToolLoopResult {
-    /// Final text content from LLM
-    pub content: String,
-    /// Token usage statistics if available
-    pub usage: Option<TokenUsage>,
-    /// Finish reason if available
-    pub finish_reason: Option<String>,
-    /// Activity list from `get_activities` tool (to prepend to response)
-    pub activity_list: Option<String>,
-    /// Total tool calls executed across all iterations
-    pub tool_calls_count: u32,
-    /// Names of every MCP tool invoked during the loop, in call order.
-    /// Persisted alongside the LLM usage row so per-turn observability
-    /// can answer "which tools ran for this turn".
-    pub tools_called: Vec<String>,
-    /// Provider slug that triggered an `AppError::ProviderAuthRequired`
-    /// during a tool dispatch in this loop. The chat pipeline detects this
-    /// and short-circuits the turn with a deterministic re-auth reply
-    /// (containing a minted hosted-login URL) instead of letting the LLM
-    /// rephrase a generic refusal.
-    pub pending_provider_auth_required: Option<String>,
-    /// The first tool the runtime Guardian blocked this turn (`enforce` mode
-    /// only). The chat pipeline detects this and short-circuits with a
-    /// localized "blocked for safety" reply (`KEY_GUARDIAN_DENIED`). `None`
-    /// when no tool was denied (always, in `observe`).
-    pub guardian_denied: Option<GuardianDenial>,
-    /// The first tool the Guardian parked pending user confirmation this turn
-    /// (`TaintedDestructive::Confirm`, `enforce` mode only). The chat pipeline
-    /// short-circuits with the localized confirmation prompt
-    /// (`KEY_GUARDIAN_CONFIRM_PROMPT`) carrying the claim token.
-    pub guardian_confirm: Option<GuardianConfirmRequest>,
-    /// Set by the capability-recovery stage when the delivered reply carries a
-    /// data-access claim the platform could not stand behind — either an
-    /// unrefuted "I can't reach your data" or the reconnect message that
-    /// replaced it. The turn then persists with
-    /// `UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON` so the row never re-enters a
-    /// later prompt: connection state is re-derived every turn, and replaying a
-    /// moment-in-time failure is what turned one 2026-07-24 apology into an
-    /// identical one 18 days later.
-    pub capability_claim_unverified: bool,
-}
-
-/// A tool call the Guardian parked pending `/confirm`·`/deny` resolution.
-///
-/// Surfaced out of the tool loop as an out-of-band signal (parallel to
-/// [`GuardianDenial`]) so the chat pipeline renders a deterministic,
-/// localized confirmation ask instead of letting the LLM paraphrase it.
-#[derive(Debug, Clone)]
-pub struct GuardianConfirmRequest {
-    /// Name of the parked tool (a static registry identifier — shown to the
-    /// user so consent is meaningful; arguments are never echoed).
-    pub tool_name: String,
-    /// Opaque claim token resolving the parked row.
-    pub pending_id: String,
-}
 
 // ============================================================================
 // API Tool Loop (Gemini/Groq native function calling)
@@ -224,9 +68,7 @@ pub async fn run_api_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
-    let mut captured_activity_list: Option<String> = None;
-    let mut tool_calls_count: u32 = 0;
-    let mut tools_called: Vec<String> = Vec::new();
+    let mut tally = ToolLoopTally::default();
     let mut cumulative_usage = TokenUsage::new(0, 0, 0);
 
     for iteration in 0..params.max_iterations {
@@ -364,11 +206,18 @@ pub async fn run_api_tool_loop(
 
                 #[allow(clippy::cast_possible_truncation)]
                 {
-                    tool_calls_count += function_calls.len() as u32;
+                    tally.tool_calls_count += function_calls.len() as u32;
                 }
 
                 // Ran, not requested — viz_blocks' source_tool gate reads this.
-                tools_called.extend(executed);
+                tally.tools_called.extend(executed);
+
+                // A window a sibling connection served for a dead primary. Read
+                // before every short-circuit below so the offer survives whichever
+                // exit the round takes.
+                if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
+                    tally.served_without_provider = Some(provider);
+                }
 
                 // Auth-required short-circuit: if any tool failed with
                 // `ProviderAuthRequired`, exit the loop immediately so the
@@ -376,19 +225,17 @@ pub async fn run_api_tool_loop(
                 // deterministically. Continuing iteration would have the LLM
                 // either rephrase a generic refusal or call the same broken
                 // tool again.
+                //
+                // The batch is not abandoned on the way out. Only a Guardian
+                // block stops the sibling calls, so an auth trip leaves real
+                // results already collected beside it — keep the window one of
+                // them served, so the reconnect reply arrives WITH the athlete's
+                // activities instead of replacing them.
                 if let Some(provider) = auth_required_provider {
-                    return Ok(ToolLoopResult {
-                        content: String::new(),
-                        usage: Some(cumulative_usage),
-                        finish_reason: Some("provider_auth_required".to_owned()),
-                        activity_list: captured_activity_list,
-                        tool_calls_count,
-                        tools_called,
-                        pending_provider_auth_required: Some(provider),
-                        guardian_denied: None,
-                        guardian_confirm: None,
-                        capability_claim_unverified: false,
-                    });
+                    if let Some(list) = extract_activity_list(&function_responses) {
+                        tally.activity_list = Some(list);
+                    }
+                    return Ok(tally.provider_auth_required(Some(cumulative_usage), provider));
                 }
 
                 // Guardian-denied short-circuit (enforce mode): a consequential
@@ -396,36 +243,14 @@ pub async fn run_api_tool_loop(
                 // chat pipeline renders a deterministic "blocked for safety"
                 // reply instead of feeding the in-band denial back to the LLM.
                 if let Some(denial) = guardian_denied {
-                    return Ok(ToolLoopResult {
-                        content: String::new(),
-                        usage: Some(cumulative_usage),
-                        finish_reason: Some("guardian_denied".to_owned()),
-                        activity_list: captured_activity_list,
-                        tool_calls_count,
-                        tools_called,
-                        pending_provider_auth_required: None,
-                        guardian_denied: Some(denial),
-                        guardian_confirm: None,
-                        capability_claim_unverified: false,
-                    });
+                    return Ok(tally.guardian_denied(Some(cumulative_usage), denial));
                 }
 
                 // Guardian confirm-required short-circuit (enforce mode): the
                 // chokepoint parked a destructive call; exit so the chat
                 // pipeline renders the deterministic confirmation ask.
                 if let Some(confirm) = guardian_confirm {
-                    return Ok(ToolLoopResult {
-                        content: String::new(),
-                        usage: Some(cumulative_usage),
-                        finish_reason: Some("guardian_confirm".to_owned()),
-                        activity_list: captured_activity_list,
-                        tool_calls_count,
-                        tools_called,
-                        pending_provider_auth_required: None,
-                        guardian_denied: None,
-                        guardian_confirm: Some(confirm),
-                        capability_claim_unverified: false,
-                    });
+                    return Ok(tally.guardian_confirm(Some(cumulative_usage), confirm));
                 }
 
                 // Add assistant's text to messages if present (strip synthetic function syntax)
@@ -448,7 +273,7 @@ pub async fn run_api_tool_loop(
                 let round_responses =
                     add_function_responses_to_messages(llm_messages, &function_responses);
                 if let Some(list) = round_responses.activity_list {
-                    captured_activity_list = Some(list);
+                    tally.activity_list = Some(list);
                 }
 
                 // Persist this round so a follow-up turn replays the same
@@ -496,51 +321,27 @@ pub async fn run_api_tool_loop(
             .await?;
             #[allow(clippy::cast_possible_truncation)]
             {
-                tool_calls_count += text_tool_calls.len() as u32;
+                tally.tool_calls_count += text_tool_calls.len() as u32;
             }
             // Ran-only, as above.
-            tools_called.extend(executed);
+            tally.tools_called.extend(executed);
+            // Served-without-a-provider offer, as in the structured branch above.
+            if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
+                tally.served_without_provider = Some(provider);
+            }
+            // Keep the siblings' work on the way out, as in the structured
+            // branch above.
             if let Some(provider) = auth_required_provider {
-                return Ok(ToolLoopResult {
-                    content: String::new(),
-                    usage: Some(cumulative_usage),
-                    finish_reason: Some("provider_auth_required".to_owned()),
-                    activity_list: captured_activity_list,
-                    tool_calls_count,
-                    tools_called,
-                    pending_provider_auth_required: Some(provider),
-                    guardian_denied: None,
-                    guardian_confirm: None,
-                    capability_claim_unverified: false,
-                });
+                if let Some(list) = extract_activity_list(&function_responses) {
+                    tally.activity_list = Some(list);
+                }
+                return Ok(tally.provider_auth_required(Some(cumulative_usage), provider));
             }
             if let Some(denial) = guardian_denied {
-                return Ok(ToolLoopResult {
-                    content: String::new(),
-                    usage: Some(cumulative_usage),
-                    finish_reason: Some("guardian_denied".to_owned()),
-                    activity_list: captured_activity_list,
-                    tool_calls_count,
-                    tools_called,
-                    pending_provider_auth_required: None,
-                    guardian_denied: Some(denial),
-                    guardian_confirm: None,
-                    capability_claim_unverified: false,
-                });
+                return Ok(tally.guardian_denied(Some(cumulative_usage), denial));
             }
             if let Some(confirm) = guardian_confirm {
-                return Ok(ToolLoopResult {
-                    content: String::new(),
-                    usage: Some(cumulative_usage),
-                    finish_reason: Some("guardian_confirm".to_owned()),
-                    activity_list: captured_activity_list,
-                    tool_calls_count,
-                    tools_called,
-                    pending_provider_auth_required: None,
-                    guardian_denied: None,
-                    guardian_confirm: Some(confirm),
-                    capability_claim_unverified: false,
-                });
+                return Ok(tally.guardian_confirm(Some(cumulative_usage), confirm));
             }
             let assistant_round_text =
                 response
@@ -556,7 +357,7 @@ pub async fn run_api_tool_loop(
             let round_responses =
                 add_function_responses_to_messages(llm_messages, &function_responses);
             if let Some(list) = round_responses.activity_list {
-                captured_activity_list = Some(list);
+                tally.activity_list = Some(list);
             }
             if let Some(recorder) = params.tool_message_recorder.as_ref() {
                 recorder.record(ToolRoundRecord {
@@ -572,18 +373,7 @@ pub async fn run_api_tool_loop(
             .content
             .map(|c| strip_synthetic_function_calls(&c).into_owned())
             .unwrap_or_default();
-        return Ok(ToolLoopResult {
-            content,
-            usage: Some(cumulative_usage),
-            finish_reason: response.finish_reason,
-            activity_list: captured_activity_list,
-            tool_calls_count,
-            tools_called,
-            pending_provider_auth_required: None,
-            guardian_denied: None,
-            guardian_confirm: None,
-            capability_claim_unverified: false,
-        });
+        return Ok(tally.answered(content, Some(cumulative_usage), response.finish_reason));
     }
 
     // Max iterations reached
@@ -592,18 +382,7 @@ pub async fn run_api_tool_loop(
     } else {
         None
     };
-    Ok(ToolLoopResult {
-        content: String::new(),
-        usage,
-        finish_reason: Some("max_iterations".to_owned()),
-        activity_list: captured_activity_list,
-        tool_calls_count,
-        tools_called,
-        pending_provider_auth_required: None,
-        guardian_denied: None,
-        guardian_confirm: None,
-        capability_claim_unverified: false,
-    })
+    Ok(tally.max_iterations(usage))
 }
 
 // ============================================================================
@@ -655,9 +434,7 @@ pub async fn run_cli_tool_loop(
         tool_simulation::inject_tool_catalog(llm_messages, &tool_catalog);
     }
 
-    let mut captured_activity_list: Option<String> = None;
-    let mut tool_calls_count: u32 = 0;
-    let mut tools_called: Vec<String> = Vec::new();
+    let mut tally = ToolLoopTally::default();
     let max_iterations = params.max_iterations.min(CLI_MAX_TOOL_ITERATIONS);
 
     for iteration in 0..max_iterations {
@@ -752,18 +529,7 @@ pub async fn run_cli_tool_loop(
             // CLI models parrot the injected `<tool_result>` turn back), so
             // neither leaks to the user.
             let content = tool_simulation::strip_simulation_artifacts(&response.content);
-            return Ok(ToolLoopResult {
-                content,
-                usage: response.usage,
-                finish_reason: response.finish_reason,
-                activity_list: captured_activity_list,
-                tool_calls_count,
-                tools_called,
-                pending_provider_auth_required: None,
-                guardian_denied: None,
-                guardian_confirm: None,
-                capability_claim_unverified: false,
-            });
+            return Ok(tally.answered(content, response.usage, response.finish_reason));
         }
 
         // Convert to pierre-llm types for MCP execution
@@ -792,61 +558,37 @@ pub async fn run_cli_tool_loop(
 
         #[allow(clippy::cast_possible_truncation)]
         {
-            tool_calls_count += parsed_tool_calls.len() as u32;
+            tally.tool_calls_count += parsed_tool_calls.len() as u32;
         }
 
         // Ran-only, as in the api loop.
-        tools_called.extend(executed);
+        tally.tools_called.extend(executed);
+
+        // Served-without-a-provider offer, as in the api loop.
+        if let Some(provider) = reconnect_offer_in_responses(&function_responses) {
+            tally.served_without_provider = Some(provider);
+        }
 
         // Auth-required short-circuit (mirror of the API loop): exit early so
-        // the chat pipeline can render the deterministic hosted-login reply.
+        // the chat pipeline can render the deterministic hosted-login reply,
+        // carrying whatever the sibling calls in the same batch already served.
         if let Some(provider) = auth_required_provider {
-            return Ok(ToolLoopResult {
-                content: String::new(),
-                usage: response.usage,
-                finish_reason: Some("provider_auth_required".to_owned()),
-                activity_list: captured_activity_list,
-                tool_calls_count,
-                tools_called,
-                pending_provider_auth_required: Some(provider),
-                guardian_denied: None,
-                guardian_confirm: None,
-                capability_claim_unverified: false,
-            });
+            if let Some(list) = extract_activity_list(&function_responses) {
+                tally.activity_list = Some(list);
+            }
+            return Ok(tally.provider_auth_required(response.usage, provider));
         }
 
         // Guardian-denied short-circuit (mirror of the API loop): a blocked
         // consequential tool exits the turn so the chat pipeline renders the
         // deterministic "blocked for safety" reply.
         if let Some(denial) = guardian_denied {
-            return Ok(ToolLoopResult {
-                content: String::new(),
-                usage: response.usage,
-                finish_reason: Some("guardian_denied".to_owned()),
-                activity_list: captured_activity_list,
-                tool_calls_count,
-                tools_called,
-                pending_provider_auth_required: None,
-                guardian_denied: Some(denial),
-                guardian_confirm: None,
-                capability_claim_unverified: false,
-            });
+            return Ok(tally.guardian_denied(response.usage, denial));
         }
 
         // Guardian confirm-required short-circuit (mirror of the API loop).
         if let Some(confirm) = guardian_confirm {
-            return Ok(ToolLoopResult {
-                content: String::new(),
-                usage: response.usage,
-                finish_reason: Some("guardian_confirm".to_owned()),
-                activity_list: captured_activity_list,
-                tool_calls_count,
-                tools_called,
-                pending_provider_auth_required: None,
-                guardian_denied: None,
-                guardian_confirm: Some(confirm),
-                capability_claim_unverified: false,
-            });
+            return Ok(tally.guardian_confirm(response.usage, confirm));
         }
 
         // Add assistant message (with tool calls and any echoed tool-result
@@ -862,7 +604,7 @@ pub async fn run_cli_tool_loop(
 
         // Capture activity list if present in function responses
         if let Some(list) = extract_activity_list(&function_responses) {
-            captured_activity_list = Some(list);
+            tally.activity_list = Some(list);
         }
 
         llm_messages.push(ChatMessage::user(&tool_results_text));
@@ -879,18 +621,7 @@ pub async fn run_cli_tool_loop(
     }
 
     // Max iterations reached without a final text response
-    Ok(ToolLoopResult {
-        content: String::new(),
-        usage: None,
-        finish_reason: Some("max_iterations".to_owned()),
-        activity_list: captured_activity_list,
-        tool_calls_count,
-        tools_called,
-        pending_provider_auth_required: None,
-        guardian_denied: None,
-        guardian_confirm: None,
-        capability_claim_unverified: false,
-    })
+    Ok(tally.max_iterations(None))
 }
 
 // ============================================================================
@@ -1224,7 +955,8 @@ pub(crate) fn build_function_response(
 ///
 /// Carries the captured `get_activities` list (used to prepend a deterministic
 /// activity summary to the final reply) plus the joined tool-result text
-/// representing the round. The joined text is what a [`ToolMessageRecorder`]
+/// representing the round. The joined text is what a
+/// [`crate::tool_loop_io::ToolMessageRecorder`]
 /// persists as a single `tool_result` row so a follow-up turn can replay the
 /// same evidence the model just consumed.
 pub struct AddedFunctionResponses {
@@ -1357,6 +1089,7 @@ fn guardian_plan_denied(reason: &str) -> ToolLoopResult {
         tool_calls_count: 0,
         tools_called: Vec::new(),
         pending_provider_auth_required: None,
+        served_without_provider: None,
         guardian_denied: Some(GuardianDenial {
             tool_name: "(plan)".to_owned(),
             reason: reason.to_owned(),
@@ -1434,38 +1167,28 @@ fn plan_block_result(
     tool_calls_count: u32,
     tools_called: Vec<String>,
 ) -> ToolLoopResult {
-    if let Some(pending_id) = block.pending_id {
-        return ToolLoopResult {
-            content: String::new(),
-            usage: None,
-            finish_reason: Some("guardian_confirm".to_owned()),
-            activity_list: None,
-            tool_calls_count,
-            tools_called,
-            pending_provider_auth_required: None,
-            guardian_denied: None,
-            guardian_confirm: Some(GuardianConfirmRequest {
-                tool_name: block.tool_name,
-                pending_id,
-            }),
-            capability_claim_unverified: false,
-        };
-    }
-    ToolLoopResult {
-        content: String::new(),
-        usage: None,
-        finish_reason: Some("guardian_denied".to_owned()),
+    let tally = ToolLoopTally {
         activity_list: None,
         tool_calls_count,
         tools_called,
-        pending_provider_auth_required: None,
-        guardian_denied: Some(GuardianDenial {
+        served_without_provider: None,
+    };
+    if let Some(pending_id) = block.pending_id {
+        return tally.guardian_confirm(
+            None,
+            GuardianConfirmRequest {
+                tool_name: block.tool_name,
+                pending_id,
+            },
+        );
+    }
+    tally.guardian_denied(
+        None,
+        GuardianDenial {
             tool_name: block.tool_name,
             reason: block.reason,
-        }),
-        guardian_confirm: None,
-        capability_claim_unverified: false,
-    }
+        },
+    )
 }
 
 /// Append each executed plan step's result to `llm_messages` as synthesis
@@ -1572,18 +1295,17 @@ pub async fn run_planned_tool_loop(
         "guardian plan: completed with synthesis"
     );
 
-    Ok(ToolLoopResult {
-        content: synth_response.content,
-        usage: synth_response.usage,
-        finish_reason: synth_response.finish_reason,
+    let tally = ToolLoopTally {
         activity_list: None,
         tool_calls_count,
         tools_called,
-        pending_provider_auth_required: None,
-        guardian_denied: None,
-        guardian_confirm: None,
-        capability_claim_unverified: false,
-    })
+        served_without_provider: reconnect_offer_in_steps(&outputs),
+    };
+    Ok(tally.answered(
+        synth_response.content,
+        synth_response.usage,
+        synth_response.finish_reason,
+    ))
 }
 
 /// Re-run a failed headless (Copilot ACP) turn against the runtime-fallback
@@ -1689,11 +1411,19 @@ async fn run_headless_tool_loop(
     // mcp_servers are present, calls Dravr tools natively over those servers.
     // #10: clear any stale block for this (tenant, user) so only one raised
     // during THIS turn's ACP subprocess is surfaced by finalize_headless_turn.
+    // The served-without-a-provider offer travels the same channel under the
+    // same key, and is bounded to this turn the same way.
+    let turn_key = headless_turn_key(params);
     params
         .executor
         .resources
         .guardian_turns()
-        .clear_block(&headless_denial_key(params));
+        .clear_block(&turn_key);
+    params
+        .executor
+        .resources
+        .reconnect_offers()
+        .clear_offer(&turn_key);
 
     let call_start = Instant::now();
     let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
@@ -1758,13 +1488,14 @@ async fn run_headless_tool_loop(
     .await
 }
 
-/// The Guardian denial key for a headless turn — `(tenant, user)`. A block that
-/// fires at the chokepoint during the ACP subprocess's loopback calls is recorded
-/// and later consumed under this key, so the headless loop can surface it (#10).
-/// One user runs one headless turn at a time, so `(tenant, user)` identifies it;
-/// [`run_headless_tool_loop`] clears the key before the subprocess and
-/// [`finalize_headless_turn`] takes it after, bounding it to this turn.
-fn headless_denial_key(params: &ToolLoopParams<'_>) -> TurnKey {
+/// The out-of-band key for a headless turn — `(tenant, user)`. Two signals the
+/// chokepoint raises during the ACP subprocess's loopback calls are recorded and
+/// later consumed under it: a Guardian block (#10) and the
+/// served-without-a-provider offer a `get_activities` payload carries. One user
+/// runs one headless turn at a time, so `(tenant, user)` identifies it;
+/// [`run_headless_tool_loop`] clears both stores before the subprocess and
+/// [`finalize_headless_turn`] takes from both after, bounding them to this turn.
+fn headless_turn_key(params: &ToolLoopParams<'_>) -> TurnKey {
     TurnKey::new(Some(params.tenant_id.as_uuid()), params.user_id)
 }
 
@@ -1780,7 +1511,21 @@ fn headless_denial_key(params: &ToolLoopParams<'_>) -> TurnKey {
 /// the user; when what remains fails [`is_degenerate_reply`] the turn is
 /// degenerate, so [`retry_headless_turn`] runs once — the failure is
 /// intermittent (~5% per call) and the next turn recovers in practice.
-async fn finalize_headless_turn(
+///
+/// Also drains what the ACP subprocess's `/mcp` loopback left under this turn's
+/// [`headless_turn_key`]: the Guardian block, and the served-without-a-provider
+/// offer. Both are the platform's own record of what happened inside the
+/// subprocess, which is the only way this path learns of either.
+///
+/// `pub` so the integration suite can drive the production assembly — a stamped
+/// store and an ACP reply in, the `ToolLoopResult` the chat pipeline reads out —
+/// rather than restate it against a hand-built result and pin nothing.
+///
+/// # Errors
+///
+/// Returns an error when a degenerate first turn's single retry `converse()`
+/// call fails.
+pub async fn finalize_headless_turn(
     headless_response: pierre_llm::HeadlessToolResponse,
     headless_runner: &pierre_llm::CopilotHeadlessRunner,
     request: &ChatRequest,
@@ -1816,16 +1561,30 @@ async fn finalize_headless_turn(
         tools_called.extend(retry.tool_calls);
     }
 
+    // Both out-of-band signals the ACP subprocess's `/mcp` loopback left under
+    // this turn's key are consumed once, here at the end of the turn — after any
+    // degenerate-turn retry, so a retried turn keeps what its first pass raised.
+    let turn_key = headless_turn_key(params);
+
+    // The backend key of a provider a loopback `get_activities` served the
+    // window WITHOUT. `auth_recovery` mints a reconnect URL from it and appends
+    // the offer to the coach's answer, so an ACP turn a sibling connection
+    // served hands the athlete the same control every other transport does.
+    let served_without_provider = params
+        .executor
+        .resources
+        .reconnect_offers()
+        .take_offer(&turn_key);
+
     // #10: surface a Guardian block that fired inside the ACP subprocess's `/mcp`
     // loopback as a deterministic reply (the chat pipeline renders the localized
     // KEY_GUARDIAN_DENIED or KEY_GUARDIAN_CONFIRM_PROMPT) instead of the model's
-    // paraphrase. Consumed once at the end of the turn — after any
-    // degenerate-turn retry.
+    // paraphrase.
     let (guardian_denied, guardian_confirm) = match params
         .executor
         .resources
         .guardian_turns()
-        .take_block(&headless_denial_key(params))
+        .take_block(&turn_key)
     {
         Some(HeadlessBlock::Denied(reason)) => (
             Some(GuardianDenial {
@@ -1857,10 +1616,17 @@ async fn finalize_headless_turn(
         activity_list: None,
         tool_calls_count,
         tools_called,
-        // Copilot Headless owns its own tool calls inside the ACP subprocess;
-        // platform-side ProviderAuthRequired handoff is not possible without
-        // visibility into the subprocess tool dispatches. Leave as None.
+        // The hard auth trip stays None on this path: a loopback dispatch that
+        // raises ProviderAuthRequired leaves the chokepoint as a JSON-RPC error
+        // addressed to the ACP subprocess, which hands it to the model, so no
+        // headless turn arrives here blanked. Which keeps the standing order
+        // intact where it matters — the soft offer below is only ever read when
+        // nothing harder is set.
         pending_provider_auth_required: None,
+        // The soft offer is a SUCCESSFUL payload instead, so the chokepoint
+        // reads it on the way past and stamps it under this turn's key; taken
+        // from the shared store above.
+        served_without_provider,
         // #10: a block that fired at the platform chokepoint during the ACP
         // subprocess's loopback calls is recovered from the shared Guardian store
         // above (keyed by this turn's (tenant, user)), so the headless path now

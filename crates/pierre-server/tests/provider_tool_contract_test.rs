@@ -40,7 +40,8 @@ use pierre_llm::{
     LlmCapabilities, LlmProvider, StreamChunk, Tool,
 };
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
-use pierre_tool_runtime::tool_execution::{run_tool_loop, ToolLoopParams};
+use pierre_tool_runtime::tool_execution::run_tool_loop;
+use pierre_tool_runtime::tool_loop_io::ToolLoopParams;
 use serde_json::json;
 use uuid::Uuid;
 

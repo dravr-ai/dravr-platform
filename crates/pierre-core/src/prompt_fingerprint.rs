@@ -21,8 +21,8 @@
 //!    body is lower-cased with ASCII whitespace collapsed.
 //!
 //! 2. [`scan_response_for_leaks`] — given a response body and a
-//!    fingerprint, reports how many shingles from the prompt reappear
-//!    verbatim in the response. Above [`DEFAULT_LEAK_THRESHOLD`]
+//!    fingerprint, counts how many shingles from the prompt reappear
+//!    verbatim in the response. At or above [`DEFAULT_LEAK_THRESHOLD`]
 //!    shingles the response is classified as
 //!    [`LeakVerdict::Leaked`]; otherwise [`LeakVerdict::Clean`].
 //!
@@ -43,11 +43,15 @@ use sha2::{Digest, Sha256};
 /// verbatim in a response is almost always exfiltration.
 pub const SHINGLE_WINDOW: usize = 40;
 
-/// Default overlap count above which a response is classified as leaked.
+/// Default overlap count at or above which a response is classified as leaked.
 ///
-/// Set to 3 so a single coincidental match does not trip the detector;
-/// three independent 40-character windows from the prompt appearing in
-/// one response is conclusive.
+/// Set to 3 so a single coincidental window match does not trip the
+/// detector. The three windows it demands are overlapping, not
+/// independent: windows slide one byte at a time, so one contiguous
+/// `SHINGLE_WINDOW + 2` byte run of prompt text already supplies all
+/// three. The threshold therefore marks the shortest quotation worth
+/// flagging, and the `overlap` on [`LeakVerdict::Leaked`] carries the
+/// magnitude that separates that brush from a wholesale dump.
 pub const DEFAULT_LEAK_THRESHOLD: usize = 3;
 
 /// Fingerprint of a system prompt used for later leak detection.
@@ -84,20 +88,14 @@ pub enum LeakVerdict {
     Clean,
     /// Response body reproduces `overlap` shingles from the prompt.
     Leaked {
-        /// Number of shingles from the prompt found verbatim in the response.
+        /// Total number of distinct prompt shingles found verbatim in the
+        /// response — every match, not merely enough of them to cross
+        /// `threshold`, so the value reads as a magnitude.
         overlap: usize,
         /// Threshold the response crossed (echoed back so logs don't need
         /// to chase the caller's configuration).
         threshold: usize,
     },
-}
-
-impl LeakVerdict {
-    /// `true` when the scanner classified the response as leaking the prompt.
-    #[must_use]
-    pub const fn is_leak(&self) -> bool {
-        matches!(self, Self::Leaked { .. })
-    }
 }
 
 /// Lower-case the text and collapse ASCII whitespace runs to a single
@@ -175,6 +173,14 @@ pub fn fingerprint_prompt(prompt: &str) -> PromptFingerprint {
 /// Returns [`LeakVerdict::Leaked`] when at least `threshold` distinct
 /// shingles from the prompt appear in the response. Pass
 /// [`DEFAULT_LEAK_THRESHOLD`] unless a tenant policy overrides it.
+///
+/// The scan runs the whole response before deciding, so the reported
+/// `overlap` is the true match count rather than the threshold that was
+/// crossed. That is what lets an operator tell a one-line reply brushing
+/// three overlapping windows apart from a reply reciting the prompt
+/// wholesale — the two are indistinguishable when the count stops at the
+/// threshold. Cost is unchanged in the common case: a clean response
+/// already scanned every window.
 #[must_use]
 pub fn scan_response_for_leaks(
     fingerprint: &PromptFingerprint,
@@ -199,20 +205,17 @@ pub fn scan_response_for_leaks(
         };
     }
 
-    let mut overlap = 0usize;
     let mut matched: HashSet<u64> = HashSet::new();
     for window in bytes.windows(SHINGLE_WINDOW) {
         let mut hasher = DefaultHasher::new();
         window.hash(&mut hasher);
         let h = hasher.finish();
-        if needle_set.contains(&h) && matched.insert(h) {
-            overlap += 1;
-            if overlap >= threshold {
-                return LeakVerdict::Leaked { overlap, threshold };
-            }
+        if needle_set.contains(&h) {
+            matched.insert(h);
         }
     }
 
+    let overlap = matched.len();
     if overlap >= threshold {
         LeakVerdict::Leaked { overlap, threshold }
     } else {
@@ -310,12 +313,40 @@ mod tests {
     }
 
     #[test]
-    fn verbatim_dump_is_flagged() {
+    fn verbatim_dump_reports_every_prompt_shingle() {
         let prompt = "You are a helpful running coach named Pierre. Always use metric units and encourage consistent training volumes across the week.";
         let fp = fingerprint_prompt(prompt);
-        // Echo the entire prompt back — unmistakable leak.
+        // 128 normalized bytes sliding a 40-byte window one byte at a time.
+        assert_eq!(fp.shingle_count(), 89);
+        // Echo the entire prompt back — every shingle reappears, so the
+        // reported overlap is the whole set and not the bare threshold.
         let verdict = scan_response_for_leaks(&fp, prompt, DEFAULT_LEAK_THRESHOLD);
-        assert!(verdict.is_leak());
+        assert_eq!(
+            verdict,
+            LeakVerdict::Leaked {
+                overlap: 89,
+                threshold: DEFAULT_LEAK_THRESHOLD,
+            }
+        );
+    }
+
+    #[test]
+    fn overlap_counts_every_matching_window_not_just_the_threshold() {
+        let prompt = "You are a helpful running coach named Pierre. Always use metric units and encourage consistent training volumes across the week.";
+        let fp = fingerprint_prompt(prompt);
+        // One contiguous 45-byte run of the prompt covers 45 - 40 + 1 = 6
+        // overlapping windows. A count that stopped at the threshold would
+        // report 3 here and be indistinguishable from the 89 above.
+        let run: String = prompt.chars().take(SHINGLE_WINDOW + 5).collect();
+        let response = format!("Here is what I think: {run}");
+        let verdict = scan_response_for_leaks(&fp, &response, DEFAULT_LEAK_THRESHOLD);
+        assert_eq!(
+            verdict,
+            LeakVerdict::Leaked {
+                overlap: 6,
+                threshold: DEFAULT_LEAK_THRESHOLD,
+            }
+        );
     }
 
     #[test]

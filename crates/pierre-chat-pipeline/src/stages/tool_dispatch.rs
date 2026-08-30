@@ -17,9 +17,8 @@ use pierre_services::provider_error_filter::detect_leaked_provider_error;
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::llm_call_record::LlmCallRecorder;
 use pierre_tool_runtime::protocol::UniversalExecutor;
-use pierre_tool_runtime::tool_execution::{
-    self as chat_tool_loop, build_mcp_tools, ToolLoopParams,
-};
+use pierre_tool_runtime::tool_execution::{self as chat_tool_loop, build_mcp_tools};
+use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, ToolMessageRecorder};
 use tracing::{info, warn};
 
 use crate::recorders::{ChatRepoToolMessageRecorder, UsageRepoCallRecorder};
@@ -96,7 +95,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     llm_messages: &mut Vec<ChatMessage>,
     max_iterations: usize,
     stream_sink: Option<crate::TurnEventSink>,
-) -> AppResult<(chat_tool_loop::ToolLoopResult, String)> {
+) -> AppResult<(ToolLoopResult, String)> {
     let DispatchLlmInputs {
         ctx,
         input,
@@ -236,7 +235,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         )));
     // Persist each tool round into chat_messages so follow-up turns can
     // see the same grounded evidence the model just consumed.
-    let tool_message_recorder: Option<Arc<dyn chat_tool_loop::ToolMessageRecorder>> =
+    let tool_message_recorder: Option<Arc<dyn ToolMessageRecorder>> =
         Some(Arc::new(ChatRepoToolMessageRecorder::new(
             Arc::clone(&ctx.repos.chat),
             input.conversation_id.clone(),

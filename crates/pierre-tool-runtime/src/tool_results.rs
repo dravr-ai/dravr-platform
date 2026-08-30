@@ -6,15 +6,22 @@
 
 //! What a caller does with function responses once they exist.
 //!
-//! Neither of these belongs to a tool loop: one renders responses for a model
-//! that reads results as text, the other mines a specific tool's payload for
-//! the activity list the chat pipeline prepends. They sat in the loop module
-//! because that is where they were first needed.
+//! None of this belongs to a tool loop. One half renders responses for a model
+//! that reads results as text; the other mines a specific tool's payload for
+//! what the chat pipeline needs out of it — the activity list it prepends, and
+//! the backend key of a provider whose window was served without it. The
+//! `get_activities` projection contract lives here, so every render of that
+//! envelope goes through one allowlist; the served-without-a-provider sidecar
+//! is read by [`crate::reconnect`], which the headless loop shares from a
+//! surface that holds no responses at all.
 
 use pierre_core::llm::tool_simulation;
 use pierre_llm::FunctionResponse;
 use serde_json::{Map, Value};
 use tracing::info;
+
+use crate::guardian::StepOutput;
+use crate::reconnect::offer_in_payload;
 
 /// Convert pierre-llm function responses to embacle `tool_simulation` responses.
 ///
@@ -58,7 +65,15 @@ pub fn render_tool_payload_for_prompt(tool_name: &str, response: &Value) -> Stri
 /// `offset` / `limit` are what the tool's own schema promises for a follow-up
 /// request ("Response includes `has_more` and pagination info"), and `provider`
 /// names whose data it is on a merged multi-provider window.
-const ACTIVITIES_ENVELOPE_KEPT: [&str; 9] = [
+///
+/// `reconnect_required` is the one sidecar that survives, and it is here for
+/// the same reason `coverage` is: it changes what the model may legitimately
+/// say. A window served without a dead connection is a PARTIAL window, and a
+/// coach that never learns so answers it as if it were the whole history. The
+/// projection is the only thing between that sidecar and the prompt — both
+/// [`render_tool_payload_for_prompt`] and [`format_tool_results_as_text`]
+/// project through it, so a key absent from this list reaches no model at all.
+const ACTIVITIES_ENVELOPE_KEPT: [&str; 10] = [
     "activity_list",
     "provider",
     "count",
@@ -68,6 +83,7 @@ const ACTIVITIES_ENVELOPE_KEPT: [&str; 9] = [
     "offset",
     "limit",
     "has_more",
+    "reconnect_required",
 ];
 
 /// The per-activity fields that survive projection.
@@ -194,4 +210,28 @@ pub fn extract_activity_list(responses: &[FunctionResponse]) -> Option<String> {
         }
     }
     None
+}
+
+/// First served-without-a-provider signal across a round of tool responses.
+///
+/// The sidecar itself is read by [`offer_in_payload`], which the headless loop's
+/// per-turn store shares — the loops that hold their own tool payloads reach it
+/// through here, and the one that does not reaches it at the dispatch chokepoint.
+///
+/// `pub` so the integration suite can pin the bridge itself — a tool payload in,
+/// the slug the chat pipeline mints from out — rather than restating the shape
+/// of the sidecar and proving nothing about the reader.
+#[must_use]
+pub fn reconnect_offer_in_responses(responses: &[FunctionResponse]) -> Option<String> {
+    responses
+        .iter()
+        .find_map(|resp| offer_in_payload(&resp.name, &resp.response))
+}
+
+/// The same signal read off a verified plan's executed steps, so a planned turn
+/// carries the reconnect offer the `ReAct` loops carry.
+pub(crate) fn reconnect_offer_in_steps(outputs: &[StepOutput]) -> Option<String> {
+    outputs
+        .iter()
+        .find_map(|output| offer_in_payload(&output.tool_name, &output.result))
 }

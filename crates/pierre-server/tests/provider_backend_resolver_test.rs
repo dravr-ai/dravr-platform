@@ -32,10 +32,10 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
+use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderTool, DisconnectProviderTool, GetConnectionStatusTool,
 };
-use pierre_tool_runtime::implementations::data::GetAthleteTool;
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use pierre_tool_runtime::runtime::ToolRuntime;

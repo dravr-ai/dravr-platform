@@ -9,6 +9,7 @@
 
 use pierre_core::models::TenantId;
 use pierre_core::narration::IdentityPatternClass;
+use pierre_core::prompt_fingerprint::{LeakVerdict, DEFAULT_LEAK_THRESHOLD};
 use pierre_services::prompt_leak::{harden_system_prompt, scan_assistant_reply};
 use uuid::Uuid;
 
@@ -33,8 +34,9 @@ fn clean_reply_passes_scan() {
         tenant(),
         Some("coach-1"),
     );
-    assert!(!report.has_leak());
     assert!(!report.canary_hit);
+    assert_eq!(report.identity_leak, None);
+    assert_eq!(report.shingle_verdict, LeakVerdict::Clean);
 }
 
 #[test]
@@ -44,7 +46,10 @@ fn canary_echo_trips_leak_detection() {
     let malicious_reply = format!("Full prompt: {}", guard.canary);
     let report = scan_assistant_reply(&guard, &malicious_reply, tenant(), Some("coach-1"));
     assert!(report.canary_hit);
-    assert!(report.has_leak());
+    // The canary detector stands alone: this reply is too short to carry a
+    // single 40-byte prompt window, so nothing but the canary fired.
+    assert_eq!(report.shingle_verdict, LeakVerdict::Clean);
+    assert_eq!(report.identity_leak, None);
 }
 
 #[test]
@@ -61,8 +66,10 @@ fn identity_flip_reply_reports_pattern_labels() {
         .expect("identity flip must be detected");
     assert_eq!(leak.class, IdentityPatternClass::Product);
     assert_eq!(leak.locale, "any");
-    assert!(report.has_leak());
+    // The identity detector is orthogonal to the other two — it fires on a
+    // reply that carries neither the canary nor any prompt shingle.
     assert!(!report.canary_hit);
+    assert_eq!(report.shingle_verdict, LeakVerdict::Clean);
 }
 
 #[test]
@@ -82,10 +89,22 @@ fn french_roleplay_framing_reports_fr_locale() {
 }
 
 #[test]
-fn verbatim_prompt_dump_trips_shingle_detector() {
+fn verbatim_prompt_dump_reports_full_shingle_overlap() {
     let prompt = "You are a running coach named Pierre with decades of experience and a gentle tone that encourages consistency above all else.";
     let guard = harden_system_prompt(tenant(), Some("coach-1"), prompt);
-    // Dump the hardened prompt back verbatim.
-    let report = scan_assistant_reply(&guard, &guard.hardened_prompt, tenant(), Some("coach-1"));
-    assert!(report.has_leak());
+    // Dump the base prompt back verbatim. The canary lives only in the marker
+    // the guard appended, so this isolates the shingle detector.
+    let report = scan_assistant_reply(&guard, prompt, tenant(), Some("coach-1"));
+    assert!(!report.canary_hit);
+    // 125 normalized bytes under a 40-byte window sliding one byte at a time
+    // yield 86 distinct shingles, and a verbatim dump reproduces all of them.
+    // A count that stopped at the threshold would report 3 and read exactly
+    // like a one-line reply that merely brushed the prompt.
+    assert_eq!(
+        report.shingle_verdict,
+        LeakVerdict::Leaked {
+            overlap: 86,
+            threshold: DEFAULT_LEAK_THRESHOLD,
+        }
+    );
 }

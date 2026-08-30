@@ -24,7 +24,7 @@ use std::fmt::{self, Display, Formatter, Write as _};
 
 use super::asserters::{evaluate_all, AssertionFailure};
 use super::drift::{AggregateClaim, ClaimTimeline, DriftFinding};
-use super::format::{ChatScenario, ScenarioActivity, TurnSpec};
+use super::format::{AssertionSpec, ChatScenario, ScenarioActivity, TurnSpec};
 use super::vocabulary_contract::VocabularyContractRegistry;
 
 /// Shared per-turn context passed to every asserter.
@@ -70,7 +70,19 @@ pub trait ScenarioDriver {
 /// Output of one [`ScenarioDriver::run_turn`].
 pub struct DriverTurnOutput {
     pub reply: String,
+    /// Tools the MODEL asked for on this turn, in invocation order. This is
+    /// the only list [`AssertionSpec::ToolCalled`] grades.
     pub tools_called: Vec<String>,
+    /// Tools the DRIVER invoked on the model's behalf before dispatch, so the
+    /// turn's data is already in context (production's
+    /// `DataRequirements::prefetch_activities` does the same). Deliberately
+    /// kept out of [`Self::tools_called`]: a driver-side decision is not a
+    /// model invocation, and folding the two together makes a `tool_called`
+    /// assertion pass on the driver's own behaviour. Surfaced in
+    /// [`ScenarioReport::failure_summary`] so a reader can tell "the coach
+    /// had the data and still never asked" from "the coach was asked a
+    /// question the driver did not prefetch for".
+    pub prefetched_tools: Vec<String>,
     /// Set when the turn never reached the model — the provider errored or
     /// timed out after the driver's retries. The reply then holds diagnostic
     /// text, NOT a coach answer, and must not be graded: assertions applied
@@ -162,8 +174,28 @@ impl ScenarioReport {
                 tf.reply,
             )
             .expect("writing to String is infallible");
+            if !tf.prefetched_tools.is_empty() {
+                writeln!(
+                    out,
+                    "    driver prefetch (not graded): {:?}",
+                    tf.prefetched_tools
+                )
+                .expect("writing to String is infallible");
+            }
             for f in &tf.failures {
                 writeln!(out, "    - {f}").expect("writing to String is infallible");
+            }
+            if !tf.not_evaluated.is_empty() {
+                writeln!(
+                    out,
+                    "    {} assertion(s) NOT EVALUATED — the tool call they read from \
+                     never happened, so there was nothing in the reply for them to match:",
+                    tf.not_evaluated.len()
+                )
+                .expect("writing to String is infallible");
+                for f in &tf.not_evaluated {
+                    writeln!(out, "      - {f}").expect("writing to String is infallible");
+                }
             }
         }
         for d in &self.drift_findings {
@@ -179,7 +211,21 @@ pub struct TurnFailure {
     pub turn_index: usize,
     pub user_message: String,
     pub reply: String,
+    /// Independent findings — each one is its own statement about the coach.
     pub failures: Vec<AssertionFailure>,
+    /// Assertions that were unreachable on this turn rather than refuted.
+    /// Populated only when the turn's [`AssertionSpec::ToolCalled`] assertion
+    /// failed: the figures, counts and vocabulary the remaining
+    /// positive-presence assertions look for exist only inside the tool
+    /// payload, so with no tool call there is nothing for them to match and
+    /// their failure is one consequence of the missing call, not a second
+    /// finding. Reported separately so a single root cause reads as one
+    /// problem.
+    pub not_evaluated: Vec<AssertionFailure>,
+    /// Tools the driver prefetched for this turn (see
+    /// [`DriverTurnOutput::prefetched_tools`]). Recorded on the failure so a
+    /// `ToolCalled` miss can be read against what was already in context.
+    pub prefetched_tools: Vec<String>,
 }
 
 /// Run `scenario` against `driver` for every locale declared on the
@@ -236,13 +282,16 @@ fn run_one_locale<D: ScenarioDriver>(
             reply: &output.reply,
             tools_called: output.tools_called,
         };
-        let failures = evaluate_all(&turn.assertions, &ctx, vocab);
+        let (failures, not_evaluated) =
+            split_unreachable(evaluate_all(&turn.assertions, &ctx, vocab));
         if !failures.is_empty() {
             turn_failures.push(TurnFailure {
                 turn_index,
                 user_message: turn.user.clone(),
                 reply: output.reply,
                 failures,
+                not_evaluated,
+                prefetched_tools: output.prefetched_tools,
             });
         }
     }
@@ -263,6 +312,54 @@ fn run_one_locale<D: ScenarioDriver>(
         drift_findings,
         infra_errors,
     }
+}
+
+/// Split a turn's failures into independent findings and unreachable ones.
+///
+/// A failing [`AssertionSpec::ToolCalled`] means the coach answered without
+/// the tool's payload. Every positive-presence assertion left on that turn
+/// was then looking for content — a distance, a count, a piece of
+/// fragment-dedup vocabulary — that only exists inside that payload, so it
+/// could not have matched whatever the coach said. Reporting those as
+/// separate findings multiplies one root cause into several: the
+/// 2026-08-28 `fragment_dedup_no_hallucination_fr` nightly read as two
+/// independent defects (`ToolCalled` + `AnyOf`) when the second was purely
+/// downstream of the first.
+///
+/// The split is a reporting change only — nothing is graded more leniently.
+/// The `ToolCalled` failure still fails the scenario, and every unreachable
+/// assertion is still printed, under a heading that says what it means.
+fn split_unreachable(
+    failures: Vec<AssertionFailure>,
+) -> (Vec<AssertionFailure>, Vec<AssertionFailure>) {
+    let tool_call_missing = failures
+        .iter()
+        .any(|f| matches!(f.spec, AssertionSpec::ToolCalled { .. }));
+    if !tool_call_missing {
+        return (failures, Vec::new());
+    }
+    failures
+        .into_iter()
+        .partition(|f| !reads_tool_payload(&f.spec))
+}
+
+/// Whether an assertion's subject is content the coach can only produce
+/// from a tool response.
+///
+/// Positive-presence assertions on figures, counts, or phrasings that
+/// describe the fetched data qualify. Two shapes deliberately do not:
+/// [`AssertionSpec::NoSubstring`] is negative — a banned phrase stays
+/// banned whether or not data arrived — and
+/// [`AssertionSpec::VocabularyContract`] grades the coach's voice, which
+/// every reply carries regardless of payload.
+fn reads_tool_payload(spec: &AssertionSpec) -> bool {
+    matches!(
+        spec,
+        AssertionSpec::ReplyContains { .. }
+            | AssertionSpec::AnyOf { .. }
+            | AssertionSpec::DistanceMentioned { .. }
+            | AssertionSpec::ActivityCountMentioned { .. }
+    )
 }
 
 fn seed_provider_state<D: ScenarioDriver>(scenario: &ChatScenario, driver: &mut D) {
@@ -458,6 +555,11 @@ pub struct MockScenarioDriver {
     /// assert the runner reports infrastructure rather than grading the
     /// corpse. Empty (the default) means every turn reaches the model.
     pub canned_dispatch_errors: Vec<Option<String>>,
+    /// Per-turn driver-side prefetches, parallel to [`Self::canned_replies`].
+    /// Lets a test reproduce the live driver's shape — data pushed into
+    /// context ahead of the turn — and prove it never satisfies a
+    /// `tool_called` assertion. Empty (the default) means no prefetch.
+    pub canned_prefetched_tools: Vec<Vec<String>>,
 }
 
 impl MockScenarioDriver {
@@ -472,6 +574,7 @@ impl MockScenarioDriver {
             last_synced_activities: BTreeMap::new(),
             current_date: None,
             canned_dispatch_errors: Vec::new(),
+            canned_prefetched_tools: Vec::new(),
         }
     }
 
@@ -479,6 +582,14 @@ impl MockScenarioDriver {
     #[must_use]
     pub fn with_dispatch_errors(mut self, errors: Vec<Option<String>>) -> Self {
         self.canned_dispatch_errors = errors;
+        self
+    }
+
+    /// Simulate the live driver's pre-dispatch fetch: the turn's data is in
+    /// context, but the model itself asked for nothing.
+    #[must_use]
+    pub fn with_prefetched_tools(mut self, prefetched: Vec<Vec<String>>) -> Self {
+        self.canned_prefetched_tools = prefetched;
         self
     }
 }
@@ -514,10 +625,16 @@ impl ScenarioDriver for MockScenarioDriver {
             .get(self.cursor)
             .cloned()
             .unwrap_or_default();
+        let prefetched_tools = self
+            .canned_prefetched_tools
+            .get(self.cursor)
+            .cloned()
+            .unwrap_or_default();
         self.cursor += 1;
         DriverTurnOutput {
             reply,
             tools_called,
+            prefetched_tools,
             // The mock never dispatches, so it can never fail to reach a
             // model. Tests that need the infra path set this explicitly via
             // `canned_dispatch_errors`.
@@ -630,6 +747,153 @@ mod tests {
         assert!(
             summary.contains("DID NOT RUN"),
             "summary must not read as a model finding: {summary}"
+        );
+    }
+
+    /// One turn carrying several assertions, for the reporting split.
+    fn one_turn_scenario_with(assertions: Vec<AssertionSpec>) -> ChatScenario {
+        ChatScenario {
+            name: "Multi-assertion turn".to_owned(),
+            locales: vec!["fr".to_owned()],
+            notes: String::new(),
+            provider_state: ProviderState::default(),
+            skip_drift: true,
+            nightly_gate: true,
+            current_date: None,
+            turns: vec![TurnSpec {
+                user: "J'ai fait quoi cette semaine incluant ce matin".to_owned(),
+                trigger_sync_before_turn: false,
+                assertions,
+            }],
+        }
+    }
+
+    /// One missing tool call is one finding, not one per downstream assertion.
+    ///
+    /// The `fragment_dedup_no_hallucination_fr` turn-1 shape: the fragment
+    /// vocabulary the `any_of` looks for lives only inside the tool payload,
+    /// so when the tool was never called that assertion had nothing to match
+    /// and is a consequence, not a second finding. The `no_substring` guard
+    /// is unaffected — a banned phrase stays banned with or without data.
+    #[test]
+    fn missing_tool_call_moves_content_assertions_to_not_evaluated() {
+        let scenario = one_turn_scenario_with(vec![
+            AssertionSpec::ToolCalled {
+                name: "get_activities".to_owned(),
+                min_calls: 1,
+            },
+            AssertionSpec::AnyOf {
+                values: vec!["fragment".to_owned(), "doublon".to_owned()],
+            },
+            AssertionSpec::NoSubstring {
+                values: vec!["mon décompte était faux".to_owned()],
+            },
+        ]);
+        let mut driver = MockScenarioDriver::new(
+            vec!["Tu as bien bougé. Mon décompte était faux, désolé.".to_owned()],
+            vec![vec![]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+
+        let tf = &reports[0].turn_failures[0];
+        assert_eq!(
+            tf.failures.len(),
+            2,
+            "the missing tool call and the banned phrase are independent findings: {:?}",
+            tf.failures
+        );
+        assert!(tf
+            .failures
+            .iter()
+            .any(|f| matches!(f.spec, AssertionSpec::ToolCalled { .. })));
+        assert!(tf
+            .failures
+            .iter()
+            .any(|f| matches!(f.spec, AssertionSpec::NoSubstring { .. })));
+        assert_eq!(tf.not_evaluated.len(), 1);
+        assert!(matches!(
+            tf.not_evaluated[0].spec,
+            AssertionSpec::AnyOf { .. }
+        ));
+
+        let summary = reports[0].failure_summary();
+        assert!(
+            summary.contains("NOT EVALUATED"),
+            "the summary must name the consequence as unreachable: {summary}"
+        );
+    }
+
+    /// A driver-side prefetch is not a model invocation.
+    ///
+    /// The live driver fetches activities ahead of a data-shaped turn so the
+    /// coach answers from real numbers, but that fetch is the driver's
+    /// decision, made from a keyword list. Crediting it to `tools_called`
+    /// would make `tool_called` pass on every keyword-matching turn no
+    /// matter what the model did — grading the keyword list instead of the
+    /// coach. The prefetch is reported, never graded.
+    #[test]
+    fn driver_prefetch_does_not_satisfy_a_tool_called_assertion() {
+        let scenario = one_turn_scenario_with(vec![AssertionSpec::ToolCalled {
+            name: "get_activities".to_owned(),
+            min_calls: 1,
+        }]);
+        let mut driver = MockScenarioDriver::new(
+            vec!["Voici ta semaine : 50 km au total.".to_owned()],
+            vec![vec![]],
+        )
+        .with_prefetched_tools(vec![vec!["get_activities".to_owned()]]);
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+
+        let tf = &reports[0].turn_failures[0];
+        assert_eq!(
+            tf.failures.len(),
+            1,
+            "a prefetch the model never asked for must leave ToolCalled failing: {:?}",
+            tf.failures
+        );
+        assert!(matches!(
+            tf.failures[0].spec,
+            AssertionSpec::ToolCalled { .. }
+        ));
+        assert_eq!(tf.prefetched_tools, vec!["get_activities".to_owned()]);
+        assert!(
+            reports[0]
+                .failure_summary()
+                .contains("driver prefetch (not graded): [\"get_activities\"]"),
+            "the summary must show what was in context: {}",
+            reports[0].failure_summary()
+        );
+    }
+
+    /// The split fires only on a missing tool call. When the tool DID run,
+    /// a content miss is a real finding about the coach and must stay one.
+    #[test]
+    fn content_assertion_stays_a_finding_when_the_tool_ran() {
+        let scenario = one_turn_scenario_with(vec![
+            AssertionSpec::ToolCalled {
+                name: "get_activities".to_owned(),
+                min_calls: 1,
+            },
+            AssertionSpec::AnyOf {
+                values: vec!["fragment".to_owned(), "doublon".to_owned()],
+            },
+        ]);
+        let mut driver = MockScenarioDriver::new(
+            vec!["Tu as fait 20 sorties distinctes cette semaine.".to_owned()],
+            vec![vec!["get_activities".to_owned()]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+
+        let tf = &reports[0].turn_failures[0];
+        assert_eq!(tf.failures.len(), 1);
+        assert!(matches!(tf.failures[0].spec, AssertionSpec::AnyOf { .. }));
+        assert!(
+            tf.not_evaluated.is_empty(),
+            "nothing is unreachable when the tool ran: {:?}",
+            tf.not_evaluated
         );
     }
 

@@ -27,9 +27,8 @@ use pierre_llm::{FunctionCall, FunctionResponse};
 
 use crate::protocol::types::META_AUTH_REQUIRED_PROVIDER;
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
-use crate::tool_execution::{
-    build_function_response, log_tool_response_size, GuardianConfirmRequest, GuardianDenial,
-};
+use crate::tool_execution::{build_function_response, log_tool_response_size};
+use crate::tool_loop_io::{GuardianConfirmRequest, GuardianDenial};
 
 /// Output of [`execute_function_calls`].
 ///

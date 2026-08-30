@@ -11,6 +11,7 @@ use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
 use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
+use crate::reconnect::offer_in_payload;
 use crate::runtime::ToolRuntime;
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::schema::{Content, ToolResponse};
@@ -595,6 +596,26 @@ impl UniversalExecutor {
         }
 
         let universal = tool_response_to_universal_response(&tool_name, &response);
+
+        // A window the athlete's healthy connections served without the elected
+        // provider carries the dead backend's slug in its own payload. The
+        // Copilot-headless loop never sees that payload — its tools run inside
+        // an ACP subprocess whose `/mcp` calls land here, on a separate HTTP
+        // task that returns to the subprocess — so the slug is recorded under
+        // the (tenant, user) headless key for the loop to take at the end of the
+        // turn, exactly as a Guardian block above it is. Harmless for the other
+        // transports: only the headless loop consumes it, and it clears the key
+        // before its subprocess starts.
+        if let Some(slug) = universal
+            .result
+            .as_ref()
+            .and_then(|payload| offer_in_payload(&tool_name, payload))
+        {
+            self.resources
+                .reconnect_offers()
+                .record_offer(&TurnKey::new(tenant_uuid, charged_user.clone()), slug);
+        }
+
         self.record_dispatch(DispatchRecord {
             tool_name: &tool_name,
             protocol: &protocol,

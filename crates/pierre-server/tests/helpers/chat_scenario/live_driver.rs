@@ -11,8 +11,10 @@
 //! and pins the model via `PIERRE_LLM_MODEL`; no API key, no rate limit).
 //! The driver owns:
 //!
-//! - a coach-style system prompt that wires the fitness-assistant
-//!   persona + locale + the function-calling contract;
+//! - a system prompt layered the way production layers it: the
+//!   platform contract (current date, ground-truth and
+//!   anti-hallucination rules), then the fitness-assistant persona,
+//!   then locale + the function-calling contract;
 //! - the canonical tool catalog harvested from
 //!   [`pierre_tool_runtime::registry::ToolRegistry`] so a tool
 //!   rename in production immediately breaks the scenario run;
@@ -35,7 +37,7 @@ use std::env;
 
 use chrono::Utc;
 use pierre_core::errors::AppError;
-use pierre_llm::prompts::PIERRE_SYSTEM_PROMPT;
+use pierre_llm::prompts::{PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT};
 use pierre_llm::{
     ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
     LlmProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
@@ -73,8 +75,9 @@ const MAX_DISPATCH_RETRIES: usize = 2;
 /// `LLM_REQUEST_TIMEOUT_SECS` (the shared LLM reqwest client's own request
 /// timeout, default 300s) plus a margin, so the outer tokio guard never
 /// fires *before* the inner HTTP client surfaces its own, more specific
-/// error. CPU inference of Pierre's ~26K-token system prompt on a local
-/// Ollama model runs into the minutes, so the chat-eval workflow raises
+/// error. CPU inference of Pierre's ~8K-token system prompt (the platform
+/// contract, the persona layer, and this driver's tool-discipline blocks)
+/// on a local Ollama model runs into the minutes, so the chat-eval workflow raises
 /// `LLM_REQUEST_TIMEOUT_SECS` to 900 — the old fixed 90s ceiling (sized for
 /// Cohere's cloud GPUs) would have aborted every healthy call. A genuinely
 /// hung call still aborts one margin past the HTTP deadline rather than
@@ -204,6 +207,7 @@ impl LiveScenarioDriver {
         self.history.push(ChatMessage::user(user_message));
 
         let mut tools_called: Vec<String> = Vec::new();
+        let mut prefetched_tools: Vec<String> = Vec::new();
         let mut final_reply = String::new();
         let mut dispatch_error: Option<String> = None;
 
@@ -212,16 +216,23 @@ impl LiveScenarioDriver {
         // before LLM dispatch (otherwise coaches hallucinate "last
         // activity" details — see `chat_pipeline/mod.rs` rationale).
         // Mirror that here so quantitative scenarios see fresh data in
-        // history AND the tool-call counter records the invocation,
-        // regardless of whether the model would have re-called the tool
-        // on its own.
+        // history regardless of whether the model would have re-called the
+        // tool on its own.
+        //
+        // The synthesized call lands in `prefetched_tools`, never in
+        // `tools_called`: the driver decided it from
+        // `turn_needs_activity_prefetch`'s keyword list, so counting it as a
+        // model invocation would make every keyword-matching turn satisfy a
+        // `tool_called` assertion unconditionally — grading the keyword list
+        // instead of the coach. `tools_called` records only what the model
+        // itself asked for.
         if turn_needs_activity_prefetch(user_message) {
             let synthesized = FunctionCall {
                 name: "get_activities".to_owned(),
                 args: json!({}),
             };
             let prefetch_result = self.tool_get_activities(&synthesized.args);
-            tools_called.push(synthesized.name);
+            prefetched_tools.push(synthesized.name);
             // Directive injection: models otherwise sometimes treat the
             // fetched data as optional and fall back to "general principles,
             // not specific data" — leaving the asserted figure out. Tell it
@@ -296,6 +307,7 @@ impl LiveScenarioDriver {
         DriverTurnOutput {
             reply: final_reply,
             tools_called,
+            prefetched_tools,
             dispatch_error,
         }
     }
@@ -559,10 +571,17 @@ impl ScenarioDriver for LiveScenarioDriver {
     }
 }
 
-/// Build the system prompt by layering the canonical
-/// `pierre_system.md` (Pierre's identity + tool catalog discipline +
-/// anti-fabrication rules) under a locale instruction + a function-
-/// calling reminder.
+/// Build the system prompt the way `prompt_assembly` builds it in production.
+///
+/// `platform_contract.md` leads — the `{{CURRENT_DATE}}` anchor, scope,
+/// Ground Truth Rules and the CRITICAL Anti-Hallucination Rules — then
+/// `pierre_system.md` supplies the persona layer (role, communication
+/// style, coaching persona). A locale instruction and a function-calling
+/// reminder are layered under both.
+///
+/// The two files are separate because binding a coach replaces the persona
+/// layer; every platform invariant the scenarios grade lives in the
+/// contract, so the eval must carry it or it grades voice alone.
 ///
 /// The production `tool_discipline*` prompts are not stacked here
 /// verbatim: they teach the model to emit a literal `<tool_call>` XML
@@ -574,17 +593,19 @@ impl ScenarioDriver for LiveScenarioDriver {
 /// prompts (never surface/echo a tool name, never narrate data access),
 /// rephrased for function-calling — without it the model leaks tool
 /// names and narrates its fetch, which the `*_not_narrated` /
-/// `tool_name_not_surfaced` scenarios assert against. Also keep the
-/// freshness/no-fabrication contract from `pierre_system.md` and let the
-/// function-calling envelope do the invocation work.
+/// `tool_name_not_surfaced` scenarios assert against. The
+/// freshness/no-fabrication rules come from `platform_contract.md`, and
+/// the function-calling envelope does the invocation work.
 fn build_system_prompt(locale: &str, frozen_date: Option<&str>) -> String {
     // Resolve `{{CURRENT_DATE}}` to a real date BEFORE stripping the rest.
-    // Production fills it via `prompt_assembly::format_current_date` (the
-    // user's local wall clock); without the anchor the model has no notion
-    // of "today" and labels the freshest activity in history as today —
-    // exactly the drift `today_anchor_no_stale_date_drift` pins. The eval
-    // carries no per-user tz, so anchor to UTC; the calendar date is
-    // what the scenario turns on, not the zone.
+    // The placeholder lives in `platform_contract.md`, under "## Current
+    // date", and production fills it via
+    // `prompt_assembly::format_current_date` (the user's local wall clock).
+    // Without the anchor the model has no notion of "today" and labels the
+    // freshest activity in history as today — exactly the drift
+    // `today_anchor_no_stale_date_drift` pins. The eval carries no per-user
+    // tz, so anchor to UTC; the calendar date is what the scenario turns on,
+    // not the zone.
     //
     // A scenario that seeds absolute dates pins this anchor
     // (`ChatScenario::current_date`) so fixture and prompt share one clock.
@@ -594,7 +615,10 @@ fn build_system_prompt(locale: &str, frozen_date: Option<&str>) -> String {
         || format!("{} (UTC)", Utc::now().format("%Y-%m-%d %H:%M")),
         |frozen| format!("{frozen} (UTC)"),
     );
-    let dated_base = PIERRE_SYSTEM_PROMPT.replace("{{CURRENT_DATE}}", &current_date);
+    let dated_contract = PLATFORM_CONTRACT_PROMPT.replace("{{CURRENT_DATE}}", &current_date);
+    // Contract first, persona second — the order `prompt_assembly` uses, so
+    // the eval grades the same layering the athlete gets.
+    let dated_base = format!("{dated_contract}\n\n{PIERRE_SYSTEM_PROMPT}");
     // Strip the remaining `{{...}}` template placeholders. Production
     // replaces those via `prompt_assembly::expand_placeholders` with
     // persona/coach/scope blocks; this driver doesn't carry that
@@ -797,6 +821,38 @@ mod tests {
             "live driver must expose get_activities; got {names:?}"
         );
         assert_eq!(tools.len(), names.len());
+    }
+
+    /// The eval prompt carries the platform contract, resolved date and all.
+    ///
+    /// The contract is the only file holding `{{CURRENT_DATE}}` and the
+    /// Ground Truth / Anti-Hallucination rules, so a prompt built from the
+    /// persona file alone hands the model no notion of "today" and none of
+    /// the rules the scenarios grade — `fragment_dedup_no_hallucination_fr`
+    /// pins Rules 5, 8 and 9, and `today_anchor_no_stale_date_drift` pins
+    /// the date anchor.
+    #[test]
+    fn system_prompt_carries_the_platform_contract_and_a_resolved_date() {
+        let prompt = build_system_prompt("fr", Some("2026-05-22 12:00"));
+
+        assert!(
+            prompt.contains("2026-05-22 12:00 (UTC)"),
+            "the scenario's frozen anchor must reach the model as a real date; \
+             prompt head: {:?}",
+            prompt.chars().take(300).collect::<String>(),
+        );
+        assert!(
+            !prompt.contains("{{CURRENT_DATE}}"),
+            "the anchor placeholder must be substituted, never left literal"
+        );
+        // Anti-Hallucination Rule 8 — the activity-density rule that
+        // `fragment_dedup_no_hallucination_fr` turn 1 grades, and that
+        // FRAGMENT_DENSITY_THRESHOLD mirrors. It lives only in the contract.
+        assert!(
+            prompt.contains("Five or more activities in a single sport on the same day"),
+            "Rule 8 (activity density) must reach the model; prompt is {} bytes",
+            prompt.len(),
+        );
     }
 
     #[test]

@@ -338,12 +338,20 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<()>;
-    /// Resolve the user's most-recently-used provider connection.
+    /// Resolve the user's most-recently-used *usable* provider connection.
     ///
-    /// Returns the connection with the freshest `last_used_at` (NULLs last), falling
-    /// back to the freshest `connected_at` when no row has been touched yet. Tenant
-    /// scope is honored when `tenant_id` is provided; otherwise the lookup is
-    /// cross-tenant. Returns `None` when the user has no provider connections at all.
+    /// Health first: a connection whose `status` requires re-auth is elected only when
+    /// the user has no `active` one, so a dead connection never shadows a healthy
+    /// sibling that can still answer. Among equally healthy rows, returns the freshest
+    /// `last_used_at` (NULLs last), falling back to the freshest `connected_at` when no
+    /// row has been touched yet. Tenant scope is honored when `tenant_id` is provided;
+    /// otherwise the lookup is cross-tenant. Returns `None` when the user has no
+    /// provider connections at all.
+    ///
+    /// LIMITATION(registre#133): election reads recency and health, never capability, so a
+    /// healthy strain-and-recovery provider connected after a distance provider is elected
+    /// primary for activity queries it cannot answer well. Deciding whether "primary" is
+    /// per-athlete or per-tool is the open question there.
     async fn resolve_most_recent(
         &self,
         user_id: Uuid,

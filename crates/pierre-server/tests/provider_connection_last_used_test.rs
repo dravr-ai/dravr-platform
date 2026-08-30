@@ -13,13 +13,14 @@
 //!
 //! The resolver picks "which fitness backend should serve this user's tool
 //! call" when the LLM omits the `provider` argument. Order:
-//! 1. Most-recently-used connection (`last_used_at DESC NULLS LAST`).
-//! 2. Otherwise, most-recently-registered (`connected_at DESC`).
-//! 3. `None` when the user has zero connections.
+//! 1. Health: an `active` connection ahead of one flagged `needs_reauth`/`revoked`.
+//! 2. Most-recently-used connection (`last_used_at DESC NULLS LAST`).
+//! 3. Otherwise, most-recently-registered (`connected_at DESC`).
+//! 4. `None` when the user has zero connections.
 
 use std::time::Duration;
 
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
 use tokio::time::sleep;
 
 mod common;
@@ -139,10 +140,129 @@ async fn touch_last_used_promotes_provider_in_resolution_order() {
     );
 }
 
+/// A connection flagged `needs_reauth` must never be elected over a healthy
+/// sibling — not even when it is the newest, and not even when it is the one
+/// most recently used. The platform already knows the connection is dead
+/// (`mark_needs_reauth` wrote it); electing it anyway is what turned one expired
+/// watch token into a blanked turn for an athlete whose other provider was fine.
+#[tokio::test]
+async fn resolve_most_recent_refuses_to_elect_a_connection_needing_reauth() {
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let repos = database.repositories();
+    let tenants = repos.tenants.list_for_user(user_id).await.unwrap();
+    let tenant_id = TenantId::from_uuid(tenants[0].id.as_uuid());
+
+    // strava first (older connected_at), whoop second (newer → wins by default).
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    sleep(Duration::from_millis(20)).await;
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "whoop", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    // whoop is also the one most recently used, so recency alone would elect it.
+    repos
+        .provider_connections
+        .touch_last_used(user_id, tenant_id, "whoop")
+        .await
+        .unwrap();
+
+    let elected = repos
+        .provider_connections
+        .resolve_most_recent(user_id, Some(tenant_id))
+        .await
+        .unwrap()
+        .expect("two connections exist");
+    assert_eq!(
+        elected.provider, "whoop",
+        "while healthy, the touched connection wins on recency"
+    );
+
+    // Its refresh dies non-recoverably.
+    repos
+        .provider_connections
+        .mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_grant"))
+        .await
+        .unwrap();
+
+    let elected = repos
+        .provider_connections
+        .resolve_most_recent(user_id, Some(tenant_id))
+        .await
+        .unwrap()
+        .expect("two connections exist");
+    assert_eq!(
+        elected.provider, "strava",
+        "a healthy connection must outrank a flagged one, whatever their timestamps"
+    );
+    assert_eq!(
+        elected.status,
+        ConnectionStatus::Active,
+        "the elected connection is the usable one"
+    );
+}
+
+/// When every connection is flagged there is nothing healthy to fall back to —
+/// the resolver still returns one so the caller can surface the reconnect signal
+/// instead of the "no provider connected" refusal, which sends an athlete who
+/// HAS a connection to the wrong flow.
+#[tokio::test]
+async fn resolve_most_recent_still_returns_a_flagged_connection_when_all_are_dead() {
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let repos = database.repositories();
+    let tenants = repos.tenants.list_for_user(user_id).await.unwrap();
+    let tenant_id = TenantId::from_uuid(tenants[0].id.as_uuid());
+
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    sleep(Duration::from_millis(20)).await;
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, "whoop", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    repos
+        .provider_connections
+        .mark_needs_reauth(user_id, tenant_id, "strava", Some("invalid_grant"))
+        .await
+        .unwrap();
+    repos
+        .provider_connections
+        .mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_grant"))
+        .await
+        .unwrap();
+
+    let elected = repos
+        .provider_connections
+        .resolve_most_recent(user_id, Some(tenant_id))
+        .await
+        .unwrap()
+        .expect("a flagged connection is still a connection");
+    assert_eq!(
+        elected.provider, "whoop",
+        "with nothing healthy left, the newest flagged connection is elected"
+    );
+    assert_eq!(
+        elected.status,
+        ConnectionStatus::NeedsReauth,
+        "and it is elected AS flagged, so the caller prompts for a reconnect"
+    );
+}
+
 /// Touching a nonexistent (user, tenant, provider) row is a no-op — must not
-/// error and must not insert anything. Touch-on-read in `fetch_provider_activities`
-/// runs even when the provider name isn't a real connection (e.g., when an
-/// explicit arg names something unregistered); we don't want it to blow up.
+/// error and must not insert anything. The serve chokepoint in `get_activities`
+/// touches the provider it just served even when that name isn't a registered
+/// connection (e.g., when an explicit arg names something unregistered); we
+/// don't want it to blow up.
 #[tokio::test]
 async fn touch_last_used_is_a_noop_for_unknown_provider() {
     let database = common::create_test_database().await.unwrap();

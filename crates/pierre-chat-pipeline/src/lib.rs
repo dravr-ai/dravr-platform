@@ -116,6 +116,7 @@ use pierre_sse::SseManager;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
+use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use tracing::field::Empty;
 use tracing::{info, warn};
 
@@ -597,7 +598,7 @@ struct DispatchStageArgs<'a> {
 async fn dispatch_stage(
     args: DispatchStageArgs<'_>,
     llm_messages: &mut Vec<ChatMessage>,
-) -> AppResult<(chat_tool_loop::ToolLoopResult, String)> {
+) -> AppResult<(ToolLoopResult, String)> {
     emit_step_started(args.hooks, "dispatch").await;
     let max_iterations =
         resolve_max_iterations(args.profile.budget, args.ctx, args.coach_ctx).await;
@@ -659,7 +660,7 @@ async fn reask_after_identity_leak(
     ctx: &ChatPipelineContext,
     llm_messages: &[ChatMessage],
     active_model: &str,
-    result: &mut chat_tool_loop::ToolLoopResult,
+    result: &mut ToolLoopResult,
 ) {
     if narration::identity_leak_match(&result.content).is_none() {
         return;
@@ -700,10 +701,7 @@ fn resolve_reask_provider(ctx: &ChatPipelineContext) -> Option<Arc<ChatProvider>
 ///
 /// Split out purely to keep [`reask_after_identity_leak`] inside the
 /// cognitive-complexity budget; it adds no public API surface.
-fn apply_reask_outcome(
-    outcome: Result<ChatResponse, AppError>,
-    result: &mut chat_tool_loop::ToolLoopResult,
-) {
+fn apply_reask_outcome(outcome: Result<ChatResponse, AppError>, result: &mut ToolLoopResult) {
     match outcome {
         Ok(response) if narration::identity_leak_match(&response.content).is_none() => {
             // Deliberately NOT `target: "notify"`. A notify event has to be
@@ -750,17 +748,15 @@ struct RecoveryAndPostProcessInputs<'a> {
     peer_roster: &'a [MemberFitnessSnapshot],
 }
 
-/// Wrap stages 14b–18: run the auth-recovery short-circuit, then either
-/// pass the result through post-processing (LLM-produced text) or build a
-/// minimal `PostProcessedReply` straight from the deterministic re-auth
-/// content.
+/// Wrap stages 14b–18: run auth recovery, then either post-process the model's
+/// text or hand back the deterministic re-auth content the stage wrote.
 ///
-/// The second element is the reconnect prompt when the re-auth stage fired.
-/// It rides out separately rather than only inside the reply text so the
-/// envelope can offer the URL as a control on a surface that renders one.
+/// The second element is the reconnect prompt whenever the re-auth stage minted
+/// one — blanked turn and sibling-served turn alike. It rides out separately so
+/// the envelope can draw a control on a surface that renders one.
 async fn run_recovery_and_post_process(
     inputs: RecoveryAndPostProcessInputs<'_>,
-    result: &mut chat_tool_loop::ToolLoopResult,
+    result: &mut ToolLoopResult,
     hooks: &PipelineHooks<'_>,
 ) -> (
     stages::post_process::PostProcessedReply,
@@ -829,7 +825,7 @@ async fn run_recovery_and_post_process(
     )
     .await;
 
-    let reconnect = stages::auth_recovery::apply_auth_recovery(
+    let recovery = stages::auth_recovery::apply_auth_recovery(
         stages::auth_recovery::AuthRecoveryDeps {
             admin_jwt_secret: &ctx.admin_jwt_secret,
             base_url: &ctx.config.base_url,
@@ -843,7 +839,11 @@ async fn run_recovery_and_post_process(
     )
     .await;
 
-    if reconnect.is_some() {
+    // Only a reply the stage OWNS bypasses what follows: a blanked turn whose
+    // mint produced a link, deterministic platform text no model wrote. A turn
+    // a sibling served, and a blanked turn whose mint failed, both keep an
+    // answer to shape, so they owe the identity re-ask and post-processing.
+    if recovery.owns_reply {
         return (
             stages::post_process::PostProcessedReply {
                 content: mem::take(&mut result.content),
@@ -854,7 +854,7 @@ async fn run_recovery_and_post_process(
                 identity_leak: None,
                 verdict_chips: Vec::new(),
             },
-            reconnect,
+            recovery.prompt,
         );
     }
 
@@ -888,7 +888,7 @@ async fn run_recovery_and_post_process(
         hooks,
     )
     .await;
-    (post_processed, None)
+    (post_processed, recovery.prompt)
 }
 
 /// Pick the `call_type` string used for per-LLM-call `llm_usage` rows

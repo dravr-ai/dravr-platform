@@ -70,10 +70,20 @@ pub mod configuration;
 #[cfg(feature = "tools-connection")]
 pub mod connection;
 
-/// Data access tools: `get_activities`, `get_athlete`, `get_stats`,
-/// `get_activity_intelligence` (`tools-data` feature).
+/// Athlete profile and aggregate statistics tools: `get_athlete`, `get_stats`
+/// (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+pub mod athlete_stats;
+
+/// Data access tools: `get_activities`, `get_activity_intelligence`
+/// (`tools-data` feature).
 #[cfg(feature = "tools-data")]
 pub mod data;
+
+/// Stored health-data tools: `get_sleep_sessions`, `get_recovery_metrics`,
+/// `get_health_snapshots`, `list_data_sources` (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+pub mod stored_data;
 
 /// Endurance Phase 5 workout tools: `list_workout_templates`, `prescribe_workout`
 /// (`tools-data` feature).

@@ -67,17 +67,6 @@ pub struct ReplyLeakReport {
     pub identity_leak: Option<IdentityLeakMatch>,
 }
 
-impl ReplyLeakReport {
-    /// `true` when *any* detector fired. Callers use this to decide
-    /// whether to redact the reply, escalate, or continue.
-    #[must_use]
-    pub const fn has_leak(&self) -> bool {
-        self.canary_hit
-            || self.identity_leak.is_some()
-            || matches!(self.shingle_verdict, LeakVerdict::Leaked { .. })
-    }
-}
-
 /// Build a hardened system prompt for this dispatch turn.
 ///
 /// Generates a per-turn canary token, appends it as an inert comment
@@ -145,12 +134,21 @@ pub fn scan_assistant_reply(
              prompt was exfiltrated verbatim; reply is withheld at the response boundary"
         );
     } else if let LeakVerdict::Leaked { overlap, threshold } = &shingle_verdict {
+        // `overlap` counts every distinct prompt window the reply reproduces,
+        // and `prompt_shingles` is the denominator that makes it readable: a
+        // handful of windows out of thousands is a brush, a large fraction is a
+        // recitation. No excerpt of the matched text accompanies them — this
+        // branch fires on every legitimate refusal by construction, because the
+        // localized refusal templates live in the system prompt, so an excerpt
+        // would drip confidential prompt text into the operator logs at the
+        // rate of ordinary traffic.
         warn!(
             tenant_id = %tenant_id,
             coach_id = %coach_id.unwrap_or("<none>"),
             sha256 = %guard.fingerprint.sha256_hex,
             overlap = overlap,
             threshold = threshold,
+            prompt_shingles = guard.fingerprint.shingle_count(),
             reply_len = reply_body.len(),
             "prompt exfiltration suspected — assistant reply reproduces system prompt shingles"
         );

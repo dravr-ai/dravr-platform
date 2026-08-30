@@ -107,6 +107,38 @@ jobs:
         with:
           shared-key: live-incident-eval
 
+      # PIERRE_LLM_MODEL is not in the job `env:` above on purpose: it is read
+      # from the deployed config, the same single source of truth the Copilot
+      # Auth Probe reads, so the lane cannot drift onto a SKU production has
+      # moved off. Setting it at all is not optional — the shared test harness
+      # (crates/pierre-server/tests/common.rs) defaults the variable to a
+      # placeholder for the suites that never reach a provider, and it is the
+      # highest-priority model override for every provider, so an unset lane
+      # hands the ACP runner a model id no backend serves. The corpus refuses
+      # to run on the placeholder rather than grading whatever answered.
+      #
+      # The Cohere secondary inherits PIERRE_LLM_MODEL unless it is given a
+      # model of its own, and Cohere serves no Claude SKU, so its override is
+      # read from the same file in the same step.
+      - name: Read the deployed coaching models
+        run: |
+          set -euo pipefail
+          TF=infra/environments/dev/main.tf
+          for VAR in PIERRE_LLM_MODEL PIERRE_LLM_FALLBACK_PROVIDER_MODEL; do
+            # -m1 rather than a `head` pipe, because `pipefail` reads a closed
+            # pipe as a failed step; `|| true` because a no-match grep exits 1
+            # and `set -e` would kill the step before the message below, which
+            # is the only thing that says WHICH name went missing.
+            MODEL=$(grep -m1 -E "^[[:space:]]*${VAR}[[:space:]]*=" "$TF" \
+                      | sed -E 's/.*"([^"]+)".*/\1/') || true
+            if [ -z "${MODEL}" ]; then
+              echo "::error::could not read ${VAR} from ${TF}" >&2
+              exit 1
+            fi
+            echo "${VAR}=${MODEL}" >> "$GITHUB_ENV"
+            echo "${VAR}: ${MODEL}"
+          done
+
       - name: Read the pinned Copilot CLI version
         id: pin
         run: |

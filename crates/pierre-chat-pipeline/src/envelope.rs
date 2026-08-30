@@ -147,10 +147,11 @@ pub enum ReplyBlock {
         /// The controls themselves.
         actions: Vec<TurnAction>,
     },
-    /// A provider connection needs re-authorizing before the turn's question
-    /// can be answered.
+    /// A provider connection needs re-authorizing — either because nothing
+    /// could answer the turn's question without it, or because a healthy
+    /// sibling answered and this source's sessions are missing from that answer.
     Reconnect {
-        /// Provider slug the tool loop refused on, e.g. `"whoop"`.
+        /// Provider slug the athlete has to re-authorize, e.g. `"whoop"`.
         provider: String,
         /// Brand name to show, e.g. `"WHOOP"`.
         display_name: String,
@@ -412,15 +413,18 @@ pub struct TurnTelemetry {
     pub identity_leak: Option<IdentityLeakMatch>,
 }
 
-/// A provider re-auth prompt the turn short-circuited on.
+/// A provider re-auth offer the turn carries out.
 ///
-/// Produced by [`crate::stages::auth_recovery`] when a tool refused for want
-/// of a live provider connection. The URL is carried as its own field so a
-/// surface with [`crate::BlockSupport::reconnect_cta`] renders a control
-/// instead of asking the athlete to pick a link out of a sentence.
+/// Produced by [`crate::stages::auth_recovery`] on either standing: a turn
+/// blanked because no connection could answer the ask, and a turn a healthy
+/// sibling served while one connection's token was dead. Which one it was
+/// changes what the reply says around the offer, not the offer itself. The URL
+/// is carried as its own field so a surface with
+/// [`crate::BlockSupport::reconnect_cta`] renders a control instead of asking
+/// the athlete to pick a link out of a sentence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReconnectPrompt {
-    /// Provider slug the tool loop refused on.
+    /// Provider slug the athlete has to re-authorize.
     pub provider: String,
     /// Brand name to show.
     pub display_name: String,
@@ -454,7 +458,8 @@ pub struct TurnState {
     pub telemetry: TurnTelemetry,
     /// Pre-turn quota standing.
     pub quota: QuotaState,
-    /// Provider re-auth prompt, when the turn short-circuited on one.
+    /// Provider re-auth offer, on a turn that blanked for want of a connection
+    /// and on one a healthy sibling served without it.
     pub reconnect: Option<ReconnectPrompt>,
     /// Flagged claims, populated only when the surface renders chips — the
     /// verification stage folds a banner into [`Self::content`] otherwise.

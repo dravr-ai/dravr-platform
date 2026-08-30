@@ -138,6 +138,150 @@ pub async fn maybe_merge_other_connections(
     activities
 }
 
+/// A window the athlete's other connections served after the elected primary
+/// failed to authenticate.
+pub struct FallbackServe {
+    /// The merged (and, when more than one connection contributed, deduplicated)
+    /// activities those connections produced.
+    pub activities: Vec<Activity>,
+    /// User-facing names of the connections that contributed at least one row,
+    /// so the response names its real sources instead of the dead provider.
+    pub served_by: Vec<String>,
+}
+
+/// Serve the requested window from the athlete's OTHER connections when the
+/// elected primary cannot authenticate.
+///
+/// A multi-source aggregator answers with what it holds: an athlete whose WHOOP
+/// token died still has years of Strava behind a healthy connection, and the
+/// reconnect prompt belongs BESIDE that answer rather than instead of it. The
+/// caller keeps the reconnect signal and attaches it as a caveat; only when this
+/// returns `None` — no other connection produced a single row — does the turn
+/// become the reconnect message alone.
+///
+/// Health-aware: a sibling already flagged `needs_reauth`/`revoked` is skipped
+/// instead of fetched into the same failure. Cross-tenant like the peer path, so
+/// a provider connected under the athlete's own tenant answers from a group
+/// conversation. A deep historical window on a scrape-backed mirror reads that
+/// sibling's durable cache rather than scraping inline — the historical branch
+/// exists precisely to keep a multi-year page out of the turn. The union is
+/// deduplicated whenever more than one connection contributed, so a watch's
+/// misclassified twin of a GPS session collapses the same way the merge path
+/// collapses it.
+pub async fn serve_without_primary(
+    context: &ToolExecutionContext,
+    primary_backend: &str,
+    is_historical: bool,
+    params: &ActivityQueryParams,
+) -> Option<FallbackServe> {
+    let tenant = context.tenant_id.map(TenantId::from_uuid);
+    let connections = context
+        .resources
+        .repos()
+        .provider_connections
+        .get_for_user(context.user_id, None)
+        .await
+        .ok()?;
+
+    let mut served: Vec<Activity> = Vec::new();
+    let mut served_by: Vec<String> = Vec::new();
+    // Backends already asked, so two connection rows that resolve to the SAME
+    // backend (an athlete holding both a `strava` row and the `sciotte` mirror
+    // it resolves to) are fetched once instead of returning every session twice.
+    let mut asked: Vec<String> = vec![primary_backend.to_owned()];
+    for conn in &connections {
+        if conn.status.requires_reauth() {
+            continue;
+        }
+        let canonical = backend_resolver::resolve_backend(
+            &context.resources.repos().auth_repos(),
+            context.user_id,
+            tenant,
+            &conn.provider,
+        )
+        .await;
+        if asked.contains(&canonical) {
+            continue;
+        }
+        asked.push(canonical.clone());
+        let fetched = if is_historical && backend_resolver::is_mirror_backend(&canonical) {
+            let Ok(conn_tenant) = TenantId::parse_str(&conn.tenant_id) else {
+                continue;
+            };
+            read_cached_window(
+                &context.resources,
+                &canonical,
+                context.user_id,
+                conn_tenant,
+                params,
+            )
+            .await
+        } else {
+            fetch_provider_activities(
+                &context.resources,
+                &conn.provider,
+                context.user_id,
+                &conn.tenant_id,
+                params,
+            )
+            .await
+        };
+        if let Some(rows) = fetched {
+            if !rows.is_empty() {
+                served_by.push(backend_resolver::user_facing_name(&canonical).to_owned());
+                served.extend(rows);
+            }
+        }
+    }
+
+    if served.is_empty() {
+        return None;
+    }
+    if served_by.len() > 1 {
+        served = TimeWindowDeduplicator::from_env().deduplicate(served);
+    }
+    warn!(
+        user_id = %context.user_id,
+        dead_provider = %primary_backend,
+        count = served.len(),
+        served_by = %served_by.join(", "),
+        "elected provider needs re-auth; serving the window from the athlete's other connections"
+    );
+    Some(FallbackServe {
+        activities: served,
+        served_by,
+    })
+}
+
+/// Record that `provider` just served this athlete's data.
+///
+/// `resolve_most_recent` orders on `last_used_at` ahead of `connected_at`, so
+/// this write is what makes the resolver mean "the backend the athlete is
+/// actually training on" instead of "the connection added last". Called at the
+/// serve chokepoint for the ELECTED provider only — touching every connection a
+/// merge folded in would reduce the ordering to whichever fetch finished last.
+/// Best-effort: a failed touch costs one election, never the answer.
+pub async fn touch_connection_used(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) {
+    if let Err(e) = runtime
+        .repos()
+        .provider_connections
+        .touch_last_used(user_id, tenant_id, provider)
+        .await
+    {
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            error = %e,
+            "provider connection touch failed; resolver ordering falls back to connected_at"
+        );
+    }
+}
+
 /// Whether a cached historical window is deep enough to serve as-is.
 ///
 /// Cached rows alone are not enough — a prior limit-capped backfill leaves only

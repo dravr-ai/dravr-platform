@@ -939,9 +939,8 @@ mod sleep_tests {
 
 mod data_tests {
     use super::*;
-    use pierre_tool_runtime::implementations::data::{
-        GetActivitiesTool, GetAthleteTool, GetStatsTool,
-    };
+    use pierre_tool_runtime::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
+    use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 
     #[test]
     fn test_get_activities_tool_metadata() {

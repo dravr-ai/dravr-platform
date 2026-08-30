@@ -69,6 +69,15 @@ static INIT_LOGGER: Once = Once::new();
 static INIT_HTTP_CLIENTS: Once = Once::new();
 static INIT_SERVER_CONFIG: Once = Once::new();
 
+/// The `PIERRE_LLM_MODEL` value [`init_server_config`] installs when the
+/// environment names none.
+///
+/// Exported so a suite that DOES reach a provider can refuse to run on it
+/// rather than discovering the placeholder in a pricing warning: no backend
+/// serves this id, so a live turn built with it is graded against whatever the
+/// provider fell back to and costed at zero.
+pub const PLACEHOLDER_LLM_MODEL: &str = "mock-model";
+
 /// Initialize server configuration for tests (call once per test process)
 pub fn init_server_config() {
     INIT_SERVER_CONFIG.call_once(|| {
@@ -110,10 +119,14 @@ pub fn init_server_config() {
         // .envrc; CI workflows set it per-job; the Code Coverage workflow
         // does neither, so without this default the resolver fails hard
         // and tests like messaging_commands_test::test_non_command_passes_through
-        // panic. A mock string is fine — no actual LLM is called from
-        // these tests, the value just needs to be non-empty.
+        // panic. The placeholder is safe ONLY for a suite that calls no model:
+        // PIERRE_LLM_MODEL is the highest-priority model override for every
+        // provider (`CliLlmProvider::build_headless` assigns it straight to
+        // `config.model`), so a suite that does reach one is handed a model id
+        // no backend serves. A lane driving real providers must set the value
+        // itself and refuse the placeholder — `live_incident_eval_test` does.
         if env::var("PIERRE_LLM_MODEL").is_err() {
-            env::set_var("PIERRE_LLM_MODEL", "mock-model");
+            env::set_var("PIERRE_LLM_MODEL", PLACEHOLDER_LLM_MODEL);
         }
 
         let _ = constants::init_server_config();

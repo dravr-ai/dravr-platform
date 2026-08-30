@@ -57,10 +57,13 @@
 //!
 //! A **finding** is a statement about the model: the corpus reproduced a
 //! regression. An **infra error** is the absence of any observation — the CLI
-//! never started, the key was rejected, the turn timed out. The two are
-//! reported apart and only findings fail the lane, because collapsing them
-//! reports a crashed subprocess as "the coach didn't draw the chart", which is
-//! how the 2026-07 AMX segfaults masqueraded as quality regressions for a week.
+//! never started, the key was rejected, the turn timed out. A
+//! **platform-answered** turn is a third thing: the pipeline completed, but a
+//! deterministic branch wrote the reply — a reconnect sentence, a guardian
+//! block — and no model spoke. All three are reported apart and only findings
+//! fail the lane, because collapsing them reports a crashed subprocess or our
+//! own localized copy as "the coach didn't draw the chart", which is how the
+//! 2026-07 AMX segfaults masqueraded as quality regressions for a week.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -70,7 +73,10 @@ mod helpers;
 
 #[cfg(feature = "client-messaging")]
 mod live_incident_eval {
-    use crate::common::create_test_server_resources_with_real_chat_provider;
+    use crate::common::{
+        create_test_server_resources, create_test_server_resources_with_real_chat_provider,
+        PLACEHOLDER_LLM_MODEL,
+    };
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::sciotte_mock::seed_sciotte_session;
     use axum::http::StatusCode;
@@ -82,6 +88,7 @@ mod live_incident_eval {
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{
         ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus, UserTier,
+        WITHHELD_REPLY_FINISH_REASON,
     };
     use pierre_core::permissions::UserRole;
     use pierre_database::backends::{
@@ -138,10 +145,62 @@ mod live_incident_eval {
     /// divide to check a figure the coach reported.
     const PEER_RUN_PACE: &str = "8min41/km";
 
+    /// How many weeks of ordinary training the fixture seeds behind the Sunday
+    /// twin. The weekly-summary and chart episodes ask across weeks, so the
+    /// depth is part of the question they can answer.
+    const FIXTURE_WEEKS: i64 = 4;
+    /// The day offsets inside each seeded week that carry one of the athlete's
+    /// ordinary runs.
+    const ATHLETE_RUN_DAYS: [i64; 3] = [1, 3, 5];
+    /// The day offsets inside each seeded week that carry one of the peer's own
+    /// runs. Distinct from the athlete's so a comparison turn has two different
+    /// weeks to compare rather than one duplicated.
+    const PEER_RUN_DAYS: [i64; 2] = [2, 4];
+
+    /// The distance of the athlete's ordinary run on `day`, in metres.
+    ///
+    /// One expression, called by the activity-cache seed, the scraper stand-in
+    /// AND [`ground_truth`], because the judge's evidence is the only check on
+    /// fabrication the corpus has: prose stating a range the fixture does not
+    /// produce widens the accepted band and turns an invented figure into an
+    /// accepted one.
+    fn athlete_run_metres(day: i64) -> f64 {
+        (day as f64).mul_add(2_000.0, 10_000.0)
+    }
+
+    /// The distance of the peer's own run on `day`, in metres. Shared with
+    /// [`ground_truth`] for the same reason as [`athlete_run_metres`].
+    fn peer_run_metres(day: i64) -> f64 {
+        (day as f64).mul_add(1_500.0, 7_000.0)
+    }
+
+    /// The km span a set of seeded run days covers, rendered as the judge reads
+    /// it (`"12-20"`). Endpoints are the produced values, never a formula's
+    /// intercept.
+    fn km_range(days: &[i64], metres: fn(i64) -> f64) -> String {
+        let mut low = f64::INFINITY;
+        let mut high = f64::NEG_INFINITY;
+        for &day in days {
+            let km = metres(day) / 1_000.0;
+            low = low.min(km);
+            high = high.max(km);
+        }
+        format!("{low}-{high}")
+    }
+
     /// How much of a delivered reply the failure report quotes. Enough to see
     /// what the athlete actually got; short enough that eleven of them stay
     /// readable in a CI log.
     const DELIVERED_EXCERPT_CHARS: usize = 400;
+
+    /// A reply cut to [`DELIVERED_EXCERPT_CHARS`], the one length every printed
+    /// body in this lane is quoted at.
+    ///
+    /// Counted in `char`s rather than bytes because a coach reply is French and
+    /// a byte slice would split an accent mid-codepoint.
+    fn excerpt(body: &str) -> String {
+        body.chars().take(DELIVERED_EXCERPT_CHARS).collect()
+    }
 
     /// How many times the whole corpus is driven, from
     /// `LIVE_INCIDENT_EVAL_ATTEMPTS` (default 3, floor 1).
@@ -552,6 +611,21 @@ mod live_incident_eval {
         detail: String,
     }
 
+    /// A turn the platform answered on its own: the pipeline ran to completion
+    /// and persisted a row, but its text is deterministic localized copy.
+    ///
+    /// Neither a finding nor an infra error. The turn is reported and left
+    /// ungraded, and it counts toward no observation of the model — so a run
+    /// where the platform answered everything trips the observation floor
+    /// instead of reporting a healthy zero.
+    #[derive(Debug)]
+    struct PlatformAnswer {
+        episode: &'static str,
+        turn_index: usize,
+        finish_reason: String,
+        body: String,
+    }
+
     /// What the judge returns.
     #[derive(Deserialize)]
     struct Verdict {
@@ -568,6 +642,8 @@ mod live_incident_eval {
 
     /// The athlete the corpus runs against, plus the peer the group turns name.
     struct Fixture {
+        /// The seeded athlete every episode speaks as.
+        athlete: Uuid,
         athlete_tenant: TenantId,
         dm_channel: String,
         group_channel: String,
@@ -690,8 +766,8 @@ mod live_incident_eval {
             "distance_meters": SUNDAY_RIDE_KM * 1_000.0,
         })];
         let sunday_offset = days_since_sunday();
-        for week in 0..4_i64 {
-            for day in [1_i64, 3, 5] {
+        for week in 0..FIXTURE_WEEKS {
+            for day in ATHLETE_RUN_DAYS {
                 let offset = week * 7 + day;
                 if offset % 7 == sunday_offset % 7 {
                     continue;
@@ -704,7 +780,7 @@ mod live_incident_eval {
                         .format("%Y-%m-%dT%H:%M:%SZ").to_string(),
                     "duration_seconds": 3_600 + (day as u64 * 600),
                     "provider": "strava",
-                    "distance_meters": (day as f64).mul_add(2_000.0, 10_000.0),
+                    "distance_meters": athlete_run_metres(day),
                 }));
             }
         }
@@ -777,10 +853,21 @@ mod live_incident_eval {
         // honesty look like invention.
         seed_sciotte_session(resources, athlete, tenant).await;
 
+        // The athlete's sciotte connection is registered LAST, and that position
+        // is load-bearing. `resolve_most_recent` orders by `last_used_at DESC
+        // NULLS LAST, connected_at DESC`, and nothing here has been touched, so
+        // the last registration is the primary every data read resolves to.
+        // sciotte is the only one of the three this fixture holds a token for; a
+        // token-less primary makes `create_authenticated_provider` signal reauth
+        // on every fetch, the tool loop short-circuits, and the athlete gets one
+        // deterministic reconnect sentence for every question in the corpus —
+        // `two_provider_day` never sees the Strava twin it exists to merge.
+        // `get_activities_multi_provider_test` orders the same pair the same way
+        // for the same reason.
         for (user, provider) in [
-            (athlete, "sciotte"),
-            (athlete, "strava"),
             (athlete, "whoop"),
+            (athlete, "strava"),
+            (athlete, "sciotte"),
             (peer, "strava"),
             (phil_alias, "strava"),
         ] {
@@ -862,6 +949,7 @@ mod live_incident_eval {
         wire_slack(resources, tenant, athlete, "U_EVAL_JF", "JF").await;
 
         Fixture {
+            athlete,
             athlete_tenant: tenant,
             dm_channel,
             group_channel,
@@ -945,8 +1033,8 @@ mod live_incident_eval {
         // exactly that session and nothing else. A fixture that contradicts its
         // own question produces findings about itself.
         let sunday_offset = days_since_sunday();
-        for week in 0..4_i64 {
-            for day in [1_i64, 3, 5] {
+        for week in 0..FIXTURE_WEEKS {
+            for day in ATHLETE_RUN_DAYS {
                 let offset = week * 7 + day;
                 if offset % 7 == sunday_offset % 7 {
                     continue;
@@ -961,7 +1049,7 @@ mod live_incident_eval {
                         3_600 + (day as u64 * 600),
                         "strava",
                     )
-                    .distance_meters((day as f64).mul_add(2_000.0, 10_000.0))
+                    .distance_meters(athlete_run_metres(day))
                     .build(),
                 );
             }
@@ -989,8 +1077,8 @@ mod live_incident_eval {
         // produce. Grading that as a dropped chart blamed the coach for the
         // fixture's silence. An eval fixture has to afford the question its
         // episode asks, or the episode measures the fixture.
-        for week in 0..4_i64 {
-            for day in [2_i64, 4] {
+        for week in 0..FIXTURE_WEEKS {
+            for day in PEER_RUN_DAYS {
                 let offset = week * 7 + day;
                 if offset % 7 == sunday_offset % 7 {
                     continue;
@@ -1004,7 +1092,7 @@ mod live_incident_eval {
                         2_700 + (day as u64 * 300),
                         "strava",
                     )
-                    .distance_meters((day as f64).mul_add(1_500.0, 7_000.0))
+                    .distance_meters(peer_run_metres(day))
                     .build(),
                 );
             }
@@ -1052,6 +1140,47 @@ mod live_incident_eval {
         blocks: Option<String>,
     }
 
+    /// Who wrote the reply the athlete read.
+    enum Answered {
+        /// A model produced it. The only shape the corpus grades.
+        Model(Delivered),
+        /// A deterministic branch of the pipeline produced it, and the assistant
+        /// row carries that branch's `finish_reason` stamp. The sentence is
+        /// localized copy from the messaging registry — no model wrote a word of
+        /// it — so a judged expectation would be grading our own string as the
+        /// coach's answer.
+        Platform { finish_reason: String, body: String },
+    }
+
+    /// `finish_reason` stamps that mean a deterministic platform branch wrote
+    /// the reply rather than a model.
+    ///
+    /// Structural in the same spirit as [`assistant_row_count`], and for the
+    /// same reason: the stamp is set at write time by the branch that
+    /// short-circuited, so it survives a reworded string and a sixth locale,
+    /// while the lane never matches on error prose.
+    ///
+    /// The membership test is what the tool loop hands back, not the wording:
+    /// each of `pierre-tool-runtime`'s short-circuits returns
+    /// `content: String::new()`, so the sentence the athlete reads is whatever
+    /// the pipeline renders for an empty reply — a reconnect offer, the
+    /// localized guardian refusal, «je n'ai pas réussi à formuler une réponse».
+    /// [`WITHHELD_REPLY_FINISH_REASON`] is the mirror case: a model DID write,
+    /// and the platform replaced the words with its own apology.
+    ///
+    /// `capability_claim_unverified` is deliberately absent. The
+    /// capability-recovery stage also sets it on rows whose MODEL text survived
+    /// verification unproven, so treating that stamp as platform-authored would
+    /// drop real model replies out of the corpus.
+    const PLATFORM_AUTHORED_FINISH_REASONS: &[&str] = &[
+        "provider_auth_required",
+        "guardian_denied",
+        "guardian_confirm",
+        "guardian_plan_rejected",
+        "max_iterations",
+        WITHHELD_REPLY_FINISH_REASON,
+    ];
+
     /// Did the model actually answer this turn?
     ///
     /// A dispatch failure — dead provider, wrong model id, exhausted rate limit,
@@ -1070,6 +1199,12 @@ mod live_incident_eval {
     /// message with no new assistant row behind it is infrastructure by
     /// construction — and it stays correct when the copy is reworded or a new
     /// failure path is added.
+    ///
+    /// What it answers is "did the pipeline complete?", which is narrower than
+    /// "did a model write this?". A deterministic branch that assigns the reply
+    /// and falls through post-process — the reconnect sentence, a guardian block
+    /// — persists a row like any completed turn.
+    /// [`PLATFORM_AUTHORED_FINISH_REASONS`] separates those.
     async fn assistant_row_count(resources: &Arc<ServerContext>, tenant: TenantId) -> i64 {
         let pool = resources.coach.database.sqlite_pool().unwrap();
         let row: (i64,) = sqlx::query_as(
@@ -1086,8 +1221,16 @@ mod live_incident_eval {
 
     /// Post one inbound Slack message and wait for the delivered reply.
     ///
-    /// Returns `Err` when nothing was delivered inside [`TURN_TIMEOUT`] — an
-    /// infra error, not a finding: no reply is not a bad reply.
+    /// Three outcomes, because the athlete reading a fluent French paragraph
+    /// does not tell you which of them produced it:
+    ///
+    /// - `Err` — nothing was delivered inside [`TURN_TIMEOUT`], or the turn
+    ///   never persisted an assistant row. An infra error, not a finding: no
+    ///   reply is not a bad reply.
+    /// - [`Answered::Platform`] — a deterministic branch answered and stamped
+    ///   the row. Neither a finding nor an infra error: the pipeline worked, the
+    ///   model simply never spoke.
+    /// - [`Answered::Model`] — a model's own text. The corpus grades this.
     async fn drive_turn(
         resources: &Arc<ServerContext>,
         fixture: &Fixture,
@@ -1095,7 +1238,7 @@ mod live_incident_eval {
         text: &str,
         baseline: i64,
         assistant_baseline: i64,
-    ) -> Result<Delivered, String> {
+    ) -> Result<Answered, String> {
         let body = json!({
             "type": "event_callback",
             "event": {
@@ -1131,8 +1274,8 @@ mod live_incident_eval {
                 let body = latest_outbound(resources, fixture.athlete_tenant)
                     .await
                     .unwrap_or_default();
-                // The turn delivered something. Whether a *model* produced it is
-                // the question the assistant row answers.
+                // The turn delivered something. Whether the pipeline completed at
+                // all is the question the assistant row count answers.
                 if assistant_row_count(resources, fixture.athlete_tenant).await
                     <= assistant_baseline
                 {
@@ -1141,8 +1284,20 @@ mod live_incident_eval {
                          assistant row was persisted: {body:?}"
                     ));
                 }
-                let blocks = latest_content_blocks(resources, fixture.athlete_tenant).await;
-                return Ok(Delivered { body, blocks });
+                // It completed. Whether a *model* wrote the words is the
+                // question the row's stamp answers.
+                let (blocks, finish_reason) =
+                    latest_assistant_rails(resources, fixture.athlete_tenant).await;
+                if let Some(reason) = finish_reason
+                    .as_deref()
+                    .filter(|r| PLATFORM_AUTHORED_FINISH_REASONS.contains(r))
+                {
+                    return Ok(Answered::Platform {
+                        finish_reason: reason.to_owned(),
+                        body,
+                    });
+                }
+                return Ok(Answered::Model(Delivered { body, blocks }));
             }
             sleep(POLL_INTERVAL).await;
         }
@@ -1180,13 +1335,17 @@ mod live_incident_eval {
         row.map(|(body,)| body)
     }
 
-    async fn latest_content_blocks(
+    /// The latest assistant row's `content_blocks` and `finish_reason`, read
+    /// together: what the athlete's client rendered beside the prose, and which
+    /// branch of the pipeline wrote it. One query, so the two can never
+    /// describe different rows.
+    async fn latest_assistant_rails(
         resources: &Arc<ServerContext>,
         tenant: TenantId,
-    ) -> Option<String> {
+    ) -> (Option<String>, Option<String>) {
         let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT m.content_blocks FROM chat_messages m \
+        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT m.content_blocks, m.finish_reason FROM chat_messages m \
              JOIN chat_conversations c ON m.conversation_id = c.id \
              WHERE c.tenant_id = ?1 AND m.role = 'assistant' \
              ORDER BY m.created_at DESC LIMIT 1",
@@ -1195,7 +1354,7 @@ mod live_incident_eval {
         .fetch_optional(pool)
         .await
         .unwrap();
-        row.and_then(|(blocks,)| blocks)
+        row.unwrap_or((None, None))
     }
 
     // -----------------------------------------------------------------------
@@ -1305,19 +1464,19 @@ mod live_incident_eval {
     /// was invented, and shown nothing to check it against, will eventually say
     /// yes about a number that is simply arithmetic.
     fn ground_truth() -> String {
+        let athlete_runs = km_range(&ATHLETE_RUN_DAYS, athlete_run_metres);
+        let peer_runs = km_range(&PEER_RUN_DAYS, peer_run_metres);
+        let athlete_days = ATHLETE_RUN_DAYS.len();
         format!(
             "Athlete JF, Sunday (the most recent Sunday): ONE session recorded twice — \
              Strava has a {SUNDAY_RIDE_KM} km ride over {SUNDAY_RIDE_HOURS} hours; WHOOP \
              recorded the same start and duration with NO distance and misidentified the \
              sport. They are the same session, not two.\n\
-             Athlete JF, ordinary weeks: runs of 12-20 km on three days of each of the \
-             last four weeks (never on a Sunday).\n\
-             Athlete JF also has ONE ride from the live provider fetch: \"Sortie vélo \
-             matinale\", 21 km, 45 minutes, dated 2026-08-10, with 250 m of elevation. \
-             This one DOES carry elevation; the cached activities below do not.\n\
+             Athlete JF, ordinary weeks: runs of {athlete_runs} km on {athlete_days} days \
+             of each of the last {FIXTURE_WEEKS} weeks (never on a Sunday).\n\
              Peer Philippe Tremblay, yesterday: ONE run, {PEER_RUN_SECONDS} seconds over \
-             {PEER_RUN_METRES} metres (that is {PEER_RUN_PACE}). Plus four weeks of his \
-             own runs of 7-13 km.\n\
+             {PEER_RUN_METRES} metres (that is {PEER_RUN_PACE}). Plus {FIXTURE_WEEKS} weeks \
+             of his own runs of {peer_runs} km.\n\
              No heart rate, elevation, power or cadence is recorded on ANY of these \
              activities. The roster holds both \"Phil\" and \"Philippe Tremblay\"."
         )
@@ -1349,6 +1508,88 @@ mod live_incident_eval {
             "PEER_RUN_PACE says {PEER_RUN_PACE} but {PEER_RUN_SECONDS}s over \
              {PEER_RUN_METRES}m is {derived} — the judge would be told a figure the \
              fixture cannot produce"
+        );
+    }
+
+    /// The ground truth's stated distance ranges must be the ones the fixture
+    /// seeds — endpoints a day actually produces, not a formula's intercept.
+    ///
+    /// The same class as the pace guard and for the same reason: a range stated
+    /// wider than the data widens the band the judge accepts, so a figure the
+    /// coach invented lands inside it and is graded honest. The peer's runs are
+    /// `day * 1.5 km + 7 km` over days 2 and 4 — 10 km and 13 km. "7 km" is the
+    /// intercept, a value no seeded day carries.
+    #[test]
+    fn the_stated_run_distances_match_the_seeded_activities() {
+        let athlete = km_range(&ATHLETE_RUN_DAYS, athlete_run_metres);
+        let peer = km_range(&PEER_RUN_DAYS, peer_run_metres);
+        assert_eq!(
+            athlete, "12-20",
+            "the athlete's seeded runs span {athlete} km, not 12-20"
+        );
+        assert_eq!(
+            peer, "10-13",
+            "the peer's seeded runs span {peer} km, not 10-13"
+        );
+
+        let evidence = ground_truth();
+        assert!(
+            evidence.contains(&format!("runs of {athlete} km on")),
+            "the ground truth does not state the athlete's seeded {athlete} km range:\n{evidence}"
+        );
+        assert!(
+            evidence.contains(&format!("runs of {peer} km")),
+            "the ground truth does not state the peer's seeded {peer} km range:\n{evidence}"
+        );
+    }
+
+    /// The provider `resolve_most_recent` elects for the seeded athlete must be
+    /// one the fixture holds a token for.
+    ///
+    /// Runs in ordinary CI, like the pace guard, because a broken election is
+    /// invisible in a delivered reply: a token-less primary makes every live
+    /// fetch signal re-auth, the tool loop short-circuits, and each episode is
+    /// answered by one deterministic reconnect sentence that reads as fluent
+    /// coaching prose. Three unrelated episodes then fail on byte-identical
+    /// copy, and the corpus reports it as three model regressions. Election
+    /// order is a property of the seeding, so it is asserted rather than
+    /// watched for.
+    #[tokio::test]
+    #[serial]
+    async fn the_fixtures_primary_provider_holds_a_token() {
+        let resources = create_test_server_resources().await.unwrap();
+        let fixture = seed_fixture(&resources).await;
+
+        let primary = resources
+            .common
+            .repos
+            .provider_connections
+            .resolve_most_recent(fixture.athlete, Some(fixture.athlete_tenant))
+            .await
+            .unwrap()
+            .expect("the seeded athlete must have provider connections");
+
+        let tokens = resources
+            .common
+            .repos
+            .oauth_tokens
+            .get_tokens(fixture.athlete, Some(fixture.athlete_tenant))
+            .await
+            .unwrap();
+        let with_tokens: Vec<&str> = tokens.iter().map(|t| t.provider.as_str()).collect();
+
+        assert_eq!(
+            with_tokens,
+            vec!["sciotte"],
+            "the fixture seeds exactly one provider token; seeding another is fine, but the \
+             connection registered LAST in `seed_fixture` still has to be one of them"
+        );
+        assert!(
+            with_tokens.contains(&primary.provider.as_str()),
+            "the fixture elects {:?} as the athlete's primary provider but holds tokens only \
+             for {with_tokens:?} — every live fetch resolves to re-auth and the corpus grades \
+             the reconnect sentence instead of the coach",
+            primary.provider
         );
     }
 
@@ -1501,6 +1742,26 @@ mod live_incident_eval {
             return;
         }
 
+        // Refuse the harness placeholder, the same way this lane refuses a
+        // `Custom` provider below and for the same reason: both leave it
+        // grading something other than what it claims to.
+        // `PIERRE_LLM_MODEL` is the highest-priority model override for every
+        // provider — `CliLlmProvider::build_headless` assigns it straight to
+        // `config.model` — so left unset, `common`'s default reaches the ACP
+        // runner as a model id no backend serves. The turn still answers, from
+        // whatever the CLI resolved instead; every call prices at 0.0 because
+        // there is no pricing row for the placeholder, and the lane reports a
+        // verdict about a model it did not choose. A hard stop, not a warning:
+        // a warning in a nightly log is a warning nobody reads.
+        let model = env::var("PIERRE_LLM_MODEL").unwrap_or_default();
+        assert!(
+            !model.is_empty() && model != PLACEHOLDER_LLM_MODEL,
+            "PIERRE_LLM_MODEL is {model:?} — name the model this lane is meant to grade (the \
+             deployed coaching model, PIERRE_LLM_MODEL in infra/environments/dev/main.tf) \
+             before spending live turns on it"
+        );
+        println!("live lane model: {model}");
+
         // Point the sciotte client at a stand-in that serves THIS lane's data.
         //
         // The shared `spawn_mock_scraper` serves one canned 21 km ride, and a
@@ -1540,6 +1801,7 @@ mod live_incident_eval {
         let attempts = attempts();
         let mut findings: Vec<Finding> = Vec::new();
         let mut infra: Vec<InfraError> = Vec::new();
+        let mut platform: Vec<PlatformAnswer> = Vec::new();
         let mut turns_run = 0_usize;
 
         // Each pass gets its own server and fixture. Reusing one would let a
@@ -1578,7 +1840,20 @@ mod live_incident_eval {
                     )
                     .await
                     {
-                        Ok(d) => d,
+                        Ok(Answered::Model(d)) => d,
+                        Ok(Answered::Platform {
+                            finish_reason,
+                            body,
+                        }) => {
+                            println!("    PLATFORM [{finish_reason}]: {:?}", excerpt(&body));
+                            platform.push(PlatformAnswer {
+                                episode: episode.name,
+                                turn_index,
+                                finish_reason,
+                                body,
+                            });
+                            continue;
+                        }
                         Err(detail) => {
                             println!("    INFRA: {detail}");
                             infra.push(InfraError {
@@ -1626,9 +1901,10 @@ mod live_incident_eval {
         let total_turns: usize = CORPUS.iter().map(|e| e.turns.len()).sum::<usize>() * attempts;
         println!(
             "\n=== live incident corpus: {turns_run}/{total_turns} turns observed over \
-             {attempts} pass(es), {} findings, {} infra errors",
+             {attempts} pass(es), {} findings, {} infra errors, {} platform-answered",
             findings.len(),
-            infra.len()
+            infra.len(),
+            platform.len()
         );
 
         // Infra errors are reported loudly and never fail the lane: they are the
@@ -1636,6 +1912,19 @@ mod live_incident_eval {
         // gets muted, taking its real findings with it.
         for e in &infra {
             println!("  INFRA {}[turn {}]: {}", e.episode, e.turn_index, e.detail);
+        }
+
+        // Platform-answered turns are reported the same way and for the same
+        // reason. They are not a quality signal, but a corpus the platform
+        // answers is a corpus that measured nothing — the observation floor
+        // below is what turns a run of them red.
+        for p in &platform {
+            let body = excerpt(&p.body);
+            println!(
+                "  PLATFORM {}[turn {}] stamped {}: the platform answered, the model did not: \
+                 {body}",
+                p.episode, p.turn_index, p.finish_reason
+            );
         }
 
         let Classified {
@@ -1666,7 +1955,7 @@ mod live_incident_eval {
         // night allocates a string per turn for no reason.
         let mut report = String::new();
         for (seen, f) in &reproduced {
-            let delivered: String = f.delivered.chars().take(DELIVERED_EXCERPT_CHARS).collect();
+            let delivered = excerpt(&f.delivered);
             let _ = write!(
                 report,
                 "\n  {} [turn {}] — {} ({seen}/{attempts} passes)\n    incident: {}\n    asked: {}\n    delivered: {delivered}",

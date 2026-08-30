@@ -43,6 +43,16 @@ notes: "Regression pin for 2026-05-22 Telegram fragment-hallucination + capitula
 # These two scenarios are complements — one same-day, one always stale — and
 # the drift here had quietly collapsed them into duplicates.
 current_date: "2026-05-22 12:00"
+# On-demand lane: turn 1 ("cette semaine incluant ce matin") is scoped by the
+# prompt's date anchor before it is anything else — the coach must resolve
+# "ce matin" to 2026-05-22 to know the 20 rows are in scope at all. That is
+# the same date reasoning the local grader model (qwen2.5:7b) does not do
+# reliably, and the documented weakness that carved
+# today_anchor_no_stale_date_drift out to this lane. The assertions below stay
+# STRICT — they pin real behaviour and are not relaxed; they run when
+# CHAT_SCENARIO_INCLUDE_ONDEMAND=1 (the workflow's include_ondemand dispatch
+# input) or against a stronger model.
+nightly_gate: false
 provider_state:
   providers:
     strava:

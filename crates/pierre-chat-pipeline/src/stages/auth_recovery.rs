@@ -1,27 +1,37 @@
-// ABOUTME: Auth-recovery stage — short-circuits a turn when a tool returned ProviderAuthRequired
-// ABOUTME: Mints a hosted-login URL and returns it as a structured reconnect prompt for the envelope
+// ABOUTME: Auth-recovery stage — turns a provider re-auth signal into a minted, clickable reconnect offer
+// ABOUTME: Owns the reply when nothing could be served; joins the model's answer when a sibling served it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Provider re-auth recovery for the chat pipeline.
 //!
-//! When the multi-turn tool loop detects an `AppError::ProviderAuthRequired`
-//! during dispatch (see [`pierre_tool_runtime::tool_execution`]), it exits
-//! immediately and propagates the provider slug via
-//! `ToolLoopResult::pending_provider_auth_required`. This stage observes that
-//! flag and:
+//! Two signals reach this stage, and they differ in whether the athlete got an
+//! answer.
+//!
+//! The hard one is `ToolLoopResult::pending_provider_auth_required`: the
+//! multi-turn tool loop saw an `AppError::ProviderAuthRequired` during dispatch
+//! (see [`pierre_tool_runtime::tool_execution`]) and exited with no reply, so
+//! the reconnect message becomes the whole turn.
+//!
+//! The soft one is `ToolLoopResult::served_without_provider`: `get_activities`
+//! answered the window from the athlete's healthy connections while the elected
+//! one's token was dead. The reply is the model's own words over real data, and
+//! the reconnect offer joins it rather than replacing it.
+//!
+//! Either way this stage:
 //!
 //! 1. Mints a one-time hosted-login URL via
 //!    [`pierre_middleware::provider_link_token::mint_link_token`], reusing the
 //!    same JWT-signed token shape that the channel-bot mint endpoint emits.
-//! 2. Renders [`pierre_contremaitre::messaging_strings::KEY_PROVIDER_REAUTH_REQUIRED`]
-//!    in the user's resolved locale, substituting the provider display name
-//!    and the URL.
-//! 3. Overrides `ToolLoopResult::content` with that deterministic reply so
-//!    downstream stages (`post_process`, `persistence`) see a clean message
-//!    instead of an empty string from the short-circuited tool loop, and
-//!    returns the same prompt as a [`ReconnectPrompt`].
+//! 2. Renders the matching
+//!    [`pierre_contremaitre::messaging_strings`] key in the user's resolved
+//!    locale, substituting the provider display name and the URL.
+//! 3. Writes that copy into `ToolLoopResult::content` — replacing it on the hard
+//!    signal so downstream stages (`post_process`, `persistence`) see a clean
+//!    message instead of an empty string from the short-circuited tool loop,
+//!    appending to it on the soft one so the athlete keeps the answer they were
+//!    given — and returns the same prompt as a [`ReconnectPrompt`].
 //!
 //! The URL leaves here as a field, not only as a substring of a sentence. A
 //! surface with [`crate::BlockSupport::reconnect_cta`] renders a control from
@@ -43,12 +53,13 @@ use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+    KEY_PROVIDER_REAUTH_SERVED, KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::tool_execution::ToolLoopResult;
+use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
 /// Inputs to [`apply_auth_recovery`].
 ///
@@ -72,23 +83,106 @@ pub struct AuthRecoveryDeps<'a> {
     pub short_links: &'a Arc<dyn ShortLinkRepository>,
 }
 
+/// What [`apply_auth_recovery`] did to the turn.
+pub struct AuthRecovery {
+    /// The reconnect offer to carry onto the envelope, as its own field.
+    ///
+    /// `None` when the stage did not fire at all, and also when minting failed:
+    /// the reply then names the dropped provider in words, and no surface draws
+    /// a control that goes nowhere.
+    pub prompt: Option<ReconnectPrompt>,
+    /// Whether the stage's copy is the finished turn, owing nothing below it.
+    ///
+    /// True on exactly one shape: the hard signal with a minted URL. Nothing
+    /// answered the ask, `result.content` is replaced wholesale, and the
+    /// localized message plus its link is the entire reply — platform text that
+    /// must never be re-asked or post-processed as if it were model output.
+    ///
+    /// False on the soft signal, where the model's own answer survives
+    /// underneath the offer and still owes every content-aware stage below.
+    /// Also false on a hard signal whose mint failed: that reply names the
+    /// dropped provider and carries no link, so it stays on the ordinary path
+    /// and the identity re-ask and post-processing both get their say over it.
+    pub owns_reply: bool,
+}
+
+impl AuthRecovery {
+    /// The stage did not fire: no provider needs reconnecting this turn.
+    const fn inert() -> Self {
+        Self {
+            prompt: None,
+            owns_reply: false,
+        }
+    }
+}
+
+/// Which of the two re-auth signals the turn is carrying.
+enum ReconnectStanding {
+    /// Nothing served the ask — the reply IS the reconnect message.
+    Blank,
+    /// A sibling connection answered — the offer joins that answer.
+    Served,
+}
+
+impl ReconnectStanding {
+    /// Which standing this turn is in, and the provider slug it names.
+    ///
+    /// The hard signal wins: a turn that raised both did not answer the ask the
+    /// athlete actually made, so it still becomes the reconnect message.
+    fn of(result: &ToolLoopResult) -> Option<(Self, String)> {
+        if let Some(slug) = result.pending_provider_auth_required.clone() {
+            return Some((Self::Blank, slug));
+        }
+        result
+            .served_without_provider
+            .clone()
+            .map(|slug| (Self::Served, slug))
+    }
+
+    /// The messaging key for this standing, with and without a minted URL.
+    const fn keys(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Blank => (
+                KEY_PROVIDER_REAUTH_REQUIRED,
+                KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+            ),
+            Self::Served => (
+                KEY_PROVIDER_REAUTH_SERVED,
+                KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
+            ),
+        }
+    }
+
+    /// Whether the reconnect copy REPLACES `result.content` rather than joining
+    /// it. Governs delivery alone — whether the finished reply then short-
+    /// circuits the stages below is [`AuthRecovery::owns_reply`], which a failed
+    /// mint answers differently.
+    const fn replaces_reply(&self) -> bool {
+        matches!(self, Self::Blank)
+    }
+}
+
 /// Apply provider re-auth recovery in place.
 ///
-/// When `result.pending_provider_auth_required` carries a provider slug,
-/// mint a hosted-login URL and replace `result.content` with the
-/// localized reply.
+/// On the hard signal (`result.pending_provider_auth_required`) mint a
+/// hosted-login URL and replace `result.content` with the localized reply. On
+/// the soft one (`result.served_without_provider`) mint the same URL and append
+/// the localized offer to the answer the model already wrote.
 ///
-/// Returns `Some(prompt)` when the stage fired, so callers can skip
-/// LLM-content-aware post-processing (text guardrails, claim verification)
-/// and carry the URL onto the envelope as its own field; returns `None` when
-/// the dispatch result was clean and downstream stages should run normally.
+/// The returned [`AuthRecovery`] carries the prompt for the envelope and, in
+/// [`AuthRecovery::owns_reply`], says whether the turn is finished here: a
+/// caller skips LLM-content-aware post-processing (text guardrails, claim
+/// verification) exactly when the reply is a blanked turn's minted platform
+/// text, and runs the whole chain on everything else.
 pub async fn apply_auth_recovery(
     deps: AuthRecoveryDeps<'_>,
     input: &TurnInput,
     profile: &SurfaceProfile,
     result: &mut ToolLoopResult,
-) -> Option<ReconnectPrompt> {
-    let provider_slug = result.pending_provider_auth_required.clone()?;
+) -> AuthRecovery {
+    let Some((standing, provider_slug)) = ReconnectStanding::of(result) else {
+        return AuthRecovery::inert();
+    };
 
     let user_id = match Uuid::parse_str(&input.user_id) {
         Ok(uuid) => uuid,
@@ -101,39 +195,51 @@ pub async fn apply_auth_recovery(
                 error = %e,
                 "auth_recovery: invalid user_id UUID, skipping mint"
             );
-            return None;
+            return AuthRecovery::inert();
         }
     };
 
     let locale = profile.locale.as_str();
     let display_name = provider_display_name(&provider_slug).to_owned();
+    let (linked_key, bare_key) = standing.keys();
+    let replaces_reply = standing.replaces_reply();
 
     // Minting can fail — a tenant with no OAuth credentials configured, or the
     // mint endpoint refusing. Returning early on that left the turn with no
     // content at all, and the athlete was told « je n'ai pas réussi à formuler
     // une réponse » when what was actually wrong was a disconnected provider.
     // Which provider dropped is most of the answer; the link is the
-    // convenience, so its absence costs the link and not the message.
+    // convenience, so its absence costs the link and not the message. On a
+    // served turn it costs even less: the answer is already written, and this
+    // only appends the sentence naming what dropped.
     let Some(url) = mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await else {
-        let message = deps.messaging_strings_registry.render(
-            KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
-            locale,
-            &[display_name.as_str()],
-        );
+        let message =
+            deps.messaging_strings_registry
+                .render(bare_key, locale, &[display_name.as_str()]);
         warn!(
             user_id = %user_id,
             provider = %provider_slug,
             locale = %locale,
+            replaces_reply,
             "auth_recovery: no reconnect URL to offer; telling the athlete which provider dropped"
         );
-        result.content.clone_from(&message);
+        deliver(result, &message, replaces_reply);
         // No ReconnectPrompt: there is no URL for a surface to draw a control
         // around, and a control that goes nowhere is worse than the sentence.
-        return None;
+        //
+        // `owns_reply: false` whichever standing this is. A linkless sentence
+        // is not a finished turn: the athlete asked something nothing could
+        // answer, and the stages below — the bounded identity re-ask, then
+        // post-processing with its content blocks and guardrails — are what
+        // shape a reply the short-circuit hands out verbatim.
+        return AuthRecovery {
+            prompt: None,
+            owns_reply: false,
+        };
     };
 
     let message = deps.messaging_strings_registry.render(
-        KEY_PROVIDER_REAUTH_REQUIRED,
+        linked_key,
         locale,
         &[display_name.as_str(), url.as_str()],
     );
@@ -142,16 +248,40 @@ pub async fn apply_auth_recovery(
         user_id = %user_id,
         provider = %provider_slug,
         locale = %locale,
+        replaces_reply,
         "auth_recovery: emitting reconnect URL in chat reply"
     );
 
-    result.content.clone_from(&message);
-    Some(ReconnectPrompt {
-        provider: provider_slug,
-        display_name,
-        url,
-        text: message,
-    })
+    deliver(result, &message, replaces_reply);
+    AuthRecovery {
+        prompt: Some(ReconnectPrompt {
+            provider: provider_slug,
+            display_name,
+            url,
+            text: message,
+        }),
+        owns_reply: replaces_reply,
+    }
+}
+
+/// Put the reconnect copy into the reply, the way this standing calls for.
+///
+/// A blanked turn's reply is REPLACED: nothing served the ask, so the tool loop
+/// left the content empty and there are no model words to keep. A served turn's
+/// copy is APPENDED as its own paragraph below the answer — that answer is the
+/// athlete's data, and discarding it to say a connection dropped is the very
+/// blanking the served path exists to avoid.
+fn deliver(result: &mut ToolLoopResult, message: &str, replaces_reply: bool) {
+    if replaces_reply {
+        message.clone_into(&mut result.content);
+        return;
+    }
+    let answer = result.content.trim_end();
+    result.content = if answer.is_empty() {
+        message.to_owned()
+    } else {
+        format!("{answer}\n\n{message}")
+    };
 }
 
 /// Mint the reconnect URL for `provider_slug`.

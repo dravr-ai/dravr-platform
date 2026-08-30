@@ -28,6 +28,7 @@ use pierre_core::models::TenantId;
 use uuid::Uuid;
 
 use crate::guardian::{Guardian, GuardianTurns};
+use crate::reconnect::ReconnectOffers;
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
 use pierre_auth::tenant::TenantOAuthClient;
@@ -168,6 +169,17 @@ pub trait ToolRuntime: Send + Sync + 'static {
         static TURNS: LazyLock<Arc<GuardianTurns>> =
             LazyLock::new(|| Arc::new(GuardianTurns::new()));
         &TURNS
+    }
+
+    /// The process-wide store of the served-without-a-provider offer one turn
+    /// raised. Shared across every dispatch path for the same reason
+    /// [`Self::guardian_turns`] is: the Copilot-headless loop's tools run in an
+    /// ACP subprocess whose `/mcp` loopback calls land on per-request executors,
+    /// so the offer stamped there reaches the loop only through a shared store.
+    fn reconnect_offers(&self) -> &Arc<ReconnectOffers> {
+        static OFFERS: LazyLock<Arc<ReconnectOffers>> =
+            LazyLock::new(|| Arc::new(ReconnectOffers::new()));
+        &OFFERS
     }
 
     /// Coaches repository (kept as a method because it returns `&dyn`).

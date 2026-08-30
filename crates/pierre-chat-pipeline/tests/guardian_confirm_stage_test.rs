@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use pierre_chat_pipeline::stages::guardian_confirm::apply_guardian_confirm;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
-use pierre_tool_runtime::tool_execution::{GuardianConfirmRequest, ToolLoopResult};
+use pierre_tool_runtime::tool_loop_io::{GuardianConfirmRequest, ToolLoopResult};
 
 fn loop_result(confirm: Option<GuardianConfirmRequest>) -> ToolLoopResult {
     ToolLoopResult {
@@ -31,6 +31,7 @@ fn loop_result(confirm: Option<GuardianConfirmRequest>) -> ToolLoopResult {
         tool_calls_count: 1,
         tools_called: vec!["disconnect_provider".to_owned()],
         pending_provider_auth_required: None,
+        served_without_provider: None,
         guardian_denied: None,
         guardian_confirm: confirm,
         capability_claim_unverified: false,

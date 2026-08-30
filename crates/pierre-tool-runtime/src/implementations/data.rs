@@ -25,7 +25,7 @@ use std::env;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::Utc;
 use pierre_core::models::TenantId;
 use serde_json::{json, Value};
 use tracing::{debug, field, info, warn, Span};
@@ -38,18 +38,22 @@ use crate::activity_backfill::{
 };
 use crate::activity_fetch::{
     activity_date_span, historical_depth_covered, historical_head_slice,
-    maybe_merge_other_connections, read_cached_window, refresh_stale_head, sort_activities,
+    maybe_merge_other_connections, read_cached_window, refresh_stale_head, serve_without_primary,
+    sort_activities, touch_connection_used,
 };
-use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
+use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
+use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::fitness_support::{
-    build_activities_success_response, cache_activities_result, fetch_and_cache_athlete,
-    fetch_and_cache_stats, filter_activities_by_sport_type, try_get_athlete_id_from_cache,
-    try_get_cached_activities, try_get_cached_athlete, try_get_cached_stats,
-    ActivitiesResponseParams, AnalysisType, CachedActivitiesParams, PaginationInfo,
+    build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
+    try_get_cached_activities, ActivitiesResponseParams, AnalysisType, CachedActivitiesParams,
+    PaginationInfo,
 };
 use crate::implementations::handler_bridge;
+use crate::implementations::stored_data::{
+    GetHealthSnapshotsTool, GetRecoveryMetricsTool, GetSleepSessionsTool, ListDataSourcesTool,
+};
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::{UniversalExecutor, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
@@ -60,7 +64,7 @@ use pierre_core::config::fitness::{activity_detail_threshold, EXPENSIVE_DETAIL_P
 use pierre_core::errors::{AppError, AppResult};
 use pierre_fitness_compute::weather::build_provider as build_weather_provider;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
-use pierre_formatters::{format_output, OutputFormat};
+use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::api_limits::{
     safe_limit_json_detailed, safe_limit_json_summary, safe_limit_toon_detailed,
     safe_limit_toon_summary, DEFAULT_ACTIVITY_LIMIT_U32, MAX_ACTIVITY_LIMIT,
@@ -72,9 +76,6 @@ use pierre_providers::spi::ProviderCapabilities;
 use pierre_services::weather_backfill;
 use pierre_tools_core::ToolResult;
 use pierre_weather::WeatherProvider;
-
-/// Default lookback window when no explicit date range is supplied.
-const DEFAULT_LOOKBACK_DAYS: i64 = 30;
 
 /// When a historical `get_activities` query leaves `before` open, the backfill
 /// gate checks cache coverage over `[after, after + 1 year]` so recent rows in
@@ -216,53 +217,48 @@ pub fn activity_coverage_note(
     )
 }
 
-/// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
-fn parse_date_range(args: &Value) -> (DateTime<Utc>, DateTime<Utc>) {
-    let end = args
-        .get("end")
-        .and_then(Value::as_str)
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
-    let start = args
-        .get("start")
-        .and_then(Value::as_str)
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map_or_else(
-            || Utc::now() - Duration::days(DEFAULT_LOOKBACK_DAYS),
-            |dt| dt.with_timezone(&Utc),
-        );
-    (start, end)
+/// Build the `reconnect_required` sidecar for a window that was served WITHOUT
+/// a connection the athlete has to re-authorize.
+///
+/// A multi-source aggregator serves what it holds and prompts for the dead
+/// source alongside: an athlete with years of Strava behind a healthy connection
+/// is owed that answer even while their watch token is expired. This sidecar is
+/// how the reconnect signal survives the merge instead of being the only thing
+/// the turn manages to say.
+///
+/// Lives in the tool RESULT, not the tool's `input_schema`/description, so it
+/// adds no SDK or contremaitre drift. `pub` so the caveat's shape is
+/// exercisable by the integration test suite.
+///
+/// Two readers, and they need different halves. `provider` and `note` address
+/// the model, in the vocabulary an athlete uses: `reconnect_required` is on
+/// `tool_results::ACTIVITIES_ENVELOPE_KEPT`, so the whole sidecar survives the
+/// projection every prompt-facing render runs the payload through, and the
+/// coach reads that the window it is about to answer from is missing a source.
+/// `provider_slug` is the backend key `tool_results::reconnect_offer_in_responses`
+/// lifts out for the chat pipeline to mint a reconnect URL from —
+/// `sciotte_garmin` takes the Dravr-hosted login page and `garmin` takes an
+/// OAuth authorization round-trip, so the display name cannot stand in for it.
+#[must_use]
+pub fn provider_reconnect_note(display_name: &str, backend: &str) -> Value {
+    json!({
+        "provider": display_name,
+        "provider_slug": backend,
+        "note": format!(
+            "The activities above were served WITHOUT {display_name}: that connection expired and the athlete must re-authorize it. Answer the question from the activities shown, then add one short sentence that {display_name} is disconnected and that reconnecting it restores the sessions only it records."
+        ),
+    })
 }
 
 /// Pull the `format` arg, defaulting to JSON.
-fn parse_output_format(args: &Value) -> OutputFormat {
+pub(crate) fn parse_output_format(args: &Value) -> OutputFormat {
     args.get("format")
         .and_then(Value::as_str)
         .map_or(OutputFormat::Json, OutputFormat::from_str_param)
 }
 
-/// Apply TOON formatting to a stored-data result payload, mirroring
-/// `apply_format_to_response` from `fitness_api`. JSON is the no-op identity.
-fn apply_format(payload: Value, data_key: &str, format: OutputFormat) -> Value {
-    match format {
-        OutputFormat::Json => payload,
-        OutputFormat::Toon => match format_output(&payload, OutputFormat::Toon) {
-            Ok(formatted) => json!({
-                format!("{data_key}_toon"): formatted.data,
-                "format": "toon",
-            }),
-            Err(e) => json!({
-                data_key: payload,
-                "format": "json",
-                "format_fallback": true,
-                "format_error": e.to_string(),
-            }),
-        },
-    }
-}
-
 /// Annotations for read-only data retrieval tools
-fn read_only_annotations() -> ToolAnnotations {
+pub(crate) fn read_only_annotations() -> ToolAnnotations {
     ToolAnnotations {
         read_only_hint: Some(true),
         destructive_hint: Some(false),
@@ -727,6 +723,24 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // API provider fetches inline.
             let route_to_backfill =
                 is_historical && backend_resolver::is_mirror_backend(&provider_name);
+            // Set to the BACKEND KEY of the elected provider when it is auth-dead
+            // and a sibling connection answered in its place: the served window is
+            // real, and the reconnect prompt for this provider rides along as a
+            // caveat on it. The backend rather than the display name because the
+            // chat pipeline mints the reconnect URL from it, and the two mint
+            // routes are chosen by backend. `served_by` then names the connections
+            // the rows actually came from.
+            let mut dead_primary: Option<String> = None;
+            let mut served_by: Vec<String> = Vec::new();
+            // An explicit `provider` argument pins the ask to ONE source — the
+            // same rule `maybe_merge_other_connections` follows. A pinned
+            // provider that cannot authenticate stays the whole answer:
+            // substituting another connection would answer a question the
+            // athlete did not ask.
+            let provider_pinned = args
+                .get("provider")
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty());
             let (activities, provider) = if route_to_backfill {
                 // Is the requested historical window actually cached, or only recent
                 // rows that fall inside it? Read the durable window ONCE and derive
@@ -842,13 +856,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     // Synchronous reconnect (priority): if this provider's
                     // connection is flagged needs_reauth/revoked, a background
                     // backfill would just fail on the dead session and the user
-                    // would loop forever on "fetching, ask again shortly". Surface
-                    // the reconnect signal NOW — `tool_result_to_response` turns
-                    // this `Err` into the `auth_required_provider` metadata the tool
-                    // loop scans for, and `auth_recovery` hands back the short
-                    // reconnect link this turn. The link is re-sent on EVERY ask
-                    // until a real reconnect clears the flag via `mark_active`; a
-                    // DB read error here falls through to the normal backfill path.
+                    // would loop forever on "fetching, ask again shortly". A DB
+                    // read error here falls through to the normal backfill path.
                     let connections = context
                         .resources
                         .repos()
@@ -857,51 +866,87 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         .await
                         .unwrap_or_default();
                     if connection_needs_reauth(&connections, &provider_name) {
-                        return Err(AppError::provider_auth_required(provider_name.clone()));
+                        // Serve what the athlete still has: a sibling connection
+                        // holding a live token answers the window, and the dead
+                        // provider becomes a caveat on that answer instead of
+                        // replacing it. Only when nothing else can serve does the
+                        // turn become the reconnect message — `tool_result_to_response`
+                        // turns this `Err` into the `auth_required_provider` metadata
+                        // the tool loop scans for, and `auth_recovery` hands back the
+                        // short reconnect link this turn. The link is re-sent on EVERY
+                        // such ask until a real reconnect clears the flag via
+                        // `mark_active`.
+                        let fallback = if provider_pinned {
+                            None
+                        } else {
+                            serve_without_primary(
+                                &context,
+                                &provider_name,
+                                is_historical,
+                                &query_params,
+                            )
+                            .await
+                        };
+                        let Some(fallback) = fallback else {
+                            return Err(AppError::provider_auth_required(provider_name.clone()));
+                        };
+                        dead_primary = Some(provider_name.clone());
+                        served_by = fallback.served_by;
+                        (fallback.activities, None)
+                    } else {
+                        // Cold cache OR a shallow (limit-capped / never-backfilled)
+                        // window: page the WHOLE window in the background. The fetch
+                        // limit is decoupled from the user's display limit so the
+                        // sciotte date-bounded scrape pages until `oldest <= after`
+                        // (or the feed end) instead of stopping at the recent tail
+                        // once `in_window_count >= limit`. A partial cache self-heals:
+                        // the completion push then re-answers with the full window.
+                        let mut backfill_params = query_params.clone();
+                        backfill_params.limit = Some(historical_backfill_fetch_limit());
+                        let started = spawn_activity_backfill(ActivityBackfillJob {
+                            resources: context.resources.clone(),
+                            user_id: context.user_id,
+                            tenant_id,
+                            tenant_id_str: tenant_id_str.clone(),
+                            provider_name: provider_name.clone(),
+                            query_params: backfill_params,
+                            pierre_conversation_id: context.conversation_id.clone(),
+                        });
+                        return Ok(ToolResult::ok(json!({
+                            "status": "backfilling",
+                            "provider": display_provider,
+                            "backfill_started": started,
+                            "message": format!(
+                                "I'm pulling your older {display_provider} history now — this can \
+                                 take a minute. Ask me again shortly and it'll be ready."
+                            ),
+                        })));
                     }
-
-                    // Cold cache OR a shallow (limit-capped / never-backfilled)
-                    // window: page the WHOLE window in the background. The fetch
-                    // limit is decoupled from the user's display limit so the
-                    // sciotte date-bounded scrape pages until `oldest <= after`
-                    // (or the feed end) instead of stopping at the recent tail
-                    // once `in_window_count >= limit`. A partial cache self-heals:
-                    // the completion push then re-answers with the full window.
-                    let mut backfill_params = query_params.clone();
-                    backfill_params.limit = Some(historical_backfill_fetch_limit());
-                    let started = spawn_activity_backfill(ActivityBackfillJob {
-                        resources: context.resources.clone(),
-                        user_id: context.user_id,
-                        tenant_id,
-                        tenant_id_str: tenant_id_str.clone(),
-                        provider_name: provider_name.clone(),
-                        query_params: backfill_params,
-                        pierre_conversation_id: context.conversation_id.clone(),
-                    });
-                    return Ok(ToolResult::ok(json!({
-                        "status": "backfilling",
-                        "provider": display_provider,
-                        "backfill_started": started,
-                        "message": format!(
-                            "I'm pulling your older {display_provider} history now — this can take \
-                             a minute. Ask me again shortly and it'll be ready."
-                        ),
-                    })));
                 }
             } else {
                 // Recent window, or a deep window on a fast OAuth API provider —
                 // authenticate and fetch from the provider inline.
                 let executor = UniversalExecutor::new(context.resources.clone());
-                let provider = match executor
+                let authenticated = executor
                     .auth_service
                     .create_authenticated_provider(
                         &provider_name,
                         context.user_id,
                         tenant_id_str.as_deref(),
                     )
-                    .await
-                {
-                    Ok(provider) => provider,
+                    .await;
+
+                match authenticated {
+                    Ok(provider) => {
+                        match provider.get_activities_with_params(&query_params).await {
+                            Ok(activities) => (activities, Some(provider)),
+                            Err(e) => {
+                                return Ok(ToolResult::error(json!({
+                                    "error": format!("Failed to fetch activities: {e}"),
+                                })));
+                            }
+                        }
+                    }
                     Err(response) => {
                         // An auth-shaped creation failure surfaces as the typed
                         // provider_auth_required error: the executor re-raises
@@ -909,32 +954,45 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // reconnect link. A plain error payload here strands
                         // the athlete with a generic failure the model can
                         // only apologise about (live incident 2026-08-11).
-                        if let Some(serde_json::Value::String(provider)) = response
+                        let dead = response
                             .metadata
                             .as_ref()
                             .and_then(|m| m.get(META_AUTH_REQUIRED_PROVIDER))
-                        {
-                            return Err(AppError::provider_auth_required(provider.clone()));
-                        }
-                        let fallback_error = response
-                            .error
-                            .clone()
-                            .unwrap_or_else(|| "get_activities authentication failed".to_owned());
-                        let error_payload = response.result.unwrap_or_else(|| {
-                            json!({
-                                "error": fallback_error,
-                            })
-                        });
-                        return Ok(ToolResult::error(error_payload));
-                    }
-                };
-
-                match provider.get_activities_with_params(&query_params).await {
-                    Ok(activities) => (activities, Some(provider)),
-                    Err(e) => {
-                        return Ok(ToolResult::error(json!({
-                            "error": format!("Failed to fetch activities: {e}"),
-                        })));
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
+                        let Some(dead) = dead else {
+                            let fallback_error = response.error.clone().unwrap_or_else(|| {
+                                "get_activities authentication failed".to_owned()
+                            });
+                            let error_payload = response.result.unwrap_or_else(|| {
+                                json!({
+                                    "error": fallback_error,
+                                })
+                            });
+                            return Ok(ToolResult::error(error_payload));
+                        };
+                        // The dead connection is one of several: an athlete whose
+                        // watch token expired still has years of GPS history behind
+                        // a healthy connection. Answer from the connections that
+                        // still work and carry the reconnect prompt as a caveat;
+                        // only a total blackout becomes the reconnect message.
+                        let fallback = if provider_pinned {
+                            None
+                        } else {
+                            serve_without_primary(
+                                &context,
+                                &provider_name,
+                                is_historical,
+                                &query_params,
+                            )
+                            .await
+                        };
+                        let Some(fallback) = fallback else {
+                            return Err(AppError::provider_auth_required(dead));
+                        };
+                        dead_primary = Some(dead);
+                        served_by = fallback.served_by;
+                        (fallback.activities, None)
                     }
                 }
             };
@@ -942,7 +1000,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Write-through to the persistent activity cache so the snapshot
             // (stale-while-revalidate) path and later turns can serve these without
             // re-fetching. Best-effort: a cache failure never blocks the response.
-            if context.tenant_id.is_some() && !activities.is_empty() {
+            // Skipped when a sibling answered for a dead primary: those rows belong
+            // to the providers that produced them (each already wrote its own
+            // through), and filing them under the dead provider's key would have a
+            // reconnect restore history it never recorded.
+            if dead_primary.is_none() && context.tenant_id.is_some() && !activities.is_empty() {
                 let cache_repo = context.resources.repos().activity_cache.clone();
                 if let Err(e) = cache_repo
                     .upsert_activities(context.user_id, &tenant_id, &provider_name, &activities)
@@ -957,19 +1019,38 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 }
             }
 
+            // Record the serve against the connection that actually produced it, so
+            // `resolve_most_recent` elects the backend the athlete trains on rather
+            // than whichever connection was added last. A dead primary that a
+            // sibling answered for is not a serve.
+            if dead_primary.is_none() && context.tenant_id.is_some() {
+                touch_connection_used(
+                    &context.resources,
+                    context.user_id,
+                    tenant_id,
+                    &provider_name,
+                )
+                .await;
+            }
+
             // Fold in the athlete's other connections and dedup (no-op for an
             // explicit provider arg or the coverage-gated historical branch) —
             // see `maybe_merge_other_connections` for the 2026-08-22 incident
-            // this exists for.
-            let activities = maybe_merge_other_connections(
-                &context,
-                &args,
-                is_historical,
-                &provider_name,
-                &query_params,
-                activities,
-            )
-            .await;
+            // this exists for. Already done when a dead primary sent the window
+            // through `serve_without_primary`, which merges the same set.
+            let activities = if dead_primary.is_some() {
+                activities
+            } else {
+                maybe_merge_other_connections(
+                    &context,
+                    &args,
+                    is_historical,
+                    &provider_name,
+                    &query_params,
+                    activities,
+                )
+                .await
+            };
 
             // Apply sport_type filter server-side before any further work.
             let mut filtered_activities =
@@ -1056,12 +1137,17 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Write-through under the SAME eligibility as the read above: skip the
             // auto-promoted detail payload (the key omits mode) and the historical
             // window (its serve never reads this cache, so a write here is dead —
-            // it would only accrete never-read historical entries).
-            if response_cache_eligible(
-                auto_promote_to_detail,
-                is_historical,
-                sort_by != "date_desc",
-            ) {
+            // it would only accrete never-read historical entries). A window a
+            // sibling served for a dead primary is skipped too: the key is the dead
+            // provider's, and a later hit would replay the answer without the
+            // reconnect caveat that makes it honest.
+            if dead_primary.is_none()
+                && response_cache_eligible(
+                    auto_promote_to_detail,
+                    is_historical,
+                    sort_by != "date_desc",
+                )
+            {
                 cache_activities_result(cache, &cache_key, &filtered_activities, per_page).await;
             }
 
@@ -1075,13 +1161,25 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 HashMap::new()
             };
 
-            let response = build_activities_success_response(ActivitiesResponseParams {
+            // Name the connections the rows came from. Normally that is the
+            // elected provider; when it is auth-dead and its siblings answered,
+            // it is those siblings — attributing their sessions to the provider
+            // that could not answer is what would let the coach describe a
+            // Strava ride as a WHOOP record.
+            let source_label = if served_by.is_empty() {
+                display_provider.clone()
+            } else {
+                served_by.join(", ")
+            };
+
+            let mut response = build_activities_success_response(ActivitiesResponseParams {
                 activities: &filtered_activities,
                 user_uuid: context.user_id,
                 tenant_id: tenant_id_str,
-                // User-facing copy: show "garmin", not the internal
-                // "sciotte_garmin" backend the cache keys on.
-                provider_name: &display_provider,
+                // User-facing copy: the connections that actually produced the
+                // rows, already named the way an athlete names them ("garmin",
+                // never the internal "sciotte_garmin" the cache keys on).
+                provider_name: &source_label,
                 mode: effective_mode,
                 output_format,
                 pagination: Some(&pagination),
@@ -1093,649 +1191,21 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 window_span,
             });
 
-            handler_bridge::map_universal_response("get_activities", Ok(response))
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// GetAthleteTool - Get athlete profile
-// ============================================================================
-
-/// Tool for retrieving the user's athlete profile from a fitness provider.
-pub struct GetAthleteTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for GetAthleteTool {
-    fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-
-        properties.insert(
-            "provider".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider.".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "format".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
-
-        tool_definition(
-            "get_athlete",
-            "Retrieve the user's athlete profile from connected fitness providers including personal details and preferences",
-            schema,
-            Some(read_only_annotations()),
-        )
-    }
-
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let provider_name = match resolve_provider_for_tool(&args, &context).await {
-                Ok(p) => p,
-                Err(result) => return Ok(result),
-            };
-
-            // Canonicalize to the serving backend before any cache op — same
-            // single-key rule as get_activities: an explicit "garmin" arg and
-            // the stored "sciotte_garmin" connection must hit ONE profile key,
-            // not two parallel ones that each miss and re-scrape.
-            let provider_name = backend_resolver::resolve_backend(
-                &context.resources.repos().auth_repos(),
-                context.user_id,
-                context.tenant_id.map(TenantId::from_uuid),
-                &provider_name,
-            )
-            .await;
-
-            let output_format = parse_output_format(&args);
-
-            let tenant_id = TenantId::from_uuid(context.tenant_id.unwrap_or_else(Uuid::nil));
-            let tenant_id_str = context.tenant_id.map(|t| t.to_string());
-
-            let cache_key = CacheKey::new(
-                tenant_id,
-                context.user_id,
-                provider_name.clone(),
-                CacheResource::AthleteProfile,
-            );
-
-            let cache = context.resources.cache();
-
-            // Cache hit short-circuits the provider auth + fetch round-trip.
-            // `try_get_cached_athlete` already builds the formatted response
-            // metadata (id/tenant/cached:true) — wrap it in the same
-            // ToolResult shape `map_universal_response` produces on success.
-            if let Some(cached_response) = handler_bridge::map_protocol_result(
-                "get_athlete",
-                try_get_cached_athlete(
-                    cache,
-                    &cache_key,
-                    context.user_id,
-                    tenant_id_str.as_ref(),
-                    output_format,
-                )
-                .await,
-            )? {
-                return handler_bridge::map_universal_response("get_athlete", Ok(cached_response));
-            }
-
-            // Cache miss path — authenticate and fetch from provider.
-            let executor = UniversalExecutor::new(context.resources.clone());
-            let provider = match executor
-                .auth_service
-                .create_authenticated_provider(
-                    &provider_name,
-                    context.user_id,
-                    tenant_id_str.as_deref(),
-                )
-                .await
-            {
-                Ok(provider) => provider,
-                Err(response) => {
-                    let fallback_error = response
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "get_athlete authentication failed".to_owned());
-                    let error_payload = response.result.unwrap_or_else(|| {
-                        json!({
-                            "error": fallback_error,
-                        })
-                    });
-                    return Ok(ToolResult::error(error_payload));
-                }
-            };
-
-            handler_bridge::map_universal_response(
-                "get_athlete",
-                fetch_and_cache_athlete(
-                    provider.as_ref(),
-                    cache,
-                    &cache_key,
-                    context.user_id,
-                    tenant_id_str,
-                    output_format,
-                )
-                .await,
-            )
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// GetStatsTool - Get activity statistics
-// ============================================================================
-
-/// Tool for retrieving aggregated activity statistics from a fitness provider.
-pub struct GetStatsTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for GetStatsTool {
-    fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-
-        properties.insert(
-            "provider".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider.".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        properties.insert(
-            "format".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
-
-        tool_definition(
-            "get_stats",
-            "Retrieve aggregated activity statistics from a connected fitness provider. The top-level total_* fields are ALL-TIME / lifetime totals. When the provider supplies it (currently Strava), a `year_to_date` object holds CURRENT-CALENDAR-YEAR totals — use that for 'this year' / annual questions and never report the all-time totals as annual. If `year_to_date` is absent, the provider does not expose annual figures. IMPORTANT: Strava's ride and run totals here count ONLY the base sport type and EXCLUDE variant disciplines (VirtualRide, GravelRide, MountainBikeRide, EBikeRide; TrailRun, VirtualRun), so they undercount multi-discipline athletes. For a true cross-discipline total (e.g. 'total km cycling this year'), do NOT report this single ride/run figure — call get_activities for the period and sum distance across all related sport types.",
-            schema,
-            Some(read_only_annotations()),
-        )
-    }
-
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let provider_name = match resolve_provider_for_tool(&args, &context).await {
-                Ok(p) => p,
-                Err(result) => return Ok(result),
-            };
-
-            // Canonicalize to the serving backend before any cache op — same
-            // single-key rule as get_activities/get_athlete (explicit "garmin"
-            // vs stored "sciotte_garmin" must share one stats/profile key).
-            let provider_name = backend_resolver::resolve_backend(
-                &context.resources.repos().auth_repos(),
-                context.user_id,
-                context.tenant_id.map(TenantId::from_uuid),
-                &provider_name,
-            )
-            .await;
-
-            let output_format = parse_output_format(&args);
-
-            // get_stats needs an athlete_id (provider-specific u64) for its
-            // cache key shape. The first lookup is cheap when an athlete profile
-            // is already cached; otherwise we fall through to the live API path.
-            let tenant_id = TenantId::from_uuid(context.tenant_id.unwrap_or_else(Uuid::nil));
-            let tenant_id_str = context.tenant_id.map(|t| t.to_string());
-
-            let athlete_cache_key = CacheKey::new(
-                tenant_id,
-                context.user_id,
-                provider_name.clone(),
-                CacheResource::AthleteProfile,
-            );
-
-            let cache = context.resources.cache();
-
-            if let Some(athlete_id) = try_get_athlete_id_from_cache(cache, &athlete_cache_key).await
-            {
-                let stats_cache_key = CacheKey::new(
-                    tenant_id,
-                    context.user_id,
-                    provider_name.clone(),
-                    CacheResource::Stats { athlete_id },
-                );
-
-                if let Some(cached_response) = handler_bridge::map_protocol_result(
-                    "get_stats",
-                    try_get_cached_stats(
-                        cache,
-                        &stats_cache_key,
-                        context.user_id,
-                        tenant_id_str.as_ref(),
-                        output_format,
-                    )
-                    .await,
-                )? {
-                    return handler_bridge::map_universal_response(
-                        "get_stats",
-                        Ok(cached_response),
+            // The reconnect prompt ACCOMPANIES the answer instead of replacing it.
+            // It rides in the result payload the model reads, never in the metadata
+            // the tool loop scans for `auth_required_provider` — that key aborts the
+            // turn into the deterministic reconnect reply, which is exactly the
+            // blanking this path exists to avoid.
+            if let Some(dead) = dead_primary.as_ref() {
+                if let Some(obj) = response.result.as_mut().and_then(Value::as_object_mut) {
+                    obj.insert(
+                        "reconnect_required".to_owned(),
+                        provider_reconnect_note(backend_resolver::user_facing_name(dead), dead),
                     );
                 }
             }
 
-            // Cache miss path — authenticate and fetch from provider.
-            let executor = UniversalExecutor::new(context.resources.clone());
-            let provider = match executor
-                .auth_service
-                .create_authenticated_provider(
-                    &provider_name,
-                    context.user_id,
-                    tenant_id_str.as_deref(),
-                )
-                .await
-            {
-                Ok(provider) => provider,
-                Err(response) => {
-                    let fallback_error = response
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "get_stats authentication failed".to_owned());
-                    let error_payload = response.result.unwrap_or_else(|| {
-                        json!({
-                            "error": fallback_error,
-                        })
-                    });
-                    return Ok(ToolResult::error(error_payload));
-                }
-            };
-
-            handler_bridge::map_universal_response(
-                "get_stats",
-                fetch_and_cache_stats(
-                    provider.as_ref(),
-                    cache,
-                    &athlete_cache_key,
-                    tenant_id,
-                    context.user_id,
-                    &provider_name,
-                    output_format,
-                )
-                .await,
-            )
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// Helper - shared schema builders for stored health-data tools
-// ============================================================================
-
-/// Build the standard date-range + format property set used by stored
-/// health-data queries (sleep, recovery, snapshots). Inferred from the
-/// handler bodies in `handlers/health_data.rs`, which read `start`, `end`,
-/// and `format` from `request.parameters`.
-fn date_range_properties() -> HashMap<String, PropertySchema> {
-    let mut properties = HashMap::new();
-    properties.insert(
-        "start".to_owned(),
-        PropertySchema {
-            property_type: "string".to_owned(),
-            description: Some(
-                "Start of the date range as RFC3339 timestamp. Defaults to 30 days ago.".to_owned(),
-            ),
-            ..Default::default()
-        },
-    );
-    properties.insert(
-        "end".to_owned(),
-        PropertySchema {
-            property_type: "string".to_owned(),
-            description: Some(
-                "End of the date range as RFC3339 timestamp. Defaults to now.".to_owned(),
-            ),
-            ..Default::default()
-        },
-    );
-    properties.insert(
-        "format".to_owned(),
-        PropertySchema {
-            property_type: "string".to_owned(),
-            description: Some(
-                "Output format: 'json' (default) or 'toon' (token-efficient for LLMs).".to_owned(),
-            ),
-            ..Default::default()
-        },
-    );
-    properties
-}
-
-// ============================================================================
-// GetSleepSessionsTool - Query stored sleep sessions
-// ============================================================================
-
-/// Tool for querying stored sleep sessions from the database.
-pub struct GetSleepSessionsTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
-    fn definition(&self) -> Tool {
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(date_range_properties()),
-            required: None,
-        };
-
-        tool_definition(
-            "get_sleep_sessions",
-            "Get stored sleep sessions from the database",
-            schema,
-            Some(read_only_annotations()),
-        )
-    }
-
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let format = parse_output_format(&args);
-            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let (start, end) = parse_date_range(&args);
-
-            match context
-                .resources
-                .repos()
-                .sleep
-                .get_sleep_sessions(context.user_id, &tenant_id, start, end)
-                .await
-            {
-                Ok(sessions) => {
-                    let payload = json!({
-                        "count": sessions.len(),
-                        "sessions": sessions,
-                        "range": {
-                            "start": start.to_rfc3339(),
-                            "end": end.to_rfc3339(),
-                        },
-                    });
-                    Ok(ToolResult::ok(apply_format(payload, "result", format)))
-                }
-                Err(e) => Ok(ToolResult::error(json!({
-                    "error": format!("Failed to fetch sleep sessions: {e}"),
-                }))),
-            }
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// GetRecoveryMetricsTool - Query stored recovery and readiness metrics
-// ============================================================================
-
-/// Tool for querying stored recovery and readiness data from the database.
-pub struct GetRecoveryMetricsTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
-    fn definition(&self) -> Tool {
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(date_range_properties()),
-            required: None,
-        };
-
-        tool_definition(
-            "get_recovery_metrics",
-            "Get stored recovery and readiness metrics",
-            schema,
-            Some(read_only_annotations()),
-        )
-    }
-
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let format = parse_output_format(&args);
-            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let (start, end) = parse_date_range(&args);
-
-            match context
-                .resources
-                .repos()
-                .recovery
-                .get_recovery_metrics(context.user_id, &tenant_id, start, end)
-                .await
-            {
-                Ok(metrics) => {
-                    let payload = json!({
-                        "count": metrics.len(),
-                        "metrics": metrics,
-                        "range": {
-                            "start": start.to_rfc3339(),
-                            "end": end.to_rfc3339(),
-                        },
-                    });
-                    Ok(ToolResult::ok(apply_format(payload, "result", format)))
-                }
-                Err(e) => Ok(ToolResult::error(json!({
-                    "error": format!("Failed to fetch recovery metrics: {e}"),
-                }))),
-            }
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// GetHealthSnapshotsTool - Query stored health snapshots
-// ============================================================================
-
-/// Tool for querying stored body composition and vitals snapshots.
-pub struct GetHealthSnapshotsTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
-    fn definition(&self) -> Tool {
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(date_range_properties()),
-            required: None,
-        };
-
-        tool_definition(
-            "get_health_snapshots",
-            "Get stored health snapshots (body composition, vitals)",
-            schema,
-            Some(read_only_annotations()),
-        )
-    }
-
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let format = parse_output_format(&args);
-            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let (start, end) = parse_date_range(&args);
-
-            match context
-                .resources
-                .repos()
-                .health_snapshots
-                .get_health_snapshots(context.user_id, &tenant_id, start, end)
-                .await
-            {
-                Ok(snapshots) => {
-                    let payload = json!({
-                        "count": snapshots.len(),
-                        "snapshots": snapshots,
-                        "range": {
-                            "start": start.to_rfc3339(),
-                            "end": end.to_rfc3339(),
-                        },
-                    });
-                    Ok(ToolResult::ok(apply_format(payload, "result", format)))
-                }
-                Err(e) => Ok(ToolResult::error(json!({
-                    "error": format!("Failed to fetch health snapshots: {e}"),
-                }))),
-            }
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// ListDataSourcesTool - List connected devices and providers
-// ============================================================================
-
-/// Tool for listing connected data sources (devices and providers) for the user.
-pub struct ListDataSourcesTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
-    fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-        properties.insert(
-            "format".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(properties),
-            required: None,
-        };
-
-        tool_definition(
-            "list_data_sources",
-            "List connected data sources (devices and providers)",
-            schema,
-            Some(read_only_annotations()),
-        )
-    }
-
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let format = parse_output_format(&args);
-            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-
-            match context
-                .resources
-                .repos()
-                .data_sources
-                .list_data_sources(context.user_id, &tenant_id)
-                .await
-            {
-                Ok(sources) => {
-                    let payload = json!({
-                        "count": sources.len(),
-                        "sources": sources,
-                    });
-                    Ok(ToolResult::ok(apply_format(payload, "result", format)))
-                }
-                Err(e) => Ok(ToolResult::error(json!({
-                    "error": format!("Failed to list data sources: {e}"),
-                }))),
-            }
+            handler_bridge::map_universal_response("get_activities", Ok(response))
         }
         .await;
         tool_result_to_response(result)
@@ -1764,15 +1234,3 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(GetActivitiesTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetAthleteTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetStatsTool => empty);
-// Provider-synced health records: same third-party-scrape provenance as
-// GetActivities/GetAthlete above (Whoop/Garmin/Fitbit/Terra), carrying
-// provider-controlled free-text fields (device/source names, data_source_id —
-// cf. the garmin data_source_id blob leak). A taint SOURCE, so a later
-// consequential sink in the same turn is gated.
-crate::declare_security!(GetSleepSessionsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetRecoveryMetricsTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(GetHealthSnapshotsTool => UNTRUSTED_OUTPUT);
-// Surfaces provider/source names synced from third parties as free text.
-crate::declare_security!(ListDataSourcesTool => UNTRUSTED_OUTPUT);

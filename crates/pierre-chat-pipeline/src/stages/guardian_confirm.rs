@@ -27,7 +27,7 @@ use tracing::warn;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_GUARDIAN_CONFIRM_PROMPT,
 };
-use pierre_tool_runtime::tool_execution::ToolLoopResult;
+use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
 /// Apply Guardian confirm-required recovery in place.
 ///

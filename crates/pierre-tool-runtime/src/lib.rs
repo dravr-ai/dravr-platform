@@ -87,6 +87,8 @@ pub mod implementations;
 pub mod protocol;
 /// Protocol conversion + universal request/response re-exports
 pub mod protocols;
+/// The served-without-a-provider signal and its per-turn store.
+pub mod reconnect;
 pub mod registry;
 pub mod runtime;
 /// Guardian security classification: the egress/trust axis every tool declares
@@ -106,6 +108,9 @@ pub mod function_dispatch;
 pub mod llm_call_record;
 #[cfg(feature = "client-chat")]
 pub mod tool_execution;
+/// Inputs and outputs shared by every tool loop strategy.
+#[cfg(feature = "client-chat")]
+pub mod tool_loop_io;
 #[cfg(feature = "client-chat")]
 pub mod tool_results;
 pub mod tool_selection;

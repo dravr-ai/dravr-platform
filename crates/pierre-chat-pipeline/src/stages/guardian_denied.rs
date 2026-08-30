@@ -32,7 +32,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_GUARDIAN_DENIED};
-use pierre_tool_runtime::tool_execution::ToolLoopResult;
+use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
 /// Apply Guardian-denied recovery in place.
 ///

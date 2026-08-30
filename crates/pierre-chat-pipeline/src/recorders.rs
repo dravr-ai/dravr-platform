@@ -21,6 +21,7 @@ use pierre_database::repositories::ChatRepository;
 use pierre_llm::pricing::{TokenCounts, GLOBAL_PRICING_REGISTRY};
 use pierre_tool_runtime::llm_call_record::{LlmCallRecord, LlmCallRecorder};
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
+use pierre_tool_runtime::tool_loop_io::{ToolMessageRecorder, ToolRoundRecord};
 use tracing::{info, warn};
 
 /// Per-call sink that persists one `llm_usage` row per LLM invocation.
@@ -158,8 +159,8 @@ impl ChatRepoToolMessageRecorder {
     }
 }
 
-impl chat_tool_loop::ToolMessageRecorder for ChatRepoToolMessageRecorder {
-    fn record(&self, record: chat_tool_loop::ToolRoundRecord) {
+impl ToolMessageRecorder for ChatRepoToolMessageRecorder {
+    fn record(&self, record: ToolRoundRecord) {
         let chat = Arc::clone(&self.chat);
         let conversation_id = self.conversation_id.clone();
         let user_id = self.user_id.clone();

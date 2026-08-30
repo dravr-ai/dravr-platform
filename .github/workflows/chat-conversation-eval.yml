@@ -104,7 +104,8 @@ jobs:
   # Live-LLM pass: nightly cron + on-demand. Drives every scenario through
   # the real chat pipeline against a LOCAL Ollama model (qwen2.5:7b), and
   # asserts on actual LLM replies. Sharded 3 ways because CPU inference of
-  # Pierre's ~26K-token system prompt costs minutes per turn; a local model
+  # Pierre's ~8K-token system prompt (the ~24 KB platform contract plus the
+  # persona and tool-discipline blocks) costs minutes per turn; a local model
   # means zero rate limits and zero per-call cost — the Cohere endpoint this
   # replaced 429'd the entire suite under the retry burst. Provisioning
   # mirrors the proven messaging-eval recipe (systemd context bump + derived
@@ -146,7 +147,7 @@ jobs:
       # live_driver_executes_every_scenario in chat_scenario_test.rs.
       CHAT_SCENARIO_INCLUDE_ONDEMAND: "${{ inputs.include_ondemand && '1' || '' }}"
       # Pierre's shared LLM reqwest client defaults to a 300s request
-      # timeout; CPU prefill of the ~26K-token prompt on qwen2.5:7b runs
+      # timeout; CPU prefill of the ~8K-token prompt on qwen2.5:7b runs
       # longer. The driver's own per-dispatch tokio guard derives from this
       # value plus a margin, so raising it here lifts both ceilings.
       LLM_REQUEST_TIMEOUT_SECS: "900"
@@ -194,7 +195,7 @@ jobs:
           done
           mkdir -p "$RUNNER_TEMP/ollama-logs"
           # The installer auto-starts a systemd unit. Bump the context
-          # window (Ollama's 4K default truncates Pierre's ~26K-token
+          # window (Ollama's 4K default truncates Pierre's ~8K-token
           # system prompt) and keep the model resident across the shard's
           # scenarios so it isn't reloaded mid-run.
           sudo mkdir -p /etc/systemd/system/ollama.service.d
@@ -264,8 +265,9 @@ jobs:
           done
           # Bake CPU parallelism + context into a derived tag. num_thread 4
           # uses all vCPUs on the standard ubuntu-latest runner; num_ctx
-          # 32768 lets Pierre's full ~26K-token system prompt + tool schemas
-          # fit without truncation (Qwen 2.5 supports 32K native).
+          # 32768 lets Pierre's ~8K-token system prompt, the tool schemas and
+          # a multi-turn history fit without truncation (Qwen 2.5 supports
+          # 32K native).
           cat > "$RUNNER_TEMP/Modelfile" <<'EOF'
           FROM qwen2.5:7b-instruct-q4_K_M
           PARAMETER num_thread 4

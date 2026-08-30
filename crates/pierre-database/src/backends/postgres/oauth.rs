@@ -1693,7 +1693,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
                 SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                   FROM provider_connections
                  WHERE user_id = $1 AND tenant_id = $2
-                 ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
+                 ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, last_used_at DESC NULLS LAST, connected_at DESC
                  LIMIT 1
                 ",
             )
@@ -1707,7 +1707,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
                 SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                   FROM provider_connections
                  WHERE user_id = $1
-                 ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
+                 ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, last_used_at DESC NULLS LAST, connected_at DESC
                  LIMIT 1
                 ",
             )

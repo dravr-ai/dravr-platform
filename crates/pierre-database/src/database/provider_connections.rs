@@ -200,11 +200,15 @@ impl Database {
         Ok(())
     }
 
-    /// Resolve the user's most-recently-used provider connection.
+    /// Resolve the user's most-recently-used *usable* provider connection.
     ///
-    /// Orders by `last_used_at DESC NULLS LAST, connected_at DESC` so a freshly-added
+    /// Orders by health first (`status = 'active'` ahead of `needs_reauth`/`revoked`),
+    /// then `last_used_at DESC NULLS LAST, connected_at DESC` so a freshly-added
     /// connection without a touch yet sits behind any connection that has actually
-    /// served data. Returns `None` when the user has no connections at all.
+    /// served data. A flagged connection is elected only when the user has nothing
+    /// else — the caller then surfaces the reconnect signal instead of a healthy
+    /// sibling being shadowed by a dead one. Returns `None` when the user has no
+    /// connections at all.
     ///
     /// # Errors
     ///
@@ -222,7 +226,9 @@ impl Database {
                 SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                   FROM provider_connections
                  WHERE user_id = ? AND tenant_id = ?
-                 ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
+                 ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+                          last_used_at DESC NULLS LAST,
+                          connected_at DESC
                  LIMIT 1
                 ",
             )
@@ -236,7 +242,9 @@ impl Database {
                 SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
                   FROM provider_connections
                  WHERE user_id = ?
-                 ORDER BY last_used_at DESC NULLS LAST, connected_at DESC
+                 ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+                          last_used_at DESC NULLS LAST,
+                          connected_at DESC
                  LIMIT 1
                 ",
             )
