@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use pierre_chat_pipeline::stages::persona_conformance::{enforce_conformance, ContractViolation};
@@ -35,6 +35,7 @@ async fn no_violations_returns_reply_unchanged() {
         CoachingPersona::Coach,
         original.clone(),
         &[],
+        "claude-sonnet-5",
     )
     .await;
     assert_eq!(out, original);
@@ -53,6 +54,7 @@ async fn non_strict_contract_is_shadow_mode_only() {
         CoachingPersona::Coach,
         original.clone(),
         &violations,
+        "claude-sonnet-5",
     )
     .await;
     assert_eq!(
@@ -119,6 +121,91 @@ impl LlmProvider for ScriptedEditor {
     }
 }
 
+/// Records the model the repair request carried, so the pin can be asserted
+/// rather than assumed.
+struct ModelCapturingEditor {
+    seen: Arc<Mutex<Vec<Option<String>>>>,
+    models: Vec<String>,
+}
+
+#[async_trait]
+impl LlmProvider for ModelCapturingEditor {
+    fn name(&self) -> &'static str {
+        "model-capturing-editor"
+    }
+    fn display_name(&self) -> &'static str {
+        "Model Capturing Editor"
+    }
+    fn capabilities(&self) -> LlmCapabilities {
+        LlmCapabilities::SYSTEM_MESSAGES
+    }
+    fn default_model(&self) -> &'static str {
+        "model-capturing-editor"
+    }
+    fn available_models(&self) -> &[String] {
+        &self.models
+    }
+    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+        self.seen
+            .lock()
+            .expect("capture lock")
+            .push(request.model.clone());
+        Ok(ChatResponse {
+            content: REWRITTEN.to_owned(),
+            model: "model-capturing-editor".to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        })
+    }
+    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+        Err(AppError::internal("not used"))
+    }
+    async fn health_check(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+}
+
+/// The persona repair runs on the SAME model as the turn it is repairing.
+///
+/// Not a style point. On the ACP path a subprocess is pinned to one model at
+/// spawn, so a repair that sends no model resolves to the env default; when
+/// that differs from the turn's model the pool discards the warm subprocess and
+/// pays a ~3.2s cold spawn on EVERY repair turn, silently undoing the pooling.
+/// A repair that stopped pinning would still rewrite correctly and still pass
+/// every other test here — only this one notices.
+#[tokio::test]
+async fn the_repair_runs_on_the_same_model_as_the_turn() {
+    let seen: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let provider = Arc::new(ChatProvider::Custom(Arc::new(ModelCapturingEditor {
+        seen: Arc::clone(&seen),
+        models: vec!["model-capturing-editor".to_owned()],
+    })));
+
+    let out = enforce_conformance(
+        Some(&provider),
+        &strict_registry(),
+        CoachingPersona::Casual,
+        "Run 5k easy today, and remember to hydrate well afterwards.".to_owned(),
+        &[a_violation()],
+        "claude-opus-4.8",
+    )
+    .await;
+    assert_eq!(
+        out, REWRITTEN,
+        "the repair must have gone through the editor"
+    );
+
+    let captured = seen.lock().expect("capture lock").clone();
+    assert_eq!(
+        captured,
+        vec![Some("claude-opus-4.8".to_owned())],
+        "the repair request must carry the turn's model; a None here means it \
+         would resolve to the env default and discard the warm subprocess"
+    );
+}
+
 /// A registry holding one strict contract for `casual`.
 fn strict_registry() -> Arc<PersonaContractRegistry> {
     let registry = Arc::new(PersonaContractRegistry::new());
@@ -157,6 +244,7 @@ async fn strict_contract_rewrites_the_reply_through_the_editor() {
         CoachingPersona::Casual,
         original.clone(),
         &[a_violation()],
+        "claude-sonnet-5",
     )
     .await;
 
@@ -180,6 +268,7 @@ async fn strict_contract_without_a_provider_keeps_the_original() {
         CoachingPersona::Casual,
         original.clone(),
         &[a_violation()],
+        "claude-sonnet-5",
     )
     .await;
 

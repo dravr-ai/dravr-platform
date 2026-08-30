@@ -89,6 +89,14 @@ pub(crate) struct PostProcessInputs<'a> {
     /// a `source_tool` outside this set is rejected, which is what makes the
     /// attribution verified rather than asserted.
     pub tools_called: &'a [String],
+    /// The model this turn actually ran on.
+    ///
+    /// Needed because the persona repair re-prompts the SAME provider. Without
+    /// it the repair sends no model, `resolve_model(None)` falls back to the
+    /// env default, and on a provider that pins a model per subprocess — the
+    /// ACP pool does — a mismatch discards the warm subprocess and pays a cold
+    /// spawn on every repair turn.
+    pub active_model: &'a str,
 }
 
 /// Resolve the coach's roster so the conformance stage can tell a cited athlete
@@ -215,6 +223,7 @@ pub(crate) async fn post_process_assistant_reply(
         prompt_guard,
         profile,
         tools_called,
+        active_model,
     } = inputs;
     // Stage 15: Scan for verbatim system-prompt leaks / canary hits. A canary
     // hit is conclusive exfiltration — withhold the reply and return a canned
@@ -382,6 +391,7 @@ pub(crate) async fn post_process_assistant_reply(
         persona,
         content,
         &conformance_violations,
+        active_model,
     )
     .await;
 

@@ -183,6 +183,7 @@ pub async fn enforce_conformance(
     persona: CoachingPersona,
     content: String,
     violations: &[ContractViolation],
+    active_model: &str,
 ) -> String {
     if violations.is_empty() {
         return content;
@@ -203,7 +204,7 @@ pub async fn enforce_conformance(
         return content;
     };
 
-    rewrite_to_satisfy_contract(provider, persona, content, violations).await
+    rewrite_to_satisfy_contract(provider, persona, content, violations, active_model).await
 }
 
 /// Re-prompt the LLM to rewrite `content` so it satisfies the persona contract,
@@ -214,6 +215,7 @@ async fn rewrite_to_satisfy_contract(
     persona: CoachingPersona,
     content: String,
     violations: &[ContractViolation],
+    active_model: &str,
 ) -> String {
     let rules = violations
         .iter()
@@ -228,7 +230,12 @@ async fn rewrite_to_satisfy_contract(
         ChatMessage::system(system),
         ChatMessage::user(content.clone()),
     ])
-    .with_temperature(0.2);
+    .with_temperature(0.2)
+    // Pin the SAME model the turn ran on. Sending none resolves to the env
+    // default, and on the ACP path a subprocess is pinned to one model at
+    // spawn — so a mismatch here discards the warm subprocess and pays a
+    // ~3.2s cold spawn on every repair turn, silently undoing the pool.
+    .with_model(active_model);
 
     match provider.complete(&request).await {
         Ok(resp) if !resp.content.trim().is_empty() => {
