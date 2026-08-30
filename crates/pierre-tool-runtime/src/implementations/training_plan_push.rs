@@ -100,9 +100,12 @@ pub(super) async fn calendar_block(
         // `entries: []` under a key called `calendar` will otherwise report it as
         // "nothing on your calendar" — which it did, to an athlete asking whether
         // he had a race (2026-08-28).
-        block["scope"] = json!(
-            "Dravr has scheduled nothing. This lists only what Dravr pushed to              the athlete's calendar provider — it is NOT a view of their calendar.              An empty list says nothing about races or events they entered              themselves; say so rather than reporting they have none."
-        );
+        block["scope"] = json!(concat!(
+            "Dravr has scheduled nothing. This lists only what Dravr pushed to ",
+            "the athlete's calendar provider — it is NOT a view of their calendar. ",
+            "An empty list says nothing about races or events they entered ",
+            "themselves; say so rather than reporting they have none."
+        ));
     }
     Ok(block)
 }
