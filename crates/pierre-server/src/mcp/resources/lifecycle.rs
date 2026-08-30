@@ -45,7 +45,7 @@ use pierre_commands::{
     guardian_confirm::{ConfirmHandler, DenyHandler},
     help::HelpHandler,
     onboarding::PillarsHandler,
-    plan::PlanShowHandler,
+    plan::{PlanShareHandler, PlanShowHandler},
     privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
     status::StatusHandler,
     timezone::TimezoneHandler,
@@ -647,6 +647,7 @@ impl ServerContext {
             ("deny", Arc::new(DenyHandler)),
             ("pillars", Arc::new(PillarsHandler)),
             ("plan", Arc::new(PlanShowHandler)),
+            ("plan-share", Arc::new(PlanShareHandler)),
             ("calibrate", Arc::new(CalibrateHandler)),
         ]
         .into_iter()

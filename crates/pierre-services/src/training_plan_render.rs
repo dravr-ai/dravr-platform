@@ -23,6 +23,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_memory::FactKind;
 use std::fmt::Write as _;
+use uuid::Uuid;
 
 /// Maximum weeks rendered day-by-day (current + next).
 const MAX_WEEKS_RENDERED: usize = 2;
@@ -406,6 +407,32 @@ pub async fn plan_goal_is_stale(
         .iter()
         .find(|f| f.id == goal_fact_id)
         .is_none_or(|fact| fact.valid_until.is_some_and(|until| until < now)))
+}
+
+/// The coach persona slug an athlete's plan is read under, resolved the way
+/// their own DM resolves it.
+///
+/// The conversation's coach wins when the conversation has one — that is how
+/// the plan was saved. A conversation that binds no coach (a shared room, a
+/// coach-less thread) falls back to the coach the athlete selected in their
+/// own tenant, which is the coach their DM is bound to on every turn; only an
+/// athlete who selected nobody reads the coach-agnostic plan alone. One ladder
+/// for `/plan`, `/plan share` and the tools' coached-athlete scope, so a plan
+/// built in a DM under coach X is the plan the room and the coach see.
+///
+/// # Errors
+///
+/// Propagates the repository error from the selected-coach lookup.
+pub async fn resolve_plan_coach_slug(
+    repos: &RepositoryRegistry,
+    conversation_coach: Option<String>,
+    tenant: TenantId,
+    user: Uuid,
+) -> AppResult<Option<String>> {
+    if conversation_coach.is_some() {
+        return Ok(conversation_coach);
+    }
+    repos.tenants.get_selected_coach(tenant, user).await
 }
 
 #[cfg(test)]

@@ -36,6 +36,7 @@ use std::sync::Arc;
 
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_core::errors::AppResult;
+use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_llm::ChatProvider;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
@@ -47,8 +48,9 @@ use crate::hooks::PipelineHooks;
 use crate::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
 use crate::stages::coach_mention::resolve_coach_mention;
 use crate::stages::command_persistence::{
-    persist_command_turn, CommandPersistence, PersistedCommandReply,
+    is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
 };
+use crate::stages::persistence::fan_out_to_group_transcript;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::usage_counters::{
@@ -423,6 +425,13 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
 ///
 /// Best-effort: the reply is already produced and owed to the athlete, so a
 /// write that fails is logged and the turn goes out unpersisted.
+///
+/// A room-visible command turn in a shared messaging room is also fanned out
+/// to the group's shared transcript: the reply was posted to the room, so the
+/// room's history — the ambient block a later turn reads — carries it, and a
+/// coach can discuss the plan an athlete just shared. The in-app surfaces
+/// persist every command turn into the caller's own conversation and fan
+/// nothing out, exactly as before.
 async fn persist_if_covered(
     ctx: &ChatPipelineContext,
     request: &SlashRequest<'_>,
@@ -434,14 +443,59 @@ async fn persist_if_covered(
     {
         return;
     }
-    match persist_command_turn(ctx.repos.chat.as_ref(), request, command).await {
-        Ok(persisted) => command.persisted = Some(persisted),
-        Err(e) => warn!(
-            error = %e,
-            conversation_id = %request.conversation_id,
-            command = ?command.command_name,
-            "command reply could not be written to the transcript; delivering it unpersisted"
-        ),
+    let persisted = match persist_command_turn(ctx.repos.chat.as_ref(), request, command).await {
+        Ok(persisted) => persisted,
+        Err(e) => {
+            warn!(
+                error = %e,
+                conversation_id = %request.conversation_id,
+                command = ?command.command_name,
+                "command reply could not be written to the transcript; delivering it unpersisted"
+            );
+            return;
+        }
+    };
+    if request.persistence == CommandPersistence::RoomVisibleOnly
+        && is_room_visible(command.command_name.as_deref())
+    {
+        fan_out_room_visible_turn(ctx, request, &persisted).await;
+    }
+    command.persisted = Some(persisted);
+}
+
+/// Append both rows of a room-visible command turn to the group's shared
+/// transcript — the `/…` line as the member, the reply as the coach — when
+/// the conversation is group-bound. Best-effort like the rows themselves: a
+/// failed append is logged, never turned into a failed command.
+async fn fan_out_room_visible_turn(
+    ctx: &ChatPipelineContext,
+    request: &SlashRequest<'_>,
+    persisted: &PersistedCommandReply,
+) {
+    let user_id = request.user_id.to_string();
+    let rows = [
+        (TranscriptSpeaker::Member, &persisted.user_message),
+        (TranscriptSpeaker::Coach, &persisted.assistant_message),
+    ];
+    for (speaker, row) in rows {
+        if let Err(e) = fan_out_to_group_transcript(
+            ctx.repos.groups.as_ref(),
+            &persisted.conversation,
+            request.conversation_tenant_id,
+            &user_id,
+            speaker,
+            &row.content,
+            &row.id,
+        )
+        .await
+        {
+            warn!(
+                error = %e,
+                conversation_id = %request.conversation_id,
+                speaker = ?speaker,
+                "room-visible command turn could not reach the group transcript"
+            );
+        }
     }
 }
 

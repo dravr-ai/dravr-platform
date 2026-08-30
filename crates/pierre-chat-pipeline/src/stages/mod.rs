@@ -29,6 +29,9 @@ pub mod auth_recovery;
 /// Capability-failure recovery: verify a "my data access is broken" claim
 /// with a real fetch, then re-ask with the data or route to re-auth.
 pub mod capability_recovery;
+/// Subject-routed capability recovery: an ask about a roster peer is
+/// adjudicated with that peer's data, never the requester's.
+pub mod capability_subject;
 /// Per-turn `@handle` routing: an installed coach named in the message
 /// answers that turn only.
 pub mod coach_mention;

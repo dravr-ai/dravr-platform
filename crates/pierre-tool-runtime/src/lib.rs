@@ -62,6 +62,8 @@ pub mod activity_backfill;
 /// Shared provider activity fetching (used by group snapshots + coach recs).
 pub mod activity_dedup;
 pub mod activity_fetch;
+/// The one display-name rule a member is rendered by, on every build.
+pub mod athlete_display_name;
 pub mod capabilities;
 pub mod commitment_refresh;
 pub mod context;

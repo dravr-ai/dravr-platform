@@ -167,7 +167,7 @@ const INTERNAL_NARRATION_PATTERNS: &[&str] = &[
 
 use fold::fold_separators;
 
-use vocab::{FOLDED_CAPABILITY, FOLDED_IDENTITY, FOLDED_INTERNAL};
+use vocab::{FOLDED_CAPABILITY, FOLDED_IDENTITY, FOLDED_INTERNAL, FOLDED_PEER_DENIAL};
 
 mod fold;
 mod identity;
@@ -227,6 +227,15 @@ fn matches_capability(folded: &str) -> bool {
         || GLOBAL_NARRATION_VOCAB.matches(folded, |s| &s.capability)
 }
 
+/// `true` when the already-folded sentence carries peer-access-denial
+/// vocabulary — the coach saying it cannot read ANOTHER athlete's data.
+/// Compiled-in table only: the runtime overlay extends the own-access register.
+fn matches_peer_denial(folded: &str) -> bool {
+    FOLDED_PEER_DENIAL
+        .iter()
+        .any(|p| folded.contains(p.as_str()))
+}
+
 /// `true` when the reply anywhere claims the coach's own data access is
 /// broken.
 ///
@@ -246,6 +255,25 @@ fn matches_capability(folded: &str) -> bool {
 #[must_use]
 pub fn contains_capability_failure(text: &str) -> bool {
     matches_capability(&fold_separators(text))
+}
+
+/// `true` when the reply anywhere denies access to ANOTHER athlete's data
+/// («je n'ai jamais eu accès à l'historique de Jean-Daniel», "I don't have
+/// access to his activities").
+///
+/// Matches [`vocab::PEER_ACCESS_DENIAL_PATTERNS`] over the folded whole
+/// reply. Deliberately NOT folded into [`contains_capability_failure`]: that
+/// predicate drives the outbound verification trigger on every surface, while
+/// a peer denial is only a claim worth adjudicating where a peer exists — the
+/// chat pipeline consults this one together with the group roster and the
+/// peers the reply names, so «je n'ai pas accès aux données de fréquence
+/// cardiaque de cette sortie» in a DM never starts a fetch. Replay treats both
+/// registers alike ([`scrub_replayed_narration`]): a consent state is
+/// re-derived live every turn, so yesterday's denial must not teach today's
+/// prompt that the peer is unreadable.
+#[must_use]
+pub fn contains_peer_access_denial(text: &str) -> bool {
+    matches_peer_denial(&fold_separators(text))
 }
 
 /// `true` when a reply is degenerate — present, but carrying no answer.
@@ -294,10 +322,16 @@ fn is_narration(sentence: &str) -> bool {
 /// must not re-enter the prompt and teach the model that fetching is
 /// impossible — the 2026-07-23 turn where the coach declined to call
 /// `get_activities` against a healthy provider because its own history said
-/// fetching fails. The three tables share one fold of the sentence.
+/// fetching fails. The peer-access register rides along for the same reason:
+/// a consent state is live, so a replayed «I can't see his data» after he
+/// consented is stale helplessness. The four tables share one fold of the
+/// sentence.
 fn is_replayed_narration(sentence: &str) -> bool {
     let folded = fold_separators(sentence);
-    matches_internal(&folded) || matches_identity(&folded) || matches_capability(&folded)
+    matches_internal(&folded)
+        || matches_identity(&folded)
+        || matches_capability(&folded)
+        || matches_peer_denial(&folded)
 }
 
 /// Sentence terminators. `…` covers the single-char ellipsis; runs of

@@ -108,14 +108,16 @@ pub async fn create_conversation(
 /// The entry is attributed to the conversation's member (`user_id`) for both
 /// speakers: a coach row is the reply that member received, so consent
 /// withholding hides the pair together. Non-group conversations append
-/// nothing.
+/// nothing. Shared with the turn service, which fans out a room-visible
+/// slash-command turn the same way, so a plan posted with `/plan share` is
+/// in the room history a later turn reads.
 ///
 /// # Errors
 ///
 /// Returns database errors from the transcript append — the room transcript
 /// is turn persistence, and a silently missing row would replay as a hole in
 /// every member's shared view.
-async fn fan_out_to_group_transcript(
+pub(crate) async fn fan_out_to_group_transcript(
     groups: &dyn CoachingGroupRepository,
     conversation: &ConversationRecord,
     tenant_id: TenantId,

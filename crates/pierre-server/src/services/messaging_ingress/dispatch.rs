@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ColorScheme, ConversationTurnId, TenantId, TranscriptSpeaker};
+use pierre_core::narration::scrub_replayed_narration;
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::{error, info, warn};
@@ -630,15 +631,25 @@ async fn build_group_ambient_context(dispatch: &PendingDispatch) -> Option<Strin
         if entry.content.is_empty() {
             continue;
         }
-        let label = match entry.speaker {
-            TranscriptSpeaker::Coach => "Coach".to_owned(),
+        // A coach line re-enters every member's prompt from here, and the
+        // `capability_claim_unverified` stamp lives on the author's row, not
+        // here — so the replay scrub runs on the way in (2026-08-30: a consent
+        // denial replayed to the peer it named, after he had consented).
+        let (label, content) = match entry.speaker {
+            TranscriptSpeaker::Coach => (
+                "Coach".to_owned(),
+                scrub_replayed_narration(&entry.content).cleaned,
+            ),
             TranscriptSpeaker::Member => {
                 let author = entry.author_user_id.to_string();
-                speaker_label(dispatch, &author, &mut label_cache).await
+                let label = speaker_label(dispatch, &author, &mut label_cache).await;
+                (label, entry.content.clone())
             }
         };
-        let truncated: String = entry
-            .content
+        if content.trim().is_empty() {
+            continue;
+        }
+        let truncated: String = content
             .chars()
             .take(AMBIENT_TRANSCRIPT_MAX_LINE_CHARS)
             .collect();

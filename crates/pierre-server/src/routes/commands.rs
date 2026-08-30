@@ -6,7 +6,7 @@
 
 //! The per-caller slash-command catalogue.
 //!
-//! Twenty-four commands work identically on every chat surface, but only
+//! Every command works identically on every chat surface, but only
 //! messaging ever advertised them — through `/help`, a rendered block of prose
 //! a client cannot offer as an affordance. The in-app clients had no way to
 //! learn a command existed short of being told.

@@ -268,6 +268,25 @@ impl Guardian {
     }
 }
 
+/// `error_code` a tenant tool-disable refusal carries: the chat pipeline reads
+/// it as an ordinary tool refusal the LLM adapts to, never as a Guardian block.
+pub const TENANT_DISABLED_ERROR_CODE: &str = "tool_disabled";
+
+/// `reason` a tenant tool-disable refusal carries beside its error code.
+pub const TENANT_DISABLED_REASON: &str = "tenant_disabled";
+
+/// The message answered when a tenant has disabled `tool_name` by configuration.
+///
+/// A nudge to pick another tool, not an incident — and one wording whether
+/// the refusal is raised at the dispatch chokepoint or inside a tool that
+/// resolved a tenant of its own.
+#[must_use]
+pub fn tenant_disabled_message(tool_name: &str) -> String {
+    format!(
+        "Tool '{tool_name}' is disabled for this tenant. Choose a different tool or answer from what you already know."
+    )
+}
+
 /// Whether `tool_name` is enabled for `tenant` (the absorbed tenant tool-disable allowlist).
 ///
 /// Always enforced regardless of [`GuardianMode`] — it is a tenant's explicit

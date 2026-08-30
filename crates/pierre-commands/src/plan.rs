@@ -1,5 +1,5 @@
-// ABOUTME: Handler for /plan — deterministic read-only display of the athlete's stored training plan
-// ABOUTME: Bare = goal + countdown + today & tomorrow; `week` = current week; `today` = today only
+// ABOUTME: Handlers for /plan and /plan share — deterministic read-only display of the athlete's stored training plan
+// ABOUTME: Bare = goal + countdown + today & tomorrow; `week` = current week; `today` = today only; share posts it to the room
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,15 +9,17 @@ use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_BLOCK_LINE, KEY_PLAN_DAY_LINE, KEY_PLAN_EMPTY,
     KEY_PLAN_GOAL_LINE, KEY_PLAN_NO_COVERAGE, KEY_PLAN_NO_SESSION, KEY_PLAN_REST, KEY_PLAN_RESUMES,
-    KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY, KEY_PLAN_TOMORROW, KEY_PLAN_WEEK_HEADER,
+    KEY_PLAN_SHARED_HEADER, KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY, KEY_PLAN_TOMORROW,
+    KEY_PLAN_WEEK_HEADER,
 };
 use pierre_core::errors::AppError;
+use pierre_core::models::User;
 use pierre_memory::training_plans::{
     parse_plan_date, PlanBlock, PlanWeek, PlannedDay, TrainingPlan,
 };
 use pierre_messaging::commands::CommandResponse;
 use pierre_services::training_plan_render::{
-    plan_goal_is_stale, select_active_weeks, SelectedWeek,
+    plan_goal_is_stale, resolve_plan_coach_slug, select_active_weeks, SelectedWeek,
 };
 use std::fmt::Write as _;
 
@@ -55,6 +57,16 @@ impl PlanView {
 /// slash command answers from data. Plan *generation* stays conversational, so
 /// this command never writes and never asks a coach to build anything.
 pub struct PlanShowHandler;
+
+/// Handler for `/plan share` — the same read as `/plan`, posted to the room.
+///
+/// Bare `/plan` is answered privately in a shared room because a plan is the
+/// caller's own state. Typing the share variant is the athlete's consent to
+/// post it, granted per invocation and legible in the room as their own turn;
+/// on a messaging room the reply opens with a header naming whose plan it is.
+/// Only ever the caller's own plan: nobody can publish another athlete's plan
+/// into a room, which is the leak the private default exists to prevent.
+pub struct PlanShareHandler;
 
 /// What the selected weeks know about one date.
 ///
@@ -284,83 +296,159 @@ fn render_view(
     out
 }
 
+/// The caller's global user row, when it can be read. `None` leaves every
+/// per-user default in place: UTC for "today", "Unknown" for the name.
+async fn caller_record(ctx: &PlatformCommandContext) -> Option<User> {
+    ctx.ctx
+        .repos()
+        .users
+        .get_global(ctx.user_id)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// The caller's civil date. "Today" is the athlete's, not the server's UTC
+/// one — a 23:30 EDT `/plan` must show today's session, not tomorrow's.
+fn caller_today(user: Option<&User>) -> NaiveDate {
+    user.and_then(|u| u.timezone.as_deref())
+        .and_then(|tz| tz.parse::<chrono_tz::Tz>().ok())
+        .map_or_else(
+            || chrono::Utc::now().date_naive(),
+            |tz| chrono::Utc::now().with_timezone(&tz).date_naive(),
+        )
+}
+
+/// The name a room already knows the caller by: their display name, else the
+/// local part of their e-mail — the same fallback the group roster renders,
+/// so the header adds no name the room has not seen.
+fn caller_display_name(user: Option<&User>) -> String {
+    user.map_or_else(
+        || "Unknown".to_owned(),
+        |u| {
+            u.display_name
+                .clone()
+                .unwrap_or_else(|| u.email.split('@').next().unwrap_or("Unknown").to_owned())
+        },
+    )
+}
+
+/// Render the caller's stored plan in the requested view, or `None` when
+/// nothing is saved. Shared by `/plan` and `/plan share`: one body, two
+/// deliveries.
+///
+/// The coach the plan is read under follows the same ladder on every
+/// surface: the conversation's coach, read under the tenant that owns the
+/// conversation row (a shared room files it under the bot tenant, where the
+/// caller's own tenant never finds it); else the coach the athlete selected in
+/// their own tenant, which is what their DM binds; else the coach-agnostic
+/// plan. Without the second rung, an athlete whose plan was built in their DM
+/// under coach X read "no plan saved yet" in the room.
+async fn render_plan_reply(
+    ctx: &PlatformCommandContext,
+    view: PlanView,
+    today: NaiveDate,
+) -> Result<Option<String>, AppError> {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let repos = ctx.ctx.repos();
+    let user = ctx.user_id.to_string();
+    let tenant = ctx.tenant_id.to_string();
+
+    let conversation_coach = match ctx.conversation_id.as_deref() {
+        Some(cid) => repos
+            .chat
+            .get_conversation(cid, &user, ctx.conversation_tenant_id)
+            .await?
+            .and_then(|c| c.coach_id),
+        None => None,
+    };
+    let coach =
+        resolve_plan_coach_slug(repos, conversation_coach, ctx.tenant_id, ctx.user_id).await?;
+
+    let Some(plan) = repos
+        .training_plans
+        .get_active_plan(&tenant, &user, coach.as_deref())
+        .await?
+    else {
+        return Ok(None);
+    };
+
+    let stored: Vec<PlanWeek> = repos
+        .training_plans
+        .list_plan_weeks(&tenant, &user, &plan.id, false)
+        .await?;
+    let selection = select_active_weeks(&stored, today, PLAN_WEEK_LIMIT);
+
+    let mut body = render_header(reg, &ctx.locale, &plan, &selection.weeks, today);
+    body.push_str(&render_view(
+        reg,
+        &ctx.locale,
+        view,
+        &selection.weeks,
+        today,
+    ));
+
+    // Flag a plan whose goal fact has since been superseded, using the same
+    // predicate `get_training_plan` reports `goal_stale` from.
+    if let Some(fact_id) = plan.goal_fact_id.as_deref() {
+        if plan_goal_is_stale(repos, ctx.tenant_id, &user, fact_id).await? {
+            body.push_str(&reg.render(KEY_PLAN_STALE_GOAL, &ctx.locale, &[]));
+        }
+    }
+    Ok(Some(body))
+}
+
+/// The view the caller asked for, from the first argument.
+fn requested_view(ctx: &PlatformCommandContext) -> PlanView {
+    PlanView::parse(ctx.args.first().map(|s| s.trim().to_lowercase()).as_deref())
+}
+
+/// The plan body, or the empty-state line when nothing is saved.
+async fn plan_body(ctx: &PlatformCommandContext, today: NaiveDate) -> Result<String, AppError> {
+    let rendered = render_plan_reply(ctx, requested_view(ctx), today).await?;
+    Ok(rendered.unwrap_or_else(|| {
+        ctx.ctx
+            .messaging_strings_registry()
+            .render(KEY_PLAN_EMPTY, &ctx.locale, &[])
+    }))
+}
+
 #[async_trait]
 impl CommandHandler for PlanShowHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        let reg = ctx.ctx.messaging_strings_registry();
-        let repos = ctx.ctx.repos();
-        let user = ctx.user_id.to_string();
-        let tenant = ctx.tenant_id.to_string();
-
-        // "Today" is the athlete's civil date, not the server's UTC one — a
-        // 23:30 EDT `/plan` must show today's session, not tomorrow's.
-        let timezone = repos
-            .users
-            .get_global(ctx.user_id)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|u| u.timezone);
-        let today = timezone
-            .as_deref()
-            .and_then(|tz| tz.parse::<chrono_tz::Tz>().ok())
-            .map_or_else(
-                || chrono::Utc::now().date_naive(),
-                |tz| chrono::Utc::now().with_timezone(&tz).date_naive(),
-            );
-
-        // The conversation's coach is authoritative, matching how the plan was
-        // saved; a conversation without one falls back to the coach-agnostic plan.
-        let coach = match ctx.conversation_id.as_deref() {
-            Some(cid) => repos
-                .chat
-                .get_conversation(cid, &user, ctx.tenant_id)
-                .await?
-                .and_then(|c| c.coach_id),
-            None => None,
-        };
-
-        let Some(plan) = repos
-            .training_plans
-            .get_active_plan(&tenant, &user, coach.as_deref())
-            .await?
-        else {
-            return Ok(CommandResponse::rich_text(reg.render(
-                KEY_PLAN_EMPTY,
-                &ctx.locale,
-                &[],
-            )));
-        };
-
-        let stored: Vec<PlanWeek> = repos
-            .training_plans
-            .list_plan_weeks(&tenant, &user, &plan.id, false)
-            .await?;
-        let selection = select_active_weeks(&stored, today, PLAN_WEEK_LIMIT);
-
-        let view = PlanView::parse(ctx.args.first().map(|s| s.trim().to_lowercase()).as_deref());
-        let mut body = render_header(reg, &ctx.locale, &plan, &selection.weeks, today);
-        body.push_str(&render_view(
-            reg,
-            &ctx.locale,
-            view,
-            &selection.weeks,
-            today,
-        ));
-
-        // Flag a plan whose goal fact has since been superseded, using the same
-        // predicate `get_training_plan` reports `goal_stale` from.
-        if let Some(fact_id) = plan.goal_fact_id.as_deref() {
-            if plan_goal_is_stale(repos, ctx.tenant_id, &user, fact_id).await? {
-                body.push_str(&reg.render(KEY_PLAN_STALE_GOAL, &ctx.locale, &[]));
-            }
-        }
-
+        let user = caller_record(ctx).await;
+        let body = plan_body(ctx, caller_today(user.as_ref())).await?;
         // The whole plan, however long. A body past what one message on this
         // channel carries is split into ordered messages by the egress
         // (`messaging_ingress::block_render::fan_out`), so a twelve-week plan
         // arrives complete instead of stopping at a week boundary with a
         // "truncated" marker.
         Ok(CommandResponse::rich_text(body))
+    }
+}
+
+#[async_trait]
+impl CommandHandler for PlanShareHandler {
+    async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let user = caller_record(ctx).await;
+        let body = plan_body(ctx, caller_today(user.as_ref())).await?;
+        // The header renders only where the reply is actually posted to a
+        // room: a messaging channel (a sender id) in a shared chat. A DM has
+        // no room to share with, and an in-app group thread persists the
+        // reply into the caller's own conversation alone, so claiming "shared
+        // with the room" there would misstate its audience.
+        if ctx.is_direct_message || ctx.sender_id.is_none() {
+            return Ok(CommandResponse::rich_text(body));
+        }
+        // The reply is rich text and the name is user-set free text, so it is
+        // escaped: one `<` in a display name would otherwise fail the whole
+        // message at the channel and deliver nothing.
+        let name = html_escape::encode_text(&caller_display_name(user.as_ref())).into_owned();
+        let header = ctx.ctx.messaging_strings_registry().render(
+            KEY_PLAN_SHARED_HEADER,
+            &ctx.locale,
+            &[&name],
+        );
+        Ok(CommandResponse::rich_text(format!("{header}\n{body}")))
     }
 }

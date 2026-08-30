@@ -46,10 +46,11 @@ struct CommandFrontmatter {
     ///
     /// This is about what the command ACTS ON, not how its reply is
     /// delivered. Delivery is already private for nearly everything —
-    /// `ROOM_VISIBLE_COMMANDS` is three entries long — so "answers you
+    /// `ROOM_VISIBLE_COMMANDS` is a handful of entries — so "answers you
     /// privately" would mark almost the whole catalogue and tell a reader
     /// nothing. `/group status` reports the room and is not personal;
-    /// `/group consent` toggles one athlete's own sharing and is.
+    /// `/group consent` toggles one athlete's own sharing and is; `/plan
+    /// share` posts the caller's own plan to the room and is not.
     #[serde(default)]
     personal: bool,
 }

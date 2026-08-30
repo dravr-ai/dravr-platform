@@ -3636,6 +3636,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
+ "html-escape",
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",

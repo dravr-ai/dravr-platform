@@ -38,8 +38,12 @@ use std::sync::Arc;
 use serde_json::json;
 use tracing::{info, warn};
 
+use super::capability_subject::{
+    apply_subject_recovery, conversation_group_id, resolve_ask_subject, AskSubject,
+};
 use super::peer_grounding::{
-    fetch_peer_activities, mentioned_peers, PeerMention, PEER_FETCH_TOOL, PEER_GROUNDING_LEAD,
+    fetch_peer_activities_outcome, mentioned_peers, PeerMention, PEER_FETCH_TOOL,
+    PEER_GROUNDING_LEAD,
 };
 use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 use crate::turn::TurnInput;
@@ -56,17 +60,16 @@ use pierre_tool_runtime::protocol::{
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use pierre_tool_runtime::tool_results::format_tool_results_as_text;
 
-/// The read-only verification tool. Every connected provider serves it, so
-/// one fetch adjudicates the claim regardless of which backend the athlete
-/// uses.
+/// The read-only verification tool for the REQUESTER's own data. Every
+/// connected provider serves it, so one fetch adjudicates the claim regardless
+/// of which backend the athlete uses.
 ///
-/// LIMITATION(registre#138): `VERIFICATION_TOOL` always fetches the REQUESTER's activities, so an
-/// [`RecoveryTrigger::UngroundedDataAsk`] raised by a question about a group PEER adjudicates the
-/// wrong athlete, and [`REASK_INSTRUCTION`] then tells the model that data answers the question.
-/// Live 2026-08-30 (Telegram group): « as-tu regarde l'historique Strava de <peer> ? » re-asked
-/// with the requester's own activities and delivered a confident denial of peer access that three
-/// earlier turns had actually exercised. Routing the fetch by the subject of the ask is the fix.
-const VERIFICATION_TOOL: &str = "get_activities";
+/// It answers only an ask about the requester. An ask that names a group
+/// peer is routed by [`super::capability_subject`] to the consent-gated peer
+/// tool instead — a question about somebody else cannot be adjudicated with
+/// the asker's own activities (live 2026-08-30: doing so manufactured a
+/// confident denial of peer access that three earlier turns had exercised).
+pub(super) const VERIFICATION_TOOL: &str = "get_activities";
 
 /// How many activities the verification fetch asks for — enough for the
 /// model to answer "propose a session from my recent training" without
@@ -129,7 +132,14 @@ pub async fn apply_capability_recovery(
     // verifier, not by a self-fetch — the athlete's own activities say
     // nothing about what a PEER did.
     if matches!(trigger, RecoveryTrigger::UnverifiedPeerClaim) {
-        apply_peer_claim_recovery(&deps, input, result).await;
+        apply_peer_claim_recovery(&deps, input, result, "").await;
+        return;
+    }
+
+    // An ask about a roster peer is adjudicated with THAT peer's data. The
+    // requester's own activities answer only an ask about the requester.
+    let claimed_failure = matches!(trigger, RecoveryTrigger::ClaimedFailure);
+    if route_to_subject(&deps, input, result, claimed_failure).await {
         return;
     }
 
@@ -149,24 +159,73 @@ pub async fn apply_capability_recovery(
             // The claim may be an honest outage report, so it still reaches the
             // athlete — but the platform could not stand behind it, so it does
             // not get to teach the model anything on a later turn.
-            result.capability_claim_unverified = matches!(trigger, RecoveryTrigger::ClaimedFailure);
+            result.capability_claim_unverified = claimed_failure;
         }
         VerificationOutcome::Verified(payload) => {
-            // The fetch succeeded, so the claim is disproven. Book the
-            // verification call like any other tool call this turn —
-            // per-turn observability reads `tools_called` to answer "which
-            // tools ran".
-            result.tool_calls_count += 1;
-            result.tools_called.push(VERIFICATION_TOOL.to_owned());
-            let before = result.content.clone();
-            reask_with_verified_data(&deps, payload, result).await;
-            // The re-ask replaces the reply on success. When it does not, the
-            // original text survives — and if that text was a data-access
-            // claim, the fetch just proved it false, so it must never replay.
-            let claim_survived =
-                result.content == before && matches!(trigger, RecoveryTrigger::ClaimedFailure);
-            result.capability_claim_unverified = claim_survived;
+            reground_requester(&deps, input, result, payload, claimed_failure).await;
         }
+    }
+}
+
+/// Hand the turn to the subject-routed arm when the ask names a roster
+/// peer. `true` when it did — the requester-scoped fetch must not run then.
+async fn route_to_subject(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+    result: &mut ToolLoopResult,
+    claimed_failure: bool,
+) -> bool {
+    let requester = parse_uuid(&input.user_id).unwrap_or_default();
+    let AskSubject::Peers(peers) = resolve_ask_subject(
+        &input.content,
+        &result.content,
+        claimed_failure,
+        deps.peer_roster,
+        requester,
+    ) else {
+        return false;
+    };
+    info!(
+        peers = ?peers.iter().map(|p| p.display_name.as_str()).collect::<Vec<_>>(),
+        "capability_recovery_subject: the ask names a roster peer; routing the fetch to them"
+    );
+    apply_subject_recovery(deps, input, result, claimed_failure, peers).await;
+    true
+}
+
+/// The requester's own fetch succeeded, so the claim is disproven: re-ask
+/// with the data, and hold the replacement to the same standard as the reply
+/// it replaced.
+///
+/// LIMITATION(registre#141): a replacement `reground_requester` installs can still be re-sampled
+/// by the identity re-ask downstream over the PRE-recovery messages and reinstated unstamped.
+async fn reground_requester(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+    result: &mut ToolLoopResult,
+    payload: serde_json::Value,
+    claimed_failure: bool,
+) {
+    // Book the verification call like any other tool call this turn —
+    // per-turn observability reads `tools_called` to answer "which tools
+    // ran".
+    result.tool_calls_count += 1;
+    result.tools_called.push(VERIFICATION_TOOL.to_owned());
+    let before = result.content.clone();
+    let verified_text = reask_with_verified_data(deps, payload, result).await;
+    // The re-ask replaces the reply on success. When it does not, the
+    // original text survives — and if that text was a data-access claim, the
+    // fetch just proved it false, so it must never replay.
+    result.capability_claim_unverified = result.content == before && claimed_failure;
+    // A replacement that names a roster peer with numbers gets the claim
+    // verifier, with the verification payload as evidence.
+    if result.content != before
+        && matches!(
+            recovery_trigger(deps, input, result),
+            Some(RecoveryTrigger::UnverifiedPeerClaim)
+        )
+    {
+        apply_peer_claim_recovery(deps, input, result, &verified_text).await;
     }
 }
 
@@ -320,13 +379,17 @@ fn recovery_trigger(
     input: &TurnInput,
     result: &ToolLoopResult,
 ) -> Option<RecoveryTrigger> {
-    if narration::contains_capability_failure(&result.content) {
+    if narration::contains_capability_failure(&result.content)
+        || reply_denies_a_named_peer(deps, input, result)
+    {
         return Some(RecoveryTrigger::ClaimedFailure);
     }
     // Gated on tools-ran-or-data-injected so a short reply on a purely social
     // turn («Bravo !») never reaches the check — see `is_degenerate_reply`.
     if narration::is_degenerate_reply(&result.content)
-        && (result.tool_calls_count > 0 || turn_carries_activity_block(deps.llm_messages))
+        && (result.tool_calls_count > 0
+            || turn_carries_activity_block(deps.llm_messages)
+            || turn_carries_peer_block(deps.llm_messages))
     {
         return Some(RecoveryTrigger::DegenerateReply);
     }
@@ -345,9 +408,26 @@ fn recovery_trigger(
     ungrounded.then_some(RecoveryTrigger::UngroundedDataAsk)
 }
 
+/// Whether the reply denies access to a roster peer's data — «je n'ai jamais
+/// eu accès à l'historique de Jean-Daniel» — which is a capability claim
+/// about somebody else and gets adjudicated with THAT person's data.
+///
+/// Gated on a roster AND a named member: the peer register on its own would
+/// read a DM's «je n'ai pas accès aux données de fréquence cardiaque de cette
+/// sortie» as a claim, and there is nobody to fetch for there.
+fn reply_denies_a_named_peer(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+    result: &ToolLoopResult,
+) -> bool {
+    !deps.peer_roster.is_empty()
+        && narration::contains_peer_access_denial(&result.content)
+        && !peers_named_in_reply(deps, input, result).is_empty()
+}
+
 /// Roster peers the REPLY names (not the inbound message — the 2026-08-22
 /// fabrication answered « J'en doute », which named nobody; the reply did).
-fn peers_named_in_reply(
+pub(super) fn peers_named_in_reply(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
     result: &ToolLoopResult,
@@ -371,8 +451,19 @@ fn turn_carries_activity_block(llm_messages: &[ChatMessage]) -> bool {
     })
 }
 
+/// Whether the peer-grounding stage put a roster member's activities in this
+/// turn's messages. Counts as "data was injected" for the degenerate-reply
+/// gate only: a turn that has a PEER's rows and none of the requester's is
+/// still ungrounded on the requester's side, so it never exempts the
+/// ungrounded-ask trigger.
+fn turn_carries_peer_block(llm_messages: &[ChatMessage]) -> bool {
+    llm_messages
+        .iter()
+        .any(|m| m.content.contains(PEER_GROUNDING_LEAD))
+}
+
 /// What one verification fetch concluded about the model's claim.
-enum VerificationOutcome {
+pub(super) enum VerificationOutcome {
     /// The fetch needs re-auth: the claim was right but useless — the athlete
     /// needs the reconnect link, not an apology. Carries the provider slug.
     AuthRequired(String),
@@ -390,7 +481,7 @@ enum VerificationOutcome {
 /// stamped with `META_AUTH_REQUIRED_PROVIDER` (the provider resolver and
 /// token layer use this one — including the zero-connections case). The tool
 /// loop scans for the same pair at `tool_execution.rs`.
-async fn run_verification_fetch(
+pub(super) async fn run_verification_fetch(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
 ) -> VerificationOutcome {
@@ -449,12 +540,20 @@ async fn run_verification_fetch(
 }
 
 /// One completion over the turn's messages plus the verified tool result,
-/// taken only if it comes back free of capability-failure claims.
+/// taken only if it comes back free of capability-failure claims. Returns the
+/// tool result as the text the model saw, so a re-check of the replacement
+/// can count it as evidence.
 async fn reask_with_verified_data(
     deps: &CapabilityRecoveryDeps<'_>,
     payload: serde_json::Value,
     result: &mut ToolLoopResult,
-) {
+) -> String {
+    let function_response = FunctionResponse {
+        name: VERIFICATION_TOOL.to_owned(),
+        response: payload,
+    };
+    let tool_text = format_tool_results_as_text(&[function_response]);
+
     let Ok(provider) = chat_provider_from_resources_arc(
         deps.ctx.chat_provider.as_ref(),
         deps.ctx.llm_provider.as_ref(),
@@ -465,14 +564,8 @@ async fn reask_with_verified_data(
         warn!(
             "capability recovery found no provider for the re-ask; leaving the reply as delivered"
         );
-        return;
+        return tool_text;
     };
-
-    let function_response = FunctionResponse {
-        name: VERIFICATION_TOOL.to_owned(),
-        response: payload,
-    };
-    let tool_text = format_tool_results_as_text(&[function_response]);
 
     let mut messages = deps.llm_messages.to_vec();
     messages.push(ChatMessage::user(format!(
@@ -481,6 +574,7 @@ async fn reask_with_verified_data(
     let request = ChatRequest::new(messages).with_model(deps.active_model);
 
     apply_reask_outcome(provider.complete(&request).await, result);
+    tool_text
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -531,10 +625,15 @@ pub fn peer_repair_prompt(peer_name: &str, unsupported: &[String], payload: &str
 /// unsupported claims survive is stamped `capability_claim_unverified`, so
 /// the fabrication cannot replay into later prompts and become established
 /// fact — the same no-replay machinery the access-failure claims use.
+///
+/// `extra_evidence` is data the model saw that is not in `deps.llm_messages`
+/// — the verification payload a re-ask was built on — so a claim the repair
+/// took from it is judged against it.
 async fn apply_peer_claim_recovery(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
     result: &mut ToolLoopResult,
+    extra_evidence: &str,
 ) {
     let peers = peers_named_in_reply(deps, input, result);
     let Some(peer) = peers.first() else {
@@ -548,7 +647,7 @@ async fn apply_peer_claim_recovery(
         return;
     };
 
-    let evidence = collect_turn_evidence(deps.llm_messages);
+    let evidence = turn_evidence_with(deps.llm_messages, extra_evidence);
     let unsupported = verify_peer_claims(
         provider.as_ref(),
         deps.active_model,
@@ -609,8 +708,16 @@ async fn fetch_peer_evidence(
             .with_conversation_id(input.conversation_id.clone())
             .with_turn_token(input.turn_id.0.to_string()),
     );
-    let payload =
-        fetch_peer_activities(&executor, &input.user_id, input.tool_tenant_id, peer_name).await?;
+    let group_id = conversation_group_id(deps, input).await;
+    let payload = fetch_peer_activities_outcome(
+        &executor,
+        &input.user_id,
+        input.tool_tenant_id,
+        peer_name,
+        group_id.as_deref(),
+    )
+    .await
+    .fetched()?;
     result.tool_calls_count += 1;
     result.tools_called.push(PEER_FETCH_TOOL.to_owned());
     Some(payload.to_string())
@@ -655,7 +762,7 @@ async fn reask_with_peer_evidence(
 /// the generic apology). One bounded retry mirrors the headless loop's
 /// degenerate-turn retry; a second degenerate completion reports failure so
 /// the caller keeps the original, stamped.
-async fn request_peer_reask(
+pub(super) async fn request_peer_reask(
     deps: &CapabilityRecoveryDeps<'_>,
     provider: &pierre_llm::ChatProvider,
     prompt: &str,
@@ -691,7 +798,7 @@ async fn request_peer_reask(
 /// to the same standard as the original — it must verify against the
 /// enlarged evidence set (otherwise the repair could fabricate too) and
 /// carry no capability-failure claim.
-async fn reask_reply_is_clean(
+pub(super) async fn reask_reply_is_clean(
     deps: &CapabilityRecoveryDeps<'_>,
     provider: &pierre_llm::ChatProvider,
     peer_name: &str,
@@ -718,9 +825,20 @@ async fn reask_reply_is_clean(
     true
 }
 
+/// [`collect_turn_evidence`] plus data the model saw that is not in the
+/// message list — a verification payload a re-ask was built on.
+fn turn_evidence_with(llm_messages: &[ChatMessage], extra: &str) -> String {
+    let mut evidence = collect_turn_evidence(llm_messages);
+    if !extra.is_empty() {
+        evidence.push('\n');
+        evidence.push_str(extra);
+    }
+    evidence
+}
+
 /// This turn's evidence: every tool-result or platform-injected data block in
 /// the message list, plus the group roster section of the system prompt.
-fn collect_turn_evidence(llm_messages: &[ChatMessage]) -> String {
+pub(super) fn collect_turn_evidence(llm_messages: &[ChatMessage]) -> String {
     let mut evidence = String::new();
     for message in llm_messages {
         let content = &message.content;
@@ -757,7 +875,7 @@ fn truncate_chars(s: &str, cap: usize) -> &str {
 /// support. Fail-open: a verifier outage or an unparseable verdict reports
 /// "supported" (and logs), because a flaky judge must never cost the athlete
 /// a legitimate reply.
-async fn verify_peer_claims(
+pub(super) async fn verify_peer_claims(
     provider: &pierre_llm::ChatProvider,
     model: &str,
     evidence: &str,
@@ -824,7 +942,19 @@ pub fn parse_unsupported_verdict(text: &str) -> Vec<String> {
 /// accept-only-if-clean contract.
 fn apply_reask_outcome(outcome: Result<ChatResponse, AppError>, result: &mut ToolLoopResult) {
     match outcome {
-        Ok(reply) if !narration::contains_capability_failure(&reply.content) => {
+        Ok(reply) => apply_reask_reply(reply, result),
+        Err(e) => warn!(
+            error = %e,
+            "capability_failure_reask_failed: re-ask did not complete; \
+             keeping the original reply"
+        ),
+    }
+}
+
+/// The completed re-ask: taken when [`reask_verdict`] says it is usable.
+fn apply_reask_reply(reply: ChatResponse, result: &mut ToolLoopResult) {
+    match reask_verdict(&reply.content) {
+        ReaskVerdict::Usable => {
             info!(
                 reply_len = reply.content.len(),
                 "capability_failure_reask_recovered: re-ask with verified data \
@@ -832,18 +962,35 @@ fn apply_reask_outcome(outcome: Result<ChatResponse, AppError>, result: &mut Too
             );
             result.content = reply.content;
         }
-        Ok(_) => {
-            warn!(
-                "capability_failure_reask_persisted: re-ask still claimed broken \
-                 access with the data in hand; keeping the original reply"
-            );
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                "capability_failure_reask_failed: re-ask did not complete; \
-                 keeping the original reply"
-            );
-        }
+        ReaskVerdict::NoAnswer => warn!(
+            reply_len = reply.content.len(),
+            "capability_failure_reask_degenerate: re-ask carried no answer; \
+             keeping the original reply"
+        ),
+        ReaskVerdict::StillClaims => warn!(
+            "capability_failure_reask_persisted: re-ask still claimed broken \
+             access with the data in hand; keeping the original reply"
+        ),
+    }
+}
+
+/// Whether a re-ask's reply may replace the original.
+enum ReaskVerdict {
+    /// Substantive and free of capability-failure claims.
+    Usable,
+    /// Empty or a dangling fragment — a lost turn, not a corrected reply.
+    NoAnswer,
+    /// Still claims broken access with the data in hand.
+    StillClaims,
+}
+
+/// Classify a re-ask's reply — see [`ReaskVerdict`].
+fn reask_verdict(content: &str) -> ReaskVerdict {
+    if narration::is_degenerate_reply(content) {
+        ReaskVerdict::NoAnswer
+    } else if narration::contains_capability_failure(content) {
+        ReaskVerdict::StillClaims
+    } else {
+        ReaskVerdict::Usable
     }
 }

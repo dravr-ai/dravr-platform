@@ -656,6 +656,10 @@ pub const KEY_PLAN_RESUMES: &str = "commands.plan.resumes";
 pub const KEY_PLAN_EMPTY: &str = "commands.plan.empty";
 /// Key: `/plan` note appended when the plan's goal fact has been superseded.
 pub const KEY_PLAN_STALE_GOAL: &str = "commands.plan.stale_goal";
+/// Key: `/plan share` header opening the reply posted to a messaging room.
+/// `{0}` = the caller's display name, HTML-escaped by the handler because the
+/// reply is rich text.
+pub const KEY_PLAN_SHARED_HEADER: &str = "commands.plan.shared_header";
 
 // ── /group command keys ───────────────────────────────────────────────────
 
@@ -1072,6 +1076,7 @@ pub(crate) const FR_PLAN_RESUMES: &str = "Le plan reprend le {0}.";
 pub(crate) const FR_PLAN_EMPTY: &str = "Aucun plan enregistré pour l'instant — demande à ton coach d'en construire un vers ton objectif.";
 pub(crate) const FR_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Ton objectif a changé depuis — demande à ton coach de mettre le plan à jour.";
+pub(crate) const FR_PLAN_SHARED_HEADER: &str = "📋 Plan de <b>{0}</b> — partagé avec la salle.";
 
 pub(crate) const FR_GROUP_LIST_EMPTY: &str =
     "Tu n'es membre d'aucun groupe.\nCrée ou rejoins un groupe via l'app web ou mobile.";
@@ -1410,6 +1415,7 @@ pub(crate) const EN_PLAN_EMPTY: &str =
     "No plan saved yet — ask your coach to build one toward your goal.";
 pub(crate) const EN_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Your goal has changed since this plan — ask your coach to refresh it.";
+pub(crate) const EN_PLAN_SHARED_HEADER: &str = "📋 <b>{0}</b>'s plan — shared with the room.";
 
 pub(crate) const EN_GROUP_LIST_EMPTY: &str =
     "You are not a member of any groups.\nCreate or join a group via the web or mobile app.";
@@ -1720,6 +1726,7 @@ pub(crate) const ES_PLAN_EMPTY: &str =
     "Aún no hay plan guardado — pide a tu coach que construya uno hacia tu objetivo.";
 pub(crate) const ES_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Tu objetivo ha cambiado desde este plan — pide a tu coach que lo actualice.";
+pub(crate) const ES_PLAN_SHARED_HEADER: &str = "📋 Plan de <b>{0}</b> — compartido con la sala.";
 
 pub(crate) const ES_GROUP_LIST_EMPTY: &str =
     "No eres miembro de ningún grupo.\nCrea o únete a un grupo desde la app web o móvil.";
@@ -2026,6 +2033,7 @@ pub(crate) const DE_PLAN_EMPTY: &str =
     "Noch kein Plan gespeichert — bitte deinen Coach, einen auf dein Ziel hin zu bauen.";
 pub(crate) const DE_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ Dein Ziel hat sich seitdem geändert — bitte deinen Coach, den Plan zu aktualisieren.";
+pub(crate) const DE_PLAN_SHARED_HEADER: &str = "📋 Plan von <b>{0}</b> — mit dem Raum geteilt.";
 
 pub(crate) const DE_GROUP_LIST_EMPTY: &str =
     "Du bist in keiner Gruppe.\nErstelle oder tritt einer Gruppe über die Web- oder Mobile-App bei.";
@@ -2338,6 +2346,7 @@ pub(crate) const PT_PLAN_EMPTY: &str =
     "Ainda não há plano guardado — pede ao teu coach para construir um até ao teu objetivo.";
 pub(crate) const PT_PLAN_STALE_GOAL: &str =
     "\n\n⚠️ O teu objetivo mudou desde este plano — pede ao teu coach para o atualizar.";
+pub(crate) const PT_PLAN_SHARED_HEADER: &str = "📋 Plano de <b>{0}</b> — partilhado com a sala.";
 
 pub(crate) const PT_GROUP_LIST_EMPTY: &str =
     "Não és membro de nenhum grupo.\nCria ou junta-te a um grupo pela app web ou móvel.";
@@ -2620,6 +2629,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "fr", FR_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "fr", FR_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "fr", FR_PLAN_STALE_GOAL),
+    (KEY_PLAN_SHARED_HEADER, "fr", FR_PLAN_SHARED_HEADER),
     (KEY_GROUP_LIST_EMPTY, "fr", FR_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "fr", FR_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "fr", FR_GROUP_LIST_ITEM),
@@ -2860,6 +2870,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "en", EN_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "en", EN_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "en", EN_PLAN_STALE_GOAL),
+    (KEY_PLAN_SHARED_HEADER, "en", EN_PLAN_SHARED_HEADER),
     (KEY_GROUP_LIST_EMPTY, "en", EN_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "en", EN_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "en", EN_GROUP_LIST_ITEM),
@@ -3099,6 +3110,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "es", ES_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "es", ES_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "es", ES_PLAN_STALE_GOAL),
+    (KEY_PLAN_SHARED_HEADER, "es", ES_PLAN_SHARED_HEADER),
     (KEY_GROUP_LIST_EMPTY, "es", ES_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "es", ES_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "es", ES_GROUP_LIST_ITEM),
@@ -3339,6 +3351,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "de", DE_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "de", DE_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "de", DE_PLAN_STALE_GOAL),
+    (KEY_PLAN_SHARED_HEADER, "de", DE_PLAN_SHARED_HEADER),
     (KEY_GROUP_LIST_EMPTY, "de", DE_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "de", DE_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "de", DE_GROUP_LIST_ITEM),
@@ -3579,6 +3592,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_PLAN_RESUMES, "pt", PT_PLAN_RESUMES),
     (KEY_PLAN_EMPTY, "pt", PT_PLAN_EMPTY),
     (KEY_PLAN_STALE_GOAL, "pt", PT_PLAN_STALE_GOAL),
+    (KEY_PLAN_SHARED_HEADER, "pt", PT_PLAN_SHARED_HEADER),
     (KEY_GROUP_LIST_EMPTY, "pt", PT_GROUP_LIST_EMPTY),
     (KEY_GROUP_LIST_HEADER, "pt", PT_GROUP_LIST_HEADER),
     (KEY_GROUP_LIST_ITEM, "pt", PT_GROUP_LIST_ITEM),

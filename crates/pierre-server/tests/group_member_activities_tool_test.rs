@@ -489,4 +489,228 @@ mod peer_fetch_tests {
             "no activity count may be fabricated for a failed fetch, got: {payload}"
         );
     }
+    /// The tool's refusals carry a structured `reason`, so a caller can tell
+    /// a consent decline (relayable to the athlete) from a resolution failure
+    /// (never relayed) without parsing English.
+    #[tokio::test]
+    async fn refusals_carry_a_structured_reason() {
+        let resources = create_test_server_resources().await.unwrap();
+        let requester = seed_user(&resources, "philtool").await;
+        let host_tenant = create_tenant_owned_by(&resources, requester).await;
+        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let peer = seed_user(&resources, "raphtool").await;
+        let peer_tenant = create_tenant_owned_by(&resources, peer).await;
+
+        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        add_member(
+            &resources,
+            gid,
+            requester,
+            host_tenant,
+            GroupRole::Owner,
+            false,
+        )
+        .await;
+        add_member(&resources, gid, peer, peer_tenant, GroupRole::Member, false).await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let ctx = tool_context(requester, host_tenant);
+        let cases = [
+            (json!({ "member": "raphtool" }), "no_consent"),
+            (json!({ "member": "nobody-here" }), "no_match"),
+            (json!({ "member": "philtool" }), "self"),
+        ];
+        for (args, expected) in cases {
+            let response = GetGroupMemberActivitiesTool
+                .execute(&runtime, &ctx, args.clone())
+                .await;
+            let payload = structured(&response);
+            assert_eq!(
+                payload.get("reason").and_then(Value::as_str),
+                Some(expected),
+                "reason for {args}: {payload}"
+            );
+        }
+    }
+
+    /// `group_id` pins the consent read to THAT group's membership row: a peer
+    /// who consented in another shared group is still refused in the room
+    /// where they did not.
+    #[tokio::test]
+    async fn a_group_pin_uses_that_groups_consent_not_one_granted_elsewhere() {
+        let resources = create_test_server_resources().await.unwrap();
+        let requester = seed_user(&resources, "philtool").await;
+        let host_tenant = create_tenant_owned_by(&resources, requester).await;
+        let coach = seed_coach(&resources, requester, host_tenant).await;
+
+        let peer = seed_user(&resources, "raphtool").await;
+        let peer_tenant = create_tenant_owned_by(&resources, peer).await;
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(peer, peer_tenant, "strava", &ConnectionType::OAuth, None)
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities(peer, &peer_tenant, "strava", &[recent_ride("peer-ride-1")])
+            .await
+            .unwrap();
+
+        // The room: peer has NOT consented here.
+        let room = create_group(&resources, host_tenant, coach, requester, true).await;
+        add_member(
+            &resources,
+            room,
+            requester,
+            host_tenant,
+            GroupRole::Owner,
+            false,
+        )
+        .await;
+        add_member(
+            &resources,
+            room,
+            peer,
+            peer_tenant,
+            GroupRole::Member,
+            false,
+        )
+        .await;
+        // Another shared group where the peer DID consent.
+        let elsewhere = create_group(&resources, host_tenant, coach, requester, true).await;
+        add_member(
+            &resources,
+            elsewhere,
+            requester,
+            host_tenant,
+            GroupRole::Owner,
+            false,
+        )
+        .await;
+        add_member(
+            &resources,
+            elsewhere,
+            peer,
+            peer_tenant,
+            GroupRole::Member,
+            true,
+        )
+        .await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let ctx = tool_context(requester, host_tenant);
+
+        let pinned = structured(
+            &GetGroupMemberActivitiesTool
+                .execute(
+                    &runtime,
+                    &ctx,
+                    json!({ "member": "raphtool", "group_id": room.to_string() }),
+                )
+                .await,
+        );
+        assert_eq!(
+            pinned.get("reason").and_then(Value::as_str),
+            Some("no_consent"),
+            "pinned to the room, the room's consent decides: {pinned}"
+        );
+        assert!(pinned.get("activities").is_none());
+
+        let unpinned = structured(
+            &GetGroupMemberActivitiesTool
+                .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
+                .await,
+        );
+        assert_eq!(
+            unpinned
+                .get("activities")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1),
+            "unpinned, the most permissive shared group serves: {unpinned}"
+        );
+    }
+
+    /// The group's attached human coach has no membership row, yet their
+    /// prompt view lists the consenting roster — so their fetch resolves the
+    /// same names, under the same consent gate.
+    #[tokio::test]
+    async fn the_attached_human_coach_can_fetch_a_consenting_member() {
+        let resources = create_test_server_resources().await.unwrap();
+        let owner = seed_user(&resources, "ownertool").await;
+        let host_tenant = create_tenant_owned_by(&resources, owner).await;
+        let coach_persona = seed_coach(&resources, owner, host_tenant).await;
+
+        let human_coach = seed_user(&resources, "coachtool").await;
+        let coach_tenant = create_tenant_owned_by(&resources, human_coach).await;
+
+        let peer = seed_user(&resources, "raphtool").await;
+        let peer_tenant = create_tenant_owned_by(&resources, peer).await;
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(peer, peer_tenant, "strava", &ConnectionType::OAuth, None)
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities(peer, &peer_tenant, "strava", &[recent_ride("peer-ride-1")])
+            .await
+            .unwrap();
+
+        let gid = create_group(&resources, host_tenant, coach_persona, owner, true).await;
+        add_member(&resources, gid, owner, host_tenant, GroupRole::Owner, false).await;
+        add_member(&resources, gid, peer, peer_tenant, GroupRole::Member, true).await;
+        assert!(resources
+            .common
+            .repos
+            .groups
+            .set_group_coach_user(&gid.to_string(), Some(human_coach), host_tenant)
+            .await
+            .unwrap());
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let ctx = tool_context(human_coach, coach_tenant);
+        let payload = structured(
+            &GetGroupMemberActivitiesTool
+                .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
+                .await,
+        );
+        assert_eq!(
+            payload
+                .get("activities")
+                .and_then(Value::as_array)
+                .and_then(|a| a.first())
+                .and_then(|a| a.get("id"))
+                .and_then(Value::as_str),
+            Some("peer-ride-1"),
+            "the attached coach reads the consenting member's ride: {payload}"
+        );
+
+        // The same gate still holds for the coach: consent withdrawn, no data.
+        assert!(resources
+            .common
+            .repos
+            .groups
+            .update_peer_sharing_consent(&gid.to_string(), peer, false)
+            .await
+            .unwrap());
+        let refused = structured(
+            &GetGroupMemberActivitiesTool
+                .execute(&runtime, &ctx, json!({ "member": "raphtool" }))
+                .await,
+        );
+        assert_eq!(
+            refused.get("reason").and_then(Value::as_str),
+            Some("no_consent"),
+            "the coach's read is gated by the member's consent too: {refused}"
+        );
+    }
 }

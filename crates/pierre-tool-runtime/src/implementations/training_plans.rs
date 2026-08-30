@@ -39,8 +39,11 @@ use serde_json::{json, Value};
 use tracing::warn;
 
 use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN};
+use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
 use super::training_plan_push::{calendar_block, calendar_preview_after_save};
-use super::training_plan_schema::{outline_schema, parse_payload_part, string_prop, weeks_schema};
+use super::training_plan_schema::{
+    athlete_prop, outline_schema, parse_payload_part, string_prop, weeks_schema,
+};
 use super::training_plan_telemetry::{
     athlete_today, emit_coverage_check, emit_plan_saved, emit_ramp_verdict, ramp_baseline,
 };
@@ -572,6 +575,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 ..Default::default()
             },
         );
+        properties.insert("athlete".to_owned(), athlete_prop());
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
@@ -579,7 +583,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         };
         tool_definition(
             "get_training_plan",
-            "Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it.",
+            "Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.",
             schema,
             Some(read_annotations()),
         )
@@ -597,20 +601,43 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant = TenantId::from_uuid(context.require_tenant()?);
-            let tenant_id = tenant.to_string();
-            let user_id = ctx_user_id(&context);
+            let requester_tenant = TenantId::from_uuid(context.require_tenant()?);
+            let requester = ctx_user_id(&context);
             let arg_coach = optional_string_field(&args, "coach_id");
+            let athlete = optional_string_field(&args, "athlete");
             let include_history = args
                 .get("include_history")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
 
             let repos = context.resources.repos();
-            let conv =
-                load_conversation(repos, context.conversation_id.as_deref(), tenant, &user_id)
-                    .await?;
-            let coach = resolve_coach_slug(conv.as_ref(), arg_coach);
+            let conv = load_conversation(
+                repos,
+                context.conversation_id.as_deref(),
+                requester_tenant,
+                &requester,
+            )
+            .await?;
+            // Whose plan: the caller's own, or — for the group's human coach,
+            // from a direct chat, with the athlete's consent — a coached
+            // athlete's. Everything below reads under the resolved scope.
+            let scope = match resolve_plan_scope(PlanScopeRequest {
+                context: &context,
+                requester_tenant,
+                conversation: conv.as_ref(),
+                arg_coach,
+                athlete: athlete.as_deref(),
+                tool_name: "get_training_plan",
+            })
+            .await?
+            {
+                Ok(scope) => scope,
+                Err(refused) => return Ok(refused),
+            };
+            let tenant = scope.tenant;
+            let tenant_id = tenant.to_string();
+            let user_id = scope.user_id.to_string();
+            let coach = scope.coach_slug.clone();
             let today = athlete_today(repos, &user_id).await;
             let Some(plan) = repos
                 .training_plans
@@ -620,9 +647,10 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 // No plan, but the calendar may still hold single prescriptions
                 // — and plan entries of a plan since abandoned, which the
                 // block's `pending.remove` counts.
-                let calendar = calendar_block(repos, tenant, context.user_id, &[], today).await?;
+                let calendar = calendar_block(repos, tenant, scope.user_id, &[], today).await?;
                 return Ok(ToolResult::ok(json!({
                     "plan": Value::Null,
+                    "athlete": scope.acting_for,
                     "message": "no active training plan — build one with the athlete and persist it via save_training_plan",
                     "calendar": calendar,
                 })));
@@ -643,10 +671,11 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 .cloned()
                 .collect();
             let calendar =
-                calendar_block(repos, tenant, context.user_id, &active_weeks, today).await?;
+                calendar_block(repos, tenant, scope.user_id, &active_weeks, today).await?;
 
             Ok(ToolResult::ok(json!({
                 "plan": plan,
+                "athlete": scope.acting_for,
                 "weeks": weeks,
                 "goal_stale": goal_stale,
                 "calendar": calendar,
@@ -683,6 +712,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             "conversation_id".to_owned(),
             string_prop("Originating conversation ID for provenance."),
         );
+        properties.insert("athlete".to_owned(), athlete_prop());
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
@@ -690,7 +720,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         };
         tool_definition(
             "save_training_plan",
-            "Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan.",
+            "Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.",
             schema,
             Some(write_annotations()),
         )
@@ -712,10 +742,10 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant = TenantId::from_uuid(context.require_tenant()?);
-            let tenant_id = tenant.to_string();
-            let user_id = ctx_user_id(&context);
+            let requester_tenant = TenantId::from_uuid(context.require_tenant()?);
+            let requester = ctx_user_id(&context);
             let arg_coach = optional_string_field(&args, "coach_id");
+            let athlete = optional_string_field(&args, "athlete");
             let conversation_id = optional_string_field(&args, "conversation_id");
             let mut goal_fact_id = optional_string_field(&args, "goal_fact_id");
 
@@ -765,9 +795,32 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             }
 
             let repos = context.resources.repos();
-            let conv =
-                load_conversation(repos, context.conversation_id.as_deref(), tenant, &user_id)
-                    .await?;
+            let conv = load_conversation(
+                repos,
+                context.conversation_id.as_deref(),
+                requester_tenant,
+                &requester,
+            )
+            .await?;
+            // Whose plan: the caller's own, or — for the group's human coach,
+            // from a direct chat, with the athlete's consent — a coached
+            // athlete's. Every write below lands under the resolved scope.
+            let scope = match resolve_plan_scope(PlanScopeRequest {
+                context: &context,
+                requester_tenant,
+                conversation: conv.as_ref(),
+                arg_coach,
+                athlete: athlete.as_deref(),
+                tool_name: "save_training_plan",
+            })
+            .await?
+            {
+                Ok(scope) => scope,
+                Err(refused) => return Ok(refused),
+            };
+            let tenant = scope.tenant;
+            let tenant_id = tenant.to_string();
+            let user_id = scope.user_id.to_string();
 
             // Enforcement half of the guided-flow tool withhold. The pipeline
             // already drops this tool from the prompt's tool list and from the
@@ -776,15 +829,18 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // `tools/list` straight off the `/mcp` endpoint. That path carries
             // no conversation, so the walk is resolved from the athlete there
             // (see `guided_flow_is_active`) and the withhold holds on every
-            // surface, including a direct MCP call.
-            if guided_flow_is_active(repos, conv.as_ref(), tenant, &user_id).await? {
+            // surface, including a direct MCP call. Self scope only: a coach
+            // saving for an athlete is not inside that athlete's profile walk.
+            if scope.acting_for.is_none()
+                && guided_flow_is_active(repos, conv.as_ref(), tenant, &user_id).await?
+            {
                 return Err(AppError::invalid_input(
                     "this conversation is building the athlete's profile one topic at a time — \
                      finish the profile walk before saving a training plan",
                 ));
             }
 
-            let coach = resolve_coach_slug(conv.as_ref(), arg_coach);
+            let coach = scope.coach_slug.clone();
 
             // Don't trust an LLM-supplied goal_fact_id that isn't a real fact of
             // this athlete — drop it and let the outline path mint/reuse one.
@@ -889,7 +945,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // the calendar is behind — without pushing on anyone's behalf.
             let today = athlete_today(repos, &user_id).await;
             let calendar =
-                calendar_preview_after_save(repos, tenant, context.user_id, &bundle.plan.id, today)
+                calendar_preview_after_save(repos, tenant, scope.user_id, &bundle.plan.id, today)
                     .await;
 
             let race_summary = format!(
@@ -910,6 +966,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
 
             Ok(ToolResult::ok(json!({
                 "plan_id": bundle.plan.id,
+                "athlete": scope.acting_for,
                 "goal_race": race_summary,
                 "superseded_plan_id": bundle.superseded_plan_id,
                 "goal_fact_id": goal_fact_id,

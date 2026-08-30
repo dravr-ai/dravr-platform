@@ -349,7 +349,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
     let Some(text) = content_body_text(&message.content) else {
         return false;
     };
-    let Some(reply) = try_handle_slash_command(
+    let Some(mut reply) = try_handle_slash_command(
         resources,
         SlashCommandContext {
             channel,
@@ -404,8 +404,14 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
     } else {
         // Either a 1:1 DM (the conversation IS the private chat) or a
         // room-visible command whose reply the whole room should see — a
-        // group-wide setting change. The command echo stays in place in that
-        // case, so the room reads as "<member> ran it → here is the effect".
+        // group-wide setting change, a plan the athlete chose to share. The
+        // command echo stays in place in that case, so the room reads as
+        // "<member> ran it → here is the effect", and the reply threads onto
+        // the echo so a body the channel splits keeps its attribution on
+        // every part, not only the one carrying the header.
+        if !message.is_direct_message {
+            reply.message.reply_to = Some(message.channel_message_id.clone());
+        }
         send_channel_response(db, tenant_id, channel, adapter, reply.message).await;
     }
     true

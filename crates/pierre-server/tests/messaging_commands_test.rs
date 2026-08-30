@@ -2332,7 +2332,7 @@ mod command_tests {
             "commands/ catalog must load — otherwise this test asserts nothing"
         );
 
-        for trigger in ["/group respond", "/group coach"] {
+        for trigger in ["/group respond", "/group coach", "/plan share"] {
             let def = defs
                 .iter()
                 .find(|d| d.command == trigger)
@@ -2343,6 +2343,19 @@ mod command_tests {
                 def.name
             );
         }
+
+        // The share variant is room-visible because typing it is the consent;
+        // bare `/plan` shows the same plan and must keep the private default,
+        // or every `/plan` in a room would publish one member's plan.
+        let plan = defs
+            .iter()
+            .find(|d| d.command == "/plan")
+            .expect("no command definition for /plan");
+        assert!(
+            slash_reply_should_be_private(false, Some(&plan.name)),
+            "/plan (definition name {:?}) must stay private in a room",
+            plan.name
+        );
     }
 
     // ════════════════════════════════════════════════════════════════

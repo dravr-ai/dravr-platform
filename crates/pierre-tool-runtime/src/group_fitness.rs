@@ -22,7 +22,6 @@ use pierre_core::models::FormBand;
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
-use pierre_runtime_context::DataContext;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -201,29 +200,10 @@ pub async fn fetch_member_snapshots(
     join_all(futures).await
 }
 
-/// Fetch display name for a user from the global user database.
-///
-/// Returns the user's display name if set, email prefix if not, or "Unknown"
-/// if the user cannot be fetched. `pub(crate)` so the group peer-fetch tool
-/// resolves a member by the SAME display name the snapshot roster shows the LLM.
-pub(crate) async fn fetch_user_display_name(data: &DataContext, user_id: Uuid) -> String {
-    match data.repos().users.get_global(user_id).await {
-        Ok(Some(user)) => user
-            .display_name
-            .unwrap_or_else(|| user.email.split('@').next().unwrap_or("Unknown").to_owned()),
-        Ok(None) => {
-            info!(
-                user_id = %user_id,
-                "Snapshot: user record not found, display_name falls back to 'Unknown'"
-            );
-            "Unknown".to_owned()
-        }
-        Err(e) => {
-            info!(user_id = %user_id, error = %e, "Snapshot: failed to fetch user; display_name falls back to 'Unknown'");
-            "Unknown".to_owned()
-        }
-    }
-}
+// The member display-name rule lives in `crate::athlete_display_name`, which
+// every build compiles: the snapshot roster, the peer-fetch tool and the plan
+// tools' `athlete=` resolution all render a member by that one function.
+use crate::athlete_display_name::fetch_user_display_name;
 
 /// Compute training load metrics from a list of activities.
 ///

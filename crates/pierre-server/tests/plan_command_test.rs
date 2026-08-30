@@ -15,9 +15,14 @@
 //! today/tomorrow lookup and the race countdown are all deterministic.
 
 use anyhow::Result;
-use pierre_commands::plan::PlanShowHandler;
+use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, SlashRequest};
+use pierre_commands::plan::{PlanShareHandler, PlanShowHandler};
 use pierre_commands::{CommandHandler, PlatformCommandContext};
 use pierre_core::chunking::chunk_reply;
+use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
+};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -95,7 +100,22 @@ async fn setup() -> Result<(Arc<ServerContext>, Uuid, TenantId, String)> {
 
 /// Seed one outline plus one full week of concrete sessions.
 async fn seed_plan(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) -> Result<()> {
-    seed_plan_with(resources, user_id, tenant, &[], &[]).await
+    seed_plan_with(resources, user_id, tenant, None, &[], &[]).await
+}
+
+/// The same plan, filed under a specific coach persona slug.
+///
+/// A coach-agnostic plan renders under ANY coach lookup (`get_active_plan`
+/// falls back to the agnostic row), so it cannot tell whether the handler
+/// resolved the right coach. A plan under a slug only the athlete's selected
+/// coach (or the conversation's) resolves can.
+async fn seed_plan_under_coach(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    coach_slug: &str,
+) -> Result<()> {
+    seed_plan_with(resources, user_id, tenant, Some(coach_slug), &[], &[]).await
 }
 
 /// Seed the same plan behind extra outline blocks and alongside extra stored
@@ -107,6 +127,7 @@ async fn seed_plan_with(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
+    coach_slug: Option<&str>,
     leading_blocks: &[PlanBlock],
     extra_weeks: &[(String, Vec<PlannedDay>)],
 ) -> Result<()> {
@@ -163,7 +184,7 @@ async fn seed_plan_with(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            coach_slug: None,
+            coach_slug,
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
@@ -178,12 +199,23 @@ async fn seed_plan_with(
     Ok(())
 }
 
-fn ctx(
+/// Where the command was typed: which tenant owns the conversation row,
+/// whether the athlete is alone with the coach, and whether a messaging
+/// channel (a sender id) carried it — the three signals the plan handlers
+/// branch on.
+struct Surface<'a> {
+    conversation_tenant: TenantId,
+    is_direct_message: bool,
+    sender_id: Option<&'a str>,
+}
+
+fn ctx_on(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
     conversation_id: &str,
     args: Vec<String>,
+    surface: &Surface<'_>,
 ) -> PlatformCommandContext {
     PlatformCommandContext {
         user_id,
@@ -193,13 +225,206 @@ fn ctx(
         raw_text: "/plan".to_owned(),
         ctx: Arc::<ServerContext>::clone(resources) as Arc<dyn pierre_runtime_context::CommandCtx>,
         locale: "en".to_owned(),
-        is_direct_message: true,
+        is_direct_message: surface.is_direct_message,
         ambient_group_fallback: true,
         conversation_id: Some(conversation_id.to_owned()),
-        conversation_tenant_id: tenant_id,
-        sender_id: None,
+        conversation_tenant_id: surface.conversation_tenant,
+        sender_id: surface.sender_id.map(ToOwned::to_owned),
         tool_runtime: Arc::<ServerContext>::clone(resources),
     }
+}
+
+/// A messaging DM: the conversation lives under the athlete's own tenant.
+fn ctx(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    conversation_id: &str,
+    args: Vec<String>,
+) -> PlatformCommandContext {
+    ctx_on(
+        resources,
+        user_id,
+        tenant_id,
+        conversation_id,
+        args,
+        &Surface {
+            conversation_tenant: tenant_id,
+            is_direct_message: true,
+            sender_id: None,
+        },
+    )
+}
+
+/// A shared messaging room, as the ingress files it: the conversation row
+/// lives under the BOT's tenant — one the athlete does not belong to — so a
+/// lookup under the athlete's own tenant never finds it.
+///
+/// The bot tenant is another user's tenant; the room conversation is created
+/// there for the athlete, bound to `coach_id`, exactly as the messaging
+/// session opener does for a group chat.
+async fn room_conversation(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    coach_id: Option<&str>,
+) -> Result<(TenantId, String)> {
+    let bot_tenant = bot_tenant(resources).await?;
+    let conversation = room_conversation_in(resources, user_id, bot_tenant, coach_id, None).await?;
+    Ok((bot_tenant, conversation))
+}
+
+/// The messaging bot's tenant: owned by another user, never joined by the
+/// athlete.
+async fn bot_tenant(resources: &Arc<ServerContext>) -> Result<TenantId> {
+    let bot_email = format!("planbot_{}@example.com", Uuid::new_v4());
+    let (bot_owner, _) =
+        common::create_test_user_with_email(resources.database(), &bot_email).await?;
+    Ok(resources
+        .common
+        .repos
+        .tenants
+        .get_all()
+        .await?
+        .iter()
+        .find(|t| t.owner_user_id == bot_owner)
+        .map(|t| t.id)
+        .expect("bot owner owns a tenant"))
+}
+
+async fn room_conversation_in(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    bot_tenant: TenantId,
+    coach_id: Option<&str>,
+    group_id: Option<&str>,
+) -> Result<String> {
+    let conversation = resources
+        .common
+        .repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            bot_tenant,
+            "room",
+            "gemini-2.0-flash",
+            coach_id,
+            group_id,
+        )
+        .await?;
+    Ok(conversation.id)
+}
+
+/// A coaching group under the bot tenant with the athlete as a member — the
+/// shape a channel-bound room takes once the bot has enrolled its speakers.
+async fn bound_room_group(
+    resources: &Arc<ServerContext>,
+    bot_tenant: TenantId,
+    user_id: Uuid,
+    user_tenant: TenantId,
+) -> Result<Uuid> {
+    let persona = seed_persona(resources, user_id, user_tenant, "Room Persona").await?;
+    let group_id = Uuid::new_v4();
+    let now = chrono::Utc::now();
+    resources
+        .common
+        .repos
+        .groups
+        .create_group(
+            bot_tenant,
+            &CoachingGroup {
+                id: group_id,
+                tenant_id: bot_tenant.to_string(),
+                name: "Room Squad".to_owned(),
+                description: None,
+                coach_id: persona,
+                owner_id: user_id,
+                coach_user_id: None,
+                peer_data_sharing: true,
+                respond_mode: GroupRespondMode::default(),
+                max_members: 20,
+                is_active: true,
+                channel_type: Some("telegram".to_owned()),
+                channel_chat_id: Some("-100123".to_owned()),
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await?;
+    resources
+        .common
+        .repos
+        .groups
+        .add_member(&GroupMember {
+            id: Uuid::new_v4(),
+            group_id,
+            user_id,
+            tenant_id: bot_tenant.to_string(),
+            role: GroupRole::Owner,
+            peer_sharing_consent: false,
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        })
+        .await?;
+    Ok(group_id)
+}
+
+const ROOM_SENDER: &str = "telegram-user-42";
+const SHARED_MARKER: &str = "shared with the room";
+
+/// A coach persona in the athlete's tenant. The selected-coach pointer is a
+/// foreign key onto `coaches`, so a plan's coach slug has to be a real
+/// persona id, not a made-up string.
+async fn seed_persona(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    title: &str,
+) -> Result<String> {
+    let coach = resources
+        .common
+        .repos
+        .coaches
+        .create_system_coach(
+            user_id,
+            tenant,
+            &CreateSystemCoachRequest {
+                title: title.to_owned(),
+                description: None,
+                system_prompt: "Test prompt".to_owned(),
+                category: CoachCategory::Training,
+                tags: vec![],
+                sample_prompts: vec![],
+                visibility: CoachVisibility::Global,
+            },
+        )
+        .await?;
+    Ok(coach.id.to_string())
+}
+
+/// An athlete whose plan was built in their DM under their selected coach —
+/// the row a bare tenant/None lookup never finds.
+async fn athlete_with_a_coached_plan(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    display_name: &str,
+) -> Result<()> {
+    resources
+        .common
+        .repos
+        .users
+        .update_display_name(user_id, display_name)
+        .await?;
+    let selected = seed_persona(resources, user_id, tenant, "Share Coach").await?;
+    resources
+        .common
+        .repos
+        .tenants
+        .set_selected_coach(tenant, user_id, Some(&selected))
+        .await?;
+    seed_plan_under_coach(resources, user_id, tenant, &selected).await
 }
 
 #[tokio::test]
@@ -348,7 +573,15 @@ async fn plan_survives_a_stored_date_at_the_calendar_edge() -> Result<()> {
             "Z2",
         )],
     );
-    seed_plan_with(&resources, user_id, tenant, &[edge_block], &[edge_week]).await?;
+    seed_plan_with(
+        &resources,
+        user_id,
+        tenant,
+        None,
+        &[edge_block],
+        &[edge_week],
+    )
+    .await?;
 
     for args in [vec![], vec!["week".to_owned()], vec!["today".to_owned()]] {
         let view = args
@@ -914,6 +1147,365 @@ async fn the_whole_plan_is_rendered_and_the_surface_ceiling_only_splits_it() -> 
     assert!(
         cramped.iter().any(|part| part.contains("long endurance")),
         "the tail the old cap dropped now arrives in a later message"
+    );
+    Ok(())
+}
+
+/// `/plan share` in a messaging room opens with the athlete's name and says
+/// the plan is shared, then renders the plan their DM built under their
+/// selected coach — read from a room conversation the athlete's own tenant
+/// cannot resolve, with no coach bound to it.
+#[tokio::test]
+async fn plan_share_in_a_messaging_room_posts_the_header_and_the_week() -> Result<()> {
+    let (resources, user_id, tenant, _dm) = setup().await?;
+    athlete_with_a_coached_plan(&resources, user_id, tenant, "Phil Tremblay").await?;
+    let (bot_tenant, room) = room_conversation(&resources, user_id, None).await?;
+
+    let response = PlanShareHandler
+        .execute(&ctx_on(
+            &resources,
+            user_id,
+            tenant,
+            &room,
+            vec!["week".to_owned()],
+            &Surface {
+                conversation_tenant: bot_tenant,
+                is_direct_message: false,
+                sender_id: Some(ROOM_SENDER),
+            },
+        ))
+        .await?;
+    let text = response.text;
+
+    assert!(
+        response.is_rich_text,
+        "the header carries <b>, so the reply is rich text"
+    );
+    assert!(
+        text.starts_with("📋"),
+        "the header must open the reply so attribution comes first: {text}"
+    );
+    assert!(
+        text.contains("<b>Phil Tremblay</b>") && text.contains(SHARED_MARKER),
+        "the room must read whose plan it is and that it was shared: {text}"
+    );
+    for session in ["VO2 intervals", "endurance ride", "long endurance"] {
+        assert!(
+            text.contains(session),
+            "the week built under the selected coach must render ({session}): {text}"
+        );
+    }
+    assert!(
+        !text.contains("No plan saved yet"),
+        "a plan filed under the selected coach must be found from the room: {text}"
+    );
+    Ok(())
+}
+
+/// In a DM there is no room to share with, so `/plan share` is `/plan`.
+#[tokio::test]
+async fn plan_share_in_a_dm_renders_exactly_like_plan() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    athlete_with_a_coached_plan(&resources, user_id, tenant, "Phil Tremblay").await?;
+
+    let share = PlanShareHandler
+        .execute(&ctx_on(
+            &resources,
+            user_id,
+            tenant,
+            &conversation_id,
+            vec![],
+            &Surface {
+                conversation_tenant: tenant,
+                is_direct_message: true,
+                sender_id: Some(ROOM_SENDER),
+            },
+        ))
+        .await?
+        .text;
+    let plain = PlanShowHandler
+        .execute(&ctx(&resources, user_id, tenant, &conversation_id, vec![]))
+        .await?
+        .text;
+
+    assert!(
+        !share.contains(SHARED_MARKER) && !share.contains("Phil Tremblay"),
+        "a DM has no room, so no header: {share}"
+    );
+    assert!(
+        share.contains("endurance ride"),
+        "the plan itself still renders: {share}"
+    );
+    assert_eq!(
+        share, plain,
+        "the DM share reply is byte-identical to /plan"
+    );
+    Ok(())
+}
+
+/// Regression: `/plan` in a room looked the conversation up under the
+/// caller's tenant, missed the bot-tenant row, and fell back to the
+/// coach-agnostic plan — an athlete whose plan lived under their selected
+/// coach read "No plan saved yet" in the room.
+#[tokio::test]
+async fn plan_in_a_room_finds_the_plan_built_under_the_selected_coach() -> Result<()> {
+    let (resources, user_id, tenant, _dm) = setup().await?;
+    athlete_with_a_coached_plan(&resources, user_id, tenant, "Phil Tremblay").await?;
+    let (bot_tenant, room) = room_conversation(&resources, user_id, None).await?;
+
+    let text = PlanShowHandler
+        .execute(&ctx_on(
+            &resources,
+            user_id,
+            tenant,
+            &room,
+            vec![],
+            &Surface {
+                conversation_tenant: bot_tenant,
+                is_direct_message: false,
+                sender_id: Some(ROOM_SENDER),
+            },
+        ))
+        .await?
+        .text;
+
+    assert!(
+        text.contains("endurance ride") && text.contains("easy shakeout"),
+        "today's and tomorrow's sessions must render from the room: {text}"
+    );
+    assert!(
+        !text.contains("No plan saved yet"),
+        "the selected-coach rung of the ladder must find the plan: {text}"
+    );
+    Ok(())
+}
+
+/// A room conversation that DOES bind a coach — read under the tenant that
+/// owns the row — wins over the athlete's selection, matching how the plan
+/// injection keys on the conversation's coach.
+#[tokio::test]
+async fn a_room_conversation_bound_to_a_coach_reads_that_coachs_plan() -> Result<()> {
+    let (resources, user_id, tenant, _dm) = setup().await?;
+    // The selection points at a coach with no plan; only the conversation's
+    // coach has one, so a ladder in the wrong order renders the empty state.
+    let other_coach = seed_persona(&resources, user_id, tenant, "Other Coach").await?;
+    let room_coach = seed_persona(&resources, user_id, tenant, "Room Coach").await?;
+    resources
+        .common
+        .repos
+        .tenants
+        .set_selected_coach(tenant, user_id, Some(&other_coach))
+        .await?;
+    seed_plan_under_coach(&resources, user_id, tenant, &room_coach).await?;
+    let (bot_tenant, room) = room_conversation(&resources, user_id, Some(&room_coach)).await?;
+
+    let text = PlanShowHandler
+        .execute(&ctx_on(
+            &resources,
+            user_id,
+            tenant,
+            &room,
+            vec!["today".to_owned()],
+            &Surface {
+                conversation_tenant: bot_tenant,
+                is_direct_message: false,
+                sender_id: Some(ROOM_SENDER),
+            },
+        ))
+        .await?
+        .text;
+
+    assert!(
+        text.contains("endurance ride"),
+        "the conversation's coach must be honoured from the bot tenant: {text}"
+    );
+    assert!(!text.contains("No plan saved yet"), "{text}");
+    Ok(())
+}
+
+/// The header is rich text and the name is user-set: one `<` in a display
+/// name would otherwise fail the whole message at the channel.
+#[tokio::test]
+async fn plan_share_escapes_the_display_name_in_the_header() -> Result<()> {
+    let (resources, user_id, tenant, _dm) = setup().await?;
+    athlete_with_a_coached_plan(&resources, user_id, tenant, "Marc <3 vélo & co").await?;
+    let (bot_tenant, room) = room_conversation(&resources, user_id, None).await?;
+
+    let text = PlanShareHandler
+        .execute(&ctx_on(
+            &resources,
+            user_id,
+            tenant,
+            &room,
+            vec![],
+            &Surface {
+                conversation_tenant: bot_tenant,
+                is_direct_message: false,
+                sender_id: Some(ROOM_SENDER),
+            },
+        ))
+        .await?
+        .text;
+
+    assert!(
+        text.contains("<b>Marc &lt;3 vélo &amp; co</b>"),
+        "the name must be HTML-escaped inside the bold tag: {text}"
+    );
+    assert!(
+        !text.contains("<3 vélo"),
+        "a raw `<` must never reach the channel: {text}"
+    );
+    Ok(())
+}
+
+/// An in-app group thread is not a DM, but it persists the reply into the
+/// caller's own conversation alone — nothing is posted to a room, so the
+/// header would misstate its audience. No sender id, no header.
+#[tokio::test]
+async fn plan_share_on_the_in_app_surface_renders_no_header() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    athlete_with_a_coached_plan(&resources, user_id, tenant, "Phil Tremblay").await?;
+
+    let text = PlanShareHandler
+        .execute(&ctx_on(
+            &resources,
+            user_id,
+            tenant,
+            &conversation_id,
+            vec![],
+            &Surface {
+                conversation_tenant: tenant,
+                is_direct_message: false,
+                sender_id: None,
+            },
+        ))
+        .await?
+        .text;
+
+    assert!(
+        !text.contains(SHARED_MARKER) && !text.contains("<b>"),
+        "web renders exactly like /plan, header-free: {text}"
+    );
+    assert!(text.contains("endurance ride"), "{text}");
+    Ok(())
+}
+
+/// An athlete with nothing saved still shares legibly: the room learns whose
+/// (absent) plan it is reading rather than an unattributed empty state.
+#[tokio::test]
+async fn plan_share_with_no_plan_in_a_room_still_names_the_athlete() -> Result<()> {
+    let (resources, user_id, tenant, _dm) = setup().await?;
+    resources
+        .common
+        .repos
+        .users
+        .update_display_name(user_id, "Phil Tremblay")
+        .await?;
+    let (bot_tenant, room) = room_conversation(&resources, user_id, None).await?;
+
+    let text = PlanShareHandler
+        .execute(&ctx_on(
+            &resources,
+            user_id,
+            tenant,
+            &room,
+            vec![],
+            &Surface {
+                conversation_tenant: bot_tenant,
+                is_direct_message: false,
+                sender_id: Some(ROOM_SENDER),
+            },
+        ))
+        .await?
+        .text;
+
+    assert!(
+        text.contains("<b>Phil Tremblay</b>") && text.contains("No plan saved yet"),
+        "header then the empty state: {text}"
+    );
+    Ok(())
+}
+
+/// A `/plan share` typed in a shared room is the room's history too: both
+/// rows fan out to the group transcript — what the ambient block a later
+/// room turn reads is built from — so a coach can discuss the plan the
+/// athlete just shared. Bare `/plan` in the same room is answered privately
+/// and leaves no trace there.
+#[tokio::test]
+async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() -> Result<()> {
+    let (resources, user_id, tenant, _dm) = setup().await?;
+    athlete_with_a_coached_plan(&resources, user_id, tenant, "Phil Tremblay").await?;
+    let bot = bot_tenant(&resources).await?;
+    let group_id = bound_room_group(&resources, bot, user_id, tenant).await?;
+    let room =
+        room_conversation_in(&resources, user_id, bot, None, Some(&group_id.to_string())).await?;
+    let pipeline = resources.chat_pipeline_context();
+    let request = |text: &'static str| SlashRequest {
+        user_id,
+        tenant_id: tenant,
+        conversation_id: &room,
+        conversation_tenant_id: bot,
+        channel_type: "telegram",
+        locale: "en",
+        is_direct_message: false,
+        ambient_group_fallback: true,
+        persistence: CommandPersistence::RoomVisibleOnly,
+        sender_id: Some(ROOM_SENDER),
+        text,
+    };
+
+    let shared = dispatch_slash(&pipeline, &request("/plan share week"))
+        .await?
+        .expect("/plan share is a catalogued command");
+    assert_eq!(shared.command_name.as_deref(), Some("plan-share"));
+    assert!(
+        shared.persisted.is_some(),
+        "a room-visible turn is written to the room conversation"
+    );
+
+    let entries = resources
+        .common
+        .repos
+        .groups
+        .list_transcript_visible_to(&group_id.to_string(), user_id, 20)
+        .await?;
+    let reply = entries
+        .iter()
+        .find(|e| e.speaker == TranscriptSpeaker::Coach)
+        .expect("the shared plan reaches the group transcript as the coach line");
+    assert!(
+        reply.content.contains("<b>Phil Tremblay</b>")
+            && reply.content.contains(SHARED_MARKER)
+            && reply.content.contains("long endurance"),
+        "the transcript carries the header and the week: {}",
+        reply.content
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.speaker == TranscriptSpeaker::Member && e.content == "/plan share week"),
+        "the athlete's own `/plan share` line is in the transcript: {entries:?}"
+    );
+    let shared_rows = entries.len();
+
+    let private = dispatch_slash(&pipeline, &request("/plan"))
+        .await?
+        .expect("/plan is a catalogued command");
+    assert_eq!(private.command_name.as_deref(), Some("plan"));
+    assert!(
+        private.persisted.is_none(),
+        "a privately answered command is not the room's history"
+    );
+    let after = resources
+        .common
+        .repos
+        .groups
+        .list_transcript_visible_to(&group_id.to_string(), user_id, 20)
+        .await?;
+    assert_eq!(
+        after.len(),
+        shared_rows,
+        "bare /plan must add nothing to the group transcript: {after:?}"
     );
     Ok(())
 }

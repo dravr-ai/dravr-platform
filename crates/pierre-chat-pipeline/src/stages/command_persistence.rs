@@ -48,13 +48,16 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 /// `group_setting_changes_are_announced_in_the_room` pins the real names
 /// against the loaded `commands/` catalog.
 ///
-/// LIMITATION(registre#132): `ROOM_VISIBLE_COMMANDS` carries no `plan` entry, so
-/// `/plan` in a shared room is answered in the caller's DM and is left out of the
-/// room transcript; an athlete and a coach have no way to read or edit a training
-/// plan together there. Adding `plan` on its own would publish one member's plan
-/// to every other member of the coaching group, so a consent rule and a
-/// plan-write path have to land with it.
-pub const ROOM_VISIBLE_COMMANDS: [&str; 3] = ["group-respond", "group-coach", "coach-add"];
+/// `plan` is deliberately absent and `plan-share` deliberately present. Bare
+/// `/plan` shows the caller's own training plan — in a room that would publish
+/// one member's plan to every other member, so it keeps the private default.
+/// `/plan share` is the same read whose explicit trigger IS the athlete's
+/// consent to post it: a grant given per invocation, with no stored flag that
+/// can go stale, and legible in the room as the athlete's own turn. Only the
+/// caller's own plan is ever shared this way; a coach edits an athlete's plan
+/// from their direct chat through the plan tools' `athlete` argument.
+pub const ROOM_VISIBLE_COMMANDS: [&str; 4] =
+    ["group-respond", "group-coach", "coach-add", "plan-share"];
 
 /// `true` when a command's reply is posted to the room it was typed in.
 ///

@@ -799,7 +799,7 @@ export interface GetFoodDetailsParams {
 
 
 /**
- * Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to read a peer's data in a group chat — `get_activities` always returns YOUR own data, never a peer's. Identify the member by their roster display name. For a specific past race or date range, pass `after`/`before` epoch-second bounds. Returns an error (not data) if the member has not shared their data via `/group consent yes`.
+ * Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to read a peer's data in a group chat — `get_activities` always returns YOUR own data, never a peer's. Identify the member by their roster display name. For a specific past race or date range, pass `after`/`before` epoch-second bounds. Pass `group_id` to pin the lookup to the room's group. Returns an error (not data) if the member has not shared their data via `/group consent yes`; the error's `reason` says why.
  */
 export interface GetGroupMemberActivitiesParams {
 
@@ -808,6 +808,9 @@ export interface GetGroupMemberActivitiesParams {
 
   /** Optional Unix epoch-second upper bound. */
   before?: number;
+
+  /** Optional coaching-group id to pin the lookup to — the group bound to the room the question was asked in. The member must belong to it and only their consent for that group applies. Omit to search every group you share. */
+  group_id?: string;
 
   /** Max activities to return (1-100, default 30). */
   limit?: number;
@@ -956,9 +959,12 @@ export interface GetTrainingHistoryParams {
 
 
 /**
- * Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it.
+ * Fetch the athlete's active training plan: goal race, block strategy, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.
  */
 export interface GetTrainingPlanParams {
+
+  /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
+  athlete?: string;
 
   /** Coach persona slug asking; falls back to the athlete's coach-agnostic plan. */
   coach_id?: string;
@@ -1345,9 +1351,12 @@ export interface SaveRecipeParams {
 
 
 /**
- * Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan.
+ * Persist the training plan you agreed with the athlete — outline (goal race, blocks, strategy) and/or day-by-day weeks — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.
  */
 export interface SaveTrainingPlanParams {
+
+  /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
+  athlete?: string;
 
   /** Coach persona slug saving the plan. */
   coach_id?: string;

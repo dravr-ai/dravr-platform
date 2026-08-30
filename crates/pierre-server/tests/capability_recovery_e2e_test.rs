@@ -819,4 +819,663 @@ mod capability_recovery {
             "the tool-call payload leaked into the delivered reply: {delivered:?}"
         );
     }
+    // ════════════════════════════════════════════════════════════════════
+    // Subject routing in a Telegram group (live incident 2026-08-30)
+    // ════════════════════════════════════════════════════════════════════
+
+    /// The fetch follows the SUBJECT of the ask: a question about a roster
+    /// peer is adjudicated with that peer's data through the consent-gated
+    /// tool, a decline is relayed honestly, and a replacement that invents a
+    /// number about the peer is re-verified against what was fetched.
+    mod subject_routing {
+        use super::*;
+        use pierre_chat_pipeline::stages::capability_subject::{
+            SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
+        };
+        use pierre_core::models::coaches::{
+            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        };
+        use pierre_core::models::groups::{
+            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+        };
+        use pierre_core::models::{ActivityBuilder, SportType};
+        use pierre_messaging::channels::telegram::transport::TelegramTransport;
+        use std::sync::Mutex;
+
+        /// Numeric bot id encoded in the fixture `bot_token` prefix.
+        const BOT_ID: i64 = 54_321;
+        /// Fixture bot token: the prefix before `:` is the bot id canot derives.
+        const BOT_TOKEN: &str = "54321:SUBJECT_ROUTING_BOT";
+        /// The Telegram supergroup every scenario binds its group to.
+        const GROUP_CHAT_ID: i64 = -100_888_444;
+        /// Telegram sender ids of the two members.
+        const PHIL_SENDER: i64 = 1042;
+        const JD_SENDER: i64 = 1043;
+        /// The peer's roster display name — the message never spells it, the
+        /// reply does.
+        const JD_NAME: &str = "Jean-Daniel Tremblay";
+        /// The peer's one cached ride: 12 days old, so it is OUTSIDE the
+        /// 7-day roster card and INSIDE the 28-day peer fetch window — the
+        /// only way it can reach the prompt is through the peer tool.
+        const PEER_RIDE_ID: &str = "peer-ride-jd";
+
+        /// The pronoun ask of the live incident: names nobody, so no
+        /// platform-side grounding runs before the model.
+        const PRONOUN_ASK: &str =
+            "Pour le plan de la semaine — as-tu bien regardé son historique Strava ?";
+
+        /// The retraction the Guardian's old repair path manufactured on
+        /// 2026-08-30: a third-person denial naming the peer.
+        const PEER_DENIAL: &str = "Confiance : 1/10 — je n'ai jamais eu accès à l'historique de \
+             Jean-Daniel. Je n'ai aucune donnée sur lui.";
+
+        /// A grounded answer built on the fetched peer data.
+        const GROUNDED_PEER_REPLY: &str = "Oui — j'ai regardé l'historique Strava de \
+             Jean-Daniel : sa dernière sortie (peer-ride-jd) date d'il y a 12 jours, 60 km.";
+
+        /// An honest answer when the peer has not consented. Its first
+        /// sentence is in the peer-denial register, so the room's ambient
+        /// block must scrub it once it is stamped.
+        const HONEST_DECLINE_REPLY: &str = "Je n'ai pas accès aux données de Jean-Daniel : il \
+             n'a pas encore partagé ses données avec le groupe (/group consent yes). Pour toi, \
+             sortie facile ce soir.";
+
+        /// A replacement that invents a number about the peer.
+        const FABRICATED_PEER_REPLY: &str = "Jean-Daniel a fait 999 km hier.";
+        /// The repair the verifier accepts.
+        const REPAIRED_PEER_REPLY: &str =
+            "Jean-Daniel a roulé 60 km il y a 12 jours (peer-ride-jd).";
+
+        /// A scripted LLM: every request's message contents are captured, and
+        /// the reply is chosen by inspecting them — the verifier prompt, the
+        /// subject re-ask and the repair prompt each carry a distinct marker.
+        struct ScriptedGroupLlm {
+            script: Box<dyn Fn(&str) -> String + Send + Sync>,
+            seen_requests: Arc<Mutex<Vec<String>>>,
+        }
+
+        impl ScriptedGroupLlm {
+            fn new(script: impl Fn(&str) -> String + Send + Sync + 'static) -> Self {
+                Self {
+                    script: Box::new(script),
+                    seen_requests: Arc::new(Mutex::new(Vec::new())),
+                }
+            }
+
+            fn request_log(&self) -> Arc<Mutex<Vec<String>>> {
+                Arc::clone(&self.seen_requests)
+            }
+        }
+
+        #[async_trait]
+        impl LlmProvider for ScriptedGroupLlm {
+            fn name(&self) -> &'static str {
+                "scripted_group_mock"
+            }
+            fn display_name(&self) -> &'static str {
+                "Scripted group mock LLM (subject-routing e2e)"
+            }
+            fn capabilities(&self) -> LlmCapabilities {
+                LlmCapabilities::SYSTEM_MESSAGES
+            }
+            fn default_model(&self) -> &'static str {
+                "mock-model"
+            }
+            fn available_models(&self) -> &[String] {
+                &[]
+            }
+
+            async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+                let joined: String = request
+                    .messages
+                    .iter()
+                    .map(|m| m.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n---\n");
+                self.seen_requests.lock().unwrap().push(joined.clone());
+                Ok(ChatResponse {
+                    content: (self.script)(&joined),
+                    model: "mock-model".to_owned(),
+                    usage: Some(TokenUsage::new(30, 40, 70)),
+                    finish_reason: Some("stop".to_owned()),
+                    warnings: None,
+                    tool_calls: None,
+                })
+            }
+
+            async fn complete_stream(
+                &self,
+                _request: &ChatRequest,
+            ) -> Result<ChatStream, AppError> {
+                Err(AppError::internal("streaming not used by this test"))
+            }
+
+            async fn health_check(&self) -> Result<bool, AppError> {
+                Ok(true)
+            }
+        }
+
+        struct GroupScenario {
+            resources: Arc<ServerContext>,
+            bot_tenant: TenantId,
+            phil: Uuid,
+            jd: Uuid,
+            tg_secret: &'static str,
+        }
+
+        /// An active user with a display name and their own tenant.
+        async fn seed_named_user(
+            resources: &Arc<ServerContext>,
+            email: &str,
+            display_name: &str,
+        ) -> (Uuid, TenantId) {
+            let password_hash =
+                spawn_blocking(|| bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap())
+                    .await
+                    .unwrap();
+            let mut user = User::new(
+                email.to_owned(),
+                password_hash,
+                Some(display_name.to_owned()),
+            );
+            user.user_status = UserStatus::Active;
+            user.approved_by = Some(user.id);
+            user.approved_at = Some(Utc::now());
+            let user_id = user.id;
+            resources.common.repos.users.create(&user).await.unwrap();
+
+            let tenant_id = TenantId::generate();
+            let tenant = Tenant {
+                id: tenant_id,
+                name: format!("Subject Tenant {email}"),
+                slug: format!("subject-tenant-{tenant_id}"),
+                domain: None,
+                plan: "starter".to_owned(),
+                owner_user_id: user_id,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            };
+            resources
+                .common
+                .repos
+                .tenants
+                .create(&tenant)
+                .await
+                .unwrap();
+            resources
+                .common
+                .repos
+                .users
+                .update_tenant_id(user_id, tenant_id)
+                .await
+                .unwrap();
+            (user_id, tenant_id)
+        }
+
+        async fn link_member(
+            resources: &Arc<ServerContext>,
+            bot_tenant: TenantId,
+            user_id: Uuid,
+            sender: i64,
+            label: &str,
+        ) {
+            let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+            db.create_channel_link(&CreateChannelLinkParams {
+                id: &Uuid::new_v4().to_string(),
+                tenant_id: bot_tenant,
+                user_id: &user_id.to_string(),
+                channel_type: "telegram",
+                channel_user_id: &sender.to_string(),
+                display_name: Some(label),
+            })
+            .await
+            .unwrap();
+        }
+
+        async fn add_member(
+            resources: &Arc<ServerContext>,
+            group_id: Uuid,
+            user_id: Uuid,
+            bot_tenant: TenantId,
+            role: GroupRole,
+            consent: bool,
+        ) {
+            let now = Utc::now();
+            resources
+                .common
+                .repos
+                .groups
+                .add_member(&GroupMember {
+                    id: Uuid::new_v4(),
+                    group_id,
+                    user_id,
+                    tenant_id: bot_tenant.to_string(),
+                    role,
+                    peer_sharing_consent: consent,
+                    consent_given_at: now,
+                    joined_at: now,
+                    left_at: None,
+                    display_name: None,
+                })
+                .await
+                .unwrap();
+        }
+
+        /// Phil (the asker, sciotte + mock scraper so his own fetch verifies)
+        /// and JD (the peer, a cached Strava ride under his own tenant) in one
+        /// Telegram-bound group under the bot tenant.
+        async fn build_group_scenario(
+            mock: Arc<ScriptedGroupLlm>,
+            jd_consents: bool,
+        ) -> GroupScenario {
+            env::set_var("PIERRE_LLM_MODEL", "mock-model");
+            let scraper_url = spawn_mock_scraper().await;
+            env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
+            env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
+            // Seed canot's process-wide bot-username cache so mention
+            // detection never issues a live getMe call.
+            let _seed = TelegramTransport::with_bot_identity(
+                "unused-secret".to_owned(),
+                BOT_ID,
+                "dravr_subject_bot",
+            );
+
+            let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+
+            let (phil, phil_tenant) =
+                seed_named_user(&resources, "subject-phil@example.com", "Philippe Tremblay").await;
+            resources
+                .common
+                .repos
+                .provider_connections
+                .register_connection(phil, phil_tenant, "sciotte", &ConnectionType::Manual, None)
+                .await
+                .unwrap();
+            seed_sciotte_session(&resources, phil, phil_tenant).await;
+
+            let (jd, jd_tenant) =
+                seed_named_user(&resources, "subject-jd@example.com", JD_NAME).await;
+            resources
+                .common
+                .repos
+                .provider_connections
+                .register_connection(jd, jd_tenant, "strava", &ConnectionType::OAuth, None)
+                .await
+                .unwrap();
+            let ride = ActivityBuilder::new(
+                PEER_RIDE_ID.to_owned(),
+                "Sortie longue".to_owned(),
+                SportType::Ride,
+                Utc::now() - chrono::Duration::days(12),
+                7_200,
+                "strava".to_owned(),
+            )
+            .distance_meters(60_000.0)
+            .build();
+            resources
+                .common
+                .repos
+                .activity_cache
+                .upsert_activities(jd, &jd_tenant, "strava", &[ride])
+                .await
+                .unwrap();
+
+            let (_bot_owner, bot_tenant) =
+                seed_named_user(&resources, "subject-bot-owner@example.com", "Bot Owner").await;
+            let tg_secret = "subject_routing_tg_secret";
+            let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+            db.upsert_channel_config(&UpsertChannelConfigParams {
+                id: &Uuid::new_v4().to_string(),
+                tenant_id: bot_tenant,
+                channel_type: "telegram",
+                api_key: None,
+                api_secret: None,
+                webhook_secret: Some(tg_secret),
+                verify_token: None,
+                account_id: None,
+                phone_number: None,
+                bot_token: Some(BOT_TOKEN),
+                is_active: true,
+            })
+            .await
+            .unwrap();
+            link_member(&resources, bot_tenant, phil, PHIL_SENDER, "Phil").await;
+            link_member(&resources, bot_tenant, jd, JD_SENDER, "JD").await;
+
+            let coach = resources
+                .common
+                .repos
+                .coaches
+                .create_system_coach(
+                    phil,
+                    bot_tenant,
+                    &CreateSystemCoachRequest {
+                        title: "Subject Routing Coach".to_owned(),
+                        description: None,
+                        system_prompt: "You are a concise test coach.".to_owned(),
+                        category: CoachCategory::Training,
+                        tags: vec![],
+                        sample_prompts: vec![],
+                        visibility: CoachVisibility::Global,
+                    },
+                )
+                .await
+                .unwrap();
+
+            let group_id = Uuid::new_v4();
+            let now = Utc::now();
+            resources
+                .common
+                .repos
+                .groups
+                .create_group(
+                    bot_tenant,
+                    &CoachingGroup {
+                        id: group_id,
+                        tenant_id: bot_tenant.to_string(),
+                        name: "Subject Routing Group".to_owned(),
+                        description: None,
+                        coach_id: coach.id.to_string(),
+                        owner_id: phil,
+                        coach_user_id: None,
+                        peer_data_sharing: true,
+                        respond_mode: GroupRespondMode::default(),
+                        max_members: 10,
+                        is_active: true,
+                        channel_type: Some("telegram".to_owned()),
+                        channel_chat_id: Some(GROUP_CHAT_ID.to_string()),
+                        created_at: now,
+                        updated_at: now,
+                    },
+                )
+                .await
+                .unwrap();
+            // Phil consents so his lines are visible to JD in the room
+            // transcript (the ambient-block assertion needs them to exist).
+            add_member(
+                &resources,
+                group_id,
+                phil,
+                bot_tenant,
+                GroupRole::Owner,
+                true,
+            )
+            .await;
+            add_member(
+                &resources,
+                group_id,
+                jd,
+                bot_tenant,
+                GroupRole::Member,
+                jd_consents,
+            )
+            .await;
+
+            GroupScenario {
+                resources,
+                bot_tenant,
+                phil,
+                jd,
+                tg_secret,
+            }
+        }
+
+        /// POST one Telegram supergroup message from `from_id`.
+        async fn post_group_message(
+            scenario: &GroupScenario,
+            update_id: i64,
+            from_id: i64,
+            text: &str,
+        ) {
+            let router = MessagingRoutes::routes(Arc::clone(&scenario.resources));
+            let resp = AxumTestRequest::post("/api/messaging/webhook/telegram")
+                .header("content-type", "application/json")
+                .header("x-telegram-bot-api-secret-token", scenario.tg_secret)
+                .json(&json!({
+                    "update_id": update_id,
+                    "message": {
+                        "message_id": update_id,
+                        "from": { "id": from_id, "first_name": "Member" },
+                        "chat": { "id": GROUP_CHAT_ID, "type": "supergroup", "title": "Subject Routing Group" },
+                        "text": text
+                    }
+                }))
+                .send(router)
+                .await;
+            assert_eq!(resp.status_code(), StatusCode::OK);
+        }
+
+        /// The latest persisted assistant row of one member's room
+        /// conversation (each member owns their own row under the bot tenant).
+        async fn wait_for_member_reply(scenario: &GroupScenario, member: Uuid) -> Option<String> {
+            let pool = scenario.resources.coach.database.sqlite_pool().unwrap();
+            for _ in 0..150 {
+                let row: Option<(String,)> = sqlx::query_as(
+                    "SELECT m.content FROM chat_messages m \
+                     JOIN chat_conversations c ON m.conversation_id = c.id \
+                     WHERE c.tenant_id = ?1 AND c.user_id = ?2 AND m.role = 'assistant' \
+                     ORDER BY m.created_at DESC LIMIT 1",
+                )
+                .bind(scenario.bot_tenant.to_string())
+                .bind(member.to_string())
+                .fetch_optional(pool)
+                .await
+                .unwrap();
+                if let Some((content,)) = row {
+                    return Some(content);
+                }
+                sleep(Duration::from_millis(200)).await;
+            }
+            None
+        }
+
+        async fn member_finish_reason(scenario: &GroupScenario, member: Uuid) -> Option<String> {
+            let pool = scenario.resources.coach.database.sqlite_pool().unwrap();
+            let row: Option<(Option<String>,)> = sqlx::query_as(
+                "SELECT m.finish_reason FROM chat_messages m \
+                 JOIN chat_conversations c ON m.conversation_id = c.id \
+                 WHERE c.tenant_id = ?1 AND c.user_id = ?2 AND m.role = 'assistant' \
+                 ORDER BY m.created_at DESC LIMIT 1",
+            )
+            .bind(scenario.bot_tenant.to_string())
+            .bind(member.to_string())
+            .fetch_optional(pool)
+            .await
+            .unwrap();
+            row.and_then(|(reason,)| reason)
+        }
+
+        /// The tool-result block the loop's text wire shape wraps a result in
+        /// (embacle's `format_tool_results_as_text`), for the peer tool.
+        const PEER_TOOL_RESULT_OPEN: &str = "<tool_result name=\"get_group_member_activities\">";
+
+        /// A substring that never occurs in any prompt, so a verifier scripted
+        /// on it reports "supported" for every claim.
+        const NEVER_UNSUPPORTED: &str = "zzz-no-claim-carries-this-zzz";
+
+        fn verifier_verdict(request: &str, unsupported_when: &str) -> String {
+            if request.contains(unsupported_when) {
+                format!(r#"{{"unsupported": ["{unsupported_when}"]}}"#)
+            } else {
+                r#"{"unsupported": []}"#.to_owned()
+            }
+        }
+
+        /// A question about a peer is answered with THAT peer's data: the
+        /// re-ask carries the consent-gated tool's result for JD — a ride the
+        /// roster card cannot have supplied — and never the requester-path
+        /// "on your behalf" wording.
+        #[tokio::test]
+        #[serial]
+        async fn a_question_about_a_peer_is_verified_with_the_peers_data() {
+            let mock = Arc::new(ScriptedGroupLlm::new(|request| {
+                if request.contains("strict fact checker") {
+                    verifier_verdict(request, NEVER_UNSUPPORTED)
+                } else if request.contains(SUBJECT_FETCHED_MARKER) {
+                    GROUNDED_PEER_REPLY.to_owned()
+                } else {
+                    PEER_DENIAL.to_owned()
+                }
+            }));
+            let requests = mock.request_log();
+            let scenario = build_group_scenario(mock, true).await;
+
+            post_group_message(&scenario, 7001, PHIL_SENDER, PRONOUN_ASK).await;
+            let reply = wait_for_member_reply(&scenario, scenario.phil)
+                .await
+                .expect("pipeline did not persist an assistant row for the asker within 30s");
+
+            assert!(
+                reply.contains(PEER_RIDE_ID),
+                "the delivered reply must stand on the peer's fetched ride, got: {reply:?}"
+            );
+            assert!(
+                !reply.contains("jamais eu accès"),
+                "the manufactured denial must not survive, got: {reply:?}"
+            );
+
+            let seen = requests.lock().unwrap().clone();
+            let reask = seen
+                .iter()
+                .find(|r| r.contains(SUBJECT_FETCHED_MARKER))
+                .expect("a subject re-ask reached the wire");
+            let evidence_message = reask
+                .split("\n---\n")
+                .find(|m| m.contains(PEER_TOOL_RESULT_OPEN))
+                .expect("the re-ask carries the peer tool's result in wire shape");
+            assert!(
+                evidence_message.contains(PEER_RIDE_ID),
+                "the peer tool's result must carry JD's ride, got: {evidence_message}"
+            );
+            assert!(
+                seen.iter()
+                    .all(|r| !r.contains("fetched successfully on your behalf")),
+                "the requester-path instruction must never be emitted for a peer subject"
+            );
+            assert_ne!(
+                member_finish_reason(&scenario, scenario.phil)
+                    .await
+                    .as_deref(),
+                Some("capability_claim_unverified"),
+                "a fully verified peer answer is ordinary history"
+            );
+        }
+
+        /// The peer has not consented: the re-ask carries the tool's own
+        /// refusal, the delivered reply says so honestly, the row is stamped
+        /// as moment-in-time truth — and the room's ambient block scrubs the
+        /// denial before it reaches the next member's prompt.
+        #[tokio::test]
+        #[serial]
+        async fn a_declined_peer_fetch_is_reported_honestly_and_never_replays_into_the_room() {
+            let mock = Arc::new(ScriptedGroupLlm::new(|request| {
+                if request.contains(SUBJECT_DECLINED_MARKER) {
+                    HONEST_DECLINE_REPLY.to_owned()
+                } else {
+                    PEER_DENIAL.to_owned()
+                }
+            }));
+            let requests = mock.request_log();
+            let scenario = build_group_scenario(mock, false).await;
+
+            post_group_message(&scenario, 7101, PHIL_SENDER, PRONOUN_ASK).await;
+            let reply = wait_for_member_reply(&scenario, scenario.phil)
+                .await
+                .expect("pipeline did not persist an assistant row for the asker within 30s");
+            assert!(
+                reply.contains("pas encore partagé"),
+                "the honest consent answer must be delivered, got: {reply:?}"
+            );
+
+            let seen = requests.lock().unwrap().clone();
+            let reask = seen
+                .iter()
+                .find(|r| r.contains(SUBJECT_DECLINED_MARKER))
+                .expect("a subject re-ask with the decline reached the wire");
+            let decline_block = reask
+                .split("\n---\n")
+                .find(|m| m.contains(PEER_TOOL_RESULT_OPEN))
+                .expect("the decline is relayed in tool-result wire shape");
+            assert!(
+                decline_block.contains("\"error\"")
+                    && decline_block.contains("hasn't shared their data"),
+                "the tool's own consent refusal must be the evidence, got: {decline_block}"
+            );
+            assert!(
+                seen.iter()
+                    .all(|r| !r.contains("fetched successfully on your behalf")),
+                "the requester's activities must never be presented as answering the question"
+            );
+            assert_eq!(
+                member_finish_reason(&scenario, scenario.phil)
+                    .await
+                    .as_deref(),
+                Some("capability_claim_unverified"),
+                "a consent denial is true now, not forever: it must not replay"
+            );
+
+            // The other member's next turn reads the room through the ambient
+            // block: the coaching line survives, the denial does not.
+            let before = requests.lock().unwrap().len();
+            post_group_message(&scenario, 7102, JD_SENDER, "Salut, je suis là").await;
+            wait_for_member_reply(&scenario, scenario.jd)
+                .await
+                .expect("pipeline did not persist an assistant row for the peer within 30s");
+            let later = requests.lock().unwrap()[before..].to_vec();
+            let ambient = later
+                .iter()
+                .find(|r| r.contains("Recent group chat"))
+                .expect("the peer's turn carried the room's ambient block");
+            assert!(
+                ambient.contains("sortie facile ce soir"),
+                "the coaching sentence of the earlier reply must reach the room: {ambient}"
+            );
+            assert!(
+                !ambient.contains("pas accès aux données de Jean-Daniel"),
+                "the stamped denial must be scrubbed from the ambient block: {ambient}"
+            );
+        }
+
+        /// A replacement that invents a number about the peer is re-verified
+        /// against the fetched data and repaired before delivery.
+        #[tokio::test]
+        #[serial]
+        async fn a_replacement_that_fabricates_about_the_peer_is_re_verified_and_repaired() {
+            let mock = Arc::new(ScriptedGroupLlm::new(|request| {
+                if request.contains("strict fact checker") {
+                    verifier_verdict(request, "999 km")
+                } else if request
+                    .contains("Your previous answer contained these unsupported claims")
+                {
+                    REPAIRED_PEER_REPLY.to_owned()
+                } else if request.contains(SUBJECT_FETCHED_MARKER) {
+                    FABRICATED_PEER_REPLY.to_owned()
+                } else {
+                    PEER_DENIAL.to_owned()
+                }
+            }));
+            let scenario = build_group_scenario(mock, true).await;
+
+            post_group_message(&scenario, 7201, PHIL_SENDER, PRONOUN_ASK).await;
+            let reply = wait_for_member_reply(&scenario, scenario.phil)
+                .await
+                .expect("pipeline did not persist an assistant row for the asker within 30s");
+
+            assert!(
+                reply.contains("60 km"),
+                "the repaired reply must stand on the fetched ride, got: {reply:?}"
+            );
+            assert!(
+                !reply.contains("999"),
+                "the fabricated number must not be delivered, got: {reply:?}"
+            );
+            assert_ne!(
+                member_finish_reason(&scenario, scenario.phil)
+                    .await
+                    .as_deref(),
+                Some("capability_claim_unverified"),
+                "a repaired, verified reply is ordinary history"
+            );
+        }
+    }
 }

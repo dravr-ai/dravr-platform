@@ -130,6 +130,8 @@ pub mod guided_flow;
 /// Memory tools: coach-authored notes, followups, fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;
+/// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.
+pub mod plan_scope;
 /// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
 #[cfg(feature = "tools-memory")]
 pub mod playbooks;

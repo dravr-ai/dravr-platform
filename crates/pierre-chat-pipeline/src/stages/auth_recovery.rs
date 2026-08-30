@@ -174,6 +174,10 @@ impl ReconnectStanding {
 /// caller skips LLM-content-aware post-processing (text guardrails, claim
 /// verification) exactly when the reply is a blanked turn's minted platform
 /// text, and runs the whole chain on everything else.
+///
+/// LIMITATION(registre#140): `apply_auth_recovery` delivers the user-scoped reconnect link into a
+/// shared room exactly as into a DM — the LLM-reply delivery path carries no room/DM split, so a
+/// member's hosted-login link is posted where every other member can tap it.
 pub async fn apply_auth_recovery(
     deps: AuthRecoveryDeps<'_>,
     input: &TurnInput,

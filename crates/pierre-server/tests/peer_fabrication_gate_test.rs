@@ -24,6 +24,10 @@ use chrono::Utc;
 use pierre_chat_pipeline::stages::capability_recovery::{
     parse_unsupported_verdict, peer_repair_prompt,
 };
+use pierre_chat_pipeline::stages::capability_subject::{
+    resolve_ask_subject, subject_reask_instruction, AskSubject, SUBJECT_DECLINED_MARKER,
+    SUBJECT_FETCHED_MARKER,
+};
 use pierre_chat_pipeline::stages::peer_grounding::mentioned_peers;
 use pierre_core::models::groups::OvertrainingRiskLevel;
 use pierre_core::models::MemberFitnessSnapshot;
@@ -151,4 +155,136 @@ fn repair_prompt_is_chat_shaped() {
         prompt.contains("dravr-viz"),
         "the chart-preservation ask survives the reshape"
     );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Subject routing (live incident 2026-08-30: the Guardian fetched the
+// REQUESTER's activities for a question about a peer, then told the model
+// that data answered it)
+// ════════════════════════════════════════════════════════════════════════
+
+/// The message names the peer: the message is the authority, whatever the
+/// reply says.
+#[test]
+fn a_message_naming_a_peer_makes_that_peer_the_subject() {
+    let roster = vec![member("Jean-Daniel Tremblay"), member("Marc Dubois")];
+    let requester = Uuid::new_v4();
+    let subject = resolve_ask_subject(
+        "Pour le plan — as-tu bien regardé l'historique Strava de Jean-Daniel ?",
+        "Voici le plan de la semaine.",
+        false,
+        &roster,
+        requester,
+    );
+    let AskSubject::Peers(peers) = subject else {
+        panic!("a named roster member must be the subject");
+    };
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].display_name, "Jean-Daniel Tremblay");
+}
+
+/// A pronoun ask whose REPLY denies access to a named peer: the denial is
+/// the claim being adjudicated, so its subject is that peer — but only on a
+/// capability-claim trigger.
+#[test]
+fn a_peer_denial_in_the_reply_names_the_subject_only_for_a_capability_claim() {
+    let roster = vec![member("Jean-Daniel Tremblay")];
+    let requester = Uuid::new_v4();
+    let message = "As-tu bien regardé son historique Strava pour le plan ?";
+    let denial = "Je n'ai jamais eu accès à l'historique de Jean-Daniel.";
+
+    let claimed = resolve_ask_subject(message, denial, true, &roster, requester);
+    assert_eq!(
+        claimed,
+        AskSubject::Peers(mentioned_peers(denial, &roster, requester)),
+        "a capability claim about a named peer is adjudicated with that peer's data"
+    );
+
+    let ungrounded = resolve_ask_subject(message, denial, false, &roster, requester);
+    assert_eq!(
+        ungrounded,
+        AskSubject::Requester,
+        "an ungrounded or degenerate trigger never reads the subject off the reply"
+    );
+}
+
+/// A reply that merely mentions a peer while answering the requester's own
+/// question must not redirect the fetch — the requester asked about
+/// themself.
+#[test]
+fn a_peer_mentioned_in_passing_does_not_hijack_a_self_ask() {
+    let roster = vec![member("Philippe Tremblay")];
+    let requester = Uuid::new_v4();
+    let subject = resolve_ask_subject(
+        "Propose-moi une sortie pour demain",
+        "Comme Phil hier, pars sur 45 min tranquilles.",
+        true,
+        &roster,
+        requester,
+    );
+    assert_eq!(subject, AskSubject::Requester);
+}
+
+/// Outside a group there is nobody to route to.
+#[test]
+fn an_empty_roster_always_resolves_to_the_requester() {
+    let subject = resolve_ask_subject(
+        "as-tu regardé l'historique de Jean-Daniel ?",
+        "Je n'ai jamais eu accès à l'historique de Jean-Daniel.",
+        true,
+        &[],
+        Uuid::new_v4(),
+    );
+    assert_eq!(subject, AskSubject::Requester);
+}
+
+/// The instruction never tells the model that data was fetched "on your
+/// behalf": every sentence says whose data it is about.
+#[test]
+fn the_subject_instruction_attributes_every_side_and_relays_each_decline() {
+    let fetched = vec!["Jean-Daniel Tremblay".to_owned()];
+    let pregrounded = vec!["Marc Dubois".to_owned()];
+    let declined = vec![(
+        "Sophie Roy".to_owned(),
+        "Sophie Roy hasn't shared their data with the group yet. They can opt in with \
+         `/group consent yes`."
+            .to_owned(),
+    )];
+    let text = subject_reask_instruction(true, &fetched, &pregrounded, &declined);
+
+    assert!(
+        !text.contains("on your behalf"),
+        "never the requester-path wording: {text}"
+    );
+    assert!(text.contains(SUBJECT_FETCHED_MARKER));
+    assert!(text.contains("Jean-Daniel Tremblay's activities above"));
+    assert!(text.contains("Marc Dubois's activities were pre-loaded above"));
+    assert!(text.contains("about Jean-Daniel Tremblay and Marc Dubois"));
+    assert!(text.contains("athlete's OWN activities"));
+    assert!(text.contains(SUBJECT_DECLINED_MARKER));
+    assert!(text.contains("Sophie Roy's activities could NOT be read: Sophie Roy hasn't shared"));
+    assert!(text.contains("never present anyone else's activities as Sophie Roy's"));
+    assert!(
+        text.contains("Nothing beyond what is listed above is unavailable"),
+        "a relayed decline softens the closer so the honest answer is not contradicted: {text}"
+    );
+}
+
+/// With every subject fetched and the requester's own data in hand, the
+/// closer is the strict one.
+#[test]
+fn the_subject_instruction_is_strict_when_nothing_was_declined() {
+    let text = subject_reask_instruction(true, &["Jean-Daniel Tremblay".to_owned()], &[], &[]);
+    assert!(text.ends_with("Do not claim any connection or tool problem."));
+    assert!(!text.contains(SUBJECT_DECLINED_MARKER));
+}
+
+/// The requester's own side failing non-auth is relayed as unavailable, not
+/// hidden behind a "everything works" closer.
+#[test]
+fn the_subject_instruction_relays_the_requesters_own_outage() {
+    let text = subject_reask_instruction(false, &["Jean-Daniel Tremblay".to_owned()], &[], &[]);
+    assert!(text.contains("athlete's OWN activities could not be read this turn"));
+    assert!(text.contains("do not state any of their numbers"));
+    assert!(text.contains("Nothing beyond what is listed above is unavailable"));
 }

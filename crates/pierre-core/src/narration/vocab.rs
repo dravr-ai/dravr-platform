@@ -258,6 +258,195 @@ pub(super) const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "problema de ligacao do meu lado",
 ];
 
+/// Lowercase, separator-folded vocabulary that marks a sentence as a
+/// **peer-access denial** — the coach saying it cannot read ANOTHER athlete's
+/// data («je n'ai jamais eu accès à l'historique de Jean-Daniel … je n'ai
+/// aucune donnée sur lui» — live incident 2026-08-30, a Telegram group where
+/// the Guardian's own repair path manufactured that retraction).
+///
+/// Kept apart from [`CAPABILITY_FAILURE_PATTERNS`] on purpose: the own-access
+/// register drives the outbound `ClaimedFailure` trigger on EVERY surface, and a
+/// peer denial only means anything where a peer exists. The chat pipeline
+/// consults this table only when the turn carries a group roster AND the reply
+/// names a roster member, so a DM reply such as «je n'ai pas accès aux données
+/// de fréquence cardiaque de cette sortie» never trips a verification fetch.
+/// On REPLAY both registers apply: a consent state is re-derived live every
+/// turn, so replaying yesterday's «I can't see his data» after he consented
+/// teaches stale helplessness — the same adjudication as the account-state
+/// denial above.
+///
+/// Precision philosophy: first-person subject + third-person object. English
+/// possessive names («JD's data») cannot be matched statically, so the English
+/// forms are pronoun-anchored (his/her/their, him/her/them); French carries the
+/// «de <name>» forms because the object noun («données de», «activités de»,
+/// «historique de») precedes the name there. Accented phrases carry
+/// accent-stripped twins.
+pub(super) const PEER_ACCESS_DENIAL_PATTERNS: &[&str] = &[
+    // French — the incident register
+    "je n'ai pas accès aux données de",
+    "je n'ai pas acces aux donnees de",
+    "je n'ai pas accès aux activités de",
+    "je n'ai pas acces aux activites de",
+    "je n'ai pas accès à l'historique de",
+    "je n'ai pas acces a l'historique de",
+    "je n'ai pas accès à ses données",
+    "je n'ai pas acces a ses donnees",
+    "je n'ai pas accès à ses activités",
+    "je n'ai pas acces a ses activites",
+    "je n'ai pas accès à son historique",
+    "je n'ai pas acces a son historique",
+    "je n'ai jamais eu accès à l'historique",
+    "je n'ai jamais eu acces a l'historique",
+    "je n'ai jamais eu accès aux données",
+    "je n'ai jamais eu acces aux donnees",
+    "je n'ai jamais eu accès aux activités",
+    "je n'ai jamais eu acces aux activites",
+    "je n'ai aucune donnée sur lui",
+    "je n'ai aucune donnee sur lui",
+    "je n'ai aucune donnée sur elle",
+    "je n'ai aucune donnee sur elle",
+    "je ne peux pas accéder aux données de",
+    "je ne peux pas acceder aux donnees de",
+    "je ne peux pas accéder à ses données",
+    "je ne peux pas acceder a ses donnees",
+    "je ne peux pas récupérer les activités de",
+    "je ne peux pas recuperer les activites de",
+    "je ne peux pas récupérer ses activités",
+    "je ne peux pas recuperer ses activites",
+    "je n'arrive pas à récupérer les activités de",
+    "je n'arrive pas a recuperer les activites de",
+    "je n'arrive pas à récupérer ses activités",
+    "je n'arrive pas a recuperer ses activites",
+    // English — pronoun-anchored (his/her/their data|activities|history;
+    // no data on him/her/them)
+    "i don't have access to his data",
+    "i don't have access to his activities",
+    "i don't have access to his history",
+    "i do not have access to his data",
+    "i do not have access to his activities",
+    "i do not have access to his history",
+    "i have no access to his data",
+    "i have no access to his activities",
+    "i've never had access to his data",
+    "i've never had access to his activities",
+    "i've never had access to his history",
+    "i have never had access to his data",
+    "i have never had access to his activities",
+    "i have never had access to his history",
+    "i can't access his data",
+    "i can't access his activities",
+    "i cannot access his data",
+    "i cannot access his activities",
+    "i don't have access to her data",
+    "i don't have access to her activities",
+    "i don't have access to her history",
+    "i do not have access to her data",
+    "i do not have access to her activities",
+    "i do not have access to her history",
+    "i have no access to her data",
+    "i have no access to her activities",
+    "i've never had access to her data",
+    "i've never had access to her activities",
+    "i've never had access to her history",
+    "i have never had access to her data",
+    "i have never had access to her activities",
+    "i have never had access to her history",
+    "i can't access her data",
+    "i can't access her activities",
+    "i cannot access her data",
+    "i cannot access her activities",
+    "i don't have access to their data",
+    "i don't have access to their activities",
+    "i don't have access to their history",
+    "i do not have access to their data",
+    "i do not have access to their activities",
+    "i do not have access to their history",
+    "i have no access to their data",
+    "i have no access to their activities",
+    "i've never had access to their data",
+    "i've never had access to their activities",
+    "i've never had access to their history",
+    "i have never had access to their data",
+    "i have never had access to their activities",
+    "i have never had access to their history",
+    "i can't access their data",
+    "i can't access their activities",
+    "i cannot access their data",
+    "i cannot access their activities",
+    "i have no data on him",
+    "i don't have any data on him",
+    "i do not have any data on him",
+    "i have no data on her",
+    "i don't have any data on her",
+    "i do not have any data on her",
+    "i have no data on them",
+    "i don't have any data on them",
+    "i do not have any data on them",
+    // Spanish — «sus» reads as his/her/their (and formal your); either way a
+    // replayed «no tengo acceso a sus datos» teaches stale helplessness.
+    "no tengo acceso a sus datos",
+    "no tengo acceso a sus actividades",
+    "no tengo acceso a los datos de",
+    "no tengo acceso a las actividades de",
+    "no tengo acceso al historial de",
+    "no puedo acceder a sus datos",
+    "no puedo acceder a los datos de",
+    "no tengo datos sobre él",
+    "no tengo datos sobre el",
+    "no tengo datos sobre ella",
+    "nunca he tenido acceso a sus datos",
+    "nunca he tenido acceso al historial de",
+    // German — seine/ihre (his/her/their); «dein» stays in the own register so
+    // «ich habe keinen Zugriff auf dein Garmin-Passwort» keeps passing.
+    "ich habe keinen zugriff auf seine daten",
+    "ich habe keinen zugriff auf ihre daten",
+    "ich habe keinen zugriff auf seine aktivitäten",
+    "ich habe keinen zugriff auf seine aktivitaten",
+    "ich habe keinen zugriff auf ihre aktivitäten",
+    "ich habe keinen zugriff auf ihre aktivitaten",
+    "ich habe keinen zugriff auf die daten von",
+    "ich habe keinen zugriff auf die aktivitäten von",
+    "ich habe keinen zugriff auf die aktivitaten von",
+    "ich habe keine daten über ihn",
+    "ich habe keine daten ueber ihn",
+    "ich habe keine daten über sie",
+    "ich habe keine daten ueber sie",
+    "ich kann nicht auf seine daten zugreifen",
+    "ich kann nicht auf ihre daten zugreifen",
+    "ich hatte nie zugriff auf seine daten",
+    "ich hatte nie zugriff auf ihre daten",
+    // Portuguese — dele/dela (his/her) plus the «de <name>» form
+    "não tenho acesso aos dados dele",
+    "nao tenho acesso aos dados dele",
+    "não tenho acesso aos dados dela",
+    "nao tenho acesso aos dados dela",
+    "não tenho acesso às atividades dele",
+    "nao tenho acesso as atividades dele",
+    "não tenho acesso às atividades dela",
+    "nao tenho acesso as atividades dela",
+    "não tenho acesso aos dados de",
+    "nao tenho acesso aos dados de",
+    "não tenho dados sobre ele",
+    "nao tenho dados sobre ele",
+    "não tenho dados sobre ela",
+    "nao tenho dados sobre ela",
+    "nunca tive acesso aos dados dele",
+    "nunca tive acesso aos dados dela",
+    "nunca tive acesso aos dados de",
+    "não consigo aceder aos dados dele",
+    "nao consigo aceder aos dados dele",
+    "não consigo acessar os dados dele",
+    "nao consigo acessar os dados dele",
+];
+
+/// Separator-folded copy of [`PEER_ACCESS_DENIAL_PATTERNS`], built once.
+pub(super) static FOLDED_PEER_DENIAL: LazyLock<Vec<String>> = LazyLock::new(|| {
+    PEER_ACCESS_DENIAL_PATTERNS
+        .iter()
+        .map(|p| fold_separators(p))
+        .collect()
+});
+
 /// Separator-folded copy of [`INTERNAL_NARRATION_PATTERNS`], built once.
 pub(super) static FOLDED_INTERNAL: LazyLock<Vec<String>> = LazyLock::new(|| {
     INTERNAL_NARRATION_PATTERNS

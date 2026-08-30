@@ -126,27 +126,74 @@ pub fn mentioned_peers(
     mentions
 }
 
-/// Run the consent-gated peer fetch for one member and return its payload.
+/// What one consent-gated peer fetch came back with.
 ///
-/// `None` covers every non-answer — a declined fetch (no consent,
-/// kill-switch), an outage, an empty payload — because to both callers the
-/// meaning is the same: there is no peer evidence to ground or verify with.
-/// The decline reason is logged here so operators still see which it was.
-pub async fn fetch_peer_activities(
+/// The distinction the callers need is between "there is data", "there is a
+/// reason the athlete can be told" and "nothing to relay". A decline carries
+/// the tool's own error text — the sentence the model would have read had it
+/// called the tool itself — so the repair path can answer honestly instead of
+/// re-asking with somebody else's activities (live 2026-08-30).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerFetchOutcome {
+    /// The tool answered with data — possibly an honest empty window.
+    Fetched(serde_json::Value),
+    /// The tool refused for a reason the athlete may be told: the member has
+    /// not consented, the group's sharing switch is off, they have no
+    /// connected source, or their source did not respond. Carries the tool's
+    /// own text verbatim.
+    Declined(String),
+    /// Resolution failed (no such member, an ambiguous name, the requester
+    /// themself) or the executor errored — nothing worth relaying.
+    Failed,
+}
+
+impl PeerFetchOutcome {
+    /// The payload when the fetch returned data.
+    #[must_use]
+    pub fn fetched(self) -> Option<serde_json::Value> {
+        match self {
+            Self::Fetched(payload) => Some(payload),
+            Self::Declined(_) | Self::Failed => None,
+        }
+    }
+}
+
+/// The `reason` codes the peer tool stamps on a refusal that an athlete may be
+/// told about. Anything else — `no_match`, `ambiguous`, `self` — is a
+/// resolution failure whose text names members the room may not know.
+const RELAYABLE_DECLINE_REASONS: [&str; 4] = [
+    "no_consent",
+    "sharing_disabled",
+    "no_source",
+    "fetch_failed",
+];
+
+/// Run the consent-gated peer fetch for one member and classify the answer.
+///
+/// `group_id` pins the lookup to the conversation's group, so the member and
+/// the consent read both come from that room's roster rather than from
+/// whichever other group the requester happens to share with a same-named
+/// athlete.
+pub async fn fetch_peer_activities_outcome(
     executor: &Arc<UniversalExecutor>,
     user_id: &str,
     tenant_id: TenantId,
     display_name: &str,
-) -> Option<serde_json::Value> {
+    group_id: Option<&str>,
+) -> PeerFetchOutcome {
     let now = chrono::Utc::now().timestamp();
+    let mut parameters = json!({
+        "member": display_name,
+        "limit": PEER_FETCH_LIMIT,
+        "after": now - PEER_FETCH_WINDOW_DAYS * 86_400,
+        "before": now,
+    });
+    if let Some(group_id) = group_id {
+        parameters["group_id"] = json!(group_id);
+    }
     let request = UniversalRequest {
         tool_name: PEER_FETCH_TOOL.to_owned(),
-        parameters: json!({
-            "member": display_name,
-            "limit": PEER_FETCH_LIMIT,
-            "after": now - PEER_FETCH_WINDOW_DAYS * 86_400,
-            "before": now,
-        }),
+        parameters,
         user_id: user_id.to_owned(),
         protocol: "chat".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
@@ -155,20 +202,53 @@ pub async fn fetch_peer_activities(
         progress_reporter: None,
     };
     match executor.execute_tool(request).await {
-        Ok(response) if response.success => response.result.filter(|v| !v.is_null()),
+        Ok(response) if response.success => response
+            .result
+            .filter(|v| !v.is_null())
+            .map_or(PeerFetchOutcome::Failed, PeerFetchOutcome::Fetched),
         Ok(response) => {
+            let reason = response
+                .result
+                .as_ref()
+                .and_then(|v| v.get("reason"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let error = response.error.as_deref().unwrap_or("unknown");
             info!(
                 peer = %display_name,
-                error = response.error.as_deref().unwrap_or("unknown"),
+                reason = %reason,
+                error = %error,
                 "peer_fetch_declined: consent/kill-switch/outage"
             );
-            None
+            if RELAYABLE_DECLINE_REASONS.contains(&reason) {
+                PeerFetchOutcome::Declined(error.to_owned())
+            } else {
+                PeerFetchOutcome::Failed
+            }
         }
         Err(e) => {
             warn!(peer = %display_name, error = %e, "peer_fetch_failed");
-            None
+            PeerFetchOutcome::Failed
         }
     }
+}
+
+/// Run the consent-gated peer fetch for one member and return its payload.
+///
+/// `None` covers every non-answer — a declined fetch (no consent,
+/// kill-switch), an outage, an empty payload — because to the grounding
+/// callers the meaning is the same: there is no peer evidence to ground or
+/// verify with. The decline reason is logged by
+/// [`fetch_peer_activities_outcome`] so operators still see which it was.
+pub async fn fetch_peer_activities(
+    executor: &Arc<UniversalExecutor>,
+    user_id: &str,
+    tenant_id: TenantId,
+    display_name: &str,
+) -> Option<serde_json::Value> {
+    fetch_peer_activities_outcome(executor, user_id, tenant_id, display_name, None)
+        .await
+        .fetched()
 }
 
 /// Fetch each mentioned peer's recent activities platform-side and inject

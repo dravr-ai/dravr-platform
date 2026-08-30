@@ -44,10 +44,10 @@ use uuid::Uuid;
 
 use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::activity_fetch::fetch_provider_activities;
+use crate::athlete_display_name::fetch_user_display_name;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{capabilities_to_tronc, tool_definition, tool_result_to_response};
-use crate::group_fitness::fetch_user_display_name;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 
@@ -80,18 +80,73 @@ struct MemberMatch {
     member: GroupMember,
 }
 
-/// Scan every group the requester belongs to for members whose display name
+/// A group the requester may read peers of: one they belong to, or one they
+/// coach. Both repository shapes collapse to the three facts the resolver
+/// needs.
+struct ReadableGroup {
+    id: Uuid,
+    name: String,
+    peer_data_sharing: bool,
+}
+
+/// Every group the requester belongs to, plus every group they are the
+/// attached human coach of — a coach has no membership row (the coach invite
+/// attaches `coaching_groups.coach_user_id` and nothing else), yet their
+/// prompt view already lists the consenting roster, so their fetch must
+/// resolve the same names. When `group_id` is given the set is narrowed to
+/// that one group: the room the question was asked in.
+async fn readable_groups(
+    data: &DataContext,
+    requester: Uuid,
+    group_id: Option<&str>,
+) -> AppResult<Vec<ReadableGroup>> {
+    let mut groups: Vec<ReadableGroup> = data
+        .repos()
+        .groups
+        .list_groups_for_user(requester)
+        .await?
+        .into_iter()
+        .map(|g| ReadableGroup {
+            id: g.id,
+            name: g.name,
+            peer_data_sharing: g.peer_data_sharing,
+        })
+        .collect();
+    for coached in data
+        .repos()
+        .groups
+        .list_groups_coached_by(requester)
+        .await?
+    {
+        if coached.is_active && !groups.iter().any(|g| g.id == coached.id) {
+            groups.push(ReadableGroup {
+                id: coached.id,
+                name: coached.name,
+                peer_data_sharing: coached.peer_data_sharing,
+            });
+        }
+    }
+    if let Some(pin) = group_id {
+        groups.retain(|g| g.id.to_string() == pin);
+    }
+    Ok(groups)
+}
+
+/// Scan the requester's readable groups for members whose display name
 /// contains `query_lower`. Returns the peer matches plus whether the
 /// requester themself matched — the signal for the self-query redirect.
 ///
 /// `list_groups_for_user` is requester-scoped and cross-tenant, so any match
-/// proves shared membership without trusting a conversation tenant.
+/// proves shared membership without trusting a conversation tenant; a pinned
+/// `group_id` narrows the scan to that one room, so the consent read is the
+/// member's consent for THAT group and never one granted elsewhere.
 async fn scan_shared_rosters(
     data: &DataContext,
     requester: Uuid,
     query_lower: &str,
+    group_id: Option<&str>,
 ) -> AppResult<(Vec<MemberMatch>, bool)> {
-    let groups = data.repos().groups.list_groups_for_user(requester).await?;
+    let groups = readable_groups(data, requester, group_id).await?;
     let mut matches: Vec<MemberMatch> = Vec::new();
     let mut requester_matched = false;
     for group in &groups {
@@ -131,6 +186,7 @@ fn resolve_unique_peer<'a>(
 ) -> Result<&'a MemberMatch, Value> {
     let Some(first) = matches.first() else {
         return Err(json!({
+            "reason": "no_match",
             "error": format!(
                 "No group member matching '{query}' was found in your group(s). \
                  They must be a member of a group you share."
@@ -146,6 +202,7 @@ fn resolve_unique_peer<'a>(
         names.sort();
         names.dedup();
         return Err(json!({
+            "reason": "ambiguous",
             "error": format!(
                 "'{query}' is ambiguous — multiple members match: {}. Use a more specific name.",
                 names.join(", ")
@@ -204,6 +261,19 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             },
         );
         properties.insert(
+            "group_id".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Optional coaching-group id to pin the lookup to — the group bound to the \
+                     room the question was asked in. The member must belong to it and only \
+                     their consent for that group applies. Omit to search every group you share."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
             "sport_type".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
@@ -251,8 +321,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             "Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to \
              read a peer's data in a group chat — `get_activities` always returns YOUR own data, \
              never a peer's. Identify the member by their roster display name. For a specific past \
-             race or date range, pass `after`/`before` epoch-second bounds. Returns an error \
-             (not data) if the member has not shared their data via `/group consent yes`.",
+             race or date range, pass `after`/`before` epoch-second bounds. Pass `group_id` to \
+             pin the lookup to the room's group. Returns an error (not data) if the member has \
+             not shared their data via `/group consent yes`; the error's `reason` says why.",
             schema,
             Some(read_only_annotations()),
         )
@@ -287,8 +358,13 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 
             // Resolve the target peer across the groups the requester belongs to.
             let query_lower = member_query.to_lowercase();
+            let group_pin = args
+                .get("group_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
             let (matches, requester_matched) =
-                scan_shared_rosters(&data, requester, &query_lower).await?;
+                scan_shared_rosters(&data, requester, &query_lower, group_pin).await?;
 
             // A self-lookup used to fall through to the generic "no member
             // matching" error — a dead end with no gradient out, since no
@@ -296,6 +372,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             // mistake and the tool that serves it instead.
             if matches.is_empty() && requester_matched {
                 return Ok(ToolResult::error(json!({
+                    "reason": "self",
                     "error": format!(
                         "'{member_query}' is you, the requester. This tool reads a \
                          consenting PEER's activities; your own activities come from \
@@ -312,6 +389,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             // Authorization gates — both must hold.
             if !resolved.group_allows_sharing {
                 return Ok(ToolResult::error(json!({
+                    "reason": "sharing_disabled",
                     "error": format!(
                         "Peer data sharing is disabled for group '{}'.",
                         resolved.group_name
@@ -320,6 +398,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             }
             if !resolved.member.peer_sharing_consent {
                 return Ok(ToolResult::error(json!({
+                    "reason": "no_consent",
                     "error": format!(
                         "{} hasn't shared their data with the group yet. They can opt in with `/group consent yes`.",
                         resolved.display_name
@@ -365,6 +444,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 .await?;
             if connections.is_empty() {
                 return Ok(ToolResult::error(json!({
+                    "reason": "no_source",
                     "error": format!(
                         "{} has no connected training data source, so there are no \
                          activities to fetch for them.",
@@ -391,6 +471,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             }
             if !any_fetch_succeeded {
                 return Ok(ToolResult::error(json!({
+                    "reason": "fetch_failed",
                     "error": format!(
                         "Couldn't fetch {}'s activities right now — their data source \
                          did not respond. This is a temporary failure, not evidence \

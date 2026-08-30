@@ -30,6 +30,17 @@ pub(super) fn string_prop(description: &str) -> PropertySchema {
     }
 }
 
+/// The `athlete` property both plan tools advertise: the coached athlete whose
+/// plan the call acts on. One definition so the two tools cannot describe the
+/// same argument two ways.
+pub(super) fn athlete_prop() -> PropertySchema {
+    string_prop(
+        "Roster display name of the athlete whose plan this is. Only the group's human coach \
+         (attached via a coach invite) may set it, for a consenting athlete in a group they \
+         coach, and only from a direct chat — never in a room. Omit to act on your own plan.",
+    )
+}
+
 /// Number schema property with a description.
 fn number_prop(description: &str) -> PropertySchema {
     PropertySchema {

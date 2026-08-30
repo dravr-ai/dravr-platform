@@ -233,6 +233,22 @@ async fn catalogue_entries_carry_the_frontmatter_verbatim() {
         "Show your training plan — goal countdown plus today and tomorrow, the full week, or today alone"
     );
 
+    // The room-visible variant is its own catalogue entry beside `/plan`, so
+    // the palette offers it with no client change — same domain, same
+    // argument signature, its own name for the handler registry.
+    let share = entries
+        .iter()
+        .find(|e| e.command == "/plan share")
+        .expect("/plan share is ungated and must always be listed");
+    assert_eq!(share.name, "plan-share");
+    assert_eq!(share.domain, "training");
+    assert_eq!(share.args.as_deref(), Some("[week|today]"));
+    assert!(
+        share.description.contains("into the room"),
+        "the description says where the reply goes: {}",
+        share.description
+    );
+
     // A command with no `arguments:` in its frontmatter carries no signature,
     // rather than an empty string a client would render as trailing space.
     let help = entries

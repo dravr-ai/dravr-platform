@@ -851,12 +851,10 @@ fn tenant_disabled_response(tool_name: &str) -> UniversalResponse {
     UniversalResponse {
         success: false,
         result: Some(serde_json::json!({
-            "error_code": "tool_disabled",
-            "reason": "tenant_disabled",
+            "error_code": guardian::TENANT_DISABLED_ERROR_CODE,
+            "reason": guardian::TENANT_DISABLED_REASON,
         })),
-        error: Some(format!(
-            "Tool '{tool_name}' is disabled for this tenant. Choose a different tool or answer from what you already know."
-        )),
+        error: Some(guardian::tenant_disabled_message(tool_name)),
         metadata: None,
     }
 }
