@@ -115,7 +115,25 @@ Verify tests actually ran — exit code 0 is NOT sufficient (`cargo test` exits 
 - Never fake/create the `.git/validation-passed` marker.
 - Locally, only the tiers whose files changed run: Tier 0 `cargo fmt --all -- --check`, Tier 1 `scripts/ci/architectural-validation.sh`, Tier 1b `scripts/ci/check-contremaitre-sync.sh` (compile-free locale + notify-event + MCP-tool-list drift check vs the pinned dravr-contremaitre catalogues), Tier 1c `scripts/ci/check-phantom-surfaces.sh` (compile-free; fails when the diff adds a trait with no implementor, an api-client method with no production caller, or an api-client method only one client calls), Tier 1d `scripts/ci/check-turn-envelope.sh` (compile-free; fails on a reintroduced `is_messaging`/`ChannelProfile`, a reply block only one client renders, a hand-rolled `fetch()` at `/api/chat`, or a stale `surface-capabilities.generated.ts`), Tier 5 frontend, Tier 6 SDK, Tier 7 mobile.
 - **A new chat surface, reply block, or notification screen is generated, not written.** `GET /api/surfaces/capabilities` serves the `SurfaceProfile::resolve` table; `cd packages/shared-constants && bun run generate` rewrites `src/surface-capabilities.generated.ts` from a running server, exactly as `packages/mcp-types` regenerates from the tool registry. Both clients read that file — the registry's per-surface `blocks` column, the notification screen vocabulary — so Tier 1d fails the push while it is behind the Rust source.
-- CI fires parallel jobs on push (`ci-backend.yml`: `fast-gate` ~30s, `preflight-clippy` ~3–5min, `clippy` ~10–12min gating `release-binary`, `deadlock-analysis`, `security-audit`, `doc-tests`, `contremaitre-sync` ~5min, `release-binary`; plus `ci-postgres.yml`, `integration-tests.yml`, `frontend-tests.yml`, `sdk-tests.yml`, `mobile-unit-tests.yml`, `mcp-compliance.yml`, each path-scoped). `cancel-in-progress: true` is set, so a new push cancels older runs on the same ref.
+- CI fires parallel jobs on push (`ci-backend.yml`: `fast-gate` ~30s, `preflight-clippy` ~3–5min, `clippy` ~10–12min gating `release-binary`, `deadlock-analysis`, `security-audit`, `doc-tests`, `contremaitre-sync` ~5min, `release-binary`; plus `ci-postgres.yml`, `integration-tests.yml`, `frontend-tests.yml`, `sdk-tests.yml`, `mobile-unit-tests.yml`, `mcp-compliance.yml`, each path-scoped). `cancel-in-progress` behaviour differs per workflow and it matters when diagnosing a missing run. **Protected on main:** `ci-backend.yml` and `frontend-tests.yml` append `github.sha` to the concurrency group when the ref is `main` (`...${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}`), so every commit gets its own group and nothing cancels another's verdict; `ci-postgres.yml` sets `cancel-in-progress: false` outright. **Still cancels on main:** `mobile-unit-tests.yml` and `ci-redis.yml` group by ref alone. So a missing `ci-backend` run on main is NOT a cancellation and needs another explanation (usually the commit was not the tip of its push — see below), while a missing `mobile-unit-tests` run may well be. Read the workflow's `group:` expression before blaming cancellation.
+
+**Push ONE commit at a time to main when each is independently meaningful.** GitHub fires one workflow run per PUSH, on the TIP — so a push carrying three commits tests only the third. The other two land on main, deploy, and are never independently validated. This is push semantics, not a misconfiguration; there is nothing to fix in CI.
+
+On 2026-08-28 a commit adding a 13th system prompt without updating the counts that pin it went up alongside another commit, got no `ci-backend` run of its own, and left main broken for ~25 minutes behind a run list reading `success, success, success`. It surfaced only because an unrelated feature branch inherited the failure. Three further multi-commit pushes the same day left intermediate SHAs untested.
+
+**"My commit is an ancestor of a green run" is NOT "my commit was tested."** A descendant's green run proves the tip's tree passes; it says nothing about whether an intermediate commit would have, and a break masked by the following commit never shows. There are three states, and the third is invisible:
+
+| | visible? | how to see it |
+|---|---|---|
+| red | yes | the run list |
+| cancelled | yes | where the workflow cancels on main; two causes — preemption vs a 45-min job timeout — separate them by `createdAt`→`updatedAt` |
+| **absent** | **no** | ask whether each SHA appears in `gh run list --json headSha` AT ALL |
+
+```bash
+git log --oneline <base>..origin/main        # every sha that landed
+gh run list --branch main --limit 15 --json headSha,conclusion,status
+# any sha in the first list and absent from the second was never tested
+```
 
 **Push is the start of validation, not the end.** After every push, watch CI for the pushed commit until all relevant workflows reach a terminal status. If any fails, fix the underlying issue and re-push in the same session — work is not "done" until CI is green on the head commit (cancelled runs for older commits don't count).
 
