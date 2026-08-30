@@ -48,7 +48,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::envelope::ReconnectPrompt;
+use crate::envelope::{ReconnectPrompt, ReplyBlockKind};
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::{
@@ -244,15 +244,35 @@ pub async fn apply_auth_recovery(
         &[display_name.as_str(), url.as_str()],
     );
 
+    // A reconnect offer is either a control or a link in the sentence, never
+    // both: where the surface draws the control, the sentence joined to the
+    // answer names the provider and stops there, so the athlete is handed one
+    // thing to tap instead of a raw URL repeated beside it. A surface without
+    // the control keeps the link inline, because there it is the only way to
+    // reach the offer. The prompt carries the linked copy either way, so what
+    // the control renders does not change with the surface it lands on.
+    //
+    // Only the served standing chooses: a blanked turn's reply IS the reconnect
+    // message, and the link belongs in it whatever the surface draws around it.
+    let control_draws_the_link =
+        !replaces_reply && profile.render.renders(ReplyBlockKind::Reconnect);
+    let prose = if control_draws_the_link {
+        deps.messaging_strings_registry
+            .render(bare_key, locale, &[display_name.as_str()])
+    } else {
+        message.clone()
+    };
+
     info!(
         user_id = %user_id,
         provider = %provider_slug,
         locale = %locale,
         replaces_reply,
-        "auth_recovery: emitting reconnect URL in chat reply"
+        control_draws_the_link,
+        "auth_recovery: emitting reconnect offer in chat reply"
     );
 
-    deliver(result, &message, replaces_reply);
+    deliver(result, &prose, replaces_reply);
     AuthRecovery {
         prompt: Some(ReconnectPrompt {
             provider: provider_slug,

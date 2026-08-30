@@ -53,6 +53,7 @@ use pierre_chat_pipeline::{
 };
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+    KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -346,10 +347,29 @@ async fn the_coach_answer_survives_the_reconnect_offer_on_a_served_turn() {
     let offer = recovery
         .prompt
         .expect("a minted offer accompanies the answer");
+    // This surface draws the control, so the sentence under the answer names the
+    // provider and the link travels in the control's own field. The offer is
+    // still APPENDED — that is the whole difference from the blank path — it is
+    // just the linkless copy that gets appended here.
+    let appended = MessagingStringsRegistry::new().render(
+        KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
+        "fr",
+        &["Garmin"],
+    );
     assert!(
-        result.content.ends_with(&offer.text),
+        result.content.ends_with(&appended),
         "the offer is appended below the answer, not spliced into it, got: {}",
         result.content
+    );
+    assert!(
+        !result.content.contains(&offer.url),
+        "the control carries the link, so the prose must not repeat it, got: {}",
+        result.content
+    );
+    assert!(
+        offer.text.contains(&offer.url),
+        "the control's own text still carries the link it renders, got: {}",
+        offer.text
     );
     assert!(
         result.content.contains("Garmin"),
