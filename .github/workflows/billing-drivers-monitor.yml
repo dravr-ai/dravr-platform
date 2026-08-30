@@ -1,0 +1,168 @@
+# ABOUTME: Daily read of the build churn that drives the GCP bill — image builds and superseded deploys
+# ABOUTME: Opens a private carnet issue when yesterday's churn crosses a threshold
+#
+# The daily GCP cost tracks development activity, not user traffic. On
+# 2026-08-27 the bill peaked for the month while Cloud Run served 212 requests
+# all day; the same day was the busiest in the repo's history. The mechanism is
+# the image build: every one pulls a multi-GB registry buildcache back out of
+# Artifact Registry to a GitHub-hosted runner, which is billed internet egress
+# because the runners sit outside GCP.
+#
+# `publish-images.yml` had no concurrency group until 2026-08-29, so a burst of
+# pushes to main queued one deploy per push — 60 commits on 2026-08-26 became 44
+# image builds. The group added there collapses a burst onto its newest SHA.
+#
+# This watches both halves of that:
+#   * image_builds — the absolute egress driver.
+#   * cancelled_deploys — the evidence the collapse is happening. A busy day with
+#     no supersessions at all means the concurrency group has stopped engaging,
+#     which is how the 2026-08-26 shape would come back unnoticed.
+#
+# It does NOT check cost. Cost is not queryable: the BigQuery billing export
+# dataset created by infra/environments/dev/billing.tf on 2026-06-11 has never
+# been enabled, so no per-SKU history exists to read. A cost threshold added here
+# would be a branch reading a table that is not there.
+#
+# Read-only: it reads this repository's own Actions history and nothing else.
+
+name: "Monitor: Build Cost Drivers"
+
+on:
+  schedule:
+    # 07:00 Eastern — a full previous day has closed.
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Day to read, YYYY-MM-DD (default: yesterday UTC)"
+        required: false
+      build_threshold:
+        description: "Image builds above this open an issue"
+        required: false
+        default: "25"
+
+concurrency:
+  group: billing-drivers-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  drivers:
+    name: Yesterday's build churn
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Count image builds and superseded deploys
+        id: count
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_DATE: ${{ github.event.inputs.date }}
+          BUILD_THRESHOLD: ${{ github.event.inputs.build_threshold || '25' }}
+        run: |
+          set -euo pipefail
+          DATE="${INPUT_DATE:-$(date -u -d yesterday +%F)}"
+
+          # Every run created that day, as "<workflow name>\t<conclusion>".
+          gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+            -f created="${DATE}" -f per_page=100 --paginate \
+            --jq '.workflow_runs[] | [.name, (.conclusion // "running")] | @tsv' \
+            > runs.tsv
+
+          # The workflows that actually build and push an image. Anything else
+          # (tests, monitors, docs) runs no docker build and pulls no cache.
+          BUILDERS='^(Deploy: Build & Ship|Deploy: Hotfix|Publish: (Sciotte|Photograveur))'
+
+          IMG=$(grep -cE "${BUILDERS}" runs.tsv || true)
+          CANCELLED=$(grep -E "${BUILDERS}" runs.tsv | grep -c 'cancelled' || true)
+          ALL=$(wc -l < runs.tsv | tr -d ' ')
+
+          echo "date=${DATE}"            >> "$GITHUB_OUTPUT"
+          echo "image_builds=${IMG}"     >> "$GITHUB_OUTPUT"
+          echo "cancelled=${CANCELLED}"  >> "$GITHUB_OUTPUT"
+          echo "all_runs=${ALL}"         >> "$GITHUB_OUTPUT"
+
+          # Two independent breaches, reported together so one issue carries both.
+          REASONS=""
+          if [ "${IMG}" -gt "${BUILD_THRESHOLD}" ]; then
+            REASONS="${REASONS}- \`image_builds\` = ${IMG}, above the threshold of ${BUILD_THRESHOLD}. Each build pulls the buildcache out of Artifact Registry as billed egress.\n"
+          fi
+          if [ "${IMG}" -gt 20 ] && [ "${CANCELLED}" -eq 0 ]; then
+            REASONS="${REASONS}- ${IMG} image builds and not one superseded deploy. The concurrency group in \`publish-images.yml\` collapses a push burst onto its newest SHA, so a day this busy should show cancellations. Zero means it has stopped engaging.\n"
+          fi
+
+          if [ -n "${REASONS}" ]; then
+            echo "breach=true" >> "$GITHUB_OUTPUT"
+            printf 'reasons<<EOF\n%b\nEOF\n' "${REASONS}" >> "$GITHUB_OUTPUT"
+          else
+            echo "breach=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          {
+            echo "## Build cost drivers — ${DATE}"
+            echo
+            echo "| metric | value |"
+            echo "| --- | --- |"
+            echo "| image builds | ${IMG} |"
+            echo "| superseded (cancelled) deploys | ${CANCELLED} |"
+            echo "| all workflow runs | ${ALL} |"
+            echo
+            if [ -n "${REASONS}" ]; then
+              printf '%b' "${REASONS}"
+            else
+              echo "Within threshold — no issue opened."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the carnet issue
+        if: steps.count.outputs.breach == 'true'
+        uses: actions/github-script@v9
+        env:
+          DATE: ${{ steps.count.outputs.date }}
+          IMAGE_BUILDS: ${{ steps.count.outputs.image_builds }}
+          CANCELLED: ${{ steps.count.outputs.cancelled }}
+          ALL_RUNS: ${{ steps.count.outputs.all_runs }}
+          REASONS: ${{ steps.count.outputs.reasons }}
+        with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          script: |
+            const owner = 'dravr-ai';
+            const repo = 'dravr-carnet';
+            // One standing issue, not one per day: the condition recurs and a
+            // fresh issue every morning would bury the first diagnosis.
+            const title = '[platform] Build cost drivers above threshold';
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            const body = [
+              `## ${process.env.DATE}`,
+              ``,
+              `| metric | value |`,
+              `| --- | --- |`,
+              `| image builds | ${process.env.IMAGE_BUILDS} |`,
+              `| superseded (cancelled) deploys | ${process.env.CANCELLED} |`,
+              `| all workflow runs | ${process.env.ALL_RUNS} |`,
+              ``,
+              process.env.REASONS,
+              ``,
+              `_[Monitor: Build Cost Drivers](${runUrl})_`,
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: 'dravr-platform', per_page: 100,
+            });
+            const open = existing.data.find((i) => i.title === title);
+
+            if (open) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: open.number, body,
+              });
+              core.info(`Commented on existing issue #${open.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner, repo, title, body, labels: ['dravr-platform'],
+              });
+              core.info(`Opened issue #${created.data.number}`);
+            }
