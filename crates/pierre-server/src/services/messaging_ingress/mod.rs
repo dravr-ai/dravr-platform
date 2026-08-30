@@ -34,14 +34,18 @@ mod otp;
 /// Shared failed-outbound enqueue helper — single source of truth for the retry
 /// queue, reused by the synchronous reply path and the backfill-completion push.
 pub mod outbound_retry;
+mod outbound_send;
 /// Inbound emoji reactions mapped onto the shared per-message feedback write.
 pub mod reactions;
+/// What a shared room is left seeing once a slash command is answered privately.
+pub mod room_echo;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.
 mod session;
 /// Channel framing around the turn service's slash dispatch: channel-link
 /// auth and locale in, an addressed `OutgoingMessage` out.
 #[cfg(feature = "client-messaging")]
 mod slash;
+use outbound_send::{send_channel_response, send_private_channel_response};
 /// Ambient room-chatter capture into the shared group transcript read model.
 mod transcript;
 
@@ -59,7 +63,6 @@ pub mod turn_guard;
 use channel_auth_outcome::{
     handle_channel_auth_outcome, resolve_channel_user_email, ChannelAuthOutcomeInputs,
 };
-use dispatch::load_channel_config;
 use linking::{detect_linking_code, handle_linking_command, LinkingAction};
 // Re-exported (not just `use`) so the messaging-reset integration test can
 // reach the helper — pierre-server keeps test modules external, not in src/.
@@ -80,9 +83,7 @@ use slash::{try_handle_slash_command, SlashCommandContext};
 
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::groups::GroupRespondMode;
-use pierre_core::models::messaging::{
-    ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
-};
+use pierre_core::models::messaging::{ChannelType, IncomingMessage, MessageContent};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
@@ -261,75 +262,6 @@ pub(crate) async fn persist_inbound(
     (stored_count, pending_dispatches)
 }
 
-/// Send an outgoing reply to a channel user, loading config and spawning
-/// delivery.
-///
-/// A body past the channel's ceiling is split here, at the one point every
-/// non-pipeline reply in this module passes through: an over-limit message is
-/// rejected outright by the channel API, so a `/plan`, an intake question or a
-/// coach list that outgrew Discord's 2000 characters used to arrive truncated
-/// or not at all. The parts are sent sequentially inside one spawned task so a
-/// split answer never arrives out of order, and a failure part-way stops the
-/// rest rather than posting a tail with no head.
-async fn send_channel_response(
-    db: &dyn MessagingRepository,
-    tenant_id: TenantId,
-    channel: &str,
-    adapter: &Arc<dyn MessagingChannel>,
-    message: OutgoingMessage,
-) {
-    let ceiling = block_render::channel_ceiling(message.channel_type);
-    let messages = block_render::fan_out(message, ceiling);
-    let config = load_channel_config(db, tenant_id, channel).await;
-    if let Some(cfg) = config {
-        let adapter_clone = Arc::clone(adapter);
-        tokio::spawn(async move {
-            for message in messages {
-                if let Err(e) = adapter_clone.send(&message, &cfg).await {
-                    error!(error = %e, "Failed to send channel response");
-                    return;
-                }
-            }
-        });
-    }
-}
-
-/// Deliver a slash-command reply privately to the caller instead of to the
-/// room it arrived in, loading config and spawning delivery.
-///
-/// Each channel applies its own private mechanism inside canot's
-/// `send_private_reply`: a 1:1 DM for Telegram/`WhatsApp`/Messenger, an ephemeral
-/// message for Slack, an opened DM channel for Discord. `recipient_user_id` is
-/// the channel-native id of the caller; `message` is the reply addressed to the
-/// originating room.
-async fn send_private_channel_response(
-    db: &dyn MessagingRepository,
-    tenant_id: TenantId,
-    channel: &str,
-    adapter: &Arc<dyn MessagingChannel>,
-    message: OutgoingMessage,
-    recipient_user_id: &str,
-) {
-    let ceiling = block_render::channel_ceiling(message.channel_type);
-    let messages = block_render::fan_out(message, ceiling);
-    let config = load_channel_config(db, tenant_id, channel).await;
-    if let Some(cfg) = config {
-        let adapter_clone = Arc::clone(adapter);
-        let recipient = recipient_user_id.to_owned();
-        tokio::spawn(async move {
-            for message in messages {
-                if let Err(e) = adapter_clone
-                    .send_private_reply(&message, &recipient, &cfg)
-                    .await
-                {
-                    error!(error = %e, "Failed to send private slash-command reply");
-                    return;
-                }
-            }
-        });
-    }
-}
-
 /// Emit the `messaging.intent` product notify event for a recognised intent.
 ///
 /// `user_id` is the raw (un-hashed) Pierre user id, or — for pre-link intents
@@ -452,7 +384,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         )
         .await;
         if let Some(room_id) = message.conversation_id.as_deref() {
-            if let Some(notice) = slash::settle_room_echo(slash::RoomEchoSettlement {
+            if let Some(notice) = room_echo::settle_room_echo(room_echo::RoomEchoSettlement {
                 resources,
                 db,
                 tenant_id,

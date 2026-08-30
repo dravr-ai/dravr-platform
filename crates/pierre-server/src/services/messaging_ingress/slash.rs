@@ -8,12 +8,10 @@
 
 use std::sync::Arc;
 
-use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_SLASH_ANSWERED_PRIVATELY};
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::info;
-use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
 
@@ -27,14 +25,10 @@ use pierre_services::channel_error_reply::ChannelErrorReply;
 use super::addressing::reply_recipient;
 use super::card_or_rich_text;
 use super::connect::build_connect_card_direct;
-use super::dispatch::load_channel_config;
 use super::locale::resolve_messaging_locale;
 use super::surface::messaging_render_profile;
 use super::ResolvedSession;
 use pierre_contremaitre::messaging_strings::KEY_NO_PROVIDER_CONNECTED;
-use pierre_database::backends::MessagingRepository;
-use pierre_messaging::channel::MessagingChannel;
-use tracing::debug;
 
 /// True when `text` is the `/connect` command (first whitespace-delimited token,
 /// case-insensitive). The hosted page is a provider picker, so no argument is
@@ -69,147 +63,6 @@ pub fn slash_reply_should_be_private(is_direct_message: bool, command_name: Opti
         return false;
     }
     !is_room_visible(command_name)
-}
-
-/// Best-effort removal of a user's slash-command echo from a shared room.
-///
-/// When a slash command arrives in a shared room the reply is delivered
-/// privately to the caller (see `slash_reply_should_be_private`). This deletes
-/// the original command message so the room never shows it. Failures (bot not
-/// an admin with delete rights, message already gone, channel can't delete)
-/// never affect the turn — the command was still handled and answered privately.
-///
-/// Returns whether the echo is gone, because that decides what the room is left
-/// looking at. Deleted, the room shows nothing and needs nothing. Still there,
-/// the room shows a command with no answer, and the caller is owed a word about
-/// where the answer went — see [`KEY_SLASH_ANSWERED_PRIVATELY`].
-async fn delete_room_command_echo(
-    db: &dyn MessagingRepository,
-    tenant_id: TenantId,
-    channel: &str,
-    adapter: &Arc<dyn MessagingChannel>,
-    room_id: &str,
-    channel_message_id: &str,
-) -> bool {
-    let Some(config) = load_channel_config(db, tenant_id, channel).await else {
-        return false;
-    };
-    if let Err(e) = adapter
-        .delete_message(room_id, channel_message_id, &config)
-        .await
-    {
-        debug!(
-            channel = %channel,
-            error = %e,
-            "Could not delete slash-command echo from room (bot may lack admin rights)"
-        );
-        return false;
-    }
-    true
-}
-
-/// Everything [`settle_room_echo`] needs to decide what a room is left seeing.
-pub(super) struct RoomEchoSettlement<'a> {
-    /// Server context: strings registry and locale resolution.
-    pub resources: &'a ServerContext,
-    /// Messaging repository, for the channel config the delete needs.
-    pub db: &'a dyn MessagingRepository,
-    /// Tenant owning the channel config.
-    pub tenant_id: TenantId,
-    /// Channel slug (`"telegram"`, `"slack"`, …).
-    pub channel: &'a str,
-    /// Strongly-typed channel kind, for addressing the notice.
-    pub channel_type: ChannelType,
-    /// Adapter that performs the delete.
-    pub adapter: &'a Arc<dyn MessagingChannel>,
-    /// The shared room the command arrived in.
-    pub room_id: &'a str,
-    /// The command message to remove.
-    pub channel_message_id: &'a str,
-    /// Pierre user id of the caller, for their locale.
-    pub user_id: &'a str,
-    /// Channel-native id of the caller, for their locale.
-    pub sender_id: &'a str,
-}
-
-/// Remove the command echo, and say where the answer went if it could not be.
-///
-/// Returns the room-visible notice to send, or `None` when the room needs
-/// nothing — either the echo is gone, so the room shows nothing at all, or the
-/// notice itself could not be built.
-pub(super) async fn settle_room_echo(args: RoomEchoSettlement<'_>) -> Option<OutgoingMessage> {
-    let RoomEchoSettlement {
-        resources,
-        db,
-        tenant_id,
-        channel,
-        channel_type,
-        adapter,
-        room_id,
-        channel_message_id,
-        user_id,
-        sender_id,
-    } = args;
-
-    if delete_room_command_echo(db, tenant_id, channel, adapter, room_id, channel_message_id).await
-    {
-        return None;
-    }
-
-    Some(
-        answered_privately_notice(
-            resources,
-            tenant_id,
-            channel_type,
-            channel,
-            user_id,
-            sender_id,
-            room_id,
-        )
-        .await,
-    )
-}
-
-/// A room-visible note that the answer went to the caller's direct chat.
-///
-/// Carries no part of the answer — a room is bound to a group that can hold
-/// several athletes, which is the whole reason the reply was redirected. It says
-/// only where to look.
-///
-/// Sent only when the command echo could not be deleted. With the echo gone the
-/// room shows nothing and is owed nothing; with it still there the room shows a
-/// member's command and no response, which reads as the bot ignoring them in
-/// front of everyone. That is what a `/plan` in a group looked like on
-/// 2026-08-29 — twice, while both answers sat delivered in the callers' DMs.
-///
-/// Addressed to the room, in the caller's locale: they are the one who needs to
-/// know where their answer went.
-pub(super) async fn answered_privately_notice(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    channel_type: ChannelType,
-    channel: &str,
-    user_id: &str,
-    sender_id: &str,
-    room_id: &str,
-) -> OutgoingMessage {
-    let locale = match Uuid::parse_str(user_id) {
-        Ok(uuid) => resolve_messaging_locale(resources, tenant_id, uuid, channel, sender_id).await,
-        Err(_) => DEFAULT_LOCALE.to_owned(),
-    };
-    let body = resources
-        .mcp
-        .messaging_strings_registry
-        .get(KEY_SLASH_ANSWERED_PRIVATELY, &locale);
-
-    OutgoingMessage {
-        channel_type,
-        recipient_id: room_id.to_owned(),
-        content: MessageContent::Text { body },
-        turn_id: CanotTurnId::new(),
-        reply_to: None,
-        thread_id: None,
-    }
 }
 
 /// A slash-command reply plus the identity of the command that produced it.

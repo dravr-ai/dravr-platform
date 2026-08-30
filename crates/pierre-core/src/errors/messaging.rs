@@ -19,10 +19,15 @@ impl From<MessagingError> for AppError {
             | MessagingError::ChannelAlreadyLinked { .. } => ErrorCode::ResourceAlreadyExists,
             MessagingError::RateLimitExceeded { .. } => ErrorCode::ExternalRateLimited,
             MessagingError::ChannelNotConfigured { .. } => ErrorCode::ConfigError,
+            // `OperationNotSupported` sits here rather than with the external
+            // failures: the channel has no API for what was asked, so nothing
+            // was attempted and no retry will help. That is a request the
+            // channel cannot serve, not a service that failed.
             MessagingError::InvalidPayload { .. }
             | MessagingError::LinkCodeExpired
             | MessagingError::LinkCodeAlreadyUsed
-            | MessagingError::LinkCodeNotCompletable { .. } => ErrorCode::InvalidInput,
+            | MessagingError::LinkCodeNotCompletable { .. }
+            | MessagingError::OperationNotSupported { .. } => ErrorCode::InvalidInput,
             MessagingError::SessionNotFound { .. } | MessagingError::ChannelNotLinked { .. } => {
                 ErrorCode::ResourceNotFound
             }
