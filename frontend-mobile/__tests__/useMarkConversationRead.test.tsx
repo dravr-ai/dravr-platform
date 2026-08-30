@@ -67,6 +67,23 @@ function renderMarker(client: QueryClient, initial: { conversationId: string | n
   });
 }
 
+/**
+ * Every QueryClient a test builds, so afterEach can clear it.
+ *
+ * `setQueryData` schedules a garbage-collection timer per query — gcTime
+ * defaults to five minutes — and a client nobody clears leaves that timer on
+ * the event loop after the test ends. Four of them were enough to stop the
+ * jest worker exiting, so the run force-exited a worker and its exit code
+ * became nondeterministic: the same commit exited 0, 1 and 0 on three runs.
+ */
+const clients: QueryClient[] = [];
+
+function makeClient(): QueryClient {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  clients.push(client);
+  return client;
+}
+
 describe('useMarkConversationRead', () => {
   let listeners: Listener[] = [];
 
@@ -84,10 +101,13 @@ describe('useMarkConversationRead', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    // Destroys each query and with it the gc timer holding the worker open.
+    clients.forEach((client) => client.clear());
+    clients.length = 0;
   });
 
   it('marks the thread read once per transcript and clears the row badge first', async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = makeClient();
     seedList(client, 4);
 
     const { rerender } = renderMarker(client, { conversationId: 'c1', lastMessageId: 'm9' });
@@ -101,7 +121,7 @@ describe('useMarkConversationRead', () => {
   });
 
   it('moves the marker again when a new message lands', async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = makeClient();
     seedList(client, 0);
 
     const { rerender } = renderMarker(client, { conversationId: 'c1', lastMessageId: 'm9' });
@@ -113,7 +133,7 @@ describe('useMarkConversationRead', () => {
 
   it('does not mark a thread read while the screen is not focused', () => {
     mockIsFocused = false;
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = makeClient();
     seedList(client, 3);
 
     renderMarker(client, { conversationId: 'c1', lastMessageId: 'm9' });
@@ -123,7 +143,7 @@ describe('useMarkConversationRead', () => {
   });
 
   it('does not mark a thread read while the app is in the background', async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = makeClient();
     seedList(client, 3);
 
     const { rerender } = renderMarker(client, { conversationId: 'c1', lastMessageId: null });
@@ -142,7 +162,7 @@ describe('useMarkConversationRead', () => {
   });
 
   it('does nothing for a composer with no conversation yet', () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = makeClient();
     renderMarker(client, { conversationId: null, lastMessageId: null });
     expect(mockMarkConversationRead).not.toHaveBeenCalled();
   });
