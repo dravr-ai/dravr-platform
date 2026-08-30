@@ -297,7 +297,7 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
                 ("carbs_g_per_h", fuel.carbs_g_per_h, MAX_CARBS_G_PER_H),
                 ("fluid_ml_per_h", fuel.fluid_ml_per_h, MAX_FLUID_ML_PER_H),
             ] {
-                if !value.is_finite() || value < 0.0 || value > max {
+                if !value.is_finite() || !(0.0..=max).contains(&value) {
                     return Err(AppError::invalid_input(format!(
                         "day {} fueling.{field} {value} is outside 0..={max}",
                         day.date
@@ -305,7 +305,7 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
                 }
             }
             if let Some(sodium) = fuel.sodium_mg_per_h {
-                if !sodium.is_finite() || sodium < 0.0 || sodium > MAX_SODIUM_MG_PER_H {
+                if !sodium.is_finite() || !(0.0..=MAX_SODIUM_MG_PER_H).contains(&sodium) {
                     return Err(AppError::invalid_input(format!(
                         "day {} fueling.sodium_mg_per_h {sodium} is outside 0..={MAX_SODIUM_MG_PER_H}",
                         day.date

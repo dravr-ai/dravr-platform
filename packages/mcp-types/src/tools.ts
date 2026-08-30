@@ -1440,6 +1440,22 @@ export interface SaveTrainingPlanParams {
   /** Planned duration in minutes; omit for rest days, and omit when steps are given — it is summed from them. */
   duration_min?: number;
 
+  /** What to take in during the session. Give it for any session long enough to need fuelling. */
+  fueling?: {
+
+  /** Carbohydrate source when the rate depends on it — 'glucose:fructose 1:0.8'. Required in practice for any rate above 60 g/h. */
+  carb_source?: string;
+
+  /** Carbohydrate target in grams per hour. Up to 60 g/h from any single source; above that requires multiple transportable carbohydrates, so state carb_source too. */
+  carbs_g_per_h: number;
+
+  /** Fluid target in millilitres per hour. */
+  fluid_ml_per_h: number;
+
+  /** ESTIMATED sodium LOSS in mg per hour, not a required intake. Give it only when the athlete has a sweat measurement behind it; omit it otherwise rather than guessing. */
+  sodium_mg_per_h?: number;
+};
+
   /** Intensity RELATIVE to thresholds ('Z2', 'tempo', '88-93% FTP'). Never absolute watts. With steps, the day's summary label. */
   intensity?: string;
 
