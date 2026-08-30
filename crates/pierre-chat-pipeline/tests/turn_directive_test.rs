@@ -26,7 +26,7 @@
 #![allow(missing_docs)]
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pierre_chat_pipeline::stages::prompt_assembly::TURN_DIRECTIVE;
 
@@ -231,25 +231,76 @@ fn slice_between<'a>(source: &'a str, from: &str, to: &str) -> &'a str {
 /// Asserted at source level because the alternative — proving it end to end —
 /// requires a leak to occur, which is stochastic at ~1.7% and therefore not
 /// something a test can arrange.
+/// Read the crate source file that DEFINES `needle`, whatever file that is.
+///
+/// The re-ask used to live in `lib.rs` and now lives in `recovery.rs`, because
+/// `lib.rs` was 226 lines over its frozen size ceiling and had to be split. A
+/// test that named the file failed the moment the code moved, even though the
+/// property it guards was untouched — the string it wanted had simply walked to
+/// the next file over.
+///
+/// Following the definition instead means a future move relocates the check
+/// with it, and a genuine removal still fails. Panics with the name it was
+/// looking for, so the failure says what to restore rather than that a string
+/// went missing.
+/// Strip everything rustfmt is free to change, so the guard survives a
+/// reflow of the very call it is checking.
+///
+/// Whitespace goes entirely, and a trailing comma before a closing paren goes
+/// with it: rustfmt adds both the moment the argument list grows past one line,
+/// which changes nothing about behaviour while silently defeating a substring
+/// match. A guard that a formatter can switch off is not a guard.
+fn normalize(text: &str) -> String {
+    let dense: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    dense.replace(",)", ")")
+}
+
+fn source_defining(needle: &str) -> String {
+    fn walk(dir: &Path, needle: &str) -> Option<String> {
+        for entry in fs::read_dir(dir).ok()? {
+            let path = entry.ok()?.path();
+            if path.is_dir() {
+                if let Some(found) = walk(&path, needle) {
+                    return Some(found);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let body = fs::read_to_string(&path).ok()?;
+                if body.contains(needle) {
+                    return Some(body);
+                }
+            }
+        }
+        None
+    }
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    walk(&src, needle).unwrap_or_else(|| {
+        panic!("no file under src/ defines {needle:?} — it was removed, not moved")
+    })
+}
+
 #[test]
 fn the_reask_resolves_its_provider_the_same_way_dispatch_does() {
     const RESOLVER: &str =
         "chat_provider_from_resources_arc(ctx.chat_provider.as_ref(), ctx.llm_provider.as_ref())";
 
-    let pipeline = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
-        .expect("read lib.rs");
-    let dispatch = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/stages/tool_dispatch.rs"),
-    )
-    .expect("read tool_dispatch.rs");
+    // Located by what they define, not by where they currently sit, and
+    // compared with whitespace collapsed. Both brittleness classes are real:
+    // the file moved once already, and wrapping the call across lines — which
+    // rustfmt will do the moment the arguments grow — changes nothing about
+    // behaviour while silently defeating a substring match.
+    let pipeline = normalize(&source_defining("fn resolve_reask_provider"));
+    let dispatch = normalize(&source_defining(
+        "pub(crate) async fn dispatch_llm_with_tools",
+    ));
+    let resolver = normalize(RESOLVER);
 
     assert!(
-        dispatch.contains(RESOLVER),
+        dispatch.contains(&resolver),
         "Stage 11 must resolve through the shared factory — this test compares \
          the re-ask against it, so a change here invalidates the comparison"
     );
     assert!(
-        pipeline.contains(RESOLVER),
+        pipeline.contains(&resolver),
         "the re-ask must resolve through the SAME factory call as Stage 11. \
          Reading ctx.llm_provider directly is what made it dead code in \
          production: the server binary sets that field to None and wires \
