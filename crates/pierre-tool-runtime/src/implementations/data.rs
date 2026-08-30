@@ -39,7 +39,7 @@ use crate::activity_backfill::{
 use crate::activity_fetch::{
     activity_date_span, historical_depth_covered, historical_head_slice,
     maybe_merge_other_connections, read_cached_window, refresh_stale_head, serve_without_primary,
-    sort_activities, touch_connection_used,
+    sort_activities, touch_connection_used, write_through_served_window,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -731,6 +731,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // routes are chosen by backend. `served_by` then names the connections
             // the rows actually came from.
             let mut dead_primary: Option<String> = None;
+            // Set when the historical branch answered out of the durable cache, so
+            // the write-through below can tell rows we just read from rows a
+            // provider just produced. Writing the former back re-stamps their
+            // `synced_at`, and `latest_activity_sync` reads that as a fresh sync.
+            let mut served_from_cache = false;
             let mut served_by: Vec<String> = Vec::new();
             // An explicit `provider` argument pins the ask to ONE source — the
             // same rule `maybe_merge_other_connections` follows. A pinned
@@ -851,6 +856,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         &mut served,
                     )
                     .await;
+                    served_from_cache = true;
                     (served, None)
                 } else {
                     // Synchronous reconnect (priority): if this provider's
@@ -997,26 +1003,18 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 }
             };
 
-            // Write-through to the persistent activity cache so the snapshot
-            // (stale-while-revalidate) path and later turns can serve these without
-            // re-fetching. Best-effort: a cache failure never blocks the response.
-            // Skipped when a sibling answered for a dead primary: those rows belong
-            // to the providers that produced them (each already wrote its own
-            // through), and filing them under the dead provider's key would have a
-            // reconnect restore history it never recorded.
-            if dead_primary.is_none() && context.tenant_id.is_some() && !activities.is_empty() {
-                let cache_repo = context.resources.repos().activity_cache.clone();
-                if let Err(e) = cache_repo
-                    .upsert_activities(context.user_id, &tenant_id, &provider_name, &activities)
-                    .await
-                {
-                    warn!(
-                        user_id = %context.user_id,
-                        provider = %provider_name,
-                        error = %e,
-                        "Activity cache: write-through from get_activities failed"
-                    );
-                }
+            // Only rows a PROVIDER produced are written through — never rows this
+            // table produced, and never a sibling's rows filed under a dead primary.
+            // `write_through_served_window` carries both reasons.
+            if dead_primary.is_none() && !served_from_cache && context.tenant_id.is_some() {
+                write_through_served_window(
+                    &context.resources,
+                    context.user_id,
+                    &tenant_id,
+                    &provider_name,
+                    &activities,
+                )
+                .await;
             }
 
             // Record the serve against the connection that actually produced it, so

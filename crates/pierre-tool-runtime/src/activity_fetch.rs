@@ -656,6 +656,54 @@ async fn stamp_fetch_freshness(
     }
 }
 
+/// Persist a window `get_activities` just served, so the stale-while-revalidate
+/// path and later turns can answer it without re-fetching. Best-effort: a cache
+/// failure never blocks the response. An empty window writes nothing.
+///
+/// The caller decides provenance, and only rows a PROVIDER produced belong here.
+/// Two kinds never do:
+///
+/// * Rows a sibling connection produced while the elected provider was auth-dead.
+///   They belong to the providers that produced them — each already wrote its own
+///   through — and filing them under the dead provider's key would have a
+///   reconnect restore history it never recorded.
+/// * Rows the historical branch read out of this very table. Writing them back
+///   changes no data; it only moves their `synced_at` to now.
+///   [`ActivityCacheRepository::latest_activity_sync`] takes the max of that
+///   column, [`DataFreshness`] reads the result as `Fresh`, and
+///   [`refresh_stale_head`] returns early on `Fresh` — so the one path that would
+///   top the head up is disarmed by the act of serving the stale window, and every
+///   later ask re-arms the disarming. A capture that stops then reports itself
+///   current forever: jf@dravr.ai's sciotte capture froze at 2026-08-28 02:59Z and
+///   two days later all 109 cached rows carried one identical `synced_at`, while
+///   `activity_fetch_freshness` still held the last real fetch, five days older.
+///   A stale-head top-up that does reach the provider is written through by
+///   [`fetch_provider_activities`], which is what should move freshness.
+pub(crate) async fn write_through_served_window(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: &TenantId,
+    provider_slug: &str,
+    activities: &[Activity],
+) {
+    if activities.is_empty() {
+        return;
+    }
+    if let Err(e) = runtime
+        .repos()
+        .activity_cache
+        .upsert_activities(user_id, tenant_id, provider_slug, activities)
+        .await
+    {
+        warn!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            error = %e,
+            "Activity cache: write-through from get_activities failed"
+        );
+    }
+}
+
 /// Order a fetched activity list in place by the requested key.
 ///
 /// Applied BEFORE the display limit so a "longest to shortest" ask keeps the
