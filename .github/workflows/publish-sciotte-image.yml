@@ -116,9 +116,13 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.sciotte_tags }}
           # Registry-backed buildx cache, mirroring the server image job (the
-          # GHA cache export flaked and is capped/evicted).
-          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/sciotte:buildcache
-          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/sciotte:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          # GHA cache export flaked and is capped/evicted). It lives in its own
+          # sciotte-cache package, never in sciotte: the retention policy's
+          # keep-recent-versions floor counts versions per package, and the cache
+          # manifest is pushed after the image so it always takes the newest slot
+          # — halving the window meant to hold images.
+          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/sciotte-cache:buildcache
+          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/sciotte-cache:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Install Trivy
         uses: aquasecurity/setup-trivy@v0.3.1
