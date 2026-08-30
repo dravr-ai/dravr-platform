@@ -25,16 +25,32 @@ permissions:
   id-token: write
   security-events: write  # For Trivy SARIF upload
 
-# A push burst on main queues one deploy per push: the workflow_run trigger fires
-# for every completed Backend CI run, and every deploy pulls the multi-GB registry
-# buildcache back out of Artifact Registry — billed internet egress, because the
-# runners sit outside GCP. A superseded deploy never reaches traffic anyway (Cloud
-# Run shifts only once a revision is healthy), so collapsing a burst onto its
-# newest SHA drops the redundant builds without changing what lands on dev. Tags
-# group on their own ref, so a release build is never cancelled by a main push.
+# A push burst on main fires one workflow_run event per completed Backend CI run,
+# and every deploy that actually builds pulls the multi-GB registry buildcache
+# back out of Artifact Registry — billed internet egress, because the runners sit
+# outside GCP. The group below serialises those builds: one runs, at most one
+# waits, and a newer arrival replaces the waiting one. A burst of N pushes costs
+# two builds (the first and the newest) instead of N.
+#
+# Two things here are deliberate and were each learned from a real run.
+#
+# The group is queued, not cancelling. With cancel-in-progress a superseded build
+# has already paid for its cache pull, so a burst costs N pulls for one finished
+# build — the opposite of the saving. Queueing lets the running build finish and
+# lands the newest SHA one build-duration later, which dev can afford.
+#
+# A run that will skip every job gets a group of its own. GitHub claims the
+# concurrency group at run creation, BEFORE the job-level `if:` on resolve-sha
+# below is evaluated — so a no-op shell for a FAILED or cron-triggered CI run
+# would otherwise enter the deploy group and displace real work. That is what
+# happened on 2026-08-29: run 33270799943, every job skipped, cancelled run
+# 33270484029 seven minutes into building fc9f52542 with its frontend image
+# already pushed; that commit never reached dev. The condition mirrors the
+# resolve-sha gate exactly, so a run is either in the deploy group or does
+# nothing. Tags group on their own ref, so a release build never waits on main.
 concurrency:
-  group: deploy-dev-${{ github.event.workflow_run.head_branch || github.ref_name }}
-  cancel-in-progress: true
+  group: ${{ (github.event_name == 'workflow_run' && (github.event.workflow_run.conclusion != 'success' || github.event.workflow_run.event != 'push')) && format('deploy-noop-{0}', github.run_id) || format('deploy-dev-{0}', github.event.workflow_run.head_branch || github.ref_name) }}
+  cancel-in-progress: false
 
 jobs:
   # ---------------------------------------------------------------------------
