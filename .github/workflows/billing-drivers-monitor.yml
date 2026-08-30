@@ -29,8 +29,14 @@ name: "Monitor: Build Cost Drivers"
 
 on:
   schedule:
-    # 07:00 Eastern — a full previous day has closed.
-    - cron: "0 11 * * *"
+    # 07:23 Eastern — a full previous day has closed. Deliberately off the top of
+    # the hour: GitHub's scheduler is best-effort, the :00 slot is the most
+    # contended, and a run placed there is delayed by tens of minutes or dropped
+    # outright. This workflow's first firing at "0 11" never happened at all,
+    # while on the same morning copilot-health-probe landed 36 min late,
+    # daily-health-check 28 min, and llm-live-cron 66 min. feature-phase-review.yml
+    # already uses an off-hour minute for the same reason.
+    - cron: "23 11 * * *"
   workflow_dispatch:
     inputs:
       date:
