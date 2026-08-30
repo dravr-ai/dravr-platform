@@ -180,8 +180,8 @@ server-full = ["protocol-all", "transport-all", "client-all", "client-messaging"
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
 
 [dependencies]
-embacle = { version = "0.22.3" }
-embacle-tool-host = "0.22.3"
+embacle = { version = "0.22.4" }
+embacle-tool-host = "0.22.4"
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
@@ -319,7 +319,7 @@ anyhow = "1.0"
 # against the same inputs. Production language detection lives in
 # pierre-chat-pipeline's turn service, which carries its own dependency.
 whatlang = "0.16"
-embacle = { version = "0.22.3" }
+embacle = { version = "0.22.4" }
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
