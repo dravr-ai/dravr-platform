@@ -1,27 +1,43 @@
-# ABOUTME: Daily read of the build churn that drives the GCP bill — image builds and superseded deploys
-# ABOUTME: Opens a private carnet issue when yesterday's churn crosses a threshold
+# ABOUTME: Daily read of the build churn that drives the GCP bill — executed image builds and deploy serialisation
+# ABOUTME: Opens a private carnet issue when yesterday's churn crosses a threshold or two builds ran at once
 #
 # The daily GCP cost tracks development activity, not user traffic. On
 # 2026-08-27 the bill peaked for the month while Cloud Run served 212 requests
-# all day; the same day was the busiest in the repo's history. The mechanism is
-# the image build: every one pulls a multi-GB registry buildcache back out of
-# Artifact Registry to a GitHub-hosted runner, which is billed internet egress
-# because the runners sit outside GCP.
+# all day; the same day was among the busiest in the repo's history. The
+# mechanism is the image build: every one pulls a multi-GB registry buildcache
+# back out of Artifact Registry to a GitHub-hosted runner, which is billed
+# internet egress because the runners sit outside GCP.
 #
-# `publish-images.yml` had no concurrency group until 2026-08-29, so a burst of
-# pushes to main queued one deploy per push — 60 commits on 2026-08-26 became 44
-# image builds. The group added there collapses a burst onto its newest SHA.
+# What counts as a build. A deploy workflow run is not a build: a workflow_run
+# event from a failed or cron-triggered CI run creates a run whose every job
+# skips — no runner, no docker build, no cache pull, zero billable time. On
+# 2026-08-26 there were 44 deploy runs and 11 builds. Only runs that concluded
+# success or failure executed one, and a publish-images run builds two images
+# (server and frontend), so `build_runs` is a floor on images built, not a count.
 #
-# This watches both halves of that:
-#   * image_builds — the absolute egress driver.
-#   * cancelled_deploys — the evidence the collapse is happening. A busy day with
-#     no supersessions at all means the concurrency group has stopped engaging,
-#     which is how the 2026-08-26 shape would come back unnoticed.
+# The builder set is derived, not listed. It is the workflows with a build step
+# declaring `cache-from` — the exact egress this watches. The first
+# version of this file hand-copied two names from their FILENAMES
+# (publish-*.yml) and never matched their `name:` fields at all.
+#
+# This watches two things:
+#   * build_runs — the egress driver. The threshold is calibrated on the real
+#     figures: 11 / 13 / 20 / 8 for 2026-08-26..29.
+#   * concurrent_builds — the deploy group's job is to serialise builds so a
+#     burst costs two instead of N. Two real builds of that workflow executing
+#     at the same moment means the group has stopped doing its job. This is
+#     measured from job start/finish times, so a quiet day with nothing to
+#     serialise reads 0 rather than raising an alarm about a group that had no
+#     work to do — the earlier "zero cancellations on a busy day" guard could
+#     not tell those apart and fired on red-main days.
 #
 # It does NOT check cost. Cost is not queryable: the BigQuery billing export
 # dataset created by infra/environments/dev/billing.tf on 2026-06-11 has never
-# been enabled, so no per-SKU history exists to read. A cost threshold added here
-# would be a branch reading a table that is not there.
+# been enabled (zero tables), the Cloud Billing API exposes no way to enable it,
+# and Cloud Monitoring carries no billing metric. A cost branch added here also
+# needs, beyond the export: roles/bigquery.jobUser plus dataViewer on
+# dravr-dev:billing_export for the deployer service account (it holds neither),
+# and `id-token: write` on this job for WIF auth. All three are missing today.
 #
 # Read-only: it reads this repository's own Actions history and nothing else.
 
@@ -43,9 +59,9 @@ on:
         description: "Day to read, YYYY-MM-DD (default: yesterday UTC)"
         required: false
       build_threshold:
-        description: "Image builds above this open an issue"
+        description: "Executed builds above this open an issue"
         required: false
-        default: "25"
+        default: "15"
 
 concurrency:
   group: billing-drivers-monitor
@@ -62,74 +78,151 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Count image builds and superseded deploys
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Count executed builds and concurrent deploys
         id: count
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_DATE: ${{ github.event.inputs.date }}
-          BUILD_THRESHOLD: ${{ github.event.inputs.build_threshold || '25' }}
+          BUILD_THRESHOLD: ${{ github.event.inputs.build_threshold || '15' }}
         run: |
           set -euo pipefail
-          DATE="${INPUT_DATE:-$(date -u -d yesterday +%F)}"
+          case "${BUILD_THRESHOLD}" in
+            ''|*[!0-9]*) echo "build_threshold must be a non-negative integer, got '${BUILD_THRESHOLD}'" >&2; exit 1 ;;
+          esac
+          export DATE="${INPUT_DATE:-$(date -u -d yesterday +%F)}"
+          python3 - <<'PY'
+          import glob, json, os, subprocess, sys
+          from datetime import datetime, timedelta
+          import yaml
 
-          # Every run created that day, as "<workflow name>\t<conclusion>".
-          gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
-            -f created="${DATE}" -f per_page=100 --paginate \
-            --jq '.workflow_runs[] | [.name, (.conclusion // "running")] | @tsv' \
-            > runs.tsv
+          repo = os.environ["GITHUB_REPOSITORY"]
+          date = os.environ["DATE"]
+          threshold = int(os.environ["BUILD_THRESHOLD"])
 
-          # The workflows that actually build and push an image. Anything else
-          # (tests, monitors, docs) runs no docker build and pulls no cache.
-          BUILDERS='^(Deploy: Build & Ship|Deploy: Hotfix|Publish: (Sciotte|Photograveur))'
+          def gh(*args):
+              out = subprocess.run(["gh", "api", *args], check=True, capture_output=True, text=True).stdout
+              return out
 
-          IMG=$(grep -cE "${BUILDERS}" runs.tsv || true)
-          CANCELLED=$(grep -E "${BUILDERS}" runs.tsv | grep -c 'cancelled' || true)
-          ALL=$(wc -l < runs.tsv | tr -d ' ')
+          # The builder set: every workflow with a build step that pulls a
+          # registry cache. Matched on the step's `with: cache-from` key, not on
+          # the text — this file mentions the key in a comment and must not
+          # count itself.
+          def pulls_cache(doc):
+              for job in (doc.get("jobs") or {}).values():
+                  for step in job.get("steps") or []:
+                      if "cache-from" in (step.get("with") or {}):
+                          return True
+              return False
 
-          echo "date=${DATE}"            >> "$GITHUB_OUTPUT"
-          echo "image_builds=${IMG}"     >> "$GITHUB_OUTPUT"
-          echo "cancelled=${CANCELLED}"  >> "$GITHUB_OUTPUT"
-          echo "all_runs=${ALL}"         >> "$GITHUB_OUTPUT"
+          builders = {}
+          deploy_group = None
+          for path in sorted(glob.glob(".github/workflows/*.yml")):
+              doc = yaml.safe_load(open(path))
+              if not pulls_cache(doc):
+                  continue
+              builders[doc["name"]] = path
+              group = str((doc.get("concurrency") or {}).get("group", ""))
+              if "deploy-dev" in group:
+                  deploy_group = doc["name"]
+          if not builders:
+              sys.exit("no workflow contains cache-from: — the builder set is empty, refusing to report 0")
+          if deploy_group is None:
+              sys.exit("no builder declares the deploy-dev concurrency group — cannot measure serialisation")
 
-          # Two independent breaches, reported together so one issue carries both.
-          REASONS=""
-          if [ "${IMG}" -gt "${BUILD_THRESHOLD}" ]; then
-            REASONS="${REASONS}- \`image_builds\` = ${IMG}, above the threshold of ${BUILD_THRESHOLD}. Each build pulls the buildcache out of Artifact Registry as billed egress.\n"
-          fi
-          if [ "${IMG}" -gt 20 ] && [ "${CANCELLED}" -eq 0 ]; then
-            REASONS="${REASONS}- ${IMG} image builds and not one superseded deploy. The concurrency group in \`publish-images.yml\` collapses a push burst onto its newest SHA, so a day this busy should show cancellations. Zero means it has stopped engaging.\n"
-          fi
+          runs = [json.loads(l) for l in gh(
+              "-X", "GET", f"repos/{repo}/actions/runs",
+              "-f", f"created={date}", "-f", "per_page=100", "--paginate",
+              "--jq", ".workflow_runs[] | {name, conclusion, id}",
+          ).splitlines() if l.strip()]
 
-          if [ -n "${REASONS}" ]; then
-            echo "breach=true" >> "$GITHUB_OUTPUT"
-            printf 'reasons<<EOF\n%b\nEOF\n' "${REASONS}" >> "$GITHUB_OUTPUT"
-          else
-            echo "breach=false" >> "$GITHUB_OUTPUT"
-          fi
+          builder_runs = [r for r in runs if r["name"] in builders]
+          executed = [r for r in builder_runs if r["conclusion"] in ("success", "failure")]
+          superseded = [r for r in builder_runs if r["conclusion"] == "cancelled"]
+          skipped = [r for r in builder_runs if r["conclusion"] == "skipped"]
 
-          {
-            echo "## Build cost drivers — ${DATE}"
-            echo
-            echo "| metric | value |"
-            echo "| --- | --- |"
-            echo "| image builds | ${IMG} |"
-            echo "| superseded (cancelled) deploys | ${CANCELLED} |"
-            echo "| all workflow runs | ${ALL} |"
-            echo
-            if [ -n "${REASONS}" ]; then
-              printf '%b' "${REASONS}"
-            else
-              echo "Within threshold — no issue opened."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          # Serialisation check: the execution window of every real build of the
+          # deploy-group workflow, from its first job start to its last job end.
+          # Under a working queued group these windows never overlap. A 30s
+          # tolerance absorbs runner allocation lag on adjacent runs.
+          def parse(ts):
+              return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+
+          windows = []
+          for r in executed:
+              if r["name"] != deploy_group:
+                  continue
+              jobs = [json.loads(l) for l in gh(
+                  "-X", "GET", f"repos/{repo}/actions/runs/{r['id']}/jobs",
+                  "-f", "per_page=100", "--paginate",
+                  "--jq", ".jobs[] | select(.started_at != null and .completed_at != null and .conclusion != \"skipped\") | {started_at, completed_at}",
+              ).splitlines() if l.strip()]
+              if jobs:
+                  windows.append((r["id"], min(parse(j["started_at"]) for j in jobs), max(parse(j["completed_at"]) for j in jobs)))
+
+          tolerance = timedelta(seconds=30)
+          overlaps = []
+          for i in range(len(windows)):
+              for j in range(i + 1, len(windows)):
+                  a, b = windows[i], windows[j]
+                  if a[1] < b[2] - tolerance and b[1] < a[2] - tolerance:
+                      overlaps.append((a[0], b[0]))
+
+          reasons = []
+          if len(executed) > threshold:
+              reasons.append(f"- `build_runs` = {len(executed)}, above the threshold of {threshold}. Each executed build pulls the buildcache out of Artifact Registry as billed egress.")
+          if overlaps:
+              pairs = ", ".join(f"{a}/{b}" for a, b in overlaps)
+              reasons.append(f"- {len(overlaps)} pair(s) of real `{deploy_group}` builds executed at the same time ({pairs}). That workflow's concurrency group exists to serialise them; it did not.")
+
+          out = {
+              "date": date,
+              "build_runs": len(executed),
+              "superseded": len(superseded),
+              "skipped": len(skipped),
+              "concurrent_builds": len(overlaps),
+              "all_runs": len(runs),
+              "builders": ", ".join(sorted(builders)),
+              "breach": "true" if reasons else "false",
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              for k, v in out.items():
+                  f.write(f"{k}={v}\n")
+              if reasons:
+                  f.write("reasons<<EOF\n" + "\n".join(reasons) + "\nEOF\n")
+
+          table = "\n".join([
+              f"## Build cost drivers — {date}",
+              "",
+              "| metric | value |",
+              "| --- | --- |",
+              f"| executed builds (`build_runs`) | {len(executed)} |",
+              f"| superseded while queued | {len(superseded)} |",
+              f"| skipped no-op shells | {len(skipped)} |",
+              f"| concurrent real builds | {len(overlaps)} |",
+              f"| all workflow runs | {len(runs)} |",
+              "",
+              f"builders: {out['builders']}",
+              "",
+              "\n".join(reasons) if reasons else "Within threshold — no issue opened.",
+              "",
+          ])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(table)
+          print(table)
+          PY
 
       - name: Open or update the carnet issue
         if: steps.count.outputs.breach == 'true'
         uses: actions/github-script@v9
         env:
           DATE: ${{ steps.count.outputs.date }}
-          IMAGE_BUILDS: ${{ steps.count.outputs.image_builds }}
-          CANCELLED: ${{ steps.count.outputs.cancelled }}
+          BUILD_RUNS: ${{ steps.count.outputs.build_runs }}
+          SUPERSEDED: ${{ steps.count.outputs.superseded }}
+          SKIPPED: ${{ steps.count.outputs.skipped }}
+          CONCURRENT: ${{ steps.count.outputs.concurrent_builds }}
           ALL_RUNS: ${{ steps.count.outputs.all_runs }}
           REASONS: ${{ steps.count.outputs.reasons }}
         with:
@@ -147,8 +240,10 @@ jobs:
               ``,
               `| metric | value |`,
               `| --- | --- |`,
-              `| image builds | ${process.env.IMAGE_BUILDS} |`,
-              `| superseded (cancelled) deploys | ${process.env.CANCELLED} |`,
+              `| executed builds | ${process.env.BUILD_RUNS} |`,
+              `| superseded while queued | ${process.env.SUPERSEDED} |`,
+              `| skipped no-op shells | ${process.env.SKIPPED} |`,
+              `| concurrent real builds | ${process.env.CONCURRENT} |`,
               `| all workflow runs | ${process.env.ALL_RUNS} |`,
               ``,
               process.env.REASONS,
@@ -156,10 +251,13 @@ jobs:
               `_[Monitor: Build Cost Drivers](${runUrl})_`,
             ].join('\n');
 
-            const existing = await github.rest.issues.listForRepo({
+            // Every page, not the first: listForRepo returns newest-first and the
+            // standing issue's created_at never advances, so a single page of 100
+            // would stop seeing it once enough newer issues carry the label.
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
               owner, repo, state: 'open', labels: 'dravr-platform', per_page: 100,
             });
-            const open = existing.data.find((i) => i.title === title);
+            const open = existing.find((i) => i.title === title);
 
             if (open) {
               await github.rest.issues.createComment({
