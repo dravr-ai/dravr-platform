@@ -1,5 +1,5 @@
 # ABOUTME: Main backend CI pipeline — fmt + per-crate clippy + full clippy + deadlock + audit + doc-tests fire in parallel from the start on every push.
-# ABOUTME: SQLite test shards (backend-tests job) run daily at 04:00 EDT via cron and on workflow_dispatch; per-push DB coverage comes from ci-postgres.yml.
+# ABOUTME: SQLite shards (backend-tests) are cron-only; per-push DB coverage is ci-postgres.yml and per-push leaf-crate tests run here (leaf-crate-tests).
 name: "CI: Backend (Rust)"
 
 on:
@@ -74,6 +74,7 @@ jobs:
   #   contremaitre-sync    — the 4 platform<->contremaitre coupling tests (~5 min)
   #   feature-profiles     — cargo check of the 5 non-default server profiles (~5 min)
   #   backend-tests        — SQLite shards, cron / workflow_dispatch only
+  #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir, per push
   # PHASE 1: release-binary (depends on clippy)
   # ============================================================================
 
@@ -678,6 +679,79 @@ jobs:
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
           USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
+
+  # Every test target OUTSIDE crates/pierre-server/tests, on every push. The
+  # per-push suites enumerate only pierre-server's tests directory (ci-postgres
+  # full-on-main, the cron SQLite shards), so a test in a leaf crate — e.g.
+  # pierre-chat-pipeline/tests/turn_directive_test.rs — ran per-push only in
+  # the coverage lane. On 2026-08-30 that let b76ebb0fa land on main with a
+  # broken pipeline test while every ci-backend job stayed green; coverage
+  # reported it 100+ minutes later. This job closes that hole: one runner, one
+  # cargo invocation, every leaf crate's tests/ dir, refusing to report green
+  # on an empty selection exactly as the PostgreSQL lane learned to.
+  leaf-crate-tests:
+    name: Leaf-Crate Tests (every crate but pierre-server)
+    runs-on: ubuntu-latest
+    needs: fast-gate
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
+        with:
+          free-disk-space: 'true'
+
+      - name: Run every leaf crate's test targets
+        run: |
+          # Package names are read from each Cargo.toml, never derived from the
+          # directory (crates/pierre-server is the standing counter-example:
+          # its package is pierre_mcp_server). pierre-server is excluded here
+          # because its 300+ test binaries have their own lanes; everything
+          # else joins automatically the day it grows a tests/ directory.
+          PKG_FLAGS=()
+          COUNT=0
+          for dir in crates/*/tests; do
+            [ -d "$dir" ] || continue
+            crate_dir="$(dirname "$dir")"
+            if [ "$crate_dir" = "crates/pierre-server" ]; then
+              continue
+            fi
+            pkg="$(sed -n 's/^name = "\(.*\)"/\1/p' "$crate_dir/Cargo.toml" | head -1)"
+            if [ -z "$pkg" ]; then
+              echo "::error::Could not read the package name from $crate_dir/Cargo.toml"
+              exit 1
+            fi
+            PKG_FLAGS+=("-p" "$pkg")
+            COUNT=$((COUNT + 1))
+          done
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::Leaf-crate lane selected no packages — refusing to report green."
+            exit 1
+          fi
+          echo "=== $COUNT leaf crates with tests/ directories ==="
+          printf '%s\n' "${PKG_FLAGS[@]}" | paste -d' ' - - | sed 's/^-p /  /'
+          # --all-features, not defaults: a leaf crate built standalone loses
+          # the features pierre-server forwards to it (workspace unification),
+          # and a test importing a gated module then fails to compile — the
+          # first run of this lane caught exactly that on
+          # pierre-tool-runtime/tests/sport_type_filter_test.rs, whose
+          # fitness_support import is behind tools-data/tools-analytics.
+          cargo test "${PKG_FLAGS[@]}" --all-features --tests -- --test-threads=4
+        timeout-minutes: 45
+        env:
+          DATABASE_URL: "sqlite::memory:"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
 
   # ============================================================================
   # PHASE 2: Release binary — gates on clippy, uploads artifact for other workflows

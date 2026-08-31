@@ -981,3 +981,76 @@ async fn omitting_athlete_keeps_self_scope() {
         "the athlete's plan is untouched"
     );
 }
+
+/// The athlete resolves and consents, and there is still nowhere to act: they
+/// belong to no tenant, so no surface of theirs could ever read the plan. The
+/// refusal names exactly that, and nothing is written anywhere for them.
+#[tokio::test]
+async fn an_athlete_with_no_tenant_membership_is_refused() {
+    let resources = create_test_server_resources().await.unwrap();
+    let coach = seed_user(&resources, "coach", Some("Coach Karine")).await;
+    let coach_tenant = create_tenant_owned_by(&resources, coach).await;
+    let persona = seed_coach_persona(&resources, coach, coach_tenant).await;
+    // The athlete gets NO tenant: the tenant helper is deliberately not
+    // called for them, so `list_for_user` answers with an empty set.
+    let athlete = seed_user(&resources, "athlete", Some("Phil Tremblay")).await;
+
+    let group_id = create_group(
+        &resources,
+        coach_tenant,
+        persona,
+        coach,
+        Some(coach),
+        true,
+        "Tempo Squad",
+    )
+    .await;
+    // The membership row carries the GROUP's tenant — the athlete brings none.
+    add_member(
+        &resources,
+        group_id,
+        athlete,
+        coach_tenant,
+        GroupRole::Member,
+        true,
+    )
+    .await;
+
+    let saved = save_as(&resources, coach, coach_tenant, save_payload("phil")).await;
+    let err = error_text(&saved);
+    assert!(
+        err.contains("belongs to no tenant") && err.contains("nowhere to keep their plan"),
+        "the refusal must name the missing home tenant, got: {err}"
+    );
+
+    // Nothing may have been written for that user under ANY tenant — with no
+    // home there is nowhere correct, so any row at all would be the bug.
+    let pool = resources
+        .coach
+        .database
+        .sqlite_pool()
+        .expect("test fixture runs against SQLite");
+    let plans_for_athlete: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM training_plans WHERE user_id = ?1")
+            .bind(athlete.to_string())
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        plans_for_athlete, 0,
+        "no plan row may exist for a tenant-less athlete"
+    );
+
+    // The read side is gated identically.
+    let fetched = get_as(
+        &resources,
+        coach,
+        coach_tenant,
+        json!({ "athlete": "phil" }),
+    )
+    .await;
+    assert!(
+        error_text(&fetched).contains("belongs to no tenant"),
+        "the read side applies the same gate: {fetched}"
+    );
+}

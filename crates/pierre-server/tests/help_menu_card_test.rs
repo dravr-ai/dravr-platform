@@ -20,6 +20,7 @@
 
 use anyhow::Result;
 use pierre_commands::help::{HelpHandler, PERSONAL_MARKER};
+use pierre_commands::plan::PlanShareHandler;
 use pierre_commands::{load_command_catalog, CommandHandler, PlatformCommandContext};
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -68,10 +69,16 @@ fn handler() -> HelpHandler {
     for def in catalog.definitions {
         registry.register(def);
     }
+    // The real `/plan share` handler rides along so the DM/room split it
+    // answers `is_available` with is what these listings exercise; every
+    // other command stays unfiltered, exactly as an empty handler map lists
+    // everything.
+    let mut handlers: HashMap<String, Arc<dyn CommandHandler>> = HashMap::new();
+    handlers.insert("plan-share".to_owned(), Arc::new(PlanShareHandler));
     HelpHandler::new(
         Arc::new(registry),
         Arc::new(catalog.arg_specs),
-        Arc::new(HashMap::new()),
+        Arc::new(handlers),
         catalog.personal,
     )
 }
@@ -203,5 +210,29 @@ async fn the_listing_still_carries_every_command_in_a_room() -> Result<()> {
             room.text
         );
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_share_variant_is_listed_beside_plan_only_in_a_room() -> Result<()> {
+    let room = run(false).await?;
+    assert!(
+        room.text.contains("/plan share"),
+        "a room has somewhere to share into, so the variant is listed:\n{}",
+        room.text
+    );
+
+    let dm = run(true).await?;
+    assert!(
+        !dm.text.contains("/plan share"),
+        "in a DM the share variant renders exactly like /plan, so listing both \
+         offers two names for one behaviour:\n{}",
+        dm.text
+    );
+    assert!(
+        dm.text.contains("/plan"),
+        "/plan itself stays listed in the DM:\n{}",
+        dm.text
+    );
     Ok(())
 }

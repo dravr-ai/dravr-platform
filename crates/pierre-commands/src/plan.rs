@@ -23,7 +23,7 @@ use pierre_services::training_plan_render::{
 };
 use std::fmt::Write as _;
 
-use crate::{CommandHandler, PlatformCommandContext};
+use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
 
 /// Weeks the selection may return — `/plan` never shows more than the current
 /// and next, matching the prompt-side block.
@@ -450,5 +450,15 @@ impl CommandHandler for PlanShareHandler {
             &[&name],
         );
         Ok(CommandResponse::rich_text(format!("{header}\n{body}")))
+    }
+
+    /// Listed only where a room exists to share into. In a DM — and in a
+    /// palette opened outside any group-bound conversation — the reply
+    /// renders exactly like `/plan`, so listing the share variant there
+    /// offers two names for one behaviour. What the command ACTS ON is
+    /// unchanged: `execute` still answers a DM caller with their plan; this
+    /// predicate exists for listing coherence alone.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        !standing.is_direct_message
     }
 }

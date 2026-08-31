@@ -179,6 +179,12 @@ pub struct CallerGroupStanding {
     /// The strongest role the caller holds in any group — `None` when they
     /// belong to none, which also answers "does this caller have a group".
     pub highest: Option<GroupRole>,
+    /// Whether the command palette / listing is being resolved for a direct
+    /// (solo) conversation rather than a shared room. What a command ACTS ON
+    /// is unchanged by this flag — it exists for listing coherence: a command
+    /// whose room variant renders identically to its private one in a DM
+    /// (`/plan share` beside `/plan`) is listed only where a room exists.
+    pub is_direct_message: bool,
 }
 
 /// Rank the roles so "strongest held" is well defined. `Owner` outranks
@@ -235,7 +241,11 @@ pub async fn caller_group_standing(
         .map(|g| g.my_role)
         .max_by_key(|role| role_rank(*role));
 
-    Ok(CallerGroupStanding { ambient, highest })
+    Ok(CallerGroupStanding {
+        ambient,
+        highest,
+        is_direct_message: ctx.is_direct_message,
+    })
 }
 
 /// Map a [`GroupRole`] to its localized messaging-string key so the role

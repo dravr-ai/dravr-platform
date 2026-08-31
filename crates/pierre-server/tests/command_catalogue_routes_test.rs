@@ -233,20 +233,14 @@ async fn catalogue_entries_carry_the_frontmatter_verbatim() {
         "Show your training plan — goal countdown plus today and tomorrow, the full week, or today alone"
     );
 
-    // The room-visible variant is its own catalogue entry beside `/plan`, so
-    // the palette offers it with no client change — same domain, same
-    // argument signature, its own name for the handler registry.
-    let share = entries
-        .iter()
-        .find(|e| e.command == "/plan share")
-        .expect("/plan share is ungated and must always be listed");
-    assert_eq!(share.name, "plan-share");
-    assert_eq!(share.domain, "training");
-    assert_eq!(share.args.as_deref(), Some("[week|today]"));
+    // `/plan share` is deliberately absent here: a catalogue fetched without
+    // a conversation answers for a solo thread, and the share variant is
+    // listed only where a room exists to share into — see
+    // `plan_share_is_listed_only_where_a_room_exists`, which pins its
+    // frontmatter in the group-bound fetch.
     assert!(
-        share.description.contains("into the room"),
-        "the description says where the reply goes: {}",
-        share.description
+        !entries.iter().any(|e| e.command == "/plan share"),
+        "a solo catalogue must not offer the share variant beside /plan"
     );
 
     // A command with no `arguments:` in its frontmatter carries no signature,
@@ -476,5 +470,72 @@ async fn catalogue_is_ordered_by_domain_then_command() {
         entries.len() >= 2,
         "the catalogue must carry real commands, got {}",
         entries.len()
+    );
+}
+
+/// Turns red if the share variant leaks into a solo palette or vanishes from
+/// a room one. `/plan share` renders identically to `/plan` in a DM, so a
+/// palette with no conversation (and a solo thread) must not list it, while a
+/// group-bound conversation — the only thread with a room to share into —
+/// must, with its frontmatter verbatim.
+#[tokio::test]
+async fn plan_share_is_listed_only_where_a_room_exists() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "catalogue-plan-share@test.com").await;
+    let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+    let group_id =
+        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+
+    let router = ChatRoutes::routes(Arc::clone(&resources))
+        .merge(CommandRoutes::routes(Arc::clone(&resources)));
+
+    // No conversation: a palette opened outside any thread is personal.
+    let solo = fetch_catalogue(router.clone(), &auth, None).await;
+    assert!(
+        solo.iter().any(|e| e.command == UNGATED_COMMAND),
+        "/plan stays listed in a solo palette, got {:?}",
+        commands_of(&solo)
+    );
+    assert!(
+        !solo.iter().any(|e| e.command == "/plan share"),
+        "in a solo palette the share variant duplicates /plan, got {:?}",
+        commands_of(&solo)
+    );
+
+    // A solo conversation binds no group: still no share variant.
+    let conversation_id = create_conversation(router.clone(), &auth).await;
+    let solo_thread = fetch_catalogue(router.clone(), &auth, Some(&conversation_id)).await;
+    assert!(
+        !solo_thread.iter().any(|e| e.command == "/plan share"),
+        "a solo thread has no room to share into, got {:?}",
+        commands_of(&solo_thread)
+    );
+
+    // The group-bound conversation is a room: listed, frontmatter verbatim.
+    resources
+        .common
+        .repos
+        .chat
+        .set_conversation_group_id(&conversation_id, Some(&group_id.to_string()), tenant_id)
+        .await
+        .unwrap();
+    let bound = fetch_catalogue(router, &auth, Some(&conversation_id)).await;
+    let share = bound
+        .iter()
+        .find(|e| e.command == "/plan share")
+        .unwrap_or_else(|| {
+            panic!(
+                "/plan share must be listed in a group-bound conversation, got {:?}",
+                commands_of(&bound)
+            )
+        });
+    assert_eq!(share.name, "plan-share");
+    assert_eq!(share.domain, "training");
+    assert_eq!(share.args.as_deref(), Some("[week|today]"));
+    assert!(
+        share.description.contains("into the room"),
+        "the description says where the reply goes: {}",
+        share.description
     );
 }
