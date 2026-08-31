@@ -209,6 +209,26 @@ pub enum AssertionSpec {
     /// dodge YAML's reserved-word table) reads naturally as a list
     /// of acceptable phrasings.
     AnyOf { values: Vec<String> },
+    /// The reply must be WRITTEN IN the given language.
+    ///
+    /// Defaults to the locale the turn is running under, which is what
+    /// almost every scenario wants: `locales: ["fr"]` should mean the
+    /// coach answers in French, not merely that a French word appears
+    /// somewhere. Set `locale` explicitly only to assert a language
+    /// that differs from the turn's own.
+    ///
+    /// This exists because nothing else here could express it. On
+    /// 2026-08-30 a French Telegram turn came back entirely in English
+    /// (carnet#159), and the five `*_fr.yaml` scenarios would all have
+    /// passed it: they assert French *substrings*, and an English reply
+    /// about a French athlete's ride still carries `km`, a date, and a
+    /// place name. Substring matching cannot see the language of the
+    /// prose around the match.
+    ReplyLanguage {
+        /// BCP-47 short code. Omitted ⇒ the turn's own locale.
+        #[serde(default)]
+        locale: Option<String>,
+    },
 }
 
 fn default_tolerance_km() -> f64 {

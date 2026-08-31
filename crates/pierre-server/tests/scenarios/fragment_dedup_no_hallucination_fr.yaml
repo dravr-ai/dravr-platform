@@ -83,6 +83,9 @@ provider_state:
 turns:
   - user: "J'ai fait quoi cette semaine incluant ce matin"
     assertions:
+      # The turn runs in French; the reply must BE French, not merely
+      # contain French words. Substring asserts alone passed carnet#159.
+      - kind: reply_language
       # The coach MUST invoke get_activities to ground the answer.
       - kind: tool_called
         name: get_activities
@@ -137,6 +140,9 @@ turns:
       # short enough to appear inside a negated clause.
   - user: "Impossible une journée de 20 activités voyons!"
     assertions:
+      # The turn runs in French; the reply must BE French, not merely
+      # contain French words. Substring asserts alone passed carnet#159.
+      - kind: reply_language
       # On pushback the coach MUST hold position — it already surfaced
       # the fragment caveat on turn 1. The markers below are the
       # *admission* phrasings from the original bug. A bare "Tu as raison"

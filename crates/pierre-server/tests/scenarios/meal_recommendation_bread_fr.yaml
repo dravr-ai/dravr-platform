@@ -10,6 +10,9 @@ notes: "Bug 6 regression — substring 'pain' (bread) vs 'pain' (suffering)"
 turns:
   - user: "Ok repas et proposition de dîner souper pour aujourd'hui"
     assertions:
+      # The turn runs in French; the reply must BE French, not merely
+      # contain French words. Substring asserts alone passed carnet#159.
+      - kind: reply_language
       - kind: no_substring
         values:
           - "Medical disclaimer"

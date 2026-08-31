@@ -72,6 +72,9 @@ fn evaluate(
             assert_vocabulary_contract(ctx, coach_id, vocab, spec)
         }
         AssertionSpec::AnyOf { values } => assert_any_of(ctx, values, spec),
+        AssertionSpec::ReplyLanguage { locale } => {
+            assert_reply_language(ctx, locale.as_deref(), spec)
+        }
     }
 }
 
@@ -108,6 +111,86 @@ fn assert_no_substring(
             reason: format!("reply contains forbidden substring(s): {hits:?}"),
         })
     }
+}
+
+/// Below this many characters whatlang's verdict is noise.
+///
+/// Mirrors `chat_pipeline::turn_service::detect_turn_locale`'s own floor, so
+/// the test and the code under test agree on when a language claim is
+/// meaningful at all.
+const MIN_JUDGEABLE_CHARS: usize = 12;
+
+/// Assert the reply is WRITTEN IN the expected language.
+///
+/// Fails — rather than passes — when the reply is too short or too ambiguous
+/// to judge. A language assertion that quietly succeeds on a reply it could
+/// not read is worse than no assertion: it reports coverage the suite does not
+/// have, which is exactly how the five `*_fr.yaml` scenarios came to look like
+/// they were guarding the language when they were only matching substrings.
+fn assert_reply_language(
+    ctx: &TurnContext<'_>,
+    expected: Option<&str>,
+    spec: &AssertionSpec,
+) -> Result<(), AssertionFailure> {
+    let expected = expected.unwrap_or(ctx.locale);
+    let reply = ctx.reply.trim();
+
+    let fail = |reason: String| {
+        Err(AssertionFailure {
+            spec: spec.clone(),
+            reason,
+        })
+    };
+
+    if reply.chars().count() < MIN_JUDGEABLE_CHARS {
+        return fail(format!(
+            "reply is {} chars, below the {MIN_JUDGEABLE_CHARS}-char floor where a language \
+             verdict means anything — assert the language on a turn that produces prose, or \
+             drop this assertion for this turn",
+            reply.chars().count()
+        ));
+    }
+
+    let Some(info) = whatlang::detect(reply) else {
+        return fail(format!("could not detect any language in reply: {reply:?}"));
+    };
+
+    let detected = match info.lang() {
+        whatlang::Lang::Fra => "fr",
+        whatlang::Lang::Eng => "en",
+        whatlang::Lang::Spa => "es",
+        whatlang::Lang::Deu => "de",
+        whatlang::Lang::Por => "pt",
+        other => {
+            return fail(format!(
+                "reply detected as {other:?}, which is not a language the platform speaks; \
+                 expected {expected}"
+            ))
+        }
+    };
+
+    if detected != expected {
+        return fail(format!(
+            "reply is written in {detected}, expected {expected} (confidence {:.2}). \
+             This is the carnet#159 shape: the turn resolved one language and the coach \
+             answered in another. First 160 chars: {:?}",
+            info.confidence(),
+            reply.chars().take(160).collect::<String>()
+        ));
+    }
+
+    // A correct-language verdict that whatlang itself calls unreliable is not
+    // evidence. Report it rather than bank it.
+    if !info.is_reliable() {
+        return fail(format!(
+            "reply reads as {detected} (the expected language) but whatlang rates the verdict \
+             unreliable at confidence {:.2}, so this turn proves nothing about the language — \
+             lengthen the turn or assert something else",
+            info.confidence()
+        ));
+    }
+
+    Ok(())
 }
 
 fn assert_distance_mentioned(
@@ -240,6 +323,7 @@ mod tests {
         TurnContext {
             reply,
             tools_called: Vec::new(),
+            locale: "fr",
         }
     }
 
@@ -247,6 +331,7 @@ mod tests {
         TurnContext {
             reply,
             tools_called: tools.into_iter().map(str::to_owned).collect(),
+            locale: "fr",
         }
     }
 
@@ -353,5 +438,63 @@ mod tests {
         let vocab = VocabularyContractRegistry::empty();
         assert!(evaluate(&spec, &ctx("Pour aujourd'hui : repos"), &vocab).is_ok());
         assert!(evaluate(&spec, &ctx("Yesterday was hard"), &vocab).is_err());
+    }
+
+    /// The carnet#159 reply fails, and the French one passes.
+    ///
+    /// The English text here is the actual reply the athlete received on
+    /// 2026-08-30, trimmed. It is the fixture the whole assertion exists for.
+    #[test]
+    fn reply_language_catches_an_english_answer_on_a_french_turn() {
+        let vocab = VocabularyContractRegistry::empty();
+        let spec = AssertionSpec::ReplyLanguage { locale: None };
+
+        let english = "This combination — rising non-activity strain on WHOOP, poor sleep, \
+                       feeling unusually hot at night, and new urinary difficulty — is not \
+                       something a cycling load adjustment can address. That needs a clinician, \
+                       not a pacing plan, and I'd rather say that plainly than guess.";
+        let err = evaluate(&spec, &ctx(english), &vocab).unwrap_err();
+        assert!(
+            err.reason.contains("written in en, expected fr"),
+            "expected a language mismatch, got: {}",
+            err.reason
+        );
+        assert!(err.reason.contains("carnet#159"));
+
+        let french = "Compris — mardi devient repos complet, pas de 40/20. Je gèle tout \
+                      ajustement du ramp de charge tant que tu n'as pas vu un médecin pour la \
+                      difficulté urinaire, la chaleur nocturne et le sommeil.";
+        assert!(evaluate(&spec, &ctx(french), &vocab).is_ok());
+    }
+
+    /// A reply too short to judge FAILS rather than passing.
+    ///
+    /// This is the whole point of the design. An assertion that passed here
+    /// would report coverage on every one-word turn in the suite while
+    /// verifying nothing — the vacuous-guard failure mode.
+    #[test]
+    fn reply_language_refuses_to_judge_a_reply_it_cannot_read() {
+        let vocab = VocabularyContractRegistry::empty();
+        let spec = AssertionSpec::ReplyLanguage { locale: None };
+
+        let err = evaluate(&spec, &ctx("Ok!"), &vocab).unwrap_err();
+        assert!(
+            err.reason.contains("below the 12-char floor"),
+            "a too-short reply must fail loudly, got: {}",
+            err.reason
+        );
+    }
+
+    /// An explicit `locale:` overrides the turn's own.
+    #[test]
+    fn reply_language_honors_an_explicit_locale() {
+        let vocab = VocabularyContractRegistry::empty();
+        // ctx() runs the turn under "fr"; assert English explicitly.
+        let spec = AssertionSpec::ReplyLanguage {
+            locale: Some("en".to_owned()),
+        };
+        let english = "Your training load is trending up and recovery has not kept pace, so \
+                       tomorrow should be easy rather than another interval session.";
+        assert!(evaluate(&spec, &ctx(english), &vocab).is_ok());
     }
 }

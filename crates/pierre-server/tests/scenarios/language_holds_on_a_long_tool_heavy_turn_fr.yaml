@@ -1,0 +1,65 @@
+# Scenario: carnet#159 — a long French turn must come back in French.
+#
+# Origin: ChefFamille's Telegram session 2026-08-30. The athlete described
+# rising non-activity strain on WHOOP, broken sleep, night heat and new
+# urinary difficulty — in French, at length — and the coach answered
+# ENTIRELY IN ENGLISH. The follow-up "Yes" came back in French.
+#
+# The locale was `fr` on both turns. The proof is in the transcript: the
+# French medical disclaimer fired on the second turn (its reply contains
+# "médecin"), while the first turn's English reply — containing "doctor"
+# and "clinician" — matched no French trigger and shipped with NO medical
+# disclaimer at all, on the one turn reporting symptoms.
+#
+# So the shape that breaks is: long French question + enough data to force
+# tool calls, where tens of KB of English contract, coach scaffolding,
+# provider context and tool results outweigh the athlete's own few hundred
+# French characters. A short turn does not reproduce it — which is exactly
+# why turn 2 of the real incident was fine and misled the first read.
+#
+# Turn 3 is the "Yes" follow-up. It is here to pin the OTHER half: a short
+# confirmation must stay in French too, riding the stored locale rather
+# than flipping to the language of the English word the athlete typed.
+name: "Language holds across a long, tool-heavy French turn (FR)"
+locales: ["fr"]
+notes: "carnet#159 regression — 2026-08-30 Telegram, English reply to a French question"
+# Turns 1 and 2 require the coach to actually fetch; a grader that answers
+# from history proves nothing about the tool-heavy shape this scenario is
+# built to exercise.
+nightly_gate: false
+provider_state:
+  providers:
+    strava:
+      initial_activities:
+        - { name: "Gravel Magog", sport: ride, distance_km: 200.0, date: "2026-08-22" }
+        - { name: "Sortie gravel", sport: ride, distance_km: 88.0, date: "2026-08-26" }
+        - { name: "Ride Magog", sport: ride, distance_km: 74.0, date: "2026-08-29" }
+        - { name: "Intervalles 40/20", sport: ride, distance_km: 42.0, date: "2026-08-25" }
+        - { name: "Récup", sport: ride, distance_km: 31.0, date: "2026-08-28" }
+turns:
+  # The incident message, verbatim in shape: long, French, carrying English
+  # technical vocabulary ("high non activity stress", "whoop", "ride"), and
+  # asking something that cannot be answered without pulling training data.
+  - user: "En regardant mon high non activity stress qui est à la hausse sur whoop, devrais je m'inquiéter? Je me sens anormalement fatigué, j'ai de la misère à bien dormir, j'ai un peu plus de difficulté à uriner que d'habitude et jai eu anormalement chaud les quelques dernières nuits. J'ai également dû, pour la première fois, m'étendre à la fin de ma ride de samedi dernier à Magog pour être capable de finir"
+    assertions:
+      # THE assertion. This is the one the incident would have failed.
+      - kind: reply_language
+      - kind: tool_called
+        name: get_activities
+      # A French reply discussing a doctor triggers the French disclaimer.
+      # Its absence on an English reply is how the missing disclaimer got
+      # discovered, so pin that the English one never appears here.
+      - kind: no_substring
+        values: ["Medical disclaimer"]
+  # Still French, still long, and now leaning harder on the fetched data.
+  - user: "Peux-tu comparer ma charge des deux dernières semaines et me dire si mon volume explique la fatigue?"
+    assertions:
+      - kind: reply_language
+      - kind: tool_called
+        name: get_activities
+  # The follow-up from the real transcript. An English word as the entire
+  # message, below the language-detection floor, so the turn rides the
+  # stored locale. It must NOT flip the reply to English.
+  - user: "Yes"
+    assertions:
+      - kind: reply_language

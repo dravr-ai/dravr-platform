@@ -35,6 +35,10 @@ pub struct TurnContext<'a> {
     /// invocation order. Empty when the driver doesn't expose tool
     /// observability.
     pub tools_called: Vec<String>,
+    /// The locale this run is parameterized on, so an assertion can
+    /// default to "the language this turn is supposed to be in"
+    /// instead of restating it in every scenario file.
+    pub locale: &'a str,
 }
 
 /// Trait that abstracts how a turn is dispatched.
@@ -299,6 +303,7 @@ fn run_one_locale<D: ScenarioDriver>(
         let ctx = TurnContext {
             reply: &output.reply,
             tools_called: output.tools_called,
+            locale,
         };
         let (failures, not_evaluated) =
             split_unreachable(evaluate_all(&turn.assertions, &ctx, vocab));

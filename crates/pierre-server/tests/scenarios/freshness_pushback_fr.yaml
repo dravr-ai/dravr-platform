@@ -38,10 +38,16 @@ turns:
   - user: "Suis encore trop fatigué pour faire un 80 km de vélo gravel aujourd'hui"
     trigger_sync_before_turn: true
     assertions:
+      # The turn runs in French; the reply must BE French, not merely
+      # contain French words. Substring asserts alone passed carnet#159.
+      - kind: reply_language
       - kind: no_substring
         values: ["Medical disclaimer"]
   - user: "Côté course, combien de km?"
     assertions:
+      # The turn runs in French; the reply must BE French, not merely
+      # contain French words. Substring asserts alone passed carnet#159.
+      - kind: reply_language
       - kind: tool_called
         name: get_activities
       - kind: distance_mentioned
@@ -49,6 +55,9 @@ turns:
         tolerance_km: 0.5
   - user: "Mes activités d'hier tu les as ou pas?"
     assertions:
+      # The turn runs in French; the reply must BE French, not merely
+      # contain French words. Substring asserts alone passed carnet#159.
+      - kind: reply_language
       - kind: tool_called
         name: get_activities
       # The recovery is proven either way: restating the recomputed run
