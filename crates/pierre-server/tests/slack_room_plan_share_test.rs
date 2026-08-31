@@ -51,6 +51,7 @@ mod slack_room {
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
     use pierre_core::models::{Tenant, TenantId, User, UserStatus, COMMAND_FINISH_REASON};
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -451,45 +452,65 @@ mod slack_room {
         tenant: TenantId,
         user: Uuid,
     ) -> Vec<(String, String)> {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
-        sqlx::query_as(
-            "SELECT m.role, m.content FROM chat_messages m \
+        const SQL: &str = "SELECT m.role, m.content FROM chat_messages m \
              JOIN chat_conversations c ON m.conversation_id = c.id \
-             WHERE c.tenant_id = ?1 AND c.user_id = ?2 AND m.finish_reason = ?3",
-        )
-        .bind(tenant.to_string())
-        .bind(user.to_string())
-        .bind(COMMAND_FINISH_REASON)
-        .fetch_all(pool)
-        .await
-        .unwrap()
+             WHERE c.tenant_id = $1 AND CAST(c.user_id AS TEXT) = $2 \
+               AND m.finish_reason = $3";
+        match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_as(SQL)
+                .bind(tenant.to_string())
+                .bind(user.to_string())
+                .bind(COMMAND_FINISH_REASON)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                .bind(tenant.to_string())
+                .bind(user.to_string())
+                .bind(COMMAND_FINISH_REASON)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+        }
     }
 
     /// Rows in `chat_messages` whose content carries `needle`, across every
     /// tenant — the "did the plan text land anywhere durable" probe.
     async fn chat_rows_carrying(resources: &Arc<ServerContext>, needle: &str) -> i64 {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        sqlx::query_scalar("SELECT COUNT(*) FROM chat_messages WHERE content LIKE '%' || ?1 || '%'")
-            .bind(needle)
-            .fetch_one(pool)
-            .await
-            .unwrap()
+        const SQL: &str = "SELECT COUNT(*) FROM chat_messages WHERE content LIKE '%' || $1 || '%'";
+        match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_scalar(SQL)
+                .bind(needle)
+                .fetch_one(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+                .bind(needle)
+                .fetch_one(db.pool())
+                .await
+                .unwrap(),
+        }
     }
 
     /// Rows in `messaging_messages` carrying `needle`, either direction.
     async fn messaging_rows_carrying(resources: &Arc<ServerContext>, needle: &str) -> i64 {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM messaging_messages WHERE content_body LIKE '%' || ?1 || '%'",
-        )
-        .bind(needle)
-        .fetch_one(pool)
-        .await
-        .unwrap()
+        const SQL: &str =
+            "SELECT COUNT(*) FROM messaging_messages WHERE content_body LIKE '%' || $1 || '%'";
+        match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_scalar(SQL)
+                .bind(needle)
+                .fetch_one(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+                .bind(needle)
+                .fetch_one(db.pool())
+                .await
+                .unwrap(),
+        }
     }
 
     /// Bare `/plan` typed in a Slack channel is a private matter: nothing of

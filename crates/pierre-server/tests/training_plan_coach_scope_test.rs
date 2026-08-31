@@ -33,6 +33,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::{
     Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User, UserStatus,
 };
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plans::{
@@ -1025,17 +1026,20 @@ async fn an_athlete_with_no_tenant_membership_is_refused() {
 
     // Nothing may have been written for that user under ANY tenant — with no
     // home there is nowhere correct, so any row at all would be the bug.
-    let pool = resources
-        .coach
-        .database
-        .sqlite_pool()
-        .expect("test fixture runs against SQLite");
-    let plans_for_athlete: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM training_plans WHERE user_id = ?1")
+    let plans_sql = "SELECT COUNT(*) FROM training_plans WHERE CAST(user_id AS TEXT) = $1";
+    let plans_for_athlete: i64 = match resources.coach.database.as_ref() {
+        Database::SQLite(db) => sqlx::query_scalar(plans_sql)
             .bind(athlete.to_string())
-            .fetch_one(pool)
+            .fetch_one(db.pool())
             .await
-            .unwrap();
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => sqlx::query_scalar(plans_sql)
+            .bind(athlete.to_string())
+            .fetch_one(db.pool())
+            .await
+            .unwrap(),
+    };
     assert_eq!(
         plans_for_athlete, 0,
         "no plan row may exist for a tenant-less athlete"
