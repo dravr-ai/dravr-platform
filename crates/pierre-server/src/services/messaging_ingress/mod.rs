@@ -77,7 +77,7 @@ use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logou
 pub use session::create_link_and_prompt;
 use session::{handle_reset, resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
-pub use slash::slash_reply_should_be_private;
+pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};
 #[cfg(feature = "client-messaging")]
 use slash::{try_handle_slash_command, SlashCommandContext};
 
@@ -407,10 +407,13 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         // group-wide setting change, a plan the athlete chose to share. The
         // command echo stays in place in that case, so the room reads as
         // "<member> ran it → here is the effect", and the reply threads onto
-        // the echo so a body the channel splits keeps its attribution on
-        // every part, not only the one carrying the header.
-        if !message.is_direct_message {
-            reply.message.reply_to = Some(message.channel_message_id.clone());
+        // the echo — [`room_reply_thread_anchor`] decides which replies do.
+        if let Some(anchor) = room_reply_thread_anchor(
+            message.is_direct_message,
+            reply.command_name.as_deref(),
+            &message.channel_message_id,
+        ) {
+            reply.message.reply_to = Some(anchor);
         }
         send_channel_response(db, tenant_id, channel, adapter, reply.message).await;
     }

@@ -42,6 +42,14 @@ pub struct TurnInput {
     pub conversation_tenant_id: TenantId,
     /// Tenant used for tool execution (OAuth credentials, provider APIs).
     pub tool_tenant_id: TenantId,
+    /// The reply's audience: `true` when the athlete is alone with the coach.
+    ///
+    /// `false` on a shared-room turn — a messaging group, or an in-app thread
+    /// bound to a coaching group — where every member reads the reply. A
+    /// shared room must never receive a user-scoped link, so the reconnect
+    /// re-challenge renders its linkless copy there
+    /// ([`crate::stages::auth_recovery`]).
+    pub is_direct_message: bool,
     /// Raw user message content.
     pub content: String,
     /// Conversation-turn correlation identifier generated at the inbound

@@ -75,6 +75,7 @@ jobs:
   #   feature-profiles     — cargo check of the 5 non-default server profiles (~5 min)
   #   backend-tests        — SQLite shards, cron / workflow_dispatch only
   #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir, per push
+  #   changed-server-tests — the pierre-server test files THIS push touched
   # PHASE 1: release-binary (depends on clippy)
   # ============================================================================
 
@@ -752,6 +753,109 @@ jobs:
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
           PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+
+  # The pierre-server test files THIS push added or edited, run immediately.
+  # The full 325-file suite runs per-push only on main (ci-postgres) and in
+  # coverage; a branch push runs almost none of them, and even on main a file
+  # broken at birth is reported an hour later. This job closes the
+  # landed-already-red class (ffbd9889b: a reconnect test red from the moment
+  # it landed, every lane green): whatever server test files the push touches
+  # run here, on SQLite, within minutes. A push touching none skips free.
+  # It cannot catch the OTHER class from 2026-08-30 — two individually green
+  # commits whose combination no run ever saw — that one is caught by
+  # validating against current main at land time, not by any per-push job.
+  changed-server-tests:
+    name: Changed Server Tests (this push's files)
+    runs-on: ubuntu-latest
+    needs: fast-gate
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 50
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Detect changed test files
+        id: changed
+        run: |
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || ! git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null 2>&1; then
+            BEFORE="$(git rev-parse HEAD~1 2>/dev/null || echo "")"
+          fi
+          if [ -z "$BEFORE" ]; then
+            echo "files=" >> "$GITHUB_OUTPUT"
+            echo "No base to diff against; nothing to run."
+            exit 0
+          fi
+          FILES="$(git diff --name-only --diff-filter=AM "$BEFORE" "${{ github.sha }}" -- 'crates/pierre-server/tests/*.rs'             | grep -E '^crates/pierre-server/tests/[^/]+\.rs$'             | grep -v '/common\.rs$' || true)"
+          echo "Changed server test files:"
+          printf '  %s\n' $FILES
+          {
+            echo "files<<EOF"
+            echo "$FILES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust environment
+        if: steps.changed.outputs.files != ''
+        uses: ./.github/actions/rust-setup
+        with:
+          free-disk-space: 'true'
+
+      - name: Setup Node.js (for SDK E2E tests runtime)
+        if: steps.changed.outputs.files != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Bun (for SDK build)
+        if: steps.changed.outputs.files != ''
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Build MCP SDK (required for E2E tests)
+        if: steps.changed.outputs.files != ''
+        working-directory: sdk
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Run this push's test files
+        if: steps.changed.outputs.files != ''
+        run: |
+          FAILED=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            target="$(basename "$f" .rs)"
+            echo "::group::$target"
+            if ! cargo test --test "$target" -- --test-threads=4; then
+              echo "::error::Changed test file $target failed"
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done <<< "${{ steps.changed.outputs.files }}"
+          exit $FAILED
+        timeout-minutes: 45
+        env:
+          DATABASE_URL: "sqlite::memory:"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
 
   # ============================================================================
   # PHASE 2: Release binary — gates on clippy, uploads artifact for other workflows

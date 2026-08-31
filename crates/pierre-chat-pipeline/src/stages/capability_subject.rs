@@ -527,9 +527,10 @@ async fn reask_with_subject_evidence(
 /// an ungrounded or degenerate answer); it decides whether a reply that
 /// survives untouched is stamped so it never replays.
 ///
-/// LIMITATION(registre#141): a replacement `apply_subject_recovery` installs can still be
-/// re-sampled by the identity re-ask downstream over the PRE-recovery messages — without the
-/// fetched evidence — and a re-sample that reinstates the disproven denial is delivered unstamped.
+/// The recovery stamp net in `run_recovery_and_post_process` re-checks the
+/// final content after the downstream identity re-ask, so a re-sample over the
+/// pre-recovery messages that reinstates the disproven denial is stamped
+/// before it persists.
 pub(super) async fn apply_subject_recovery(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,

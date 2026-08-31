@@ -2305,6 +2305,38 @@ mod command_tests {
     }
 
     #[test]
+    fn only_a_room_visible_reply_threads_onto_the_command_echo() {
+        use pierre_mcp_server::services::messaging_ingress::room_reply_thread_anchor;
+
+        // A room-visible reply threads onto the echo, so a body the channel
+        // splits keeps its attribution on every part.
+        assert_eq!(
+            room_reply_thread_anchor(false, Some("plan-share"), "msg-42"),
+            Some("msg-42".to_owned()),
+            "a room-visible reply must anchor to the command echo"
+        );
+        // A privately-redirected reply must not anchor to a room message its
+        // recipient may never see.
+        assert_eq!(
+            room_reply_thread_anchor(false, Some("plan"), "msg-42"),
+            None,
+            "a privately-redirected reply must not thread onto the room echo"
+        );
+        assert_eq!(
+            room_reply_thread_anchor(false, None, "msg-42"),
+            None,
+            "the unknown-command reply is private, so it must not thread"
+        );
+        // A 1:1 DM has no room echo to thread onto, whatever was typed.
+        assert_eq!(
+            room_reply_thread_anchor(true, Some("plan-share"), "msg-42"),
+            None
+        );
+        assert_eq!(room_reply_thread_anchor(true, Some("plan"), "msg-42"), None);
+        assert_eq!(room_reply_thread_anchor(true, None, "msg-42"), None);
+    }
+
+    #[test]
     fn group_setting_changes_are_announced_in_the_room() {
         use pierre_commands::parser::load_command_catalog;
         use pierre_mcp_server::services::messaging_ingress::slash_reply_should_be_private;

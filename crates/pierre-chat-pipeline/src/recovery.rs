@@ -225,6 +225,10 @@ pub async fn run_recovery_and_post_process(
     // fetched data attached (live incidents 2026-07-24/2026-08-11, where the
     // coach claimed «problème de connexion de mon côté» on turns with zero
     // tool calls against a healthy provider).
+    //
+    // Cloned so the stamp net below can tell whether the stage replaced the
+    // tool loop's reply — a few KB of text once per turn.
+    let content_before_recovery = result.content.clone();
     stages::capability_recovery::apply_capability_recovery(
         stages::capability_recovery::CapabilityRecoveryDeps {
             ctx,
@@ -236,6 +240,7 @@ pub async fn run_recovery_and_post_process(
         result,
     )
     .await;
+    let recovery_replaced_reply = result.content != content_before_recovery;
 
     let recovery = stages::auth_recovery::apply_auth_recovery(
         stages::auth_recovery::AuthRecoveryDeps {
@@ -279,7 +284,15 @@ pub async fn run_recovery_and_post_process(
     // survived — and post-processing still owns the withhold, so if the re-ask
     // leaks again, errors, or finds no provider handle, Stage 15.4 withholds
     // exactly as it did before.
+    //
+    // Cloned for the same one comparison as `content_before_recovery` above.
+    let content_before_identity_reask = result.content.clone();
     reask_after_identity_leak(ctx, llm_messages, active_model, result).await;
+    stamp_reinstated_denial(
+        recovery_replaced_reply,
+        result.content != content_before_identity_reask,
+        result,
+    );
 
     // Cloned rather than borrowed: `mem::take` below needs `&mut result`, and a
     // simultaneous immutable borrow of a sibling field does not survive being
@@ -302,4 +315,44 @@ pub async fn run_recovery_and_post_process(
     )
     .await;
     (post_processed, recovery.prompt)
+}
+
+/// Stamp the reply when the identity re-ask reinstated a denial the
+/// capability-recovery stage had just disproven.
+///
+/// The recovery stage replaces a disproven data-access claim with a reply
+/// built on a verification payload that lives only in its own re-ask request,
+/// never in `llm_messages`. When that replacement itself carries a
+/// model-identity leak, [`reask_after_identity_leak`] re-samples the turn over
+/// the PRE-recovery messages — without the fetched evidence — and accepts
+/// anything identity-clean, which can be the very denial the fetch disproved
+/// (« je n'ai jamais eu accès à l'historique de Jean-Daniel »). Delivery stays
+/// honest — the athlete reads what the model said — but the row is stamped
+/// `capability_claim_unverified` so the disproven claim never replays into a
+/// later prompt as established fact.
+///
+/// Phrase-free on the turn's history: the net keys on the two content
+/// transitions (recovery replaced the reply, the re-ask changed it again) and
+/// re-checks only the FINAL content against the capability-failure and
+/// peer-denial registers, so it holds for any wording either re-ask produces.
+fn stamp_reinstated_denial(
+    recovery_replaced_reply: bool,
+    reask_changed_reply: bool,
+    result: &mut ToolLoopResult,
+) {
+    if !(recovery_replaced_reply && reask_changed_reply) {
+        return;
+    }
+    if !(narration::contains_capability_failure(&result.content)
+        || narration::contains_peer_access_denial(&result.content))
+    {
+        return;
+    }
+    warn!(
+        reply_len = result.content.len(),
+        "identity_reask_reinstated_denial: the identity re-ask re-sampled over the \
+         pre-recovery messages and brought back a disproven capability denial; \
+         stamping the row so it never replays"
+    );
+    result.capability_claim_unverified = true;
 }

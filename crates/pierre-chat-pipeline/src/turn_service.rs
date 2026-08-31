@@ -278,6 +278,7 @@ pub async fn execute(
         user_id: user_id_str,
         conversation_tenant_id: request.conversation_tenant_id,
         tool_tenant_id: request.tool_tenant_id,
+        is_direct_message: request.is_direct_message,
         content: request.content.clone(),
         turn_id: request.turn_id,
         ambient_context: request.ambient_context,

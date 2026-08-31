@@ -65,6 +65,25 @@ pub fn slash_reply_should_be_private(is_direct_message: bool, command_name: Opti
     !is_room_visible(command_name)
 }
 
+/// The channel message a slash reply threads onto, when it threads at all.
+///
+/// Only a room-visible reply posted back into the room anchors — onto the
+/// command echo, so a body the channel splits keeps its attribution on every
+/// part, not only the one carrying the header. A 1:1 DM has no room echo (the
+/// conversation IS the private chat), and a privately-redirected reply must
+/// not anchor to a room message its recipient may never see — both get `None`.
+#[must_use]
+pub fn room_reply_thread_anchor(
+    is_direct_message: bool,
+    command_name: Option<&str>,
+    channel_message_id: &str,
+) -> Option<String> {
+    if is_direct_message || slash_reply_should_be_private(is_direct_message, command_name) {
+        return None;
+    }
+    Some(channel_message_id.to_owned())
+}
+
 /// A slash-command reply plus the identity of the command that produced it.
 ///
 /// The command name is what decides room-vs-private delivery

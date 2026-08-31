@@ -197,8 +197,10 @@ async fn route_to_subject(
 /// with the data, and hold the replacement to the same standard as the reply
 /// it replaced.
 ///
-/// LIMITATION(registre#141): a replacement `reground_requester` installs can still be re-sampled
-/// by the identity re-ask downstream over the PRE-recovery messages and reinstated unstamped.
+/// The recovery stamp net in `run_recovery_and_post_process` re-checks the
+/// final content after the downstream identity re-ask, so a re-sample over the
+/// pre-recovery messages that brings back the disproven denial is stamped
+/// before it persists.
 async fn reground_requester(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,

@@ -175,9 +175,9 @@ impl ReconnectStanding {
 /// verification) exactly when the reply is a blanked turn's minted platform
 /// text, and runs the whole chain on everything else.
 ///
-/// LIMITATION(registre#140): `apply_auth_recovery` delivers the user-scoped reconnect link into a
-/// shared room exactly as into a DM — the LLM-reply delivery path carries no room/DM split, so a
-/// member's hosted-login link is posted where every other member can tap it.
+/// A shared room ([`TurnInput::is_direct_message`] false) gets the linkless
+/// sentence naming the dropped provider; the user-scoped login link is
+/// DM-only.
 pub async fn apply_auth_recovery(
     deps: AuthRecoveryDeps<'_>,
     input: &TurnInput,
@@ -188,25 +188,40 @@ pub async fn apply_auth_recovery(
         return AuthRecovery::inert();
     };
 
-    let user_id = match Uuid::parse_str(&input.user_id) {
-        Ok(uuid) => uuid,
-        Err(e) => {
-            // The tool loop produced a recoverable signal but we cannot mint
-            // without a valid user UUID — fall back to the LLM path so the
-            // user at least sees the upstream error variant.
-            warn!(
-                user_id = %input.user_id,
-                error = %e,
-                "auth_recovery: invalid user_id UUID, skipping mint"
-            );
-            return AuthRecovery::inert();
-        }
+    let Some(user_id) = parse_turn_user_id(&input.user_id) else {
+        return AuthRecovery::inert();
     };
 
     let locale = profile.locale.as_str();
     let display_name = provider_display_name(&provider_slug).to_owned();
     let (linked_key, bare_key) = standing.keys();
     let replaces_reply = standing.replaces_reply();
+
+    // A shared room never receives the link. The minted URL is a hosted login
+    // scoped to ONE member's `(user, tenant, provider)`, and a room reply is
+    // read — and tappable — by every member: another member landing on it
+    // reaches the asker's provider reconnect, an account-integrity hazard.
+    // The room gets the same sentence a failed mint renders, naming which
+    // provider dropped; the athlete picks the actual link up in their own DM
+    // or in the app, where the mint path below is unchanged.
+    if !input.is_direct_message {
+        info!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            locale = %locale,
+            replaces_reply,
+            "auth_recovery_room_link_suppressed: shared-room turn gets the linkless \
+             reconnect sentence; the user-scoped link is DM-only"
+        );
+        return deliver_linkless_sentence(
+            &deps,
+            bare_key,
+            locale,
+            &display_name,
+            replaces_reply,
+            result,
+        );
+    }
 
     // Minting can fail — a tenant with no OAuth credentials configured, or the
     // mint endpoint refusing. Returning early on that left the turn with no
@@ -217,9 +232,6 @@ pub async fn apply_auth_recovery(
     // served turn it costs even less: the answer is already written, and this
     // only appends the sentence naming what dropped.
     let Some(url) = mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await else {
-        let message =
-            deps.messaging_strings_registry
-                .render(bare_key, locale, &[display_name.as_str()]);
         warn!(
             user_id = %user_id,
             provider = %provider_slug,
@@ -227,19 +239,14 @@ pub async fn apply_auth_recovery(
             replaces_reply,
             "auth_recovery: no reconnect URL to offer; telling the athlete which provider dropped"
         );
-        deliver(result, &message, replaces_reply);
-        // No ReconnectPrompt: there is no URL for a surface to draw a control
-        // around, and a control that goes nowhere is worse than the sentence.
-        //
-        // `owns_reply: false` whichever standing this is. A linkless sentence
-        // is not a finished turn: the athlete asked something nothing could
-        // answer, and the stages below — the bounded identity re-ask, then
-        // post-processing with its content blocks and guardrails — are what
-        // shape a reply the short-circuit hands out verbatim.
-        return AuthRecovery {
-            prompt: None,
-            owns_reply: false,
-        };
+        return deliver_linkless_sentence(
+            &deps,
+            bare_key,
+            locale,
+            &display_name,
+            replaces_reply,
+            result,
+        );
     };
 
     let message = deps.messaging_strings_registry.render(
@@ -285,6 +292,54 @@ pub async fn apply_auth_recovery(
             text: message,
         }),
         owns_reply: replaces_reply,
+    }
+}
+
+/// The turn's user id as a UUID, or `None` after logging why the mint is
+/// skipped.
+///
+/// The tool loop produced a recoverable signal, but nothing can be minted
+/// without a valid user UUID — the caller falls back to the LLM path so the
+/// user at least sees the upstream error variant.
+fn parse_turn_user_id(raw: &str) -> Option<Uuid> {
+    match Uuid::parse_str(raw) {
+        Ok(uuid) => Some(uuid),
+        Err(e) => {
+            warn!(
+                user_id = %raw,
+                error = %e,
+                "auth_recovery: invalid user_id UUID, skipping mint"
+            );
+            None
+        }
+    }
+}
+
+/// Deliver the linkless reconnect sentence and keep the turn on the ordinary
+/// path — shared by the shared-room arm and the failed-mint arm, whose log
+/// lines stay at their call sites.
+///
+/// No [`ReconnectPrompt`]: there is no URL for a surface to draw a control
+/// around, and a control that goes nowhere is worse than the sentence.
+/// `owns_reply: false` whichever standing this is: a linkless sentence is not
+/// a finished turn — the bounded identity re-ask, then post-processing with
+/// its content blocks and guardrails, are what shape a reply the
+/// short-circuit hands out verbatim.
+fn deliver_linkless_sentence(
+    deps: &AuthRecoveryDeps<'_>,
+    bare_key: &str,
+    locale: &str,
+    display_name: &str,
+    replaces_reply: bool,
+    result: &mut ToolLoopResult,
+) -> AuthRecovery {
+    let message = deps
+        .messaging_strings_registry
+        .render(bare_key, locale, &[display_name]);
+    deliver(result, &message, replaces_reply);
+    AuthRecovery {
+        prompt: None,
+        owns_reply: false,
     }
 }
 

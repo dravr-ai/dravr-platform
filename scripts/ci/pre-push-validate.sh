@@ -230,6 +230,38 @@ if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_FRONTEND_CHANGES" == "t
 fi
 
 # ============================================================================
+# TIER 1e: Changed server-test clippy (compiles ONLY what this push touched)
+# ============================================================================
+# A new or edited file under crates/pierre-server/tests compiles into no local
+# gate: per-crate clippy on the crate you were thinking about never reaches
+# the server's test targets, so the lint fails 10+ minutes later in CI's
+# full-workspace job (recurrences b2bd18741 on 08-28, the large_futures case
+# on 08-30 — carnet#153). This stays inside the heavy-compilation-lives-in-CI
+# rule by compiling exactly the changed top-level test targets and nothing
+# else: a push touching none pays zero. common.rs / helpers/ changes fan into
+# every target and stay CI-covered on purpose — recompiling 300+ binaries
+# locally is the cost this script exists to avoid.
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-filter=AM "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null)" ]]; then
+    CHANGED_SERVER_TESTS="$(git diff --name-only --diff-filter=AM "$BASE_REF"...HEAD -- 'crates/pierre-server/tests/*.rs' 2>/dev/null \
+        | grep -E '^crates/pierre-server/tests/[^/]+\.rs$' \
+        | grep -v '/common\.rs$' || true)"
+    if [[ -n "$CHANGED_SERVER_TESTS" ]]; then
+        echo "Tier 1e: Changed server-test clippy"
+        echo "------------------------------------"
+        while IFS= read -r f; do
+            target="$(basename "$f" .rs)"
+            echo "  cargo clippy -p pierre_mcp_server --test $target"
+            if ! cargo clippy -p pierre_mcp_server --test "$target" --all-features -- -D warnings; then
+                echo ""
+                echo "FAIL: clippy on changed test target $target!"
+                exit 1
+            fi
+        done <<< "$CHANGED_SERVER_TESTS"
+        echo ""
+    fi
+fi
+
+# ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of
 # every push:

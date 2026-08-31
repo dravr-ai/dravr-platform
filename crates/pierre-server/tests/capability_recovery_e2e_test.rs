@@ -55,6 +55,7 @@ mod capability_recovery {
     use serial_test::serial;
     use sha2::Sha256;
     use std::env;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::task::spawn_blocking;
@@ -266,7 +267,9 @@ mod capability_recovery {
         (user_id, tenant_id)
     }
 
-    /// Wire a Slack channel + link for the user, post one inbound message, and
+    /// Wire a Slack channel + link for the user, post one inbound DM
+    /// (`channel_type: "im"` — the athlete alone with the coach, which is
+    /// where the reconnect re-challenge may carry its user-scoped link), and
     /// return once the webhook was accepted.
     async fn drive_slack_turn(
         resources: &Arc<ServerContext>,
@@ -309,7 +312,8 @@ mod capability_recovery {
                 "type": "message",
                 "user": slack_sender_id,
                 "text": text,
-                "channel": "C_CAPABILITY_RECOVERY",
+                "channel": "D_CAPABILITY_RECOVERY",
+                "channel_type": "im",
                 "ts": "1700000005.000001"
             }
         })
@@ -825,6 +829,149 @@ mod capability_recovery {
             "the tool-call payload leaked into the delivered reply: {delivered:?}"
         );
     }
+
+    /// The clean recovery re-ask reply that ALSO breaks persona — long enough
+    /// and digit-carrying so no degeneracy check fires, free of every
+    /// capability-failure phrase, and claiming (not denying) the product
+    /// identity so `narration::identity_leak_match` reports it.
+    const LEAKY_CLEAN_REPLY: &str =
+        "Parfait — basé sur tes 5 dernières sorties : 45 min de vélo facile ce soir, bol de \
+         riz au tofu après. Je suis GitHub Copilot CLI, un assistant en ligne de commande.";
+
+    /// Reproduces the carnet#141 incident shape. The main completion
+    /// fabricates the access denial; the recovery re-ask (recognised by
+    /// [`REASK_MARKER`]) answers cleanly but leaks the model identity; every
+    /// later completion re-samples the original denial — the identity re-ask
+    /// replays the PRE-recovery `llm_messages`, so no marker distinguishes it
+    /// from the main turn, only the call order the counter records.
+    struct ClaimLeakThenClaimMockProvider {
+        /// Shared with the test body (the provider itself is handed to the
+        /// harness as a trait object), like `ScriptedGroupLlm::seen_requests`.
+        completions: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for ClaimLeakThenClaimMockProvider {
+        fn name(&self) -> &'static str {
+            "claim_leak_then_claim_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Claim-leak-then-claim Mock LLM (reinstated-denial e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            self.completions.fetch_add(1, Ordering::SeqCst);
+            let is_recovery_reask = request
+                .messages
+                .iter()
+                .any(|m| m.content.contains(REASK_MARKER));
+            let content = if is_recovery_reask {
+                LEAKY_CLEAN_REPLY
+            } else {
+                FABRICATED_CLAIM
+            };
+            Ok(ChatResponse {
+                content: content.to_owned(),
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage::new(30, 40, 70)),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            Err(AppError::internal("streaming not used by this test"))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    /// carnet#141: the recovery stage disproves the denial and installs a
+    /// replacement built on the verification payload — which lives only in the
+    /// stage's own re-ask request, never in `llm_messages`. When that
+    /// replacement leaks the model identity, the identity re-ask re-samples
+    /// over the PRE-recovery messages — without the fetched evidence — and
+    /// accepts anything identity-clean, here the very denial the fetch just
+    /// disproved. Delivery stays honest (the athlete reads what the model
+    /// said), but the row must carry the no-replay stamp: without the recovery
+    /// stamp net this turn persists `finish_reason: "stop"` and the disproven
+    /// denial replays into every later prompt as established fact.
+    #[tokio::test]
+    #[serial]
+    async fn a_denial_reinstated_by_the_identity_reask_is_stamped() {
+        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        let scraper_url = spawn_mock_scraper().await;
+        env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
+        // The remote client is both-or-neither: a URL with no audience disables
+        // it, because unsigned requests are refused by the scraper rather than served.
+        env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
+
+        let completions = Arc::new(AtomicUsize::new(0));
+        let mock = Arc::new(ClaimLeakThenClaimMockProvider {
+            completions: Arc::clone(&completions),
+        });
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let (user_id, tenant_id) = create_user_with_connection(
+            &resources,
+            "capability-reinstated@example.com",
+            "sciotte",
+            &ConnectionType::Manual,
+        )
+        .await;
+        seed_sciotte_session(&resources, user_id, tenant_id).await;
+
+        drive_slack_turn(
+            &resources,
+            tenant_id,
+            user_id,
+            "U_CAP_REINSTATED",
+            "capability_reinstated_secret",
+            "Propose-moi une sortie basée sur mes activités récentes",
+        )
+        .await;
+
+        let reply = wait_for_persisted_assistant_reply(&resources, tenant_id)
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        // Honest delivery is unchanged: the identity-clean re-sample IS the
+        // reply the athlete reads, and the leak never is.
+        assert!(
+            reply.contains("problème de connexion"),
+            "the identity re-ask's clean re-sample must stay the delivered reply, got: {reply:?}"
+        );
+        assert!(
+            !reply.contains("GitHub Copilot"),
+            "the model-identity leak must never be delivered, got: {reply:?}"
+        );
+        assert!(
+            completions.load(Ordering::SeqCst) >= 3,
+            "main turn, recovery re-ask and identity re-ask must all have completed; saw {}",
+            completions.load(Ordering::SeqCst)
+        );
+        // The reinstated denial contradicts the verification fetch that just
+        // succeeded, so it must never replay into a later prompt.
+        assert_eq!(
+            persisted_finish_reason(&resources, tenant_id)
+                .await
+                .as_deref(),
+            Some("capability_claim_unverified"),
+            "a denial reinstated by the identity re-ask must carry the no-replay stamp"
+        );
+    }
+
     // ════════════════════════════════════════════════════════════════════
     // Subject routing in a Telegram group (live incident 2026-08-30)
     // ════════════════════════════════════════════════════════════════════
@@ -1067,12 +1214,14 @@ mod capability_recovery {
                 .unwrap();
         }
 
-        /// Phil (the asker, sciotte + mock scraper so his own fetch verifies)
-        /// and JD (the peer, a cached Strava ride under his own tenant) in one
-        /// Telegram-bound group under the bot tenant.
+        /// Phil (the asker, sciotte-connected; `asker_session_alive` seeds his
+        /// scrape session so his own fetch verifies, `false` leaves the
+        /// connection auth-dead) and JD (the peer, a cached Strava ride under
+        /// his own tenant) in one Telegram-bound group under the bot tenant.
         async fn build_group_scenario(
             mock: Arc<ScriptedGroupLlm>,
             jd_consents: bool,
+            asker_session_alive: bool,
         ) -> GroupScenario {
             env::set_var("PIERRE_LLM_MODEL", "mock-model");
             let scraper_url = spawn_mock_scraper().await;
@@ -1097,7 +1246,9 @@ mod capability_recovery {
                 .register_connection(phil, phil_tenant, "sciotte", &ConnectionType::Manual, None)
                 .await
                 .unwrap();
-            seed_sciotte_session(&resources, phil, phil_tenant).await;
+            if asker_session_alive {
+                seed_sciotte_session(&resources, phil, phil_tenant).await;
+            }
 
             let (jd, jd_tenant) =
                 seed_named_user(&resources, "subject-jd@example.com", JD_NAME).await;
@@ -1337,7 +1488,7 @@ mod capability_recovery {
                 }
             }));
             let requests = mock.request_log();
-            let scenario = build_group_scenario(mock, true).await;
+            let scenario = build_group_scenario(mock, true, true).await;
 
             post_group_message(&scenario, 7001, PHIL_SENDER, PRONOUN_ASK).await;
             let reply = wait_for_member_reply(&scenario, scenario.phil)
@@ -1395,7 +1546,7 @@ mod capability_recovery {
                 }
             }));
             let requests = mock.request_log();
-            let scenario = build_group_scenario(mock, false).await;
+            let scenario = build_group_scenario(mock, false, true).await;
 
             post_group_message(&scenario, 7101, PHIL_SENDER, PRONOUN_ASK).await;
             let reply = wait_for_member_reply(&scenario, scenario.phil)
@@ -1473,7 +1624,7 @@ mod capability_recovery {
                     PEER_DENIAL.to_owned()
                 }
             }));
-            let scenario = build_group_scenario(mock, true).await;
+            let scenario = build_group_scenario(mock, true, true).await;
 
             post_group_message(&scenario, 7201, PHIL_SENDER, PRONOUN_ASK).await;
             let reply = wait_for_member_reply(&scenario, scenario.phil)
@@ -1494,6 +1645,68 @@ mod capability_recovery {
                     .as_deref(),
                 Some("capability_claim_unverified"),
                 "a repaired, verified reply is ordinary history"
+            );
+        }
+
+        /// carnet#140: a member whose own provider is auth-dead asks for their
+        /// own data in the shared room. The verification fetch fails
+        /// auth-shaped and the reconnect re-challenge fires — but the
+        /// room-visible reply must be the linkless sentence: the hosted-login
+        /// link is scoped to that one member's `(user, tenant, provider)`, and
+        /// posted to the room any member could tap it and land on the asker's
+        /// provider reconnect. The DM re-challenge keeps its link
+        /// (`fabricated_claim_with_dead_provider_becomes_a_reconnect_challenge`
+        /// pins that, unchanged).
+        #[tokio::test]
+        #[serial]
+        async fn a_dead_provider_room_turn_gets_the_linkless_re_challenge() {
+            let mock = Arc::new(ScriptedGroupLlm::new(|_request| {
+                FABRICATED_CLAIM.to_owned()
+            }));
+            let scenario = build_group_scenario(mock, true, false).await;
+
+            post_group_message(
+                &scenario,
+                7301,
+                PHIL_SENDER,
+                "Propose-moi une sortie basée sur mes activités récentes",
+            )
+            .await;
+            let reply = wait_for_member_reply(&scenario, scenario.phil)
+                .await
+                .expect("pipeline did not persist an assistant row for the asker within 30s");
+
+            assert!(
+                reply.contains("Strava"),
+                "the room reply must still name the dropped provider, got: {reply:?}"
+            );
+            assert!(
+                !reply.contains("/r/") && !reply.contains("http"),
+                "a user-scoped login link must never be persisted for a shared room, \
+                 got: {reply:?}"
+            );
+
+            let delivered = wait_for_outbound_body(&scenario.resources, scenario.bot_tenant)
+                .await
+                .expect("pipeline did not record an outbound messaging_messages row within 30s");
+            assert!(
+                delivered.contains("Strava"),
+                "the delivered room reply must name the dropped provider, got: {delivered:?}"
+            );
+            assert!(
+                !delivered.contains("/r/") && !delivered.contains("http"),
+                "a user-scoped login link must never reach a shared room, got: {delivered:?}"
+            );
+
+            // The reconnect sentence describes this moment only — connection
+            // state is re-derived every turn — so the room turn is stamped out
+            // of later prompts exactly as the DM one is.
+            assert_eq!(
+                member_finish_reason(&scenario, scenario.phil)
+                    .await
+                    .as_deref(),
+                Some("capability_claim_unverified"),
+                "a moment-in-time reconnect reply must be stamped so it never replays"
             );
         }
     }

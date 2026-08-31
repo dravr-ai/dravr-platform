@@ -112,6 +112,10 @@ fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
         user_id: user_id.to_string(),
         conversation_tenant_id: tenant,
         tool_tenant_id: tenant,
+        // The athlete alone with the coach — the standing every mint-path
+        // assertion in this file describes; a shared room gets the linkless
+        // sentence instead (capability_recovery_e2e_test pins that).
+        is_direct_message: true,
         content: "Comment se passe ma semaine ?".to_owned(),
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
