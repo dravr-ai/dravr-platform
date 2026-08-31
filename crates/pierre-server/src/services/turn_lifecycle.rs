@@ -49,7 +49,9 @@ use tokio::time::sleep;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use tracing::{info, warn};
+#[cfg(unix)]
+use tracing::info;
+use tracing::warn;
 
 /// What one [`InFlightTurns::drain`] spent its grace window on.
 ///
@@ -207,6 +209,12 @@ impl Default for InFlightTurns {
 /// told anything, so it is an ERROR even though the process is exiting
 /// normally — the alternative is a shutdown that reports success while
 /// dropping work.
+///
+/// Unix-only for the same reason as its sole caller, [`spawn_sigterm_drain`]:
+/// on Windows there is no SIGTERM path to report on, and an item whose only
+/// caller sits behind a cfg must carry that cfg or the build that drops the
+/// caller sees it as dead code.
+#[cfg(unix)]
 fn log_drain(report: &DrainReport) {
     if report.is_clean() {
         info!(

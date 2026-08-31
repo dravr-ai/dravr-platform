@@ -99,8 +99,32 @@ jobs:
 
       - name: Build MCP SDK (required for E2E tests)
         working-directory: sdk
+        # --ignore-scripts keeps this step honest on Windows. sdk/package.json
+        # declares `prepare: bun run build`, which bun runs as the last phase of
+        # its own install — while it still holds handles on `node_modules`. On
+        # Windows that blocks another process from enumerating the directory, so
+        # the esbuild inside `prepare` dies with `Cannot read directory
+        # "node_modules": The process cannot access the file because it is being
+        # used by another process` and fails the install (13 unresolved imports:
+        # commander, zod, @modelcontextprotocol/sdk). POSIX tolerates the open
+        # handles, which is why only Windows saw it.
+        #
+        # It never actually broke the lane: `bun run build` below then reran the
+        # same build against a settled `node_modules` and succeeded, and pwsh
+        # propagates only $LASTEXITCODE, so the step passed with 13 ERROR lines
+        # in its log. That is the hazard — carnet#157 read those lines as the
+        # cause of a red job whose only real failure was a Rust dead-code error
+        # five minutes later. A step that prints `error:` and passes will be
+        # misread again.
+        #
+        # Nothing is lost by skipping them: the explicit `bun run build` below is
+        # the build this step wants, and `prepare` only duplicated it. The
+        # suppressed root scripts are that `prepare` and a `preinstall` guard
+        # asserting the installer is bun — which it is. Dependency scripts are
+        # never run by `bun install` regardless (bun requires trustedDependencies,
+        # which sdk/package.json does not declare).
         run: |
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
 
       - name: Clippy check (with cognitive complexity)
