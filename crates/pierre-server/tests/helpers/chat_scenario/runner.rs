@@ -860,6 +860,40 @@ mod tests {
     /// matter what the model did — grading the keyword list instead of the
     /// coach. The prefetch is reported, never graded.
     #[test]
+    fn driver_prefetch_does_not_satisfy_a_tool_called_assertion() {
+        let scenario = one_turn_scenario_with(vec![AssertionSpec::ToolCalled {
+            name: "get_activities".to_owned(),
+            min_calls: 1,
+        }]);
+        let mut driver = MockScenarioDriver::new(
+            vec!["Voici ta semaine : 50 km au total.".to_owned()],
+            vec![vec![]],
+        )
+        .with_prefetched_tools(vec![vec!["get_activities".to_owned()]]);
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+
+        let tf = &reports[0].turn_failures[0];
+        assert_eq!(
+            tf.failures.len(),
+            1,
+            "a prefetch the model never asked for must leave ToolCalled failing: {:?}",
+            tf.failures
+        );
+        assert!(matches!(
+            tf.failures[0].spec,
+            AssertionSpec::ToolCalled { .. }
+        ));
+        assert_eq!(tf.prefetched_tools, vec!["get_activities".to_owned()]);
+        assert!(
+            reports[0]
+                .failure_summary()
+                .contains("driver prefetch (not graded): [\"get_activities\"]"),
+            "the summary must show what was in context: {}",
+            reports[0].failure_summary()
+        );
+    }
+
     /// A turn grading the tool call is not handed the data first.
     ///
     /// The driver prefetches on wording that implies activity data, and
@@ -906,40 +940,6 @@ mod tests {
             driver.prefetch_allowed_log,
             vec![true],
             "only a ToolCalled turn loses its prefetch"
-        );
-    }
-
-    fn driver_prefetch_does_not_satisfy_a_tool_called_assertion() {
-        let scenario = one_turn_scenario_with(vec![AssertionSpec::ToolCalled {
-            name: "get_activities".to_owned(),
-            min_calls: 1,
-        }]);
-        let mut driver = MockScenarioDriver::new(
-            vec!["Voici ta semaine : 50 km au total.".to_owned()],
-            vec![vec![]],
-        )
-        .with_prefetched_tools(vec![vec!["get_activities".to_owned()]]);
-        let vocab = VocabularyContractRegistry::empty();
-        let reports = run_scenario(&scenario, &mut driver, &vocab);
-
-        let tf = &reports[0].turn_failures[0];
-        assert_eq!(
-            tf.failures.len(),
-            1,
-            "a prefetch the model never asked for must leave ToolCalled failing: {:?}",
-            tf.failures
-        );
-        assert!(matches!(
-            tf.failures[0].spec,
-            AssertionSpec::ToolCalled { .. }
-        ));
-        assert_eq!(tf.prefetched_tools, vec!["get_activities".to_owned()]);
-        assert!(
-            reports[0]
-                .failure_summary()
-                .contains("driver prefetch (not graded): [\"get_activities\"]"),
-            "the summary must show what was in context: {}",
-            reports[0].failure_summary()
         );
     }
 
