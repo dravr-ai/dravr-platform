@@ -94,7 +94,12 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # -- libssl-dev, libssl3t64, openssl, openssl-provider-legacy -- so it reads as
 # four HIGH findings. Gated the dev deploy on 2026-08-26, the same day and the
 # same CVE that gated the frontend image against alpine.
-ARG APT_SECURITY_EPOCH=2026-08-26
+# chromium 151.0.7922.173-1~deb13u1 closes CVE-2026-76018, arbitrary code
+# execution via a crafted file in the Import component. Two HIGH findings from
+# one source package (chromium, chromium-common). Gated the dev deploy on
+# 2026-08-31 on a commit that touched no Docker and no dependency — the cached
+# apt layer was still serving 151.0.7922.169.
+ARG APT_SECURITY_EPOCH=2026-08-31
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
