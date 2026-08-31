@@ -222,8 +222,15 @@ async fn rewrite_to_satisfy_contract(
         .map(|v| format!("- {}", v.detail))
         .collect::<Vec<_>>()
         .join("\n");
+    // "Change only wording, structure, and length" reads as a licence to
+    // translate unless the language is named as something to preserve: this
+    // editor sees an English instruction and a reply that may be in any of the
+    // five locales, and the whole turn's language rides on it. Preservation is
+    // the right rule here rather than the turn's locale — a style pass repairs
+    // format, and Stage 7g.3b in `prompt_assembly` is what settles the
+    // language upstream of it.
     let system = format!(
-        "You are a style editor for the '{}' coaching persona. The assistant reply below broke these output-style rules:\n{rules}\n\nRewrite the reply so it follows the rules. Preserve every fact, number, recommendation, and citation exactly — change only wording, structure, and length. Output only the rewritten reply, with no preamble.",
+        "You are a style editor for the '{}' coaching persona. The assistant reply below broke these output-style rules:\n{rules}\n\nRewrite the reply so it follows the rules. Preserve every fact, number, recommendation, and citation exactly — change only wording, structure, and length. Write the rewrite in the same language as the reply below; never translate it, whatever language these instructions are in. Output only the rewritten reply, with no preamble.",
         persona.as_str()
     );
     let request = ChatRequest::new(vec![

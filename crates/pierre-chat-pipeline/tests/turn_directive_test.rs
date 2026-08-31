@@ -185,7 +185,11 @@ fn the_suppression_predicate_has_a_single_source() {
 #[test]
 fn every_arm_of_the_slot_carries_a_task() {
     let source = prompt_assembly_source();
-    let stage = slice_between(&source, "// Stage 7g.3:", "// Stage 7g.4:");
+    // Bounded by Stage 7g.3b, the turn-language block, rather than by the
+    // identity anchor. The rebinding count below is a claim about this slot's
+    // four arms sharing one binding; blocks appended after the slot would
+    // inflate it without bearing on that.
+    let stage = slice_between(&source, "// Stage 7g.3:", "// Stage 7g.3b:");
 
     for arm in [
         "super::onboarding::directive(turn)",

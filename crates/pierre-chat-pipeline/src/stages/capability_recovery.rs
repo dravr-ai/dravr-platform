@@ -48,6 +48,7 @@ use super::peer_grounding::{
 use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
+use pierre_contremaitre::messaging_strings::KEY_TURN_LANGUAGE;
 use pierre_core::errors::AppError;
 use pierre_core::models::MemberFitnessSnapshot;
 use pierre_core::narration;
@@ -77,11 +78,17 @@ pub(super) const VERIFICATION_TOOL: &str = "get_activities";
 const VERIFICATION_LIMIT: u32 = 5;
 
 /// Appended after the fetched data on the re-ask. English on purpose: the
-/// platform's system corpus is English and the model answers in the
-/// athlete's locale regardless.
+/// platform's system corpus is English.
+///
+/// It no longer asks for the reply "in their language". A re-ask is the last
+/// message in the request, which is the strongest position in the prompt, and
+/// asking the model to infer the language there is what it does worst — see
+/// Stage 7g.3b in [`super::prompt_assembly`] for the live case. The turn's
+/// resolved locale directive is appended after this instead, naming the
+/// language outright.
 const REASK_INSTRUCTION: &str = "Your data tools are connected and working — the activities \
      above were just fetched successfully on your behalf. Answer the athlete's last message \
-     using this data, in their language. Do not claim any connection or data-access problem.";
+     using this data. Do not claim any connection or data-access problem.";
 
 /// Bundled borrows for [`apply_capability_recovery`], mirroring
 /// [`super::auth_recovery::AuthRecoveryDeps`].
@@ -97,6 +104,10 @@ pub struct CapabilityRecoveryDeps<'a> {
     /// Group roster snapshots (empty outside a group conversation), matched
     /// against the reply to catch unverified claims about a named peer.
     pub peer_roster: &'a [MemberFitnessSnapshot],
+    /// The turn's resolved locale, so a repair completion is told which
+    /// language to write in rather than left to infer it from a request whose
+    /// last message this stage wrote in English.
+    pub locale: &'a str,
 }
 
 /// Apply capability-failure recovery in place.
@@ -571,7 +582,8 @@ async fn reask_with_verified_data(
 
     let mut messages = deps.llm_messages.to_vec();
     messages.push(ChatMessage::user(format!(
-        "{tool_text}\n\n{REASK_INSTRUCTION}"
+        "{tool_text}\n\n{REASK_INSTRUCTION}\n\n{}",
+        turn_language_directive(deps)
     )));
     let request = ChatRequest::new(messages).with_model(deps.active_model);
 
@@ -603,18 +615,41 @@ const GROUP_CONTEXT_SLICE_CAP: usize = 4_000;
 /// task and ends the turn silent. A plain chat-shaped ask ("write the
 /// corrected reply now, reply with the message text only") keeps it in
 /// chat-output behavior. English on purpose, like the access-failure re-ask.
+///
+/// `language_directive` is the turn's resolved locale rendered by
+/// [`turn_language_directive`], appended last. The prompt used to close with
+/// "in their language" and leave the rest to inference; a repair is the last
+/// message in the request and inference loses there.
 #[must_use]
-pub fn peer_repair_prompt(peer_name: &str, unsupported: &[String], payload: &str) -> String {
+pub fn peer_repair_prompt(
+    peer_name: &str,
+    unsupported: &[String],
+    payload: &str,
+    language_directive: &str,
+) -> String {
     format!(
         "Here are {peer_name}'s verified activities for the last four weeks, fetched just \
          now:\n{payload}\n\nYour previous answer contained these unsupported claims about \
          {peer_name}: {claims}.\n\nWrite the corrected reply to the athlete's last question \
-         now, in their language. Use only the data above and the roster context; where a \
-         claim cannot be confirmed, say so plainly instead of restating it. If your original \
-         reply included a dravr-viz chart or table, produce the corrected block again from \
-         this data. Reply with the message text only.",
+         now. Use only the data above and the roster context; where a claim cannot be \
+         confirmed, say so plainly instead of restating it. If your original reply included a \
+         dravr-viz chart or table, produce the corrected block again from this data. Reply \
+         with the message text only.\n\n{language_directive}",
         claims = unsupported.join("; "),
     )
+}
+
+/// The turn's locale directive, for a repair completion's last message.
+///
+/// One source with the system prompt's Stage 7g.3b block: both read
+/// `KEY_TURN_LANGUAGE` from the messaging-strings registry at the turn's
+/// resolved locale, so a repair can never name a different language than the
+/// prompt it repairs.
+#[must_use]
+pub fn turn_language_directive(deps: &CapabilityRecoveryDeps<'_>) -> String {
+    deps.ctx
+        .messaging_strings_registry
+        .get(KEY_TURN_LANGUAGE, deps.locale)
 }
 
 /// Adjudicate a reply's claims about a named peer, and repair when they fail.
@@ -736,7 +771,12 @@ async fn reask_with_peer_evidence(
     peer_payload: &str,
     result: &mut ToolLoopResult,
 ) -> bool {
-    let prompt = peer_repair_prompt(peer_name, unsupported, peer_payload);
+    let prompt = peer_repair_prompt(
+        peer_name,
+        unsupported,
+        peer_payload,
+        &turn_language_directive(deps),
+    );
     let Some(content) = request_peer_reask(deps, provider, &prompt).await else {
         return false;
     };

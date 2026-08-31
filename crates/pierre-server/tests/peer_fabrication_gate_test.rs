@@ -143,6 +143,7 @@ fn repair_prompt_is_chat_shaped() {
             "pas de distance".to_owned(),
         ],
         r#"{"activities":[{"id":"a1"}]}"#,
+        "## Langue de la réponse\n\nRédige ta réponse en français.",
     );
     assert!(
         !prompt.contains("[Tool Result for"),
@@ -151,6 +152,17 @@ fn repair_prompt_is_chat_shaped() {
     assert!(prompt.contains("une course de 4h30; pas de distance"));
     assert!(prompt.contains(r#"{"activities":[{"id":"a1"}]}"#));
     assert!(prompt.contains("Reply with the message text only"));
+    // A repair is the last message in the request — the strongest position in
+    // the prompt — so it names the turn's language outright instead of asking
+    // for "their language" and hoping (carnet#159).
+    assert!(
+        !prompt.contains("in their language"),
+        "the repair prompt must not ask the model to infer the language"
+    );
+    assert!(
+        prompt.contains("Rédige ta réponse en français"),
+        "the caller's locale directive must ride at the end of the repair prompt"
+    );
     assert!(
         prompt.contains("dravr-viz"),
         "the chart-preservation ask survives the reshape"

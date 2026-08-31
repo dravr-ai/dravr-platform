@@ -91,13 +91,57 @@ fn directive_is_appended_after_every_other_prompt_block() {
         directive < anchor && anchor < harden,
         "the identity anchor must sit between the onboarding directive and the canary"
     );
+    let language = sole_offset(&source, "// Stage 7g.3b:");
+    assert!(
+        directive < language && language < anchor,
+        "the turn-language block sits between the directive and the identity anchor"
+    );
     let rebinds = tail.matches("let raw_system_prompt =").count();
     assert_eq!(
-        rebinds, 2,
-        "exactly two prompt rebindings may sit between Stage 7g.3 and Stage 7h — the \
-         directive and the identity anchor — found {rebinds}; a new block was added below \
-         the directive"
+        rebinds, 3,
+        "exactly three prompt rebindings may sit between Stage 7g.3 and Stage 7h — the \
+         directive, the turn-language block and the identity anchor — found {rebinds}; a \
+         new block was added below the directive"
     );
+}
+
+/// Stage 7g.3b names the turn's language, and does so on every turn.
+///
+/// It joins the identity anchor as the second block permitted below the
+/// directive, on the same grounds: it says how to write, never what to
+/// produce, so it does not enter the recency contest the 2026-07-24 derail was
+/// decided by. That is exactly why it is appended unconditionally rather than
+/// from an arm of the directive's `match` — a builder coach under the
+/// structured-output contract still writes prose inside its JSON, and the
+/// English-answer incident (carnet#159) reached a surface that was carrying no
+/// language rule at all.
+#[test]
+fn the_turn_language_block_is_appended_on_every_turn() {
+    let source = prompt_assembly_source();
+    let language = sole_offset(&source, "// Stage 7g.3b:");
+    let anchor = sole_offset(&source, "// Stage 7g.4:");
+    let stage = &source[language..anchor];
+
+    assert!(
+        stage.contains("KEY_TURN_LANGUAGE"),
+        "the block must render the turn-language string from the messaging registry"
+    );
+    assert!(
+        stage.contains("&profile.locale"),
+        "the language must come from the turn's resolved locale, not be re-inferred"
+    );
+    assert_eq!(
+        stage.matches("let raw_system_prompt =").count(),
+        1,
+        "the turn-language block is one unconditional rebinding"
+    );
+    for gate in ["match ", "if ", "None =>"] {
+        assert!(
+            !stage.contains(gate),
+            "Stage 7g.3b must be unconditional — found a {gate:?} gating it; every surface \
+             and every coach shape needs the language named"
+        );
+    }
 }
 
 /// The directive that retracts the interview's rules occupies the interview
@@ -113,8 +157,12 @@ fn directive_is_appended_after_every_other_prompt_block() {
 fn the_release_directive_shares_the_interview_directives_slot() {
     let source = prompt_assembly_source();
     let directive = sole_offset(&source, "// Stage 7g.3:");
-    let anchor = sole_offset(&source, "// Stage 7g.4:");
-    let stage = &source[directive..anchor];
+    // Bounded by Stage 7g.3b rather than the identity anchor: the rebinding
+    // count below is about the interview directive and its retraction sharing
+    // one slot, and every later block would inflate it without saying anything
+    // about that.
+    let language = sole_offset(&source, "// Stage 7g.3b:");
+    let stage = &source[directive..language];
 
     assert!(
         stage.contains("super::onboarding::release_directive()"),

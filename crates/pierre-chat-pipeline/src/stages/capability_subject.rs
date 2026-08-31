@@ -43,8 +43,8 @@ use tracing::{info, warn};
 
 use super::capability_recovery::{
     collect_turn_evidence, peer_repair_prompt, peers_named_in_reply, reask_reply_is_clean,
-    request_peer_reask, run_verification_fetch, verify_peer_claims, CapabilityRecoveryDeps,
-    VerificationOutcome, VERIFICATION_TOOL,
+    request_peer_reask, run_verification_fetch, turn_language_directive, verify_peer_claims,
+    CapabilityRecoveryDeps, VerificationOutcome, VERIFICATION_TOOL,
 };
 use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerFetchOutcome, PeerMention, PEER_FETCH_TOOL,
@@ -662,7 +662,12 @@ async fn repair_from_payload(
     payload: &str,
     turn_evidence: &str,
 ) -> Option<String> {
-    let prompt = peer_repair_prompt(peer_name, unsupported, payload);
+    let prompt = peer_repair_prompt(
+        peer_name,
+        unsupported,
+        payload,
+        &turn_language_directive(deps),
+    );
     let repaired = request_peer_reask(deps, provider, &prompt).await?;
     let evidence_with_fetch = format!("{turn_evidence}\n{payload}");
     if !reask_reply_is_clean(deps, provider, peer_name, &evidence_with_fetch, &repaired).await {

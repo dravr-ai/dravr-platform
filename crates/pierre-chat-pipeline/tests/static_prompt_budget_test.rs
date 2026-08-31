@@ -28,6 +28,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_TURN_LANGUAGE};
 use pierre_contremaitre::PromptRegistry;
 
 /// Ceiling for the blocks present on EVERY turn, whatever the surface.
@@ -43,8 +44,32 @@ const ALWAYS_ON_CEILING: usize = 40_000;
 /// plus `messaging_context` and the plain-text variant. Headroom to 50,000.
 const MESSAGING_CEILING: usize = 50_000;
 
+/// The widest of the five turn-language directives.
+///
+/// Stage 7g.3b appends exactly one of them on every turn, so the worst case is
+/// the one that costs most. Reading all five also means a locale added to the
+/// registry enters this budget the day it lands, rather than the day someone
+/// remembers to list it.
+fn widest_turn_language_directive(strings: &MessagingStringsRegistry) -> usize {
+    ["fr", "en", "es", "de", "pt"]
+        .iter()
+        .map(|locale| strings.get(KEY_TURN_LANGUAGE, locale).len())
+        .max()
+        .unwrap_or(0)
+}
+
 /// The blocks that reach the model on every turn regardless of surface.
-fn always_on(registry: &PromptRegistry) -> Vec<(&'static str, usize)> {
+///
+/// `turn_language` joins the list at carnet#159: ~700 B naming the turn's
+/// resolved locale, bought because the alternative was the model inferring the
+/// language from the athlete's words against tens of KB of English context —
+/// and losing, in French, on a turn reporting medical symptoms. It is billed
+/// per turn like everything else here, which is why it is measured here rather
+/// than left out because it comes from a different registry.
+fn always_on(
+    registry: &PromptRegistry,
+    strings: &MessagingStringsRegistry,
+) -> Vec<(&'static str, usize)> {
     vec![
         (
             "platform_contract",
@@ -63,6 +88,7 @@ fn always_on(registry: &PromptRegistry) -> Vec<(&'static str, usize)> {
             "progression_guardrails",
             registry.progression_guardrails_prompt().len(),
         ),
+        ("turn_language", widest_turn_language_directive(strings)),
     ]
 }
 
@@ -70,7 +96,8 @@ fn always_on(registry: &PromptRegistry) -> Vec<(&'static str, usize)> {
 #[test]
 fn the_always_on_prompt_stays_within_budget() {
     let registry = PromptRegistry::new();
-    let parts = always_on(&registry);
+    let strings = MessagingStringsRegistry::new();
+    let parts = always_on(&registry, &strings);
     let total: usize = parts.iter().map(|(_, n)| n).sum();
 
     for (name, bytes) in &parts {
@@ -95,12 +122,14 @@ fn the_always_on_prompt_stays_within_budget() {
 #[test]
 fn a_messaging_turn_stays_within_budget() {
     let registry = PromptRegistry::new();
+    let strings = MessagingStringsRegistry::new();
     let total: usize = registry.platform_contract_prompt().len()
         + registry.pierre_system_prompt().len()
         + registry.tool_discipline_messaging_prompt().len()
         + registry.tool_discipline_shared_prompt().len()
         + registry.progression_guardrails_prompt().len()
-        + registry.messaging_context_prompt().len();
+        + registry.messaging_context_prompt().len()
+        + widest_turn_language_directive(&strings);
 
     assert!(
         total <= MESSAGING_CEILING,

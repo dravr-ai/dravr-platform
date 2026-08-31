@@ -12,7 +12,7 @@ use tracing::{debug, field, info, trace, warn, Span};
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
-    KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
+    KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL, KEY_TURN_LANGUAGE,
 };
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppResult;
@@ -987,6 +987,42 @@ pub(crate) async fn assemble_prompt_and_messages(
         None if structured_contract_active => raw_system_prompt,
         None => format!("{raw_system_prompt}{TURN_DIRECTIVE}"),
     };
+
+    // Stage 7g.3b: State the language this turn is conducted in.
+    //
+    // `profile.locale` is already the authority for everything else the turn
+    // renders — which coach prompt is loaded, which refusal strings interpolate
+    // above, which acronym glosses expand, which disclaimer the text guardrails
+    // prepend, which language the verification banner speaks. Until now it was
+    // the authority for every one of those EXCEPT the coaching text they wrap,
+    // which the model had to infer from the athlete's own words.
+    //
+    // It loses that inference. On 2026-08-30 a francophone athlete asked a
+    // long question in French on Telegram and got an English answer, then
+    // answered "Yes" and got French: the athlete's few hundred French
+    // characters were outweighed by tens of KB of English contract, coach
+    // scaffolding, provider context and tool results, and the short second turn
+    // was not. The locale was `fr` throughout — provably, because the French
+    // medical disclaimer fired on the second turn while the first, the one
+    // reporting urinary symptoms, matched no French trigger against its English
+    // text and shipped with no disclaimer at all.
+    //
+    // The only language rule that existed lived in contremaitre's
+    // `messaging_context.md` ("reply in the same language the person used"),
+    // which asks for that same inference and, arriving as
+    // `SurfaceProfile::prose_contract`, reaches messaging surfaces only — the
+    // app's chat had no language rule of any kind.
+    //
+    // Appended unconditionally, including under the structured-output contract:
+    // this block says which language to write in, never what to produce, so it
+    // does not enter the task-directive recency contest Stage 7g.3 guards. Each
+    // locale's text is authored in its own language, which makes the
+    // instruction an instance of what it asks for.
+    let raw_system_prompt = format!(
+        "{raw_system_prompt}\n\n{}",
+        ctx.messaging_strings_registry
+            .get(KEY_TURN_LANGUAGE, &profile.locale)
+    );
 
     // Stage 7g.4: Close every prompt with the identity anchor.
     //

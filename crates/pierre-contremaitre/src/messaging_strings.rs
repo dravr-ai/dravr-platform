@@ -117,6 +117,14 @@ pub const KEY_SCOPE_REFUSAL: &str = "messaging.scope.refusal";
 /// (web scraping, image generation, etc.). Interpolated into the system
 /// prompt at turn-time for deterministic output.
 pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
+/// Key: the language this turn is conducted in.
+///
+/// Appended to the tail of every system prompt, on every surface, rendered
+/// from the locale the turn already resolved — the same value that selects the
+/// coach prompt, the refusals above, the acronym glosses and the guardrail
+/// disclaimer. Each locale's text is authored in its own language, so the
+/// directive is itself an instance of what it asks for.
+pub const KEY_TURN_LANGUAGE: &str = "messaging.turn.language";
 /// Key: Nutrition-coach carve-out for the generic scope list.
 ///
 /// Generic `pierre_system.md` lists "food/meal finders" as out-of-scope
@@ -903,6 +911,8 @@ pub const FR_SCOPE_REFUSAL: &str =
     "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness.";
 /// French canonical refusal for missing-capability requests.
 pub const FR_CAPABILITY_REFUSAL: &str = "Je ne peux pas faire ça avec les outils dont je dispose.";
+/// French statement of the language this turn is conducted in.
+pub const FR_TURN_LANGUAGE: &str = "## Langue de la réponse\n\nCette conversation se déroule en français. Rédige l'intégralité de ta réponse en français : chaque phrase, chaque titre, chaque élément de liste, y compris un refus, une excuse ou une demande de précision.\n\nLe contexte, les résultats d'outils et les données qui te sont fournis sont rédigés en anglais. Traduis-les : ne recopie jamais une phrase anglaise telle quelle. Les noms propres (Strava, WHOOP, Garmin) et les unités restent inchangés.\n\nNe change pas de langue en cours de réponse, et n'en change pas parce que le dernier message est court ou contient des mots anglais (« Yes », « ok », « ride »). C'est cette instruction qui fixe la langue, pas la longueur du message.";
 /// French Nutrition-coach carve-out for the generic scope list.
 pub const FR_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Précision pour ton rôle de coach nutrition\n\nEn tant que coach nutrition, les questions sur les repas, dîners, petits-déjeuners, collations, choix alimentaires et la planification des repas liée à l'entraînement SONT entièrement dans ton domaine. Réponds directement à ces questions en t'appuyant sur les données d'entraînement de l'utilisateur (intensité, durée, dépense énergétique). La règle « recherche de nourriture hors périmètre » qui apparaît plus haut vise uniquement la recherche de restaurants, d'applications de livraison ou de menus en ligne — pas les conseils nutritionnels basés sur les preuves et sur les données d'entraînement. Ne refuse jamais « que manger après ma sortie », « idées de dîner après mon entraînement », « collation post-séance » ou équivalents.";
 /// French Recipes-coach carve-out for the generic scope list.
@@ -1237,6 +1247,8 @@ pub const EN_SCOPE_REFUSAL: &str =
     "That's outside what I can help with — I'm your fitness assistant.";
 /// English canonical refusal for missing-capability requests.
 pub const EN_CAPABILITY_REFUSAL: &str = "I can't do that with the tools I have.";
+/// English statement of the language this turn is conducted in.
+pub const EN_TURN_LANGUAGE: &str = "## Reply language\n\nThis conversation is conducted in English. Write your entire reply in English: every sentence, every heading, every list item, including a refusal, an apology or a request for clarification.\n\nDo not switch language mid-reply, and do not switch because the last message is short or carries words from another language. This instruction sets the language, not the length of the message.";
 /// English Nutrition-coach carve-out for the generic scope list.
 pub const EN_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Clarification for your nutrition-coach role\n\nAs a nutrition coach, questions about meals, dinner, breakfast, snacks, food choices, and training-linked meal planning are fully within your scope. Answer these directly, grounded in the user's training data (intensity, duration, energy expenditure). The \"food/meal finders out-of-scope\" rule above targets restaurant search, delivery apps, and online menu lookups only — it does not cover evidence-based nutrition advice or meal planning built on the user's training. Never refuse \"what should I eat after my run\", \"dinner ideas after my workout\", \"post-workout snack\" or equivalent.";
 /// English Recipes-coach carve-out for the generic scope list.
@@ -1553,6 +1565,8 @@ pub(crate) const ES_SCOPE_REFUSAL: &str =
     "Eso está fuera de lo que puedo hacer — soy tu asistente de fitness.";
 /// Spanish canonical refusal for missing-capability requests.
 pub(crate) const ES_CAPABILITY_REFUSAL: &str = "No puedo hacerlo con las herramientas que tengo.";
+/// Spanish statement of the language this turn is conducted in.
+pub(crate) const ES_TURN_LANGUAGE: &str = "## Idioma de la respuesta\n\nEsta conversación se desarrolla en español. Escribe toda tu respuesta en español: cada frase, cada título y cada elemento de lista, incluidos un rechazo, una disculpa o una petición de aclaración.\n\nEl contexto, los resultados de las herramientas y los datos que recibes están en inglés. Tradúcelos: nunca copies una frase en inglés tal cual. Los nombres propios (Strava, WHOOP, Garmin) y las unidades no cambian.\n\nNo cambies de idioma a mitad de la respuesta, ni lo cambies porque el último mensaje sea corto o contenga palabras en inglés («Yes», «ok», «ride»). Es esta instrucción la que fija el idioma, no la longitud del mensaje.";
 /// Spanish Nutrition-coach carve-out for the generic scope list.
 pub(crate) const ES_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Aclaración para tu rol de coach de nutrición\n\nComo coach de nutrición, las preguntas sobre comidas, cenas, desayunos, snacks, elecciones alimentarias y planificación de comidas vinculadas al entrenamiento están plenamente dentro de tu ámbito. Responde directamente, apoyándote en los datos de entrenamiento del usuario (intensidad, duración, gasto energético). La regla «búsquedas de comida fuera de alcance» de más arriba apunta solo a la búsqueda de restaurantes, apps de entrega y menús en línea — no cubre los consejos nutricionales basados en evidencia ni la planificación de comidas fundada en los datos de entrenamiento. Nunca rechaces «qué comer después de correr», «ideas para la cena tras entrenar», «snack post-entrenamiento» o equivalentes.";
 /// Spanish Recipes-coach carve-out for the generic scope list.
@@ -1863,6 +1877,8 @@ pub(crate) const DE_SCOPE_REFUSAL: &str =
     "Das liegt außerhalb meines Bereichs — ich bin dein Fitness-Assistent.";
 /// German canonical refusal for missing-capability requests.
 pub(crate) const DE_CAPABILITY_REFUSAL: &str = "Das kann ich mit meinen Werkzeugen nicht tun.";
+/// German statement of the language this turn is conducted in.
+pub(crate) const DE_TURN_LANGUAGE: &str = "## Sprache der Antwort\n\nDieses Gespräch wird auf Deutsch geführt. Schreibe deine gesamte Antwort auf Deutsch: jeden Satz, jede Überschrift und jeden Listenpunkt, auch eine Absage, eine Entschuldigung oder eine Rückfrage.\n\nDer Kontext, die Werkzeugergebnisse und die Daten, die du erhältst, sind auf Englisch. Übersetze sie: Übernimm niemals einen englischen Satz unverändert. Eigennamen (Strava, WHOOP, Garmin) und Einheiten bleiben unverändert.\n\nWechsle die Sprache nicht mitten in der Antwort, und wechsle sie nicht, weil die letzte Nachricht kurz ist oder englische Wörter enthält (\"Yes\", \"ok\", \"ride\"). Diese Anweisung legt die Sprache fest, nicht die Länge der Nachricht.";
 /// German Nutrition-coach carve-out for the generic scope list.
 pub(crate) const DE_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Klarstellung für deine Rolle als Ernährungscoach\n\nAls Ernährungscoach liegen Fragen zu Mahlzeiten, Abendessen, Frühstück, Snacks, Lebensmittelentscheidungen und trainingsbezogener Mahlzeitenplanung vollständig in deinem Bereich. Beantworte sie direkt, gestützt auf die Trainingsdaten der Nutzerin oder des Nutzers (Intensität, Dauer, Energieverbrauch). Die Regel oben zu „Essens-/Mahlzeitensuche außerhalb des Bereichs\" zielt ausschließlich auf Restaurantsuche, Lieferdienst-Apps und Online-Speisekarten — nicht auf evidenzbasierte Ernährungsberatung oder Mahlzeitenplanung, die sich auf Trainingsdaten stützt. Weise „Was soll ich nach meinem Lauf essen\", „Abendessen-Ideen nach dem Training\", „Snack nach der Einheit\" oder Ähnliches niemals zurück.";
 /// German Recipes-coach carve-out for the generic scope list.
@@ -2173,6 +2189,8 @@ pub(crate) const PT_SCOPE_REFUSAL: &str =
 /// Portuguese canonical refusal for missing-capability requests.
 pub(crate) const PT_CAPABILITY_REFUSAL: &str =
     "Não consigo fazer isso com as ferramentas que tenho.";
+/// Portuguese statement of the language this turn is conducted in.
+pub(crate) const PT_TURN_LANGUAGE: &str = "## Idioma da resposta\n\nEsta conversa decorre em português. Escreve toda a tua resposta em português: cada frase, cada título e cada item de lista, incluindo uma recusa, um pedido de desculpa ou um pedido de esclarecimento.\n\nO contexto, os resultados das ferramentas e os dados que recebes estão em inglês. Traduz-os: nunca copies uma frase em inglês tal como está. Os nomes próprios (Strava, WHOOP, Garmin) e as unidades não mudam.\n\nNão mudes de idioma a meio da resposta, nem mudes porque a última mensagem é curta ou contém palavras em inglês («Yes», «ok», «ride»). É esta instrução que fixa o idioma, não o comprimento da mensagem.";
 /// Portuguese Nutrition-coach carve-out for the generic scope list.
 pub(crate) const PT_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Esclarecimento para o teu papel de coach de nutrição\n\nComo coach de nutrição, as perguntas sobre refeições, jantares, pequenos-almoços, lanches, escolhas alimentares e planeamento de refeições ligado ao treino estão plenamente no teu domínio. Responde diretamente, apoiando-te nos dados de treino do utilizador (intensidade, duração, gasto energético). A regra «procura de comida fora do âmbito» acima visa apenas procura de restaurantes, apps de entrega e menus online — não cobre conselhos nutricionais baseados em evidência nem planeamento de refeições fundado nos dados de treino. Nunca recuses «o que comer depois da corrida», «ideias para o jantar após treinar», «lanche pós-treino» ou equivalente.";
 /// Portuguese Recipes-coach carve-out for the generic scope list.
@@ -2486,6 +2504,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_VERIFICATION_BLOCK_FALLBACK, "fr", FR_VERIFICATION_BLOCK_FALLBACK),
     (KEY_SCOPE_REFUSAL, "fr", FR_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "fr", FR_CAPABILITY_REFUSAL),
+    (KEY_TURN_LANGUAGE, "fr", FR_TURN_LANGUAGE),
     (
         KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
         "fr",
@@ -2712,6 +2731,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COMMITMENT_PUSH_TITLE, "en", EN_COMMITMENT_PUSH_TITLE),
     (KEY_SCOPE_REFUSAL, "en", EN_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "en", EN_CAPABILITY_REFUSAL),
+    (KEY_TURN_LANGUAGE, "en", EN_TURN_LANGUAGE),
     (
         KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
         "en",
@@ -2953,6 +2973,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COMMITMENT_PUSH_TITLE, "es", ES_COMMITMENT_PUSH_TITLE),
     (KEY_SCOPE_REFUSAL, "es", ES_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "es", ES_CAPABILITY_REFUSAL),
+    (KEY_TURN_LANGUAGE, "es", ES_TURN_LANGUAGE),
     (
         KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
         "es",
@@ -3194,6 +3215,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COMMITMENT_PUSH_TITLE, "de", DE_COMMITMENT_PUSH_TITLE),
     (KEY_SCOPE_REFUSAL, "de", DE_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "de", DE_CAPABILITY_REFUSAL),
+    (KEY_TURN_LANGUAGE, "de", DE_TURN_LANGUAGE),
     (
         KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
         "de",
@@ -3435,6 +3457,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COMMITMENT_PUSH_TITLE, "pt", PT_COMMITMENT_PUSH_TITLE),
     (KEY_SCOPE_REFUSAL, "pt", PT_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "pt", PT_CAPABILITY_REFUSAL),
+    (KEY_TURN_LANGUAGE, "pt", PT_TURN_LANGUAGE),
     (
         KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
         "pt",

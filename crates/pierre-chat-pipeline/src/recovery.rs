@@ -235,6 +235,7 @@ pub async fn run_recovery_and_post_process(
             llm_messages,
             active_model,
             peer_roster,
+            locale: &profile.locale,
         },
         input,
         result,
