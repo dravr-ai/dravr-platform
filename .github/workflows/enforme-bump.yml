@@ -356,13 +356,19 @@ jobs:
           # 118571ed3), so the HTTP probe below needs a Google-signed identity
           # token — an anonymous request is refused with 403 before any identity
           # is considered. The audience mirrors terraform's local.sciotte_audience
-          # ("dravr-sciotte-${environment}"), the stable literal the service
+          # ("dravr-sciotte-${var.environment}"), the stable literal the service
           # declares in custom_audiences; the generated URL is not known this
           # early in the job. include_email is required, not cosmetic: Cloud Run
           # matches the token's email claim against the invoker policy, and a
           # token minted without it is rejected exactly like an anonymous one.
+          #
+          # The suffix is "development", not "dev": the tfvars directory is named
+          # environments/dev/ but the `environment` variable inside it is
+          # "development". Guessing "dev" from the path yields a token Cloud Run
+          # rejects with 401 — a valid token for an audience the service does not
+          # accept, which looks nothing like the 403 an unauthenticated call gets.
           token_format: id_token
-          id_token_audience: dravr-sciotte-dev
+          id_token_audience: dravr-sciotte-development
           id_token_include_email: true
 
       - uses: google-github-actions/setup-gcloud@v3
@@ -471,7 +477,7 @@ jobs:
           CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' -m 30 --retry 3 --retry-delay 5 \
               -H "Authorization: Bearer ${ID_TOKEN}" "${URL}/health")
           if [ "${CODE}" != "200" ]; then
-              echo "::error::GET ${URL}/health returned HTTP ${CODE} (403 = identity token rejected, not a sick container)"
+              echo "::error::GET ${URL}/health returned HTTP ${CODE} — 401 means the identity token was rejected (usually a custom_audiences mismatch), 403 means no run.invoker; neither is a sick container"
               head -c 500 /tmp/health.json || true
               exit 1
           fi
