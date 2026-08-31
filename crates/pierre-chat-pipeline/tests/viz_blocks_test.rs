@@ -515,3 +515,72 @@ fn a_bound_coach_governs_its_own_grant() {
     let chart_reply = format!("Voici.\n\n{}", fenced(CHART));
     assert_all_refused_with(&grant, &tools_called(), &chart_reply);
 }
+
+/// The 2026-08-31 live-incident finding, as a fixture: an athlete asked for a
+/// comparison chart, the model encoded it as one series per athlete with a
+/// single point each, and the block was refused. The athlete got prose and no
+/// indication anything had been withheld.
+///
+/// `points` carries `minItems: 2`, so a one-point series cannot validate. The
+/// whole-schema error for this says only that the block "is not valid under any
+/// of the schemas listed in the 'oneOf' keyword", which is why the cause went
+/// unread for weeks — it names no field. The refusal must name the field.
+#[test]
+fn a_one_point_series_is_refused_and_says_which_field() {
+    let reply = format!(
+        "Voici en distance cette semaine :\n\n```dravr-viz\n{}\n```\n",
+        r#"{"type":"chart","kind":"bar","source_tool":"get_activities","x":{"label":"Athlete","type":"category"},"series":[{"label":"Toi","points":[["Toi",472.0]]},{"label":"Philippe","points":[["Philippe",29.1]]}]}"#
+    );
+
+    let extraction = extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply)
+        .expect("a reply containing a fence yields an extraction");
+
+    assert!(
+        extraction.blocks.is_empty(),
+        "a one-point series must not reach the athlete as a chart"
+    );
+    assert_eq!(
+        extraction.refusals.len(),
+        1,
+        "the single refused fence must be reported once"
+    );
+
+    let refusal = &extraction.refusals[0];
+    assert!(
+        refusal.contains("series/0/points"),
+        "the refusal must name the offending field, not just say the block was invalid: {refusal}"
+    );
+    assert!(
+        refusal.contains("less than 2 items"),
+        "the refusal must carry the schema's own reason: {refusal}"
+    );
+    assert!(
+        refusal.contains("series/1/points"),
+        "every offending series must be named, not just the first: {refusal}"
+    );
+    assert!(
+        !refusal.contains("oneOf"),
+        "the opaque whole-schema oneOf message is what made this undiagnosable: {refusal}"
+    );
+}
+
+/// The same numbers encoded the way the schema expects — one series whose points
+/// are the categories — must be accepted. Without this the test above would pass
+/// against a stage that refuses every chart.
+#[test]
+fn the_same_comparison_as_one_series_is_accepted() {
+    let reply = format!(
+        "Voici :\n\n```dravr-viz\n{}\n```\n",
+        r#"{"type":"chart","kind":"bar","source_tool":"get_activities","x":{"label":"Athlete","type":"category"},"series":[{"label":"Distance","points":[["Toi",472.0],["Philippe",29.1]]}]}"#
+    );
+
+    let extraction = extract_viz_blocks(&schemas(), &granted(), &tools_called(), &reply)
+        .expect("a reply containing a fence yields an extraction");
+
+    assert_eq!(extraction.blocks.len(), 1, "a two-point series is valid");
+    assert!(
+        extraction.refusals.is_empty(),
+        "nothing should be refused: {:?}",
+        extraction.refusals
+    );
+}

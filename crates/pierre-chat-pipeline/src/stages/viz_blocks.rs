@@ -31,6 +31,8 @@
 //! is not.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use serde_json::Value;
 use tracing::warn;
@@ -113,6 +115,15 @@ pub struct VizExtraction {
     pub text: String,
     /// Validated blocks in the order they appeared.
     pub blocks: Vec<Value>,
+    /// Why each refused fence was refused, in the order they appeared.
+    ///
+    /// A refusal used to exist only as a WARN line, which meant the reason was
+    /// unavailable to anything that could act on it: the athlete asked for a
+    /// chart, the block was dropped, and the prose shipped alone with nothing
+    /// able to say what went wrong. Carrying the reasons out lets a caller
+    /// re-ask the model with the actual fault — and lets a test assert the
+    /// fault text rather than merely that extraction failed.
+    pub refusals: Vec<String>,
 }
 
 /// Lift every valid `dravr-viz` block out of `reply`.
@@ -148,32 +159,33 @@ pub fn extract_viz_blocks(
 
     let mut text = String::with_capacity(reply.len());
     let mut blocks: Vec<Value> = Vec::new();
-    let mut dropped = 0_usize;
+    let mut refusals: Vec<String> = Vec::new();
     let mut rest = reply;
 
     while let Some(fence) = next_fence(rest) {
         text.push_str(&rest[..fence.start]);
         match parse_block(schemas, granted, tools_called, fence.body) {
-            Some(block) => {
+            Ok(block) => {
                 text.push_str(&marker(blocks.len()));
                 blocks.push(block);
             }
-            // Refused: drop the fence entirely. `parse_block` has already
-            // logged which rule it broke, so the failure stays legible to us
-            // without being spelled out to the athlete in JSON.
-            None => dropped += 1,
+            // Refused: drop the fence entirely. `parse_block` has already logged
+            // which rule it broke, so the failure stays legible to us without
+            // being spelled out to the athlete in JSON — and the reason travels
+            // out in `refusals` so a caller can act on it.
+            Err(reason) => refusals.push(reason),
         }
         rest = &rest[fence.end..];
     }
 
-    if blocks.is_empty() && dropped == 0 {
+    if blocks.is_empty() && refusals.is_empty() {
         return None;
     }
     text.push_str(rest);
 
-    if dropped > 0 {
+    if !refusals.is_empty() {
         warn!(
-            dropped,
+            dropped = refusals.len(),
             kept = blocks.len(),
             "viz-blocks: refused block(s) removed from the reply; the prose stands alone"
         );
@@ -182,6 +194,7 @@ pub fn extract_viz_blocks(
     Some(VizExtraction {
         text: text.trim().to_owned(),
         blocks,
+        refusals,
     })
 }
 
@@ -263,23 +276,27 @@ fn parse_block(
     granted: &[String],
     tools_called: &[String],
     body: &str,
-) -> Option<Value> {
+) -> Result<Value, String> {
     let mut block: Value = match serde_json::from_str(body.trim()) {
         Ok(value) => value,
         Err(e) => {
             warn!(error = %e, "viz-blocks: fence body is not valid JSON; leaving it in the reply");
-            return None;
+            return Err(format!("the block is not valid JSON: {e}"));
         }
     };
 
     drop_unknown_accents(&mut block);
 
-    if !schema_valid(schemas, &block) {
-        return None;
-    }
+    schema_check(schemas, &block)?;
 
     if !kind_granted(&block, granted) {
-        return None;
+        return Err(format!(
+            "this conversation may not draw a {} block",
+            block
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("block of that kind")
+        ));
     }
 
     // Attribution. The schema can require `source_tool` to be present; only
@@ -291,17 +308,25 @@ fn parse_block(
     // An empty `tools_called` rejects every block, which is the correct
     // outcome: no tool ran, so there is no data any visual could be built from.
     if !source_tool_ran(&block, tools_called) {
-        return None;
+        return Err(format!(
+            "source_tool \"{}\" did not run in this turn, so its numbers are unattributable",
+            block
+                .get("source_tool")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+        ));
     }
 
     // JSON Schema cannot express "every row has as many cells as there are
     // columns", so the one relational invariant is checked here.
     if !table_rows_match_columns(&block) {
         warn!("viz-blocks: table row arity does not match its columns; leaving it in the reply");
-        return None;
+        return Err(
+            "every row must have exactly as many cells as the table has columns".to_owned(),
+        );
     }
 
-    Some(block)
+    Ok(block)
 }
 
 /// The series accents the dravr-viz schema accepts — mirrors the schema's
@@ -364,21 +389,98 @@ fn kind_granted(block: &Value, granted: &[String]) -> bool {
 /// Logs the first violation on failure; a schema that failed to compile is
 /// treated as invalid, which conservatively refuses every block rather than
 /// rendering unvalidated ones.
-fn schema_valid(schemas: &SchemaTexts, block: &Value) -> bool {
+fn schema_check(schemas: &SchemaTexts, block: &Value) -> Result<(), String> {
     let Some(validator) = validator_for(schemas, DRAVR_VIZ) else {
-        return false;
+        return Err("the dravr-viz schema is unavailable, so no block can be validated".to_owned());
     };
     if validator.is_valid(block) {
-        return true;
+        return Ok(());
     }
-    if let Some(error) = validator.iter_errors(block).next() {
-        warn!(
-            error = %error,
-            path = %error.instance_path(),
-            "viz-blocks: block failed schema validation; leaving it in the reply"
-        );
+    let faults = schema_faults(schemas, block).join("; ");
+    warn!(
+        faults = %faults,
+        "viz-blocks: block failed schema validation; leaving it in the reply"
+    );
+    Err(faults)
+}
+
+/// Per-branch validators keyed by the `type` const of each `oneOf` arm.
+///
+/// The dravr-viz schema is a `oneOf` over Chart and Table, and a whole-schema
+/// failure reports only that the block "is not valid under any of the schemas
+/// listed in the 'oneOf' keyword" — true, unactionable, and identical for every
+/// possible mistake. Validating against the arm the block *claims* to be yields
+/// the real fault instead.
+static BRANCH_VALIDATORS: OnceLock<BTreeMap<String, jsonschema::Validator>> = OnceLock::new();
+
+/// Compile one validator per `oneOf` arm, keyed by that arm's `type` const.
+fn branch_validators(schemas: &SchemaTexts) -> &'static BTreeMap<String, jsonschema::Validator> {
+    BRANCH_VALIDATORS.get_or_init(|| {
+        let mut compiled = BTreeMap::new();
+        let Some(text) = schemas.get(DRAVR_VIZ) else {
+            return compiled;
+        };
+        let Ok(mut schema) = serde_json::from_str::<Value>(text) else {
+            return compiled;
+        };
+        // Same reason as structured_output::compile: leaving these in makes the
+        // validator reach for the draft meta-schema over the network.
+        if let Some(obj) = schema.as_object_mut() {
+            obj.remove("$schema");
+            obj.remove("$id");
+        }
+        let Some(arms) = schema.get("oneOf").and_then(Value::as_array) else {
+            return compiled;
+        };
+        for arm in arms {
+            let Some(kind) = arm
+                .pointer("/properties/type/const")
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            if let Ok(validator) = jsonschema::validator_for(arm) {
+                compiled.insert(kind.to_owned(), validator);
+            }
+        }
+        compiled
+    })
+}
+
+/// Human- and model-readable faults for a block that failed the whole schema.
+///
+/// Each entry is `path: message` against the arm named by the block's own
+/// `type`, so "series/0/points: [[\"Toi\", 472.0]] is too short" reaches the log
+/// and the repair prompt instead of the bare `oneOf` refusal. A block whose
+/// `type` matches no arm gets that stated plainly rather than a fault list from
+/// an arm it never claimed.
+fn schema_faults(schemas: &SchemaTexts, block: &Value) -> Vec<String> {
+    let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
+    let Some(validator) = branch_validators(schemas).get(kind) else {
+        return vec![format!(
+            "type: \"{kind}\" is not one of the block kinds this schema defines"
+        )];
+    };
+    let faults: Vec<String> = validator
+        .iter_errors(block)
+        .map(|e| {
+            let path = e.instance_path().to_string();
+            if path.is_empty() {
+                e.to_string()
+            } else {
+                format!("{}: {e}", path.trim_start_matches('/'))
+            }
+        })
+        .collect();
+    if faults.is_empty() {
+        // The arm accepts it but the whole schema did not: the block satisfies
+        // more than one arm, which `oneOf` forbids. Rare, and worth saying
+        // exactly rather than reporting no fault at all.
+        return vec![format!(
+            "matches the {kind} shape but is ambiguous under oneOf — it satisfies more than one block kind"
+        )];
     }
-    false
+    faults
 }
 
 /// `true` when the block's `source_tool` names a tool that actually ran.
