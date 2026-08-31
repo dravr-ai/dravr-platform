@@ -65,6 +65,19 @@ pub trait ScenarioDriver {
     /// wall-clock now. Called once per locale run, before turn 1, so a
     /// scenario's seeded dates and its "ce matin" share one clock.
     fn set_current_date(&mut self, current_date: Option<&str>);
+
+    /// Whether the driver may hand this turn its activity data unasked.
+    ///
+    /// The driver prefetches `get_activities` on turns whose wording implies
+    /// activity data, so a turn about the numbers is not graded on whether a
+    /// local 7b remembered to fetch them. A turn that asserts
+    /// [`AssertionSpec::ToolCalled`] is grading exactly that, and handing it
+    /// the data first leaves nothing to invoke — the assertion could not be
+    /// satisfied however well the coach behaved. The runner turns the prefetch
+    /// off for those turns so the call it demands is the coach's own.
+    ///
+    /// Defaults to a no-op: a driver without a prefetch has nothing to gate.
+    fn set_prefetch_allowed(&mut self, _allowed: bool) {}
 }
 
 /// Output of one [`ScenarioDriver::run_turn`].
@@ -261,6 +274,11 @@ fn run_one_locale<D: ScenarioDriver>(
         if turn.trigger_sync_before_turn {
             driver.trigger_sync();
         }
+        let grades_the_tool_call = turn
+            .assertions
+            .iter()
+            .any(|a| matches!(a, AssertionSpec::ToolCalled { .. }));
+        driver.set_prefetch_allowed(!grades_the_tool_call);
         let output = driver.run_turn(&turn.user, locale);
 
         // A turn that never reached the model carries no reply to grade.
@@ -547,6 +565,10 @@ pub struct MockScenarioDriver {
     pub seeded: BTreeMap<String, Vec<ScenarioActivity>>,
     pub pending_sync: BTreeMap<String, Vec<ScenarioActivity>>,
     pub last_synced_activities: BTreeMap<String, Vec<ScenarioActivity>>,
+    /// What the runner told the driver about prefetching, one entry per turn.
+    /// Recorded so a test can prove a turn grading `ToolCalled` is not handed
+    /// its data first; the mock prefetches nothing itself.
+    pub prefetch_allowed_log: Vec<bool>,
     /// Anchor the runner handed down from the scenario. Recorded so a test
     /// can prove the wiring reaches the driver; the mock builds no prompt.
     pub current_date: Option<String>,
@@ -572,6 +594,7 @@ impl MockScenarioDriver {
             seeded: BTreeMap::new(),
             pending_sync: BTreeMap::new(),
             last_synced_activities: BTreeMap::new(),
+            prefetch_allowed_log: Vec::new(),
             current_date: None,
             canned_dispatch_errors: Vec::new(),
             canned_prefetched_tools: Vec::new(),
@@ -595,6 +618,10 @@ impl MockScenarioDriver {
 }
 
 impl ScenarioDriver for MockScenarioDriver {
+    fn set_prefetch_allowed(&mut self, allowed: bool) {
+        self.prefetch_allowed_log.push(allowed);
+    }
+
     fn set_current_date(&mut self, current_date: Option<&str>) {
         self.current_date = current_date.map(ToOwned::to_owned);
     }
@@ -833,6 +860,55 @@ mod tests {
     /// matter what the model did — grading the keyword list instead of the
     /// coach. The prefetch is reported, never graded.
     #[test]
+    /// A turn grading the tool call is not handed the data first.
+    ///
+    /// The driver prefetches on wording that implies activity data, and
+    /// `provider_capability_not_narrated_en` turn 2 ("You have that information
+    /// via the provider no?") matches on "provider". Once the prefetch stopped
+    /// counting as the model's call, that turn could not pass however well the
+    /// coach behaved: it was handed the data, so it had nothing to invoke. The
+    /// runner now switches the prefetch off for a turn that asserts
+    /// `ToolCalled`, so the call the assertion demands is the coach's own.
+    #[test]
+    fn a_turn_grading_the_tool_call_is_not_prefetched() {
+        let scenario = one_turn_scenario_with(vec![AssertionSpec::ToolCalled {
+            name: "get_activities".to_owned(),
+            min_calls: 1,
+        }]);
+        let mut driver = MockScenarioDriver::new(
+            vec!["Voici ta semaine : 50 km au total.".to_owned()],
+            vec![vec!["get_activities".to_owned()]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let _ = run_scenario(&scenario, &mut driver, &vocab);
+        assert_eq!(
+            driver.prefetch_allowed_log,
+            vec![false],
+            "the runner must switch the prefetch off for a ToolCalled turn"
+        );
+    }
+
+    /// A turn that grades anything else keeps the prefetch, so a question about
+    /// the numbers is not silently turned into a test of whether a local 7b
+    /// remembered to fetch them.
+    #[test]
+    fn a_turn_grading_content_keeps_its_prefetch() {
+        let scenario = one_turn_scenario_with(vec![AssertionSpec::AnyOf {
+            values: vec!["km".to_owned()],
+        }]);
+        let mut driver = MockScenarioDriver::new(
+            vec!["Voici ta semaine : 50 km au total.".to_owned()],
+            vec![vec![]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let _ = run_scenario(&scenario, &mut driver, &vocab);
+        assert_eq!(
+            driver.prefetch_allowed_log,
+            vec![true],
+            "only a ToolCalled turn loses its prefetch"
+        );
+    }
+
     fn driver_prefetch_does_not_satisfy_a_tool_called_assertion() {
         let scenario = one_turn_scenario_with(vec![AssertionSpec::ToolCalled {
             name: "get_activities".to_owned(),

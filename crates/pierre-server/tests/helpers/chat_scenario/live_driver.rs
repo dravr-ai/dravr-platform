@@ -114,6 +114,12 @@ const FRAGMENT_DENSITY_THRESHOLD: usize = 5;
 /// each instance carries its own conversation history so two scenarios
 /// can't bleed state into each other.
 pub struct LiveScenarioDriver {
+    /// Whether this turn may be handed its activity data unasked.
+    ///
+    /// The runner clears it for a turn that asserts `ToolCalled`: that turn is
+    /// grading whether the coach invokes the tool, and a prefetch would answer
+    /// the question before it was asked.
+    prefetch_allowed: bool,
     provider: OpenAiCompatibleProvider,
     /// Resolved tool catalog wrapped for the LLM's function-calling API.
     tools: Vec<Tool>,
@@ -182,6 +188,7 @@ impl LiveScenarioDriver {
             seeded: BTreeMap::new(),
             pending_sync: BTreeMap::new(),
             history: Vec::new(),
+            prefetch_allowed: true,
             current_date: None,
         })
     }
@@ -226,7 +233,7 @@ impl LiveScenarioDriver {
         // `tool_called` assertion unconditionally — grading the keyword list
         // instead of the coach. `tools_called` records only what the model
         // itself asked for.
-        if turn_needs_activity_prefetch(user_message) {
+        if self.prefetch_allowed && turn_needs_activity_prefetch(user_message) {
             let synthesized = FunctionCall {
                 name: "get_activities".to_owned(),
                 args: json!({}),
@@ -537,6 +544,10 @@ impl ScenarioDriver for LiveScenarioDriver {
 
     fn set_current_date(&mut self, current_date: Option<&str>) {
         self.current_date = current_date.map(ToOwned::to_owned);
+    }
+
+    fn set_prefetch_allowed(&mut self, allowed: bool) {
+        self.prefetch_allowed = allowed;
     }
 
     fn enqueue_post_sync_activities(&mut self, provider: &str, activities: &[ScenarioActivity]) {
