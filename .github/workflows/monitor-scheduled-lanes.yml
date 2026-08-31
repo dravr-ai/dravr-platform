@@ -1,0 +1,232 @@
+# ABOUTME: Daily red-detector for scheduled-only workflows — reads each lane's latest completed run
+# ABOUTME: Opens a private carnet issue when a lane is red or its cron has silently stopped firing
+#
+# A push lane's red gets read because someone just pushed and is waiting for
+# the verdict. A lane that runs only on `schedule` has no such reader: it goes
+# red on a Monday at 3 AM UTC with nobody attached to the outcome, nothing
+# re-runs it until the next cron, and it never appears in the run list anyone
+# checks after a push. cross-platform.yml sat red for seven days
+# (2026-08-24 → 08-31) and was found by accident (carnet#160). This monitor is
+# the reader those lanes lack.
+#
+# Two failure shapes are detected, because a conclusion-only read would lie:
+#   1. RED — the latest completed run of an active scheduled-only lane
+#      concluded something other than success/skipped/neutral. A `cancelled`
+#      conclusion counts: on this fleet it is more often a job timeout than a
+#      human preemption.
+#   2. STALE — an active lane's latest completed run is older than
+#      STALE_AFTER_DAYS. The fleet's slowest cadence is weekly, so at 8 days
+#      the cron has stopped firing (dropped by GitHub, or the workflow breaks
+#      before its first job) and every conclusion it will ever show is a
+#      false green. claude-health-probe.yml sat in exactly this state — last
+#      run 2026-05-14 — visible only by accident.
+#
+# Manually disabled workflows appear in the step summary but never alarm:
+# disabling in the UI is a deliberate operator act. The scan enumerates lanes
+# from the checked-out workflow files (`schedule` in `on:`, no `push`), so a
+# future cron lane is covered the day it lands — including this one, which
+# matches its own selector.
+
+name: "Monitor: Scheduled Lane Health"
+
+on:
+  schedule:
+    # Daily at 11:43 UTC (07:43 EDT) — off :00, the most contended cron slot.
+    # Late enough that the nightly and early-morning lanes above have their
+    # verdict in before the read.
+    - cron: '43 11 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: monitor-scheduled-lanes
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  STALE_AFTER_DAYS: 8
+
+jobs:
+  scan:
+    name: Read every scheduled-only lane's verdict
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Scan latest completed runs
+        id: scan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import glob
+          import json
+          import os
+          import subprocess
+
+          import yaml
+
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          STALE_AFTER = dt.timedelta(days=int(os.environ["STALE_AFTER_DAYS"]))
+          NOW = dt.datetime.now(dt.timezone.utc)
+          HEALTHY = {"success", "skipped", "neutral"}
+
+          def api(path):
+              out = subprocess.run(
+                  ["gh", "api", path], capture_output=True, text=True, check=True
+              )
+              return json.loads(out.stdout)
+
+          # Workflow state (active / disabled_manually / disabled_inactivity)
+          # lives in the API, not the file.
+          states = {}
+          page = 1
+          while True:
+              batch = api(f"repos/{REPO}/actions/workflows?per_page=100&page={page}")
+              if not batch["workflows"]:
+                  break
+              states.update({w["path"]: w["state"] for w in batch["workflows"]})
+              page += 1
+
+          files = sorted(
+              glob.glob(".github/workflows/*.yml")
+              + glob.glob(".github/workflows/*.yaml")
+          )
+          rows = []
+          reds = []
+          for f in files:
+              with open(f) as fh:
+                  doc = yaml.safe_load(fh)
+              # YAML 1.1 parses a bare `on` key as boolean True.
+              on = doc.get("on", doc.get(True))
+              if not isinstance(on, dict) or "schedule" not in on or "push" in on:
+                  continue
+              name = doc.get("name", f)
+              state = states.get(f, "unknown")
+              if state != "active":
+                  rows.append((name, f, f"({state})", "not alarmed"))
+                  continue
+              wf = os.path.basename(f)
+              runs = api(
+                  f"repos/{REPO}/actions/workflows/{wf}/runs"
+                  "?status=completed&per_page=1"
+              )["workflow_runs"]
+              if not runs:
+                  rows.append((name, f, "never completed a run", "not alarmed"))
+                  continue
+              run = runs[0]
+              started = dt.datetime.fromisoformat(
+                  run["run_started_at"].replace("Z", "+00:00")
+              )
+              conclusion = run["conclusion"]
+              verdicts = []
+              if conclusion not in HEALTHY:
+                  verdicts.append("red")
+              age = NOW - started
+              if age > STALE_AFTER:
+                  verdicts.append(f"stale ({age.days}d since last completed run)")
+              rows.append((name, f, conclusion, ", ".join(verdicts) or "ok"))
+              if verdicts:
+                  reds.append({
+                      "name": name,
+                      "file": wf,
+                      "conclusion": conclusion,
+                      "html_url": run["html_url"],
+                      "run_started_at": run["run_started_at"],
+                      "event": run["event"],
+                      "verdict": ", ".join(verdicts),
+                  })
+
+          summary = [
+              "## Scheduled-only lane health",
+              "",
+              "| workflow | latest completed | verdict |",
+              "| --- | --- | --- |",
+          ]
+          for name, f, conclusion, verdict in rows:
+              summary.append(f"| {name} (`{f}`) | {conclusion} | {verdict} |")
+          summary.append("")
+          text = "\n".join(summary) + "\n"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write(text)
+          print(text)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write("reds<<EOF\n" + json.dumps(reds) + "\nEOF\n")
+              fh.write(f"breach={'true' if reds else 'false'}\n")
+          PY
+
+      - name: Open or update carnet issues for unhealthy lanes
+        if: steps.scan.outputs.breach == 'true'
+        uses: actions/github-script@v9
+        env:
+          REDS: ${{ steps.scan.outputs.reds }}
+        with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          script: |
+            const owner = 'dravr-ai';
+            const repo = 'dravr-carnet';
+            const reds = JSON.parse(process.env.REDS);
+            const monitorUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            // Every page, not the first: listForRepo returns newest-first and a
+            // standing issue's created_at never advances, so a single page of
+            // 100 would stop seeing it once enough newer issues carry the label
+            // (same reasoning as billing-drivers-monitor.yml).
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: 'dravr-platform', per_page: 100,
+            });
+
+            for (const red of reds) {
+              const title = `[platform] scheduled lane unhealthy: ${red.name}`;
+              const body = [
+                `**${red.name}** (\`${red.file}\`) — verdict: **${red.verdict}**.`,
+                ``,
+                `| | |`,
+                `| --- | --- |`,
+                `| latest completed run | ${red.html_url} |`,
+                `| conclusion | \`${red.conclusion}\` |`,
+                `| started | ${red.run_started_at} |`,
+                `| trigger | \`${red.event}\` |`,
+                ``,
+                `This lane runs on \`schedule\` with no \`push\` trigger, so nothing re-runs`,
+                `it until its next cron and no post-push run list surfaces it (carnet#160).`,
+                `A \`cancelled\` conclusion may be a job timeout rather than a preemption; a`,
+                `stale verdict means the cron has stopped firing at all.`,
+                ``,
+                `Close this once the lane is healthy — the monitor opens a fresh issue if it`,
+                `regresses, and comments here only when a new unhealthy run appears.`,
+                ``,
+                `_[Monitor: Scheduled Lane Health](${monitorUrl})_`,
+              ].join('\n');
+
+              const open = existing.find((i) => i.title === title);
+              if (!open) {
+                const created = await github.rest.issues.create({
+                  owner, repo, title, body, labels: ['dravr-platform', 'bug'],
+                });
+                core.info(`Opened issue #${created.data.number} for ${red.file}`);
+                continue;
+              }
+
+              // The same unhealthy run re-read on a later day adds nothing; a
+              // NEW failing run is a fresh data point worth a comment.
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: open.number, per_page: 100,
+              });
+              const seen = [open.body ?? '', ...comments.map((c) => c.body ?? '')]
+                .some((t) => t.includes(red.html_url));
+              if (seen) {
+                core.info(`Issue #${open.number} already records ${red.html_url}`);
+              } else {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: open.number, body,
+                });
+                core.info(`Commented on issue #${open.number} with the new run`);
+              }
+            }
