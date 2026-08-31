@@ -1221,12 +1221,11 @@ impl ProviderToolRouter {
                 auth_service.clone(),
                 pierre_routes_admin::admin_auth_middleware,
             ));
-            let diagnostics_router = diagnostics_routes(
-                DiagnosticsContext {
-                    tool_registry: resources.mcp.tool_registry.clone(),
-                },
-                auth_service,
-            );
+            let diagnostics_ctx = DiagnosticsContext {
+                tool_registry: resources.mcp.tool_registry.clone(),
+                repos: resources.common.repos.clone(),
+            };
+            let diagnostics_router = diagnostics_routes(diagnostics_ctx, auth_service);
 
             let cookie_admin_routes =
                 AdminRoutes::cookie_admin_routes::<ServerContext>(admin_context.clone(), resources);

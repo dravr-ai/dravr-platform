@@ -30,6 +30,35 @@ pub struct BackfillCoverage {
     pub hit_feed_end: bool,
 }
 
+/// One live provider connection paired with the last time a fetch actually
+/// reached its provider.
+///
+/// The two timestamps are what make a frozen capture visible, and they move for
+/// different reasons. `last_used_at` is touched at the serve chokepoint on EVERY
+/// serve, including one the durable cache answered; `last_fetch_at` advances only
+/// when a live fetch genuinely succeeded. So a row whose `last_used_at` is recent
+/// while `last_fetch_at` is days behind is an athlete being served from cache by a
+/// provider that has stopped answering — the shape nobody could see when
+/// jf@dravr.ai's sciotte capture froze on 2026-08-28 and stayed frozen for days.
+#[derive(Debug, Clone)]
+pub struct CaptureFreshness {
+    /// Owning tenant, as stored on the connection row.
+    pub tenant_id: String,
+    /// Connection owner. Kept in the stored string form rather than parsed to
+    /// [`Uuid`]: a malformed identifier must be REPORTED, not silently dropped
+    /// by a failed parse, on the one surface whose whole purpose is to stop
+    /// losing things quietly.
+    pub user_id: String,
+    /// Provider slug the connection resolves to.
+    pub provider: String,
+    /// When this connection last served the athlete — live fetch or cache alike.
+    /// `None` for a connection that has never served.
+    pub last_used_at: Option<DateTime<Utc>>,
+    /// When a fetch last actually reached the provider. `None` when no
+    /// successful fetch has ever been recorded for this connection.
+    pub last_fetch_at: Option<DateTime<Utc>>,
+}
+
 /// Persistence for activities fetched from any provider, enabling
 /// stale-while-revalidate reads on the chat path.
 ///
@@ -157,4 +186,24 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
         provider: &str,
     ) -> AppResult<Option<BackfillCoverage>>;
+
+    /// Every ACTIVE provider connection with the last time a fetch reached its
+    /// provider, newest-served first, capped at `limit` rows.
+    ///
+    /// Cross-tenant, and deliberately so — the same exception
+    /// [`CommitmentRepository::due_commitments`](crate::repositories::CommitmentRepository::due_commitments)
+    /// takes. An operator asking "has any athlete's capture stopped" cannot ask
+    /// it one tenant at a time: the tenants worth asking about are exactly the
+    /// ones nobody thought to check. Each row carries its own `tenant_id`
+    /// forward so every consumer stays tenant-aware.
+    ///
+    /// Returns no verdict. Staleness is a threshold decision that belongs to the
+    /// caller, which is what lets an operator re-ask the same question with a
+    /// different threshold without a deploy.
+    ///
+    /// Connections needing re-auth are excluded: a revoked or expired connection
+    /// has a KNOWN reason to have stopped fetching, it already surfaces through
+    /// the reconnect path, and leaving it in would bury the silent failures this
+    /// exists to find under a pile of loud ones.
+    async fn capture_freshness_snapshot(&self, limit: i64) -> AppResult<Vec<CaptureFreshness>>;
 }

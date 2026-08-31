@@ -1,0 +1,204 @@
+# ABOUTME: Daily check that a live, actively-served provider connection is still reaching its provider
+# ABOUTME: Exists because jf@dravr.ai's capture froze for days while the coach kept answering from cache
+#
+# On 2026-08-28 02:59Z the sciotte capture for one athlete stopped. It was still
+# stopped on 08-30. Three real activities never landed, and nothing anywhere said
+# so: `get_activities` kept serving the durable cache, the coach kept grounding on
+# it, and the athlete got confident answers about a training log that had stopped
+# moving. It was found by hand (carnet#149).
+#
+# `176ab975c` removed the mask — a cache-served window no longer re-stamps its own
+# freshness — so `activity_fetch_freshness.fetched_at` now holds the honest time of
+# the last SUCCESSFUL live provider fetch. This is the reader that table never had.
+#
+# The signal is a divergence, not an age. `provider_connections.last_used_at` is
+# touched at the serve chokepoint on every serve, live or cache-degraded;
+# `fetched_at` advances only when a live fetch actually succeeded. So:
+#
+#   recently used  AND  long since fetched  =  we are serving this athlete from
+#                                              cache and the provider has stopped
+#                                              answering
+#
+# Requiring recent use is what keeps an athlete who simply has not opened the app
+# from alarming: nobody asked, so nothing should have fetched, and that is not a
+# fault. An unused connection is reported in the summary and never alarms.
+#
+# Read-only: one authenticated GET against the dev API.
+
+name: "Monitor: Capture Staleness (dev)"
+
+on:
+  schedule:
+    # Daily at 12:17 UTC (08:17 EDT) — off :00, the most contended cron slot,
+    # and after a full night during which any overnight session would have
+    # refreshed a healthy connection.
+    - cron: '17 12 * * *'
+  workflow_dispatch:
+    inputs:
+      stale_after_hours:
+        description: "Hours since the last successful provider fetch before a connection is stale"
+        required: false
+        default: "24"
+      active_within_hours:
+        description: "A connection must have served within this many hours to be judged at all"
+        required: false
+        default: "48"
+
+concurrency:
+  group: monitor-capture-staleness
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  capture-staleness:
+    name: Live connections are still reaching their provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Read the capture-staleness report
+        id: probe
+        env:
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          BASE_URL: ${{ secrets.CANARY_BASE_URL }}
+          STALE_AFTER_HOURS: ${{ github.event.inputs.stale_after_hours || '24' }}
+          ACTIVE_WITHIN_HOURS: ${{ github.event.inputs.active_within_hours || '48' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ADMIN_TOKEN}" ] || [ -z "${BASE_URL}" ]; then
+            echo "::warning::CANARY_ADMIN_TOKEN or CANARY_BASE_URL not set — skipping capture-staleness probe"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+          URL="${BASE_URL}/admin/diagnostics/capture-staleness"
+          URL="${URL}?stale_after_hours=${STALE_AFTER_HOURS}&active_within_hours=${ACTIVE_WITHIN_HOURS}"
+
+          # -f so a non-2xx is a failed step rather than a body parsed as a
+          # verdict: an auth failure must never read as "no stale connections".
+          curl -fsS \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Accept: application/json" \
+            "${URL}" > /tmp/staleness.json
+
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open("/tmp/staleness.json") as fh:
+              report = json.load(fh)
+
+          stale = report.get("stale", [])
+          summary = [
+              "## Capture staleness — dev",
+              "",
+              "| signal | value |",
+              "|---|---:|",
+              f"| live connections examined | {report.get('connections_examined', 0)} |",
+              f"| served within {report.get('active_within_hours')}h (judged) | {report.get('connections_judged', 0)} |",
+              f"| stale past {report.get('stale_after_hours')}h | {len(stale)} |",
+              "",
+          ]
+
+          # Provider and age only. This repo is PUBLIC and step summaries are
+          # world-readable, so the per-athlete rows (user ids) go to the private
+          # carnet issue and never here.
+          if stale:
+              by_provider = {}
+              for row in stale:
+                  by_provider[row["provider"]] = by_provider.get(row["provider"], 0) + 1
+              summary += ["### Stale by provider", "", "| provider | connections |", "|---|---:|"]
+              summary += [f"| {p} | {n} |" for p, n in sorted(by_provider.items())]
+              summary.append("")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(summary) + "\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write("stale<<EOF\n" + json.dumps(stale) + "\nEOF\n")
+              fh.write(f"breach={'true' if stale else 'false'}\n")
+
+          print("\n".join(summary))
+          PY
+
+      - name: Open or update the carnet issue
+        if: steps.probe.outputs.breach == 'true'
+        uses: actions/github-script@v9
+        env:
+          STALE: ${{ steps.probe.outputs.stale }}
+        with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          script: |
+            const owner = 'dravr-ai';
+            const repo = 'dravr-carnet';
+            const stale = JSON.parse(process.env.STALE);
+            const monitorUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const title = '[platform] provider capture has stopped reaching the provider';
+
+            const rows = stale.map((s) => {
+              const since = s.hours_since_fetch === null
+                ? 'never fetched'
+                : `${s.hours_since_fetch.toFixed(1)}h`;
+              const last = s.last_fetch_at ?? '—';
+              return `| \`${s.provider}\` | \`${s.user_id}\` | ${last} | ${since} | ${s.last_used_at} |`;
+            });
+
+            const body = [
+              `**${stale.length} live connection(s)** were served from cache while their provider`,
+              `has not answered a fetch inside the threshold.`,
+              ``,
+              `| provider | user | last successful fetch | since | last served |`,
+              `| --- | --- | --- | ---: | --- |`,
+              ...rows,
+              ``,
+              `\`last served\` is later than \`last successful fetch\` on every row above —`,
+              `that is the point. The athlete asked, the elected provider was touched, and the`,
+              `answer came out of the durable cache because the live fetch is no longer`,
+              `succeeding. Nothing in the reply says so (carnet#149).`,
+              ``,
+              `Check the provider service first — for \`sciotte\`, the`,
+              `\`dravr-mcp-server-sciotte\` Cloud Run service's most recent log line tells you`,
+              `whether the scraper is running at all.`,
+              ``,
+              `Close this once capture is healthy — the monitor reopens if it regresses, and`,
+              `comments here only when a new stale run appears.`,
+              ``,
+              `_[Monitor: Capture Staleness](${monitorUrl})_`,
+            ].join('\n');
+
+            // Every page, not the first: listForRepo returns newest-first and a
+            // standing issue's created_at never advances, so a single page of 100
+            // would stop seeing it once enough newer issues carry the label (same
+            // reasoning as monitor-scheduled-lanes.yml).
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: 'dravr-platform', per_page: 100,
+            });
+            const open = existing.find((i) => i.title === title);
+
+            if (!open) {
+              const created = await github.rest.issues.create({
+                owner, repo, title, body, labels: ['dravr-platform', 'bug', 'critical'],
+              });
+              core.info(`Opened issue #${created.data.number}`);
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: open.number, body,
+            });
+            core.info(`Commented on issue #${open.number}`);
+
+      # Deliberately a warning, not a failure. This lane runs only on `schedule`,
+      # so monitor-scheduled-lanes.yml reads its conclusion — and a red here would
+      # make that monitor file "scheduled lane unhealthy: Monitor: Capture
+      # Staleness", claiming the monitor is broken at the exact moment it is doing
+      # its job. Keeping the run green preserves the distinction the two monitors
+      # exist to draw: a red run means THIS LANE failed, the carnet issue means
+      # CAPTURE failed.
+      - name: Record the breach without reding the lane
+        if: steps.probe.outputs.breach == 'true'
+        run: |
+          echo "::warning::A live provider connection is being served from cache while its provider has stopped answering — carnet issue filed."

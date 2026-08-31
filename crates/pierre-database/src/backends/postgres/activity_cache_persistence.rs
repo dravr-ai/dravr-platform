@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::PostgresDatabase;
-use crate::repositories::{ActivityCacheRepository, BackfillCoverage};
+use crate::repositories::{ActivityCacheRepository, BackfillCoverage, CaptureFreshness};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -370,5 +370,63 @@ impl ActivityCacheRepository for PostgresDatabase {
             oldest_reached_ts: r.get("oldest_reached_ts"),
             hit_feed_end: r.get("hit_feed_end"),
         }))
+    }
+
+    async fn capture_freshness_snapshot(&self, limit: i64) -> AppResult<Vec<CaptureFreshness>> {
+        // The join legs straddle a type split: `provider_connections` types
+        // tenant_id/user_id as TEXT, `activity_fetch_freshness` types them as
+        // UUID (deliberately, to match users.id — see that migration's comment).
+        //
+        // The cast direction is load-bearing. Casting the TEXT side UP
+        // (`pc.user_id::uuid`) throws `invalid input syntax for type uuid` on the
+        // first non-UUID-shaped value and takes the whole report down; casting the
+        // UUID side DOWN to text can never fail, because every UUID renders. So a
+        // tenant whose id is not UUID-shaped simply matches nothing and is
+        // reported as never-fetched — which is the truth for it, since the UUID
+        // column could not have held a row for it either.
+        //
+        // LEFT JOIN, not INNER: a connection with no freshness row at all has
+        // never had a successful fetch recorded, which is the most alarming state
+        // this can report and the one an INNER JOIN would delete.
+        let rows = sqlx::query(
+            r"
+            SELECT pc.tenant_id, pc.user_id, pc.provider,
+                   pc.last_used_at, f.fetched_at
+            FROM provider_connections pc
+            LEFT JOIN activity_fetch_freshness f
+                   ON f.user_id::text   = pc.user_id
+                  AND f.tenant_id::text = pc.tenant_id
+                  AND f.provider        = pc.provider
+            WHERE pc.status = 'active'
+            ORDER BY pc.last_used_at DESC NULLS LAST
+            LIMIT $1
+            ",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read capture freshness: {e}")))?;
+
+        rows.into_iter()
+            .map(|r| {
+                Ok(CaptureFreshness {
+                    tenant_id: r
+                        .try_get("tenant_id")
+                        .map_err(|e| AppError::database(format!("capture col tenant_id: {e}")))?,
+                    user_id: r
+                        .try_get("user_id")
+                        .map_err(|e| AppError::database(format!("capture col user_id: {e}")))?,
+                    provider: r
+                        .try_get("provider")
+                        .map_err(|e| AppError::database(format!("capture col provider: {e}")))?,
+                    last_used_at: r.try_get("last_used_at").map_err(|e| {
+                        AppError::database(format!("capture col last_used_at: {e}"))
+                    })?,
+                    last_fetch_at: r
+                        .try_get("fetched_at")
+                        .map_err(|e| AppError::database(format!("capture col fetched_at: {e}")))?,
+                })
+            })
+            .collect()
     }
 }

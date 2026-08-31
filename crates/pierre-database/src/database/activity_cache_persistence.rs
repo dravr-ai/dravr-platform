@@ -5,11 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::database::Database;
-use crate::repositories::{ActivityCacheRepository, BackfillCoverage};
+use crate::repositories::{ActivityCacheRepository, BackfillCoverage, CaptureFreshness};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
+use sqlx::sqlite::SqliteRow;
 use sqlx::{Pool, Row, Sqlite};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -397,4 +398,69 @@ impl ActivityCacheRepository for Database {
             }
         }))
     }
+
+    async fn capture_freshness_snapshot(&self, limit: i64) -> AppResult<Vec<CaptureFreshness>> {
+        // Every identifier column is TEXT on SQLite — connections and freshness
+        // marks alike — so the join needs no cast here. The Postgres twin does,
+        // because `activity_fetch_freshness` types them as UUID.
+        //
+        // LEFT JOIN, not INNER: a connection with no freshness row at all has
+        // never had a successful fetch recorded, which is the most alarming
+        // state this can report and the one an INNER JOIN would delete.
+        let rows = sqlx::query(
+            r"
+            SELECT pc.tenant_id, pc.user_id, pc.provider,
+                   pc.last_used_at, f.fetched_at
+            FROM provider_connections pc
+            LEFT JOIN activity_fetch_freshness f
+                   ON f.user_id  = pc.user_id
+                  AND f.tenant_id = pc.tenant_id
+                  AND f.provider  = pc.provider
+            WHERE pc.status = 'active'
+            ORDER BY pc.last_used_at DESC
+            LIMIT ?
+            ",
+        )
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to read capture freshness: {e}")))?;
+
+        rows.into_iter()
+            .map(|r| {
+                Ok(CaptureFreshness {
+                    tenant_id: r
+                        .try_get("tenant_id")
+                        .map_err(|e| AppError::database(format!("capture col tenant_id: {e}")))?,
+                    user_id: r
+                        .try_get("user_id")
+                        .map_err(|e| AppError::database(format!("capture col user_id: {e}")))?,
+                    provider: r
+                        .try_get("provider")
+                        .map_err(|e| AppError::database(format!("capture col provider: {e}")))?,
+                    last_used_at: parse_optional_rfc3339(&r, "last_used_at")?,
+                    last_fetch_at: parse_optional_rfc3339(&r, "fetched_at")?,
+                })
+            })
+            .collect()
+    }
+}
+
+/// Read a nullable RFC3339 TEXT column into an optional timestamp.
+///
+/// Decodes `Option<String>` rather than `try_get::<String, _>(..).ok()`: a NULL
+/// TEXT column decodes into an empty string on this backend, so the `.ok()`
+/// shorthand yields `Some("")` and turns "never happened" into an unparseable
+/// timestamp. An empty value is folded back to `None` for the same reason.
+fn parse_optional_rfc3339(row: &SqliteRow, column: &str) -> AppResult<Option<DateTime<Utc>>> {
+    let raw: Option<String> = row
+        .try_get(column)
+        .map_err(|e| AppError::database(format!("capture col {column}: {e}")))?;
+    raw.filter(|s| !s.is_empty())
+        .map(|s| {
+            DateTime::parse_from_rfc3339(&s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .map_err(|e| AppError::database(format!("Invalid {column} timestamp: {e}")))
+        })
+        .transpose()
 }
