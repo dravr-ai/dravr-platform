@@ -31,10 +31,12 @@ mod linking;
 pub mod locale;
 /// In-chat OTP linking flow + logout + supporting helpers.
 mod otp;
+mod outbound_persist;
 /// Shared failed-outbound enqueue helper — single source of truth for the retry
 /// queue, reused by the synchronous reply path and the backfill-completion push.
 pub mod outbound_retry;
-mod outbound_send;
+/// The config-loading, body-splitting egress seam every non-pipeline reply leaves through.
+pub mod outbound_send;
 /// Inbound emoji reactions mapped onto the shared per-message feedback write.
 pub mod reactions;
 /// What a shared room is left seeing once a slash command is answered privately.
@@ -45,7 +47,7 @@ mod session;
 /// auth and locale in, an addressed `OutgoingMessage` out.
 #[cfg(feature = "client-messaging")]
 mod slash;
-use outbound_send::{send_channel_response, send_private_channel_response};
+use outbound_send::{send_channel_response, send_private_channel_response, OutboundPersistSpec};
 /// Ambient room-chatter capture into the shared group transcript read model.
 mod transcript;
 
@@ -319,6 +321,10 @@ struct SlashDispatchInputs<'a> {
     channel: &'a str,
     channel_type: ChannelType,
     tenant_id: TenantId,
+    /// The tenant that owns this turn's session/conversation (user tenant for
+    /// a DM, channel tenant for a shared room) — what the ledger rows file
+    /// under, matching `resolve_linked_session`.
+    session_tenant_id: TenantId,
     adapter: &'a Arc<dyn MessagingChannel>,
     message: &'a IncomingMessage,
     auth_result: &'a AuthResult,
@@ -340,6 +346,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         channel,
         channel_type,
         tenant_id,
+        session_tenant_id,
         adapter,
         message,
         auth_result,
@@ -369,11 +376,30 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         return false;
     };
 
+    // The command turn is real conversation on the wire, so it lands in the
+    // delivery ledger like any other turn (carnet#158): the athlete's `/…`
+    // line as an inbound row, each reply part as an outbound row. Best-effort
+    // — the reply is delivered even when the write fails, and the insert is
+    // idempotent on (tenant_id, channel_message_id) so a webhook redelivery
+    // leaves one row.
+    let _ = store_inbound_message(db, session_tenant_id, session, channel, message).await;
+    // The reply answers the inbound turn; sharing its id gives both ledger
+    // directions one correlation_id.
+    reply.message.turn_id = message.turn_id;
+    let ledger_spec = |chat_message_id: Option<String>| OutboundPersistSpec {
+        db: Arc::clone(&resources.common.repos.messaging),
+        session_tenant_id,
+        session_id: session.session_id.clone(),
+        chat_message_id,
+    };
+
     if slash_reply_should_be_private(message.is_direct_message, reply.command_name.as_deref()) {
         // Shared room (any channel): deliver the answer privately to the caller
         // and remove the command echo so other members see neither. Both are
         // best-effort and channel-specific inside canot (DM / Slack ephemeral /
-        // Discord DM; echo delete only where the platform allows).
+        // Discord DM; echo delete only where the platform allows). A private
+        // reply is never chat-persisted, so its ledger row carries no
+        // assistant id — the send is recorded, there is nothing to rate.
         send_private_channel_response(
             db,
             tenant_id,
@@ -381,10 +407,11 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
             adapter,
             reply.message,
             &message.sender_id,
+            Some(ledger_spec(None)),
         )
         .await;
         if let Some(room_id) = message.conversation_id.as_deref() {
-            if let Some(notice) = room_echo::settle_room_echo(room_echo::RoomEchoSettlement {
+            if let Some(mut notice) = room_echo::settle_room_echo(room_echo::RoomEchoSettlement {
                 resources,
                 db,
                 tenant_id,
@@ -398,7 +425,17 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
             })
             .await
             {
-                send_channel_response(db, tenant_id, channel, adapter, notice).await;
+                // Platform furniture in the same turn: recorded, not ratable.
+                notice.turn_id = message.turn_id;
+                send_channel_response(
+                    db,
+                    tenant_id,
+                    channel,
+                    adapter,
+                    notice,
+                    Some(ledger_spec(None)),
+                )
+                .await;
             }
         }
     } else {
@@ -415,7 +452,8 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         ) {
             reply.message.reply_to = Some(anchor);
         }
-        send_channel_response(db, tenant_id, channel, adapter, reply.message).await;
+        let spec = ledger_spec(reply.assistant_message_id.take());
+        send_channel_response(db, tenant_id, channel, adapter, reply.message, Some(spec)).await;
     }
     true
 }
@@ -464,7 +502,7 @@ async fn handle_pre_session_commands(
 
     reply.thread_id = thread_id;
     apply_conversation_recipient(&mut reply, message.conversation_id.as_deref());
-    send_channel_response(db, tenant_id, channel, adapter, reply).await;
+    send_channel_response(db, tenant_id, channel, adapter, reply, None).await;
     Some(PersistOutcome::HandledNotStored)
 }
 
@@ -533,7 +571,7 @@ async fn persist_single_message(
         .await;
         logout_response.thread_id = thread_id;
         apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, logout_response).await;
+        send_channel_response(db, tenant_id, channel, adapter, logout_response, None).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -591,7 +629,7 @@ async fn persist_single_message(
         .await;
         reset_response.thread_id = thread_id;
         apply_conversation_recipient(&mut reset_response, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, reset_response).await;
+        send_channel_response(db, tenant_id, channel, adapter, reset_response, None).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -635,7 +673,7 @@ async fn persist_single_message(
     if let Some(mut intake_reply) = intake_outcome.into_reply() {
         intake_reply.thread_id = thread_id;
         apply_conversation_recipient(&mut intake_reply, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, intake_reply).await;
+        send_channel_response(db, tenant_id, channel, adapter, intake_reply, None).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -664,7 +702,7 @@ async fn persist_single_message(
     {
         choice_reply.thread_id = thread_id;
         apply_conversation_recipient(&mut choice_reply, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, choice_reply).await;
+        send_channel_response(db, tenant_id, channel, adapter, choice_reply, None).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -676,6 +714,7 @@ async fn persist_single_message(
         channel,
         channel_type,
         tenant_id,
+        session_tenant_id,
         adapter,
         message,
         auth_result: &auth_result,
@@ -971,7 +1010,7 @@ async fn send_unlinked_user_prompt(
     };
     prompt.thread_id = extract_thread_id(&message.metadata);
     apply_conversation_recipient(&mut prompt, message.conversation_id.as_deref());
-    send_channel_response(db, tenant_id, channel, adapter, prompt).await;
+    send_channel_response(db, tenant_id, channel, adapter, prompt, None).await;
 }
 
 /// Resolve a linked session and authenticated principal, or send a prompt /

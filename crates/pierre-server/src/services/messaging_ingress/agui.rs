@@ -18,7 +18,8 @@ use pierre_services::messaging_status_bridge::{
     open_status_adapter, spawn_status_consumer, OpenStatusParams,
 };
 
-use super::dispatch::{persist_outbound_message, reply_message};
+use super::dispatch::reply_message;
+use super::outbound_persist::{persist_outbound_row, OutboundRowParams};
 use super::PendingDispatch;
 
 /// AG-UI wiring for a single messaging turn.
@@ -141,12 +142,17 @@ impl MessagingAgUiWiring {
                 body: reply.to_owned(),
             },
         );
-        persist_outbound_message(
+        persist_outbound_row(
             dispatch.resources.common.repos.messaging.as_ref(),
-            dispatch,
-            channel_message_id,
+            &OutboundRowParams {
+                session_tenant_id: dispatch.session_tenant_id,
+                session_id: &dispatch.session.session_id,
+                channel: &dispatch.channel,
+                receipt_id: Some(channel_message_id),
+                delivered: true,
+                chat_message_id: assistant_message_id,
+            },
             &outgoing,
-            assistant_message_id,
         )
         .await;
     }

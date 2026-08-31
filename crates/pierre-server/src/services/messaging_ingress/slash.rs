@@ -96,6 +96,12 @@ pub(super) struct SlashReply {
     /// `/connect` card, the unknown-command body, and the error funnel — all of
     /// which keep the private default.
     pub(super) command_name: Option<String>,
+    /// The assistant `chat_messages` row this reply delivers, when the
+    /// surface's transcript policy persisted the command turn — what the
+    /// outbound ledger row stamps so an emoji reaction resolves to a message
+    /// to rate. `None` for the `/connect` card, the error funnel, and every
+    /// command the transcript does not hold.
+    pub(super) assistant_message_id: Option<String>,
 }
 
 /// Bundled inputs for [`try_handle_slash_command`]. Combines the channel
@@ -218,6 +224,7 @@ pub(super) async fn try_handle_slash_command(
             return Some(SlashReply {
                 message: card,
                 command_name: None,
+                assistant_message_id: None,
             });
         }
         let web_url = format!(
@@ -244,6 +251,7 @@ pub(super) async fn try_handle_slash_command(
                 thread_id,
             },
             command_name: None,
+            assistant_message_id: None,
         });
     }
 
@@ -306,6 +314,7 @@ pub(super) async fn try_handle_slash_command(
                     thread_id,
                 },
                 command_name: None,
+                assistant_message_id: None,
             });
         }
     };
@@ -319,6 +328,10 @@ pub(super) async fn try_handle_slash_command(
         );
     }
     let command_name = command.command_name.clone();
+    let assistant_message_id = command
+        .persisted
+        .as_ref()
+        .map(|p| p.assistant_message.id.clone());
     Some(SlashReply {
         message: OutgoingMessage {
             channel_type,
@@ -329,6 +342,7 @@ pub(super) async fn try_handle_slash_command(
             thread_id,
         },
         command_name,
+        assistant_message_id,
     })
 }
 

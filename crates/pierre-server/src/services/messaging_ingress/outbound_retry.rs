@@ -78,7 +78,7 @@ pub(crate) async fn enqueue_failed_outbound(
         channel_type: params.channel,
         channel_message_id: &retry_channel_msg_id,
         sender_id: "pierre",
-        content_type: "text",
+        content_type: super::content_type_label(&outgoing.content),
         content_body: body.as_deref(),
         correlation_id: &correlation_str,
         raw_payload: Some(&payload_str),

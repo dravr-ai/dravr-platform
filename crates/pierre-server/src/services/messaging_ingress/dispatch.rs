@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ColorScheme, ConversationTurnId, TenantId, TranscriptSpeaker};
 use pierre_core::narration::scrub_replayed_narration;
-use pierre_database::backends::{InsertMessageParams, MessagingRepository};
+use pierre_database::backends::MessagingRepository;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -36,11 +36,12 @@ use super::connect;
 use super::identity_leak_notify::{emit_identity_leak, LeakContext};
 use super::intake;
 use super::otp::apply_conversation_recipient;
+use super::outbound_persist::{persist_outbound_row, OutboundRowParams};
 use super::turn_guard::{
     acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_bounded, run_guarded,
     TurnInterruption, TurnOutcome,
 };
-use super::{build_messaging_profile, content_body_text, outbound_retry, PendingDispatch};
+use super::{build_messaging_profile, outbound_retry, PendingDispatch};
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::user_status_gate::messaging_key_for_status;
 
@@ -1091,8 +1092,19 @@ async fn send_outbound_response(
                 channel = %dispatch.channel,
                 "Outbound message sent successfully"
             );
-            persist_outbound_message(db, dispatch, channel_msg_id, outgoing, assistant_message_id)
-                .await;
+            persist_outbound_row(
+                db,
+                &OutboundRowParams {
+                    session_tenant_id: dispatch.session_tenant_id,
+                    session_id: &dispatch.session.session_id,
+                    channel: &dispatch.channel,
+                    receipt_id: receipt.channel_message_id.as_deref(),
+                    delivered: true,
+                    chat_message_id: assistant_message_id,
+                },
+                outgoing,
+            )
+            .await;
         }
         Err(e) => {
             warn!(
@@ -1129,41 +1141,6 @@ pub(super) async fn load_channel_config(
             error!(error = %e, "Failed to deserialize channel config");
             None
         }
-    }
-}
-
-/// Persist an outbound message after successful delivery
-pub(super) async fn persist_outbound_message(
-    db: &dyn MessagingRepository,
-    dispatch: &PendingDispatch,
-    channel_message_id: &str,
-    outgoing: &OutgoingMessage,
-    assistant_message_id: Option<&str>,
-) {
-    let out_msg_id = Uuid::new_v4().to_string();
-    let body = content_body_text(&outgoing.content);
-    let correlation_str = outgoing.turn_id.to_string();
-    let out_params = InsertMessageParams {
-        id: &out_msg_id,
-        // Outbound row shares the session/conversation tenant so the whole turn
-        // (inbound + assistant) is readable as one unit under one tenant.
-        tenant_id: dispatch.session_tenant_id,
-        session_id: &dispatch.session.session_id,
-        direction: "outbound",
-        channel_type: &dispatch.channel,
-        channel_message_id,
-        sender_id: "pierre",
-        content_type: "text",
-        content_body: body.as_deref(),
-        correlation_id: &correlation_str,
-        raw_payload: None,
-        // This send and the assistant row it delivers are the one moment both
-        // ids are in hand; stamping it here is what lets an emoji reaction on
-        // the channel message resolve back to a message to rate.
-        chat_message_id: assistant_message_id,
-    };
-    if let Err(e) = db.insert_message(&out_params).await {
-        error!(error = %e, "Failed to persist outbound message");
     }
 }
 

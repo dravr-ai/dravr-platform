@@ -19,14 +19,19 @@
 //! - threading is `thread_ts` on the rendered payload, mapped from
 //!   [`OutgoingMessage::reply_to`].
 //!
-//! The slash egress is fire-and-forget — `send_channel_response` /
-//! `send_private_channel_response` spawn the adapter call and persist no
-//! outbound `messaging_messages` row — so the wire itself is not observable
-//! from the database. Everything the ingress persists IS asserted end-to-end
-//! (the command-stamped chat rows, the group-transcript fan-out, and their
-//! deliberate absence for the private command), and the delivery halves are
-//! asserted against the REAL canot `SlackChannel` at the public seams the
-//! ingress calls: `settle_room_echo`, `ephemeral_payload`, and `render`.
+//! The slash egress writes the delivery ledger (carnet#158): the athlete's
+//! `/…` line lands as an inbound `messaging_messages` row synchronously, and
+//! each spawned reply part lands as an outbound row after its send resolves.
+//! Through the real webhook the Slack API call fails (test credentials), so
+//! the observable outbound rows are the `failed-…`-keyed attempts — which is
+//! the point: the wire stays observable from the database either way. The
+//! ledger is an operator surface with no member-readable reader (only the
+//! emoji-reaction resolver joins through it), so a durable operator copy of a
+//! privately-answered `/plan` is deliberate; the member-readable surfaces
+//! (chat rows, group transcript) keep their deliberate absences, asserted
+//! below. The delivery halves are still asserted against the REAL canot
+//! `SlackChannel` at the public seams the ingress calls: `settle_room_echo`,
+//! `ephemeral_payload`, and `render`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -70,7 +75,9 @@ mod slack_room {
     use serde_json::{json, Value};
     use sha2::Sha256;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::task::spawn_blocking;
+    use tokio::time::sleep;
     use uuid::Uuid;
 
     const SIGNING_SECRET: &str = "slack_room_plan_secret";
@@ -494,19 +501,65 @@ mod slack_room {
         }
     }
 
-    /// Rows in `messaging_messages` carrying `needle`, either direction.
-    async fn messaging_rows_carrying(resources: &Arc<ServerContext>, needle: &str) -> i64 {
-        const SQL: &str =
-            "SELECT COUNT(*) FROM messaging_messages WHERE content_body LIKE '%' || $1 || '%'";
+    /// The ledger rows carrying `needle`:
+    /// `(direction, channel_message_id, chat_message_id, correlation_id, tenant_id)`.
+    async fn ledger_rows_carrying(
+        resources: &Arc<ServerContext>,
+        needle: &str,
+    ) -> Vec<(String, String, Option<String>, String, String)> {
+        const SQL: &str = "SELECT direction, channel_message_id, chat_message_id,                                   correlation_id, tenant_id              FROM messaging_messages WHERE content_body LIKE '%' || $1 || '%'              ORDER BY created_at ASC";
+        match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_as(SQL)
+                .bind(needle)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                .bind(needle)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
+    /// The reply parts are persisted by the spawned delivery task after the
+    /// real Slack call resolves (here: fails on test credentials), so the
+    /// outbound rows appear asynchronously — poll up to ~30s.
+    async fn wait_for_outbound_ledger_rows(
+        resources: &Arc<ServerContext>,
+        needle: &str,
+        want: usize,
+    ) -> Vec<(String, String, Option<String>, String, String)> {
+        for _ in 0..300 {
+            let rows: Vec<_> = ledger_rows_carrying(resources, needle)
+                .await
+                .into_iter()
+                .filter(|r| r.0 == "outbound")
+                .collect();
+            if rows.len() >= want {
+                return rows;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+        panic!("no {want} outbound ledger row(s) carrying {needle:?} appeared");
+    }
+
+    /// The id of the command-stamped assistant chat row carrying the shared
+    /// plan — what the outbound ledger row must stamp as `chat_message_id`.
+    async fn assistant_chat_row_id(resources: &Arc<ServerContext>) -> String {
+        const SQL: &str = "SELECT id FROM chat_messages              WHERE finish_reason = $1 AND role = 'assistant'                AND content LIKE '%' || $2 || '%'";
         match resources.coach.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
-                .bind(needle)
+                .bind(COMMAND_FINISH_REASON)
+                .bind(PLAN_SESSION)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
             Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
-                .bind(needle)
+                .bind(COMMAND_FINISH_REASON)
+                .bind(PLAN_SESSION)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
@@ -522,9 +575,10 @@ mod slack_room {
         let room = build_slack_room().await;
         post_channel_message(&room, SHARER_SENDER, "1700000100.000001", "/plan").await;
 
-        // A private command in a shared room persists NOTHING: had the event
-        // been read as a DM, `CommandPersistence::Always` would have written
-        // the `/plan` pair — so these absences also pin the group signal.
+        // A private command in a shared room writes no CHAT rows: had the
+        // event been read as a DM, `CommandPersistence::Always` would have
+        // written the `/plan` pair — so these absences also pin the group
+        // signal.
         assert_eq!(
             chat_rows_carrying(&room.resources, "/plan").await,
             0,
@@ -533,18 +587,45 @@ mod slack_room {
         assert_eq!(
             chat_rows_carrying(&room.resources, PLAN_SESSION).await,
             0,
-            "no durable copy of the plan may exist for a private room answer"
+            "no member-readable copy of the plan may exist for a private room answer"
+        );
+        // The DELIVERY LEDGER holds the turn (carnet#158): the `/…` line as an
+        // inbound row (written synchronously in the webhook call, under the
+        // room's session tenant), and the private reply's parts as outbound
+        // rows once the spawned send resolves. `messaging_messages` has no
+        // member-readable surface — only the emoji-reaction resolver joins
+        // through it, and a private reply carries no chat row to resolve to —
+        // so the operator copy is deliberate, not a leak of the room policy.
+        let inbound: Vec<_> = ledger_rows_carrying(&room.resources, "/plan")
+            .await
+            .into_iter()
+            .filter(|r| r.0 == "inbound")
+            .collect();
+        assert_eq!(
+            inbound.len(),
+            1,
+            "the command line is one inbound ledger row"
         );
         assert_eq!(
-            messaging_rows_carrying(&room.resources, PLAN_SESSION).await,
-            0,
-            "the slash egress records no outbound copy of the plan"
+            inbound[0].4,
+            room.bot_tenant.to_string(),
+            "a room turn's ledger rows file under the room's session tenant"
         );
-        assert_eq!(
-            messaging_rows_carrying(&room.resources, "/plan").await,
-            0,
-            "a slash command is handled, never stored as an inbound row"
-        );
+        let outbound = wait_for_outbound_ledger_rows(&room.resources, PLAN_SESSION, 1).await;
+        for row in &outbound {
+            assert!(
+                row.1.starts_with("failed-"),
+                "the test-credential Slack send fails, and the attempt is the record: {row:?}"
+            );
+            assert!(
+                row.2.is_none(),
+                "a private reply is never chat-persisted, so there is nothing to rate: {row:?}"
+            );
+            assert_eq!(
+                row.3, inbound[0].3,
+                "reply and command share one correlation id (the inbound turn)"
+            );
+        }
         let entries = room
             .resources
             .common
@@ -683,12 +764,34 @@ mod slack_room {
             "a room turn must not be filed under the athlete's own tenant"
         );
 
-        // No private redirect for a room-visible reply, and the slash egress
-        // persists no messaging_messages rows at all.
+        // The room-visible reply lands in the delivery ledger (carnet#158):
+        // outbound rows carrying the shared plan, stamped with the assistant
+        // chat row so an emoji reaction on the delivered message resolves to
+        // a message to rate. Through the real webhook the Slack send fails on
+        // test credentials, so the rows are `failed-…`-keyed attempts — the
+        // stamp and the correlation are what this pins.
+        let assistant_chat_id = assistant_chat_row_id(&room.resources).await;
+        let outbound = wait_for_outbound_ledger_rows(&room.resources, PLAN_SESSION, 1).await;
+        for row in &outbound {
+            assert_eq!(
+                row.2.as_deref(),
+                Some(assistant_chat_id.as_str()),
+                "the outbound row stamps the assistant chat row for reaction rating: {row:?}"
+            );
+        }
+        let inbound: Vec<_> = ledger_rows_carrying(&room.resources, "/plan share week")
+            .await
+            .into_iter()
+            .filter(|r| r.0 == "inbound")
+            .collect();
         assert_eq!(
-            messaging_rows_carrying(&room.resources, PLAN_SESSION).await,
-            0,
-            "the room-visible reply is delivered, not recorded as an outbound row"
+            inbound.len(),
+            1,
+            "the command line is one inbound ledger row"
+        );
+        assert_eq!(
+            inbound[0].3, outbound[0].3,
+            "both ledger directions share the inbound turn's correlation id"
         );
 
         // The turn fanned out to the shared transcript — the member line and
@@ -730,10 +833,10 @@ mod slack_room {
         }
     }
 
-    /// The room-visible reply threads onto the command echo. The wire itself
-    /// is out of reach end-to-end (the slash egress spawns the send and
-    /// persists nothing), so the two halves the platform owns are pinned at
-    /// the [`OutgoingMessage`] level: `plan-share` routes through the
+    /// The room-visible reply threads onto the command echo. The DELIVERY
+    /// outcome is ledgered now, but `reply_to` has no ledger column, so the
+    /// two halves the platform owns are pinned at the [`OutgoingMessage`]
+    /// level: `plan-share` routes through the
     /// room-visible branch — the one arm of `dispatch_slash_command_if_any`
     /// that sets `reply_to` to the inbound channel message id — and the REAL
     /// Slack adapter maps `reply_to` to Slack's threading field, `thread_ts`,

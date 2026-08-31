@@ -13,6 +13,7 @@
     clippy::uninlined_format_args
 )]
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -155,6 +156,10 @@ pub struct CapturingChannel {
     pub channel_type: ChannelType,
     /// Every outbound message a `send` routed through, in order.
     pub sent: Mutex<Vec<OutgoingMessage>>,
+    /// Receipt ids `send` hands back, popped front-first per call; when the
+    /// queue is empty the receipt carries `None`, the fake's historical shape
+    /// (a channel that returns no message id).
+    pub receipt_ids: Mutex<VecDeque<Option<String>>>,
 }
 
 impl Default for CapturingChannel {
@@ -162,6 +167,7 @@ impl Default for CapturingChannel {
         Self {
             channel_type: ChannelType::Telegram,
             sent: Mutex::new(Vec::new()),
+            receipt_ids: Mutex::new(VecDeque::new()),
         }
     }
 }
@@ -171,8 +177,13 @@ impl CapturingChannel {
     pub fn for_channel(channel_type: ChannelType) -> Self {
         Self {
             channel_type,
-            sent: Mutex::new(Vec::new()),
+            ..Self::default()
         }
+    }
+
+    /// Queue the receipt ids the next sends return, in order.
+    pub fn stub_receipt_ids<I: IntoIterator<Item = Option<String>>>(&self, ids: I) {
+        self.receipt_ids.lock().unwrap().extend(ids);
     }
 }
 
@@ -204,9 +215,10 @@ impl MessagingChannel for CapturingChannel {
         _config: &ChannelConfig,
     ) -> MessagingResult<DeliveryReceipt> {
         self.sent.lock().unwrap().push(msg.clone());
+        let channel_message_id = self.receipt_ids.lock().unwrap().pop_front().flatten();
         Ok(DeliveryReceipt {
             message_id: "test-message".to_owned(),
-            channel_message_id: None,
+            channel_message_id,
             status: DeliveryStatus::Sent,
             timestamp: Utc::now(),
             turn_id: msg.turn_id,
