@@ -8,6 +8,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
+use pierre_chat_pipeline::stages::structured_output::SchemaTexts;
+use pierre_chat_pipeline::stages::viz_blocks::schema_contract;
 use serde_json::{json, Value};
 
 /// Compile the shipped schema the same way the pipeline registry does — the
@@ -120,4 +122,41 @@ fn rejects_unknown_properties() {
     let mut block = chart();
     block["render_hint"] = json!("big");
     assert!(!v.is_valid(&block), "unknown properties must be rejected");
+}
+
+/// The generated contract must state the bound the hand-written prose omitted.
+///
+/// The shipped directive lists "at most 4 series and 400 points" and never that
+/// `points` has `minItems: 2`. A coach cannot obey a rule it is not told, and on
+/// 2026-08-31 one did not: a two-athlete comparison written as one series per
+/// athlete was refused on every pass. Asserting the minimum specifically —
+/// rather than that the text is non-empty — is the difference between this test
+/// and one a stub would pass.
+#[test]
+fn generated_contract_states_the_points_minimum() {
+    let mut schemas = SchemaTexts::new();
+    schemas.insert("dravr-viz".to_owned(), DRAVR_VIZ_SCHEMA.to_owned());
+    let contract = schema_contract(&schemas);
+
+    assert!(
+        contract.contains("series[].points"),
+        "the per-series points bound must be stated: {contract}"
+    );
+    assert!(
+        contract.contains("2 to 400 entries"),
+        "the minimum of 2 points per series is the rule that was missing: {contract}"
+    );
+    assert!(
+        contract.contains("1 to 4 entries"),
+        "the series bound must survive too: {contract}"
+    );
+    for kind in ["line", "bar", "area"] {
+        assert!(contract.contains(kind), "chart kind {kind} must be listed");
+    }
+    for kind in ["chart", "table"] {
+        assert!(
+            contract.contains(&format!("**`{kind}`**")),
+            "both block kinds must be described: {contract}"
+        );
+    }
 }

@@ -36,6 +36,7 @@ use dravr_contremaitre::system::{
 };
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::structured_output::{self, SchemaTexts};
+use pierre_chat_pipeline::stages::viz_blocks;
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::McpBridgeProvider;
 
@@ -360,11 +361,30 @@ impl ServerContext {
             tool_discipline_prompt: self.tool_discipline_prompt(),
             tool_discipline_messaging_prompt: self.tool_discipline_messaging_prompt(),
             structured_output_prompt: STRUCTURED_OUTPUT_DIRECTIVE.to_owned(),
-            visual_blocks_prompt: VISUAL_BLOCKS_DIRECTIVE.to_owned(),
+            visual_blocks_prompt: Self::visual_blocks_prompt(),
             structured_output_schemas: Self::structured_output_schemas(),
             memory_extraction_prompt: self.memory_extraction_prompt(),
             mcp_bridge,
         }
+    }
+
+    /// The inline-visual directive: contremaitre's prose plus the bounds read
+    /// off the schema that actually validates the blocks.
+    ///
+    /// Split by what is derivable. The prose carries judgement — when a visual
+    /// earns its place, that the interpretation goes in the sentence — which no
+    /// schema encodes. The limits are generated, because transcribing them by
+    /// hand is what failed: the prose states the maxima and omits that a chart
+    /// series needs at least two points, so a coach writing a two-athlete
+    /// comparison as one series per athlete had its block refused on every
+    /// attempt while the athlete saw prose and no chart (2026-08-31).
+    #[cfg(feature = "client-chat")]
+    fn visual_blocks_prompt() -> String {
+        let generated = viz_blocks::schema_contract(&Self::structured_output_schemas());
+        if generated.is_empty() {
+            return VISUAL_BLOCKS_DIRECTIVE.to_owned();
+        }
+        format!("{VISUAL_BLOCKS_DIRECTIVE}\n\n{generated}")
     }
 
     /// Every structured-output schema the pipeline can validate against, keyed

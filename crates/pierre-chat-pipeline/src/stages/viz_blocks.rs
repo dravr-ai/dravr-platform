@@ -32,6 +32,7 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::sync::OnceLock;
 
 use serde_json::Value;
@@ -53,6 +54,162 @@ use super::structured_output::{validator_for, SchemaTexts, DRAVR_VIZ};
 /// reply, including a deliberately empty grant meaning "this persona does not
 /// draw".
 pub const DEFAULT_VISUALS: &[&str] = &["chart", "table"];
+
+/// The enforced half of the visual contract, rendered from the schema itself.
+///
+/// The prose directive teaches judgement — when a visual earns its place, that
+/// interpretation belongs in the sentence, that a persona's length cap wins.
+/// None of that is derivable. The *bounds* are, and hand-transcribing them is
+/// what failed: the shipped prose lists "at most 4 series and 400 points" and
+/// never mentions that `points` also carries `minItems: 2`. A coach asked for a
+/// two-athlete comparison wrote one series per athlete with a single point each
+/// — a reasonable reading of a rule it had never been told — and the block was
+/// refused on every pass while the athlete got prose and no chart (2026-08-31).
+///
+/// Deriving the numbers means a schema change reaches the coach without anyone
+/// remembering to restate it, which is the only way this class of drift stops
+/// recurring. The wording around them is fixed; every bound and enum in it is
+/// read from `DRAVR_VIZ_SCHEMA` at startup.
+///
+/// Returns an empty string when the schema is missing or unreadable — the prose
+/// directive still ships, exactly as it does today.
+#[must_use]
+pub fn schema_contract(schemas: &SchemaTexts) -> String {
+    let Some(text) = schemas.get(DRAVR_VIZ) else {
+        return String::new();
+    };
+    let Ok(schema) = serde_json::from_str::<Value>(text) else {
+        return String::new();
+    };
+    let Some(arms) = schema.get("oneOf").and_then(Value::as_array) else {
+        return String::new();
+    };
+
+    let mut out = String::from(
+        "### Block limits, generated from the schema that validates you\n\n\
+         Every block is validated before the athlete sees it. A block that breaks \
+         any rule here is removed from your reply and they are left with the prose \
+         alone, so a chart they asked for simply never arrives.\n",
+    );
+
+    for arm in arms {
+        let Some(kind) = arm
+            .pointer("/properties/type/const")
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let required = arm
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|r| {
+                r.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        let _ = writeln!(out, "\n**`{kind}`** — required: {required}");
+
+        let props = arm.get("properties").and_then(Value::as_object);
+        for (name, spec) in props.into_iter().flatten() {
+            if name == "type" || name == "source_tool" || name == "title" {
+                continue;
+            }
+            for line in describe_property(name, spec) {
+                let _ = writeln!(out, "- {line}");
+            }
+        }
+    }
+
+    out.push_str(
+        "\nOnly the fields listed above exist; any other property is rejected. \
+         `source_tool` is required on every block and is checked against the tools \
+         that actually ran this turn.\n",
+    );
+    out
+}
+
+/// One or more bullet lines describing a property's enforced bounds.
+///
+/// Nested one level deliberately: `series` is an array of objects whose own
+/// `points` bound is the one that bit us, and a description that stopped at the
+/// outer array would have omitted exactly the rule nobody knew.
+fn describe_property(name: &str, spec: &Value) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    if let Some(values) = spec.get("enum").and_then(Value::as_array) {
+        let joined = values
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!("`{name}`: one of {joined}"));
+        return lines;
+    }
+
+    if spec.get("type").and_then(Value::as_str) == Some("array") {
+        lines.push(format!("`{name}`: {}", bounds(spec)));
+        let items = spec.get("items");
+        if let Some(item_required) = items
+            .and_then(|i| i.get("required"))
+            .and_then(Value::as_array)
+        {
+            let req = item_required
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if !req.is_empty() {
+                lines.push(format!("each `{name}` entry requires: {req}"));
+            }
+        }
+        if let Some(inner) = items
+            .and_then(|i| i.get("properties"))
+            .and_then(Value::as_object)
+        {
+            for (inner_name, inner_spec) in inner {
+                for line in describe_property(&format!("{name}[].{inner_name}"), inner_spec) {
+                    lines.push(line);
+                }
+            }
+        } else if let Some(item) = items {
+            // An array of arrays (a chart point, a table row) has no named
+            // properties, so state its own arity instead of dropping it.
+            let inner_bounds = bounds(item);
+            if !inner_bounds.is_empty() {
+                lines.push(format!("each `{name}` entry: {inner_bounds}"));
+            }
+        }
+        return lines;
+    }
+
+    if spec.get("type").and_then(Value::as_str) == Some("object") {
+        if let Some(inner) = spec.get("properties").and_then(Value::as_object) {
+            for (inner_name, inner_spec) in inner {
+                for line in describe_property(&format!("{name}.{inner_name}"), inner_spec) {
+                    lines.push(line);
+                }
+            }
+        }
+    }
+    lines
+}
+
+/// `minItems`/`maxItems` as a phrase, e.g. "2 to 400 entries".
+fn bounds(spec: &Value) -> String {
+    let min = spec.get("minItems").and_then(Value::as_u64);
+    let max = spec.get("maxItems").and_then(Value::as_u64);
+    match (min, max) {
+        // A chart point is `[x, y]`: min and max are both 2, and "2 to 2 entries"
+        // reads as a typo rather than a fixed arity.
+        (Some(lo), Some(hi)) if lo == hi => format!("exactly {lo} entries"),
+        (Some(lo), Some(hi)) => format!("{lo} to {hi} entries"),
+        (Some(lo), None) => format!("at least {lo} entries"),
+        (None, Some(hi)) => format!("at most {hi} entries"),
+        (None, None) => String::new(),
+    }
+}
 
 /// The visual kinds this turn may emit.
 ///
