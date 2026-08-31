@@ -71,30 +71,38 @@ variable "recent_versions_keep_count" {
   }
 }
 
-variable "stale_tag_retention_days" {
-  description = "Age after which tagged images are deleted, unless protected by a keep policy (recent window or release tags)."
+# Hours, not days. The live repository runs windows finer than a day (6h/1h), and
+# a day-granular variable cannot express them — `days * 86400` only ever emits
+# multiples of 86400. That mismatch is why the running policy was set outside
+# Terraform and drifted out of this configuration entirely.
+variable "stale_tag_retention_hours" {
+  description = "Age in hours after which tagged images are deleted, unless protected by a keep policy (recent window or referenced tags)."
   type        = number
-  default     = 30
+  default     = 720 # 30d — permissive default; terraform.tfvars tightens it
 
   validation {
-    condition     = var.stale_tag_retention_days >= 1
-    error_message = "stale_tag_retention_days must be at least 1."
+    condition     = var.stale_tag_retention_hours >= 1
+    error_message = "stale_tag_retention_hours must be at least 1."
   }
 }
 
-variable "untagged_retention_days" {
-  description = "Age after which untagged (orphaned) images are deleted."
+variable "untagged_retention_hours" {
+  description = "Age in hours after which untagged (orphaned) images are deleted."
   type        = number
-  default     = 3
+  default     = 72 # 3d — permissive default; terraform.tfvars tightens it
 
   validation {
-    condition     = var.untagged_retention_days >= 1
-    error_message = "untagged_retention_days must be at least 1."
+    condition     = var.untagged_retention_hours >= 1
+    error_message = "untagged_retention_hours must be at least 1."
   }
 }
 
 variable "release_tag_prefixes" {
-  description = "Tag prefixes for images kept indefinitely (deploy / rollback anchors: semver releases, plus the moving deployed-<env> tag each Cloud Run deploy applies to the digest it ships)."
+  description = "Tag prefixes for images kept indefinitely (deploy / rollback anchors: semver releases, plus the moving deployed-<env> tag each Cloud Run deploy applies to the digest it ships, plus latest and buildcache which the delete rules would otherwise reap)."
   type        = list(string)
-  default     = ["v", "deployed-"]
+  # `latest` and `buildcache` are here because the live repository has them and
+  # dropping them is not free: the server image is a cargo-chef multi-stage build
+  # whose registry buildcache is mode=max, so reaping cache manifests costs a full
+  # dependency recompile (~+10-20min) on the next CI run.
+  default = ["v", "deployed-", "latest", "buildcache"]
 }

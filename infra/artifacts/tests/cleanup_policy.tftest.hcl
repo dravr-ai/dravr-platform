@@ -37,46 +37,51 @@ run "dry_run_mode_is_available" {
   }
 }
 
-# Guards the days -> seconds arithmetic against the enforced tfvars values: a
-# unit slip here would silently ship a far-too-short (or too-long) retention
-# that still applies cleanly. terraform.tfvars sets stale=7d, untagged=1d.
-run "stale_retention_days_convert_to_seconds" {
+# Guards the hours -> seconds arithmetic against the enforced tfvars values: a
+# unit slip here would silently ship a far-too-short (or too-long) retention that
+# still applies cleanly. terraform.tfvars sets stale=6h, untagged=1h, which are
+# the windows the live repository runs — these two assertions are what keep this
+# configuration honest about production, so a plan stays a no-op.
+run "stale_retention_hours_convert_to_seconds" {
   command = plan
 
   assert {
     condition = anytrue([
       for p in google_artifact_registry_repository.images.cleanup_policies :
-      p.condition[0].older_than == "604800s"
-      if p.id == "delete-stale-tagged"
+      p.condition[0].older_than == "21600s"
+      if p.id == "delete-superseded"
     ])
-    error_message = "stale_tag_retention_days=7 must compute to older_than=604800s"
+    error_message = "stale_tag_retention_hours=6 must compute to older_than=21600s (the live window)"
   }
 
   assert {
     condition = anytrue([
       for p in google_artifact_registry_repository.images.cleanup_policies :
-      p.condition[0].older_than == "86400s"
+      p.condition[0].older_than == "3600s"
       if p.id == "delete-untagged"
     ])
-    error_message = "untagged_retention_days=1 must compute to older_than=86400s"
+    error_message = "untagged_retention_hours=1 must compute to older_than=3600s (the live window)"
   }
 }
 
-# Non-default windows must convert correctly too, not just the defaults.
+# Non-default windows must convert correctly too, not just the defaults. Uses a
+# sub-day value on purpose: day-granular arithmetic could not express the live
+# policy, which is how the running config drifted out of Terraform in the first
+# place, so the test pins that hours actually reach the provider.
 run "custom_retention_window_converts" {
   command = plan
 
   variables {
-    stale_tag_retention_days = 14
+    stale_tag_retention_hours = 36
   }
 
   assert {
     condition = anytrue([
       for p in google_artifact_registry_repository.images.cleanup_policies :
-      p.condition[0].older_than == "1209600s"
-      if p.id == "delete-stale-tagged"
+      p.condition[0].older_than == "129600s"
+      if p.id == "delete-superseded"
     ])
-    error_message = "stale_tag_retention_days=14 must compute to older_than=1209600s"
+    error_message = "stale_tag_retention_hours=36 must compute to older_than=129600s"
   }
 }
 
@@ -88,9 +93,9 @@ run "release_tags_are_kept" {
     condition = anytrue([
       for p in google_artifact_registry_repository.images.cleanup_policies :
       p.action == "KEEP" && contains(p.condition[0].tag_prefixes, "v")
-      if p.id == "keep-release-tags"
+      if p.id == "keep-referenced-tags"
     ])
-    error_message = "keep-release-tags must KEEP tagged images with the configured release prefix"
+    error_message = "keep-referenced-tags must KEEP tagged images with the configured release prefix"
   }
 }
 
@@ -106,9 +111,38 @@ run "deployed_digest_tags_are_kept" {
     condition = anytrue([
       for p in google_artifact_registry_repository.images.cleanup_policies :
       p.action == "KEEP" && contains(p.condition[0].tag_prefixes, "deployed-")
-      if p.id == "keep-release-tags"
+      if p.id == "keep-referenced-tags"
     ])
-    error_message = "keep-release-tags must KEEP the deployed-<env> tag the deploy workflow applies to the serving digest"
+    error_message = "keep-referenced-tags must KEEP the deployed-<env> tag the deploy workflow applies to the serving digest"
+  }
+}
+
+# The buildcache prefix is not cosmetic. The server image is a cargo-chef
+# multi-stage build published with registry buildcache mode=max; the cache
+# manifests carry a buildcache tag and are otherwise ordinary tagged images, so
+# without this prefix the delete-superseded rule reaps them on the same 6-hour
+# window as a stale CI build and the next run pays a full dependency recompile
+# (~+10-20min). `latest` rides along for the same reason on the deploy side: it
+# is the reference the Cloud Run services actually hold.
+run "buildcache_and_latest_tags_are_kept" {
+  command = plan
+
+  assert {
+    condition = anytrue([
+      for p in google_artifact_registry_repository.images.cleanup_policies :
+      p.action == "KEEP" && contains(p.condition[0].tag_prefixes, "buildcache")
+      if p.id == "keep-referenced-tags"
+    ])
+    error_message = "keep-referenced-tags must KEEP buildcache tags — reaping them costs a full dep recompile"
+  }
+
+  assert {
+    condition = anytrue([
+      for p in google_artifact_registry_repository.images.cleanup_policies :
+      p.action == "KEEP" && contains(p.condition[0].tag_prefixes, "latest")
+      if p.id == "keep-referenced-tags"
+    ])
+    error_message = "keep-referenced-tags must KEEP the latest tag the Cloud Run services reference"
   }
 }
 
@@ -136,10 +170,10 @@ run "rejects_zero_stale_retention" {
   command = plan
 
   variables {
-    stale_tag_retention_days = 0
+    stale_tag_retention_hours = 0
   }
 
-  expect_failures = [var.stale_tag_retention_days]
+  expect_failures = [var.stale_tag_retention_hours]
 }
 
 run "rejects_zero_keep_count" {

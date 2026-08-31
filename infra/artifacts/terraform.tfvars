@@ -9,20 +9,26 @@ project_id = "dravr-artifacts"
 # anchors.
 cleanup_policy_dry_run = false
 
-# Retention tuned for cost: hold the registry to roughly the last week of builds
-# instead of a month. keep_count=2 is a recency floor over the two newest
+# Retention tuned for cost. keep_count=2 is a recency floor over the two newest
 # versions of each package — it bounds how fast the age rule can reach the head
 # of a package, but it says nothing about which digest is deployed, which is why
-# the deployed-<env> tag carries that guarantee instead. The 7-day stale window
-# is the lever that actually prunes old SHA-tagged CI builds. Buildx cache
-# manifests live in their own <image>-cache packages (publish-images.yml) so
-# they cannot occupy an image package's recency floor, and the orphans a moving
-# buildcache tag leaves behind are swept after 1 day. Reconciles the earlier
-# manual policy that only swept untagged and let tagged CI builds accumulate
-# (~287GB).
+# the deployed-<env> tag carries that guarantee instead (applied by
+# publish-images.yml, enforme-bump.yml and photograveur-bump.yml). The stale
+# window is the lever that actually prunes superseded SHA-tagged CI builds.
+#
+# These values MIRROR THE LIVE REPOSITORY as verified 2026-08-31, rather than
+# stating an intent the running policy does not have. The history matters:
+# 450617a13 (2026-07-17) codified 7d/1d, but the live repo has never run that —
+# `git log -S` finds no history anywhere in infra/ for the running policy ids
+# (`delete-superseded`, `keep-referenced-tags`) or for `21600`, and the old
+# day-granular arithmetic could not have produced 6h/1h at all. The live policy
+# was authored outside Terraform, so applying this configuration used to be a
+# destructive act: it would have relaxed retention 28x and dropped the
+# latest/buildcache keep-prefixes. Codified here so a plan is a no-op and any
+# future retention change is a reviewable diff instead of a console edit.
 recent_versions_keep_count = 2
-stale_tag_retention_days   = 7
-untagged_retention_days    = 1
+stale_tag_retention_hours  = 6
+untagged_retention_hours   = 1
 
 env_app_sa_emails = [
   # Populate after applying dev/prod environments:

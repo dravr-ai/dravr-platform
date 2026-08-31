@@ -52,8 +52,11 @@ resource "google_artifact_registry_repository" "images" {
   # that deploy tag is what makes the serving image immune to the age rule —
   # recency alone does not, since the newest-versions floor is a count of builds,
   # not a statement about what any environment is running.
+  # Policy ids mirror the live repository exactly. They are part of the resource
+  # identity, so renaming one is a replace, not an edit: a plan against the live
+  # repo would delete the policy under its old id and create it under the new.
   cleanup_policies {
-    id     = "keep-release-tags"
+    id     = "keep-referenced-tags"
     action = "KEEP"
 
     condition {
@@ -72,14 +75,14 @@ resource "google_artifact_registry_repository" "images" {
     }
   }
 
-  # Expire stale tagged CI builds (SHA tags) once past the retention window.
+  # Expire superseded CI builds (SHA tags) once past the retention window.
   cleanup_policies {
-    id     = "delete-stale-tagged"
+    id     = "delete-superseded"
     action = "DELETE"
 
     condition {
       tag_state  = "ANY"
-      older_than = "${var.stale_tag_retention_days * 24 * 60 * 60}s"
+      older_than = "${var.stale_tag_retention_hours * 60 * 60}s"
     }
   }
 
@@ -90,7 +93,7 @@ resource "google_artifact_registry_repository" "images" {
 
     condition {
       tag_state  = "UNTAGGED"
-      older_than = "${var.untagged_retention_days * 24 * 60 * 60}s"
+      older_than = "${var.untagged_retention_hours * 60 * 60}s"
     }
   }
 
