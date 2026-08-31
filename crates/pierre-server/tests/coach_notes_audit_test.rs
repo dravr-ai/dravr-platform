@@ -10,81 +10,63 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use chrono::Utc;
-use pierre_core::models::TenantId;
-use pierre_database::database::{generate_encryption_key, Database as SqliteDatabase};
-use pierre_database::repositories::{HarnessMemoryRepository, InsertCoachNoteParams};
+use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
+use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
+use pierre_database::repositories::InsertCoachNoteParams;
 use pierre_memory::MemoryScope;
-use sqlx::Executor;
 use tokio::time::sleep;
 use uuid::Uuid;
 
-async fn open_in_memory_db() -> Result<SqliteDatabase> {
-    let encryption_key = generate_encryption_key().to_vec();
-    let db = SqliteDatabase::new("sqlite::memory:", encryption_key).await?;
-    Ok(db)
+/// Open the database the lane names through the test factory.
+async fn open_db() -> Result<Database> {
+    Ok(create_test_db().await?)
 }
 
-/// Seed minimal user/tenant/coach rows so the `coach_notes` foreign keys resolve.
-async fn seed_user_tenant_coach(db: &SqliteDatabase) -> Result<(TenantId, String)> {
-    let user_id = Uuid::new_v4().to_string();
-    let tenant_uuid = Uuid::new_v4();
-    let tenant_id_str = tenant_uuid.to_string();
-    let coach_id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
-
-    let pool = db.pool();
-
-    pool.execute(
-        sqlx::query(
-            r"
-            INSERT INTO users (
-                id, email, password_hash, created_at, last_active
-            )
-            VALUES ($1, $2, $3, $4, $4)
-            ",
+/// Seed the user, tenant, and coach rows the `coach_notes` foreign keys
+/// resolve against, through the repositories so both backends accept them.
+async fn seed_user_tenant_coach(db: &Database) -> Result<(TenantId, String)> {
+    let repos = db.repositories();
+    let user = User::new(
+        format!("{}@test.local", Uuid::new_v4()),
+        "hash".to_owned(),
+        Some("Test User".to_owned()),
+    );
+    repos.users.create(&user).await?;
+    let tenant = Tenant::new(
+        "Test Tenant".to_owned(),
+        format!("tenant-{}", Uuid::new_v4()),
+        None,
+        "starter".to_owned(),
+        user.id,
+    );
+    repos.tenants.create(&tenant).await?;
+    let coach = repos
+        .coaches
+        .create(
+            user.id,
+            tenant.id,
+            &CreateCoachRequest {
+                title: "Test Coach".to_owned(),
+                description: None,
+                system_prompt: "You are helpful".to_owned(),
+                category: CoachCategory::Custom,
+                tags: vec![],
+                sample_prompts: vec![],
+                startup_query: None,
+                data_requirements: None,
+                purpose: None,
+                when_to_use: None,
+                instructions: None,
+                example_inputs: None,
+                example_outputs: None,
+                success_criteria: None,
+                max_tool_iterations: None,
+            },
         )
-        .bind(&user_id)
-        .bind(format!("{user_id}@test.local"))
-        .bind("hash")
-        .bind(&now),
-    )
-    .await?;
-
-    pool.execute(
-        sqlx::query(
-            r"
-            INSERT INTO tenants (
-                id, name, slug, created_at, updated_at
-            )
-            VALUES ($1, $2, $3, $4, $4)
-            ",
-        )
-        .bind(&tenant_id_str)
-        .bind("Test Tenant")
-        .bind(format!("tenant-{tenant_uuid}"))
-        .bind(&now),
-    )
-    .await?;
-
-    pool.execute(
-        sqlx::query(
-            r"
-            INSERT INTO coaches (
-                id, user_id, tenant_id, title, system_prompt,
-                category, created_at, updated_at
-            )
-            VALUES ($1, $2, $3, 'Test Coach', 'You are helpful', 'custom', $4, $4)
-            ",
-        )
-        .bind(&coach_id)
-        .bind(&user_id)
-        .bind(&tenant_id_str)
-        .bind(&now),
-    )
-    .await?;
-
-    Ok((TenantId::from_uuid(tenant_uuid), coach_id))
+        .await?;
+    Ok((tenant.id, coach.id.to_string()))
 }
 
 fn note_params<'a>(
@@ -106,20 +88,24 @@ fn note_params<'a>(
 
 #[tokio::test]
 async fn tenant_audit_returns_notes_newest_first() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_db().await?;
+    let memory = db.repositories().memory;
     let (tenant, coach_id) = seed_user_tenant_coach(&db).await?;
 
-    db.insert_coach_note(&note_params(tenant, "user-a", &coach_id, "first note"))
+    memory
+        .insert_coach_note(&note_params(tenant, "user-a", &coach_id, "first note"))
         .await?;
     // Tiny gap so RFC3339 strings sort deterministically.
     sleep(Duration::from_millis(5)).await;
-    db.insert_coach_note(&note_params(tenant, "user-b", &coach_id, "second note"))
+    memory
+        .insert_coach_note(&note_params(tenant, "user-b", &coach_id, "second note"))
         .await?;
     sleep(Duration::from_millis(5)).await;
-    db.insert_coach_note(&note_params(tenant, "user-c", &coach_id, "third note"))
+    memory
+        .insert_coach_note(&note_params(tenant, "user-c", &coach_id, "third note"))
         .await?;
 
-    let rows = db.list_coach_notes_for_tenant(tenant, 100).await?;
+    let rows = memory.list_coach_notes_for_tenant(tenant, 100).await?;
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0].content, "third note");
     assert_eq!(rows[1].content, "second note");
@@ -130,21 +116,23 @@ async fn tenant_audit_returns_notes_newest_first() -> Result<()> {
 
 #[tokio::test]
 async fn tenant_audit_clamps_to_limit() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_db().await?;
+    let memory = db.repositories().memory;
     let (tenant, coach_id) = seed_user_tenant_coach(&db).await?;
 
     for i in 0..5 {
-        db.insert_coach_note(&note_params(
-            tenant,
-            "user-a",
-            &coach_id,
-            &format!("note {i}"),
-        ))
-        .await?;
+        memory
+            .insert_coach_note(&note_params(
+                tenant,
+                "user-a",
+                &coach_id,
+                &format!("note {i}"),
+            ))
+            .await?;
         sleep(Duration::from_millis(2)).await;
     }
 
-    let rows = db.list_coach_notes_for_tenant(tenant, 2).await?;
+    let rows = memory.list_coach_notes_for_tenant(tenant, 2).await?;
     assert_eq!(rows.len(), 2);
 
     Ok(())
@@ -152,17 +140,20 @@ async fn tenant_audit_clamps_to_limit() -> Result<()> {
 
 #[tokio::test]
 async fn tenant_audit_is_tenant_scoped() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_db().await?;
+    let memory = db.repositories().memory;
     let (tenant_a, coach_a) = seed_user_tenant_coach(&db).await?;
     let (tenant_b, coach_b) = seed_user_tenant_coach(&db).await?;
 
-    db.insert_coach_note(&note_params(tenant_a, "user-a", &coach_a, "alpha note"))
+    memory
+        .insert_coach_note(&note_params(tenant_a, "user-a", &coach_a, "alpha note"))
         .await?;
-    db.insert_coach_note(&note_params(tenant_b, "user-b", &coach_b, "beta note"))
+    memory
+        .insert_coach_note(&note_params(tenant_b, "user-b", &coach_b, "beta note"))
         .await?;
 
-    let rows_a = db.list_coach_notes_for_tenant(tenant_a, 100).await?;
-    let rows_b = db.list_coach_notes_for_tenant(tenant_b, 100).await?;
+    let rows_a = memory.list_coach_notes_for_tenant(tenant_a, 100).await?;
+    let rows_b = memory.list_coach_notes_for_tenant(tenant_b, 100).await?;
 
     assert_eq!(rows_a.len(), 1);
     assert_eq!(rows_a[0].content, "alpha note");

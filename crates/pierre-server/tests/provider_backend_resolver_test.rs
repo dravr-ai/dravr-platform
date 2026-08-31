@@ -30,6 +30,7 @@ use common::{create_test_server_resources, create_test_user};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
@@ -38,6 +39,15 @@ use pierre_tool_runtime::implementations::connection::{
 };
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::protocol::types::META_AUTH_REQUIRED_PROVIDER;
+
+/// The reconciliation statement of migration 20260714000001, run here verbatim.
+const RECONCILE: &str = "DELETE FROM provider_connections \
+     WHERE connection_type IN ('oauth', 'manual') \
+       AND NOT EXISTS ( \
+         SELECT 1 FROM user_oauth_tokens t \
+         WHERE CAST(t.user_id AS TEXT) = CAST(provider_connections.user_id AS TEXT) \
+           AND CAST(t.tenant_id AS TEXT) = CAST(provider_connections.tenant_id AS TEXT) \
+           AND t.provider = provider_connections.provider )";
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -1060,23 +1070,15 @@ async fn reconciliation_deletes_orphans_and_spares_synthetic_and_valid() {
     .unwrap();
 
     // Run the reconciliation exactly as migration 20260714000001 does.
-    let pool = resources
-        .coach
-        .database
-        .sqlite_pool()
-        .expect("sqlite test pool");
-    sqlx::query(
-        "DELETE FROM provider_connections \
-         WHERE connection_type IN ('oauth', 'manual') \
-           AND NOT EXISTS ( \
-             SELECT 1 FROM user_oauth_tokens t \
-             WHERE CAST(t.user_id AS TEXT) = CAST(provider_connections.user_id AS TEXT) \
-               AND CAST(t.tenant_id AS TEXT) = CAST(provider_connections.tenant_id AS TEXT) \
-               AND t.provider = provider_connections.provider )",
-    )
-    .execute(pool)
-    .await
-    .unwrap();
+    match resources.coach.database.as_ref() {
+        Database::SQLite(db) => {
+            sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
+        }
+    }
 
     let conns = pc.get_for_user(user_id, Some(tenant_id)).await.unwrap();
     let names: Vec<&str> = conns.iter().map(|c| c.provider.as_str()).collect();

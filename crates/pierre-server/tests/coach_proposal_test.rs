@@ -6,19 +6,20 @@
 
 //! Tests for `pierre_services::coaches` re-ranking helpers (pure functions: no
 //! LLM, no DB) plus the messaging coach-proposal idempotency flag round-trip
-//! against a real `SQLite` repo.
+//! and the backfill migration, against the database the lane names.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use std::collections::HashSet;
 
+use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::Database;
 use pierre_database::repositories::CreateChannelLinkParams;
 use pierre_services::coaches::{
     build_rerank_user_prompt, parse_rerank_response, ProposalCandidate,
 };
-use sqlx::{Row, SqlitePool};
 
 mod common;
 
@@ -247,19 +248,91 @@ async fn coach_proposal_flag_round_trips() {
     );
 }
 
-/// The exact backfill migration SQL, so the test exercises the shipped
-/// statement rather than a paraphrase that could drift from it.
-const BACKFILL_MIGRATION_SQL: &str =
+/// The exact backfill statement each backend ships, so the test exercises the
+/// migration rather than a paraphrase that could drift from it.
+const SQLITE_BACKFILL_MIGRATION_SQL: &str =
     include_str!("../../../migrations/20260608000003_backfill_coach_proposal_predating_links.sql");
+#[cfg(feature = "postgresql")]
+const POSTGRES_BACKFILL_MIGRATION_SQL: &str = include_str!(
+    "../../../migrations_pg/20260608000003_backfill_coach_proposal_predating_links.sql"
+);
+
+fn at(rfc3339: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(rfc3339)
+        .unwrap()
+        .with_timezone(&Utc)
+}
+
+/// Write a link's `linked_at` and `coach_proposal_sent_at` directly: the
+/// repository stamps `linked_at` with the clock, and the backfill's cutoff is
+/// a date in the past. `SQLite` keeps timestamps as RFC 3339 text, the way its
+/// backend writes them; `PostgreSQL` binds them natively.
+async fn set_link_dates(
+    db: &Database,
+    id: &str,
+    linked_at: DateTime<Utc>,
+    sent_at: Option<DateTime<Utc>>,
+) {
+    const SQL: &str = "UPDATE messaging_channel_links \
+                       SET linked_at = $1, coach_proposal_sent_at = $2 WHERE id = $3";
+    match db {
+        Database::SQLite(d) => {
+            sqlx::query(SQL)
+                .bind(linked_at.to_rfc3339())
+                .bind(sent_at.map(|sent| sent.to_rfc3339()))
+                .bind(id)
+                .execute(d.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(d) => {
+            sqlx::query(SQL)
+                .bind(linked_at)
+                .bind(sent_at)
+                .bind(id)
+                .execute(d.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Run the backfill statement the backend ships.
+async fn run_backfill(db: &Database) {
+    match db {
+        Database::SQLite(d) => {
+            sqlx::query(SQLITE_BACKFILL_MIGRATION_SQL)
+                .execute(d.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(d) => {
+            sqlx::query(POSTGRES_BACKFILL_MIGRATION_SQL)
+                .execute(d.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
 
 /// Read a single link's `coach_proposal_sent_at` (NULL ⇒ `None`).
-async fn proposal_sent_at(pool: &SqlitePool, id: &str) -> Option<String> {
-    sqlx::query("SELECT coach_proposal_sent_at FROM messaging_channel_links WHERE id = ?")
-        .bind(id)
-        .fetch_one(pool)
-        .await
-        .unwrap()
-        .get::<Option<String>, _>("coach_proposal_sent_at")
+async fn proposal_sent_at(db: &Database, id: &str) -> Option<DateTime<Utc>> {
+    const SQL: &str = "SELECT coach_proposal_sent_at FROM messaging_channel_links WHERE id = $1";
+    match db {
+        Database::SQLite(d) => sqlx::query_scalar(SQL)
+            .bind(id)
+            .fetch_one(d.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(d) => sqlx::query_scalar(SQL)
+            .bind(id)
+            .fetch_one(d.pool())
+            .await
+            .unwrap(),
+    }
 }
 
 /// The backfill stamps only links that predate the proposal feature
@@ -268,17 +341,12 @@ async fn proposal_sent_at(pool: &SqlitePool, id: &str) -> Option<String> {
 /// already-stamped links keep their original timestamp.
 #[tokio::test]
 async fn backfill_stamps_only_links_predating_the_feature() {
-    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    sqlx::query(
-        "CREATE TABLE messaging_channel_links (
-            id                     TEXT NOT NULL PRIMARY KEY,
-            linked_at              TEXT NOT NULL,
-            coach_proposal_sent_at TEXT
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let repos = database.repositories();
+    let tenants = repos.tenants.list_for_user(user_id).await.unwrap();
+    let tenant_id = TenantId::from_uuid(tenants[0].id.as_uuid());
+    let user_id = user_id.to_string();
 
     // (id, linked_at, coach_proposal_sent_at)
     let rows = [
@@ -292,43 +360,42 @@ async fn backfill_stamps_only_links_predating_the_feature() {
         ),
     ];
     for (id, linked_at, sent_at) in rows {
-        sqlx::query(
-            "INSERT INTO messaging_channel_links (id, linked_at, coach_proposal_sent_at) VALUES (?, ?, ?)",
-        )
-        .bind(id)
-        .bind(linked_at)
-        .bind(sent_at)
-        .execute(&pool)
-        .await
-        .unwrap();
+        repos
+            .messaging
+            .create_channel_link(&CreateChannelLinkParams {
+                id,
+                tenant_id,
+                user_id: &user_id,
+                channel_type: "telegram",
+                channel_user_id: id,
+                display_name: None,
+            })
+            .await
+            .unwrap();
+        set_link_dates(&database, id, at(linked_at), sent_at.map(at)).await;
     }
 
-    sqlx::query(BACKFILL_MIGRATION_SQL)
-        .execute(&pool)
-        .await
-        .unwrap();
+    run_backfill(&database).await;
 
     // A link that predates the feature and was unstamped is now stamped.
     assert!(
-        proposal_sent_at(&pool, "old-unstamped").await.is_some(),
+        proposal_sent_at(&database, "old-unstamped").await.is_some(),
         "a link linked before the feature must be backfilled as proposed"
     );
     // A link created after the feature is left NULL: it still gets the proposal.
     assert!(
-        proposal_sent_at(&pool, "new-unstamped").await.is_none(),
+        proposal_sent_at(&database, "new-unstamped").await.is_none(),
         "a link linked after the feature must keep receiving the proposal"
     );
     // The cutoff is exclusive — a link linked exactly on the feature date is new.
     assert!(
-        proposal_sent_at(&pool, "on-cutoff").await.is_none(),
+        proposal_sent_at(&database, "on-cutoff").await.is_none(),
         "the cutoff is exclusive; an on-date link must keep receiving the proposal"
     );
     // An already-stamped old link keeps its original timestamp (not re-stamped).
     assert_eq!(
-        proposal_sent_at(&pool, "old-already-stamped")
-            .await
-            .as_deref(),
-        Some("2026-06-06T09:00:00Z"),
+        proposal_sent_at(&database, "old-already-stamped").await,
+        Some(at("2026-06-06T09:00:00Z")),
         "an already-stamped link must keep its original timestamp"
     );
 }

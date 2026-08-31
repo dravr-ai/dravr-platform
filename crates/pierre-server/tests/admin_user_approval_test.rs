@@ -12,15 +12,14 @@ mod common;
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::key_management::KeyManager;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::admin::models::CreateAdminTokenRequest;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
+use pierre_database::database::test_utils::create_test_db_with_key;
 use serial_test::serial;
-use std::{env, fs};
+use std::env;
 use uuid::Uuid;
 
 /// Create a tenant record (must be called before `update_tenant_id` for FK constraint).
@@ -48,16 +47,6 @@ const TEST_JWT_SECRET: &str = "test_jwt_secret_for_admin_user_approval_tests";
 
 /// Test helper to create admin token and database
 async fn setup_test_database() -> Result<(Database, String, Uuid)> {
-    // Initialize database with test-specific path
-    let test_id = Uuid::new_v4().to_string();
-
-    // Create test directory if it doesn't exist
-    fs::create_dir_all("./test_data")
-        .map_err(|e| anyhow::anyhow!("Failed to create test directory: {e}"))?;
-
-    let db_path = format!("./test_data/admin_approval_test_{test_id}.db");
-    let db_url = format!("sqlite:{db_path}");
-
     // Set MEK for test (required for KeyManager::bootstrap())
     env::set_var(
         "PIERRE_MASTER_ENCRYPTION_KEY",
@@ -67,16 +56,7 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
     // Create database with proper encryption
     let (mut key_manager, database_key) = KeyManager::bootstrap()?;
 
-    #[cfg(feature = "postgresql")]
-    let mut database = Database::new(
-        &db_url,
-        database_key.to_vec(),
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let mut database = Database::new(&db_url, database_key.to_vec()).await?;
+    let mut database = create_test_db_with_key(database_key.to_vec()).await?;
     key_manager.complete_initialization(&mut database).await?;
 
     // Run migrations

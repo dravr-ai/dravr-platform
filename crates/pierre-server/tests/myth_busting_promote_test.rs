@@ -13,27 +13,16 @@ use pierre_contremaitre::harness_config_document::HARNESS_CONFIG_SETTING_KEY;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_routes_admin::handlers::myth_busting::promote_topic;
 
 const ENCRYPTION_KEY: &[u8; 32] = b"test_encryption_key_32_bytes_lng";
 
-#[cfg(not(feature = "postgresql"))]
+/// Open a fresh database for a single-test scope.
 async fn fresh_database() -> Database {
-    Database::new("sqlite::memory:", ENCRYPTION_KEY.to_vec())
+    create_test_db_with_key(ENCRYPTION_KEY.to_vec())
         .await
-        .expect("in-memory sqlite database")
-}
-
-#[cfg(feature = "postgresql")]
-async fn fresh_database() -> Database {
-    use pierre_config::environment::PostgresPoolConfig;
-    Database::new(
-        "sqlite::memory:",
-        ENCRYPTION_KEY.to_vec(),
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .expect("in-memory sqlite database")
+        .expect("test database")
 }
 
 #[tokio::test]

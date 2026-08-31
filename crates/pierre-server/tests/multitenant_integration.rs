@@ -160,8 +160,8 @@ use pierre_config::environment::{
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::{
     constants::oauth_providers,
     mcp::resources::{ServerContext, ServerContextOptions},
@@ -177,19 +177,9 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     common::init_server_config();
     // Setup
     let temp_dir = TempDir::new()?;
-    let db_path = temp_dir.path().join("test.db");
-    let database_url = format!("sqlite:{}", db_path.display());
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        &database_url,
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&database_url, encryption_key).await?;
+    let database = create_test_db_with_key(encryption_key).await?;
 
     let auth_manager = AuthManager::new(24);
 
@@ -507,20 +497,9 @@ async fn test_multitenant_auth_flow() -> Result<()> {
 /// Test database encryption functionality
 #[tokio::test]
 async fn test_database_encryption() -> Result<()> {
-    let temp_dir = TempDir::new()?;
-    let db_path = temp_dir.path().join("encryption_test.db");
-    let database_url = format!("sqlite:{}", db_path.display());
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        &database_url,
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&database_url, encryption_key).await?;
+    let database = create_test_db_with_key(encryption_key).await?;
 
     // Create user
     let user = User::new(
@@ -607,20 +586,9 @@ async fn test_jwt_edge_cases() -> Result<()> {
 /// Test user isolation in multi-tenant database
 #[tokio::test]
 async fn test_user_isolation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
-    let db_path = temp_dir.path().join("isolation_test.db");
-    let database_url = format!("sqlite:{}", db_path.display());
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        &database_url,
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&database_url, encryption_key).await?;
+    let database = create_test_db_with_key(encryption_key).await?;
 
     let repos = database.repositories();
 
@@ -699,19 +667,9 @@ async fn test_user_isolation() -> Result<()> {
 async fn test_input_validation() -> Result<()> {
     common::init_server_config();
     let temp_dir = TempDir::new()?;
-    let db_path = temp_dir.path().join("validation_test.db");
-    let database_url = format!("sqlite:{}", db_path.display());
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        &database_url,
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&database_url, encryption_key).await?;
+    let database = create_test_db_with_key(encryption_key).await?;
 
     let auth_manager = AuthManager::new(24);
 

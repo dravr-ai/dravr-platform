@@ -31,6 +31,7 @@ mod sink_tests {
     use async_trait::async_trait;
     use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
     use pierre_core::models::messaging::ChannelType;
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::CreateChannelLinkParams;
     use pierre_notifications::models::{NotificationCategory, UpsertNotificationPreferenceParams};
     use pierre_notifications::{
@@ -78,6 +79,16 @@ mod sink_tests {
         }
     }
 
+    /// The notification service on whichever backend the test database is —
+    /// the same mapping the server performs at boot.
+    fn notification_service(db: &Database) -> NotificationService {
+        match db {
+            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        }
+    }
+
     #[tokio::test]
     async fn accepted_notification_reaches_the_channel_sink() {
         let resources = create_test_server_resources().await.unwrap();
@@ -96,13 +107,7 @@ mod sink_tests {
             .id;
 
         let sink = Arc::new(RecordingSink::default());
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("tests run on sqlite")
-            .clone();
-        let service = NotificationService::from_sqlite(pool)
+        let service = notification_service(&resources.coach.database)
             .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
 
         let outcome = service
@@ -147,13 +152,7 @@ mod sink_tests {
             .id;
 
         let sink = Arc::new(RecordingSink::default());
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("tests run on sqlite")
-            .clone();
-        let service = NotificationService::from_sqlite(pool)
+        let service = notification_service(&resources.coach.database)
             .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
 
         // The athlete turned the category off. Messaging must respect that —

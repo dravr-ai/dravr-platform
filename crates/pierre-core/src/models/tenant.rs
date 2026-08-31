@@ -281,7 +281,7 @@ pub struct OAuthApp {
     pub redirect_uris: Vec<String>,
     /// Permitted scopes
     pub scopes: Vec<String>,
-    /// Application type (desktop, web, mobile, server)
+    /// OAuth 2.0 client type: "public" or "confidential"
     pub app_type: String,
     /// User ID of the app owner
     pub owner_user_id: Uuid,
@@ -305,7 +305,7 @@ pub struct OAuthAppParams {
     pub redirect_uris: Vec<String>,
     /// List of OAuth scopes the app can request
     pub scopes: Vec<String>,
-    /// Type of OAuth application (e.g., "web", "native", "service")
+    /// OAuth 2.0 client type: "public" or "confidential"
     pub app_type: String,
     /// UUID of the user who owns this OAuth app
     pub owner_user_id: Uuid,

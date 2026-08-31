@@ -12,9 +12,8 @@
 
 mod common;
 
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
+use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::health::{HealthChecker, HealthStatus};
 use std::sync::Arc;
 
@@ -24,19 +23,7 @@ async fn test_basic_health_check() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let database = Arc::new(database);
     let repos = database.repositories();
     let health_checker = HealthChecker::new(
@@ -59,19 +46,7 @@ async fn test_comprehensive_health_check() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let database = Arc::new(database);
     let repos = database.repositories();
     let health_checker = HealthChecker::new(
@@ -96,19 +71,7 @@ async fn test_readiness_check() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let database = Arc::new(database);
     let repos = database.repositories();
     let health_checker = HealthChecker::new(

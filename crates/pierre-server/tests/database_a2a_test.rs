@@ -13,14 +13,14 @@ use pierre_core::models::a2a::A2APushNotificationConfig;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::{
-    backends::{A2ARepository, ApiKeyRepository, UserRepository},
-    database::{a2a::A2AUsage, Database},
-};
+use pierre_database::backends::factory::Database;
+use pierre_database::database::a2a::A2AUsage;
+use pierre_database::database::test_utils::create_test_db;
+use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::a2a::{auth::A2AClient, client::A2ASession, protocol::TaskStatus};
 use uuid::Uuid;
 
-async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
+async fn create_test_client(repos: &RepositoryRegistry) -> (A2AClient, Uuid) {
     let unique_id = Uuid::new_v4();
 
     // First create a test user
@@ -51,7 +51,9 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         timezone: None,
         theme: None,
     };
-    UserRepository::create(db, &user)
+    repos
+        .users
+        .create(&user)
         .await
         .expect("Failed to create test user");
 
@@ -71,7 +73,9 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         last_used_at: None,
         expires_at: None,
     };
-    ApiKeyRepository::create(db, &api_key)
+    repos
+        .api_keys
+        .create(&api_key)
         .await
         .expect("Failed to create test API key");
 
@@ -93,7 +97,9 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         updated_at: Utc::now(),
     };
 
-    db.create_client(&client, "test_secret", &api_key.id)
+    repos
+        .a2a
+        .create_client(&client, "test_secret", &api_key.id)
         .await
         .expect("Failed to create A2A client");
     (client, test_user_id)
@@ -101,14 +107,16 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
 
 #[tokio::test]
 async fn test_a2a_client_management() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
+    let repos = db.repositories();
 
-    let (client, user_id) = create_test_client(&db).await;
+    let (client, user_id) = create_test_client(&repos).await;
 
     // Get client
-    let retrieved = db
+    let retrieved = repos
+        .a2a
         .get_client(&client.id)
         .await
         .expect("Failed to get A2A client")
@@ -119,7 +127,8 @@ async fn test_a2a_client_management() {
     assert_eq!(retrieved.permissions, client.permissions);
 
     // List clients - check that our client is in the list
-    let clients = db
+    let clients = repos
+        .a2a
         .list_clients(&user_id)
         .await
         .expect("Failed to list A2A clients");
@@ -135,11 +144,12 @@ async fn test_a2a_client_management() {
 
 #[tokio::test]
 async fn test_a2a_session_management() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
+    let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&db).await;
+    let (client, _user_id) = create_test_client(&repos).await;
 
     // Create session (without user_id to avoid foreign key constraint)
     let session = A2ASession {
@@ -153,7 +163,8 @@ async fn test_a2a_session_management() {
         requests_count: 0,
     };
 
-    let session_token = db
+    let session_token = repos
+        .a2a
         .create_session(
             &session.client_id,
             session.user_id.as_ref(),
@@ -164,7 +175,8 @@ async fn test_a2a_session_management() {
         .expect("Failed to create A2A session");
 
     // Get session
-    let retrieved = db
+    let retrieved = repos
+        .a2a
         .get_session(&session_token)
         .await
         .expect("Failed to get A2A session")
@@ -175,12 +187,15 @@ async fn test_a2a_session_management() {
     assert_eq!(retrieved.granted_scopes, session.granted_scopes);
 
     // Update session activity
-    db.update_session_activity(&session_token)
+    repos
+        .a2a
+        .update_session_activity(&session_token)
         .await
         .expect("Failed to update session activity");
 
     // Test getting active sessions for client
-    let active_sessions = db
+    let active_sessions = repos
+        .a2a
         .get_active_sessions(&client.id)
         .await
         .expect("Failed to get active sessions");
@@ -192,13 +207,15 @@ async fn test_a2a_session_management() {
 
 #[tokio::test]
 async fn test_a2a_task_management() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
+    let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&db).await;
+    let (client, _user_id) = create_test_client(&repos).await;
 
-    let session_token = db
+    let session_token = repos
+        .a2a
         .create_session(&client.id, None, &["read".into()], 1)
         .await
         .expect("Failed to create A2A session");
@@ -206,7 +223,8 @@ async fn test_a2a_task_management() {
     // Create task — new tasks start in the A2A 1.0 `submitted` state and
     // carry the server-assigned contextId.
     let input_data = serde_json::json!({"data": "test"});
-    let task_id = db
+    let task_id = repos
+        .a2a
         .create_task(
             &client.id,
             Some(&session_token),
@@ -218,7 +236,8 @@ async fn test_a2a_task_management() {
         .expect("Failed to create A2A task");
 
     // Get task
-    let retrieved = db
+    let retrieved = repos
+        .a2a
         .get_task(&task_id)
         .await
         .expect("Failed to get A2A task")
@@ -239,7 +258,9 @@ async fn test_a2a_task_management() {
         "artifactId": "a-1",
         "parts": [{ "data": { "ok": true } }]
     }]);
-    db.update_task_wire_state(&task_id, Some(&history), Some(&artifacts))
+    repos
+        .a2a
+        .update_task_wire_state(&task_id, Some(&history), Some(&artifacts))
         .await
         .expect("Failed to update task wire state");
 
@@ -250,17 +271,20 @@ async fn test_a2a_task_management() {
         "role": "ROLE_AGENT",
         "parts": [{ "text": "done" }]
     });
-    db.update_task_status(
-        &task_id,
-        &TaskStatus::Completed,
-        Some(&result),
-        Some(&status_message),
-    )
-    .await
-    .expect("Failed to update task status");
+    repos
+        .a2a
+        .update_task_status(
+            &task_id,
+            &TaskStatus::Completed,
+            Some(&result),
+            Some(&status_message),
+        )
+        .await
+        .expect("Failed to update task status");
 
     // Verify update
-    let updated = db
+    let updated = repos
+        .a2a
         .get_task(&task_id)
         .await
         .expect("Failed to get updated task")
@@ -274,7 +298,8 @@ async fn test_a2a_task_management() {
     assert_eq!(updated.artifacts, Some(artifacts));
 
     // ListTasks filters: context + status, ordered by status timestamp.
-    let listed = db
+    let listed = repos
+        .a2a
         .list_tasks(
             Some(&session_token),
             Some(&TaskStatus::Completed),
@@ -288,7 +313,8 @@ async fn test_a2a_task_management() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, task_id);
 
-    let none_listed = db
+    let none_listed = repos
+        .a2a
         .list_tasks(
             Some(&session_token),
             Some(&TaskStatus::Working),
@@ -304,16 +330,19 @@ async fn test_a2a_task_management() {
 
 #[tokio::test]
 async fn test_a2a_push_notification_config_crud() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
+    let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&db).await;
-    let session_token = db
+    let (client, _user_id) = create_test_client(&repos).await;
+    let session_token = repos
+        .a2a
         .create_session(&client.id, None, &["read".into()], 1)
         .await
         .expect("Failed to create A2A session");
-    let task_id = db
+    let task_id = repos
+        .a2a
         .create_task(
             &client.id,
             Some(&session_token),
@@ -335,11 +364,14 @@ async fn test_a2a_push_notification_config_crud() {
         updated_at: Utc::now(),
     };
 
-    db.create_push_config(&config)
+    repos
+        .a2a
+        .create_push_config(&config)
         .await
         .expect("Failed to create push config");
 
-    let fetched = db
+    let fetched = repos
+        .a2a
         .get_push_config(&task_id, "cfg-1")
         .await
         .expect("Failed to get push config")
@@ -351,11 +383,14 @@ async fn test_a2a_push_notification_config_crud() {
     // Upsert: same (task_id, config_id) replaces the registration.
     let mut updated = config.clone();
     updated.url = "https://webhooks.example.com/a2a/v2".into();
-    db.create_push_config(&updated)
+    repos
+        .a2a
+        .create_push_config(&updated)
         .await
         .expect("Failed to upsert push config");
 
-    let listed = db
+    let listed = repos
+        .a2a
         .list_push_configs(&task_id)
         .await
         .expect("Failed to list push configs");
@@ -363,15 +398,18 @@ async fn test_a2a_push_notification_config_crud() {
     assert_eq!(listed[0].url, updated.url);
 
     // Delete reports whether a row existed.
-    assert!(db
+    assert!(repos
+        .a2a
         .delete_push_config(&task_id, "cfg-1")
         .await
         .expect("Failed to delete push config"));
-    assert!(!db
+    assert!(!repos
+        .a2a
         .delete_push_config(&task_id, "cfg-1")
         .await
         .expect("Failed to delete push config twice"));
-    assert!(db
+    assert!(repos
+        .a2a
         .get_push_config(&task_id, "cfg-1")
         .await
         .expect("Failed to get push config")
@@ -380,11 +418,12 @@ async fn test_a2a_push_notification_config_crud() {
 
 #[tokio::test]
 async fn test_a2a_usage_tracking() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
+    let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&db).await;
+    let (client, _user_id) = create_test_client(&repos).await;
 
     // Record usage
     let usage = A2AUsage {
@@ -405,19 +444,23 @@ async fn test_a2a_usage_tracking() {
         granted_scopes: vec!["read".into()],
     };
 
-    db.record_usage(&usage)
+    repos
+        .a2a
+        .record_usage(&usage)
         .await
         .expect("Failed to record A2A usage");
 
     // Check current usage
-    let current_usage = db
+    let current_usage = repos
+        .a2a
         .get_client_current_usage(&client.id)
         .await
         .expect("Failed to get current usage");
     assert_eq!(current_usage, 1);
 
     // Get usage stats
-    let stats = db
+    let stats = repos
+        .a2a
         .get_usage_stats(
             &client.id,
             Utc::now() - chrono::Duration::hours(1),
@@ -433,18 +476,26 @@ async fn test_a2a_usage_tracking() {
 
 #[tokio::test]
 async fn test_a2a_schema_no_duplicate_columns() {
-    let encryption_key = vec![0u8; 32];
-    let db = Database::new("sqlite::memory:", encryption_key)
+    let db = create_test_db().await.expect("Failed to create database");
+
+    // Each backend has its own catalogue; both list the migrated columns.
+    let columns: Vec<(String,)> = match &db {
+        Database::SQLite(sqlite) => {
+            sqlx::query_as("SELECT name FROM pragma_table_info('a2a_clients') ORDER BY name")
+                .fetch_all(sqlite.pool())
+                .await
+                .expect("Failed to query table info")
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => sqlx::query_as(
+            "SELECT column_name::text FROM information_schema.columns \
+             WHERE table_schema = current_schema() AND table_name = 'a2a_clients' \
+             ORDER BY column_name",
+        )
+        .fetch_all(pg.pool())
         .await
-        .expect("Failed to create database");
-
-    db.migrate().await.expect("Failed to run migrations");
-
-    let columns: Vec<(String,)> =
-        sqlx::query_as("SELECT name FROM pragma_table_info('a2a_clients') ORDER BY name")
-            .fetch_all(db.pool())
-            .await
-            .expect("Failed to query table info");
+        .expect("Failed to query table info"),
+    };
 
     let column_names: Vec<String> = columns.into_iter().map(|(name,)| name).collect();
 

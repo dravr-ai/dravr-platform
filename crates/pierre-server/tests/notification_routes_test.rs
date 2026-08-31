@@ -24,6 +24,7 @@ mod notification_routes_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use pierre_database::backends::factory::Database;
     use pierre_notifications::models::{CreateNotificationParams, NotificationCategory};
     use pierre_notifications::NotificationService;
     use pierre_notifications::TenantId as CommereTenantId;
@@ -65,6 +66,16 @@ mod notification_routes_tests {
     // ════════════════════════════════════════════════════════════════
     // Device token tests
     // ════════════════════════════════════════════════════════════════
+
+    /// The notification service on whichever backend the test database is —
+    /// the same mapping the server performs at boot.
+    fn notification_service(db: &Database) -> NotificationService {
+        match db {
+            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        }
+    }
 
     #[tokio::test]
     async fn test_register_device_token() {
@@ -485,8 +496,7 @@ mod notification_routes_tests {
             .unwrap()[0]
             .id;
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Create 3 notifications for user A
         for i in 0..3 {
@@ -571,8 +581,7 @@ mod notification_routes_tests {
             .unwrap()[0]
             .id;
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Create 2 unread notifications
         for i in 0..2 {

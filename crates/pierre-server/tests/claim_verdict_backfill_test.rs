@@ -16,111 +16,106 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
-use pierre_core::models::TenantId;
+use pierre_core::models::{
+    AddMessageParams, CoachCategory, CreateCoachRequest, Tenant, TenantId, User,
+};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_evals::VerificationConfig;
 use pierre_services::claim_verdict_backfill::{run_backfill, BackfillParams};
-use sqlx::Executor;
 use uuid::Uuid;
 
-async fn open_in_memory_db() -> Result<Database> {
-    let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
-    Ok(db)
+async fn open_test_db() -> Result<Database> {
+    Ok(create_test_db_with_key(generate_encryption_key().to_vec()).await?)
 }
 
 /// Seed a synthetic tenant + user + coach + conversation + assistant
-/// message. Returns `(tenant_id, message_id)` for assertions.
-async fn seed_assistant_message(
-    db: &Database,
-    content: &str,
-    sequence: u32,
-) -> Result<(TenantId, String)> {
-    let pool = match db {
-        Database::SQLite(sqlite) => sqlite.pool(),
-        #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => panic!("test expects SQLite backend"),
-    };
+/// message through the repositories, so the rows are whatever the backend
+/// writes. Each call makes its own tenant, which is what keeps the scans in
+/// the tests below independent of one another. Returns `(tenant_id,
+/// message_id)` for assertions.
+async fn seed_assistant_message(db: &Database, content: &str) -> Result<(TenantId, String)> {
+    let repos = db.repositories();
+    let user = User::new(
+        format!("{}@test.local", Uuid::new_v4()),
+        "hash".to_owned(),
+        None,
+    );
+    let user_id = user.id;
+    repos.users.create(&user).await?;
 
-    let user_id = Uuid::new_v4().to_string();
-    let tenant_uuid = Uuid::new_v4();
-    let tenant_id_str = tenant_uuid.to_string();
-    let coach_id = Uuid::new_v4().to_string();
-    let conversation_id = Uuid::new_v4().to_string();
-    let message_id = Uuid::new_v4().to_string();
-    // Sequence lets the caller control `created_at` ordering across
-    // seeded messages so the backfill walker sees a deterministic
-    // order regardless of test timing.
-    let base = Utc::now();
-    let created_at = (base + chrono::Duration::seconds(i64::from(sequence))).to_rfc3339();
+    let tenant_id = TenantId::generate();
+    let now = Utc::now();
+    repos
+        .tenants
+        .create(&Tenant {
+            id: tenant_id,
+            name: "Test Tenant".to_owned(),
+            slug: format!("tenant-{tenant_id}"),
+            domain: None,
+            plan: "starter".to_owned(),
+            owner_user_id: user_id,
+            created_at: now,
+            updated_at: now,
+        })
+        .await?;
 
-    pool.execute(
-        sqlx::query(
-            r"INSERT INTO users (id, email, password_hash, created_at, last_active)
-              VALUES ($1, $2, 'hash', $3, $3)",
+    let coach = repos
+        .coaches
+        .create(
+            user_id,
+            tenant_id,
+            &CreateCoachRequest {
+                title: "Test Coach".to_owned(),
+                description: None,
+                system_prompt: "You are a helpful coach.".to_owned(),
+                category: CoachCategory::Custom,
+                tags: vec![],
+                sample_prompts: vec![],
+                startup_query: None,
+                data_requirements: None,
+                purpose: None,
+                when_to_use: None,
+                instructions: None,
+                example_inputs: None,
+                example_outputs: None,
+                success_criteria: None,
+                max_tool_iterations: None,
+            },
         )
-        .bind(&user_id)
-        .bind(format!("{user_id}@test.local"))
-        .bind(&created_at),
-    )
-    .await?;
-    pool.execute(
-        sqlx::query(
-            r"INSERT INTO tenants (id, name, slug, created_at, updated_at)
-              VALUES ($1, 'Test Tenant', $2, $3, $3)",
-        )
-        .bind(&tenant_id_str)
-        .bind(format!("tenant-{tenant_uuid}"))
-        .bind(&created_at),
-    )
-    .await?;
-    pool.execute(
-        sqlx::query(
-            r"INSERT INTO coaches (id, user_id, tenant_id, title, system_prompt, category, created_at, updated_at)
-              VALUES ($1, $2, $3, 'Test Coach', 'You are a helpful coach.', 'custom', $4, $4)",
-        )
-        .bind(&coach_id)
-        .bind(&user_id)
-        .bind(&tenant_id_str)
-        .bind(&created_at),
-    )
-    .await?;
-    pool.execute(
-        sqlx::query(
-            r"INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, total_tokens, created_at, updated_at)
-              VALUES ($1, $2, $3, 'Test chat', 'gemini-pro', $4, 0, $5, $5)",
-        )
-        .bind(&conversation_id)
-        .bind(&user_id)
-        .bind(&tenant_id_str)
-        .bind(&coach_id)
-        .bind(&created_at),
-    )
-    .await?;
-    pool.execute(
-        sqlx::query(
-            r"INSERT INTO chat_messages (id, conversation_id, role, content, created_at)
-              VALUES ($1, $2, 'assistant', $3, $4)",
-        )
-        .bind(&message_id)
-        .bind(&conversation_id)
-        .bind(content)
-        .bind(&created_at),
-    )
-    .await?;
+        .await?;
+    let coach_id = coach.id.to_string();
 
-    Ok((TenantId::from_uuid(tenant_uuid), message_id))
+    let user_id_str = user_id.to_string();
+    let conversation = repos
+        .chat
+        .create_conversation(
+            &user_id_str,
+            tenant_id,
+            "Test chat",
+            "gemini-pro",
+            Some(&coach_id),
+            None,
+        )
+        .await?;
+    let message = repos
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conversation.id,
+            user_id: &user_id_str,
+            role: "assistant",
+            content,
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+        })
+        .await?;
+
+    Ok((tenant_id, message.id))
 }
 
 fn default_params<'a>(tenant_id: TenantId) -> BackfillParams<'a> {
@@ -136,7 +131,7 @@ fn default_params<'a>(tenant_id: TenantId) -> BackfillParams<'a> {
 
 #[tokio::test]
 async fn backfill_walks_assistant_messages_and_persists_verdicts() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
 
     // Claim text that the heuristic extractor can pick up: concrete
     // training prescription statement. Even if the corpus only has a
@@ -145,7 +140,7 @@ async fn backfill_walks_assistant_messages_and_persists_verdicts() -> Result<()>
     // backfill records.
     let content =
         "You should run 5 miles every day and drink 4 liters of water to fix your knee pain.";
-    let (tenant_id, message_id) = seed_assistant_message(&db, content, 1).await?;
+    let (tenant_id, message_id) = seed_assistant_message(&db, content).await?;
 
     let repos = db.repositories();
     let stats = run_backfill(
@@ -165,9 +160,9 @@ async fn backfill_walks_assistant_messages_and_persists_verdicts() -> Result<()>
 
 #[tokio::test]
 async fn dry_run_scans_without_persisting_anything() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let content = "Drink a gallon of water per day to prevent muscle cramps.";
-    let (tenant_id, _msg) = seed_assistant_message(&db, content, 1).await?;
+    let (tenant_id, _msg) = seed_assistant_message(&db, content).await?;
 
     let repos = db.repositories();
     let mut params = default_params(tenant_id);
@@ -182,13 +177,13 @@ async fn dry_run_scans_without_persisting_anything() -> Result<()> {
 
 #[tokio::test]
 async fn backfill_respects_limit_clamp() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     // Seed three messages across three distinct tenants (each
     // `seed_assistant_message` creates a fresh one). We'll scan only
     // the first tenant and cap the limit at 0 → clamped to 1.
-    let (tenant_id, _m1) = seed_assistant_message(&db, "first message", 1).await?;
-    let (_t2, _m2) = seed_assistant_message(&db, "second message", 2).await?;
-    let (_t3, _m3) = seed_assistant_message(&db, "third message", 3).await?;
+    let (tenant_id, _m1) = seed_assistant_message(&db, "first message").await?;
+    let (_t2, _m2) = seed_assistant_message(&db, "second message").await?;
+    let (_t3, _m3) = seed_assistant_message(&db, "third message").await?;
 
     let repos = db.repositories();
     let mut params = default_params(tenant_id);
@@ -202,8 +197,8 @@ async fn backfill_respects_limit_clamp() -> Result<()> {
 
 #[tokio::test]
 async fn resume_skips_previously_processed_messages() -> Result<()> {
-    let db = open_in_memory_db().await?;
-    let (tenant_id, _first_msg) = seed_assistant_message(&db, "assistant turn one", 1).await?;
+    let db = open_test_db().await?;
+    let (tenant_id, _first_msg) = seed_assistant_message(&db, "assistant turn one").await?;
 
     let repos = db.repositories();
 

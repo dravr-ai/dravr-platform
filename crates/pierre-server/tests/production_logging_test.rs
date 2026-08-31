@@ -14,12 +14,10 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_logging::{telemetry_enabled, LogFormat, LoggingConfig};
 use pierre_middleware::{request_id_middleware, RequestId};
 use std::error::Error;
@@ -171,22 +169,8 @@ async fn test_request_id_uuid_format() -> Result<(), Box<dyn Error>> {
 /// Test JWT secret safety - verify no secrets in initialization
 #[tokio::test]
 async fn test_jwt_secret_not_logged() -> Result<(), Box<dyn Error>> {
-    use tempfile::TempDir;
-
-    // Create temporary database
-    let temp_dir = TempDir::new()?;
-    let db_path = temp_dir.path().join("test.db");
-    let db_url = format!("sqlite:{}", db_path.display());
-
-    // Generate encryption key
-    let encryption_key = vec![0u8; 32];
-
     // Initialize database (which creates JWT secret)
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(&db_url, encryption_key, &PostgresPoolConfig::default()).await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&db_url, encryption_key).await?;
+    let database = create_test_db().await?;
 
     // Get or create JWT secret
     let jwt_secret = database
@@ -212,21 +196,9 @@ async fn test_jwt_secret_not_logged() -> Result<(), Box<dyn Error>> {
 /// Test that database operations can be instrumented
 #[tokio::test]
 async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>> {
-    use tempfile::TempDir;
     use uuid::Uuid;
 
-    // Create temporary database
-    let temp_dir = TempDir::new()?;
-    let db_path = temp_dir.path().join("test.db");
-    let db_url = format!("sqlite:{}", db_path.display());
-
-    let encryption_key = vec![0u8; 32];
-
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(&db_url, encryption_key, &PostgresPoolConfig::default()).await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&db_url, encryption_key).await?;
+    let database = create_test_db().await?;
 
     // Create a test user
     let user = User {

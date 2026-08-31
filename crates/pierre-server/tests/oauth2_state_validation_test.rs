@@ -12,11 +12,9 @@ use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     models::{ClientRegistrationRequest, OAuth2State},
 };
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_database::{
-    backends::{factory::Database, DatabaseProvider},
-    database::generate_encryption_key,
+    backends::factory::Database,
+    database::{generate_encryption_key, test_utils::create_test_db_with_key},
 };
 use std::error::Error;
 use std::sync::Arc;
@@ -27,6 +25,9 @@ async fn create_test_client(
     database: &Arc<Database>,
     client_id: &str,
 ) -> Result<(), Box<dyn Error>> {
+    // Registration mints its own client_id; the tests want a known one, so
+    // the row is renamed in place on whichever backend the database is.
+    const RENAME: &str = "UPDATE oauth2_clients SET client_id = $1 WHERE client_id = $2";
     let registration_manager =
         ClientRegistrationManager::new(database.repositories().oauth2_server.clone());
 
@@ -45,52 +46,40 @@ async fn create_test_client(
         .await
         .map_err(|e| format!("Failed to register OAuth2 client: {e:?}"))?;
 
-    // For testing purposes, we'll use the generated client_id from registration
-    // and update our test to use it, or we can manually insert with our desired client_id
-    // Using sqlx directly for the update
-
-    // Get the underlying SQLite connection and update the client_id
-    // Tests always use in-memory SQLite
-    let pool = match &**database {
-        Database::SQLite(sqlite_db) => sqlite_db.pool(),
-        #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => {
-            return Err("Test requires SQLite database".into());
+    match &**database {
+        Database::SQLite(db) => {
+            sqlx::query(RENAME)
+                .bind(client_id)
+                .bind(&response.client_id)
+                .execute(db.pool())
+                .await?;
         }
-    };
-
-    sqlx::query("UPDATE oauth2_clients SET client_id = ?1 WHERE client_id = ?2")
-        .bind(client_id)
-        .bind(&response.client_id)
-        .execute(pool)
-        .await?;
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            sqlx::query(RENAME)
+                .bind(client_id)
+                .bind(&response.client_id)
+                .execute(db.pool())
+                .await?;
+        }
+    }
 
     Ok(())
+}
+
+/// A fresh database under a fresh encryption key, migrated by the factory.
+async fn create_database() -> Arc<Database> {
+    Arc::new(
+        create_test_db_with_key(generate_encryption_key().to_vec())
+            .await
+            .unwrap(),
+    )
 }
 
 /// Test successful state storage and consumption
 #[tokio::test]
 async fn test_state_storage_and_consumption() {
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
-    database.migrate().await.unwrap();
+    let database = create_database().await;
 
     let client_id = "test_client_123";
     let state_value = "random_state_value_12345";
@@ -151,26 +140,7 @@ async fn test_state_storage_and_consumption() {
 /// Test state replay attack prevention (state already used)
 #[tokio::test]
 async fn test_state_replay_attack_prevention() {
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
-    database.migrate().await.unwrap();
+    let database = create_database().await;
 
     let client_id = "test_client_replay";
     let state_value = "state_replay_test_123";
@@ -227,26 +197,7 @@ async fn test_state_replay_attack_prevention() {
 /// Test expired state rejection
 #[tokio::test]
 async fn test_expired_state_rejection() {
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
-    database.migrate().await.unwrap();
+    let database = create_database().await;
 
     let client_id = "test_client_expired";
     let state_value = "expired_state_test_456";
@@ -293,26 +244,7 @@ async fn test_expired_state_rejection() {
 /// Test state not found (invalid state)
 #[tokio::test]
 async fn test_state_not_found() {
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
-    database.migrate().await.unwrap();
+    let database = create_database().await;
 
     let client_id = "test_client_notfound";
     let invalid_state = "nonexistent_state_789";
@@ -334,26 +266,7 @@ async fn test_state_not_found() {
 /// Test state `client_id` mismatch (CSRF attack scenario)
 #[tokio::test]
 async fn test_state_client_id_mismatch() {
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
-    database.migrate().await.unwrap();
+    let database = create_database().await;
 
     let correct_client_id = "legitimate_client_abc";
     let attacker_client_id = "malicious_client_xyz";
@@ -419,26 +332,7 @@ async fn test_state_client_id_mismatch() {
 /// Test state with PKCE parameters preservation
 #[tokio::test]
 async fn test_state_with_pkce_parameters() {
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
-    database.migrate().await.unwrap();
+    let database = create_database().await;
 
     let client_id = "pkce_client_123";
     let state_value = "pkce_state_test_567";
@@ -492,26 +386,7 @@ async fn test_state_with_pkce_parameters() {
 /// Test state expiration boundary (exactly at expiry time)
 #[tokio::test]
 async fn test_state_expiration_boundary() {
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
-    database.migrate().await.unwrap();
+    let database = create_database().await;
 
     let client_id = "boundary_client_789";
     let state_value = "boundary_state_test";

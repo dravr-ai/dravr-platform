@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::super::{LlmUsageRepository, UsageCounterRepository, UsageRepository};
+use super::super::{ApiKeyRepository, LlmUsageRepository, UsageCounterRepository, UsageRepository};
 use super::PostgresDatabase;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::constants::http_status::{BAD_REQUEST, SUCCESS_MAX, SUCCESS_MIN};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::usage::{
@@ -53,14 +53,24 @@ impl UsageRepository for PostgresDatabase {
     }
 
     async fn get_api_key_current(&self, api_key_id: &str) -> AppResult<u32> {
+        // The key's own sliding rate-limit window, exactly as the SQLite
+        // backend counts it. `CURRENT_DATE` here once made every "monthly"
+        // limit reset at midnight UTC — a quota under-enforcement no test
+        // could see except in the first hours of a UTC day.
+        let api_key = ApiKeyRepository::get_by_id(self, api_key_id, None)
+            .await?
+            .ok_or_else(|| AppError::not_found("API key"))?;
+        let window_start =
+            Utc::now() - Duration::seconds(i64::from(api_key.rate_limit_window_seconds));
         let row = sqlx::query(
             r"
             SELECT COUNT(*) as count
             FROM api_key_usage
-            WHERE api_key_id = $1 AND timestamp >= CURRENT_DATE
+            WHERE api_key_id = $1 AND timestamp > $2
             ",
         )
         .bind(api_key_id)
+        .bind(window_start)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get API key current usage: {e}")))?;

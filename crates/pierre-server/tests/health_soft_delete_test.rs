@@ -28,27 +28,64 @@ use chrono::Utc;
 use pierre_core::models::{StoredSleepSession, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::{Aggregation, DataPoint, SeriesType, TimeRange};
-use sqlx::Row as _;
+
 use std::sync::Arc;
 use uuid::Uuid;
+
+/// `sleep_sessions.data_source_id` references `data_sources(id)`, so a source row is seeded.
+const INSERT_SOURCE: &str =
+    "INSERT INTO data_sources (id, user_id, tenant_id, provider, device_type) \
+     VALUES ($1, $2, $3, $4, 'unknown')";
 
 async fn make_user_and_tenant(db: &Arc<Database>) -> (Uuid, TenantId, String) {
     let (user_id, _user) = common::create_test_user(db).await.unwrap();
     let tenant_id = TenantId::generate();
     // sleep_sessions.data_source_id has FK to data_sources(id) — seed a row.
     let data_source_id = format!("ds-{}", Uuid::new_v4());
-    sqlx::query(
-        "INSERT INTO data_sources (id, user_id, tenant_id, provider, device_type) \
-         VALUES (?, ?, ?, ?, 'unknown')",
-    )
-    .bind(&data_source_id)
-    .bind(user_id.to_string())
-    .bind(tenant_id.to_string())
-    .bind("strava")
-    .execute(db.sqlite_pool().expect("sqlite test pool"))
-    .await
-    .unwrap();
+    match db.as_ref() {
+        Database::SQLite(sqlite) => {
+            sqlx::query(INSERT_SOURCE)
+                .bind(&data_source_id)
+                .bind(user_id.to_string())
+                .bind(tenant_id.to_string())
+                .bind("strava")
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            sqlx::query(INSERT_SOURCE)
+                .bind(&data_source_id)
+                .bind(user_id.to_string())
+                .bind(tenant_id.to_string())
+                .bind("strava")
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
     (user_id, tenant_id, data_source_id)
+}
+
+/// Whether the row still exists and carries a `deleted_at`, read straight
+/// from the table on whichever backend the test database is. `None` means the
+/// row is gone.
+async fn deleted_at_is_set(db: &Database, id: &str) -> Option<bool> {
+    const SQL: &str = "SELECT deleted_at IS NOT NULL FROM sleep_sessions WHERE id = $1";
+    match db {
+        Database::SQLite(sqlite) => sqlx::query_scalar(SQL)
+            .bind(id)
+            .fetch_optional(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => sqlx::query_scalar(SQL)
+            .bind(id)
+            .fetch_optional(pg.pool())
+            .await
+            .unwrap(),
+    }
 }
 
 fn sleep_session(user_id: Uuid, source_name: &str, data_source_id: &str) -> StoredSleepSession {
@@ -130,14 +167,9 @@ async fn sleep_soft_delete_hides_row_from_reads_but_keeps_it_in_table() {
     );
 
     // Row is still in the table — direct query confirms deleted_at is set.
-    let raw = sqlx::query("SELECT deleted_at FROM sleep_sessions WHERE id = ?")
-        .bind(&id)
-        .fetch_one(database.sqlite_pool().expect("sqlite test pool"))
-        .await
-        .unwrap();
-    let deleted_at: Option<String> = raw.get("deleted_at");
-    assert!(
-        deleted_at.is_some(),
+    assert_eq!(
+        deleted_at_is_set(&database, &id).await,
+        Some(true),
         "soft delete must set deleted_at; row should still exist"
     );
 
@@ -176,12 +208,11 @@ async fn sleep_hard_delete_removes_the_row_entirely() {
     assert!(deleted, "hard delete must report success");
 
     // Row physically gone.
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sleep_sessions WHERE id = ?")
-        .bind(&id)
-        .fetch_one(database.sqlite_pool().expect("sqlite test pool"))
-        .await
-        .unwrap();
-    assert_eq!(count, 0, "hard delete must remove the row");
+    assert_eq!(
+        deleted_at_is_set(&database, &id).await,
+        None,
+        "hard delete must remove the row"
+    );
 }
 
 #[tokio::test]
@@ -244,14 +275,9 @@ async fn sleep_delete_by_id_rejects_wrong_tenant() {
     );
 
     // The row is still active.
-    let raw = sqlx::query("SELECT deleted_at FROM sleep_sessions WHERE id = ?")
-        .bind(&id)
-        .fetch_one(database.sqlite_pool().expect("sqlite test pool"))
-        .await
-        .unwrap();
-    let deleted_at: Option<String> = raw.get("deleted_at");
-    assert!(
-        deleted_at.is_none(),
+    assert_eq!(
+        deleted_at_is_set(&database, &id).await,
+        Some(false),
         "wrong-tenant delete must not have set deleted_at"
     );
 }

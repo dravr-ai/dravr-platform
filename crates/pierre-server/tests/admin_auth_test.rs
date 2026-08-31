@@ -9,30 +9,13 @@
 
 mod common;
 
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
-use pierre_core::admin::models::{AdminPermission, AdminPermissions};
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
-use pierre_routes_admin::auth::{jwt::AdminJwtManager, service::AdminAuthService};
+use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
+use pierre_routes_admin::auth::service::AdminAuthService;
 
 #[tokio::test]
 async fn test_admin_authentication_flow() {
     // Create test database
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = common::create_test_database().await.unwrap();
 
     // Create JWKS manager for RS256 and generate keys
     let jwks_manager = common::get_shared_test_jwks();
@@ -46,59 +29,25 @@ async fn test_admin_authentication_flow() {
         AdminAuthService::DEFAULT_CACHE_TTL_SECS,
     );
 
-    // Manually create an RS256 token with a known secret and store it in database
-    let jwt_manager = AdminJwtManager::new();
-    let test_token = jwt_manager
-        .generate_token(
-            "test_token_123",
-            "test_service",
-            &AdminPermissions::default_admin(),
-            &pierre_core::admin::TokenScope {
+    // Mint the token through the repository, the same path `pierre-cli token
+    // generate` takes, so the stored row is whatever the backend writes.
+    let generated = repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: "test_service".to_owned(),
+                service_description: None,
+                permissions: None,
+                expires_in_days: Some(1),
                 is_super_admin: false,
-                expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
                 tenant_id: None,
             },
-            &jwks_manager,
+            jwt_secret,
+            &*jwks_manager,
         )
+        .await
         .unwrap();
-
-    // Generate token hash and prefix for storage
-    let token_prefix = AdminJwtManager::generate_token_prefix(&test_token);
-    let token_hash = AdminJwtManager::hash_token_for_storage(&test_token).unwrap();
-    let jwt_secret_hash = AdminJwtManager::hash_secret(jwt_secret);
-
-    // Store token in database manually
-    let permissions_json = AdminPermissions::default_admin().to_json().unwrap();
-    match &database {
-        Database::SQLite(sqlite_db) => {
-            sqlx::query(
-                r"
-                INSERT INTO admin_tokens (
-                    id, service_name, token_hash, token_prefix,
-                    jwt_secret_hash, permissions, is_super_admin, is_active,
-                    created_at, usage_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ",
-            )
-            .bind("test_token_123")
-            .bind("test_service")
-            .bind(&token_hash)
-            .bind(&token_prefix)
-            .bind(&jwt_secret_hash)
-            .bind(&permissions_json)
-            .bind(false)
-            .bind(true)
-            .bind(chrono::Utc::now())
-            .bind(0)
-            .execute(sqlite_db.pool())
-            .await
-            .unwrap();
-        }
-        #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => {
-            panic!("PostgreSQL not supported in this test");
-        }
-    }
+    let test_token = generated.jwt_token;
 
     // Test authentication
     let result = auth_service

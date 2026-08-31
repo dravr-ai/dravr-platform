@@ -1,4 +1,4 @@
-# ABOUTME: PostgreSQL integration test workflow with smart path triggers.
+# ABOUTME: The per-push backend suite, run against a real PostgreSQL 16 service — every test database is PostgreSQL, refused otherwise.
 # ABOUTME: Runs when ANY crate (crates/**) or migration changes — broad on purpose so a newly-extracted crate can never silently skip the backend suite.
 name: "CI: Backend (PostgreSQL)"
 
@@ -129,27 +129,55 @@ jobs:
           echo "Testing PostgreSQL connection..."
           PGPASSWORD=ci_test_password psql -h localhost -U pierre -d pierre_mcp_server -c "SELECT version();"
 
-      - name: Run PostgreSQL tests (full suite on main, PG-only files on branches)
-        # Both lanes select test FILES and run them one `--test` at a time. A
-        # monolithic `cargo test` linked all ~325 test binaries on one runner and
-        # was OOM-killed (~11min, no output); per-file runs keep only one binary
-        # resident, mirroring the SQLite shards.
+      - name: Tune PostgreSQL for a throwaway server
+        # This server lives for one job and its data is worthless the moment
+        # the job ends, so durability guarantees only cost time: every commit
+        # in every test otherwise waits on an fsync of the WAL. All three are
+        # reload-level settings, so no restart is needed.
+        run: |
+          PGPASSWORD=ci_test_password psql -h localhost -U pierre -d pierre_mcp_server -v ON_ERROR_STOP=1 <<'SQL'
+            ALTER SYSTEM SET fsync = off;
+            ALTER SYSTEM SET synchronous_commit = off;
+            ALTER SYSTEM SET full_page_writes = off;
+            SELECT pg_reload_conf();
+          SQL
+
+      - name: Run PostgreSQL tests (full suite on main and dispatch, PG-only files on branches)
+        # Every test database in this job is PostgreSQL. The factory in
+        # `pierre_database::database::test_utils` clones each test a private
+        # database from a migrated template on the service container; with
+        # PIERRE_TEST_REQUIRE_POSTGRES set it refuses to open SQLite at all,
+        # so a missing or wrong DATABASE_URL fails the test instead of
+        # quietly running the suite on the other backend. For fourteen months
+        # this lane ran ~90% of its files on in-memory SQLite that way: the
+        # test factories hardcoded `sqlite::memory:` and the `postgresql`
+        # feature only changed a constructor signature. Files named
+        # `*_sqlite_test.rs` test the SQLite backend itself and belong to the
+        # daily SQLite shards in ci-backend.yml, not here.
         #
-        # Main/schedule: every test file, partitioned round-robin across 4 shards.
-        # Feature branches: the `*_postgresql_test.rs` files — the ones whose
-        # failure shape is PostgreSQL-only — across the same 4 shards. This lane
-        # used to pass `database_plugins` as a bare argument, which cargo reads as
-        # a test-NAME filter; every PostgreSQL test is named `test_pg_*`, so the
-        # filter matched nothing and the branch lane reported green having run
-        # zero tests. An empty selection now fails the job instead.
+        # Both lanes select test FILES. The shard's binaries are built in one
+        # `cargo test --no-run` first, then each file runs on its own: a
+        # monolithic `cargo test` over all ~500 binaries was OOM-killed on one
+        # runner (~11min, no output), while building only a shard's quarter and
+        # running one binary at a time keeps memory bounded. Building first
+        # rather than per file removes ~170 cargo start-ups from every shard.
+        #
+        # Main/schedule/dispatch: every test file, partitioned round-robin
+        # across 4 shards. Feature branches: the `*_postgresql_test.rs` files —
+        # the ones whose failure shape is PostgreSQL-only — across the same 4
+        # shards. This lane used to pass `database_plugins` as a bare argument,
+        # which cargo reads as a test-NAME filter; every PostgreSQL test is
+        # named `test_pg_*`, so the filter matched nothing and the branch lane
+        # reported green having run zero tests. An empty selection now fails
+        # the job instead.
         # Using --test-threads=4 - concurrent tests use #[serial] for isolation (issue #36)
         run: |
           SHARD=${{ matrix.shard }}
           SHARDS=4
-          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ]; then
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             LANE="full suite"
             mapfile -t ALL_TESTS < <(
-              find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
+              find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -not -name '*_sqlite_test.rs' -printf '%f\n' \
                 | sed 's/\.rs$//' \
                 | grep -v '^common$' \
                 | sort
@@ -178,6 +206,26 @@ jobs:
             exit 0
           fi
           printf '  %s\n' "${SHARD_TESTS[@]}"
+          if [ "$SHARD" -eq 1 ]; then
+            # pierre-database's own suite carries the test-database factory's
+            # contract test — the one that proves a PostgreSQL DATABASE_URL
+            # yields PostgreSQL. It is the only crate suite outside
+            # pierre-server that opens a database, so it rides on shard 1
+            # rather than paying for a fifth service container.
+            echo "::group::pierre-database crate tests"
+            if ! cargo test -p pierre-database --features postgresql -- --test-threads=4; then
+              echo "::error::pierre-database crate tests failed"
+              exit 1
+            fi
+            echo "::endgroup::"
+          fi
+          echo "::group::build shard binaries"
+          TEST_ARGS=()
+          for test_file in "${SHARD_TESTS[@]}"; do
+            TEST_ARGS+=(--test "$test_file")
+          done
+          cargo test --features postgresql --no-run "${TEST_ARGS[@]}"
+          echo "::endgroup::"
           FAILED=0
           for test_file in "${SHARD_TESTS[@]}"; do
             echo "::group::$test_file"
@@ -191,6 +239,7 @@ jobs:
         timeout-minutes: 75
         env:
           DATABASE_URL: "postgresql://pierre:ci_test_password@localhost:5432/pierre_mcp_server"
+          PIERRE_TEST_REQUIRE_POSTGRES: "1"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"
@@ -209,3 +258,18 @@ jobs:
           POSTGRES_ACQUIRE_TIMEOUT: "20"
           RUST_LOG: "info"
           USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
+
+      - name: Prove the shard ran on PostgreSQL
+        # The factory builds its template database on first use and names it
+        # after the embedded migration set. No template means no test opened a
+        # PostgreSQL database — whatever the step above reported, this shard
+        # has not validated the production backend, and says so.
+        if: always()
+        run: |
+          TEMPLATES=$(PGPASSWORD=ci_test_password psql -h localhost -U pierre -d pierre_mcp_server -tAc \
+            "SELECT count(*) FROM pg_database WHERE datname LIKE 'pierre_tpl_%'")
+          echo "PostgreSQL template databases: ${TEMPLATES}"
+          if [ "${TEMPLATES:-0}" -lt 1 ]; then
+            echo "::error::no test in this shard opened a PostgreSQL database — the lane did not run on PostgreSQL"
+            exit 1
+          fi

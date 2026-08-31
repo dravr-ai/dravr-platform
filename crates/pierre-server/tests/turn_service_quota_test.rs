@@ -51,6 +51,7 @@ mod turn_service_quota_tests {
     };
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{ConversationTurnId, Tenant, TenantId, User, UserStatus};
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -194,24 +195,48 @@ mod turn_service_quota_tests {
         .unwrap()
     }
 
+    /// Poll until the counter reaches `expected`, returning the last value
+    /// read. Turn accounting settles after the assistant row is persisted, so
+    /// the row's presence does not yet mean the spend is recorded.
+    async fn wait_for_counter(
+        resources: &Arc<ServerContext>,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        counter_type: &str,
+        expected: i64,
+    ) -> i64 {
+        let mut latest = 0;
+        for _ in 0..150 {
+            latest = counter(resources, tenant_id, user_id, counter_type).await;
+            if latest == expected {
+                return latest;
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        latest
+    }
+
     /// Poll `chat_messages` until the turn's assistant row lands under
     /// `tenant_id`, so the counter assertions read a finished turn.
     async fn wait_for_assistant_row(resources: &Arc<ServerContext>, tenant_id: TenantId) -> bool {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
-        for _ in 0..150 {
-            let count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM chat_messages m \
+        const SQL: &str = "SELECT COUNT(*) FROM chat_messages m \
                  JOIN chat_conversations c ON m.conversation_id = c.id \
-                 WHERE c.tenant_id = ?1 AND m.role = 'assistant'",
-            )
-            .bind(tenant_id.to_string())
-            .fetch_one(pool)
-            .await
-            .unwrap();
+                 WHERE c.tenant_id = $1 AND m.role = 'assistant'";
+        let tenant = tenant_id.to_string();
+        for _ in 0..150 {
+            let count: i64 = match resources.coach.database.as_ref() {
+                Database::SQLite(db) => sqlx::query_scalar(SQL)
+                    .bind(&tenant)
+                    .fetch_one(db.pool())
+                    .await
+                    .unwrap(),
+                #[cfg(feature = "postgresql")]
+                Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+                    .bind(&tenant)
+                    .fetch_one(db.pool())
+                    .await
+                    .unwrap(),
+            };
             if count > 0 {
                 return true;
             }
@@ -300,12 +325,12 @@ mod turn_service_quota_tests {
         );
 
         assert_eq!(
-            counter(&resources, athlete_tenant, athlete_id, "daily_messages").await,
+            wait_for_counter(&resources, athlete_tenant, athlete_id, "daily_messages", 1).await,
             1,
             "one Telegram turn must spend exactly one daily message on the athlete's own tenant"
         );
         assert_eq!(
-            counter(&resources, athlete_tenant, athlete_id, "weekly_messages").await,
+            wait_for_counter(&resources, athlete_tenant, athlete_id, "weekly_messages", 1).await,
             1,
             "and exactly one weekly message on the same tenant"
         );

@@ -14,15 +14,20 @@
 
 use std::collections::HashMap;
 
+use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::usage::InsertEmbeddingUsage;
-use pierre_core::models::ConversationTurnId;
+use pierre_core::models::{ConversationTurnId, User};
+use pierre_database::backends::factory::Database;
 use pierre_database::database::llm_usage::InsertLlmUsage;
-use pierre_database::database::test_utils::{create_sqlite_test_db, create_test_db};
+use pierre_database::database::test_utils::create_test_db;
 use pierre_llm::pricing::{
     calculate_cost_with_cache, is_not_per_token_metered, ModelPricing, PricingOverrideMap,
     PricingRegistry, TokenCounts,
 };
-use sqlx::Row;
+#[cfg(feature = "postgresql")]
+use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
+use pierre_mcp_server::config::admin::repository::SetOverrideParams;
+use pierre_mcp_server::config::admin::{AdminConfigManager, AdminConfigRepository};
 
 #[tokio::test]
 async fn test_insert_llm_usage() {
@@ -452,34 +457,35 @@ async fn test_admin_pricing_loader_round_trip() {
     use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
     use pierre_services::pricing_loader;
 
-    let db = create_sqlite_test_db().await.unwrap();
-    let pool = db.sqlite_pool().expect("test db is sqlite");
+    let db = create_test_db().await.unwrap();
 
-    let now = chrono::Utc::now().to_rfc3339();
-    let id = uuid::Uuid::new_v4().to_string();
-    let admin_id = uuid::Uuid::new_v4().to_string();
-    // FK target: users(id). Insert a minimal admin row so the override
-    // satisfies the CHECK + FK constraints.
-    sqlx::query(
-        r"INSERT INTO users (id, email, password_hash, tier, created_at, last_active)
-          VALUES (?1, ?2, 'x', 'enterprise', ?3, ?3)",
-    )
-    .bind(&admin_id)
-    .bind(format!("admin-{admin_id}@test.local"))
-    .bind(&now)
-    .execute(pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        r"INSERT INTO admin_config_overrides
-            (id, category, config_key, config_value, data_type, tenant_id, created_by, created_at, updated_at)
-          VALUES (?1, 'cat_llm_pricing', 'gemini.gemini-2.0-flash', ?2, 'string', NULL, ?3, ?4, ?4)",
-    )
-    .bind(&id)
-    .bind(r#"{"input_per_million": 0.999, "output_per_million": 9.99}"#)
-    .bind(&admin_id)
-    .bind(&now)
-    .execute(pool)
+    // FK target: admin_config_overrides.created_by references users(id), so
+    // the override is attributed to a persisted admin.
+    let admin = User::new(
+        format!("admin-{}@test.local", uuid::Uuid::new_v4()),
+        "x".to_owned(),
+        None,
+    );
+    let admin_id = admin.id.to_string();
+    db.repositories().users.create(&admin).await.unwrap();
+
+    // The row exactly as `PUT /api/admin/config` writes it: a system-wide
+    // (tenant-less) override whose value is the pricing payload as JSON text.
+    let payload = serde_json::json!({"input_per_million": 0.999, "output_per_million": 9.99});
+    let repo: Box<dyn AdminConfigRepository> = match &db {
+        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+    };
+    repo.set_override(SetOverrideParams {
+        category: "cat_llm_pricing",
+        key: "gemini.gemini-2.0-flash",
+        value: &payload,
+        data_type: ConfigDataType::String,
+        admin_user_id: &admin_id,
+        scope: ConfigScope::Global,
+        reason: Some("pricing loader round trip"),
+    })
     .await
     .unwrap();
 
@@ -530,7 +536,7 @@ async fn test_embedding_sink_injection_records_via_instrumented_provider() {
         }
     }
 
-    let db = create_sqlite_test_db().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let sink: Arc<dyn EmbeddingUsageSink> =
         Arc::new(RepositoryEmbeddingSink::new(Arc::clone(&repos.llm_usage)));
@@ -543,16 +549,25 @@ async fn test_embedding_sink_injection_records_via_instrumented_provider() {
     assert_eq!(v.len(), 8);
 
     // The sink wrote a row — we don't have a list-by-tenant query, but a
-    // direct count via the pool confirms persistence.
-    let row = sqlx::query(
-        "SELECT COUNT(*) AS n FROM embedding_usage WHERE tenant_id = ? AND user_id = ?",
-    )
-    .bind("tenant-emb-x")
-    .bind("user-emb-x")
-    .fetch_one(db.sqlite_pool().expect("test db is sqlite"))
-    .await
-    .unwrap();
-    let count: i64 = row.get("n");
+    // direct count on whichever backend the test database is confirms
+    // persistence.
+    const COUNT_ROWS: &str =
+        "SELECT COUNT(*) FROM embedding_usage WHERE tenant_id = $1 AND user_id = $2";
+    let count: i64 = match &db {
+        Database::SQLite(sqlite) => sqlx::query_scalar(COUNT_ROWS)
+            .bind("tenant-emb-x")
+            .bind("user-emb-x")
+            .fetch_one(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => sqlx::query_scalar(COUNT_ROWS)
+            .bind("tenant-emb-x")
+            .bind("user-emb-x")
+            .fetch_one(pg.pool())
+            .await
+            .unwrap(),
+    };
     assert_eq!(count, 1);
 }
 

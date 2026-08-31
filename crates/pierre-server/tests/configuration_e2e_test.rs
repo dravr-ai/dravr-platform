@@ -15,11 +15,8 @@ mod common;
 
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_config::environment::{AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig};
 use pierre_core::models::User;
-use pierre_database::backends::factory::Database;
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
@@ -43,24 +40,10 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
     // Initialize server config for tests
     common::init_server_config();
 
-    // Create in-memory database for testing
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            vec![0; 32],
-            &PostgresPoolConfig::default(),
-        )
+    // The database the lane names, through the one test factory
+    let database = common::create_test_database_with_key(vec![0; 32])
         .await
-        .expect("Failed to create test database"),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", vec![0; 32])
-            .await
-            .expect("Failed to create test database"),
-    );
+        .expect("Failed to create test database");
 
     // Create test intelligence
     let _intelligence = Arc::new(ActivityIntelligence::new(

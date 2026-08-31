@@ -11,15 +11,13 @@ use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::{
-    backends::{OAuthTokenRepository, ProfileRepository, UserRepository},
-    database::Database,
-};
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn test_create_and_get_user() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
 
@@ -51,13 +49,18 @@ async fn test_create_and_get_user() {
     };
 
     // Create user
-    let user_id = UserRepository::create(&db, &user)
+    let user_id = db
+        .repositories()
+        .users
+        .create(&user)
         .await
         .expect("Failed to create user");
     assert_eq!(user_id, user.id);
 
     // Get user by ID
     let retrieved = db
+        .repositories()
+        .users
         .get_global(user.id)
         .await
         .expect("Failed to get user")
@@ -68,6 +71,8 @@ async fn test_create_and_get_user() {
 
     // Get user by email
     let retrieved_by_email = db
+        .repositories()
+        .users
         .get_by_email(&user.email)
         .await
         .expect("Failed to get user by email")
@@ -81,11 +86,13 @@ async fn test_get_global_many_batches_users() {
 
     let alice = create_test_user("alice_batch@example.com", Some("Alice".to_owned()));
     let bob = create_test_user("bob_batch@example.com", Some("Bob".to_owned()));
-    UserRepository::create(&db, &alice).await.unwrap();
-    UserRepository::create(&db, &bob).await.unwrap();
+    db.repositories().users.create(&alice).await.unwrap();
+    db.repositories().users.create(&bob).await.unwrap();
 
     let missing = Uuid::new_v4();
     let found = db
+        .repositories()
+        .users
         .get_global_many(&[alice.id, bob.id, missing])
         .await
         .expect("batch fetch failed");
@@ -100,13 +107,18 @@ async fn test_get_global_many_batches_users() {
 #[tokio::test]
 async fn test_get_global_many_empty_input() {
     let db = create_test_database().await;
-    let found = db.get_global_many(&[]).await.expect("empty batch failed");
+    let found = db
+        .repositories()
+        .users
+        .get_global_many(&[])
+        .await
+        .expect("empty batch failed");
     assert!(found.is_empty());
 }
 
 #[tokio::test]
 async fn test_last_active_update() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
 
@@ -138,17 +150,23 @@ async fn test_last_active_update() {
         theme: None,
     };
 
-    UserRepository::create(&db, &user)
+    db.repositories()
+        .users
+        .create(&user)
         .await
         .expect("Failed to create user");
 
     // Update last active
-    db.update_last_active(user.id)
+    db.repositories()
+        .users
+        .update_last_active(user.id)
         .await
         .expect("Failed to update last active");
 
     // Verify update
     let updated = db
+        .repositories()
+        .users
         .get_global(user.id)
         .await
         .expect("Failed to get user")
@@ -160,7 +178,7 @@ async fn test_last_active_update() {
 // Comprehensive Database User Tests
 
 async fn create_test_database() -> Database {
-    Database::new("sqlite::memory:", vec![0u8; 32])
+    create_test_db()
         .await
         .expect("Failed to create test database")
 }
@@ -207,7 +225,7 @@ async fn test_create_user_success() {
     let db = create_test_database().await;
     let user = create_test_user("test@example.com", Some("Test User".to_owned()));
 
-    let result = UserRepository::create(&db, &user).await;
+    let result = db.repositories().users.create(&user).await;
     assert!(result.is_ok());
 
     let created_user_id = result.unwrap();
@@ -221,11 +239,11 @@ async fn test_create_user_duplicate_email() {
     let user2 = create_test_user("duplicate@example.com", Some("User 2".to_owned()));
 
     // First user should succeed
-    let result1 = UserRepository::create(&db, &user1).await;
+    let result1 = db.repositories().users.create(&user1).await;
     assert!(result1.is_ok());
 
     // Second user with same email should fail
-    let result2 = UserRepository::create(&db, &user2).await;
+    let result2 = db.repositories().users.create(&user2).await;
     assert!(result2.is_err());
 }
 
@@ -234,9 +252,9 @@ async fn test_get_user_by_id_existing() {
     let db = create_test_database().await;
     let user = create_test_user("get_test@example.com", Some("Get Test User".to_owned()));
 
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
-    let retrieved_user = db.get_user_by_id(user.id).await.unwrap();
+    let retrieved_user = db.repositories().users.get_global(user.id).await.unwrap();
     assert!(retrieved_user.is_some());
 
     let retrieved_user = retrieved_user.unwrap();
@@ -250,7 +268,12 @@ async fn test_get_user_by_id_nonexistent() {
     let db = create_test_database().await;
     let non_existent_id = Uuid::new_v4();
 
-    let result = db.get_user_by_id(non_existent_id).await.unwrap();
+    let result = db
+        .repositories()
+        .users
+        .get_global(non_existent_id)
+        .await
+        .unwrap();
     assert!(result.is_none());
 }
 
@@ -260,9 +283,9 @@ async fn test_get_user_by_email_existing() {
     let email = "email_test@example.com";
     let user = create_test_user(email, Some("Email Test User".to_owned()));
 
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
-    let retrieved_user = db.get_by_email(email).await.unwrap();
+    let retrieved_user = db.repositories().users.get_by_email(email).await.unwrap();
     assert!(retrieved_user.is_some());
 
     let retrieved_user = retrieved_user.unwrap();
@@ -274,7 +297,12 @@ async fn test_get_user_by_email_existing() {
 async fn test_get_user_by_email_nonexistent() {
     let db = create_test_database().await;
 
-    let result = db.get_by_email("nonexistent@example.com").await.unwrap();
+    let result = db
+        .repositories()
+        .users
+        .get_by_email("nonexistent@example.com")
+        .await
+        .unwrap();
     assert!(result.is_none());
 }
 
@@ -284,9 +312,9 @@ async fn test_get_user_by_email_required_existing() {
     let email = "required_test@example.com";
     let user = create_test_user(email, Some("Required Test User".to_owned()));
 
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
-    let result = db.get_by_email_required(email).await;
+    let result = db.repositories().users.get_by_email_required(email).await;
     assert!(result.is_ok());
 
     let retrieved_user = result.unwrap();
@@ -298,7 +326,11 @@ async fn test_get_user_by_email_required_existing() {
 async fn test_get_user_by_email_required_nonexistent() {
     let db = create_test_database().await;
 
-    let result = db.get_by_email_required("nonexistent@example.com").await;
+    let result = db
+        .repositories()
+        .users
+        .get_by_email_required("nonexistent@example.com")
+        .await;
     assert!(result.is_err());
 }
 
@@ -310,13 +342,13 @@ async fn test_update_last_active_success() {
         Some("Active Test User".to_owned()),
     );
 
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
-    let result = db.update_last_active(user.id).await;
+    let result = db.repositories().users.update_last_active(user.id).await;
     assert!(result.is_ok());
 
     // Verify the user still exists and can be retrieved
-    let updated_user = db.get_user_by_id(user.id).await.unwrap();
+    let updated_user = db.repositories().users.get_global(user.id).await.unwrap();
     assert!(updated_user.is_some());
 }
 
@@ -325,7 +357,11 @@ async fn test_update_last_active_nonexistent() {
     let db = create_test_database().await;
     let non_existent_id = Uuid::new_v4();
 
-    let result = db.update_last_active(non_existent_id).await;
+    let result = db
+        .repositories()
+        .users
+        .update_last_active(non_existent_id)
+        .await;
     // Should not error for non-existent user (UPDATE with no matches)
     assert!(result.is_ok());
 }
@@ -335,21 +371,21 @@ async fn test_get_user_count() {
     let db = create_test_database().await;
 
     // Initially should be 0
-    let count = db.count().await.unwrap();
+    let count = db.repositories().users.count().await.unwrap();
     assert_eq!(count, 0);
 
     // Add a user
     let user1 = create_test_user("count_test1@example.com", Some("Count Test 1".to_owned()));
-    UserRepository::create(&db, &user1).await.unwrap();
+    db.repositories().users.create(&user1).await.unwrap();
 
-    let count = db.count().await.unwrap();
+    let count = db.repositories().users.count().await.unwrap();
     assert_eq!(count, 1);
 
     // Add another user
     let user2 = create_test_user("count_test2@example.com", Some("Count Test 2".to_owned()));
-    UserRepository::create(&db, &user2).await.unwrap();
+    db.repositories().users.create(&user2).await.unwrap();
 
-    let count = db.count().await.unwrap();
+    let count = db.repositories().users.count().await.unwrap();
     assert_eq!(count, 2);
 }
 
@@ -362,21 +398,36 @@ async fn test_get_users_by_status() {
     let mut pending_user = create_test_user("pending@example.com", Some("Pending User".to_owned()));
     pending_user.user_status = UserStatus::Pending;
 
-    db.create(&active_user).await.unwrap();
-    db.create(&pending_user).await.unwrap();
+    db.repositories().users.create(&active_user).await.unwrap();
+    db.repositories().users.create(&pending_user).await.unwrap();
 
     // Get active users
-    let active_users = db.get_by_status("active", None).await.unwrap();
+    let active_users = db
+        .repositories()
+        .users
+        .get_by_status("active", None)
+        .await
+        .unwrap();
     assert_eq!(active_users.len(), 1);
     assert_eq!(active_users[0].email, "active@example.com");
 
     // Get pending users
-    let pending_users = db.get_by_status("pending", None).await.unwrap();
+    let pending_users = db
+        .repositories()
+        .users
+        .get_by_status("pending", None)
+        .await
+        .unwrap();
     assert_eq!(pending_users.len(), 1);
     assert_eq!(pending_users[0].email, "pending@example.com");
 
     // Get non-existent status
-    let suspended_users = db.get_by_status("suspended", None).await.unwrap();
+    let suspended_users = db
+        .repositories()
+        .users
+        .get_by_status("suspended", None)
+        .await
+        .unwrap();
     assert_eq!(suspended_users.len(), 0);
 }
 
@@ -388,12 +439,14 @@ async fn test_update_user_status() {
 
     // Create admin user for approval
     let admin_user = create_test_admin_user("admin@example.com", Some("Admin".to_owned()));
-    UserRepository::create(&db, &admin_user).await.unwrap();
+    db.repositories().users.create(&admin_user).await.unwrap();
 
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     // Update status from pending to active with admin user's UUID
     let result = db
+        .repositories()
+        .users
         .update_status(user.id, UserStatus::Active, Some(admin_user.id))
         .await;
 
@@ -412,6 +465,8 @@ async fn test_update_user_status_nonexistent() {
     let admin_id = Uuid::new_v4();
 
     let result = db
+        .repositories()
+        .users
         .update_status(non_existent_id, UserStatus::Active, Some(admin_id))
         .await;
 
@@ -425,10 +480,14 @@ async fn test_update_user_status_without_approver() {
     let mut user = create_test_user("no_approver@example.com", Some("No Approver".to_owned()));
     user.user_status = UserStatus::Pending;
 
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     // Service token approval without approver UUID
-    let result = db.update_status(user.id, UserStatus::Active, None).await;
+    let result = db
+        .repositories()
+        .users
+        .update_status(user.id, UserStatus::Active, None)
+        .await;
 
     assert!(result.is_ok());
 
@@ -443,7 +502,7 @@ async fn test_update_user_status_without_approver() {
 async fn test_upsert_user_profile() {
     let db = create_test_database().await;
     let user = create_test_user("profile_test@example.com", Some("Profile Test".to_owned()));
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     let profile_data = serde_json::json!({
         "age": 30,
@@ -451,11 +510,20 @@ async fn test_upsert_user_profile() {
         "height": 175
     });
 
-    let result = db.upsert_profile(user.id, profile_data.clone()).await;
+    let result = db
+        .repositories()
+        .profiles
+        .upsert_profile(user.id, profile_data.clone())
+        .await;
     assert!(result.is_ok());
 
     // Verify the profile was stored
-    let retrieved_profile = db.get_profile(user.id).await.unwrap();
+    let retrieved_profile = db
+        .repositories()
+        .profiles
+        .get_profile(user.id)
+        .await
+        .unwrap();
     assert!(retrieved_profile.is_some());
     assert_eq!(retrieved_profile.unwrap(), profile_data);
 }
@@ -465,7 +533,12 @@ async fn test_get_user_profile_nonexistent() {
     let db = create_test_database().await;
     let non_existent_id = Uuid::new_v4();
 
-    let result = db.get_profile(non_existent_id).await.unwrap();
+    let result = db
+        .repositories()
+        .profiles
+        .get_profile(non_existent_id)
+        .await
+        .unwrap();
     assert!(result.is_none());
 }
 
@@ -473,10 +546,15 @@ async fn test_get_user_profile_nonexistent() {
 async fn test_user_fitness_profile() {
     let db = create_test_database().await;
     let user = create_test_user("fitness_test@example.com", Some("Fitness Test".to_owned()));
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
-    // Just test that the method exists and returns None for a user without fitness profile
-    let retrieved_profile = db.get_user_fitness_profile(user.id).await.unwrap();
+    // A user without a stored profile reads back as None
+    let retrieved_profile = db
+        .repositories()
+        .profiles
+        .get_profile(user.id)
+        .await
+        .unwrap();
     assert!(retrieved_profile.is_none());
 }
 
@@ -486,7 +564,7 @@ async fn test_provider_last_sync() {
 
     let db = create_test_database().await;
     let user = create_test_user("sync_test@example.com", Some("Sync Test".to_owned()));
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     let provider = "strava";
     let sync_time = Utc::now();
@@ -502,16 +580,24 @@ async fn test_provider_last_sync() {
         Some(Utc::now() + chrono::Duration::hours(6)),
         Some("read_all".to_owned()),
     );
-    db.upsert_token(&token_data).await.unwrap();
+    db.repositories()
+        .oauth_tokens
+        .upsert_token(&token_data)
+        .await
+        .unwrap();
 
     // Update last sync (scoped to tenant)
     let update_result = db
+        .repositories()
+        .oauth_tokens
         .update_provider_last_sync(user.id, test_tenant_id, provider, sync_time)
         .await;
     assert!(update_result.is_ok());
 
     // Get last sync (scoped to tenant)
     let retrieved_sync = db
+        .repositories()
+        .oauth_tokens
         .get_provider_last_sync(user.id, test_tenant_id, provider)
         .await
         .unwrap();
@@ -528,6 +614,8 @@ async fn test_get_provider_last_sync_nonexistent() {
     let non_existent_id = Uuid::new_v4();
 
     let result = db
+        .repositories()
+        .oauth_tokens
         .get_provider_last_sync(non_existent_id, TenantId::generate(), "strava")
         .await
         .unwrap();
@@ -540,7 +628,7 @@ async fn test_get_provider_last_sync_never_synced_row_is_none() {
 
     let db = create_test_database().await;
     let user = create_test_user("never_synced@example.com", Some("Never Synced".to_owned()));
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     // Token row exists but update_provider_last_sync was never called, so the
     // last_sync column is NULL. The read must return Ok(None), not a decode
@@ -556,9 +644,15 @@ async fn test_get_provider_last_sync_never_synced_row_is_none() {
         None,
         None,
     );
-    db.upsert_token(&token_data).await.unwrap();
+    db.repositories()
+        .oauth_tokens
+        .upsert_token(&token_data)
+        .await
+        .unwrap();
 
     let result = db
+        .repositories()
+        .oauth_tokens
         .get_provider_last_sync(user.id, test_tenant_id, "sciotte")
         .await
         .unwrap();
@@ -575,11 +669,11 @@ async fn test_database_migrations() {
         "migration_test@example.com",
         Some("Migration Test".to_owned()),
     );
-    let result = UserRepository::create(&db, &user).await;
+    let result = db.repositories().users.create(&user).await;
     assert!(result.is_ok());
 
     // Verify the user can be retrieved
-    let retrieved = db.get_user_by_id(user.id).await.unwrap();
+    let retrieved = db.repositories().users.get_global(user.id).await.unwrap();
     assert!(retrieved.is_some());
 }
 
@@ -596,9 +690,15 @@ async fn test_user_serialization_in_database() {
     user.user_status = UserStatus::Active;
     user.is_admin = true;
 
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
-    let retrieved = db.get_user_by_id(user.id).await.unwrap().unwrap();
+    let retrieved = db
+        .repositories()
+        .users
+        .get_global(user.id)
+        .await
+        .unwrap()
+        .unwrap();
 
     // Verify all fields are correctly serialized/deserialized
     assert_eq!(retrieved.id, user.id);
@@ -618,7 +718,7 @@ async fn test_user_with_encrypted_tokens() {
 
     let now = Utc::now();
     let user = create_test_user("tokens_test@example.com", Some("Tokens Test".to_owned()));
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     // Tokens are stored in user_oauth_tokens table, not in users table
     let test_tenant_id = TenantId::generate();
@@ -631,14 +731,26 @@ async fn test_user_with_encrypted_tokens() {
         Some(now + chrono::Duration::hours(6)),
         Some("read_all,activity:read".to_owned()),
     );
-    db.upsert_token(&token_data).await.unwrap();
+    db.repositories()
+        .oauth_tokens
+        .upsert_token(&token_data)
+        .await
+        .unwrap();
 
     // User retrieval should not include tokens (they're loaded separately)
-    let retrieved = db.get_user_by_id(user.id).await.unwrap().unwrap();
+    let retrieved = db
+        .repositories()
+        .users
+        .get_global(user.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(retrieved.strava_token.is_none()); // Tokens are loaded separately
 
     // Verify token via dedicated OAuth token API
     let oauth_token = db
+        .repositories()
+        .oauth_tokens
         .get_token(user.id, test_tenant_id, "strava")
         .await
         .unwrap();
@@ -656,14 +768,16 @@ async fn test_user_status_transitions() {
     let mut user = create_test_user("transition@example.com", Some("Transition Test".to_owned()));
     user.user_status = UserStatus::Pending;
 
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     // Create admin for approvals
     let admin = create_test_admin_user("admin@example.com", Some("Admin".to_owned()));
-    UserRepository::create(&db, &admin).await.unwrap();
+    db.repositories().users.create(&admin).await.unwrap();
 
     // Transition: Pending -> Active
     let active_user = db
+        .repositories()
+        .users
         .update_status(user.id, UserStatus::Active, Some(admin.id))
         .await
         .unwrap();
@@ -672,6 +786,8 @@ async fn test_user_status_transitions() {
 
     // Transition: Active -> Suspended (approved_by is only set when activating)
     let suspended_user = db
+        .repositories()
+        .users
         .update_status(user.id, UserStatus::Suspended, Some(admin.id))
         .await
         .unwrap();
@@ -679,6 +795,8 @@ async fn test_user_status_transitions() {
 
     // Transition: Suspended -> Active (reactivation)
     let reactivated_user = db
+        .repositories()
+        .users
         .update_status(user.id, UserStatus::Active, Some(admin.id))
         .await
         .unwrap();
@@ -689,20 +807,35 @@ async fn test_user_status_transitions() {
 async fn test_set_admin_status_promote_demote() {
     let db = create_test_database().await;
     let user = create_test_user("promote@example.com", Some("Promote Me".to_owned()));
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     // Promote to admin
-    let promoted = db.set_admin_status(user.id, true).await.unwrap();
+    let promoted = db
+        .repositories()
+        .users
+        .set_admin_status(user.id, true)
+        .await
+        .unwrap();
     assert!(promoted.is_admin);
     assert_eq!(promoted.role, UserRole::Admin);
 
     // Idempotency: promoting an already-admin user is safe
-    let repromoted = db.set_admin_status(user.id, true).await.unwrap();
+    let repromoted = db
+        .repositories()
+        .users
+        .set_admin_status(user.id, true)
+        .await
+        .unwrap();
     assert!(repromoted.is_admin);
     assert_eq!(repromoted.role, UserRole::Admin);
 
     // Demote to user
-    let demoted = db.set_admin_status(user.id, false).await.unwrap();
+    let demoted = db
+        .repositories()
+        .users
+        .set_admin_status(user.id, false)
+        .await
+        .unwrap();
     assert!(!demoted.is_admin);
     assert_eq!(demoted.role, UserRole::User);
 }
@@ -714,11 +847,17 @@ async fn test_set_admin_status_preserves_super_admin_on_promote() {
     let mut user = create_test_user("super@example.com", Some("Super".to_owned()));
     user.is_admin = true;
     user.role = UserRole::SuperAdmin;
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     // Verify role persisted from create (guards against SELECT queries
     // that forget to include the role column)
-    let after_create = db.get_global(user.id).await.unwrap().unwrap();
+    let after_create = db
+        .repositories()
+        .users
+        .get_global(user.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         after_create.role,
         UserRole::SuperAdmin,
@@ -726,7 +865,12 @@ async fn test_set_admin_status_preserves_super_admin_on_promote() {
     );
 
     // Re-promoting should preserve SuperAdmin (not downgrade to Admin)
-    let result = db.set_admin_status(user.id, true).await.unwrap();
+    let result = db
+        .repositories()
+        .users
+        .set_admin_status(user.id, true)
+        .await
+        .unwrap();
     assert!(result.is_admin);
     assert_eq!(result.role, UserRole::SuperAdmin);
 }
@@ -737,17 +881,25 @@ async fn test_set_admin_status_rejects_super_admin_demote() {
     let mut user = create_test_user("sa_protect@example.com", Some("SA Protect".to_owned()));
     user.is_admin = true;
     user.role = UserRole::SuperAdmin;
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
     // Demoting a super-admin must fail
-    let result = db.set_admin_status(user.id, false).await;
+    let result = db
+        .repositories()
+        .users
+        .set_admin_status(user.id, false)
+        .await;
     assert!(result.is_err(), "super-admin demote must be rejected");
 }
 
 #[tokio::test]
 async fn test_set_admin_status_nonexistent_user() {
     let db = create_test_database().await;
-    let result = db.set_admin_status(Uuid::new_v4(), true).await;
+    let result = db
+        .repositories()
+        .users
+        .set_admin_status(Uuid::new_v4(), true)
+        .await;
     assert!(result.is_err(), "nonexistent user promote must fail");
 }
 
@@ -757,19 +909,19 @@ async fn test_list_admins_returns_only_admins() {
 
     // Seed 1 admin, 1 super-admin, 2 regular users
     let admin = create_test_admin_user("admin1@example.com", Some("Admin 1".to_owned()));
-    UserRepository::create(&db, &admin).await.unwrap();
+    db.repositories().users.create(&admin).await.unwrap();
 
     let mut super_admin = create_test_user("super1@example.com", Some("Super 1".to_owned()));
     super_admin.is_admin = true;
     super_admin.role = UserRole::SuperAdmin;
-    UserRepository::create(&db, &super_admin).await.unwrap();
+    db.repositories().users.create(&super_admin).await.unwrap();
 
     let user1 = create_test_user("user1@example.com", Some("User 1".to_owned()));
-    UserRepository::create(&db, &user1).await.unwrap();
+    db.repositories().users.create(&user1).await.unwrap();
     let user2 = create_test_user("user2@example.com", Some("User 2".to_owned()));
-    UserRepository::create(&db, &user2).await.unwrap();
+    db.repositories().users.create(&user2).await.unwrap();
 
-    let admins = db.list_admins().await.unwrap();
+    let admins = db.repositories().users.list_admins().await.unwrap();
     assert_eq!(admins.len(), 2);
     // Results are ordered by email ascending
     assert_eq!(admins[0].email, "admin1@example.com");
@@ -781,9 +933,9 @@ async fn test_list_admins_returns_only_admins() {
 async fn test_list_admins_empty() {
     let db = create_test_database().await;
     let user = create_test_user("plain@example.com", Some("Plain".to_owned()));
-    UserRepository::create(&db, &user).await.unwrap();
+    db.repositories().users.create(&user).await.unwrap();
 
-    let admins = db.list_admins().await.unwrap();
+    let admins = db.repositories().users.list_admins().await.unwrap();
     assert!(admins.is_empty());
 }
 
@@ -801,7 +953,10 @@ async fn test_concurrent_user_operations() {
                 &format!("concurrent_{i}@example.com"),
                 Some(format!("User {i}")),
             );
-            UserRepository::create(&db_clone, &user)
+            db_clone
+                .repositories()
+                .users
+                .create(&user)
                 .await
                 .map(|_| user.id)
         });
@@ -819,12 +974,12 @@ async fn test_concurrent_user_operations() {
     assert_eq!(user_ids.len(), 10);
 
     // Verify count
-    let count = db.count().await.unwrap();
+    let count = db.repositories().users.count().await.unwrap();
     assert_eq!(count, 10);
 
     // Verify all users can be retrieved
     for user_id in user_ids {
-        let user = db.get_user_by_id(user_id).await.unwrap();
+        let user = db.repositories().users.get_global(user_id).await.unwrap();
         assert!(user.is_some());
     }
 }
@@ -848,13 +1003,19 @@ async fn test_user_tier_operations() {
         );
         user.tier = tier.clone();
 
-        let user_id = UserRepository::create(&db, &user).await.unwrap();
+        let user_id = db.repositories().users.create(&user).await.unwrap();
         user_ids.push((user_id, tier.clone()));
     }
 
     // Verify tiers are stored correctly
     for (user_id, expected_tier) in user_ids {
-        let user = db.get_user_by_id(user_id).await.unwrap().unwrap();
+        let user = db
+            .repositories()
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(user.tier, expected_tier);
     }
 }

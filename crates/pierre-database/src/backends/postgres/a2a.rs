@@ -187,7 +187,7 @@ impl A2ARepository for PostgresDatabase {
                    redirect_uris, contact_email, is_active, rate_limit_per_minute, 
                    rate_limit_per_day, created_at, updated_at
             FROM a2a_clients
-            WHERE user_id = $1
+            WHERE user_id = $1 AND is_active = true
             ORDER BY created_at DESC
             ",
         )
@@ -398,14 +398,14 @@ impl A2ARepository for PostgresDatabase {
 
         let mut sessions = Vec::new();
         for row in rows {
-            // user_id is a canonical NOT NULL UUID column; granted_scopes is TEXT[].
-            let user_id: Uuid = row.get("user_id");
+            // user_id is NULL for a client-keyed session; granted_scopes is TEXT[].
+            let user_id: Option<Uuid> = row.get("user_id");
             let granted_scopes: Vec<String> = row.get("granted_scopes");
 
             sessions.push(A2ASession {
                 id: row.get("session_token"),
                 client_id: row.get("client_id"),
-                user_id: Some(user_id),
+                user_id,
                 granted_scopes,
                 created_at: row.get("created_at"),
                 expires_at: row.get("expires_at"),

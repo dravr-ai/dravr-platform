@@ -142,7 +142,7 @@ impl SecurityRepository for PostgresDatabase {
 
         let mut query = r"
             SELECT id, event_type, severity, message, source, result,
-                   tenant_id, user_id, ip_address, user_agent, metadata, timestamp
+                   tenant_id, user_id, host(ip_address) AS ip_address, user_agent, metadata, timestamp
             FROM audit_events
             WHERE true
         "

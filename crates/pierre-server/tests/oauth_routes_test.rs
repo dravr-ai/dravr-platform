@@ -24,7 +24,8 @@ use pierre_config::environment::{
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::{backends::factory::Database, database::generate_encryption_key};
+use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, LoginRequest, RegisterRequest};
 use std::sync::Arc;
@@ -34,19 +35,7 @@ async fn test_email_validation() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     let temp_dir = tempfile::tempdir().unwrap();
@@ -261,19 +250,7 @@ async fn test_password_validation() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     let temp_dir = tempfile::tempdir().unwrap();
@@ -460,19 +437,7 @@ async fn test_duplicate_user_registration() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     let temp_dir = tempfile::tempdir().unwrap();
@@ -650,19 +615,7 @@ async fn test_login_with_correct_credentials() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     let temp_dir = tempfile::tempdir().unwrap();
@@ -894,19 +847,7 @@ async fn test_login_with_wrong_password() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     let temp_dir = tempfile::tempdir().unwrap();
@@ -1092,19 +1033,7 @@ async fn test_login_with_non_existent_user() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     let temp_dir = tempfile::tempdir().unwrap();

@@ -22,12 +22,21 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConversationTurnId, InsertLlmUsage, TenantId, TURN_SUMMARY_CALL_TYPE};
 use pierre_core::models::{Tenant, User, UserStatus};
 use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::LlmConsumptionRoutes;
 use serde_json::Value;
 use serial_test::serial;
 use std::sync::Arc;
 use uuid::Uuid;
+
+/// A plain `member` membership row, so the endpoint's role check has something to reject.
+const INSERT_MEMBER: &str =
+    "INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at) \
+     VALUES ($1, $2, $3, 'member', $4, $5)";
+
+/// Drops the membership `tenants.create` seeds for the owner.
+const DELETE_MEMBERSHIP: &str = "DELETE FROM tenant_users WHERE user_id = $1 AND tenant_id = $2";
 
 fn build_router(resources: Arc<ServerContext>) -> axum::Router {
     LlmConsumptionRoutes::routes(resources)
@@ -130,29 +139,46 @@ async fn create_regular_user_and_token(
     // Demote the user from the default `owner` role that `tenants.create`
     // inserts — the endpoint rejects anything that is not admin or owner,
     // so this lets us exercise that branch.
-    let pool = resources
-        .coach
-        .database
-        .sqlite_pool()
-        .expect("test fixture runs against SQLite");
-    sqlx::query("DELETE FROM tenant_users WHERE user_id = ?1 AND tenant_id = ?2")
-        .bind(user_id.to_string())
-        .bind(tenant_id)
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at) \
-         VALUES (?, ?, ?, 'member', ?, ?)",
-    )
-    .bind(Uuid::new_v4().to_string())
-    .bind(tenant_id)
-    .bind(user_id.to_string())
-    .bind(chrono::Utc::now().to_rfc3339())
-    .bind(chrono::Utc::now().to_rfc3339())
-    .execute(pool)
-    .await
-    .unwrap();
+    let now = chrono::Utc::now();
+    match resources.coach.database.as_ref() {
+        Database::SQLite(db) => {
+            sqlx::query(DELETE_MEMBERSHIP)
+                .bind(user_id.to_string())
+                .bind(tenant_id)
+                .execute(db.pool())
+                .await
+                .unwrap();
+            sqlx::query(INSERT_MEMBER)
+                .bind(Uuid::new_v4().to_string())
+                .bind(tenant_id)
+                .bind(user_id.to_string())
+                .bind(now.to_rfc3339())
+                .bind(now.to_rfc3339())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        // `tenant_users` keys are `uuid` columns and the timestamps are
+        // `timestamptz` on PostgreSQL, so the binds carry the native types.
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            sqlx::query(DELETE_MEMBERSHIP)
+                .bind(user_id)
+                .bind(tenant_id.as_uuid())
+                .execute(db.pool())
+                .await
+                .unwrap();
+            sqlx::query(INSERT_MEMBER)
+                .bind(Uuid::new_v4())
+                .bind(tenant_id.as_uuid())
+                .bind(user_id)
+                .bind(now)
+                .bind(now)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
 
     let token = generate_test_token(resources, &user).await;
     (tenant_id, format!("Bearer {token}"))

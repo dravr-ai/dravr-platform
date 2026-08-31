@@ -21,14 +21,13 @@ use pierre_core::models::{
 };
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
+use pierre_database::database::test_utils::{create_sqlite_test_db, create_test_db};
 use pierre_database::{
     backends::factory::Database, database::AddMessageParams, repositories::SyncCursorRow,
     repository_registry::RepositoryRegistry,
 };
 use std::sync::Arc;
 use uuid::Uuid;
-
-mod common;
 
 // ============================================================================
 // Tool Selection Parity Tests
@@ -37,10 +36,7 @@ mod common;
 /// Test that both `SQLite` and `PostgreSQL` return the same tool catalog
 #[tokio::test]
 async fn test_parity_tool_catalog() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
@@ -80,10 +76,7 @@ async fn test_parity_tool_catalog() {
 /// Test that both backends return the same tool entry by name
 #[tokio::test]
 async fn test_parity_get_tool_catalog_entry() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
@@ -134,10 +127,7 @@ async fn test_parity_get_tool_catalog_entry() {
 /// Test that both filter by category the same way
 #[tokio::test]
 async fn test_parity_tools_by_category() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
@@ -176,10 +166,7 @@ async fn test_parity_tools_by_category() {
 /// Test that both filter by plan the same way
 #[tokio::test]
 async fn test_parity_tools_by_min_plan() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
@@ -214,10 +201,7 @@ async fn test_parity_tools_by_min_plan() {
 /// Test that tenant tool override operations behave identically
 #[tokio::test]
 async fn test_parity_tenant_tool_overrides() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
@@ -298,10 +282,7 @@ async fn test_parity_tenant_tool_overrides() {
 /// Test that conversation creation behaves identically
 #[tokio::test]
 async fn test_parity_chat_create_conversation() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
@@ -353,10 +334,7 @@ async fn test_parity_chat_create_conversation() {
 /// Test that message operations behave identically
 #[tokio::test]
 async fn test_parity_chat_messages() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
@@ -490,10 +468,7 @@ async fn test_parity_chat_messages() {
 /// Test that listing conversations behaves identically
 #[tokio::test]
 async fn test_parity_chat_list_conversations() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
@@ -590,10 +565,7 @@ fn micros(ts: DateTime<Utc>) -> DateTime<Utc> {
 /// fails here instead of in production.
 #[tokio::test]
 async fn test_parity_sync_cursor_roundtrip() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -699,10 +671,7 @@ async fn test_parity_sync_cursor_roundtrip() {
 /// choice (no INT4/native-uuid decode surprise) against a real `PostgreSQL`.
 #[tokio::test]
 async fn test_parity_user_onboarding() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -822,10 +791,7 @@ async fn seed_data_source(
 /// `data_source_id` foreign keys.
 #[tokio::test]
 async fn test_parity_data_source_upsert_stable_id() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -897,10 +863,7 @@ async fn test_parity_data_source_upsert_stable_id() {
 /// (`Row::get` unwraps the mismatched-width decode).
 #[tokio::test]
 async fn test_parity_recovery_metrics_roundtrip() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -977,10 +940,7 @@ async fn test_parity_recovery_metrics_roundtrip() {
 /// fix, on both backends.
 #[tokio::test]
 async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -1062,10 +1022,7 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
 /// `bp_diastolic`, which were decoded as `i64` and panicked when non-NULL.
 #[tokio::test]
 async fn test_parity_health_snapshot_roundtrip() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -1125,10 +1082,7 @@ async fn test_parity_health_snapshot_roundtrip() {
 /// with a USDA-validated ingredient was read on `PostgreSQL`.
 #[tokio::test]
 async fn test_parity_recipe_ingredient_fdc_id_roundtrip() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -1175,10 +1129,7 @@ async fn test_parity_recipe_ingredient_fdc_id_roundtrip() {
 /// the BIGINT count decodes) on both backends.
 #[tokio::test]
 async fn test_parity_api_key_top_tools_analysis() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -1260,10 +1211,7 @@ async fn test_parity_api_key_top_tools_analysis() {
 /// dropped it to a silent 0 via `try_get().ok()`; this path failed loud).
 #[tokio::test]
 async fn test_parity_api_key_stats() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -1348,10 +1296,7 @@ async fn test_parity_api_key_stats() {
 /// PRECISION` cast landed. Mirrors `test_parity_api_key_stats` for the A2A path.
 #[tokio::test]
 async fn test_parity_a2a_usage_stats() {
-    let Some((sqlite_db, pg_db, _pg_handle)) = create_both_databases().await else {
-        eprintln!("Skipping parity test: PostgreSQL not available");
-        return;
-    };
+    let (sqlite_db, pg_db) = create_both_databases().await;
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
@@ -1453,32 +1398,19 @@ async fn test_parity_a2a_usage_stats() {
 // ============================================================================
 
 /// Create both `SQLite` and `PostgreSQL` test databases.
-/// Returns None if `PostgreSQL` is not available.
-async fn create_both_databases(
-) -> Option<(Arc<Database>, Arc<Database>, common::IsolatedPostgresDb)> {
-    // Create SQLite database
-    let sqlite_db = common::create_test_database()
+///
+/// The `SQLite` side is opened explicitly — this file compares the two
+/// dialects, so it is the one place a `PostgreSQL`-lane test opens `SQLite`
+/// on purpose. The `PostgreSQL` side comes from the factory, which honours
+/// `DATABASE_URL` and refuses `SQLite` on the lane that requires it.
+async fn create_both_databases() -> (Arc<Database>, Arc<Database>) {
+    let sqlite_db = create_sqlite_test_db()
         .await
         .expect("Failed to create SQLite test database");
-
-    // Try to create PostgreSQL database
-    let (pg_db, pg_handle) = match common::IsolatedPostgresDb::new().await {
-        Ok(isolated_db) => {
-            let db = isolated_db
-                .get_database()
-                .await
-                .expect("Failed to get PostgreSQL database");
-            (Arc::new(db), isolated_db)
-        }
-        Err(e) => {
-            eprintln!("PostgreSQL not available: {e}");
-            return None;
-        }
-    };
-
-    // Return the IsolatedPostgresDb handle to keep it alive — dropping it
-    // terminates connections and drops the test database.
-    Some((sqlite_db, pg_db, pg_handle))
+    let pg_db = create_test_db()
+        .await
+        .expect("Failed to create PostgreSQL test database");
+    (Arc::new(sqlite_db), Arc::new(pg_db))
 }
 
 /// Create a test user with an associated tenant.

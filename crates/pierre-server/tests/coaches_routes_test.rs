@@ -16,7 +16,7 @@ use common::{
 };
 use helpers::axum_test::AxumTestRequest;
 use pierre_database::database::coaches::{
-    CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest,
+    CoachCategory, CoachVisibility, CreateSystemCoachRequest,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
@@ -614,8 +614,7 @@ async fn test_system_coaches_visible_in_list() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach directly in the database
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool);
+    let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Platform Coach".to_owned(),
         description: Some("A system-wide coach".to_owned()),
@@ -678,8 +677,7 @@ async fn test_get_system_coach_by_id() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool);
+    let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Retrievable Coach".to_owned(),
         description: None,
@@ -733,8 +731,7 @@ async fn test_hide_system_coach_via_api() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool);
+    let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Hideable Coach".to_owned(),
         description: None,
@@ -795,8 +792,7 @@ async fn test_show_hidden_coach_via_api() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool.clone());
+    let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Show Me Coach".to_owned(),
         description: None,
@@ -863,8 +859,7 @@ async fn test_list_with_include_hidden() {
     let tenant_id = user_tenant.id;
 
     // Create a system coach
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool.clone());
+    let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Hidden But Findable".to_owned(),
         description: None,

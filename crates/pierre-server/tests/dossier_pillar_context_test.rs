@@ -12,11 +12,10 @@ use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
@@ -99,18 +98,8 @@ fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
     (events, guard)
 }
 
-async fn open_in_memory_db() -> Result<Database> {
-    let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
-    Ok(db)
+async fn open_test_db() -> Result<Database> {
+    Ok(create_test_db_with_key(generate_encryption_key().to_vec()).await?)
 }
 
 async fn seed_fact(
@@ -145,7 +134,7 @@ async fn seed_fact(
 
 #[tokio::test]
 async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
@@ -209,7 +198,7 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
     // fact fetch. A PAR-Q flag captured once at onboarding, then buried under
     // more than FACT_BUNDLE_LIMIT newer conversation facts, must still reach the
     // dossier's medical bucket via the by-kind safety fetch.
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
@@ -254,7 +243,7 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
 
 #[tokio::test]
 async fn dossier_facts_are_tenant_scoped() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let repos = db.repositories();
     let tenant_a = TenantId::from_uuid(Uuid::new_v4());
     let tenant_b = TenantId::from_uuid(Uuid::new_v4());
@@ -298,18 +287,25 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     // and the user, the same way the neighbouring `get_profile` degrade does.
     // Silently returning an empty vec strips medical flags and every
     // interview answer from the coach's context with no operator signal.
-    let db = open_in_memory_db().await?;
+    let db = open_test_db().await?;
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();
     let user_s = user.to_string();
 
     // Take the fact table away so every fact read in compose_dossier fails.
-    let pool = match &db {
-        Database::SQLite(sqlite) => sqlite.pool(),
+    match &db {
+        Database::SQLite(sqlite) => {
+            sqlx::query("DROP TABLE user_facts")
+                .execute(sqlite.pool())
+                .await?;
+        }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => panic!("test expects the SQLite backend"),
-    };
-    sqlx::query("DROP TABLE user_facts").execute(pool).await?;
+        Database::PostgreSQL(pg) => {
+            sqlx::query("DROP TABLE user_facts")
+                .execute(pg.pool())
+                .await?;
+        }
+    }
 
     let repos = db.repositories();
     let (events, _guard) = setup_capture();

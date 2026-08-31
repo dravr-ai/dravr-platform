@@ -24,13 +24,12 @@ use pierre_auth::{
         TenantOAuthClient, TenantRole,
     },
 };
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_config::environment::{OAuthConfig, OAuthProviderConfig, ServerConfig};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{OAuthApp, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
@@ -54,20 +53,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     common::init_server_config();
 
     // Step 1: Create test database and base infrastructure
-    #[cfg(feature = "postgresql")]
     let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            vec![0; 32],
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .expect("Failed to create test database"),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", vec![0; 32])
+        create_test_db()
             .await
             .expect("Failed to create test database"),
     );
@@ -429,18 +416,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
 
 /// Helper function to create test database for tenant context tests
 async fn create_tenant_test_database() -> Result<Arc<Database>> {
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            vec![0; 32],
-            &PostgresPoolConfig::default(),
-        )
-        .await?,
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(Database::new("sqlite::memory:", vec![0; 32]).await?);
+    let database = Arc::new(create_test_db().await?);
 
     Ok(database)
 }

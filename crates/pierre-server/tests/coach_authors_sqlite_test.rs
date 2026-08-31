@@ -1,5 +1,5 @@
-// ABOUTME: Unit tests for CoachAuthorsManager database operations
-// ABOUTME: Tests CRUD operations for author profiles in the Coach Store
+// ABOUTME: Exercises CoachAuthorsManager, a SQLite-only type with no repository trait and no production caller
+// ABOUTME: LIMITATION(registre#146): coach-author operations have no PostgreSQL implementation, so this file runs on the SQLite lane only
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

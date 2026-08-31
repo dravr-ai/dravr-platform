@@ -20,6 +20,7 @@ mod messaging_quota_enforcement_tests {
     use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_QUOTA_EXCEEDED};
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -33,6 +34,11 @@ mod messaging_quota_enforcement_tests {
     use tokio::task::spawn_blocking;
     use tokio::time::sleep;
     use uuid::Uuid;
+
+    /// Every chat row under a tenant, joined through the conversation that carries the tenant.
+    const CHAT_ROWS_FOR_TENANT: &str = "SELECT COUNT(*) FROM chat_messages m \
+         JOIN chat_conversations c ON m.conversation_id = c.id \
+         WHERE c.tenant_id = $1";
 
     // ════════════════════════════════════════════════════════════════
     // Helpers (mirror messaging_user_status_gate_test scaffolding)
@@ -279,16 +285,20 @@ mod messaging_quota_enforcement_tests {
 
         // The gate runs before the pipeline persists the user message, so a
         // refused turn must leave no chat rows at all.
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let chat_rows: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM chat_messages m \
-             JOIN chat_conversations c ON m.conversation_id = c.id \
-             WHERE c.tenant_id = ?1",
-        )
-        .bind(tenant_id.to_string())
-        .fetch_one(pool)
-        .await
-        .unwrap();
+        let tenant = tenant_id.to_string();
+        let chat_rows: i64 = match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_scalar(CHAT_ROWS_FOR_TENANT)
+                .bind(&tenant)
+                .fetch_one(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_scalar(CHAT_ROWS_FOR_TENANT)
+                .bind(&tenant)
+                .fetch_one(db.pool())
+                .await
+                .unwrap(),
+        };
         assert_eq!(
             chat_rows, 0,
             "a quota-refused turn must not persist any chat message"

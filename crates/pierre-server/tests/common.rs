@@ -27,16 +27,13 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_config::environment::{HttpClientConfig, RateLimitConfig, ServerConfig};
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::ConnectionType;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_database::backends::factory::Database;
-#[cfg(feature = "postgresql")]
-use pierre_database::backends::DatabaseProvider;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_llm::ChatProvider;
 use pierre_mcp_server::{
     constants,
@@ -47,8 +44,6 @@ use pierre_mcp_server::{
 use pierre_middleware::McpAuthMiddleware;
 use pierre_tool_runtime::RuntimeTool;
 use rand::Rng;
-#[cfg(feature = "postgresql")]
-use std::thread;
 use std::{
     env,
     net::TcpListener,
@@ -57,13 +52,8 @@ use std::{
     sync::{Arc, LazyLock, Once},
     time::Duration as StdDuration,
 };
-#[cfg(feature = "postgresql")]
-use tokio::runtime::Builder as RuntimeBuilder;
 use tokio::{net::TcpListener as TokioTcpListener, task::JoinHandle, time::sleep as tokio_sleep};
 use uuid::Uuid;
-
-#[cfg(feature = "postgresql")]
-use sqlx::postgres::PgPoolOptions;
 
 static INIT_LOGGER: Once = Once::new();
 static INIT_HTTP_CLIENTS: Once = Once::new();
@@ -92,7 +82,6 @@ pub fn init_server_config() {
         // flow a test exercises. Do NOT remove this line; it is the local
         // half of the outbound-email flood guard.
         env::set_var("CI", "true");
-        env::set_var("DATABASE_URL", "sqlite::memory:");
 
         // Point the messaging command loader at the repo-root `commands/`
         // directory so command handlers are populated in the test
@@ -175,37 +164,21 @@ pub fn init_test_http_clients() {
     });
 }
 
-/// Standard test database setup
+/// Standard test database setup.
+///
+/// Opens whatever backend `DATABASE_URL` names — a private `PostgreSQL`
+/// database on the CI lane, in-memory `SQLite` locally — through the one
+/// factory in `pierre_database::database::test_utils`. Tests never spell a
+/// database URL themselves; that is how this suite ran `SQLite` under the
+/// `PostgreSQL` banner for fourteen months.
 pub async fn create_test_database() -> Result<Arc<Database>> {
-    init_test_logging();
-    let database_url = "sqlite::memory:";
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(database_url, encryption_key, &PostgresPoolConfig::default()).await?,
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(Database::new(database_url, encryption_key).await?);
-
-    Ok(database)
+    create_test_database_with_key(generate_encryption_key().to_vec()).await
 }
 
 /// Standard test database setup with custom encryption key
 pub async fn create_test_database_with_key(encryption_key: Vec<u8>) -> Result<Arc<Database>> {
     init_test_logging();
-    let database_url = "sqlite::memory:";
-
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(database_url, encryption_key, &PostgresPoolConfig::default()).await?,
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(Database::new(database_url, encryption_key).await?);
-
-    Ok(database)
+    Ok(Arc::new(create_test_db_with_key(encryption_key).await?))
 }
 
 /// Get shared test JWKS manager (reused across all tests for performance)
@@ -549,15 +522,7 @@ async fn create_test_server_resources_inner_typed(
     init_test_logging();
     init_test_http_clients();
     init_server_config();
-    let database_url = "sqlite::memory:";
-    let encryption_key = generate_encryption_key().to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let database =
-        Database::new(database_url, encryption_key, &PostgresPoolConfig::default()).await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(database_url, encryption_key).await?;
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
 
     let auth_manager = AuthManager::new(24);
 
@@ -616,28 +581,16 @@ pub async fn setup_server_resources_test_environment() -> Result<(Arc<ServerCont
     Ok((resources, user_id, api_key))
 }
 
-// ✅ IMPORTANT: Test Database Cleanup Best Practices
+// Test databases
 //
-// The accumulated test database files (459 files, 188MB) have been cleaned up.
-// Moving forward, follow these patterns:
-//
-// 1. **CI Environment**: Tests should use `sqlite::memory:` (no files created)
-// 2. **Local Environment**: Use unique test database names with cleanup
-// 3. **Automatic Cleanup**: Run `./scripts/testing/clean-test-databases.sh` before/after tests
-//
-// Example of GOOD test database pattern:
-// ```rust
-// let database_url = if std::env::var("CI").is_ok() {
-//     "sqlite::memory:".to_owned()  // ✅ No files in CI
-// } else {
-//     let test_id = Uuid::new_v4();
-//     let db_path = format!("./test_data/my_test_{}.db", test_id);
-//     let _ = std::fs::remove_file(&db_path);  // ✅ Cleanup before
-//     format!("sqlite:{}", db_path)
-// };
-// ```
-//
-// The lint-and-test.sh script now includes automatic database cleanup.
+// A test never spells a database URL. `create_test_database()` and every
+// `create_test_server_resources*` helper above go through
+// `pierre_database::database::test_utils`, which honours DATABASE_URL: on the
+// PostgreSQL CI lane each call is a private PostgreSQL database cloned from a
+// migrated template and reclaimed once the test is done; anywhere else it is
+// in-memory SQLite, which leaves no files behind. A test that opened SQLite by
+// hand would run SQLite on every lane whatever DATABASE_URL says, which is why
+// `scripts/ci/architectural-validation.sh` rejects it outside `*_sqlite_test.rs`.
 
 // ============================================================================
 // USDA Mock Client for Testing (No Real API Calls)
@@ -1177,190 +1130,6 @@ pub async fn spawn_http_mcp_server(resources: &Arc<ServerContext>) -> Result<Htt
     tokio_sleep(StdDuration::from_millis(500)).await;
 
     Ok(HttpServerHandle { task_handle, port })
-}
-
-// ============================================================================
-// PostgreSQL Test Database Isolation
-// ============================================================================
-// Each PostgreSQL test gets its own unique database to prevent concurrent
-// schema creation conflicts when running with --test-threads=4.
-// See issue #36 for context on the race condition this solves.
-
-/// Handle for an isolated `PostgreSQL` test database with RAII cleanup
-/// Automatically drops the database when the handle goes out of scope
-#[cfg(feature = "postgresql")]
-pub struct IsolatedPostgresDb {
-    /// Connection URL for this isolated test database
-    pub url: String,
-    /// Database name (used for cleanup)
-    pub db_name: String,
-    /// Base URL for connecting to postgres admin database
-    admin_url: String,
-}
-
-#[cfg(feature = "postgresql")]
-impl IsolatedPostgresDb {
-    /// Create a new isolated `PostgreSQL` database for testing
-    ///
-    /// Creates a unique database with UUID suffix to prevent conflicts
-    /// between concurrent tests.
-    ///
-    /// # Errors
-    /// Returns error if database creation fails
-    pub async fn new() -> Result<Self> {
-        let base_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://pierre:ci_test_password@localhost:5432/pierre_mcp_server".to_owned()
-        });
-
-        // Generate unique database name using UUID
-        let db_name = format!("pierre_test_{}", Uuid::new_v4().as_simple());
-
-        // Connect to postgres admin database to create test database
-        let admin_url = base_url
-            .replace("/pierre_mcp_server", "/postgres")
-            .replace("/pierre_test_", "/postgres"); // Handle nested test URLs
-
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(StdDuration::from_secs(10))
-            .connect(&admin_url)
-            .await?;
-
-        // Create the isolated test database
-        sqlx::query(&format!("CREATE DATABASE {db_name}"))
-            .execute(&pool)
-            .await?;
-
-        // Build test database URL
-        let test_url = base_url.replace("/pierre_mcp_server", &format!("/{db_name}"));
-
-        Ok(Self {
-            url: test_url,
-            db_name,
-            admin_url,
-        })
-    }
-
-    /// Get a Database instance connected to this isolated database
-    ///
-    /// # Errors
-    /// Returns error if connection or migration fails
-    pub async fn get_database(&self) -> Result<Database> {
-        let encryption_key = generate_encryption_key().to_vec();
-        let pool_config = PostgresPoolConfig {
-            max_connections: 5,
-            min_connections: 1,
-            acquire_timeout_secs: 30,
-            ..Default::default()
-        };
-
-        let db = Database::new(&self.url, encryption_key, &pool_config).await?;
-        db.migrate().await?;
-
-        Ok(db)
-    }
-
-    /// Cleanup the isolated database
-    /// Called automatically on Drop, but can be called explicitly
-    async fn cleanup(&self) -> Result<()> {
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(StdDuration::from_secs(5))
-            .connect(&self.admin_url)
-            .await?;
-
-        // Terminate all connections to the test database first
-        let terminate_query = format!(
-            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}'",
-            self.db_name
-        );
-        let _ = sqlx::query(&terminate_query).execute(&pool).await;
-
-        // Drop the database
-        let drop_query = format!("DROP DATABASE IF EXISTS {}", self.db_name);
-        let _ = sqlx::query(&drop_query).execute(&pool).await;
-
-        Ok(())
-    }
-}
-
-#[cfg(feature = "postgresql")]
-impl Drop for IsolatedPostgresDb {
-    fn drop(&mut self) {
-        // Spawn a blocking task to cleanup the database
-        // We can't use async in Drop, so we spawn a new runtime
-        let admin_url = self.admin_url.clone();
-        let db_name = self.db_name.clone();
-
-        thread::spawn(move || {
-            let rt = RuntimeBuilder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create runtime for cleanup");
-
-            rt.block_on(async {
-                if let Ok(pool) = PgPoolOptions::new()
-                    .max_connections(1)
-                    .acquire_timeout(StdDuration::from_secs(5))
-                    .connect(&admin_url)
-                    .await
-                {
-                    // Terminate connections
-                    let terminate_query = format!(
-                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}'",
-                        db_name
-                    );
-                    let _ = sqlx::query(&terminate_query).execute(&pool).await;
-
-                    // Drop database
-                    let drop_query = format!("DROP DATABASE IF EXISTS {}", db_name);
-                    let _ = sqlx::query(&drop_query).execute(&pool).await;
-                }
-            });
-        });
-    }
-}
-
-/// Create an isolated `PostgreSQL` database for a single test
-/// Returns the database URL and database name for cleanup
-///
-/// # Errors
-/// Returns error if database creation fails
-#[cfg(feature = "postgresql")]
-pub async fn create_isolated_postgres_db() -> Result<(String, String)> {
-    let isolated_db = IsolatedPostgresDb::new().await?;
-    Ok((isolated_db.url.clone(), isolated_db.db_name.clone()))
-}
-
-/// Clean up an isolated `PostgreSQL` test database
-///
-/// # Errors
-/// Returns error if cleanup fails
-#[cfg(feature = "postgresql")]
-pub async fn cleanup_postgres_db(db_name: &str) -> Result<()> {
-    let base_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-        "postgresql://pierre:ci_test_password@localhost:5432/pierre_mcp_server".to_owned()
-    });
-
-    let admin_url = base_url.replace("/pierre_mcp_server", "/postgres");
-
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(StdDuration::from_secs(5))
-        .connect(&admin_url)
-        .await?;
-
-    // Terminate all connections to the test database
-    let terminate_query = format!(
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}'"
-    );
-    let _ = sqlx::query(&terminate_query).execute(&pool).await;
-
-    // Drop the database
-    let drop_query = format!("DROP DATABASE IF EXISTS {db_name}");
-    sqlx::query(&drop_query).execute(&pool).await?;
-
-    Ok(())
 }
 
 // ============================================================================

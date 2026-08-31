@@ -11,12 +11,8 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
 };
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
-use pierre_database::{
-    backends::{factory::Database, DatabaseProvider},
-    database::generate_encryption_key,
-};
+use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use std::sync::Arc;
 
 /// Test redirect URI validation - HTTPS enforcement
@@ -24,23 +20,7 @@ use std::sync::Arc;
 async fn test_redirect_uri_https_enforcement() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -117,23 +97,7 @@ async fn test_redirect_uri_https_enforcement() {
 async fn test_redirect_uri_fragment_rejection() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -165,23 +129,7 @@ async fn test_redirect_uri_fragment_rejection() {
 async fn test_redirect_uri_wildcard_rejection() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -213,23 +161,7 @@ async fn test_redirect_uri_wildcard_rejection() {
 async fn test_redirect_uri_oob_urn() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -254,23 +186,7 @@ async fn test_redirect_uri_oob_urn() {
 async fn test_argon2id_client_secret_hashing() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -323,23 +239,7 @@ async fn test_argon2id_client_secret_hashing() {
 async fn test_client_secret_validation() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -388,23 +288,7 @@ async fn test_client_secret_validation() {
 async fn test_empty_redirect_uri_rejection() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -435,23 +319,7 @@ async fn test_empty_redirect_uri_rejection() {
 async fn test_malformed_uri_rejection() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -482,23 +350,7 @@ async fn test_malformed_uri_rejection() {
 async fn test_unsupported_grant_type_rejection() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();
@@ -529,23 +381,7 @@ async fn test_unsupported_grant_type_rejection() {
 async fn test_unsupported_response_type_rejection() {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let repos = database.repositories();

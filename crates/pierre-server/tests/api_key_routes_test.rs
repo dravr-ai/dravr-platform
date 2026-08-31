@@ -26,8 +26,8 @@ use pierre_config::environment::{
     WeatherServiceConfig,
 };
 use pierre_core::models::User;
-use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
     routes::api_keys::service::ApiKeyRoutes,
@@ -60,16 +60,9 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
     common::init_server_config();
 
     // Create test database
-    let database_url = "sqlite::memory:";
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(database_url, encryption_key, &PostgresPoolConfig::default())
-        .await
-        .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(database_url, encryption_key).await.unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
 
     // Create auth manager
     let auth_manager = AuthManager::new(24);

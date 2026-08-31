@@ -354,24 +354,22 @@ async fn activity_cache_other_sport_type_populates_indexed_column() {
 /// lives in both the `SQLite` and `PostgreSQL` persistence layers, so this is
 /// backend-aware and verifies whichever backend the suite runs against.
 async fn read_sport_column(database: &Database, activity_id: &str) -> Option<String> {
-    #[cfg(feature = "postgresql")]
-    if let Some(pool) = database.postgres_pool() {
-        return sqlx::query("SELECT sport_type FROM cached_activities WHERE activity_id = $1")
+    const SQL: &str = "SELECT sport_type FROM cached_activities WHERE activity_id = $1";
+    match database {
+        Database::SQLite(db) => sqlx::query(SQL)
             .bind(activity_id)
-            .fetch_one(pool)
+            .fetch_one(db.pool())
             .await
             .unwrap()
-            .get::<Option<String>, _>("sport_type");
+            .get::<Option<String>, _>("sport_type"),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => sqlx::query(SQL)
+            .bind(activity_id)
+            .fetch_one(db.pool())
+            .await
+            .unwrap()
+            .get::<Option<String>, _>("sport_type"),
     }
-    let sqlite = database
-        .sqlite_database()
-        .expect("test database is SQLite when the postgresql feature is off");
-    sqlx::query("SELECT sport_type FROM cached_activities WHERE activity_id = ?")
-        .bind(activity_id)
-        .fetch_one(sqlite.pool())
-        .await
-        .unwrap()
-        .get::<Option<String>, _>("sport_type")
 }
 
 #[tokio::test]

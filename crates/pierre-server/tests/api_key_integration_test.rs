@@ -18,10 +18,9 @@ use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     auth::{AuthManager, AuthMethod},
 };
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_config::environment::RateLimitConfig;
 use pierre_core::models::User;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_middleware::McpAuthMiddleware;
 use std::sync::Arc;
@@ -34,18 +33,9 @@ async fn create_test_environment() -> (
     String,
 ) {
     // Create test database
-    let database_url = "sqlite::memory:";
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(database_url, encryption_key, &PostgresPoolConfig::default())
-            .await
-            .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(Database::new(database_url, encryption_key).await.unwrap());
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
 
     // Create auth manager
     let auth_manager = Arc::new(AuthManager::new(24));

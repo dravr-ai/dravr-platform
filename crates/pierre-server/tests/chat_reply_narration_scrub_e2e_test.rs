@@ -53,6 +53,7 @@ mod reply_narration_scrub {
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -407,32 +408,43 @@ mod reply_narration_scrub {
         (user_id, tenant_id)
     }
 
+    /// The newest assistant row's content for `tenant`, on whichever backend
+    /// the test database is. `chat_messages` has no tenant column; the tenant
+    /// lives on the parent `chat_conversations` row.
+    async fn latest_assistant_content(db: &Database, tenant: &str) -> Option<String> {
+        const SQL: &str = "SELECT m.content \
+             FROM chat_messages m \
+             JOIN chat_conversations c ON m.conversation_id = c.id \
+             WHERE c.tenant_id = $1 AND m.role = 'assistant' \
+             ORDER BY m.created_at DESC LIMIT 1";
+        let row: Option<(String,)> = match db {
+            Database::SQLite(sqlite) => sqlx::query_as(SQL)
+                .bind(tenant)
+                .fetch_optional(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_as(SQL)
+                .bind(tenant)
+                .fetch_optional(pg.pool())
+                .await
+                .unwrap(),
+        };
+        row.map(|(content,)| content)
+    }
+
     /// Poll `chat_messages` until the pipeline persists an `assistant` row for
     /// the tenant, then return its (already post-processed) content.
     async fn wait_for_persisted_assistant_reply(
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<String> {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..150 {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT m.content \
-                 FROM chat_messages m \
-                 JOIN chat_conversations c ON m.conversation_id = c.id \
-                 WHERE c.tenant_id = ?1 AND m.role = 'assistant' \
-                 ORDER BY m.created_at DESC LIMIT 1",
-            )
-            .bind(&tenant_str)
-            .fetch_optional(pool)
-            .await
-            .unwrap();
-            if let Some((content,)) = row {
+            if let Some(content) =
+                latest_assistant_content(&resources.coach.database, &tenant_str).await
+            {
                 return Some(content);
             }
             sleep(Duration::from_millis(200)).await;

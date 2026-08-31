@@ -154,10 +154,9 @@ mod common;
 use chrono::Utc;
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_config::environment::ServerConfig;
 use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::{
     a2a::{
@@ -191,20 +190,8 @@ impl A2ATestSetup {
         common::init_server_config();
         // Create test database
         let encryption_key = generate_encryption_key().to_vec();
-        #[cfg(feature = "postgresql")]
         let database = Arc::new(
-            Database::new(
-                "sqlite::memory:",
-                encryption_key,
-                &PostgresPoolConfig::default(),
-            )
-            .await
-            .expect("Failed to create test database"),
-        );
-
-        #[cfg(not(feature = "postgresql"))]
-        let database = Arc::new(
-            Database::new("sqlite::memory:", encryption_key)
+            create_test_db_with_key(encryption_key)
                 .await
                 .expect("Failed to create test database"),
         );

@@ -89,6 +89,14 @@ async fn setup() -> anyhow::Result<Arc<ServerContext>> {
     Ok(resources)
 }
 
+/// Register a real account to act as the allow-listing operator:
+/// `users.approved_by` references `users.id`, so attribution needs a row.
+async fn register_operator(resources: &Arc<ServerContext>, email: &str) -> Uuid {
+    let (status, body) = register(resources, email, "operatorPassword123").await;
+    assert_eq!(status, 201, "operator registration must succeed: {body}");
+    Uuid::parse_str(body["user_id"].as_str().expect("user_id")).expect("user_id must be a UUID")
+}
+
 /// POST the real registration handler and return `(status, body)`.
 async fn register(resources: &Arc<ServerContext>, email: &str, password: &str) -> (u16, Value) {
     let auth_routes = AuthRoutes::routes(resources.auth_routes_context());
@@ -107,7 +115,7 @@ async fn register(resources: &Arc<ServerContext>, email: &str, password: &str) -
 #[tokio::test]
 async fn preapproved_email_registers_active_with_attribution() {
     let resources = setup().await.expect("server context setup failed");
-    let operator = Uuid::new_v4();
+    let operator = register_operator(&resources, "allow-operator-1@example.com").await;
     let email = "alpha-cohort-1@example.com";
 
     let added = resources
@@ -267,7 +275,7 @@ async fn allow_is_idempotent_and_listable() {
 async fn pending_user_promoted_on_next_login_with_attribution() {
     let resources = setup().await.expect("server context setup failed");
     let repos = &resources.common.repos;
-    let operator = Uuid::new_v4();
+    let operator = register_operator(&resources, "late-allow-operator@example.com").await;
     let email = "late-allow@example.com";
     let password = "securePassword123";
 

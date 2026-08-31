@@ -8,7 +8,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_database::database::Database;
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils;
 
 /// Create a test database instance
 ///
@@ -16,9 +17,5 @@ use pierre_database::database::Database;
 ///
 /// Returns an error if database initialization fails
 pub async fn create_test_db() -> Result<Database> {
-    // Use a simple in-memory database - each connection gets its own isolated instance
-    let database_url = "sqlite::memory:";
-    Database::new(database_url, vec![0u8; 32])
-        .await
-        .map_err(Into::into)
+    test_utils::create_test_db().await.map_err(Into::into)
 }

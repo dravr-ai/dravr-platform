@@ -40,6 +40,7 @@ mod intake_tests {
         TokenUsage,
     };
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -377,31 +378,53 @@ mod intake_tests {
     }
 
     async fn assistant_message_count(resources: &ServerContext, user_id: Uuid) -> usize {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT COUNT(*) FROM chat_messages m \
+        // `messaging_sessions.user_id` is a `uuid` column on PostgreSQL and
+        // text on SQLite; the cast lets one bound text id serve both.
+        const SQL: &str = "SELECT COUNT(*) FROM chat_messages m \
              JOIN messaging_sessions s ON s.pierre_conversation_id = m.conversation_id \
-             WHERE s.user_id = ?1 AND m.role = 'assistant'",
-        )
-        .bind(user_id.to_string())
-        .fetch_optional(pool)
-        .await
-        .unwrap();
-        usize::try_from(row.map_or(0, |(n,)| n)).unwrap_or(0)
+             WHERE CAST(s.user_id AS TEXT) = $1 AND m.role = 'assistant'";
+        let user = user_id.to_string();
+        let count: i64 = match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_scalar(SQL)
+                .bind(&user)
+                .fetch_one(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+                .bind(&user)
+                .fetch_one(db.pool())
+                .await
+                .unwrap(),
+        };
+        usize::try_from(count).unwrap_or(0)
+    }
+
+    /// The raw `onboarding_state` JSON of the conversation the user's
+    /// messaging session points at, on whichever backend the test database is.
+    async fn onboarding_state(resources: &ServerContext, user_id: Uuid) -> Option<String> {
+        const SQL: &str = "SELECT c.onboarding_state FROM chat_conversations c \
+             JOIN messaging_sessions s ON s.pierre_conversation_id = c.id \
+             WHERE CAST(s.user_id AS TEXT) = $1";
+        let user = user_id.to_string();
+        let row: Option<(Option<String>,)> = match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_as(SQL)
+                .bind(&user)
+                .fetch_optional(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                .bind(&user)
+                .fetch_optional(db.pool())
+                .await
+                .unwrap(),
+        };
+        row.and_then(|(state,)| state)
     }
 
     async fn probed_count(resources: &ServerContext, user_id: Uuid) -> usize {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT c.onboarding_state FROM chat_conversations c \
-             JOIN messaging_sessions s ON s.pierre_conversation_id = c.id \
-             WHERE s.user_id = ?1",
-        )
-        .bind(user_id.to_string())
-        .fetch_optional(pool)
-        .await
-        .unwrap();
-        let Some((Some(raw),)) = row else {
+        let Some(raw) = onboarding_state(resources, user_id).await else {
             return 0;
         };
         let Ok(state) = serde_json::from_str::<serde_json::Value>(&raw) else {
@@ -421,19 +444,7 @@ mod intake_tests {
 
     /// The guided flow the conversation currently carries, if any is active.
     async fn active_flow(resources: &ServerContext, user_id: Uuid) -> Option<String> {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT c.onboarding_state FROM chat_conversations c \
-             JOIN messaging_sessions s ON s.pierre_conversation_id = c.id \
-             WHERE s.user_id = ?1",
-        )
-        .bind(user_id.to_string())
-        .fetch_optional(pool)
-        .await
-        .unwrap();
-        let (Some(raw),) = row? else {
-            return None;
-        };
+        let raw = onboarding_state(resources, user_id).await?;
         let state = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
         if state.get("active").and_then(serde_json::Value::as_bool) != Some(true) {
             return None;
@@ -455,36 +466,54 @@ mod intake_tests {
         false
     }
 
+    /// `(step_id, status)` of every recorded onboarding step, ordered by step.
     async fn onboarding_steps(resources: &ServerContext, user_id: Uuid) -> Vec<(String, String)> {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        sqlx::query_as(
-            "SELECT step_id, status FROM user_onboarding WHERE user_id = ?1 ORDER BY step_id",
-        )
-        .bind(user_id.to_string())
-        .fetch_all(pool)
-        .await
-        .unwrap()
+        let mut steps: Vec<(String, String)> = resources
+            .common
+            .repos
+            .user_onboarding
+            .get_onboarding_steps(&user_id.to_string())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|step| (step.step_id, step.status))
+            .collect();
+        steps.sort();
+        steps
     }
 
     async fn medical_facts(resources: &ServerContext, user_id: Uuid) -> Vec<String> {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let rows: Vec<(String,)> =
-            sqlx::query_as("SELECT object FROM user_facts WHERE user_id = ?1 AND kind = 'medical'")
-                .bind(user_id.to_string())
-                .fetch_all(pool)
+        const SQL: &str = "SELECT object FROM user_facts WHERE user_id = $1 AND kind = 'medical'";
+        let user = user_id.to_string();
+        let rows: Vec<(String,)> = match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_as(SQL)
+                .bind(&user)
+                .fetch_all(db.pool())
                 .await
-                .unwrap();
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                .bind(&user)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+        };
         rows.into_iter().map(|r| r.0).collect()
     }
 
+    /// The persona persisted on the user row, as its wire string.
     async fn coaching_persona(resources: &ServerContext, user_id: Uuid) -> String {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: (String,) = sqlx::query_as("SELECT coaching_persona FROM users WHERE id = ?1")
-            .bind(user_id.to_string())
-            .fetch_one(pool)
+        resources
+            .common
+            .repos
+            .users
+            .get_global(user_id)
             .await
-            .unwrap();
-        row.0
+            .unwrap()
+            .expect("the intake user exists")
+            .coaching_persona
+            .as_str()
+            .to_owned()
     }
 
     /// The strict parse is the whole safety property: "2" is an answer to a

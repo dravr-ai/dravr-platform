@@ -25,10 +25,11 @@ mod common;
 /// `origin` is sent as the `Origin` header when `Some`; `None` reproduces a
 /// native or CLI MCP client, which sends no `Origin` at all.
 async fn post_mcp(allowlist: &[&str], origin: Option<&str>) -> StatusCode {
-    let resources =
-        common::create_test_server_resources_with_config(config_with_origins(allowlist, "*"))
-            .await
-            .expect("Should build test resources");
+    let resources = Box::pin(common::create_test_server_resources_with_config(
+        config_with_origins(allowlist, "*"),
+    ))
+    .await
+    .expect("Should build test resources");
 
     let app = mcp_router(build_mcp_server(resources));
     let mut builder = Request::builder()
@@ -75,9 +76,8 @@ fn config_with_origins(mcp_origins: &[&str], cors: &str) -> ServerConfig {
 async fn test_configured_origins_reach_the_engine() {
     common::init_server_config();
 
-    let resources = common::create_test_server_resources_with_config(config_with_origins(
-        &["https://app.dravr.ai", "https://admin.dravr.ai"],
-        "*",
+    let resources = Box::pin(common::create_test_server_resources_with_config(
+        config_with_origins(&["https://app.dravr.ai", "https://admin.dravr.ai"], "*"),
     ))
     .await
     .expect("Should build test resources");
@@ -100,9 +100,8 @@ async fn test_configured_origins_reach_the_engine() {
 async fn test_mcp_allowlist_is_independent_of_cors() {
     common::init_server_config();
 
-    let resources = common::create_test_server_resources_with_config(config_with_origins(
-        &["https://app.dravr.ai"],
-        "*",
+    let resources = Box::pin(common::create_test_server_resources_with_config(
+        config_with_origins(&["https://app.dravr.ai"], "*"),
     ))
     .await
     .expect("Should build test resources");
@@ -141,9 +140,11 @@ async fn test_env_list_is_split_and_trimmed() {
 async fn test_unset_allowlist_is_unrestricted() {
     common::init_server_config();
 
-    let resources = common::create_test_server_resources_with_config(config_with_origins(&[], ""))
-        .await
-        .expect("Should build test resources");
+    let resources = Box::pin(common::create_test_server_resources_with_config(
+        config_with_origins(&[], ""),
+    ))
+    .await
+    .expect("Should build test resources");
 
     let server = build_mcp_server(resources);
 
@@ -164,7 +165,11 @@ async fn test_unset_allowlist_is_unrestricted() {
 async fn test_unlisted_origin_is_refused_with_403() {
     common::init_server_config();
 
-    let status = post_mcp(&["https://app.dravr.ai"], Some("https://evil.example.com")).await;
+    let status = Box::pin(post_mcp(
+        &["https://app.dravr.ai"],
+        Some("https://evil.example.com"),
+    ))
+    .await;
 
     assert_eq!(
         status,
@@ -182,7 +187,11 @@ async fn test_unlisted_origin_is_refused_with_403() {
 async fn test_listed_origin_passes_the_gate() {
     common::init_server_config();
 
-    let status = post_mcp(&["https://app.dravr.ai"], Some("https://app.dravr.ai")).await;
+    let status = Box::pin(post_mcp(
+        &["https://app.dravr.ai"],
+        Some("https://app.dravr.ai"),
+    ))
+    .await;
 
     assert_ne!(
         status,
@@ -200,7 +209,7 @@ async fn test_listed_origin_passes_the_gate() {
 async fn test_absent_origin_is_never_gated() {
     common::init_server_config();
 
-    let status = post_mcp(&["https://app.dravr.ai"], None).await;
+    let status = Box::pin(post_mcp(&["https://app.dravr.ai"], None)).await;
 
     assert_ne!(
         status,

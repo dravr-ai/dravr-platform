@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
@@ -119,14 +119,30 @@ fn labeled(
     }
 }
 
-/// Reach the fixture's `SQLite` pool for the one thing no repository method
-/// exposes: backdating a session's last inbound so the re-engagement window can
-/// be tested as shut. `touch_session` only ever stamps "now".
-fn sqlite_pool(db: &Database) -> &sqlx::Pool<sqlx::Sqlite> {
+/// Backdate a session's last inbound, the one thing no repository method
+/// exposes: `touch_session` only ever stamps "now", and the re-engagement
+/// window has to be tested as shut. Runs on whichever backend the database is;
+/// `SQLite` stores the column as RFC 3339 text, `PostgreSQL` as `TIMESTAMPTZ`.
+async fn backdate_session(db: &Database, session_id: &str, last_message_at: DateTime<Utc>) {
+    const SQL: &str = "UPDATE messaging_sessions SET last_message_at = $1 WHERE id = $2";
     match db {
-        Database::SQLite(inner) => inner.pool(),
+        Database::SQLite(inner) => {
+            sqlx::query(SQL)
+                .bind(last_message_at.to_rfc3339())
+                .bind(session_id)
+                .execute(inner.pool())
+                .await
+                .unwrap();
+        }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => panic!("db_fixtures pins sqlite::memory: on both cfg arms"),
+        Database::PostgreSQL(inner) => {
+            sqlx::query(SQL)
+                .bind(last_message_at)
+                .bind(session_id)
+                .execute(inner.pool())
+                .await
+                .unwrap();
+        }
     }
 }
 
@@ -255,12 +271,7 @@ async fn a_shut_whatsapp_window_sends_nothing() {
     .await;
 
     // Push the session's last inbound well outside Meta's 24h window.
-    sqlx::query("UPDATE messaging_sessions SET last_message_at = ? WHERE id = ?")
-        .bind((Utc::now() - Duration::hours(48)).to_rfc3339())
-        .bind(&session_id)
-        .execute(sqlite_pool(&db))
-        .await
-        .unwrap();
+    backdate_session(&db, &session_id, Utc::now() - Duration::hours(48)).await;
 
     let channel = Arc::new(CapturingChannel::for_channel(ChannelType::WhatsApp));
     let resolver = Arc::new(FakeResolver::new(channel.clone()));

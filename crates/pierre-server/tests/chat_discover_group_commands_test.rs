@@ -30,10 +30,13 @@ use pierre_core::models::{
     default_locale, AddMessageParams, ConnectionType, Tenant, TenantId, User, UserStatus,
     COMMAND_FINISH_REASON,
 };
+use pierre_database::backends::factory::Database;
 use pierre_groups::creation_policy::GROUP_CREATION_POLICY_KEY;
 use pierre_groups::strategies::tier::tier_strategy_for;
+#[cfg(feature = "postgresql")]
+use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
-use pierre_mcp_server::config::admin::AdminConfigManager;
+use pierre_mcp_server::config::admin::{AdminConfigManager, AdminConfigRepository};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatMessageAction, ChatRoutes, ConversationResponse, ReplyBlockResponse, TurnResponse,
@@ -42,6 +45,11 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
+
+/// A tenant membership row, filed the way the invitation flows file it.
+const INSERT_MEMBER: &str =
+    "INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at) \
+     VALUES ($1, $2, $3, 'member', $4, $5)";
 
 /// The model every test conversation is opened on; `/group create` copies it
 /// onto the group conversation it files.
@@ -92,6 +100,15 @@ async fn seed_user_tenant(
 }
 
 /// A plain member of an existing tenant — no owner or admin role, so the
+/// The admin-config repository for whichever backend the test database is.
+fn admin_config_repository(db: &Database) -> Box<dyn AdminConfigRepository> {
+    match db {
+        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+    }
+}
+
 /// tenant's `group_creation_policy` decides whether they may create groups.
 /// `manages_roster` marks a roster-managing coach account.
 async fn seed_tenant_member(
@@ -107,19 +124,34 @@ async fn seed_tenant_member(
     // Membership rows are written by the invitation flows in production; the
     // repository exposes no direct writer, so the fixture files the row the
     // way those flows do.
-    let now = chrono::Utc::now().to_rfc3339();
-    sqlx::query(
-        "INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at) \
-         VALUES (?, ?, ?, 'member', ?, ?)",
-    )
-    .bind(Uuid::new_v4().to_string())
-    .bind(tenant_id.to_string())
-    .bind(user_id.to_string())
-    .bind(&now)
-    .bind(&now)
-    .execute(resources.coach.database.sqlite_pool().unwrap())
-    .await
-    .unwrap();
+    let now = chrono::Utc::now();
+    match resources.coach.database.as_ref() {
+        Database::SQLite(db) => {
+            sqlx::query(INSERT_MEMBER)
+                .bind(Uuid::new_v4().to_string())
+                .bind(tenant_id.to_string())
+                .bind(user_id.to_string())
+                .bind(now.to_rfc3339())
+                .bind(now.to_rfc3339())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        // `tenant_users` keys are `uuid` columns and the timestamps are
+        // `timestamptz` on PostgreSQL, so the binds carry the native types.
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            sqlx::query(INSERT_MEMBER)
+                .bind(Uuid::new_v4())
+                .bind(tenant_id.as_uuid())
+                .bind(user_id)
+                .bind(now)
+                .bind(now)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
     let auth = finish_user(resources, &user, tenant_id).await;
     (user_id, auth)
 }
@@ -849,7 +881,7 @@ async fn group_create_is_refused_by_the_policy_for_a_plain_member_until_the_tena
     let tenant = tenant_id.to_string();
     let owner = owner_id.to_string();
     let everyone = json!("everyone");
-    AdminConfigManager::new(resources.coach.database.sqlite_pool().unwrap().clone())
+    admin_config_repository(&resources.coach.database)
         .set_override(SetOverrideParams {
             category: GROUP_PERMISSIONS_CATEGORY,
             key: GROUP_CREATION_POLICY_KEY,

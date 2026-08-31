@@ -58,3 +58,7 @@ tracing = "0.1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# The test-database factory's own test opens real databases, so it needs a runtime.
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros"] }

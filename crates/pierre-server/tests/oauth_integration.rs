@@ -25,10 +25,8 @@ use pierre_config::environment::{
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::{
-    backends::{factory::Database, DatabaseProvider},
-    database::generate_encryption_key,
-};
+use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
 use std::{collections::HashMap, sync::Arc};
@@ -41,19 +39,7 @@ async fn test_oauth_authorization_url_generation() {
     // Setup
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
 
     database.migrate().await.unwrap();
 
@@ -393,19 +379,7 @@ async fn test_oauth_state_validation() {
 
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
 
     let auth_manager = AuthManager::new(24);
 
@@ -602,19 +576,7 @@ async fn test_connection_status_no_providers() {
 
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     let temp_dir = tempfile::tempdir().unwrap();
@@ -851,19 +813,7 @@ async fn test_invalid_provider_error() {
 
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     database.migrate().await.unwrap();
     let auth_manager = AuthManager::new(24);
     let temp_dir = tempfile::tempdir().unwrap();
@@ -1056,19 +1006,7 @@ async fn test_disconnect_provider() {
 
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
@@ -1320,19 +1258,7 @@ async fn test_oauth_urls_contain_required_parameters() {
 
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     database.migrate().await.unwrap();
 
     // Create admin user first

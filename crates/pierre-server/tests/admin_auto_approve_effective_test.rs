@@ -24,8 +24,12 @@ use axum::http::StatusCode;
 use common::{create_test_server_resources, create_test_user};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::AppBehaviorConfig;
+use pierre_database::backends::factory::Database;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::admin_settings;
+
+/// Breaks the token table so the status repository read fails.
+const DROP_TOKENS_TABLE: &str = "DROP TABLE user_oauth_tokens";
 
 /// Build an app-behavior config whose only interesting axis is where the
 /// auto-approval flag came from.
@@ -122,15 +126,21 @@ async fn oauth_status_surfaces_a_repository_failure_instead_of_reporting_disconn
     assert_eq!(statuses[1]["connected"], false);
 
     // Break the backing table so the repository read fails for the same user.
-    let pool = resources
-        .coach
-        .database
-        .sqlite_pool()
-        .expect("tests run on the SQLite backend");
-    sqlx::query("DROP TABLE user_oauth_tokens")
-        .execute(pool)
-        .await
-        .unwrap();
+    match resources.coach.database.as_ref() {
+        Database::SQLite(db) => {
+            sqlx::query(DROP_TOKENS_TABLE)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            sqlx::query(DROP_TOKENS_TABLE)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
 
     let response = AxumTestRequest::get("/api/oauth/status")
         .header("authorization", &auth)

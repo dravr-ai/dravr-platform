@@ -13,9 +13,15 @@ mod helpers;
 
 use std::sync::Arc;
 
+use std::str::FromStr;
+
 use axum::http::StatusCode;
+#[cfg(feature = "postgresql")]
+use chrono::{DateTime, TimeZone, Utc};
 use serde_json::json;
 use sqlx::migrate::Migrator;
+#[cfg(feature = "postgresql")]
+use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::Row;
 use uuid::Uuid;
@@ -23,6 +29,7 @@ use uuid::Uuid;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::ParticipantRole;
+use pierre_database::database::test_utils::create_test_db_url;
 use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationListResponse, ConversationResponse, MessagesListResponse,
     ParticipantListResponse, ParticipantResponse, TurnResponse,
@@ -30,6 +37,10 @@ use pierre_mcp_server::routes::chat::{
 
 /// Migrations of the `SQLite` lane, applied by hand for the backfill test.
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
+
+/// Migrations of the `PostgreSQL` lane, applied by hand for the backfill test.
+#[cfg(feature = "postgresql")]
+static PG_MIGRATOR: Migrator = sqlx::migrate!("../../migrations_pg");
 
 /// Version of the migration under test, as named in `migrations/`.
 const PARTICIPANTS_MIGRATION: i64 = 20_260_826_000_004;
@@ -52,7 +63,9 @@ struct Fixture {
 /// users get a real `tenant_users` row and a token scoped to that tenant, so
 /// every refusal under test is a membership decision, never an auth one.
 async fn setup() -> Fixture {
-    let res = create_test_server_resources().await.unwrap();
+    // Boxed: the factory's `PostgreSQL` path makes this future large enough
+    // that inlining it pushes every `setup().await` over clippy's size limit.
+    let res = Box::pin(create_test_server_resources()).await.unwrap();
     let repos = res.coach.database.repositories();
 
     let (owner_id, owner, _) =
@@ -450,16 +463,27 @@ async fn test_cross_tenant_add_is_refused_explicitly() {
 
 /// Apply every migration before the participants one, plant a conversation
 /// the way the pre-participants schema wrote it, then apply the participants
-/// migration and assert the owner row was backfilled.
+/// migration and assert the owner row was backfilled. Each lane has its own
+/// migration set, so the factory's URL decides which one is replayed.
 #[tokio::test]
 async fn test_migration_backfills_an_owner_row_for_every_existing_conversation() {
+    let database = create_test_db_url().await.unwrap();
+    #[cfg(feature = "postgresql")]
+    if database.url.starts_with("postgres") {
+        backfill_on_postgres(&database.url).await;
+        return;
+    }
+    backfill_on_sqlite(&database.url).await;
+}
+
+async fn backfill_on_sqlite(url: &str) {
     // The planted rows name users that do not exist: this test is about the
     // schema step, not the users table, and sqlx enables FK enforcement on
     // its `SQLite` connections by default.
     // One connection: every pooled connection to an in-memory database is
     // its own empty database, so a second one would see none of the schema.
-    let options = SqliteConnectOptions::new()
-        .in_memory(true)
+    let options = SqliteConnectOptions::from_str(url)
+        .unwrap()
         .foreign_keys(false);
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -512,5 +536,90 @@ async fn test_migration_backfills_an_owner_row_for_every_existing_conversation()
     assert_eq!(rows[0].get::<String, _>("added_by"), "user-a");
     assert_eq!(rows[0].get::<String, _>("added_at"), "2026-01-01T00:00:00Z");
     assert_eq!(rows[1].get::<String, _>("user_id"), "user-b");
+    assert_eq!(rows[1].get::<String, _>("tenant_id"), "tenant-b");
+}
+
+/// The `PostgreSQL` schema declares the participant's user as a foreign key
+/// and types the ids as UUIDs, so the planted conversations get real owners
+/// and the assertions read the typed columns back.
+#[cfg(feature = "postgresql")]
+async fn backfill_on_postgres(url: &str) {
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(url)
+        .await
+        .unwrap();
+    // The factory hands out a clone of the migrated template; the backfill
+    // only happens as the migration runs, so start again from an empty schema.
+    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let user_a = Uuid::from_u128(0xA);
+    let user_b = Uuid::from_u128(0xB);
+    let planted_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+
+    let mut applied_target = false;
+    for migration in PG_MIGRATOR.iter() {
+        if migration.version == PARTICIPANTS_MIGRATION {
+            for (user, email) in [
+                (user_a, "user-a@example.com"),
+                (user_b, "user-b@example.com"),
+            ] {
+                sqlx::query(
+                    "INSERT INTO users (id, email, password_hash, created_at, last_active)
+                     VALUES ($1, $2, 'hash', $3, $3)",
+                )
+                .bind(user)
+                .bind(email)
+                .bind(planted_at)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+            // Two conversations from two tenants, both without a participant row.
+            for (id, user, tenant) in [
+                ("conv-a", user_a, "tenant-a"),
+                ("conv-b", user_b, "tenant-b"),
+            ] {
+                sqlx::query(
+                    "INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, total_tokens, created_at, updated_at)
+                     VALUES ($1, $2, $3, 'legacy', 'm', 0, $4, $4)",
+                )
+                .bind(id)
+                .bind(user)
+                .bind(tenant)
+                .bind(planted_at)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+            sqlx::raw_sql(&migration.sql).execute(&pool).await.unwrap();
+            applied_target = true;
+            break;
+        }
+        sqlx::raw_sql(&migration.sql).execute(&pool).await.unwrap();
+    }
+    assert!(
+        applied_target,
+        "the participants migration is in migrations_pg/"
+    );
+
+    let rows = sqlx::query(
+        "SELECT conversation_id, user_id, tenant_id, role, added_by, added_at
+         FROM conversation_participants ORDER BY conversation_id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].get::<String, _>("conversation_id"), "conv-a");
+    assert_eq!(rows[0].get::<Uuid, _>("user_id"), user_a);
+    assert_eq!(rows[0].get::<String, _>("tenant_id"), "tenant-a");
+    assert_eq!(rows[0].get::<String, _>("role"), "owner");
+    assert_eq!(rows[0].get::<Uuid, _>("added_by"), user_a);
+    assert_eq!(rows[0].get::<DateTime<Utc>, _>("added_at"), planted_at);
+    assert_eq!(rows[1].get::<Uuid, _>("user_id"), user_b);
     assert_eq!(rows[1].get::<String, _>("tenant_id"), "tenant-b");
 }

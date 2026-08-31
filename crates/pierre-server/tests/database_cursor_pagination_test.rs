@@ -8,13 +8,11 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::pagination::PaginationParams;
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
@@ -22,19 +20,8 @@ use uuid::Uuid;
 #[tokio::test]
 async fn test_get_users_by_status_cursor() -> Result<()> {
     // Initialize in-memory database
-    let database_url = "sqlite::memory:";
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        database_url,
-        b"test_encryption_key_32_bytes_long".to_vec(),
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database =
-        Database::new(database_url, b"test_encryption_key_32_bytes_long".to_vec()).await?;
+    let database = create_test_db_with_key(b"test_encryption_key_32_bytes_long".to_vec()).await?;
 
     let repos = database.repositories();
 
@@ -125,19 +112,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
 /// Test empty results with cursor pagination
 #[tokio::test]
 async fn test_cursor_pagination_empty_results() -> Result<()> {
-    let database_url = "sqlite::memory:";
-
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        database_url,
-        b"test_encryption_key_32_bytes_long".to_vec(),
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database =
-        Database::new(database_url, b"test_encryption_key_32_bytes_long".to_vec()).await?;
+    let database = create_test_db_with_key(b"test_encryption_key_32_bytes_long".to_vec()).await?;
 
     let repos = database.repositories();
     let params = PaginationParams::forward(None, 10);
@@ -153,19 +128,7 @@ async fn test_cursor_pagination_empty_results() -> Result<()> {
 /// Test cursor pagination consistency when new items are added
 #[tokio::test]
 async fn test_cursor_pagination_consistency() -> Result<()> {
-    let database_url = "sqlite::memory:";
-
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        database_url,
-        b"test_encryption_key_32_bytes_long".to_vec(),
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database =
-        Database::new(database_url, b"test_encryption_key_32_bytes_long".to_vec()).await?;
+    let database = create_test_db_with_key(b"test_encryption_key_32_bytes_long".to_vec()).await?;
 
     let repos = database.repositories();
 

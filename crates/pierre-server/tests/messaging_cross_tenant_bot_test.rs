@@ -35,6 +35,7 @@ mod cross_tenant_bot_tests {
     use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -182,6 +183,112 @@ mod cross_tenant_bot_tests {
         false
     }
 
+    /// `(tenant_id, pierre_conversation_id)` of the messaging session for
+    /// `user`, on whichever backend the test database is. The session's ids
+    /// are `uuid` columns on `PostgreSQL` and text on `SQLite`; the casts let
+    /// one statement read and bind text on both.
+    async fn session_row(db: &Database, user: &str) -> Option<(String, String)> {
+        const SQL: &str = "SELECT CAST(tenant_id AS TEXT), pierre_conversation_id \
+             FROM messaging_sessions WHERE CAST(user_id AS TEXT) = $1";
+        match db {
+            Database::SQLite(sqlite) => sqlx::query_as(SQL)
+                .bind(user)
+                .fetch_optional(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_as(SQL)
+                .bind(user)
+                .fetch_optional(pg.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
+    /// The tenant a conversation row lives under.
+    async fn conversation_tenant(db: &Database, conversation_id: &str) -> Option<String> {
+        const SQL: &str = "SELECT tenant_id FROM chat_conversations WHERE id = $1";
+        let row: Option<(String,)> = match db {
+            Database::SQLite(sqlite) => sqlx::query_as(SQL)
+                .bind(conversation_id)
+                .fetch_optional(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_as(SQL)
+                .bind(conversation_id)
+                .fetch_optional(pg.pool())
+                .await
+                .unwrap(),
+        };
+        row.map(|(tenant,)| tenant)
+    }
+
+    /// Inbound rows of `user`'s sessions that were written under `tenant`.
+    async fn inbound_count_under_tenant(db: &Database, user: &str, tenant: &str) -> i64 {
+        const SQL: &str = "SELECT COUNT(*) FROM messaging_messages mm \
+             JOIN messaging_sessions s ON mm.session_id = s.id \
+             WHERE CAST(s.user_id AS TEXT) = $1 \
+               AND mm.direction = 'inbound' AND mm.tenant_id = $2";
+        match db {
+            Database::SQLite(sqlite) => sqlx::query_scalar(SQL)
+                .bind(user)
+                .bind(tenant)
+                .fetch_one(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_scalar(SQL)
+                .bind(user)
+                .bind(tenant)
+                .fetch_one(pg.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
+    /// The tenant the first outbound row of `user`'s sessions was written under.
+    async fn outbound_tenant_for_user(db: &Database, user: &str) -> Option<String> {
+        const SQL: &str = "SELECT mm.tenant_id FROM messaging_messages mm \
+             JOIN messaging_sessions s ON mm.session_id = s.id \
+             WHERE CAST(s.user_id AS TEXT) = $1 AND mm.direction = 'outbound' LIMIT 1";
+        let row: Option<(String,)> = match db {
+            Database::SQLite(sqlite) => sqlx::query_as(SQL)
+                .bind(user)
+                .fetch_optional(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_as(SQL)
+                .bind(user)
+                .fetch_optional(pg.pool())
+                .await
+                .unwrap(),
+        };
+        row.map(|(tenant,)| tenant)
+    }
+
+    /// `(id, tenant_id)` of the coaching group bound to a channel chat. The
+    /// group id is a `uuid` column on `PostgreSQL` and text on `SQLite`; the
+    /// cast reads it as text on both.
+    async fn coaching_group_for_chat(db: &Database, chat_id: &str) -> Option<(String, String)> {
+        const SQL: &str = "SELECT CAST(id AS TEXT), tenant_id FROM coaching_groups \
+             WHERE channel_chat_id = $1";
+        match db {
+            Database::SQLite(sqlite) => sqlx::query_as(SQL)
+                .bind(chat_id)
+                .fetch_optional(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_as(SQL)
+                .bind(chat_id)
+                .fetch_optional(pg.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
     #[tokio::test]
     #[serial]
     async fn cross_tenant_bot_dm_stores_under_user_tenant_and_reaches_llm() {
@@ -278,22 +385,12 @@ mod cross_tenant_bot_tests {
         );
 
         // Assert the whole DM unit lives under the USER tenant, not the bot tenant.
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
+        let db = resources.coach.database.as_ref();
         let user_tenant_str = user_tenant.to_string();
         let bot_tenant_str = bot_tenant.to_string();
         let user_id_str = user_id.to_string();
 
-        let session: Option<(String, String)> = sqlx::query_as(
-            "SELECT tenant_id, pierre_conversation_id FROM messaging_sessions WHERE user_id = ?1",
-        )
-        .bind(&user_id_str)
-        .fetch_optional(pool)
-        .await
-        .unwrap();
+        let session = session_row(db, &user_id_str).await;
         let (session_tenant, conversation_id) =
             session.expect("a session must have been created for the linked user");
         assert_eq!(
@@ -302,44 +399,22 @@ mod cross_tenant_bot_tests {
         );
         assert_ne!(session_tenant, bot_tenant_str);
 
-        let conv_tenant: Option<(String,)> =
-            sqlx::query_as("SELECT tenant_id FROM chat_conversations WHERE id = ?1")
-                .bind(&conversation_id)
-                .fetch_optional(pool)
-                .await
-                .unwrap();
+        let conv_tenant = conversation_tenant(db, &conversation_id).await;
         assert_eq!(
-            conv_tenant.expect("conversation row must exist").0,
+            conv_tenant.expect("conversation row must exist"),
             user_tenant_str,
             "conversation must live under the user tenant so the pipeline can read it"
         );
 
         // The inbound message row must share the user tenant (no re-split).
-        let inbound_under_bot: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM messaging_messages mm \
-             JOIN messaging_sessions s ON mm.session_id = s.id \
-             WHERE s.user_id = ?1 AND mm.direction = 'inbound' AND mm.tenant_id = ?2",
-        )
-        .bind(&user_id_str)
-        .bind(&bot_tenant_str)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+        let inbound_under_bot = inbound_count_under_tenant(db, &user_id_str, &bot_tenant_str).await;
         assert_eq!(
             inbound_under_bot, 0,
             "inbound messages must not be written under the bot tenant"
         );
 
-        let inbound_under_user: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM messaging_messages mm \
-             JOIN messaging_sessions s ON mm.session_id = s.id \
-             WHERE s.user_id = ?1 AND mm.direction = 'inbound' AND mm.tenant_id = ?2",
-        )
-        .bind(&user_id_str)
-        .bind(&user_tenant_str)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+        let inbound_under_user =
+            inbound_count_under_tenant(db, &user_id_str, &user_tenant_str).await;
         assert!(
             inbound_under_user >= 1,
             "the inbound message must be stored under the user tenant"
@@ -353,16 +428,7 @@ mod cross_tenant_bot_tests {
         // happens asynchronously after the failed delivery.
         let mut outbound_tenant: Option<String> = None;
         for _ in 0..50 {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT mm.tenant_id FROM messaging_messages mm \
-                 JOIN messaging_sessions s ON mm.session_id = s.id \
-                 WHERE s.user_id = ?1 AND mm.direction = 'outbound' LIMIT 1",
-            )
-            .bind(&user_id_str)
-            .fetch_optional(pool)
-            .await
-            .unwrap();
-            if let Some((t,)) = row {
+            if let Some(t) = outbound_tenant_for_user(db, &user_id_str).await {
                 outbound_tenant = Some(t);
                 break;
             }
@@ -555,23 +621,13 @@ mod cross_tenant_bot_tests {
             .await;
         assert_eq!(resp.status_code(), StatusCode::OK);
 
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
+        let db = resources.coach.database.as_ref();
 
         // The chat's coaching group is created during session resolution; poll
         // until it exists, then until the consent write lands.
         let mut chat_group: Option<(String, String)> = None;
         for _ in 0..50 {
-            chat_group = sqlx::query_as(
-                "SELECT id, tenant_id FROM coaching_groups WHERE channel_chat_id = ?1",
-            )
-            .bind("-1001234")
-            .fetch_optional(pool)
-            .await
-            .unwrap();
+            chat_group = coaching_group_for_chat(db, "-1001234").await;
             if chat_group.is_some() {
                 break;
             }

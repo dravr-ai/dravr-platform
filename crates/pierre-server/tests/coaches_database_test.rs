@@ -7,260 +7,104 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use chrono::Utc;
 use pierre_core::field_update::FieldUpdate;
-use pierre_core::models::TenantId;
-use pierre_database::database::coaches::{
-    CoachCategory, CoachVisibility, CoachesManager, CreateCoachRequest, CreateSystemCoachRequest,
+use pierre_core::models::coaches::{
+    CoachCategory, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest,
     ListCoachesFilter, UpdateCoachRequest,
 };
-use sqlx::SqlitePool;
+use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils;
 use uuid::Uuid;
 
-/// Create a test database with coaches schema
-async fn create_test_db() -> SqlitePool {
-    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+/// A user row for the seeded fixture.
+fn test_user(id: Uuid, email: &str) -> User {
+    User {
+        id,
+        email: email.to_owned(),
+        display_name: Some("Coaches Test".to_owned()),
+        password_hash: "hash".to_owned(),
+        tier: UserTier::Starter,
+        is_active: true,
+        user_status: UserStatus::Active,
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: None,
+        approved_at: Some(Utc::now()),
+        created_at: Utc::now(),
+        last_active: Utc::now(),
+        strava_token: None,
+        fitbit_token: None,
+        firebase_uid: None,
+        auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
+        locale: "fr".to_owned(),
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
+        timezone: None,
+        theme: None,
+    }
+}
 
-    // Create users table first (for foreign key)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            user_status TEXT NOT NULL DEFAULT 'active',
-            is_admin INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            last_active TEXT NOT NULL
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+/// Open a test database through the factory and seed the two users, two
+/// tenants, and four memberships every test relies on.
+async fn create_test_db() -> Database {
+    let db = test_utils::create_test_db().await.unwrap();
+    let repos = db.repositories();
 
-    // Create test user
-    sqlx::query(
-        r"
-        INSERT INTO users (id, email, password_hash, created_at, last_active)
-        VALUES ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'hash', '2025-01-01', '2025-01-01')
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    for (user_id, email) in [
+        (test_user_id(), "test@example.com"),
+        (other_user_id(), "other@example.com"),
+    ] {
+        repos
+            .users
+            .create(&test_user(user_id, email))
+            .await
+            .unwrap();
+    }
 
-    // Create second test user for isolation tests
-    sqlx::query(
-        r"
-        INSERT INTO users (id, email, password_hash, created_at, last_active)
-        VALUES ('660e8400-e29b-41d4-a716-446655440000', 'other@example.com', 'hash', '2025-01-01', '2025-01-01')
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    for (tenant_id, slug) in [
+        (test_tenant(), "test-tenant"),
+        (other_tenant(), "other-tenant"),
+    ] {
+        repos
+            .tenants
+            .create(&Tenant {
+                id: tenant_id,
+                name: format!("Tenant {slug}"),
+                slug: slug.to_owned(),
+                domain: None,
+                plan: "starter".to_owned(),
+                owner_user_id: test_user_id(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            })
+            .await
+            .unwrap();
+    }
 
-    // Create coaches table (preference fields moved to coach_assignments per DRAVR-593)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS coaches (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            description TEXT,
-            system_prompt TEXT NOT NULL,
-            category TEXT NOT NULL DEFAULT 'custom',
-            tags TEXT,
-            token_count INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            is_system INTEGER NOT NULL DEFAULT 0,
-            visibility TEXT NOT NULL DEFAULT 'private',
-            sample_prompts TEXT,
-            slug TEXT,
-            purpose TEXT,
-            when_to_use TEXT,
-            instructions TEXT,
-            example_inputs TEXT,
-            example_outputs TEXT,
-            success_criteria TEXT,
-            prerequisites TEXT,
-            source_file TEXT,
-            content_hash TEXT,
-            forked_from TEXT REFERENCES coaches(id) ON DELETE SET NULL,
-            publish_status TEXT DEFAULT 'draft',
-            published_at TEXT,
-            review_submitted_at TEXT,
-            review_decision_at TEXT,
-            review_decision_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-            rejection_reason TEXT,
-            install_count INTEGER DEFAULT 0,
-            icon_url TEXT,
-            author_id TEXT,
-            max_tool_iterations INTEGER,
-            temperature REAL,
-            startup_query TEXT,
-            data_requirements TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create coach_versions table (for version history)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS coach_versions (
-            id TEXT PRIMARY KEY,
-            coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
-            version INTEGER NOT NULL,
-            content_hash TEXT NOT NULL,
-            content_snapshot TEXT NOT NULL,
-            change_summary TEXT,
-            created_at TEXT NOT NULL,
-            created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-            UNIQUE(coach_id, version)
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create coach_assignments table (user preferences + assignments per DRAVR-593)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS coach_assignments (
-            id TEXT PRIMARY KEY,
-            coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
-            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            assigned_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-            created_at TEXT NOT NULL,
-            is_favorite INTEGER NOT NULL DEFAULT 0,
-            use_count INTEGER NOT NULL DEFAULT 0,
-            last_used_at TEXT,
-            UNIQUE(coach_id, user_id)
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // tenant_users carries selected_coach_id — the one pointer to a user's
-    // current coach, replacing the flag that used to live on coach_assignments.
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS tenant_users (
-            id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'member',
-            invited_at TEXT NOT NULL DEFAULT (datetime('now')),
-            joined_at TEXT,
-            selected_coach_id TEXT REFERENCES coaches(id) ON DELETE SET NULL,
-            UNIQUE(tenant_id, user_id)
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Memberships. Selecting a coach now writes the membership row, so a user
+    // Memberships. Selecting a coach writes the membership row, so a user
     // with no membership in a tenant cannot select there — which is correct,
     // since coaches are tenant-scoped, and is what the isolation tests below
     // exercise. Both users belong to both tenants so the isolation assertions
     // test the *selection*, not an accidental absence of membership.
-    for (user, tenant) in [
-        (
-            "550e8400-e29b-41d4-a716-446655440000",
-            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-        ),
-        (
-            "550e8400-e29b-41d4-a716-446655440000",
-            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-        ),
-        (
-            "660e8400-e29b-41d4-a716-446655440000",
-            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-        ),
-        (
-            "660e8400-e29b-41d4-a716-446655440000",
-            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-        ),
+    for (user_id, tenant_id) in [
+        (test_user_id(), test_tenant()),
+        (test_user_id(), other_tenant()),
+        (other_user_id(), test_tenant()),
+        (other_user_id(), other_tenant()),
     ] {
-        sqlx::query(
-            "INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at) \
-             VALUES (?1, ?2, ?3, 'member', '2025-01-01')",
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(tenant)
-        .bind(user)
-        .execute(&pool)
-        .await
-        .unwrap();
+        repos
+            .users
+            .update_tenant_id(user_id, tenant_id)
+            .await
+            .unwrap();
     }
 
-    // Create user_coach_preferences table (for hiding coaches)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS user_coach_preferences (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
-            is_hidden INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            UNIQUE(user_id, coach_id)
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create coach_relations table (for coach relationships)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS coach_relations (
-            id TEXT PRIMARY KEY,
-            coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
-            related_coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
-            relation_type TEXT NOT NULL CHECK (relation_type IN ('related', 'alternative', 'prerequisite', 'sequel')),
-            created_at TEXT NOT NULL,
-            UNIQUE(coach_id, related_coach_id, relation_type)
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create coach_versions table (for version history)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS coach_versions (
-            id TEXT PRIMARY KEY,
-            coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
-            version INTEGER NOT NULL,
-            content_hash TEXT NOT NULL,
-            content_snapshot TEXT NOT NULL,
-            change_summary TEXT,
-            created_at TEXT NOT NULL,
-            created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-            UNIQUE(coach_id, version)
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    pool
+    db
 }
 
 fn test_user_id() -> Uuid {
@@ -285,8 +129,8 @@ fn other_tenant() -> TenantId {
 
 #[tokio::test]
 async fn test_create_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Marathon Coach".to_owned(),
@@ -329,8 +173,8 @@ async fn test_create_coach() {
 
 #[tokio::test]
 async fn test_create_coach_minimal() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Simple Coach".to_owned(),
@@ -367,8 +211,8 @@ async fn test_create_coach_minimal() {
 
 #[tokio::test]
 async fn test_get_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -394,7 +238,7 @@ async fn test_get_coach() {
         .unwrap();
 
     let fetched = manager
-        .get(&created.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&created.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -406,11 +250,11 @@ async fn test_get_coach() {
 
 #[tokio::test]
 async fn test_get_coach_not_found() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let result = manager
-        .get("nonexistent-id", test_user_id(), test_tenant())
+        .get_by_id("nonexistent-id", test_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -419,8 +263,8 @@ async fn test_get_coach_not_found() {
 
 #[tokio::test]
 async fn test_get_coach_wrong_user() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Private Coach".to_owned(),
@@ -447,7 +291,7 @@ async fn test_get_coach_wrong_user() {
 
     // Try to get with different user - should not find it
     let result = manager
-        .get(&created.id.to_string(), other_user_id(), test_tenant())
+        .get_by_id(&created.id.to_string(), other_user_id(), test_tenant())
         .await
         .unwrap();
 
@@ -460,8 +304,8 @@ async fn test_get_coach_wrong_user() {
 
 #[tokio::test]
 async fn test_list_coaches_empty() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let filter = ListCoachesFilter::default();
     let coaches = manager
@@ -474,8 +318,8 @@ async fn test_list_coaches_empty() {
 
 #[tokio::test]
 async fn test_list_coaches() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create multiple coaches
     for i in 1..=3 {
@@ -513,8 +357,8 @@ async fn test_list_coaches() {
 
 #[tokio::test]
 async fn test_list_coaches_by_category() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create coaches with different categories
     let categories = [
@@ -565,8 +409,8 @@ async fn test_list_coaches_by_category() {
 
 #[tokio::test]
 async fn test_list_coaches_favorites_only() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create coaches
     let mut coach_ids = Vec::new();
@@ -617,8 +461,8 @@ async fn test_list_coaches_favorites_only() {
 
 #[tokio::test]
 async fn test_list_coaches_with_pagination() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create 5 coaches
     for i in 1..=5 {
@@ -684,8 +528,8 @@ async fn test_list_coaches_with_pagination() {
 
 #[tokio::test]
 async fn test_list_coaches_user_isolation() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create coach for user 1
     let request = CreateCoachRequest {
@@ -757,8 +601,8 @@ async fn test_list_coaches_user_isolation() {
 
 #[tokio::test]
 async fn test_update_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Original Title".to_owned(),
@@ -822,8 +666,8 @@ async fn test_update_coach() {
 
 #[tokio::test]
 async fn test_update_coach_partial() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Original Title".to_owned(),
@@ -886,8 +730,8 @@ async fn test_update_coach_partial() {
 
 #[tokio::test]
 async fn test_update_coach_not_found() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let update = UpdateCoachRequest {
         title: Some("New Title".to_owned()),
@@ -921,8 +765,8 @@ async fn test_update_coach_not_found() {
 
 #[tokio::test]
 async fn test_delete_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "To Delete".to_owned(),
@@ -956,7 +800,7 @@ async fn test_delete_coach() {
 
     // Verify it's gone
     let result = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
     assert!(result.is_none());
@@ -964,8 +808,8 @@ async fn test_delete_coach() {
 
 #[tokio::test]
 async fn test_delete_coach_not_found() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let deleted = manager
         .delete("nonexistent-id", test_user_id(), test_tenant())
@@ -977,8 +821,8 @@ async fn test_delete_coach_not_found() {
 
 #[tokio::test]
 async fn test_delete_coach_wrong_user() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Private Coach".to_owned(),
@@ -1013,7 +857,7 @@ async fn test_delete_coach_wrong_user() {
 
     // Verify it still exists for original user
     let result = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
     assert!(result.is_some());
@@ -1025,8 +869,8 @@ async fn test_delete_coach_wrong_user() {
 
 #[tokio::test]
 async fn test_toggle_favorite() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -1088,8 +932,8 @@ async fn test_toggle_favorite() {
 
 #[tokio::test]
 async fn test_toggle_favorite_not_found() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let result = manager
         .toggle_favorite("nonexistent-id", test_user_id(), test_tenant())
@@ -1105,8 +949,8 @@ async fn test_toggle_favorite_not_found() {
 
 #[tokio::test]
 async fn test_activate_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Active Coach".to_owned(),
@@ -1150,8 +994,8 @@ async fn test_activate_coach() {
 
 #[tokio::test]
 async fn test_activate_coach_deactivates_others() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create two coaches
     let request1 = CreateCoachRequest {
@@ -1229,8 +1073,8 @@ async fn test_activate_coach_deactivates_others() {
 
 #[tokio::test]
 async fn test_deactivate_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -1278,8 +1122,8 @@ async fn test_deactivate_coach() {
 
 #[tokio::test]
 async fn test_deactivate_when_none_active() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Deactivate when nothing is active
     let deactivated = manager
@@ -1291,8 +1135,8 @@ async fn test_deactivate_when_none_active() {
 
 #[tokio::test]
 async fn test_get_active_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // No active coach initially
     let active = manager
@@ -1342,8 +1186,8 @@ async fn test_get_active_coach() {
 
 #[tokio::test]
 async fn test_active_coach_user_isolation() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create coach for user 1 and activate
     let request = CreateCoachRequest {
@@ -1393,8 +1237,8 @@ async fn test_active_coach_user_isolation() {
 
 #[tokio::test]
 async fn test_record_usage() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -1468,8 +1312,8 @@ async fn test_record_usage() {
 // unconditionally; this test pins that behaviour.
 #[tokio::test]
 async fn test_record_usage_for_system_coach_from_other_tenant() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateSystemCoachRequest {
         title: "Cross-tenant System Coach".to_owned(),
@@ -1522,8 +1366,8 @@ async fn test_record_usage_for_system_coach_from_other_tenant() {
 // activate_coach — fixing only one would leave silent failures elsewhere.
 #[tokio::test]
 async fn test_activate_system_coach_from_other_tenant() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateSystemCoachRequest {
         title: "Activate-me Cross-tenant System Coach".to_owned(),
@@ -1556,8 +1400,8 @@ async fn test_activate_system_coach_from_other_tenant() {
 
 #[tokio::test]
 async fn test_search_coaches() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create coaches with searchable content
     let requests = [
@@ -1655,8 +1499,8 @@ async fn test_search_coaches() {
 
 #[tokio::test]
 async fn test_search_coaches_with_limit() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create multiple coaches with "Coach" in title
     for i in 1..=5 {
@@ -1697,8 +1541,8 @@ async fn test_search_coaches_with_limit() {
 
 #[tokio::test]
 async fn test_count_coaches() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Initially zero
     let count = manager.count(test_user_id(), test_tenant()).await.unwrap();
@@ -1828,8 +1672,8 @@ fn test_coach_category_serde_deserialization() {
 
 #[tokio::test]
 async fn test_create_system_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateSystemCoachRequest {
         title: "Pierre Default Coach".to_owned(),
@@ -1855,8 +1699,8 @@ async fn test_create_system_coach() {
 
 #[tokio::test]
 async fn test_list_system_coaches() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create two system coaches
     for i in 1..=2 {
@@ -1882,8 +1726,8 @@ async fn test_list_system_coaches() {
 
 #[tokio::test]
 async fn test_get_system_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateSystemCoachRequest {
         title: "System Coach".to_owned(),
@@ -1914,8 +1758,8 @@ async fn test_get_system_coach() {
 
 #[tokio::test]
 async fn test_update_system_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateSystemCoachRequest {
         title: "Original System Coach".to_owned(),
@@ -1965,8 +1809,8 @@ async fn test_update_system_coach() {
 
 #[tokio::test]
 async fn test_delete_system_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateSystemCoachRequest {
         title: "To Delete".to_owned(),
@@ -2004,8 +1848,8 @@ async fn test_delete_system_coach() {
 
 #[tokio::test]
 async fn test_assign_coach_to_user() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach
     let request = CreateSystemCoachRequest {
@@ -2041,8 +1885,8 @@ async fn test_assign_coach_to_user() {
 
 #[tokio::test]
 async fn test_unassign_coach_from_user() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create and assign
     let request = CreateSystemCoachRequest {
@@ -2082,8 +1926,8 @@ async fn test_unassign_coach_from_user() {
 
 #[tokio::test]
 async fn test_list_assignments() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create system coach
     let request = CreateSystemCoachRequest {
@@ -2119,8 +1963,8 @@ async fn test_list_assignments() {
 
 #[tokio::test]
 async fn test_list_coaches_includes_assigned_system_coaches() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a personal coach for user 1
     let personal_request = CreateCoachRequest {
@@ -2193,8 +2037,8 @@ async fn test_list_coaches_includes_assigned_system_coaches() {
 
 #[tokio::test]
 async fn test_hide_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach and assign it
     let request = CreateSystemCoachRequest {
@@ -2227,8 +2071,8 @@ async fn test_hide_coach() {
 
 #[tokio::test]
 async fn test_hide_coach_not_found() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Try to hide non-existent coach - should return error
     let result = manager.hide_coach("nonexistent-id", test_user_id()).await;
@@ -2238,8 +2082,8 @@ async fn test_hide_coach_not_found() {
 
 #[tokio::test]
 async fn test_show_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach and assign it
     let request = CreateSystemCoachRequest {
@@ -2278,8 +2122,8 @@ async fn test_show_coach() {
 
 #[tokio::test]
 async fn test_list_hidden_coaches() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create two system coaches
     let mut coach_ids = Vec::new();
@@ -2327,8 +2171,8 @@ async fn test_list_hidden_coaches() {
 
 #[tokio::test]
 async fn test_hidden_coach_excluded_from_list() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach and assign it
     let request = CreateSystemCoachRequest {
@@ -2374,8 +2218,8 @@ async fn test_hidden_coach_excluded_from_list() {
 
 #[tokio::test]
 async fn test_unhidden_coach_appears_in_list() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach and assign it
     let request = CreateSystemCoachRequest {
@@ -2427,8 +2271,8 @@ async fn test_unhidden_coach_appears_in_list() {
 
 #[tokio::test]
 async fn test_hide_coach_user_isolation() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach and assign to both users
     let request = CreateSystemCoachRequest {
@@ -2484,8 +2328,8 @@ async fn test_hide_coach_user_isolation() {
 /// when `include_system` filter is enabled, regardless of the tenant they were created in.
 #[tokio::test]
 async fn test_system_coach_visible_across_tenants() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach in test_tenant() (tenant A)
     let request = CreateSystemCoachRequest {
@@ -2527,8 +2371,8 @@ async fn test_system_coach_visible_across_tenants() {
 /// When `include_system` is false, system coaches from other tenants should NOT be visible
 #[tokio::test]
 async fn test_system_coach_hidden_when_include_system_false() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach in test_tenant()
     let request = CreateSystemCoachRequest {
@@ -2566,8 +2410,8 @@ async fn test_system_coach_hidden_when_include_system_false() {
 /// to users from any tenant when `include_system` is enabled
 #[tokio::test]
 async fn test_multiple_system_coaches_visible_across_tenants() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create system coach in test_tenant()
     let request1 = CreateSystemCoachRequest {
@@ -2627,8 +2471,8 @@ async fn test_multiple_system_coaches_visible_across_tenants() {
 /// Personal coaches should remain tenant-isolated even when system coaches are visible
 #[tokio::test]
 async fn test_personal_coaches_remain_isolated_with_system_coaches() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a personal coach in test_tenant()
     let personal_request = CreateCoachRequest {
@@ -2697,8 +2541,8 @@ async fn test_personal_coaches_remain_isolated_with_system_coaches() {
 /// This is the expected behavior because system coaches are globally visible.
 #[tokio::test]
 async fn test_hide_system_coach_cross_tenant() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach in test_tenant() (tenant A)
     let request = CreateSystemCoachRequest {
@@ -2756,8 +2600,8 @@ async fn test_hide_system_coach_cross_tenant() {
 /// Users can show (unhide) system coaches from other tenants
 #[tokio::test]
 async fn test_show_system_coach_cross_tenant() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach in test_tenant()
     let request = CreateSystemCoachRequest {
@@ -2818,8 +2662,8 @@ async fn test_show_system_coach_cross_tenant() {
 
 #[tokio::test]
 async fn test_create_coach_with_structured_fields() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Structured Coach".to_owned(),
@@ -2881,7 +2725,7 @@ async fn test_create_coach_with_structured_fields() {
 
     // Verify round-trip through get
     let fetched = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap()
         .unwrap();
@@ -2897,8 +2741,8 @@ async fn test_create_coach_with_structured_fields() {
 
 #[tokio::test]
 async fn test_create_coach_without_structured_fields() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Flat Coach".to_owned(),
@@ -2936,7 +2780,7 @@ async fn test_create_coach_without_structured_fields() {
 
     // Verify round-trip through get
     let fetched = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap()
         .unwrap();
@@ -2951,8 +2795,8 @@ async fn test_create_coach_without_structured_fields() {
 
 #[tokio::test]
 async fn test_update_coach_adds_structured_fields() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a flat coach (no structured fields)
     let request = CreateCoachRequest {
@@ -3042,7 +2886,7 @@ async fn test_update_coach_adds_structured_fields() {
 
     // Verify persistence through a fresh get
     let fetched = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap()
         .unwrap();
@@ -3055,11 +2899,19 @@ async fn test_update_coach_adds_structured_fields() {
     assert_eq!(fetched.success_criteria, updated.success_criteria);
 }
 
+/// Writes the structured sections the admin API leaves NULL. Plain text
+/// columns and `$n` placeholders, which both dialects accept.
+const SET_STRUCTURED_FIELDS: &str = r"
+    UPDATE coaches SET
+        purpose = $1, when_to_use = $2, instructions = $3,
+        example_inputs = $4, example_outputs = $5, success_criteria = $6
+    WHERE id = $7
+    ";
+
 #[tokio::test]
 async fn test_fork_preserves_structured_fields() {
-    let pool = create_test_db().await;
-    let raw_pool = pool.clone();
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach via the admin API
     let system_request = CreateSystemCoachRequest {
@@ -3077,25 +2929,38 @@ async fn test_fork_preserves_structured_fields() {
         .await
         .unwrap();
 
-    // The admin API does not insert structured fields, so set them via raw SQL
-    sqlx::query(
-        r"
-        UPDATE coaches SET
-            purpose = $1, when_to_use = $2, instructions = $3,
-            example_inputs = $4, example_outputs = $5, success_criteria = $6
-        WHERE id = $7
-        ",
-    )
-    .bind("Analyze post-race data to identify strengths and weaknesses.")
-    .bind("After completing a race or time trial.")
-    .bind("Compare splits, heart rate zones, and pacing strategy against the goal.")
-    .bind("Here is my 10K race from last weekend.")
-    .bind("Provide split analysis, HR zone time, and pacing recommendations.")
-    .bind("Identify at least two actionable improvements for the next race.")
-    .bind(system_coach.id.to_string())
-    .execute(&raw_pool)
-    .await
-    .unwrap();
+    // The admin API does not insert structured fields, so set them via raw
+    // SQL on whichever backend the factory opened.
+    let structured_values = [
+        "Analyze post-race data to identify strengths and weaknesses.",
+        "After completing a race or time trial.",
+        "Compare splits, heart rate zones, and pacing strategy against the goal.",
+        "Here is my 10K race from last weekend.",
+        "Provide split analysis, HR zone time, and pacing recommendations.",
+        "Identify at least two actionable improvements for the next race.",
+    ];
+    let coach_id = system_coach.id.to_string();
+    match &db {
+        Database::SQLite(sqlite) => {
+            let mut query = sqlx::query(SET_STRUCTURED_FIELDS);
+            for value in structured_values {
+                query = query.bind(value);
+            }
+            query.bind(&coach_id).execute(sqlite.pool()).await.unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(postgres) => {
+            let mut query = sqlx::query(SET_STRUCTURED_FIELDS);
+            for value in structured_values {
+                query = query.bind(value);
+            }
+            query
+                .bind(&coach_id)
+                .execute(postgres.pool())
+                .await
+                .unwrap();
+        }
+    }
 
     // Fork the system coach as a different user in a different tenant
     let forked = manager
@@ -3139,7 +3004,7 @@ async fn test_fork_preserves_structured_fields() {
 
     // Verify persistence through a fresh get
     let fetched = manager
-        .get(&forked.id.to_string(), other_user_id(), other_tenant())
+        .get_by_id(&forked.id.to_string(), other_user_id(), other_tenant())
         .await
         .unwrap()
         .unwrap();
@@ -3153,8 +3018,8 @@ async fn test_fork_preserves_structured_fields() {
 
 #[tokio::test]
 async fn test_token_count_with_structured_fields() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let purpose = "Help athletes build a training plan.";
     let instructions = "You are an expert coach who builds periodized plans.";
@@ -3209,13 +3074,13 @@ async fn test_token_count_with_structured_fields() {
 }
 
 /// `max_tool_iterations` is the per-coach tool-call budget the chat pipeline
-/// reads to override the admin default. `CoachesManager::create` must persist a
+/// reads to override the admin default. `CoachesRepository::create` must persist a
 /// caller-supplied value, not just carry it in the returned struct — so this
 /// asserts the concrete budget on a fresh read back out of the database.
 #[tokio::test]
 async fn test_create_coach_persists_max_tool_iterations() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Budgeted Coach".to_owned(),
@@ -3244,21 +3109,21 @@ async fn test_create_coach_persists_max_tool_iterations() {
     // Re-read: proves the value reached the coaches row, not just the struct
     // the create path returns.
     let fetched = manager
-        .get(&created.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&created.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap()
         .unwrap();
     assert_eq!(fetched.max_tool_iterations, Some(23));
 }
 
-/// `CoachesManager::update` must write a new `max_tool_iterations` over the
+/// `CoachesRepository::update` must write a new `max_tool_iterations` over the
 /// stored one. The update path resolves the request against the stored value,
 /// so a coach created with a budget and updated to a different budget proves
 /// the request value wins rather than the existing one leaking through.
 #[tokio::test]
 async fn test_update_coach_writes_max_tool_iterations() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Budgeted Coach".to_owned(),
@@ -3314,7 +3179,7 @@ async fn test_update_coach_writes_max_tool_iterations() {
     assert_eq!(updated.max_tool_iterations, Some(7));
 
     let fetched = manager
-        .get(&created.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&created.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap()
         .unwrap();
@@ -3327,8 +3192,8 @@ async fn test_update_coach_writes_max_tool_iterations() {
 /// default.
 #[tokio::test]
 async fn test_update_coach_preserves_max_tool_iterations_when_absent() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Budgeted Coach".to_owned(),
@@ -3391,8 +3256,8 @@ async fn test_update_coach_preserves_max_tool_iterations_when_absent() {
 /// `request.or(existing)` coalesce could never do.
 #[tokio::test]
 async fn test_update_coach_clears_max_tool_iterations_on_an_explicit_null() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = create_test_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Budgeted Coach".to_owned(),
@@ -3453,7 +3318,7 @@ async fn test_update_coach_clears_max_tool_iterations_on_an_explicit_null() {
     // Re-read: proves NULL reached the coaches row, not just the struct the
     // update path returns.
     let fetched = manager
-        .get(&created.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&created.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap()
         .unwrap();

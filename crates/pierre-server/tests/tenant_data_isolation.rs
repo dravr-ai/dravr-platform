@@ -28,6 +28,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::mcp::{
     multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
@@ -143,15 +144,9 @@ fn create_test_server_config() -> Arc<ServerConfig> {
 }
 
 async fn setup_test_database() -> Result<Database> {
-    let database_url = "sqlite::memory:";
     let encryption_key = vec![0u8; 32];
 
-    #[cfg(feature = "postgresql")]
-    let database =
-        Database::new(database_url, encryption_key, &PostgresPoolConfig::default()).await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(database_url, encryption_key).await?;
+    let database = create_test_db_with_key(encryption_key).await?;
 
     database.migrate().await?;
     Ok(database)
@@ -442,20 +437,8 @@ async fn test_database_encryption_isolation() -> Result<()> {
     let key1 = vec![1u8; 32]; // Different encryption key
     let key2 = vec![2u8; 32]; // Different encryption key
 
-    let db_url1 = "sqlite::memory:";
-    let db_url2 = "sqlite::memory:";
-
-    #[cfg(feature = "postgresql")]
-    let database1 = Database::new(db_url1, key1, &PostgresPoolConfig::default()).await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database1 = Database::new(db_url1, key1).await?;
-
-    #[cfg(feature = "postgresql")]
-    let database2 = Database::new(db_url2, key2, &PostgresPoolConfig::default()).await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database2 = Database::new(db_url2, key2).await?;
+    let database1 = create_test_db_with_key(key1).await?;
+    let database2 = create_test_db_with_key(key2).await?;
 
     database1.migrate().await?;
     database2.migrate().await?;

@@ -77,25 +77,15 @@ const OTHER_PER_USER: i64 = 4000;
 /// Build the service and repository against whichever backend
 /// [`create_test_db`] opened.
 async fn backend(db: &Database) -> (AdminConfigService, Box<dyn AdminConfigRepository>) {
-    #[cfg(feature = "postgresql")]
-    if let Some(pg) = db.postgres_pool() {
-        let service = AdminConfigService::from_postgres(pg.clone())
-            .await
-            .expect("PostgreSQL admin config service");
-        return (
-            service,
-            Box::new(PostgresAdminConfigManager::new(pg.clone())),
-        );
-    }
-
-    let pool = db
-        .sqlite_pool()
-        .expect("test database exposes neither a PostgreSQL nor a SQLite pool")
-        .clone();
-    let service = AdminConfigService::new(pool.clone())
+    let service = AdminConfigService::for_database(db)
         .await
-        .expect("SQLite admin config service");
-    (service, Box::new(AdminConfigManager::new(pool)))
+        .expect("admin config service");
+    let repo: Box<dyn AdminConfigRepository> = match db {
+        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+    };
+    (service, repo)
 }
 
 /// Write one integer override at `scope`.

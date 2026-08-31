@@ -27,7 +27,8 @@ use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::CoachesCtx;
-use sqlx::{Pool, Sqlite};
+#[cfg(feature = "postgresql")]
+use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -99,48 +100,87 @@ fn ctx(
     }
 }
 
+/// Plant a profile the repository cannot read, and return the document as the
+/// database stores it so the test can prove it survives the turn untouched.
+///
+/// On `SQLite` the column is text: the malformed [`UNREADABLE_PROFILE`] goes
+/// in, `get_profile` fails to parse it, and the write path stays open — which is
+/// what lets the test catch a handler that writes after a failed read.
+/// `PostgreSQL` holds the column as JSONB and refuses a malformed document, so
+/// there the athlete's nutrition and equipment blocks are stored through the
+/// repository and the read fault is the relation being renamed away: the read
+/// fails at the statement, and so would the write. [`stored_profile`] renames it
+/// back before reading.
+async fn plant_unreadable_profile(db: &Database, user_id: Uuid) -> Result<String> {
+    match db {
+        Database::SQLite(sqlite) => {
+            let now = Utc::now().to_rfc3339();
+            sqlx::query(
+                "INSERT INTO user_profiles (user_id, profile_data, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4)",
+            )
+            .bind(user_id.to_string())
+            .bind(UNREADABLE_PROFILE)
+            .bind(&now)
+            .bind(&now)
+            .execute(sqlite.pool())
+            .await?;
+            Ok(UNREADABLE_PROFILE.to_owned())
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            db.repositories()
+                .profiles
+                .upsert_profile(
+                    user_id,
+                    json!({"nutrition": {"carbs_per_hour": 60}, "equipment": {"bike": "Tarmac"}}),
+                )
+                .await?;
+            let stored: String = sqlx::query_scalar(
+                "SELECT profile_data::text FROM user_profiles WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .fetch_one(pg.pool())
+            .await?;
+            sqlx::query("ALTER TABLE user_profiles RENAME TO user_profiles_held")
+                .execute(pg.pool())
+                .await?;
+            Ok(stored)
+        }
+    }
+}
+
 /// The `user_profiles` column, straight out of the table.
 ///
 /// Read raw because the point of the failing case is that the repository
 /// cannot parse it — a readback through `get_profile` would fail the same way
 /// and prove nothing about what is stored.
-fn sqlite_pool(resources: &Arc<ServerContext>) -> &Pool<Sqlite> {
-    match resources.database().as_ref() {
-        Database::SQLite(sqlite) => sqlite.pool(),
+async fn stored_profile(db: &Database, user_id: Uuid) -> Result<Option<String>> {
+    let stored = match db {
+        Database::SQLite(sqlite) => {
+            sqlx::query_scalar("SELECT profile_data FROM user_profiles WHERE user_id = $1")
+                .bind(user_id.to_string())
+                .fetch_optional(sqlite.pool())
+                .await?
+        }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => panic!("this test runs against the SQLite backend"),
-    }
-}
-
-async fn store_raw_profile(pool: &Pool<Sqlite>, user_id: Uuid, profile_data: &str) -> Result<()> {
-    let now = Utc::now().to_rfc3339();
-    sqlx::query(
-        "INSERT INTO user_profiles (user_id, profile_data, created_at, updated_at)
-         VALUES (?, ?, ?, ?)",
-    )
-    .bind(user_id.to_string())
-    .bind(profile_data)
-    .bind(&now)
-    .bind(&now)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-async fn read_raw_profile(pool: &Pool<Sqlite>, user_id: Uuid) -> Result<Option<String>> {
-    let stored: Option<String> =
-        sqlx::query_scalar("SELECT profile_data FROM user_profiles WHERE user_id = ?")
-            .bind(user_id.to_string())
-            .fetch_optional(pool)
-            .await?;
+        Database::PostgreSQL(pg) => {
+            sqlx::query("ALTER TABLE IF EXISTS user_profiles_held RENAME TO user_profiles")
+                .execute(pg.pool())
+                .await?;
+            sqlx::query_scalar("SELECT profile_data::text FROM user_profiles WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(pg.pool())
+                .await?
+        }
+    };
     Ok(stored)
 }
 
 #[tokio::test]
 async fn a_failed_profile_read_reports_failure_and_leaves_the_profile_untouched() -> Result<()> {
     let (resources, user_id, tenant, conversation_id) = setup().await?;
-    let pool = sqlite_pool(&resources);
-    store_raw_profile(pool, user_id, UNREADABLE_PROFILE).await?;
+    let planted = plant_unreadable_profile(resources.database(), user_id).await?;
 
     let outcome = CalibrateHandler
         .execute(&ctx(
@@ -156,11 +196,11 @@ async fn a_failed_profile_read_reports_failure_and_leaves_the_profile_untouched(
     let reported_failure = outcome.is_err();
 
     // The whole document is still the athlete's.
-    let stored = read_raw_profile(pool, user_id)
+    let stored = stored_profile(resources.database(), user_id)
         .await?
         .expect("the profile row must still exist");
     assert_eq!(
-        stored, UNREADABLE_PROFILE,
+        stored, planted,
         "a failed read must not rewrite the athlete's profile, got: {stored}"
     );
     assert!(
@@ -200,9 +240,10 @@ async fn a_failed_profile_read_reports_failure_and_leaves_the_profile_untouched(
 #[tokio::test]
 async fn an_athlete_with_no_profile_still_starts_the_interview() -> Result<()> {
     let (resources, user_id, tenant, conversation_id) = setup().await?;
-    let pool = sqlite_pool(&resources);
     assert!(
-        read_raw_profile(pool, user_id).await?.is_none(),
+        stored_profile(resources.database(), user_id)
+            .await?
+            .is_none(),
         "this athlete has never had a profile row; the read returns Ok(None)"
     );
 

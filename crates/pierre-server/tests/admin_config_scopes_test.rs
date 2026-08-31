@@ -60,65 +60,46 @@ fn quota_definitions() -> HashMap<String, ParameterDefinition> {
 /// partial unique index, and index inference is exactly the kind of thing a
 /// `SQLite` stand-in would not exercise.
 fn repository(db: &Database) -> Box<dyn AdminConfigRepository> {
-    #[cfg(feature = "postgresql")]
-    if let Some(pg) = db.postgres_pool() {
-        return Box::new(PostgresAdminConfigManager::new(pg.clone()));
+    match db {
+        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
     }
-
-    Box::new(AdminConfigManager::new(
-        db.sqlite_pool()
-            .expect("test database exposes neither a PostgreSQL nor a SQLite pool")
-            .clone(),
-    ))
 }
 
 /// Build the config service against the same backend.
 async fn config_service(db: &Database) -> AdminConfigService {
-    #[cfg(feature = "postgresql")]
-    if let Some(pg) = db.postgres_pool() {
-        return AdminConfigService::from_postgres(pg.clone())
-            .await
-            .expect("PostgreSQL admin config service");
-    }
-
-    AdminConfigService::new(
-        db.sqlite_pool()
-            .expect("test database exposes neither a PostgreSQL nor a SQLite pool")
-            .clone(),
-    )
-    .await
-    .expect("SQLite admin config service")
+    AdminConfigService::for_database(db)
+        .await
+        .expect("admin config service")
 }
 
 /// Count stored per-user rows for the parameter under test.
 async fn count_user_rows(db: &Database, user: &str) -> i64 {
-    #[cfg(feature = "postgresql")]
-    if let Some(pg) = db.postgres_pool() {
-        return sqlx::query_scalar(
+    match db {
+        Database::SQLite(sqlite) => sqlx::query_scalar(
+            "SELECT COUNT(*) FROM admin_config_overrides \
+             WHERE category = $1 AND config_key = $2 AND user_id = $3",
+        )
+        .bind(CATEGORY)
+        .bind(KEY)
+        .bind(user)
+        .fetch_one(sqlite.pool())
+        .await
+        .unwrap(),
+        // `user_id` is a `uuid` column on PostgreSQL, so the text id is cast.
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => sqlx::query_scalar(
             "SELECT COUNT(*) FROM admin_config_overrides \
              WHERE category = $1 AND config_key = $2 AND user_id = $3::uuid",
         )
         .bind(CATEGORY)
         .bind(KEY)
         .bind(user)
-        .fetch_one(pg)
+        .fetch_one(pg.pool())
         .await
-        .unwrap();
+        .unwrap(),
     }
-
-    sqlx::query_scalar(
-        "SELECT COUNT(*) FROM admin_config_overrides \
-         WHERE category = ?1 AND config_key = ?2 AND user_id = ?3",
-    )
-    .bind(CATEGORY)
-    .bind(KEY)
-    .bind(user)
-    .fetch_one(
-        db.sqlite_pool()
-            .expect("test database exposes neither a PostgreSQL nor a SQLite pool"),
-    )
-    .await
-    .unwrap()
 }
 
 async fn seed_user(db: &Database, label: &str) -> String {

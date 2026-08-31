@@ -61,8 +61,8 @@ impl FitnessConfigurationManager {
 
         let result = sqlx::query(
             r"
-            INSERT INTO fitness_configurations (tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
-            VALUES ($1, NULL, $2, $3, $4, $4)
+            INSERT INTO fitness_configurations (id, tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
+            VALUES ($5, $1, NULL, $2, $3, $4, $4)
             ON CONFLICT (tenant_id, user_id, configuration_name)
             DO UPDATE SET
                 config_data = EXCLUDED.config_data,
@@ -74,6 +74,7 @@ impl FitnessConfigurationManager {
         .bind(configuration_name)
         .bind(&config_json)
         .bind(&now)
+        .bind(uuid::Uuid::new_v4().to_string())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to save tenant fitness config: {e}")))?;
@@ -98,8 +99,8 @@ impl FitnessConfigurationManager {
 
         let result = sqlx::query(
             r"
-            INSERT INTO fitness_configurations (tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $5)
+            INSERT INTO fitness_configurations (id, tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
+            VALUES ($6, $1, $2, $3, $4, $5, $5)
             ON CONFLICT (tenant_id, user_id, configuration_name)
             DO UPDATE SET
                 config_data = EXCLUDED.config_data,
@@ -112,6 +113,7 @@ impl FitnessConfigurationManager {
         .bind(configuration_name)
         .bind(&config_json)
         .bind(&now)
+        .bind(uuid::Uuid::new_v4().to_string())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to save user fitness config: {e}")))?;

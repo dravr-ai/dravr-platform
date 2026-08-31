@@ -10,28 +10,18 @@
 use std::time::Duration;
 
 use chrono::Utc;
-#[cfg(feature = "postgresql")]
-use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::models::{
     IntensityDistribution, SportType, TenantId, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
 };
 use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::DatabaseProvider;
 use tokio::time::sleep;
 use uuid::Uuid;
 
 async fn make_test_db() -> Database {
     let encryption_key = b"test_encryption_key_32_bytes_long".to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .expect("create db");
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key)
+    let db = create_test_db_with_key(encryption_key)
         .await
         .expect("create db");
     db.migrate().await.expect("migrate");

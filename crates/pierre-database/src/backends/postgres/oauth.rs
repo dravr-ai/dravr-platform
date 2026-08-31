@@ -842,7 +842,7 @@ impl OAuth2ServerRepository for PostgresDatabase {
 
     async fn get_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
         let row = sqlx::query(
-            "SELECT code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method
+            "SELECT code, client_id, user_id::uuid AS user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method
              FROM oauth2_auth_codes WHERE code = $1",
         )
         .bind(code)
@@ -910,7 +910,7 @@ impl OAuth2ServerRepository for PostgresDatabase {
         let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
 
         let row = sqlx::query(
-            "SELECT token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked
+            "SELECT token, client_id, user_id::uuid AS user_id, tenant_id, scope, expires_at, created_at, revoked
              FROM oauth2_refresh_tokens
              WHERE token = $1",
         )
@@ -986,7 +986,7 @@ impl OAuth2ServerRepository for PostgresDatabase {
                AND redirect_uri = $3
                AND used = false
                AND expires_at > $4
-             RETURNING code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method"
+             RETURNING code, client_id, user_id::uuid AS user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method"
         )
         .bind(code)
         .bind(client_id)
@@ -1035,7 +1035,7 @@ impl OAuth2ServerRepository for PostgresDatabase {
                AND client_id = $2
                AND revoked = false
                AND expires_at > $3
-             RETURNING token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked",
+             RETURNING token, client_id, user_id::uuid AS user_id, tenant_id, scope, expires_at, created_at, revoked",
         )
         .bind(&token_hash)
         .bind(client_id)
@@ -1085,7 +1085,7 @@ impl OAuth2ServerRepository for PostgresDatabase {
         let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
 
         let row = sqlx::query(
-            "SELECT token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked
+            "SELECT token, client_id, user_id::uuid AS user_id, tenant_id, scope, expires_at, created_at, revoked
              FROM oauth2_refresh_tokens
              WHERE token = $1",
         )
@@ -1163,7 +1163,7 @@ impl OAuth2ServerRepository for PostgresDatabase {
                AND client_id = $2
                AND used = false
                AND expires_at > $3
-             RETURNING state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used",
+             RETURNING state, client_id, user_id::uuid AS user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used",
         )
         .bind(state_value)
         .bind(client_id)

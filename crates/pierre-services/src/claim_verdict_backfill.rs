@@ -28,6 +28,8 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "postgresql")]
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tokio::time::sleep;
@@ -35,6 +37,8 @@ use tracing::{info, warn};
 
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
+#[cfg(feature = "postgresql")]
+use pierre_database::backends::postgres::PostgresDatabase;
 use pierre_database::database::Database as SqliteBackend;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_database::RepositoryRegistry;
@@ -386,11 +390,84 @@ async fn fetch_assistant_messages(
             Ok(out)
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => Err(AppError::internal(
-            "claim verdict backfill currently only supports the SQLite backend; \
-             implement the Postgres path when a production tenant needs it",
-        )),
+        Database::PostgreSQL(db) => {
+            let (cursor_created, cursor_id) = match cursor_message_id {
+                Some(id) => load_cursor_timestamp_postgres(db, id).await?,
+                None => (None, None),
+            };
+            let since = params
+                .since
+                .map(|since| {
+                    DateTime::parse_from_rfc3339(since)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .map_err(|e| {
+                            AppError::invalid_input(format!(
+                                "since must be an RFC 3339 timestamp, got {since:?}: {e}"
+                            ))
+                        })
+                })
+                .transpose()?;
+
+            // `created_at` is `TIMESTAMPTZ` here, so the bounds bind as
+            // timestamps and an absent bound is a NULL rather than the empty
+            // string the text-typed `SQLite` column compares against.
+            let sql = r"
+                SELECT m.id AS message_id,
+                       m.conversation_id AS conversation_id,
+                       c.user_id::text AS user_id,
+                       c.coach_id AS coach_id,
+                       m.content AS content
+                FROM chat_messages m
+                INNER JOIN chat_conversations c ON c.id = m.conversation_id
+                WHERE c.tenant_id = $1
+                  AND m.role = 'assistant'
+                  AND ($2::timestamptz IS NULL OR m.created_at >= $2)
+                  AND ($3::timestamptz IS NULL OR m.created_at > $3
+                       OR (m.created_at = $3 AND m.id > $4))
+                ORDER BY m.created_at ASC, m.id ASC
+                LIMIT $5
+            ";
+
+            let rows = sqlx::query(sql)
+                .bind(&tenant_str)
+                .bind(since)
+                .bind(cursor_created)
+                .bind(cursor_id)
+                .bind(limit_i64)
+                .fetch_all(db.pool())
+                .await
+                .map_err(|e| AppError::database(format!("Failed to fetch messages: {e}")))?;
+
+            let mut out = Vec::with_capacity(rows.len());
+            for row in rows {
+                out.push(AssistantMessageRow {
+                    message_id: row.get("message_id"),
+                    conversation_id: row.get("conversation_id"),
+                    user_id: row.get("user_id"),
+                    coach_id: row.try_get("coach_id").ok(),
+                    content: row.get("content"),
+                });
+            }
+            Ok(out)
+        }
     }
+}
+
+#[cfg(feature = "postgresql")]
+async fn load_cursor_timestamp_postgres(
+    db: &PostgresDatabase,
+    message_id: &str,
+) -> AppResult<(Option<DateTime<Utc>>, Option<String>)> {
+    let sql = "SELECT id, created_at FROM chat_messages WHERE id = $1";
+    let row = sqlx::query(sql)
+        .bind(message_id)
+        .fetch_optional(db.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to load cursor message: {e}")))?;
+    row.map_or_else(
+        || Ok((None, None)),
+        |row| Ok((Some(row.get("created_at")), Some(row.get("id")))),
+    )
 }
 
 async fn load_cursor_timestamp_sqlite(

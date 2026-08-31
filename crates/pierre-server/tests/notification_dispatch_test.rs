@@ -21,6 +21,7 @@ mod common;
 #[cfg(feature = "client-notifications")]
 mod dispatch_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
+    use pierre_database::backends::factory::Database;
     use pierre_notifications::models::{
         CreateNotificationParams, NotificationCategory, UpsertNotificationPreferenceParams,
     };
@@ -29,8 +30,6 @@ mod dispatch_tests {
         SuppressionReason, TenantId,
     };
     use serde_json::json;
-    use sqlx::sqlite::SqlitePoolOptions;
-    use sqlx::Row;
     use std::sync::Arc;
     use tokio::time::{sleep, Duration};
     use uuid::Uuid;
@@ -38,6 +37,16 @@ mod dispatch_tests {
     // ════════════════════════════════════════════════════════════════
     // Setup helpers
     // ════════════════════════════════════════════════════════════════
+
+    /// The notification service on whichever backend the test database is —
+    /// the same mapping the server performs at boot.
+    fn notification_service(db: &Database) -> NotificationService {
+        match db {
+            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        }
+    }
 
     async fn setup_service() -> (Arc<NotificationService>, Uuid, TenantId) {
         let resources = create_test_server_resources().await.unwrap();
@@ -60,10 +69,7 @@ mod dispatch_tests {
             .common
             .notification_service
             .clone()
-            .unwrap_or_else(|| {
-                let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-                Arc::new(NotificationService::from_sqlite(pool))
-            });
+            .unwrap_or_else(|| Arc::new(notification_service(&resources.coach.database)));
 
         (service, user.id, tenant_id)
     }
@@ -143,8 +149,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Disable the training category
         service
@@ -188,8 +193,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Disable RECOVERY category
         service
@@ -236,8 +240,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Set max_per_day = 2 for training
         service
@@ -319,8 +322,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
         // Triggers the overnight branch: now >= 23:00 || now < 22:59 → always true
@@ -369,8 +371,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Create 3 training notifications
         for i in 0..3 {
@@ -450,8 +451,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         // Fire the trigger — it's async fire-and-forget
         notification_triggers::trigger_activity_synced(
@@ -498,8 +498,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_training_load_alert(&service, user.id, tenant_id, 85.0);
 
@@ -530,8 +529,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_low_recovery_score(&service, user.id, tenant_id, 32.0);
 
@@ -562,8 +560,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_overtraining_warning(&service, user.id, tenant_id);
 
@@ -593,8 +590,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_personal_record(
             &service,
@@ -633,8 +629,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_milestone_reached(
             &service, user.id, tenant_id, "1,000", "km",
@@ -668,8 +663,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_fitness_improvement(
             &service, user.id, tenant_id, "FTP", "265W",
@@ -719,8 +713,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id_b = TenantId(tenants_b[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         // Dispatch to user A
         notification_triggers::trigger_training_load_alert(&service, user_a.id, tenant_id_a, 90.0);
@@ -765,8 +758,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Disable achievement category
         service
@@ -819,8 +811,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_coach_message(
             &service,
@@ -861,8 +852,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_plan_updated(
             &service,
@@ -902,8 +892,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         notification_triggers::trigger_coach_feedback(
             &service,
@@ -950,8 +939,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Set max_per_day = 1 for coach category
         service
@@ -1045,8 +1033,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
         // Triggers the overnight branch: now >= 23:00 || now < 22:59 → always true
@@ -1103,8 +1090,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         // Disable the coach category
         service
@@ -1160,8 +1146,7 @@ mod dispatch_tests {
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = Arc::new(NotificationService::from_sqlite(pool));
+        let service = Arc::new(notification_service(&resources.coach.database));
 
         // Set max_per_day = 1 for coach
         service
@@ -1229,39 +1214,9 @@ mod dispatch_tests {
     // The retired Social category
     // ════════════════════════════════════════════════════════════════
 
-    /// The exact migration SQL, so the tests exercise the shipped statements
-    /// rather than a paraphrase that could drift from them.
-    const PUSH_NOTIFICATIONS_SCHEMA_SQL: &str =
-        include_str!("../../../migrations/20260310000001_push_notifications.sql");
-    const DELETE_SOCIAL_ROWS_MIGRATION_SQL: &str =
-        include_str!("../../../migrations/20260826000006_delete_social_notification_rows.sql");
-    const CATEGORY_CHECK_MIGRATION_SQL: &str = include_str!(
-        "../../../migrations/20260826000007_notification_preferences_category_check.sql"
-    );
     /// The name 20260826000007 gives the category CHECK, so a violation
     /// reports it.
     const CATEGORY_CHECK_CONSTRAINT: &str = "notification_preferences_category_check";
-
-    /// The notification tables exactly as 20260310000001 created them — the
-    /// schema every deployed database carried into the cutover — so the
-    /// cutover migrations run here against the rows they were written for.
-    /// One connection: each `:memory:` connection is a database of its own.
-    async fn original_schema_pool() -> sqlx::SqlitePool {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::raw_sql(PUSH_NOTIFICATIONS_SCHEMA_SQL)
-            .execute(&pool)
-            .await
-            .unwrap();
-        pool
-    }
-
-    async fn count_rows(pool: &sqlx::SqlitePool, sql: &'static str) -> i64 {
-        sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
-    }
 
     async fn insert_preference(
         pool: &sqlx::SqlitePool,
@@ -1282,32 +1237,11 @@ mod dispatch_tests {
         .map(|_| ())
     }
 
-    async fn insert_notification(
-        pool: &sqlx::SqlitePool,
-        user_id: Uuid,
-        tenant_id: Uuid,
-        category: &str,
-    ) {
-        sqlx::query(
-            "INSERT INTO notifications
-                (id, user_id, tenant_id, category, notification_type, title, body)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(user_id.to_string())
-        .bind(tenant_id.to_string())
-        .bind(category)
-        .bind(format!("{category}_event"))
-        .bind("title")
-        .bind("body")
-        .execute(pool)
-        .await
-        .unwrap();
-    }
-
     /// The constraint refuses the retired strings by name and admits every
     /// category the enum has, and the dispatcher reads each stored category
-    /// back as the enum it came from — on whichever schema the pool holds.
+    /// back as the enum it came from. The embedded live schema is asserted
+    /// here; `notification_migration_cutover_sqlite_test.rs` runs the same
+    /// contract against the schema the shipped cutover migrations rebuild.
     async fn assert_category_check_matches_the_enum(pool: &sqlx::SqlitePool) {
         let user_id = Uuid::new_v4();
         let tenant_id = Uuid::new_v4();
@@ -1327,6 +1261,60 @@ mod dispatch_tests {
         }
 
         let service = NotificationService::from_sqlite(pool.clone());
+        let prefs = service
+            .get_notification_preferences(user_id, TenantId(tenant_id))
+            .await
+            .unwrap();
+        let mut stored: Vec<NotificationCategory> = prefs.iter().map(|p| p.category).collect();
+        let mut expected = NotificationCategory::all().to_vec();
+        stored.sort_by_key(NotificationCategory::as_str);
+        expected.sort_by_key(NotificationCategory::as_str);
+        assert_eq!(stored, expected);
+        assert!(prefs.iter().all(|p| !p.enabled));
+    }
+
+    /// [`assert_category_check_matches_the_enum`] for a `PostgreSQL` database
+    /// carrying the migrated schema: `migrations_pg/20260826000007` rebuilds
+    /// the constraint under the same name, so the same violation is expected.
+    #[cfg(feature = "postgresql")]
+    async fn assert_postgres_category_check_matches_the_enum(pool: &sqlx::PgPool) {
+        async fn insert(
+            pool: &sqlx::PgPool,
+            user_id: Uuid,
+            tenant_id: Uuid,
+            category: &str,
+        ) -> Result<(), sqlx::Error> {
+            sqlx::query(
+                "INSERT INTO notification_preferences (id, user_id, tenant_id, category, enabled)
+                 VALUES ($1, $2, $3, $4, FALSE)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(user_id.to_string())
+            .bind(tenant_id.to_string())
+            .bind(category)
+            .execute(pool)
+            .await
+            .map(|_| ())
+        }
+
+        let user_id = Uuid::new_v4();
+        let tenant_id = Uuid::new_v4();
+        for retired in ["social", "group"] {
+            let err = insert(pool, user_id, tenant_id, retired)
+                .await
+                .expect_err("a retired category must violate the CHECK");
+            assert!(
+                err.to_string().contains(CATEGORY_CHECK_CONSTRAINT),
+                "expected {CATEGORY_CHECK_CONSTRAINT} violation for {retired}, got: {err}"
+            );
+        }
+        for category in NotificationCategory::all() {
+            insert(pool, user_id, tenant_id, category.as_str())
+                .await
+                .unwrap();
+        }
+
+        let service = NotificationService::from_postgres(pool.clone());
         let prefs = service
             .get_notification_preferences(user_id, TenantId(tenant_id))
             .await
@@ -1386,181 +1374,6 @@ mod dispatch_tests {
         }
     }
 
-    // A stored `social` row fails `from_str_opt` on read and errors the whole
-    // preference list or feed of the user carrying it. Run against the schema
-    // that could still store one, the migration removes exactly those rows and
-    // nothing else.
-    #[tokio::test]
-    async fn test_migration_deletes_the_stored_social_rows_and_nothing_else() {
-        let pool = original_schema_pool().await;
-        let user_id = Uuid::new_v4();
-        let tenant_id = Uuid::new_v4();
-        for category in ["social", "training"] {
-            insert_preference(&pool, user_id, tenant_id, category)
-                .await
-                .unwrap();
-            insert_notification(&pool, user_id, tenant_id, category).await;
-        }
-
-        sqlx::raw_sql(DELETE_SOCIAL_ROWS_MIGRATION_SQL)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            count_rows(
-                &pool,
-                "SELECT COUNT(*) FROM notification_preferences WHERE category = 'social'"
-            )
-            .await,
-            0
-        );
-        assert_eq!(
-            count_rows(
-                &pool,
-                "SELECT COUNT(*) FROM notifications WHERE category = 'social'"
-            )
-            .await,
-            0
-        );
-        // The rows of a live category survive.
-        assert_eq!(
-            count_rows(
-                &pool,
-                "SELECT COUNT(*) FROM notification_preferences WHERE category = 'training'"
-            )
-            .await,
-            1
-        );
-        assert_eq!(
-            count_rows(
-                &pool,
-                "SELECT COUNT(*) FROM notifications WHERE category = 'training'"
-            )
-            .await,
-            1
-        );
-        // And the service reads them back without tripping over a retired string.
-        let service = NotificationService::from_sqlite(pool);
-        let prefs = service
-            .get_notification_preferences(user_id, TenantId(tenant_id))
-            .await
-            .unwrap();
-        assert_eq!(prefs.len(), 1);
-        assert_eq!(prefs[0].category, NotificationCategory::Training);
-    }
-
-    // The original CHECK admitted 'social' and never admitted 'group'. Run in
-    // order on the original schema, the cutover migrations leave a table whose
-    // constraint is the enum: the surviving row comes through the copy with
-    // every column intact, the unique key and the index are back, and only
-    // the enum's strings get in.
-    #[tokio::test]
-    async fn test_migration_rebuilds_the_category_check_around_the_surviving_rows() {
-        let pool = original_schema_pool().await;
-        let user_id = Uuid::new_v4();
-        let tenant_id = Uuid::new_v4();
-
-        // The old constraint admits 'social' — the row 20260826000006 deletes —
-        // but never admitted 'group', whose enum variant had no producer either.
-        insert_preference(&pool, user_id, tenant_id, "social")
-            .await
-            .unwrap();
-        let err = insert_preference(&pool, user_id, tenant_id, "group")
-            .await
-            .expect_err("the original CHECK never listed 'group'");
-        assert!(
-            err.to_string().contains("CHECK constraint failed"),
-            "expected a CHECK violation, got: {err}"
-        );
-        // A fully populated row that has to survive the rebuild as it was.
-        sqlx::query(
-            "INSERT INTO notification_preferences
-                (id, user_id, tenant_id, category, enabled, sub_preferences,
-                 quiet_hours_start, quiet_hours_end, timezone, max_per_day,
-                 created_at, updated_at)
-             VALUES (?, ?, ?, 'training', 0, ?, '22:00', '07:00', 'America/Montreal', 3,
-                     '2026-08-01T00:00:00Z', '2026-08-02T00:00:00Z')",
-        )
-        .bind("pref-training")
-        .bind(user_id.to_string())
-        .bind(tenant_id.to_string())
-        .bind(r#"{"activity_synced":false}"#)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::raw_sql(DELETE_SOCIAL_ROWS_MIGRATION_SQL)
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::raw_sql(CATEGORY_CHECK_MIGRATION_SQL)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let row = sqlx::query("SELECT * FROM notification_preferences")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(row.get::<String, _>("id"), "pref-training");
-        assert_eq!(row.get::<String, _>("user_id"), user_id.to_string());
-        assert_eq!(row.get::<String, _>("tenant_id"), tenant_id.to_string());
-        assert_eq!(row.get::<String, _>("category"), "training");
-        assert_eq!(row.get::<i64, _>("enabled"), 0);
-        assert_eq!(
-            row.get::<Option<String>, _>("sub_preferences").as_deref(),
-            Some(r#"{"activity_synced":false}"#)
-        );
-        assert_eq!(
-            row.get::<Option<String>, _>("quiet_hours_start").as_deref(),
-            Some("22:00")
-        );
-        assert_eq!(
-            row.get::<Option<String>, _>("quiet_hours_end").as_deref(),
-            Some("07:00")
-        );
-        assert_eq!(
-            row.get::<Option<String>, _>("timezone").as_deref(),
-            Some("America/Montreal")
-        );
-        assert_eq!(row.get::<Option<i64>, _>("max_per_day"), Some(3));
-        assert_eq!(row.get::<String, _>("created_at"), "2026-08-01T00:00:00Z");
-        assert_eq!(row.get::<String, _>("updated_at"), "2026-08-02T00:00:00Z");
-
-        // The rebuilt table is the only one left, under the original name,
-        // with its index and its unique key back.
-        let tables: Vec<String> = sqlx::query_scalar(
-            "SELECT name FROM sqlite_master
-             WHERE type = 'table' AND name LIKE 'notification_preferences%'",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert_eq!(tables, vec!["notification_preferences".to_owned()]);
-        let indexes: Vec<String> = sqlx::query_scalar(
-            "SELECT name FROM sqlite_master
-             WHERE type = 'index' AND tbl_name = 'notification_preferences'
-               AND name = 'idx_notification_preferences_user_tenant'",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            indexes,
-            vec!["idx_notification_preferences_user_tenant".to_owned()]
-        );
-        let dup = insert_preference(&pool, user_id, tenant_id, "training")
-            .await
-            .expect_err("UNIQUE(user_id, tenant_id, category) must survive the rebuild");
-        assert!(
-            dup.to_string().contains("UNIQUE constraint failed"),
-            "expected a UNIQUE violation, got: {dup}"
-        );
-
-        assert_category_check_matches_the_enum(&pool).await;
-    }
-
     // The embedded migration set — the one every boot applies — ends with the
     // rebuilt constraint, so a fresh database refuses the retired strings and
     // stores the enum. This is the guard against a migration file that exists
@@ -1568,7 +1381,12 @@ mod dispatch_tests {
     #[tokio::test]
     async fn test_live_schema_carries_the_rebuilt_category_check() {
         let resources = create_test_server_resources().await.unwrap();
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        assert_category_check_matches_the_enum(&pool).await;
+        match resources.coach.database.as_ref() {
+            Database::SQLite(db) => assert_category_check_matches_the_enum(db.pool()).await,
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => {
+                assert_postgres_category_check_matches_the_enum(db.pool()).await;
+            }
+        }
     }
 }

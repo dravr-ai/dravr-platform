@@ -19,12 +19,18 @@ use pierre_core::models::coaches::{
     CoachCategory, CoachHandle, CoachVisibility, CreateSystemCoachRequest,
 };
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
 use pierre_routes_coaches::coaches::CoachResponse;
 use std::sync::Arc;
 use uuid::Uuid;
+
+/// A second origin row claiming an owned handle, which `idx_coaches_handle` must refuse.
+const CLASH: &str =
+    "INSERT INTO coaches (id, user_id, tenant_id, title, system_prompt, slug, created_at, updated_at) \
+     VALUES ($1, $2, $3, 'Clash', 'prompt', 'tempo-coach', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')";
 
 /// Create a system coach and take it through review to a published listing.
 async fn publish_coach(
@@ -136,16 +142,24 @@ async fn approval_assigns_a_catalogue_unique_handle() {
 
     // The unique index is the last line of defence: a second origin row
     // claiming an owned handle is refused by the database itself.
-    let pool = resources.coach.database.sqlite_pool().unwrap();
-    let clash = sqlx::query(
-        "INSERT INTO coaches (id, user_id, tenant_id, title, system_prompt, slug, created_at, updated_at) \
-         VALUES ($1, $2, $3, 'Clash', 'prompt', 'tempo-coach', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
-    )
-    .bind(Uuid::new_v4().to_string())
-    .bind(author_id.to_string())
-    .bind(tenant_id)
-    .execute(pool)
-    .await;
+    let clash = match resources.coach.database.as_ref() {
+        Database::SQLite(db) => sqlx::query(CLASH)
+            .bind(Uuid::new_v4().to_string())
+            .bind(author_id.to_string())
+            .bind(tenant_id)
+            .execute(db.pool())
+            .await
+            .map(|_| ()),
+        // `coaches.user_id` is a `uuid` column on PostgreSQL; `tenant_id` is text.
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => sqlx::query(CLASH)
+            .bind(Uuid::new_v4().to_string())
+            .bind(author_id)
+            .bind(tenant_id.to_string())
+            .execute(db.pool())
+            .await
+            .map(|_| ()),
+    };
     let err = clash.expect_err("duplicate origin handle must violate idx_coaches_handle");
     assert!(
         err.to_string().to_lowercase().contains("unique"),

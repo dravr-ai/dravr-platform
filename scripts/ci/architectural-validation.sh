@@ -294,6 +294,35 @@ UNSAFE_BLOCKS=$(rg "unsafe \{" crates/pierre-server/src/ -g "!crates/pierre-serv
 
 echo -e "${BLUE}Checking for critical anti-patterns...${NC}"
 
+# ============================================================================
+# TEST DATABASE FACTORY (tests never open SQLite by hand)
+# ============================================================================
+# Every test opens its database through pierre_database::database::test_utils,
+# which honours DATABASE_URL: a private PostgreSQL database on the PostgreSQL
+# lane, in-memory SQLite everywhere else. A test that opens SQLite itself — a
+# literal `sqlite:` URL handed to Database::new, a raw SqlitePool, a
+# SqliteDatabase, a `.sqlite_pool()` borrowed from the enum — runs SQLite on
+# every lane whatever DATABASE_URL says, and a test that rewrites DATABASE_URL
+# to SQLite drags every later test in its process along. That is how the
+# PostgreSQL lane ran ~90% of the suite on SQLite for fourteen months.
+#
+# Files named *_sqlite_test.rs test the SQLite backend itself and are the one
+# place these are legitimate; the PostgreSQL lane does not select them.
+echo -e "${BLUE}Checking that tests open databases through the factory...${NC}"
+FACTORY_BYPASS=$(rg -nU \
+    'Database::new\(\s*"sqlite|SqlitePool::connect\(|SqliteDatabase::new\(|\.sqlite_pool\(\)|set_var\(\s*"DATABASE_URL"' \
+    crates/*/tests/ -g '*.rs' -g '!*_sqlite_test.rs' 2>/dev/null || true)
+if [ -n "$FACTORY_BYPASS" ]; then
+    FACTORY_BYPASS_COUNT=$(echo "$FACTORY_BYPASS" | wc -l | tr -d ' ')
+    echo -e "${RED}❌ CRITICAL: $FACTORY_BYPASS_COUNT test site(s) open SQLite by hand instead of through test_utils::create_test_db${NC}"
+    echo "$FACTORY_BYPASS"
+    echo "   Use create_test_db()/create_test_db_with_key()/create_test_db_url() from"
+    echo "   pierre_database::database::test_utils, and the repository traits instead of a raw pool."
+    echo "   A test of the SQLite backend itself belongs in a *_sqlite_test.rs file."
+    fail_validation "Tests must open databases through the factory so the PostgreSQL lane runs PostgreSQL"
+    exit 1
+fi
+
 # NULL UUID detection (absolute blocker)
 NULL_UUIDS=$(rg "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 if [ "$NULL_UUIDS" -gt 0 ]; then

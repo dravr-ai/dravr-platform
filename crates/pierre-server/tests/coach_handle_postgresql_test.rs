@@ -20,9 +20,8 @@ use pierre_core::models::coaches::{
 use pierre_core::models::{CoachingPersona, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 use uuid::Uuid;
-
-mod common;
 
 async fn seed_pg_user(db: &Database) -> Uuid {
     let user_id = Uuid::new_v4();
@@ -97,14 +96,7 @@ async fn publish_coach(db: &Database, author_id: Uuid, tenant_id: TenantId, titl
 
 #[tokio::test]
 async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let author_id = seed_pg_user(&db).await;
@@ -192,14 +184,7 @@ async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
 /// listing is published — never an athlete's installed copy.
 #[tokio::test]
 async fn test_pg_find_published_by_handle_resolves_the_origin_while_published() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let author_id = seed_pg_user(&db).await;
@@ -271,14 +256,7 @@ async fn test_pg_find_published_by_handle_resolves_the_origin_while_published() 
 /// is what lets `find_installed_by_handle` resolve it for them alone.
 #[tokio::test]
 async fn test_pg_created_coach_takes_its_handle_at_creation_and_resolves() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let athlete_id = seed_pg_user(&db).await;

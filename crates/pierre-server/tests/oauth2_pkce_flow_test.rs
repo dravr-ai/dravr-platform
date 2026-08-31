@@ -18,9 +18,8 @@ use pierre_auth::{
         models::{AuthorizeRequest, ClientRegistrationRequest, TokenRequest},
     },
 };
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
@@ -38,23 +37,7 @@ async fn setup_test_env() -> (
 ) {
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .unwrap(),
-    );
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
     database.migrate().await.unwrap();
 
     let auth_manager = Arc::new(AuthManager::new(24));

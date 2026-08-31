@@ -16,10 +16,9 @@ use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_database::{backends::factory::Database, database::AddMessageParams};
 use uuid::Uuid;
-
-mod common;
 
 // ============================================================================
 // PostgreSQL Tool Selection Tests
@@ -27,18 +26,7 @@ mod common;
 
 #[tokio::test]
 async fn test_pg_get_tool_catalog() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let catalog = repos
@@ -63,18 +51,7 @@ async fn test_pg_get_tool_catalog() {
 
 #[tokio::test]
 async fn test_pg_get_tool_catalog_entry() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     // Test getting an existing tool
@@ -100,18 +77,7 @@ async fn test_pg_get_tool_catalog_entry() {
 
 #[tokio::test]
 async fn test_pg_get_tools_by_category() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let fitness_tools = repos
@@ -138,18 +104,7 @@ async fn test_pg_get_tools_by_category() {
 
 #[tokio::test]
 async fn test_pg_get_tools_by_min_plan() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     // Starter plan should get starter tools
@@ -176,18 +131,7 @@ async fn test_pg_get_tools_by_min_plan() {
 
 #[tokio::test]
 async fn test_pg_tenant_tool_overrides() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     // Create a test tenant
@@ -254,18 +198,7 @@ async fn test_pg_tenant_tool_overrides() {
 
 #[tokio::test]
 async fn test_pg_count_enabled_tools() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     // Create a test tenant with starter plan
@@ -288,18 +221,7 @@ async fn test_pg_count_enabled_tools() {
 
 #[tokio::test]
 async fn test_pg_chat_create_conversation() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
@@ -324,18 +246,7 @@ async fn test_pg_chat_create_conversation_without_coach_defaults_to_none() {
     // the runtime resolves the default Pierre prompt. Full coach-attached
     // flows are exercised in the orchestration integration tests which seed
     // a coaches row first.
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
@@ -361,18 +272,7 @@ async fn test_pg_chat_create_conversation_without_coach_defaults_to_none() {
 
 #[tokio::test]
 async fn test_pg_chat_get_conversation() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
@@ -419,18 +319,7 @@ async fn test_pg_chat_get_conversation() {
 
 #[tokio::test]
 async fn test_pg_chat_list_conversations() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
@@ -476,18 +365,7 @@ async fn test_pg_chat_list_conversations() {
 
 #[tokio::test]
 async fn test_pg_chat_update_conversation_title() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
@@ -527,18 +405,7 @@ async fn test_pg_chat_update_conversation_title() {
 
 #[tokio::test]
 async fn test_pg_chat_delete_conversation() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
@@ -570,18 +437,7 @@ async fn test_pg_chat_delete_conversation() {
 
 #[tokio::test]
 async fn test_pg_chat_messages() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
@@ -668,18 +524,7 @@ async fn test_pg_chat_messages() {
 
 #[tokio::test]
 async fn test_pg_chat_delete_all_user_conversations() {
-    let isolated_db = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-
-    let db = isolated_db
-        .get_database()
-        .await
-        .expect("Failed to get database");
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;

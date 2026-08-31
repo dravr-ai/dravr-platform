@@ -221,87 +221,51 @@ impl AdminTestSetup {
         // Create test user
         let (user_id, user) = common::create_test_user(&database).await?;
 
-        // Create admin tokens with manual JWT generation using the same secret as AdminApiContext
-        use pierre_core::admin::models::{AdminPermissions, GeneratedAdminToken};
-        use pierre_routes_admin::auth::jwt::AdminJwtManager;
-        use uuid::Uuid;
-
-        let admin_permissions = AdminPermissions::new(vec![
+        // Mint the admin tokens through the repository — the path `pierre-cli
+        // token generate` takes — under the same secret as the AdminApiContext.
+        let admin_permissions = vec![
             AdminPermission::ProvisionKeys,
             AdminPermission::RevokeKeys,
             AdminPermission::ListKeys,
             AdminPermission::ManageAdminTokens,
-        ]);
+        ];
+        let admin_token = database
+            .repositories()
+            .admin
+            .create_token(
+                &CreateAdminTokenRequest {
+                    service_name: "test_admin_service".to_owned(),
+                    service_description: Some("Test admin token".to_owned()),
+                    permissions: Some(admin_permissions),
+                    expires_in_days: Some(365),
+                    is_super_admin: false,
+                    tenant_id: None,
+                },
+                jwt_secret,
+                &*jwks_manager,
+            )
+            .await?;
 
-        // Create JWT manager with the same secret as the AdminApiContext
-        let jwt_manager = AdminJwtManager::new();
-
-        // Generate admin token manually to ensure consistent JWT secret
-        let admin_token_id = format!("admin_{}", Uuid::new_v4().simple());
-        let admin_jwt = jwt_manager.generate_token(
-            &admin_token_id,
-            "test_admin_service",
-            &admin_permissions,
-            &TokenScope {
-                is_super_admin: false,
-                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(365)),
-                tenant_id: None,
-            },
-            &jwks_manager,
-        )?;
-
-        let admin_token = GeneratedAdminToken {
-            token_id: admin_token_id.clone(),
-            service_name: "test_admin_service".to_owned(),
-            jwt_token: admin_jwt.clone(),
-            token_prefix: AdminJwtManager::generate_token_prefix(&admin_jwt),
-            permissions: admin_permissions.clone(),
-            is_super_admin: false,
-            expires_at: Some(chrono::Utc::now() + chrono::Duration::days(365)),
-            created_at: chrono::Utc::now(),
-        };
-
-        // Manually insert admin token into database
-        Self::insert_admin_token_to_db(&database, &admin_token, jwt_secret).await?;
-
-        // Create super admin token with the same JWT secret
-        let super_admin_permissions = AdminPermissions::super_admin();
-
-        let super_admin_token_id = format!("admin_{}", Uuid::new_v4().simple());
-        let super_admin_jwt = jwt_manager.generate_token(
-            &super_admin_token_id,
-            "test_super_admin_service",
-            &super_admin_permissions,
-            &TokenScope {
-                is_super_admin: true,
-                expires_at: None,
-                tenant_id: None,
-            },
-            &jwks_manager,
-        )?;
-
-        let super_admin_token = GeneratedAdminToken {
-            token_id: super_admin_token_id.clone(),
-            service_name: "test_super_admin_service".to_owned(),
-            jwt_token: super_admin_jwt.clone(),
-            token_prefix: AdminJwtManager::generate_token_prefix(&super_admin_jwt),
-            permissions: super_admin_permissions.clone(),
-            is_super_admin: true,
-            expires_at: None,
-            created_at: chrono::Utc::now(),
-        };
-
-        // Manually insert super admin token into database
-        Self::insert_admin_token_to_db(&database, &super_admin_token, jwt_secret).await?;
+        let super_admin_token = database
+            .repositories()
+            .admin
+            .create_token(
+                &CreateAdminTokenRequest::super_admin("test_super_admin_service".to_owned()),
+                jwt_secret,
+                &*jwks_manager,
+            )
+            .await?;
 
         // Create invalid token
         let invalid_token = "invalid_token_for_testing".to_owned();
 
         // Create expired token with the same JWT secret
+        use pierre_core::admin::models::AdminPermissions;
+        use pierre_routes_admin::auth::jwt::AdminJwtManager;
         let expired_permissions = AdminPermissions::new(vec![AdminPermission::ProvisionKeys]);
 
         let expired_token_id = format!("admin_{}", Uuid::new_v4().simple());
-        let expired_token = jwt_manager.generate_token(
+        let expired_token = AdminJwtManager::new().generate_token(
             &expired_token_id,
             "expired_service",
             &expired_permissions,
@@ -332,54 +296,6 @@ impl AdminTestSetup {
     /// Create admin routes filter for testing
     fn routes(&self) -> axum::Router {
         AdminRoutes::routes(self.context.clone())
-    }
-
-    /// Helper method to manually insert admin token into database
-    async fn insert_admin_token_to_db(
-        database: &Database,
-        token: &GeneratedAdminToken,
-        jwt_secret: &str,
-    ) -> Result<()> {
-        use pierre_routes_admin::auth::jwt::AdminJwtManager;
-
-        let token_hash = AdminJwtManager::hash_token_for_storage(&token.jwt_token)?;
-        let jwt_secret_hash = AdminJwtManager::hash_secret(jwt_secret);
-        let permissions_json = token.permissions.to_json()?;
-
-        match database {
-            Database::SQLite(sqlite_db) => {
-                let query = r"
-                    INSERT INTO admin_tokens (
-                        id, service_name, service_description, token_hash, token_prefix,
-                        jwt_secret_hash, permissions, is_super_admin, is_active,
-                        created_at, expires_at, usage_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ";
-
-                sqlx::query(query)
-                    .bind(&token.token_id)
-                    .bind(&token.service_name)
-                    .bind(Some("Test admin token"))
-                    .bind(&token_hash)
-                    .bind(&token.token_prefix)
-                    .bind(&jwt_secret_hash)
-                    .bind(&permissions_json)
-                    .bind(token.is_super_admin)
-                    .bind(true) // is_active
-                    .bind(token.created_at)
-                    .bind(token.expires_at)
-                    .bind(0) // usage_count
-                    .execute(sqlite_db.pool())
-                    .await?;
-            }
-            #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(_) => {
-                // Handle PostgreSQL case if needed
-                return Err(anyhow::anyhow!("PostgreSQL not supported in test helper"));
-            }
-        }
-
-        Ok(())
     }
 }
 

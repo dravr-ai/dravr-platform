@@ -7,9 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
-use pierre_database::backends::{factory::Database, DatabaseProvider, UserRepository};
+use pierre_database::backends::{factory::Database, UserRepository};
+use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::a2a::system_user::A2ASystemUserService;
 use pierre_mcp_server::constants::init_server_config;
 use std::env;
@@ -25,29 +24,15 @@ static INIT: Once = Once::new();
 fn init_test_config() {
     INIT.call_once(|| {
         env::set_var("CI", "true");
-        env::set_var("DATABASE_URL", "sqlite::memory:");
         let _ = init_server_config();
     });
 }
 
 async fn create_test_database() -> Arc<Database> {
     init_test_config();
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        vec![0u8; 32],
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .expect("Failed to create test database");
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", vec![0u8; 32])
+    let database = create_test_db()
         .await
         .expect("Failed to create test database");
-
-    database.migrate().await.expect("Failed to run migrations");
-
     Arc::new(database)
 }
 
@@ -102,24 +87,7 @@ async fn test_get_existing_system_user() {
 
 #[tokio::test]
 async fn test_password_generation() {
-    init_test_config();
-
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        vec![0u8; 32],
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .expect("Failed to create test database");
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", vec![0u8; 32])
-        .await
-        .expect("Failed to create test database");
-
-    database.migrate().await.expect("Failed to run migrations");
-    let database = Arc::new(database);
+    let database = create_test_database().await;
     let _service = A2ASystemUserService::new(users_repo(&database));
 
     let password1 = A2ASystemUserService::generate_secure_system_password();

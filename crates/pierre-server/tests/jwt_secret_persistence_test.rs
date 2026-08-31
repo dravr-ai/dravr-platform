@@ -11,23 +11,15 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::key_management::KeyManager;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::admin::models::CreateAdminTokenRequest;
-use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_routes_admin::auth::jwt::AdminJwtManager;
 use serial_test::serial;
 use std::env;
-use tempfile::TempDir;
 
 #[tokio::test]
 #[serial]
 async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
-    // Create temporary directory for test database
-    let temp_dir = TempDir::new()?;
-    let db_path = temp_dir.path().join("test_jwt_persistence.db");
-    let db_url = format!("sqlite:{}", db_path.display());
-
     // Set consistent MEK for test (32 bytes base64 encoded) - required for KeyManager::bootstrap()
     env::set_var(
         "PIERRE_MASTER_ENCRYPTION_KEY",
@@ -37,18 +29,13 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
     // Initialize JWKS manager for RS256 admin token signing (shared across "restarts")
     let jwks_manager = common::get_shared_test_jwks();
 
+    // One persistent store, initialised twice: every "restart" bootstraps a
+    // fresh KeyManager and re-installs the DEK it loads from that store.
+    let (mut key_manager, database_key) = KeyManager::bootstrap()?;
+    let mut database = create_test_db_with_key(database_key.to_vec()).await?;
+
     // Step 1: First initialization - simulate pierre-cli
     let jwt_secret_1 = {
-        let (mut key_manager, database_key) = KeyManager::bootstrap()?;
-        #[cfg(feature = "postgresql")]
-        let mut database = Database::new(
-            &db_url,
-            database_key.to_vec(),
-            &PostgresPoolConfig::default(),
-        )
-        .await?;
-        #[cfg(not(feature = "postgresql"))]
-        let mut database = Database::new(&db_url, database_key.to_vec()).await?;
         key_manager.complete_initialization(&mut database).await?;
 
         // Get/create JWT secret (simulating pierre-cli)
@@ -79,16 +66,7 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
 
     // Step 2: Second initialization - simulate server restart
     let jwt_secret_2 = {
-        let (mut key_manager, database_key) = KeyManager::bootstrap()?;
-        #[cfg(feature = "postgresql")]
-        let mut database = Database::new(
-            &db_url,
-            database_key.to_vec(),
-            &PostgresPoolConfig::default(),
-        )
-        .await?;
-        #[cfg(not(feature = "postgresql"))]
-        let mut database = Database::new(&db_url, database_key.to_vec()).await?;
+        let (mut key_manager, _) = KeyManager::bootstrap()?;
         key_manager.complete_initialization(&mut database).await?;
 
         // Get JWT secret again (simulating server restart)
@@ -132,27 +110,16 @@ async fn test_mek_ensures_consistent_jwt_storage() -> Result<()> {
     // This test verifies that the MEK properly encrypts/decrypts JWT secrets
     // ensuring they remain consistent across restarts
 
-    let temp_dir = TempDir::new()?;
-    let db_path = temp_dir.path().join("test_mek_jwt.db");
-    let db_url = format!("sqlite:{}", db_path.display());
-
     // Set consistent MEK for test (32 bytes base64 encoded)
     env::set_var(
         "PIERRE_MASTER_ENCRYPTION_KEY",
         "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
     );
 
+    let (mut key_manager, database_key) = KeyManager::bootstrap()?;
+    let mut database = create_test_db_with_key(database_key.to_vec()).await?;
+
     let jwt_secret_1 = {
-        let (mut key_manager, database_key) = KeyManager::bootstrap()?;
-        #[cfg(feature = "postgresql")]
-        let mut database = Database::new(
-            &db_url,
-            database_key.to_vec(),
-            &PostgresPoolConfig::default(),
-        )
-        .await?;
-        #[cfg(not(feature = "postgresql"))]
-        let mut database = Database::new(&db_url, database_key.to_vec()).await?;
         key_manager.complete_initialization(&mut database).await?;
         let repos = database.repositories();
         repos
@@ -162,16 +129,7 @@ async fn test_mek_ensures_consistent_jwt_storage() -> Result<()> {
     };
 
     let jwt_secret_2 = {
-        let (mut key_manager, database_key) = KeyManager::bootstrap()?;
-        #[cfg(feature = "postgresql")]
-        let mut database = Database::new(
-            &db_url,
-            database_key.to_vec(),
-            &PostgresPoolConfig::default(),
-        )
-        .await?;
-        #[cfg(not(feature = "postgresql"))]
-        let mut database = Database::new(&db_url, database_key.to_vec()).await?;
+        let (mut key_manager, _) = KeyManager::bootstrap()?;
         key_manager.complete_initialization(&mut database).await?;
         let repos = database.repositories();
         repos

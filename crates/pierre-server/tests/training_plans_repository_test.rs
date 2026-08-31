@@ -22,11 +22,9 @@ use uuid::Uuid;
 /// Open the backend under test.
 ///
 /// [`create_test_db`] honours a `PostgreSQL` `DATABASE_URL`, so under
-/// `ci-postgres` these tests execute the `PostgreSQL` backend's own SQL. This
-/// file previously pinned `sqlite::memory:` in both `cfg` arms, which meant the
+/// `ci-postgres` these tests execute the `PostgreSQL` backend's own SQL: the
 /// carry-forward regression tests below — written to prove that superseding an
-/// outline does not strand its weeks — never once ran against the backend
-/// production uses, while the `postgresql` lane reported them green.
+/// outline does not strand its weeks — run against the backend production uses.
 async fn open_test_db() -> Result<Database> {
     Ok(create_test_db().await?)
 }

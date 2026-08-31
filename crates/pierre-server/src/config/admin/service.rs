@@ -25,6 +25,7 @@ use pierre_config::admin_types::{
     ValidateConfigRequest, ValidateConfigResponse,
 };
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::backends::factory::Database;
 use pierre_runtime_context::ConfigLookupScope;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -46,6 +47,24 @@ pub struct AdminConfigService {
 }
 
 impl AdminConfigService {
+    /// Create an admin config service on whichever backend `database` is.
+    ///
+    /// The one place that maps a `Database` to its admin-config repository:
+    /// the server boots through it, and so does every test that needs the
+    /// service, so a test opened on `PostgreSQL` exercises the `PostgreSQL`
+    /// manager rather than reaching for a `SQLite` pool it does not have.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initial cache refresh fails.
+    pub async fn for_database(database: &Database) -> AppResult<Self> {
+        match database {
+            Database::SQLite(db) => Self::new(db.pool().clone()).await,
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => Self::from_postgres(db.pool().clone()).await,
+        }
+    }
+
     /// Create an admin config service backed by `SQLite`
     ///
     /// # Errors

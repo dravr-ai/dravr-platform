@@ -55,8 +55,15 @@ impl AdminRepository for PostgresDatabase {
             |perms| AdminPermissions::new(perms.clone()),
         );
 
-        let expires_at = request.expires_in_days.map(|days| {
-            chrono::Utc::now() + chrono::Duration::days(i64::try_from(days).unwrap_or(365))
+        // Calculate expiration (0 days means never expires)
+        let expires_at = request.expires_in_days.and_then(|days| {
+            if days == 0 {
+                None // Never expires
+            } else {
+                Some(
+                    chrono::Utc::now() + chrono::Duration::days(i64::try_from(days).unwrap_or(365)),
+                )
+            }
         });
 
         let jwt_token = jwt_manager.generate_token(
@@ -120,7 +127,7 @@ impl AdminRepository for PostgresDatabase {
         let query = r"
             SELECT id, service_name, service_description, token_hash, token_prefix,
                    jwt_secret_hash, permissions, is_super_admin, is_active,
-                   tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
+                   tenant_id, created_at, expires_at, last_used_at, host(last_used_ip) AS last_used_ip, usage_count
             FROM admin_tokens WHERE id = $1
         ";
 
@@ -141,7 +148,7 @@ impl AdminRepository for PostgresDatabase {
         let query = r"
             SELECT id, service_name, service_description, token_hash, token_prefix,
                    jwt_secret_hash, permissions, is_super_admin, is_active,
-                   tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
+                   tenant_id, created_at, expires_at, last_used_at, host(last_used_ip) AS last_used_ip, usage_count
             FROM admin_tokens WHERE token_prefix = $1
         ";
 
@@ -163,14 +170,14 @@ impl AdminRepository for PostgresDatabase {
             r"
                 SELECT id, service_name, service_description, token_hash, token_prefix,
                        jwt_secret_hash, permissions, is_super_admin, is_active,
-                       tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
+                       tenant_id, created_at, expires_at, last_used_at, host(last_used_ip) AS last_used_ip, usage_count
                 FROM admin_tokens ORDER BY created_at DESC
             "
         } else {
             r"
                 SELECT id, service_name, service_description, token_hash, token_prefix,
                        jwt_secret_hash, permissions, is_super_admin, is_active,
-                       tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
+                       tenant_id, created_at, expires_at, last_used_at, host(last_used_ip) AS last_used_ip, usage_count
                 FROM admin_tokens WHERE is_active = true ORDER BY created_at DESC
             "
         };
@@ -207,7 +214,7 @@ impl AdminRepository for PostgresDatabase {
     ) -> AppResult<()> {
         let query = r"
             UPDATE admin_tokens 
-            SET last_used_at = CURRENT_TIMESTAMP, last_used_ip = $1, usage_count = usage_count + 1
+            SET last_used_at = CURRENT_TIMESTAMP, last_used_ip = $1::inet, usage_count = usage_count + 1
             WHERE id = $2
         ";
 
@@ -263,8 +270,8 @@ impl AdminRepository for PostgresDatabase {
         end_date: DateTime<Utc>,
     ) -> AppResult<Vec<AdminTokenUsage>> {
         let query = r"
-            SELECT id, admin_token_id, timestamp, action, target_resource,
-                   ip_address, user_agent, request_size_bytes, success,
+            SELECT id::bigint AS id, admin_token_id, timestamp, action, target_resource,
+                   host(ip_address) AS ip_address, user_agent, request_size_bytes, success,
                    method, response_time_ms
             FROM admin_token_usage 
             WHERE admin_token_id = $1 AND timestamp BETWEEN $2 AND $3
@@ -664,9 +671,8 @@ impl UserMcpTokenRepository for PostgresDatabase {
         let token_id: String = row.get("id");
         self.update_user_mcp_token_usage(&token_id).await?;
 
-        let user_id_str: String = row.get("user_id");
-        Uuid::parse_str(&user_id_str)
-            .map_err(|e| AppError::internal(format!("Failed to parse user_id UUID: {e}")))
+        let user_id: Uuid = row.get("user_id");
+        Ok(user_id)
     }
 
     async fn revoke_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {

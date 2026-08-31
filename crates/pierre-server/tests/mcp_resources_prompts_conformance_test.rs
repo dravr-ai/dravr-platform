@@ -12,9 +12,8 @@ mod common;
 use common::{create_test_server_resources, create_test_user};
 use pierre_core::models::TenantId;
 use pierre_database::database::coaches::{
-    CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest,
+    CoachCategory, CoachVisibility, CreateSystemCoachRequest,
 };
-use pierre_database::database::StoreListingsManager;
 use pierre_mcp_schema::{McpRequest, McpResponse};
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -38,9 +37,8 @@ fn request(id: i64, method: &str, params: Option<Value>) -> McpRequest {
 
 /// Publish a coach into the global marketplace so resources/list has content.
 async fn publish_coach(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId, title: &str) {
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool.clone());
-    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
+    let coaches_manager = &resources.common.repos.coaches;
+    let store_listings_manager = &resources.common.repos.store_listings;
 
     let system_request = CreateSystemCoachRequest {
         title: title.to_owned(),
@@ -62,7 +60,7 @@ async fn publish_coach(resources: &ServerContext, user_id: Uuid, tenant_id: Tena
         .await
         .unwrap();
     store_listings_manager
-        .approve_coach(&coach.id.to_string(), tenant_id, user_id)
+        .approve_coach(&coach.id.to_string(), tenant_id, Some(user_id))
         .await
         .unwrap();
 }

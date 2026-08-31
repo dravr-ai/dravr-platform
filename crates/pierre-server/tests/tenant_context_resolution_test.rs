@@ -8,10 +8,8 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::{Tenant, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db_with_key;
 
 mod common;
 use common::*;
@@ -19,16 +17,9 @@ use common::*;
 #[tokio::test]
 async fn test_tenant_operations_work_through_factory() {
     // Create test database
-    let database_url = "sqlite::memory:";
     let encryption_key = vec![0u8; 32];
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(database_url, encryption_key, &PostgresPoolConfig::default())
-        .await
-        .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(database_url, encryption_key).await.unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
 
     // Create owner user first (required for tenant foreign key constraint)
     let (owner_id, _owner) = create_test_user_with_email(&database, "owner@example.com")

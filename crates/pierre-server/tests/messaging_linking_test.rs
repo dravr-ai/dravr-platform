@@ -323,7 +323,7 @@ async fn test_list_user_channel_links_empty() {
     let links = db
         .repositories()
         .messaging
-        .list_user_channel_links(tenant_id, "nonexistent-user")
+        .list_user_channel_links(tenant_id, &Uuid::new_v4().to_string())
         .await
         .unwrap();
     assert!(links.is_empty());
@@ -376,7 +376,7 @@ async fn test_delete_channel_link_not_found() {
     let deleted = db
         .repositories()
         .messaging
-        .delete_channel_link(tenant_id, "user-600", "telegram")
+        .delete_channel_link(tenant_id, &Uuid::new_v4().to_string(), "telegram")
         .await
         .unwrap();
     assert!(!deleted);

@@ -10,11 +10,10 @@
 use std::time::Duration;
 
 use anyhow::Result;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use tokio::time::sleep;
@@ -22,10 +21,7 @@ use uuid::Uuid;
 
 async fn fresh_db() -> Result<Database> {
     let key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new("sqlite::memory:", key, &PostgresPoolConfig::default()).await?;
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", key).await?;
+    let db = create_test_db_with_key(key).await?;
     Ok(db)
 }
 

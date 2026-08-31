@@ -25,6 +25,7 @@ use pierre_config::environment::{
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::mcp::{
     multitenant::ProviderToolRouter,
@@ -473,16 +474,7 @@ async fn setup_test_environment() -> Result<(Database, AuthManager, u16, TempDir
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key.clone(),
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key.clone()).await?;
+    let database = create_test_db_with_key(encryption_key.clone()).await?;
 
     // Initialize the system secret in the database to match what the server expects
     // First get_or_create to ensure the entry exists, then update with our test value

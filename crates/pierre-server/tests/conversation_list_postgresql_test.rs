@@ -21,10 +21,9 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
-
-mod common;
 
 async fn seed_pg_user(db: &Database) -> Uuid {
     let user_id = Uuid::new_v4();
@@ -152,14 +151,7 @@ async fn add_row(
 
 #[tokio::test]
 async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let author_id = seed_pg_user(&db).await;

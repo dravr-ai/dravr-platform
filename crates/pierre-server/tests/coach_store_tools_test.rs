@@ -23,9 +23,8 @@
 use anyhow::Result;
 use pierre_core::models::TenantId;
 use pierre_database::database::coaches::{
-    CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest,
+    CoachCategory, CoachVisibility, CreateSystemCoachRequest,
 };
-use pierre_database::database::StoreListingsManager;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::registry::ToolRegistry;
@@ -64,14 +63,9 @@ async fn publish_coach(
     title: &str,
     category: CoachCategory,
 ) -> Uuid {
-    let pool = executor
-        .resources
-        .database()
-        .sqlite_pool()
-        .expect("tests run on sqlite")
-        .clone();
-    let coaches = CoachesManager::new(pool.clone());
-    let listings = StoreListingsManager::new(pool);
+    let repos = executor.resources.database().repositories();
+    let coaches = &repos.coaches;
+    let listings = &repos.store_listings;
 
     let coach = coaches
         .create_system_coach(
@@ -95,7 +89,7 @@ async fn publish_coach(
         .await
         .unwrap();
     listings
-        .approve_coach(&coach.id.to_string(), tenant_id, user_id)
+        .approve_coach(&coach.id.to_string(), tenant_id, Some(user_id))
         .await
         .unwrap();
     coach.id
@@ -303,13 +297,11 @@ async fn install_coach_from_store_creates_the_athletes_own_copy() -> Result<()> 
     );
 
     // And the copy is really in the installer's library.
-    let pool = executor
+    let installed = executor
         .resources
         .database()
-        .sqlite_pool()
-        .expect("tests run on sqlite")
-        .clone();
-    let installed = StoreListingsManager::new(pool)
+        .repositories()
+        .store_listings
         .get_installed_coaches(installer_id, tenant_id)
         .await?;
     assert_eq!(

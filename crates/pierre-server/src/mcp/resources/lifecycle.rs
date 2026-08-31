@@ -845,13 +845,7 @@ impl ServerContext {
     async fn init_admin_config_service(
         database: &Arc<Database>,
     ) -> Option<Arc<AdminConfigService>> {
-        let result = match database.as_ref() {
-            Database::SQLite(db) => AdminConfigService::new(db.pool().clone()).await,
-            #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => AdminConfigService::from_postgres(db.pool().clone()).await,
-        };
-
-        match result {
+        match AdminConfigService::for_database(database).await {
             Ok(service) => {
                 info!("Admin configuration service initialized successfully");
                 Some(Arc::new(service))

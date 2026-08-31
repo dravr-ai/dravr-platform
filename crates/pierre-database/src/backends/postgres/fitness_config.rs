@@ -22,6 +22,7 @@ use pierre_core::config::FitnessConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use sqlx::Row;
+use uuid::Uuid;
 
 #[async_trait]
 impl FitnessConfigRepository for PostgresDatabase {
@@ -37,8 +38,8 @@ impl FitnessConfigRepository for PostgresDatabase {
 
         let result = sqlx::query(
             r"
-            INSERT INTO fitness_configurations (tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
-            VALUES ($1, NULL, $2, $3, $4, $4)
+            INSERT INTO fitness_configurations (id, tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
+            VALUES ($1, $2, NULL, $3, $4, $5, $5)
             ON CONFLICT (tenant_id, user_id, configuration_name)
             DO UPDATE SET
                 config_data = EXCLUDED.config_data,
@@ -46,6 +47,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             RETURNING id
             ",
         )
+        .bind(Uuid::new_v4().to_string())
         .bind(tenant_id.to_string())
         .bind(configuration_name)
         .bind(&config_json)
@@ -70,8 +72,8 @@ impl FitnessConfigRepository for PostgresDatabase {
 
         let result = sqlx::query(
             r"
-            INSERT INTO fitness_configurations (tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $5)
+            INSERT INTO fitness_configurations (id, tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
+            VALUES ($1, $2, $3::uuid, $4, $5, $6, $6)
             ON CONFLICT (tenant_id, user_id, configuration_name)
             DO UPDATE SET
                 config_data = EXCLUDED.config_data,
@@ -79,6 +81,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             RETURNING id
             ",
         )
+        .bind(Uuid::new_v4().to_string())
         .bind(tenant_id.to_string())
         .bind(user_id)
         .bind(configuration_name)
@@ -129,7 +132,7 @@ impl FitnessConfigRepository for PostgresDatabase {
         let result = sqlx::query(
             r"
             SELECT config_data FROM fitness_configurations
-            WHERE tenant_id = $1 AND user_id = $2 AND configuration_name = $3
+            WHERE tenant_id = $1 AND user_id = $2::uuid AND configuration_name = $3
             ",
         )
         .bind(tenant_id.to_string())
@@ -198,7 +201,7 @@ impl FitnessConfigRepository for PostgresDatabase {
         let rows = sqlx::query(
             r"
             SELECT DISTINCT configuration_name FROM fitness_configurations
-            WHERE tenant_id = $1 AND user_id = $2
+            WHERE tenant_id = $1 AND user_id = $2::uuid
             ORDER BY configuration_name
             ",
         )
@@ -227,7 +230,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             sqlx::query(
                 r"
                 DELETE FROM fitness_configurations
-                WHERE tenant_id = $1 AND user_id = $2 AND configuration_name = $3
+                WHERE tenant_id = $1 AND user_id = $2::uuid AND configuration_name = $3
                 ",
             )
             .bind(tenant_id.to_string())

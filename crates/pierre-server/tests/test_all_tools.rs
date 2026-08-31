@@ -23,7 +23,7 @@ use pierre_core::models::{
     DecryptedToken, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_intelligence::insights::{Insight, InsightType};
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics, TimeOfDay,
@@ -75,26 +75,13 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     // Initialize test logging
     env::set_var("TEST_LOG", "WARN");
 
-    // Use the same database and encryption key as the main server
-    let database_url =
-        env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:./data/users.db".to_owned());
+    // Derive the encryption key the way the server does
     let master_key = env::var("PIERRE_MASTER_ENCRYPTION_KEY")
         .unwrap_or_else(|_| "dGVzdF9lbmNyeXB0aW9uX2tleV9mb3JfY2lfb25seV8zMg==".to_owned());
     let encryption_key = BASE64_STANDARD
         .decode(master_key)
         .expect("Invalid base64 in PIERRE_MASTER_ENCRYPTION_KEY");
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            &database_url,
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await?,
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(Database::new(&database_url, encryption_key).await?);
+    let database = Arc::new(create_test_db_with_key(encryption_key).await?);
 
     // Create ActivityIntelligence with proper constructor
     let _intelligence = Arc::new(ActivityIntelligence::new(

@@ -13,9 +13,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
+use pierre_database::database::test_utils::create_test_db;
 use pierre_seeders::bootstrap::{self, SeedArgs};
-
-mod common;
 
 /// `users.locale` is `NOT NULL DEFAULT 'fr'` on both engines, and the two seeder
 /// backends write their own INSERT. A locale bound on `SQLite` but missing from the PG
@@ -23,14 +22,7 @@ mod common;
 /// stayed green — the shape of this repo's PG regressions.
 #[tokio::test]
 async fn test_pg_seeded_accounts_are_english() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     bootstrap::run(

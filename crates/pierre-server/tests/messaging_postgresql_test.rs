@@ -19,9 +19,8 @@ use pierre_core::permissions::UserRole;
 use pierre_database::backends::{
     factory::Database, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
 };
+use pierre_database::database::test_utils::create_test_db;
 use uuid::Uuid;
-
-mod common;
 
 // ============================================================================
 // Helpers
@@ -89,23 +88,9 @@ async fn seed_pg_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
     (user_id, tenant_id)
 }
 
-/// Yield an isolated PG `Database`, or `None` when PG is unavailable.
-///
-/// Tests should return early with a skip message rather than panic so the
-/// suite can be run locally without a running `PostgreSQL`.
-async fn try_pg_db() -> Option<(common::IsolatedPostgresDb, Database)> {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return None;
-        }
-    };
-    let db = isolated
-        .get_database()
-        .await
-        .expect("Failed to open PG database");
-    Some((isolated, db))
+/// Open an isolated PG `Database` through the test factory.
+async fn pg_db() -> Database {
+    create_test_db().await.expect("Failed to open PG database")
 }
 
 // ============================================================================
@@ -119,9 +104,7 @@ async fn try_pg_db() -> Option<(common::IsolatedPostgresDb, Database)> {
 /// converted `user_id`/`tenant_id` to UUID but the plugin bound them as text.
 #[tokio::test]
 async fn test_pg_session_create_then_lookup_by_channel_identity() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 
@@ -162,9 +145,7 @@ async fn test_pg_session_create_then_lookup_by_channel_identity() {
 
 #[tokio::test]
 async fn test_pg_session_tenant_isolation() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_a, tenant_a) = seed_pg_user_and_tenant(&db).await;
     let (_, tenant_b) = seed_pg_user_and_tenant(&db).await;
     let user_id_a = user_a.to_string();
@@ -196,9 +177,7 @@ async fn test_pg_session_tenant_isolation() {
 
 #[tokio::test]
 async fn test_pg_touch_session_updates_timestamp() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 
@@ -230,9 +209,7 @@ async fn test_pg_touch_session_updates_timestamp() {
 
 #[tokio::test]
 async fn test_pg_channel_link_create_and_get() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 
@@ -264,9 +241,7 @@ async fn test_pg_channel_link_create_and_get() {
 
 #[tokio::test]
 async fn test_pg_list_user_channel_links() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 
@@ -296,9 +271,7 @@ async fn test_pg_list_user_channel_links() {
 
 #[tokio::test]
 async fn test_pg_delete_channel_link() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 
@@ -338,9 +311,7 @@ async fn test_pg_delete_channel_link() {
 
 #[tokio::test]
 async fn test_pg_link_state_web_initiated() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 
@@ -388,9 +359,7 @@ async fn test_pg_link_state_web_initiated() {
 
 #[tokio::test]
 async fn test_pg_link_state_channel_initiated_then_complete() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 
@@ -440,9 +409,7 @@ async fn test_pg_link_state_channel_initiated_then_complete() {
 
 #[tokio::test]
 async fn test_pg_create_session_rejects_orphan_user_id() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (_, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let orphan_user = Uuid::new_v4().to_string(); // never inserted into users
 
@@ -469,9 +436,7 @@ async fn test_pg_create_session_rejects_orphan_user_id() {
 
 #[tokio::test]
 async fn test_pg_create_channel_link_rejects_orphan_tenant() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let user_uuid = seed_pg_user(&db).await;
     let user_id = user_uuid.to_string();
     let orphan_tenant = TenantId::generate(); // never inserted
@@ -498,9 +463,7 @@ async fn test_pg_create_channel_link_rejects_orphan_tenant() {
 
 #[tokio::test]
 async fn test_pg_create_link_state_rejects_orphan_tenant() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let orphan_tenant = TenantId::generate();
     let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
 
@@ -533,9 +496,7 @@ async fn test_pg_create_link_state_rejects_orphan_tenant() {
 
 #[tokio::test]
 async fn test_pg_set_session_conversation_repoints_session() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 
@@ -596,9 +557,7 @@ async fn test_pg_set_session_conversation_repoints_session() {
 
 #[tokio::test]
 async fn test_pg_delete_user_cascades_to_messaging_rows() {
-    let Some((_isolated, db)) = try_pg_db().await else {
-        return;
-    };
+    let db = pg_db().await;
     let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
     let user_id = user_uuid.to_string();
 

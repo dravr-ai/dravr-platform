@@ -1,5 +1,5 @@
-// ABOUTME: SQLite integration tests for UserOnboardingRepository — durable per-user onboarding step state
-// ABOUTME: Runs on the default sqlite::memory: harness (no Postgres needed); parity vs PG lives in database_parity_test
+// ABOUTME: Integration tests for UserOnboardingRepository — durable per-user onboarding step state
+// ABOUTME: Runs on whichever backend the shared test factory opens; SQLite-vs-PG parity lives in database_parity_test
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! Repository-level tests for `user_onboarding` on `SQLite`: upsert-in-place on the
+//! Repository-level tests for `user_onboarding`: upsert-in-place on the
 //! `(user_id, step_id)` key, nullable `chosen_channel` round-trip, and per-user
 //! scoping.
 
@@ -18,9 +18,7 @@ use uuid::Uuid;
 #[tokio::test]
 async fn user_onboarding_step_roundtrip_and_upsert() {
     common::init_server_config();
-    let database = common::create_test_database()
-        .await
-        .expect("sqlite test db");
+    let database = common::create_test_database().await.expect("test db");
     let repos = database.repositories();
     let (user_id, _user) = common::create_test_user(&database)
         .await
@@ -86,9 +84,7 @@ async fn user_onboarding_step_roundtrip_and_upsert() {
 #[tokio::test]
 async fn user_onboarding_steps_are_scoped_per_user() {
     common::init_server_config();
-    let database = common::create_test_database()
-        .await
-        .expect("sqlite test db");
+    let database = common::create_test_database().await.expect("test db");
     let repos = database.repositories();
     let (user_id, _u1) = common::create_test_user(&database).await.expect("user a");
 

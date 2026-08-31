@@ -24,9 +24,11 @@ mod notification_scheduling_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use pierre_database::backends::factory::Database;
     use pierre_notifications::models::{
         collapse_notifications, CreateNotificationParams, NotificationCategory, NotificationItem,
     };
+    use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
     use pierre_routes_groups::NotificationRoutes;
     use serde_json::{json, Value};
     use std::sync::Arc;
@@ -47,6 +49,16 @@ mod notification_scheduling_tests {
     // ════════════════════════════════════════════════════════════════
     // Scheduled notification CRUD tests
     // ════════════════════════════════════════════════════════════════
+
+    /// The notification service on whichever backend the test database is —
+    /// the same mapping the server performs at boot.
+    fn notification_service(db: &Database) -> NotificationService {
+        match db {
+            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        }
+    }
 
     #[tokio::test]
     async fn test_create_scheduled_notification() {
@@ -352,8 +364,6 @@ mod notification_scheduling_tests {
         category: NotificationCategory,
         notification_type: &str,
     ) -> (axum::Router, String, uuid::Uuid) {
-        use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
-
         let resources = create_test_server_resources().await.unwrap();
         let (user, user_token) = create_test_tenant(&resources, email).await.unwrap();
         let router = NotificationRoutes::routes(Arc::clone(&resources));
@@ -369,8 +379,7 @@ mod notification_scheduling_tests {
             .unwrap();
         let tenant_id = CommereTenantId(tenants[0].id.as_uuid());
 
-        let pool = resources.coach.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool);
+        let service = notification_service(&resources.coach.database);
 
         let params = CreateNotificationParams {
             user_id: user.id,

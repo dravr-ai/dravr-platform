@@ -17,10 +17,11 @@ use common::{
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::Database;
 use pierre_database::database::coaches::{
-    CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
+    CoachCategory, CoachVisibility, CreateSystemCoachRequest, PublishStatus,
 };
-use pierre_database::database::{Coach, StoreListingsManager};
+use pierre_database::database::Coach;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_store_router;
 use pierre_routes_coaches::store::{
@@ -33,6 +34,9 @@ use uuid::Uuid;
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration};
 use serial_test::serial;
+
+/// Pins a listing's `published_at`, so cursor pagination can be driven through ties.
+const SET_PUBLISHED_AT: &str = "UPDATE store_listings SET published_at = $1 WHERE coach_id = $2";
 
 // ============================================================================
 // Test Helpers
@@ -59,9 +63,8 @@ async fn create_published_coach(
     title: &str,
     category: CoachCategory,
 ) -> Coach {
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool.clone());
-    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
+    let coaches_manager = &resources.common.repos.coaches;
+    let store_listings_manager = &resources.common.repos.store_listings;
 
     // Create as system coach first (can set visibility)
     let system_request = CreateSystemCoachRequest {
@@ -87,7 +90,7 @@ async fn create_published_coach(
         .unwrap();
 
     let coach_with_listing = store_listings_manager
-        .approve_coach(&coach.id.to_string(), tenant_id, user_id)
+        .approve_coach(&coach.id.to_string(), tenant_id, Some(user_id))
         .await
         .unwrap();
 
@@ -344,15 +347,28 @@ async fn cursor_pagination_survives_same_millisecond_published_at() {
     // same format the production publish path uses.
     let base = DateTime::from_timestamp_micros(1_755_432_000_000_100).unwrap();
     let micro_offsets: [i64; 5] = [0, 0, 100, 200, 300];
-    let pool = resources.coach.database.sqlite_pool().unwrap().clone();
     for (coach_id, offset) in coach_ids.iter().zip(micro_offsets) {
-        let ts = (base + Duration::microseconds(offset)).to_rfc3339();
-        sqlx::query("UPDATE store_listings SET published_at = $1 WHERE coach_id = $2")
-            .bind(ts)
-            .bind(coach_id)
-            .execute(&pool)
-            .await
-            .unwrap();
+        let ts = base + Duration::microseconds(offset);
+        match resources.coach.database.as_ref() {
+            Database::SQLite(db) => {
+                sqlx::query(SET_PUBLISHED_AT)
+                    .bind(ts.to_rfc3339())
+                    .bind(coach_id)
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+            // `published_at` is a `timestamptz` column on PostgreSQL.
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => {
+                sqlx::query(SET_PUBLISHED_AT)
+                    .bind(ts)
+                    .bind(coach_id)
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+        }
     }
 
     let token = generate_test_token(&resources, &user).await;
@@ -418,8 +434,7 @@ async fn test_cursor_pagination_with_popular_sort() {
         .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     // Create coaches with different install counts
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
+    let store_listings_manager = &resources.common.repos.store_listings;
 
     for i in 1..=5 {
         let coach = create_published_coach(
@@ -635,8 +650,7 @@ async fn test_browse_store_sort_by_popular() {
     .await;
 
     // Simulate installs to make coach2 more popular
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
+    let store_listings_manager = &resources.common.repos.store_listings;
     store_listings_manager
         .increment_install_count(&coach2.id.to_string())
         .await
@@ -1169,8 +1183,7 @@ async fn test_uninstall_coach_not_from_store() {
         .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
     // Create a regular coach (not from Store - no forked_from)
-    let sqlite_pool = resources.coach.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool);
+    let coaches_manager = &resources.common.repos.coaches;
     let system_request = CreateSystemCoachRequest {
         title: "Not From Store".to_owned(),
         description: None,

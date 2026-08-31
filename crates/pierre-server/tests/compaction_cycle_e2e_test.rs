@@ -17,8 +17,7 @@ use pierre_core::config::CompactionConfig;
 use pierre_core::errors::AppError;
 use pierre_core::models::{AddMessageParams, Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_sqlite_test_db;
-use pierre_database::repositories::{ChatRepository, HarnessMemoryRepository};
+use pierre_database::database::test_utils::create_test_db;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     StreamChunk, TokenUsage,
@@ -102,7 +101,7 @@ impl LlmProvider for StubSummarizer {
 
 /// Seed a real user + tenant so the FK constraints on `chat_conversations`
 /// (`user_id -> users(id)`, `tenant_id -> tenants(id)`) are satisfied. The
-/// migrated in-memory DB enforces foreign keys, so the conversation needs real
+/// migrated test DB enforces foreign keys, so the conversation needs real
 /// parent rows. Mirrors the canonical fixture in `messaging_repository_test.rs`.
 /// Returns `(user_id_string, tenant_id)`.
 async fn seed_user_and_tenant(db: &Database) -> (String, TenantId) {
@@ -149,41 +148,37 @@ async fn seed_user_and_tenant(db: &Database) -> (String, TenantId) {
 ///    versus `build_llm_messages` (no blocks), which would keep all 51 entries.
 #[tokio::test]
 async fn compaction_cycle_summarizes_persists_and_reconstructs() {
-    let factory = create_sqlite_test_db()
-        .await
-        .expect("test db should initialize");
-    // The repository trait impls (`ChatRepository`, `HarnessMemoryRepository`)
-    // live on the inner SQLite `Database`; `create_sqlite_test_db` hands back the
-    // backend factory enum, so unwrap to that handle once and use it for both.
-    let db = factory
-        .sqlite_database()
-        .expect("create_sqlite_test_db yields a SQLite backend");
+    let db = create_test_db().await.expect("test db should initialize");
+    // Repository access goes through the backend-agnostic registry, so the test
+    // exercises whichever backend `DATABASE_URL` selects.
+    let repos = db.repositories();
 
     // Seed real parent rows so the conversation's FK constraints hold.
-    let (user_id, tenant_id) = seed_user_and_tenant(&factory).await;
+    let (user_id, tenant_id) = seed_user_and_tenant(&db).await;
     let user_id = user_id.as_str();
 
     // --- Arrange: a conversation with 50 short messages. 50 > max_messages (40)
     //     but each message is tiny, so the thread is over the message cap yet far
     //     under the warn/emergency token bands → over_messages → Summarize. ---
-    let conversation = ChatRepository::create_conversation(
-        db,
-        user_id,
-        tenant_id,
-        "compaction cycle e2e",
-        "stub-model",
-        None,
-        None,
-    )
-    .await
-    .expect("conversation should be created");
+    let conversation = repos
+        .chat
+        .create_conversation(
+            user_id,
+            tenant_id,
+            "compaction cycle e2e",
+            "stub-model",
+            None,
+            None,
+        )
+        .await
+        .expect("conversation should be created");
 
     for i in 0..MESSAGE_COUNT {
         let role = if i % 2 == 0 { "user" } else { "assistant" };
         let content = format!("msg-{i:02} short coaching turn about the training week");
-        ChatRepository::add_message(
-            db,
-            &AddMessageParams {
+        repos
+            .chat
+            .add_message(&AddMessageParams {
                 tenant_id,
                 conversation_id: &conversation.id,
                 user_id,
@@ -194,14 +189,15 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
                 prompt_tokens: None,
                 model: Some("stub-model"),
                 content_blocks: None,
-            },
-        )
-        .await
-        .expect("message should be added");
+            })
+            .await
+            .expect("message should be added");
     }
 
     // Fetch the persisted history back as the pipeline would.
-    let history = ChatRepository::get_messages(db, &conversation.id, user_id, tenant_id)
+    let history = repos
+        .chat
+        .get_messages(&conversation.id, user_id, tenant_id)
         .await
         .expect("messages should load");
     assert_eq!(
@@ -228,7 +224,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
 
     // --- Act: run the compactor over the assembled prompt. ---
     let ctx = CompactionContext {
-        repo: db as &dyn HarnessMemoryRepository,
+        repo: repos.memory.as_ref(),
         provider: &provider,
         tenant_id,
         conversation_id: &conversation.id,
@@ -249,7 +245,9 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
 
     // --- Assert (2): exactly one block persisted, carrying the stub's summary,
     //     anchored to the oldest six real history rows. ---
-    let blocks = HarnessMemoryRepository::list_compaction_blocks(db, &conversation.id, tenant_id)
+    let blocks = repos
+        .memory
+        .list_compaction_blocks(&conversation.id, tenant_id)
         .await
         .expect("blocks should load");
     assert_eq!(

@@ -164,6 +164,7 @@ use pierre_core::models::{
     ConnectionType, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
@@ -423,20 +424,8 @@ fn create_test_server_config() -> Arc<ServerConfig> {
 
 /// Create a test UniversalToolExecutor with in-memory database
 async fn create_test_executor() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
-    #[cfg(feature = "postgresql")]
     let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            generate_encryption_key().to_vec(),
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", generate_encryption_key().to_vec())
+        create_test_db_with_key(generate_encryption_key().to_vec())
             .await
             .unwrap(),
     );
@@ -494,20 +483,8 @@ async fn create_test_executor() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
 
 /// Create a test UniversalToolExecutor without OAuth credentials for failure testing
 async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
-    #[cfg(feature = "postgresql")]
     let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            generate_encryption_key().to_vec(),
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(
-        Database::new("sqlite::memory:", generate_encryption_key().to_vec())
+        create_test_db_with_key(generate_encryption_key().to_vec())
             .await
             .unwrap(),
     );

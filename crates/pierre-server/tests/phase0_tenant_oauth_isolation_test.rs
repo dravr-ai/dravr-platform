@@ -17,12 +17,11 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_config::environment::{OAuthConfig, OAuthProviderConfig};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
@@ -35,15 +34,9 @@ use uuid::Uuid;
 
 /// Create test database with migrations
 async fn setup_test_database() -> Result<Database> {
-    let database_url = "sqlite::memory:";
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database =
-        Database::new(database_url, encryption_key, &PostgresPoolConfig::default()).await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(database_url, encryption_key).await?;
+    let database = create_test_db_with_key(encryption_key).await?;
 
     database.migrate().await?;
     Ok(database)

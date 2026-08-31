@@ -1019,19 +1019,32 @@ impl ProfileRepository for PostgresDatabase {
         user_id: Uuid,
         current_value: f64,
     ) -> AppResult<()> {
-        // Use const to avoid clippy warning about format-like strings
-        const JSON_PATH: &str = "{current_value}";
+        // Read-modify-write so the stored goal JSON carries the same derived
+        // fields (`current_value`, `last_updated`, `progress_percentage`) as
+        // the SQLite backend computes.
+        let row = sqlx::query(
+            r"
+            SELECT goal_data FROM goals WHERE id = $1 AND user_id = $2
+            ",
+        )
+        .bind(goal_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get goal data for update: {e}")))?;
+
+        let mut goal_data: Value = row.get("goal_data");
+        super::goal_progress::apply_progress_fields(&mut goal_data, current_value)?;
+
         sqlx::query(
             r"
             UPDATE goals
-            SET goal_data = jsonb_set(goal_data, $3::text, $1::text::jsonb),
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = $2 AND user_id = $4
+            SET goal_data = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2 AND user_id = $3
             ",
         )
-        .bind(current_value)
+        .bind(&goal_data)
         .bind(goal_id)
-        .bind(JSON_PATH)
         .bind(user_id)
         .execute(&self.pool)
         .await
@@ -1058,7 +1071,7 @@ impl ProfileRepository for PostgresDatabase {
             AppError::database(format!("Failed to create user_configurations table: {e}"))
         })?;
 
-        let query = "SELECT config_data FROM user_configurations WHERE user_id = $1";
+        let query = "SELECT config_data FROM user_configurations WHERE user_id = $1::uuid";
 
         let row = sqlx::query(query)
             .bind(user_id)
@@ -1097,7 +1110,7 @@ impl ProfileRepository for PostgresDatabase {
         let now = chrono::Utc::now();
         let query = r"
             INSERT INTO user_configurations (user_id, config_data, created_at, updated_at)
-            VALUES ($1, $2, $3, $3)
+            VALUES ($1::uuid, $2, $3, $3)
             ON CONFLICT(user_id) DO UPDATE SET
                 config_data = EXCLUDED.config_data,
                 updated_at = $3

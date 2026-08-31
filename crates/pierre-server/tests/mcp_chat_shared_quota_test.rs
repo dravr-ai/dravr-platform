@@ -31,6 +31,7 @@ mod shared_quota_tests {
     use pierre_chat_pipeline::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{TenantId, STARTER};
+    use pierre_database::backends::factory::Database;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
     use pierre_runtime_context::default_admin_config;
@@ -38,7 +39,12 @@ mod shared_quota_tests {
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::json;
     use std::sync::Arc;
+
     use uuid::Uuid;
+
+    /// Promotes a membership to `admin`; no repository method does.
+    const PROMOTE: &str =
+        "UPDATE tenant_users SET role = 'admin' WHERE user_id = $1 AND tenant_id = $2";
 
     /// The burst multiplier `UsageCounterService` applies when no admin
     /// override is set. `allowed` is `current < limit * multiplier`.
@@ -198,17 +204,24 @@ mod shared_quota_tests {
         // Make the caller an admin of their own tenant — the exact condition
         // the old `/mcp` check short-circuited on. Written straight to
         // `tenant_users` because no repository method promotes a membership.
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("tests run on sqlite")
-            .clone();
-        sqlx::query("UPDATE tenant_users SET role = 'admin' WHERE user_id = ?1 AND tenant_id = ?2")
-            .bind(user_id.to_string())
-            .bind(tenant_id)
-            .execute(&pool)
-            .await?;
+        match resources.coach.database.as_ref() {
+            Database::SQLite(db) => {
+                sqlx::query(PROMOTE)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id)
+                    .execute(db.pool())
+                    .await?;
+            }
+            // `tenant_users` keys are `uuid` columns on PostgreSQL.
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => {
+                sqlx::query(PROMOTE)
+                    .bind(user_id)
+                    .bind(tenant_id.as_uuid())
+                    .execute(db.pool())
+                    .await?;
+            }
+        }
         let role = resources
             .common
             .repos

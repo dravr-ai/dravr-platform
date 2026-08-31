@@ -26,6 +26,7 @@ mod respond_mode_tests {
     use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -367,14 +368,22 @@ mod respond_mode_tests {
         false
     }
 
-    async fn count_inbound_with_body(pool: &sqlx::SqlitePool, body: &str) -> i64 {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM messaging_messages WHERE direction = 'inbound' AND content_body = ?1",
-        )
-        .bind(body.to_owned())
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    async fn count_inbound_with_body(db: &Database, body: &str) -> i64 {
+        const SQL: &str =
+            "SELECT COUNT(*) FROM messaging_messages WHERE direction = 'inbound' AND content_body = $1";
+        match db {
+            Database::SQLite(sqlite) => sqlx::query_scalar(SQL)
+                .bind(body)
+                .fetch_one(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_scalar(SQL)
+                .bind(body)
+                .fetch_one(pg.pool())
+                .await
+                .unwrap(),
+        }
     }
 
     #[tokio::test]
@@ -402,14 +411,9 @@ mod respond_mode_tests {
             "mentions mode must not dispatch an unaddressed group message to the LLM"
         );
 
-        let pool = scenario
-            .resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
+        let db = scenario.resources.coach.database.as_ref();
         assert_eq!(
-            count_inbound_with_body(pool, ambient_text).await,
+            count_inbound_with_body(db, ambient_text).await,
             1,
             "ambient message must be stored for the room transcript"
         );
@@ -423,7 +427,7 @@ mod respond_mode_tests {
         sleep(Duration::from_millis(800)).await;
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(
-            count_inbound_with_body(pool, unlinked_text).await,
+            count_inbound_with_body(db, unlinked_text).await,
             0,
             "an unlinked sender's ambient chatter must not be stored"
         );

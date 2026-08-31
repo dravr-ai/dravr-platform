@@ -1,5 +1,5 @@
 // ABOUTME: Sprint C7 — integration tests for tenant-wide followup listing and cancel
-// ABOUTME: Covers list_pending_followups_for_tenant + cancel_followup semantics on SQLite
+// ABOUTME: Covers list_pending_followups_for_tenant + cancel_followup semantics on the lane's database
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,79 +9,62 @@
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use pierre_core::models::TenantId;
-use pierre_database::database::{generate_encryption_key, Database as SqliteDatabase};
-use pierre_database::repositories::{HarnessMemoryRepository, InsertCoachFollowupParams};
-use sqlx::Executor;
+use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
+use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
+use pierre_database::repositories::InsertCoachFollowupParams;
 use uuid::Uuid;
 
-async fn open_in_memory_db() -> Result<SqliteDatabase> {
-    let encryption_key = generate_encryption_key().to_vec();
-    let db = SqliteDatabase::new("sqlite::memory:", encryption_key).await?;
-    Ok(db)
+/// Open the database the lane names through the test factory.
+async fn open_db() -> Result<Database> {
+    Ok(create_test_db().await?)
 }
 
-/// Seed the minimum rows required so `coach_followups` foreign keys resolve.
+/// Seed the user, tenant, and coach rows the `coach_followups` foreign keys
+/// resolve against, through the repositories so both backends accept them.
 /// Returns `(tenant_id, coach_id)` the caller will use for all followup ops.
-async fn seed_user_tenant_coach(db: &SqliteDatabase) -> Result<(TenantId, String)> {
-    let user_id = Uuid::new_v4().to_string();
-    let tenant_uuid = Uuid::new_v4();
-    let tenant_id_str = tenant_uuid.to_string();
-    let coach_id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
-
-    let pool = db.pool();
-
-    pool.execute(
-        sqlx::query(
-            r"
-            INSERT INTO users (
-                id, email, password_hash, created_at, last_active
-            )
-            VALUES ($1, $2, $3, $4, $4)
-            ",
+async fn seed_user_tenant_coach(db: &Database) -> Result<(TenantId, String)> {
+    let repos = db.repositories();
+    let user = User::new(
+        format!("{}@test.local", Uuid::new_v4()),
+        "hash".to_owned(),
+        Some("Test User".to_owned()),
+    );
+    repos.users.create(&user).await?;
+    let tenant = Tenant::new(
+        "Test Tenant".to_owned(),
+        format!("tenant-{}", Uuid::new_v4()),
+        None,
+        "starter".to_owned(),
+        user.id,
+    );
+    repos.tenants.create(&tenant).await?;
+    let coach = repos
+        .coaches
+        .create(
+            user.id,
+            tenant.id,
+            &CreateCoachRequest {
+                title: "Test Coach".to_owned(),
+                description: None,
+                system_prompt: "You are helpful".to_owned(),
+                category: CoachCategory::Custom,
+                tags: vec![],
+                sample_prompts: vec![],
+                startup_query: None,
+                data_requirements: None,
+                purpose: None,
+                when_to_use: None,
+                instructions: None,
+                example_inputs: None,
+                example_outputs: None,
+                success_criteria: None,
+                max_tool_iterations: None,
+            },
         )
-        .bind(&user_id)
-        .bind(format!("{user_id}@test.local"))
-        .bind("hash")
-        .bind(&now),
-    )
-    .await?;
-
-    pool.execute(
-        sqlx::query(
-            r"
-            INSERT INTO tenants (
-                id, name, slug, created_at, updated_at
-            )
-            VALUES ($1, $2, $3, $4, $4)
-            ",
-        )
-        .bind(&tenant_id_str)
-        .bind("Test Tenant")
-        .bind(format!("tenant-{tenant_uuid}"))
-        .bind(&now),
-    )
-    .await?;
-
-    pool.execute(
-        sqlx::query(
-            r"
-            INSERT INTO coaches (
-                id, user_id, tenant_id, title, system_prompt,
-                category, created_at, updated_at
-            )
-            VALUES ($1, $2, $3, 'Test Coach', 'You are helpful', 'custom', $4, $4)
-            ",
-        )
-        .bind(&coach_id)
-        .bind(&user_id)
-        .bind(&tenant_id_str)
-        .bind(&now),
-    )
-    .await?;
-
-    Ok((TenantId::from_uuid(tenant_uuid), coach_id))
+        .await?;
+    Ok((tenant.id, coach.id.to_string()))
 }
 
 fn followup_params<'a>(
@@ -103,36 +86,42 @@ fn followup_params<'a>(
 
 #[tokio::test]
 async fn tenant_wide_list_orders_by_due_date_nulls_last() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_db().await?;
+    let memory = db.repositories().memory;
     let (tenant, coach_id) = seed_user_tenant_coach(&db).await?;
     let now = Utc::now();
 
-    db.insert_coach_followup(&followup_params(
-        tenant,
-        "user-a",
-        &coach_id,
-        "check achilles",
-        Some(now + Duration::hours(4)),
-    ))
-    .await?;
-    db.insert_coach_followup(&followup_params(
-        tenant,
-        "user-b",
-        &coach_id,
-        "taper week reminder",
-        Some(now + Duration::days(2)),
-    ))
-    .await?;
-    db.insert_coach_followup(&followup_params(
-        tenant,
-        "user-c",
-        &coach_id,
-        "hydration check",
-        None,
-    ))
-    .await?;
+    memory
+        .insert_coach_followup(&followup_params(
+            tenant,
+            "user-a",
+            &coach_id,
+            "check achilles",
+            Some(now + Duration::hours(4)),
+        ))
+        .await?;
+    memory
+        .insert_coach_followup(&followup_params(
+            tenant,
+            "user-b",
+            &coach_id,
+            "taper week reminder",
+            Some(now + Duration::days(2)),
+        ))
+        .await?;
+    memory
+        .insert_coach_followup(&followup_params(
+            tenant,
+            "user-c",
+            &coach_id,
+            "hydration check",
+            None,
+        ))
+        .await?;
 
-    let rows = db.list_pending_followups_for_tenant(tenant, 100).await?;
+    let rows = memory
+        .list_pending_followups_for_tenant(tenant, 100)
+        .await?;
 
     assert_eq!(rows.len(), 3);
     // Ordered by due_at ASC NULLS LAST → achilles, taper, hydration.
@@ -145,10 +134,11 @@ async fn tenant_wide_list_orders_by_due_date_nulls_last() -> Result<()> {
 
 #[tokio::test]
 async fn cancel_followup_transitions_pending_once() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_db().await?;
+    let memory = db.repositories().memory;
     let (tenant, coach_id) = seed_user_tenant_coach(&db).await?;
 
-    let followup = db
+    let followup = memory
         .insert_coach_followup(&followup_params(
             tenant,
             "user-a",
@@ -158,18 +148,20 @@ async fn cancel_followup_transitions_pending_once() -> Result<()> {
         ))
         .await?;
 
-    let cancelled = db.cancel_followup(&followup.id, tenant).await?;
+    let cancelled = memory.cancel_followup(&followup.id, tenant).await?;
     assert!(
         cancelled,
         "first cancel should transition pending → cancelled"
     );
 
     // Second cancel is a no-op: the row is no longer pending.
-    let cancelled_again = db.cancel_followup(&followup.id, tenant).await?;
+    let cancelled_again = memory.cancel_followup(&followup.id, tenant).await?;
     assert!(!cancelled_again, "double-cancel should return false");
 
     // Cancelled followups should no longer appear in the pending list.
-    let rows = db.list_pending_followups_for_tenant(tenant, 100).await?;
+    let rows = memory
+        .list_pending_followups_for_tenant(tenant, 100)
+        .await?;
     assert!(rows.is_empty());
 
     Ok(())
@@ -177,29 +169,36 @@ async fn cancel_followup_transitions_pending_once() -> Result<()> {
 
 #[tokio::test]
 async fn pending_list_is_tenant_scoped() -> Result<()> {
-    let db = open_in_memory_db().await?;
+    let db = open_db().await?;
+    let memory = db.repositories().memory;
     let (tenant_a, coach_a) = seed_user_tenant_coach(&db).await?;
     let (tenant_b, coach_b) = seed_user_tenant_coach(&db).await?;
 
-    db.insert_coach_followup(&followup_params(
-        tenant_a,
-        "user-a",
-        &coach_a,
-        "alpha followup",
-        None,
-    ))
-    .await?;
-    db.insert_coach_followup(&followup_params(
-        tenant_b,
-        "user-b",
-        &coach_b,
-        "beta followup",
-        None,
-    ))
-    .await?;
+    memory
+        .insert_coach_followup(&followup_params(
+            tenant_a,
+            "user-a",
+            &coach_a,
+            "alpha followup",
+            None,
+        ))
+        .await?;
+    memory
+        .insert_coach_followup(&followup_params(
+            tenant_b,
+            "user-b",
+            &coach_b,
+            "beta followup",
+            None,
+        ))
+        .await?;
 
-    let rows_a = db.list_pending_followups_for_tenant(tenant_a, 100).await?;
-    let rows_b = db.list_pending_followups_for_tenant(tenant_b, 100).await?;
+    let rows_a = memory
+        .list_pending_followups_for_tenant(tenant_a, 100)
+        .await?;
+    let rows_b = memory
+        .list_pending_followups_for_tenant(tenant_b, 100)
+        .await?;
 
     assert_eq!(rows_a.len(), 1);
     assert_eq!(rows_a[0].content, "alpha followup");

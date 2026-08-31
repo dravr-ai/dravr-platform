@@ -7,29 +7,25 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-#[cfg(feature = "postgresql")]
-use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::DatabaseProvider;
 use uuid::Uuid;
 
 async fn make_test_db() -> Database {
     let encryption_key = b"test_encryption_key_32_bytes_long".to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .expect("create db");
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key)
+    let db = create_test_db_with_key(encryption_key)
         .await
         .expect("create db");
     db.migrate().await.expect("migrate");
     db
+}
+
+/// Parse stored JSON so the comparison is on content: a `JSONB` column
+/// returns its own key order, a `TEXT` column returns the bytes it was given.
+fn json(text: &str) -> serde_json::Value {
+    serde_json::from_str(text).expect("valid JSON")
 }
 
 const TERRAIN_JSON: &str = r#"{"total_distance_meters":5000.0,"flat_meters":1000.0,"rolling_meters":2000.0,"climb_meters":1500.0,"steep_meters":500.0,"elevation_gain_meters":250.0,"elevation_loss_meters":200.0}"#;
@@ -63,8 +59,8 @@ async fn upsert_and_get_route_summary_round_trips() {
         .await
         .expect("get")
         .expect("row present");
-    assert_eq!(read.0, TERRAIN_JSON);
-    assert_eq!(read.1, CLIMBS_JSON);
+    assert_eq!(json(&read.0), json(TERRAIN_JSON));
+    assert_eq!(json(&read.1), json(CLIMBS_JSON));
 }
 
 #[tokio::test]
@@ -138,8 +134,8 @@ async fn route_summary_is_tenant_scoped() {
         .await
         .expect("get B")
         .expect("row B");
-    assert_eq!(read_a.0, TERRAIN_JSON);
-    assert_eq!(read_b.0, TERRAIN_JSON);
+    assert_eq!(json(&read_a.0), json(TERRAIN_JSON));
+    assert_eq!(json(&read_b.0), json(TERRAIN_JSON));
     // Tenant A's hash must NOT match tenant B's row.
     let cross = repos
         .route_summaries
@@ -183,6 +179,6 @@ async fn upsert_overwrites_existing_row() {
         .await
         .expect("get v2")
         .expect("row v2");
-    assert_eq!(read.0, new_terrain);
-    assert_eq!(read.1, "[]");
+    assert_eq!(json(&read.0), json(new_terrain));
+    assert_eq!(json(&read.1), json("[]"));
 }

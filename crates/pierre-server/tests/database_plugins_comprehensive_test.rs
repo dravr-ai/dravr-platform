@@ -14,33 +14,20 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage};
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::JwtUsage;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
 use pierre_database::{
-    backends::{factory::Database, DatabaseProvider},
-    database::generate_encryption_key,
+    backends::DatabaseProvider, database::generate_encryption_key,
+    database::test_utils::create_test_db_with_key,
 };
 use pierre_mcp_server::constants::oauth_providers;
 use serial_test::serial;
 use uuid::Uuid;
 
-mod common;
-
 #[tokio::test]
-async fn test_sqlite_database_creation() -> Result<()> {
+async fn test_database_creation() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
 
     // Verify the database was created successfully
     let _ = db.backend_info();
@@ -49,18 +36,9 @@ async fn test_sqlite_database_creation() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_sqlite_migration() -> Result<()> {
+async fn test_migration() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
 
     // Test migration
     let result = db.migrate().await;
@@ -72,16 +50,7 @@ async fn test_sqlite_migration() -> Result<()> {
 #[tokio::test]
 async fn test_user_crud_operations() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     // Create user
@@ -122,16 +91,7 @@ async fn test_user_crud_operations() -> Result<()> {
 #[tokio::test]
 async fn test_user_last_active_update() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
@@ -157,16 +117,7 @@ async fn test_user_last_active_update() -> Result<()> {
 #[tokio::test]
 async fn test_user_count() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let repos = db.repositories();
@@ -195,16 +146,7 @@ async fn test_user_count() -> Result<()> {
 #[tokio::test]
 async fn test_strava_token_operations() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
@@ -286,16 +228,7 @@ async fn test_strava_token_operations() -> Result<()> {
 #[tokio::test]
 async fn test_fitbit_token_operations() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
@@ -380,16 +313,7 @@ async fn test_fitbit_token_operations() -> Result<()> {
 #[tokio::test]
 async fn test_api_key_operations() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
@@ -452,16 +376,7 @@ async fn test_api_key_operations() -> Result<()> {
 #[tokio::test]
 async fn test_api_key_usage_tracking() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
@@ -524,16 +439,7 @@ async fn test_api_key_usage_tracking() -> Result<()> {
 #[tokio::test]
 async fn test_jwt_usage_tracking() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
@@ -604,16 +510,7 @@ async fn test_jwt_usage_tracking() -> Result<()> {
 #[serial]
 async fn test_concurrent_database_operations() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     // Create multiple users concurrently
@@ -647,16 +544,7 @@ async fn test_concurrent_database_operations() -> Result<()> {
 #[tokio::test]
 async fn test_token_encryption_roundtrip() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
@@ -744,16 +632,7 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
 #[tokio::test]
 async fn test_database_error_scenarios() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     // Test getting non-existent user by email (required)
@@ -789,16 +668,7 @@ async fn test_database_error_scenarios() -> Result<()> {
 #[tokio::test]
 async fn test_api_key_usage_aggregation() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
@@ -862,16 +732,7 @@ async fn test_api_key_usage_aggregation() -> Result<()> {
 #[tokio::test]
 async fn test_user_tier_handling() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     // Test all user tiers
@@ -937,16 +798,7 @@ async fn test_user_tier_handling() -> Result<()> {
 #[tokio::test]
 async fn test_database_connection_reuse() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     // Create user
@@ -998,13 +850,14 @@ async fn test_database_connection_reuse() -> Result<()> {
 #[cfg(feature = "postgresql")]
 mod postgres_tests {
     use super::*;
-    use common::IsolatedPostgresDb;
+    use pierre_config::environment::PostgresPoolConfig;
+    use pierre_database::backends::factory::Database;
+    use pierre_database::database::test_utils::create_test_db;
+    use pierre_database::database::test_utils::create_test_db_url;
 
     #[tokio::test]
     async fn test_postgres_database_creation() -> Result<()> {
-        // Each test gets its own isolated database - prevents race conditions
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         // Verify database is operational
         let user = User::new(
@@ -1016,14 +869,12 @@ mod postgres_tests {
         let user_id = db.repositories().users.create(&user).await?;
         assert_eq!(user_id, user.id);
 
-        // Database cleanup happens automatically when isolated_db is dropped
         Ok(())
     }
 
     #[tokio::test]
     async fn test_postgres_migration_idempotency() -> Result<()> {
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         // Run migration multiple times - should be idempotent
         for _ in 0..3 {
@@ -1036,8 +887,7 @@ mod postgres_tests {
 
     #[tokio::test]
     async fn test_postgres_user_operations() -> Result<()> {
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         // Create user with all tiers
         let tiers = [
@@ -1090,8 +940,7 @@ mod postgres_tests {
 
     #[tokio::test]
     async fn test_postgres_api_key_comprehensive() -> Result<()> {
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         let user = User::new(
             format!("postgres_api_test_{}@example.com", uuid::Uuid::new_v4()),
@@ -1184,8 +1033,7 @@ mod postgres_tests {
 
     #[tokio::test]
     async fn test_postgres_token_operations() -> Result<()> {
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         let user = User::new(
             format!("postgres_token_test_{}@example.com", uuid::Uuid::new_v4()),
@@ -1299,8 +1147,7 @@ mod postgres_tests {
 
     #[tokio::test]
     async fn test_postgres_concurrent_operations() -> Result<()> {
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         // Test concurrent user creation
         let mut handles = vec![];
@@ -1367,8 +1214,7 @@ mod postgres_tests {
 
     #[tokio::test]
     async fn test_postgres_jwt_usage_tracking() -> Result<()> {
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         // Create a test user first for foreign key reference
         let user = User::new(
@@ -1404,8 +1250,7 @@ mod postgres_tests {
 
     #[tokio::test]
     async fn test_postgres_error_scenarios() -> Result<()> {
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         // Test non-existent user operations
         let fake_user_id = Uuid::new_v4();
@@ -1444,8 +1289,7 @@ mod postgres_tests {
 
     #[tokio::test]
     async fn test_postgres_connection_pooling() -> Result<()> {
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        let db = create_test_db().await?;
 
         // Perform operations that should use connection pooling
         // Reduced for CI stability - testing pooling behavior, not stress testing
@@ -1487,17 +1331,23 @@ mod postgres_tests {
     async fn test_postgres_users_schema_no_duplicate_columns() -> Result<()> {
         use sqlx::postgres::PgPoolOptions;
 
-        // Use isolated database to prevent race conditions with parallel tests
-        let isolated_db = IsolatedPostgresDb::new().await?;
-        let db = isolated_db.get_database().await?;
+        // A private database whose URL the introspection pool can open too;
+        // the handle keeps it reserved for the rest of the test
+        let handle = create_test_db_url().await?;
+        let db = Database::new(
+            &handle.url,
+            generate_encryption_key().to_vec(),
+            &PostgresPoolConfig::default(),
+        )
+        .await?;
 
-        // Migrations already run by get_database(), but ensure idempotency
+        // Opening the database ran the migrations; running them again proves idempotency
         db.migrate().await?;
 
-        // Create a separate pool for schema introspection queries using isolated DB URL
+        // A separate pool for the schema introspection queries
         let pool = PgPoolOptions::new()
             .max_connections(1)
-            .connect(&isolated_db.url)
+            .connect(&handle.url)
             .await?;
 
         // Query PostgreSQL information_schema to get column names

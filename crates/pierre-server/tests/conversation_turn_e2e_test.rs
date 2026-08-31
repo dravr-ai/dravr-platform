@@ -27,6 +27,7 @@ mod conversation_turn_e2e_tests {
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -227,20 +228,26 @@ mod conversation_turn_e2e_tests {
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<Uuid> {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
+        // `turn_id` is a `uuid` column on PostgreSQL; the cast reads it as text
+        // on both backends.
+        const SQL: &str =
+            "SELECT CAST(turn_id AS TEXT) FROM llm_usage WHERE tenant_id = $1 LIMIT 1";
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..50 {
-            let row: Option<(String,)> =
-                sqlx::query_as("SELECT turn_id FROM llm_usage WHERE tenant_id = ?1 LIMIT 1")
+            let row: Option<(String,)> = match resources.coach.database.as_ref() {
+                Database::SQLite(db) => sqlx::query_as(SQL)
                     .bind(&tenant_str)
-                    .fetch_optional(pool)
+                    .fetch_optional(db.pool())
                     .await
-                    .unwrap();
+                    .unwrap(),
+                #[cfg(feature = "postgresql")]
+                Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                    .bind(&tenant_str)
+                    .fetch_optional(db.pool())
+                    .await
+                    .unwrap(),
+            };
             if let Some((turn_id_str,)) = row {
                 return Uuid::parse_str(&turn_id_str).ok();
             }

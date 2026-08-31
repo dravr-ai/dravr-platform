@@ -23,7 +23,7 @@ use pierre_core::constants::tool_execution::{
     DEFAULT_MAX_TOOL_ITERATIONS, MAX_MAX_TOOL_ITERATIONS, MIN_MAX_TOOL_ITERATIONS,
 };
 use pierre_core::models::TenantId;
-use pierre_database::database::test_utils::create_sqlite_test_db;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::config::admin::service::AdminConfigService;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_coaches::build_coaches_router;
@@ -242,13 +242,9 @@ async fn update_coach_with_an_explicit_null_clears_the_budget_back_to_the_admin_
 
     // With the coach column empty the turn falls through to the admin
     // parameter, on the very pool this server is running against.
-    let pool = resources
-        .coach
-        .database
-        .sqlite_pool()
-        .expect("test server runs on sqlite")
-        .clone();
-    let svc = AdminConfigService::new(pool).await.unwrap();
+    let svc = AdminConfigService::for_database(&resources.coach.database)
+        .await
+        .unwrap();
     let admin_value = svc
         .get_value("tool_execution.max_iterations", ConfigLookupScope::global())
         .await
@@ -401,9 +397,8 @@ async fn update_coach_rejects_an_out_of_range_budget_and_keeps_the_stored_one() 
 
 #[tokio::test]
 async fn tool_execution_max_iterations_is_a_registered_admin_parameter() {
-    let db = create_sqlite_test_db().await.unwrap();
-    let pool = db.sqlite_pool().expect("test db is sqlite").clone();
-    let svc = AdminConfigService::new(pool).await.unwrap();
+    let db = create_test_db().await.unwrap();
+    let svc = AdminConfigService::for_database(&db).await.unwrap();
 
     let value = svc
         .get_value("tool_execution.max_iterations", ConfigLookupScope::global())
@@ -419,9 +414,8 @@ async fn tool_execution_max_iterations_is_a_registered_admin_parameter() {
 
 #[tokio::test]
 async fn tool_execution_max_iterations_validates_against_the_band() {
-    let db = create_sqlite_test_db().await.unwrap();
-    let pool = db.sqlite_pool().expect("test db is sqlite").clone();
-    let svc = AdminConfigService::new(pool).await.unwrap();
+    let db = create_test_db().await.unwrap();
+    let svc = AdminConfigService::for_database(&db).await.unwrap();
 
     let validate = |value: serde_json::Value| {
         let mut parameters = HashMap::new();
@@ -451,9 +445,8 @@ async fn tool_execution_max_iterations_validates_against_the_band() {
 
 #[tokio::test]
 async fn tool_execution_max_iterations_surfaces_in_the_admin_catalog() {
-    let db = create_sqlite_test_db().await.unwrap();
-    let pool = db.sqlite_pool().expect("test db is sqlite").clone();
-    let svc = AdminConfigService::new(pool).await.unwrap();
+    let db = create_test_db().await.unwrap();
+    let svc = AdminConfigService::for_database(&db).await.unwrap();
 
     let catalog = svc.get_catalog(ConfigLookupScope::global()).await.unwrap();
     let parameter = catalog

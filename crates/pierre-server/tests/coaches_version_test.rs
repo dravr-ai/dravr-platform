@@ -8,152 +8,42 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use pierre_core::field_update::FieldUpdate;
-use pierre_core::models::TenantId;
-use pierre_database::database::coaches::{
-    CoachCategory, CoachVisibility, CoachesManager, CreateCoachRequest, CreateSystemCoachRequest,
+use pierre_core::models::coaches::{
+    CoachCategory, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest,
     UpdateCoachRequest,
 };
-use sqlx::SqlitePool;
+use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 use uuid::Uuid;
 
-/// Create a test database with coaches and `coach_versions` schema
-async fn create_test_db() -> SqlitePool {
-    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-
-    // Create users table first (for foreign key)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            user_status TEXT NOT NULL DEFAULT 'active',
-            is_admin INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            last_active TEXT NOT NULL
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create test user
-    sqlx::query(
-        r"
-        INSERT INTO users (id, email, password_hash, created_at, last_active)
-        VALUES ('550e8400-e29b-41d4-a716-446655440000', 'test@example.com', 'hash', '2025-01-01', '2025-01-01')
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create second test user
-    sqlx::query(
-        r"
-        INSERT INTO users (id, email, password_hash, created_at, last_active)
-        VALUES ('660e8400-e29b-41d4-a716-446655440000', 'other@example.com', 'hash', '2025-01-01', '2025-01-01')
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create coaches table (complete schema from all migrations)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS coaches (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            description TEXT,
-            system_prompt TEXT NOT NULL,
-            category TEXT NOT NULL DEFAULT 'custom',
-            tags TEXT,
-            token_count INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            is_system INTEGER NOT NULL DEFAULT 0,
-            visibility TEXT NOT NULL DEFAULT 'private',
-            sample_prompts TEXT,
-            slug TEXT,
-            purpose TEXT,
-            when_to_use TEXT,
-            instructions TEXT,
-            example_inputs TEXT,
-            example_outputs TEXT,
-            success_criteria TEXT,
-            prerequisites TEXT,
-            source_file TEXT,
-            content_hash TEXT,
-            forked_from TEXT,
-            startup_query TEXT,
-            data_requirements TEXT,
-            max_tool_iterations INTEGER DEFAULT NULL,
-            temperature REAL DEFAULT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create coach_versions table (from migration 20250120000035)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS coach_versions (
-            id TEXT PRIMARY KEY,
-            coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
-            version INTEGER NOT NULL,
-            content_hash TEXT NOT NULL,
-            content_snapshot TEXT NOT NULL,
-            change_summary TEXT,
-            created_at TEXT NOT NULL,
-            created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-            UNIQUE(coach_id, version)
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create index for version history queries
-    sqlx::query(
-        r"
-        CREATE INDEX IF NOT EXISTS idx_coach_versions_coach ON coach_versions(coach_id, version DESC)
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create coach_assignments table (needed for auto-assignment on coach create)
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS coach_assignments (
-            id TEXT PRIMARY KEY,
-            coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
-            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            assigned_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-            is_favorite INTEGER NOT NULL DEFAULT 0,
-            is_active INTEGER NOT NULL DEFAULT 0,
-            use_count INTEGER NOT NULL DEFAULT 0,
-            last_used_at TEXT,
-            created_at TEXT NOT NULL,
-            UNIQUE(coach_id, user_id)
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    pool
+/// Open a test database and seed the rows the tests reference by fixed id.
+///
+/// `coaches.user_id` references `users(id)` on both backends, and the `SQLite`
+/// schema also references `tenants(id)` from `coaches.tenant_id`, so
+/// [`test_user_id`], [`other_user_id`] and [`test_tenant`] must exist as real
+/// rows before a coach can be created.
+async fn open_db() -> Database {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    for (id, email) in [
+        (test_user_id(), "test@example.com"),
+        (other_user_id(), "other@example.com"),
+    ] {
+        let mut user = User::new(email.to_owned(), "hash".to_owned(), None);
+        user.id = id;
+        repos.users.create(&user).await.unwrap();
+    }
+    let mut tenant = Tenant::new(
+        "Version Test Tenant".to_owned(),
+        "version-test-tenant".to_owned(),
+        None,
+        "starter".to_owned(),
+        test_user_id(),
+    );
+    tenant.id = test_tenant();
+    repos.tenants.create(&tenant).await.unwrap();
+    db
 }
 
 fn test_user_id() -> Uuid {
@@ -174,8 +64,8 @@ fn test_tenant() -> TenantId {
 
 #[tokio::test]
 async fn test_create_version_manually() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a coach first
     let request = CreateCoachRequest {
@@ -228,8 +118,8 @@ async fn test_create_version_manually() {
 
 #[tokio::test]
 async fn test_auto_version_on_update() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a coach
     let request = CreateCoachRequest {
@@ -341,8 +231,8 @@ async fn test_auto_version_on_update() {
 
 #[tokio::test]
 async fn test_get_versions() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     // Create coach and update twice
     let request = CreateCoachRequest {
@@ -438,8 +328,8 @@ async fn test_get_versions() {
 
 #[tokio::test]
 async fn test_get_versions_with_limit() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -508,8 +398,8 @@ async fn test_get_versions_with_limit() {
 
 #[tokio::test]
 async fn test_get_specific_version() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Original Title".to_owned(),
@@ -579,8 +469,8 @@ async fn test_get_specific_version() {
 
 #[tokio::test]
 async fn test_get_version_not_found() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -616,8 +506,8 @@ async fn test_get_version_not_found() {
 
 #[tokio::test]
 async fn test_get_version_wrong_tenant() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -665,8 +555,8 @@ async fn test_get_version_wrong_tenant() {
 
 #[tokio::test]
 async fn test_revert_to_version() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     // Create coach with initial data
     let request = CreateCoachRequest {
@@ -722,7 +612,7 @@ async fn test_revert_to_version() {
 
     // Verify current state is updated
     let current = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap()
         .unwrap();
@@ -747,8 +637,8 @@ async fn test_revert_to_version() {
 
 #[tokio::test]
 async fn test_revert_creates_new_version() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Original".to_owned(),
@@ -837,8 +727,8 @@ async fn test_revert_creates_new_version() {
 
 #[tokio::test]
 async fn test_revert_to_nonexistent_version() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test".to_owned(),
@@ -877,8 +767,8 @@ async fn test_revert_to_nonexistent_version() {
 
 #[tokio::test]
 async fn test_version_snapshot_contains_all_fields() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Full Coach".to_owned(),
@@ -932,8 +822,8 @@ async fn test_version_snapshot_contains_all_fields() {
 
 #[tokio::test]
 async fn test_version_has_content_hash() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -977,8 +867,8 @@ async fn test_version_has_content_hash() {
 
 #[tokio::test]
 async fn test_different_content_different_hash() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Original".to_owned(),
@@ -1077,8 +967,8 @@ async fn test_different_content_different_hash() {
 
 #[tokio::test]
 async fn test_system_coach_version_on_update() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     // Create a system coach
     let request = CreateSystemCoachRequest {
@@ -1142,8 +1032,8 @@ async fn test_system_coach_version_on_update() {
 
 #[tokio::test]
 async fn test_update_with_change_summary() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -1168,7 +1058,7 @@ async fn test_update_with_change_summary() {
         .await
         .unwrap();
 
-    // Update with change summary
+    // Update with a change summary on the pre-update snapshot
     let update = UpdateCoachRequest {
         title: Some("New Title".to_owned()),
         description: None,
@@ -1186,13 +1076,24 @@ async fn test_update_with_change_summary() {
         success_criteria: None,
         max_tool_iterations: FieldUpdate::Keep,
     };
+    // The repository trait snapshots on `update` without a summary; a caller
+    // that wants the change described snapshots first through
+    // `create_version`, so version 1 is the pre-update snapshot with its
+    // summary and the update's own snapshot follows it.
     manager
-        .update_with_summary(
+        .create_version(
+            &coach.id.to_string(),
+            test_user_id(),
+            Some("Changed title for clarity"),
+        )
+        .await
+        .unwrap();
+    manager
+        .update(
             &coach.id.to_string(),
             test_user_id(),
             test_tenant(),
             &update,
-            Some("Changed title for clarity"),
         )
         .await
         .unwrap();
@@ -1212,8 +1113,8 @@ async fn test_update_with_change_summary() {
 
 #[tokio::test]
 async fn test_version_tracks_created_by() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -1263,8 +1164,8 @@ async fn test_version_tracks_created_by() {
 
 #[tokio::test]
 async fn test_get_versions_empty() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -1300,8 +1201,8 @@ async fn test_get_versions_empty() {
 
 #[tokio::test]
 async fn test_get_current_version_no_versions() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -1337,8 +1238,8 @@ async fn test_get_current_version_no_versions() {
 
 #[tokio::test]
 async fn test_version_deleted_with_coach() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     let request = CreateCoachRequest {
         title: "Test Coach".to_owned(),
@@ -1400,8 +1301,8 @@ async fn test_version_deleted_with_coach() {
 /// matches zero rows and gets a not-found error, leaving the coach unchanged.
 #[tokio::test]
 async fn test_revert_denied_for_non_owner_leaves_coach_unchanged() {
-    let pool = create_test_db().await;
-    let manager = CoachesManager::new(pool);
+    let db = open_db().await;
+    let manager = db.repositories().coaches;
 
     // Owner creates a private coach.
     let request = CreateCoachRequest {
@@ -1465,7 +1366,7 @@ async fn test_revert_denied_for_non_owner_leaves_coach_unchanged() {
 
     // The coach content must be UNCHANGED (still the owner's updated state).
     let after = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .get_by_id(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap()
         .unwrap();

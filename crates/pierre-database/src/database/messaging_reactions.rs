@@ -49,7 +49,7 @@ pub async fn find_reaction_feedback_target(
 ) -> AppResult<Option<ReactionFeedbackTarget>> {
     let row = sqlx::query(
         r"
-        SELECT m.chat_message_id, m.tenant_id, s.user_id, s.channel_user_id,
+        SELECT m.chat_message_id, s.tenant_id, s.user_id, s.channel_user_id,
                s.pierre_conversation_id
         FROM messaging_messages m
         JOIN messaging_sessions s ON s.id = m.session_id

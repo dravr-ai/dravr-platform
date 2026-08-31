@@ -45,6 +45,7 @@ mod capability_recovery {
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -337,45 +338,61 @@ mod capability_recovery {
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<String> {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT m.finish_reason \
+        const SQL: &str = "SELECT m.finish_reason \
              FROM chat_messages m \
              JOIN chat_conversations c ON m.conversation_id = c.id \
-             WHERE c.tenant_id = ?1 AND m.role = 'assistant' \
-             ORDER BY m.created_at DESC LIMIT 1",
-        )
-        .bind(tenant_id.to_string())
-        .fetch_optional(pool)
-        .await
-        .unwrap();
+             WHERE c.tenant_id = $1 AND m.role = 'assistant' \
+             ORDER BY m.created_at DESC LIMIT 1";
+        let tenant = tenant_id.to_string();
+        let row: Option<(Option<String>,)> = match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_as(SQL)
+                .bind(&tenant)
+                .fetch_optional(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                .bind(&tenant)
+                .fetch_optional(db.pool())
+                .await
+                .unwrap(),
+        };
         row.and_then(|(reason,)| reason)
+    }
+
+    /// The newest row matching `sql` for `tenant`, on whichever backend the
+    /// test database is. `sql` binds the tenant id as `$1` and selects one
+    /// text column.
+    async fn latest_text(db: &Database, sql: &str, tenant: &str) -> Option<String> {
+        let row: Option<(String,)> = match db {
+            Database::SQLite(sqlite) => sqlx::query_as(sql)
+                .bind(tenant)
+                .fetch_optional(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_as(sql)
+                .bind(tenant)
+                .fetch_optional(pg.pool())
+                .await
+                .unwrap(),
+        };
+        row.map(|(text,)| text)
     }
 
     async fn wait_for_persisted_assistant_reply(
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<String> {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
+        const SQL: &str = "SELECT m.content \
+                 FROM chat_messages m \
+                 JOIN chat_conversations c ON m.conversation_id = c.id \
+                 WHERE c.tenant_id = $1 AND m.role = 'assistant' \
+                 ORDER BY m.created_at DESC LIMIT 1";
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..150 {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT m.content \
-                 FROM chat_messages m \
-                 JOIN chat_conversations c ON m.conversation_id = c.id \
-                 WHERE c.tenant_id = ?1 AND m.role = 'assistant' \
-                 ORDER BY m.created_at DESC LIMIT 1",
-            )
-            .bind(&tenant_str)
-            .fetch_optional(pool)
-            .await
-            .unwrap();
-            if let Some((content,)) = row {
+            if let Some(content) = latest_text(&resources.coach.database, SQL, &tenant_str).await {
                 return Some(content);
             }
             sleep(Duration::from_millis(200)).await;
@@ -393,24 +410,13 @@ mod capability_recovery {
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<String> {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
+        const SQL: &str = "SELECT content_body FROM messaging_messages \
+                 WHERE tenant_id = $1 AND direction = 'outbound' \
+                 ORDER BY created_at DESC LIMIT 1";
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..150 {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT content_body FROM messaging_messages \
-                 WHERE tenant_id = ?1 AND direction = 'outbound' \
-                 ORDER BY created_at DESC LIMIT 1",
-            )
-            .bind(&tenant_str)
-            .fetch_optional(pool)
-            .await
-            .unwrap();
-            if let Some((body,)) = row {
+            if let Some(body) = latest_text(&resources.coach.database, SQL, &tenant_str).await {
                 return Some(body);
             }
             sleep(Duration::from_millis(200)).await;
@@ -1245,23 +1251,48 @@ mod capability_recovery {
             assert_eq!(resp.status_code(), StatusCode::OK);
         }
 
+        /// The named column of the newest assistant row of one member's room
+        /// conversation, on whichever backend the test database is.
+        /// `CAST(c.user_id AS TEXT)` parses on both dialects — the column is
+        /// uuid-typed on `PostgreSQL` and text on `SQLite`. A NULL column and
+        /// an absent row both come back as `None`.
+        async fn member_row(
+            scenario: &GroupScenario,
+            member: Uuid,
+            column: &str,
+        ) -> Option<String> {
+            let sql = format!(
+                "SELECT m.{column} FROM chat_messages m \
+                 JOIN chat_conversations c ON m.conversation_id = c.id \
+                 WHERE c.tenant_id = $1 AND CAST(c.user_id AS TEXT) = $2 \
+                   AND m.role = 'assistant' \
+                 ORDER BY m.created_at DESC LIMIT 1"
+            );
+            let tenant = scenario.bot_tenant.to_string();
+            let member = member.to_string();
+            let row: Option<(Option<String>,)> = match scenario.resources.coach.database.as_ref() {
+                Database::SQLite(db) => sqlx::query_as(&sql)
+                    .bind(&tenant)
+                    .bind(&member)
+                    .fetch_optional(db.pool())
+                    .await
+                    .unwrap(),
+                #[cfg(feature = "postgresql")]
+                Database::PostgreSQL(db) => sqlx::query_as(&sql)
+                    .bind(&tenant)
+                    .bind(&member)
+                    .fetch_optional(db.pool())
+                    .await
+                    .unwrap(),
+            };
+            row.and_then(|(value,)| value)
+        }
+
         /// The latest persisted assistant row of one member's room
         /// conversation (each member owns their own row under the bot tenant).
         async fn wait_for_member_reply(scenario: &GroupScenario, member: Uuid) -> Option<String> {
-            let pool = scenario.resources.coach.database.sqlite_pool().unwrap();
             for _ in 0..150 {
-                let row: Option<(String,)> = sqlx::query_as(
-                    "SELECT m.content FROM chat_messages m \
-                     JOIN chat_conversations c ON m.conversation_id = c.id \
-                     WHERE c.tenant_id = ?1 AND c.user_id = ?2 AND m.role = 'assistant' \
-                     ORDER BY m.created_at DESC LIMIT 1",
-                )
-                .bind(scenario.bot_tenant.to_string())
-                .bind(member.to_string())
-                .fetch_optional(pool)
-                .await
-                .unwrap();
-                if let Some((content,)) = row {
+                if let Some(content) = member_row(scenario, member, "content").await {
                     return Some(content);
                 }
                 sleep(Duration::from_millis(200)).await;
@@ -1270,19 +1301,7 @@ mod capability_recovery {
         }
 
         async fn member_finish_reason(scenario: &GroupScenario, member: Uuid) -> Option<String> {
-            let pool = scenario.resources.coach.database.sqlite_pool().unwrap();
-            let row: Option<(Option<String>,)> = sqlx::query_as(
-                "SELECT m.finish_reason FROM chat_messages m \
-                 JOIN chat_conversations c ON m.conversation_id = c.id \
-                 WHERE c.tenant_id = ?1 AND c.user_id = ?2 AND m.role = 'assistant' \
-                 ORDER BY m.created_at DESC LIMIT 1",
-            )
-            .bind(scenario.bot_tenant.to_string())
-            .bind(member.to_string())
-            .fetch_optional(pool)
-            .await
-            .unwrap();
-            row.and_then(|(reason,)| reason)
+            member_row(scenario, member, "finish_reason").await
         }
 
         /// The tool-result block the loop's text wire shape wraps a result in

@@ -50,7 +50,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use pierre_database::database::test_utils::create_sqlite_test_db;
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::{create_sqlite_test_db, create_test_db};
 use sqlx::Row;
 
 /// Repo-root-relative path to the SQLite migration tree.
@@ -186,15 +187,17 @@ async fn whole_table_sets_have_no_unexpected_divergence() {
 
 #[tokio::test]
 async fn columns_match_on_shared_tables() {
-    // P2-13 — applied-schema guard. SQLite side always runs in-memory; the
-    // PostgreSQL side runs only when a Postgres URL + the `postgresql` feature
-    // are present, so it executes for real in ci-postgres and skips cleanly
-    // in the SQLite-only local lane.
+    // P2-13 — applied-schema guard. The SQLite side always runs in-memory —
+    // this is a comparison of the two dialects, so it opens SQLite explicitly
+    // whatever `DATABASE_URL` names. The PostgreSQL side is whatever the
+    // factory opens: real PostgreSQL in ci-postgres, and a clean skip in the
+    // SQLite-only local lane.
     let db = create_sqlite_test_db().await.unwrap();
-    let sqlite_pool = db
-        .sqlite_pool()
-        .expect("create_sqlite_test_db yields SQLite");
-    let sqlite = sqlite_schema(sqlite_pool).await;
+    let sqlite = match &db {
+        Database::SQLite(sqlite_db) => sqlite_schema(sqlite_db.pool()).await,
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(_) => panic!("create_sqlite_test_db yields SQLite"),
+    };
     assert!(
         sqlite.len() > 50,
         "applied SQLite schema should have many tables; got {}",
@@ -203,8 +206,8 @@ async fn columns_match_on_shared_tables() {
 
     let Some(pg) = applied_pg_schema().await else {
         eprintln!(
-            "[schema-parity] no Postgres DATABASE_URL/TEST_DATABASE_URL (or `postgresql` \
-             feature off) — SQLite-only run, skipping cross-backend column comparison"
+            "[schema-parity] DATABASE_URL names no PostgreSQL server (or the `postgresql` \
+             feature is off) — SQLite-only run, skipping cross-backend column comparison"
         );
         return;
     };
@@ -248,76 +251,45 @@ async fn columns_match_on_shared_tables() {
     );
 }
 
-/// Build a fresh Postgres-backed [`pierre_database`] (which runs the
-/// `migrations_pg` tree) and read its applied table -> {column names} map.
+/// Open the factory's database and, when it is Postgres-backed (so the
+/// `migrations_pg` tree is what was applied), read its applied
+/// table -> {column names} map.
 ///
-/// Returns `None` — so the caller skips cleanly — when the `postgresql` feature
-/// is off or no Postgres connection string is configured. Mirrors how
-/// ci-postgres exports `DATABASE_URL`; `TEST_DATABASE_URL` is also honored.
-///
-/// On a SQLite-only build the `postgresql`-gated body is compiled out, so this
-/// awaits a cheap yield to stay a valid `async fn` and immediately returns
-/// `None`.
+/// Returns `None` — so the caller skips cleanly — when the factory opened
+/// SQLite instead: the `postgresql` feature is off, or `DATABASE_URL` names no
+/// Postgres server.
 async fn applied_pg_schema() -> Option<BTreeMap<String, BTreeSet<String>>> {
-    #[cfg(feature = "postgresql")]
-    {
-        use pierre_core::config::database::PostgresPoolConfig;
-        use pierre_database::backends::factory::Database;
-
-        let url = pg_test_url()?;
-        let db = Database::new(&url, vec![0u8; 32], &PostgresPoolConfig::default())
-            .await
-            .expect("connect + migrate Postgres test database");
-        let pool = db.postgres_pool().expect("Postgres backend yields pg pool");
-
-        let rows = sqlx::query(
-            "SELECT table_name, column_name \
-             FROM information_schema.columns \
-             WHERE table_schema = 'public' \
-             ORDER BY table_name, column_name",
-        )
-        .fetch_all(pool)
+    let db = create_test_db()
         .await
-        .expect("introspect Postgres information_schema");
+        .expect("open the factory's test database");
+    match &db {
+        Database::SQLite(_) => None,
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            let rows = sqlx::query(
+                "SELECT table_name, column_name \
+                 FROM information_schema.columns \
+                 WHERE table_schema = 'public' \
+                 ORDER BY table_name, column_name",
+            )
+            .fetch_all(pg.pool())
+            .await
+            .expect("introspect Postgres information_schema");
 
-        let mut schema: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for row in rows {
-            let table: String = row.get("table_name");
-            let lower = table.to_lowercase();
-            if lower == SQLX_BOOKKEEPING_TABLE {
-                continue;
+            let mut schema: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+            for row in rows {
+                let table: String = row.get("table_name");
+                let lower = table.to_lowercase();
+                if lower == SQLX_BOOKKEEPING_TABLE {
+                    continue;
+                }
+                let column: String = row.get("column_name");
+                schema
+                    .entry(lower)
+                    .or_default()
+                    .insert(column.to_lowercase());
             }
-            let column: String = row.get("column_name");
-            schema
-                .entry(lower)
-                .or_default()
-                .insert(column.to_lowercase());
-        }
-        Some(schema)
-    }
-    #[cfg(not(feature = "postgresql"))]
-    {
-        use tokio::task::yield_now;
-
-        // No Postgres backend compiled in — yield once so this remains a real
-        // `async fn` with an await, then skip the cross-backend comparison.
-        yield_now().await;
-        None
-    }
-}
-
-/// Resolve a Postgres connection string from the environment, preferring an
-/// explicit test URL. Returns `None` if neither is a Postgres URL.
-#[cfg(feature = "postgresql")]
-fn pg_test_url() -> Option<String> {
-    use std::env;
-
-    for key in ["TEST_DATABASE_URL", "DATABASE_URL"] {
-        if let Ok(url) = env::var(key) {
-            if url.starts_with("postgres://") || url.starts_with("postgresql://") {
-                return Some(url);
-            }
+            Some(schema)
         }
     }
-    None
 }

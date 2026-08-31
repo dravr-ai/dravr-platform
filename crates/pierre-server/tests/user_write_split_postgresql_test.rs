@@ -14,9 +14,8 @@
 #![cfg(feature = "postgresql")]
 
 use pierre_core::models::User;
+use pierre_database::database::test_utils::create_test_db;
 use uuid::Uuid;
-
-mod common;
 
 fn user(email: &str) -> User {
     User::new(
@@ -33,14 +32,7 @@ fn user(email: &str) -> User {
 /// is the missing half, and it has to exist on the engine production runs.
 #[tokio::test]
 async fn test_pg_create_refuses_a_duplicate_and_update_writes_the_row() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let created = user("pg-split@dravr.ai");

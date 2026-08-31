@@ -246,7 +246,7 @@ Real-time progress on every surface is delivered through the [AG-UI protocol](ht
 
 ### Dual storage backend
 
-The repository layer abstracts SQLite and PostgreSQL behind the same trait set. SQLite is the default for local dev and single-machine deployments; PostgreSQL is what production runs on Cloud SQL. Migrations are maintained in parallel directories (`migrations/` and `migrations_pg/`), and CI exercises both. **Adding a feature without a PostgreSQL backend is a CI failure.**
+The repository layer abstracts SQLite and PostgreSQL behind the same trait set. SQLite is the default for local dev and single-machine deployments; PostgreSQL is what production runs on Cloud SQL. Migrations are maintained in parallel directories (`migrations/` and `migrations_pg/`), and CI exercises both: every push runs the backend suite on a real PostgreSQL service (`ci-postgres.yml`), where each test opens a private PostgreSQL database through `pierre_database::database::test_utils` and the lane refuses to fall back to SQLite; the daily SQLite shards in `ci-backend.yml` run the same files on SQLite. Tests never spell a database URL — the factory honours `DATABASE_URL`, so a plain local `cargo test` stays on in-memory SQLite. **Adding a feature without a PostgreSQL backend is a CI failure.**
 
 ## Quick start
 

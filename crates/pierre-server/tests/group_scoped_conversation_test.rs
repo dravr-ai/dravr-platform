@@ -128,7 +128,7 @@ async fn setup() -> Fixture {
 
 #[tokio::test]
 async fn test_conversation_created_with_group_id_carries_it_back() {
-    let fx = setup().await;
+    let fx = Box::pin(setup()).await;
 
     let response = AxumTestRequest::post("/api/chat/conversations")
         .header("authorization", &fx.owner_auth)
@@ -156,7 +156,7 @@ async fn test_conversation_created_with_group_id_carries_it_back() {
 
 #[tokio::test]
 async fn test_conversation_without_group_id_stays_unscoped() {
-    let fx = setup().await;
+    let fx = Box::pin(setup()).await;
 
     let response = AxumTestRequest::post("/api/chat/conversations")
         .header("authorization", &fx.owner_auth)
@@ -171,7 +171,7 @@ async fn test_conversation_without_group_id_stays_unscoped() {
 
 #[tokio::test]
 async fn test_non_member_cannot_scope_a_conversation_to_the_group() {
-    let fx = setup().await;
+    let fx = Box::pin(setup()).await;
 
     let response = AxumTestRequest::post("/api/chat/conversations")
         .header("authorization", &fx.outsider_auth)

@@ -1,4 +1,4 @@
-// ABOUTME: Shared test DB fixtures — in-memory SQLite + user/tenant seeding for FK-satisfying tests
+// ABOUTME: Shared test DB fixtures — factory-opened database + user/tenant seeding for FK-satisfying tests
 // ABOUTME: Included via `#[path] mod db_fixtures;` so the messaging/backfill/coverage tests reuse one copy
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,33 +14,18 @@
 )]
 
 use chrono::Utc;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::DatabaseProvider;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use uuid::Uuid;
 
-/// Create an in-memory `SQLite` database for testing, with all migrations applied.
+/// Create a migrated test database on whichever backend `DATABASE_URL`
+/// selects — the factory's private `PostgreSQL` clone, or in-memory `SQLite`.
 pub async fn create_test_db() -> Database {
     let encryption_key = b"test_encryption_key_32_bytes_long".to_vec();
-
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .expect("Failed to create test database");
-
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key)
+    create_test_db_with_key(encryption_key)
         .await
-        .expect("Failed to create test database");
-
-    db.migrate().await.expect("Failed to run migrations");
-    db
+        .expect("Failed to create test database")
 }
 
 /// Seed a real user and tenant so FK constraints on `messaging_*` tables are

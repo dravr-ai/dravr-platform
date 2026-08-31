@@ -38,29 +38,32 @@ async fn add_user_to_tenant_as_member(
     tenant_id: &str,
     user_id: Uuid,
 ) -> Result<()> {
+    const INSERT: &str = "INSERT INTO tenant_users \
+                          (id, tenant_id, user_id, role, invited_at, joined_at) \
+                          VALUES ($1, $2, $3, 'member', $4, $5)";
+    let row_id = Uuid::new_v4();
+    let now = chrono::Utc::now();
     match &*resources.coach.database {
         Database::SQLite(db) => {
-            let row_id = Uuid::new_v4().to_string();
-            let now = chrono::Utc::now().to_rfc3339();
-            sqlx::query(
-                "INSERT INTO tenant_users \
-                 (id, tenant_id, user_id, role, invited_at, joined_at) \
-                 VALUES (?, ?, ?, 'member', ?, ?)",
-            )
-            .bind(&row_id)
-            .bind(tenant_id)
-            .bind(user_id.to_string())
-            .bind(&now)
-            .bind(&now)
-            .execute(db.pool())
-            .await?;
+            sqlx::query(INSERT)
+                .bind(row_id.to_string())
+                .bind(tenant_id)
+                .bind(user_id.to_string())
+                .bind(now.to_rfc3339())
+                .bind(now.to_rfc3339())
+                .execute(db.pool())
+                .await?;
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => {
-            anyhow::bail!(
-                "user-override wire test only runs against SQLite (test default); \
-                 the PG repo path is covered by user_tool_overrides_postgresql_test."
-            );
+        Database::PostgreSQL(db) => {
+            sqlx::query(INSERT)
+                .bind(row_id)
+                .bind(Uuid::parse_str(tenant_id)?)
+                .bind(user_id)
+                .bind(now)
+                .bind(now)
+                .execute(db.pool())
+                .await?;
         }
     }
     Ok(())

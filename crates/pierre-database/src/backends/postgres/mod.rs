@@ -40,6 +40,7 @@ pub mod encryption;
 pub mod feature_flags;
 /// Fitness configuration — tenant- and user-scoped training settings
 pub mod fitness_config;
+mod goal_progress;
 /// Guardian pending actions (`Postgres`) backing `GuardianPendingActionsRepository`.
 pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
@@ -117,13 +118,53 @@ use pierre_core::models::TenantId;
 use pierre_core::models::TenantToolOverride;
 use pierre_core::models::{TenantPlan, ToolCatalogEntry, ToolCategory, User, UserOAuthToken};
 use sha2::{Digest, Sha256};
+use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Pool, Postgres, Row};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+/// The `PostgreSQL` migration set compiled into this binary.
+///
+/// Embedded once so that both [`migrate`](DatabaseProvider::migrate) and
+/// [`migrations_fingerprint`] read the same set: the fingerprint names the
+/// test template database that already carries exactly these migrations, and a
+/// template built from a different set must never be mistaken for it.
+static PG_MIGRATIONS: Migrator = sqlx::migrate!("./migrations_pg");
+
+/// The embedded migrator configured the way production applies it.
+///
+/// `ignore_missing` is on so a database carrying a migration this binary no
+/// longer knows (a rollback deploy) still starts; `Migrator` cannot be mutated
+/// in a `static`, so the runtime copy borrows the embedded set instead.
+fn pg_migrator() -> Migrator {
+    Migrator {
+        migrations: Cow::Borrowed(PG_MIGRATIONS.migrations.as_ref()),
+        ignore_missing: true,
+        locking: PG_MIGRATIONS.locking,
+        no_tx: PG_MIGRATIONS.no_tx,
+    }
+}
+
+/// A short, stable digest of the embedded `PostgreSQL` migration set.
+///
+/// Covers every migration's version and checksum in order, so any edit,
+/// addition, or removal yields a different value. Test isolation uses it to
+/// name the template database that has these exact migrations applied.
+#[must_use]
+pub fn migrations_fingerprint() -> String {
+    let mut hasher = Sha256::new();
+    for migration in PG_MIGRATIONS.iter() {
+        hasher.update(migration.version.to_le_bytes());
+        hasher.update(&migration.checksum);
+    }
+    let digest = hasher.finalize();
+    hex::encode(&digest[..8])
+}
 
 /// `PostgreSQL` database implementation
 #[derive(Clone)]
@@ -481,8 +522,7 @@ impl DatabaseProvider for PostgresDatabase {
     async fn migrate(&self) -> AppResult<()> {
         info!("Running PostgreSQL database migrations...");
 
-        sqlx::migrate!("./migrations_pg")
-            .set_ignore_missing(true)
+        pg_migrator()
             .run(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("PostgreSQL migration failed: {e}")))?;

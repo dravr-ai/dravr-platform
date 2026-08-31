@@ -23,31 +23,14 @@ use pierre_config::environment::{
     SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
     WeatherServiceConfig,
 };
-use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, RegisterRequest};
 use std::{ptr, sync::Arc};
-use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_email_validation() {
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
-    let db_path_str = db_path.display();
-
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        &format!("sqlite:{db_path_str}"),
-        vec![0u8; 32],
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&format!("sqlite:{db_path_str}"), vec![0u8; 32])
-        .await
-        .unwrap();
+    let database = create_test_db().await.unwrap();
 
     tracing::trace!("Created test database: {:?}", ptr::addr_of!(database));
     let auth_manager = AuthManager::new(24);
@@ -75,23 +58,7 @@ async fn test_password_validation() {
 #[tokio::test]
 async fn test_register_user() {
     common::init_server_config();
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
-    let db_path_str = db_path.display();
-
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        &format!("sqlite:{db_path_str}"),
-        vec![0u8; 32],
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&format!("sqlite:{db_path_str}"), vec![0u8; 32])
-        .await
-        .unwrap();
+    let database = create_test_db().await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     // Create ServerContext for auth routes
@@ -265,23 +232,7 @@ async fn test_register_user() {
 #[tokio::test]
 async fn test_register_duplicate_user() {
     common::init_server_config();
-    let temp_dir = TempDir::new().unwrap();
-    let db_path = temp_dir.path().join("test.db");
-    let db_path_str = db_path.display();
-
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        &format!("sqlite:{db_path_str}"),
-        vec![0u8; 32],
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(&format!("sqlite:{db_path_str}"), vec![0u8; 32])
-        .await
-        .unwrap();
+    let database = create_test_db().await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     // Create ServerContext for auth routes

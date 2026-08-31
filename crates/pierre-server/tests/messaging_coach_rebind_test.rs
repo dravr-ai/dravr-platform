@@ -43,6 +43,7 @@ mod coach_rebind_tests {
     };
     use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -178,32 +179,45 @@ mod coach_rebind_tests {
 
     /// The conversation id the messaging session points at, once it exists.
     async fn session_conversation_id(resources: &ServerContext, user_id: Uuid) -> Option<String> {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT pierre_conversation_id FROM messaging_sessions WHERE user_id = ?1",
+        // `messaging_sessions.user_id` is a `uuid` column on PostgreSQL and text
+        // on SQLite; the cast lets one bound text id serve both.
+        optional_text(
+            &resources.coach.database,
+            "SELECT pierre_conversation_id FROM messaging_sessions \
+             WHERE CAST(user_id AS TEXT) = $1",
+            &user_id.to_string(),
         )
-        .bind(user_id.to_string())
-        .fetch_optional(pool)
         .await
-        .unwrap();
-        row.and_then(|r| r.0)
     }
 
     async fn conversation_coach(
         resources: &ServerContext,
         conversation_id: &str,
     ) -> Option<String> {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: Option<(Option<String>,)> =
-            sqlx::query_as("SELECT coach_id FROM chat_conversations WHERE id = ?1")
-                .bind(conversation_id)
-                .fetch_optional(pool)
+        optional_text(
+            &resources.coach.database,
+            "SELECT coach_id FROM chat_conversations WHERE id = $1",
+            conversation_id,
+        )
+        .await
+    }
+
+    /// One nullable text column selected by `sql` with `$1` bound to `bind`,
+    /// on whichever backend the test database is.
+    async fn optional_text(db: &Database, sql: &str, bind: &str) -> Option<String> {
+        let row: Option<(Option<String>,)> = match db {
+            Database::SQLite(sqlite) => sqlx::query_as(sql)
+                .bind(bind)
+                .fetch_optional(sqlite.pool())
                 .await
-                .unwrap();
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_as(sql)
+                .bind(bind)
+                .fetch_optional(pg.pool())
+                .await
+                .unwrap(),
+        };
         row.and_then(|r| r.0)
     }
 

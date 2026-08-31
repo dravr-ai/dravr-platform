@@ -50,16 +50,11 @@ const KEY: &str = "group_creation_policy";
 
 /// Build the repository for whichever backend [`create_test_db`] opened.
 fn repository(db: &Database) -> Box<dyn AdminConfigRepository> {
-    #[cfg(feature = "postgresql")]
-    if let Some(pg) = db.postgres_pool() {
-        return Box::new(PostgresAdminConfigManager::new(pg.clone()));
+    match db {
+        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
     }
-
-    Box::new(AdminConfigManager::new(
-        db.sqlite_pool()
-            .expect("test database exposes neither a PostgreSQL nor a SQLite pool")
-            .clone(),
-    ))
 }
 
 /// Persist a real user: `admin_config_overrides.created_by` carries a foreign
@@ -100,37 +95,31 @@ async fn seed_tenant(db: &Database, owner_user_id: &str) -> String {
 /// Count stored rows for the parameter under test, scoped to `tenant` — or to
 /// the system-wide `NULL` scope when `tenant` is `None`.
 async fn count_rows(db: &Database, tenant: Option<&str>) -> i64 {
-    #[cfg(feature = "postgresql")]
-    if let Some(pg) = db.postgres_pool() {
-        let sql = if tenant.is_some() {
-            "SELECT COUNT(*) FROM admin_config_overrides \
-             WHERE category = $1 AND config_key = $2 AND tenant_id = $3"
-        } else {
-            "SELECT COUNT(*) FROM admin_config_overrides \
-             WHERE category = $1 AND config_key = $2 AND tenant_id IS NULL AND user_id IS NULL"
-        };
-        let mut q = sqlx::query_scalar(sql).bind(CATEGORY).bind(KEY);
-        if let Some(t) = tenant {
-            q = q.bind(t);
-        }
-        return q.fetch_one(pg).await.unwrap();
-    }
-
+    // `$n` placeholders parse on both backends, so one statement serves each arm.
     let sql = if tenant.is_some() {
         "SELECT COUNT(*) FROM admin_config_overrides \
-         WHERE category = ?1 AND config_key = ?2 AND tenant_id = ?3"
+         WHERE category = $1 AND config_key = $2 AND tenant_id = $3"
     } else {
         "SELECT COUNT(*) FROM admin_config_overrides \
-         WHERE category = ?1 AND config_key = ?2 AND tenant_id IS NULL AND user_id IS NULL"
+         WHERE category = $1 AND config_key = $2 AND tenant_id IS NULL AND user_id IS NULL"
     };
-    let mut q = sqlx::query_scalar(sql).bind(CATEGORY).bind(KEY);
-    if let Some(t) = tenant {
-        q = q.bind(t);
+    match db {
+        Database::SQLite(sqlite) => {
+            let mut q = sqlx::query_scalar(sql).bind(CATEGORY).bind(KEY);
+            if let Some(t) = tenant {
+                q = q.bind(t);
+            }
+            q.fetch_one(sqlite.pool()).await.unwrap()
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            let mut q = sqlx::query_scalar(sql).bind(CATEGORY).bind(KEY);
+            if let Some(t) = tenant {
+                q = q.bind(t);
+            }
+            q.fetch_one(pg.pool()).await.unwrap()
+        }
     }
-    let pool = db
-        .sqlite_pool()
-        .expect("test database exposes neither a PostgreSQL nor a SQLite pool");
-    q.fetch_one(pool).await.unwrap()
 }
 
 #[tokio::test]

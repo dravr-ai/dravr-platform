@@ -571,7 +571,7 @@ fn iso(date: NaiveDate) -> String {
 #[tokio::test]
 async fn prescribing_a_cornerstone_creates_the_calendar_event_and_records_its_id() -> Result<()> {
     let stub = stub_live(987_654).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let resp = fixture
         .prescribe(json!({ "template_slug": "long_run_z2", "date": "2026-09-15" }))
@@ -635,7 +635,7 @@ async fn prescribing_a_cornerstone_creates_the_calendar_event_and_records_its_id
 #[tokio::test]
 async fn a_refused_push_records_a_failed_row_and_reports_the_failure() -> Result<()> {
     let stub = stub_refusing("HTTP/1.1 500 Internal Server Error").await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let err = fixture
         .prescribe(json!({ "template_slug": "vo2_5x3", "date": "2026-09-16" }))
@@ -666,7 +666,7 @@ async fn a_refused_push_records_a_failed_row_and_reports_the_failure() -> Result
 #[tokio::test]
 async fn an_inline_session_is_stored_and_pushed_with_its_coaching_cue() -> Result<()> {
     let stub = stub_live(424_242).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let resp = fixture
         .prescribe(json!({ "session": trail_session(), "date": "2026-09-17" }))
@@ -714,7 +714,7 @@ async fn an_inline_session_is_stored_and_pushed_with_its_coaching_cue() -> Resul
 #[tokio::test]
 async fn re_prescribing_the_same_session_reuses_one_template_row() -> Result<()> {
     let stub = stub_live(555).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     for date in ["2026-09-18", "2026-09-25"] {
         let resp = fixture
@@ -746,7 +746,7 @@ async fn re_prescribing_the_same_session_reuses_one_template_row() -> Result<()>
 #[tokio::test]
 async fn replacing_a_prescription_changes_the_same_calendar_event_in_place() -> Result<()> {
     let stub = stub_live(987_654).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let first = fixture
         .ok(
@@ -836,7 +836,7 @@ async fn replacing_a_prescription_changes_the_same_calendar_event_in_place() -> 
 #[tokio::test]
 async fn withdrawing_a_prescription_deletes_the_event_and_marks_the_row() -> Result<()> {
     let stub = stub_live(987_654).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let first = fixture
         .ok(
@@ -893,7 +893,7 @@ async fn withdrawing_a_prescription_deletes_the_event_and_marks_the_row() -> Res
 #[tokio::test]
 async fn a_slug_that_names_nothing_is_rejected_before_any_push() -> Result<()> {
     let stub = stub_live(1).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let err = fixture
         .prescribe(json!({ "template_slug": "not_a_real_template", "date": "2026-09-19" }))
@@ -914,7 +914,7 @@ async fn a_slug_that_names_nothing_is_rejected_before_any_push() -> Result<()> {
 #[tokio::test]
 async fn the_workout_must_be_named_exactly_once() -> Result<()> {
     let stub = stub_live(1).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let neither = fixture
         .prescribe(json!({ "date": "2026-09-20" }))
@@ -942,7 +942,7 @@ async fn the_workout_must_be_named_exactly_once() -> Result<()> {
 #[tokio::test]
 async fn a_session_with_no_steps_is_rejected() -> Result<()> {
     let stub = stub_live(1).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let err = fixture
         .prescribe(json!({
@@ -968,7 +968,7 @@ async fn a_session_with_no_steps_is_rejected() -> Result<()> {
 async fn an_athlete_without_intervals_icu_is_told_to_connect_it() -> Result<()> {
     let stub = stub_live(1).await;
     // Strava-connected only: past the dispatch chokepoint, short of a calendar.
-    let fixture = fixture(&stub.base_url, false).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, false)).await?;
 
     let resp = fixture
         .prescribe(json!({ "template_slug": "long_run_z2", "date": "2026-09-22" }))
@@ -1001,7 +1001,7 @@ async fn an_athlete_without_intervals_icu_is_told_to_connect_it() -> Result<()> 
 async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles_adjustments(
 ) -> Result<()> {
     let stub = stub_live(1000).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
     let d = |offset: i64| monday + Duration::days(offset);
@@ -1412,7 +1412,7 @@ async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result
     // a workout from. A day saved with steps goes out as the workout-builder
     // DSL, repeats grouped into one block, so the provider computes the load.
     let stub = stub_live(2000).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
     let d = |offset: i64| monday + Duration::days(offset);
@@ -1494,7 +1494,7 @@ async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result
 #[tokio::test]
 async fn pushing_without_a_plan_is_refused_before_the_provider_is_called() -> Result<()> {
     let stub = stub_live(1).await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
 
     let err = fixture
         .execute("push_training_plan", json!({}))
@@ -1511,7 +1511,7 @@ async fn pushing_without_a_plan_is_refused_before_the_provider_is_called() -> Re
 #[tokio::test]
 async fn a_refused_plan_push_records_every_failure_and_leaves_the_ledger_honest() -> Result<()> {
     let stub = stub_refusing("HTTP/1.1 503 Service Unavailable").await;
-    let fixture = fixture(&stub.base_url, true).await?;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
     fixture
         .save_weeks(

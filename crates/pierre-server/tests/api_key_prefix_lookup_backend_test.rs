@@ -9,49 +9,27 @@
 
 //! Why this file exists separately from `database_api_keys_test.rs`.
 //!
-//! That suite calls `create_test_db()`, which hardcodes `sqlite::memory:` even
-//! under `--features postgresql` — the feature flag only changes the
-//! constructor signature, not the URL. So `ci-postgres.yml` runs the database
-//! suite against `SQLite`, and the `PostgreSQL` backend's own SQL is never executed.
+//! The bug this guards: `PostgreSQL` `get_by_prefix` read `WHERE id LIKE $1`
+//! bound to `"{prefix}%"`, but `id` is a generated identifier that never
+//! begins with `pk_live_`. The query matched zero rows, so EVERY API key
+//! failed authentication on `PostgreSQL` — while provisioning, storage and
+//! listing (different queries) all kept reporting the key active.
 //!
-//! That is exactly how the bug this guards survived: `PostgreSQL` `get_by_prefix`
-//! read `WHERE id LIKE $1` bound to `"{prefix}%"`, but `id` is a generated
-//! identifier that never begins with `pk_live_`. The query matched zero rows,
-//! so EVERY API key failed authentication on `PostgreSQL` — while provisioning,
-//! storage and listing (different queries) all kept reporting the key active.
-//!
-//! This test builds the database from `DATABASE_URL`, so it exercises `PostgreSQL`
-//! wherever one is configured and `SQLite` otherwise — the same contract on both.
+//! [`create_test_db`] opens whichever backend `DATABASE_URL` names, so this
+//! test exercises `PostgreSQL` wherever one is configured and `SQLite`
+//! otherwise — the same contract on both.
 
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_database::backends::factory::Database;
-use std::env;
+use pierre_database::database::test_utils::create_test_db;
 use uuid::Uuid;
 
-/// Build a database from `DATABASE_URL`, falling back to in-memory `SQLite`.
-///
-/// Deliberately does NOT use `create_test_db()`: that helper pins
-/// `sqlite::memory:` and would make this test pass on the very backend whose
-/// bug it exists to catch.
+/// The backend `DATABASE_URL` names, opened through the shared factory.
 async fn backend_under_test() -> Database {
-    let url = env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite::memory:".to_owned());
-
-    #[cfg(feature = "postgresql")]
-    {
-        Database::new(&url, vec![0u8; 32], &PostgresPoolConfig::default())
-            .await
-            .expect("Should connect to the configured database")
-    }
-
-    #[cfg(not(feature = "postgresql"))]
-    {
-        Database::new(&url, vec![0u8; 32])
-            .await
-            .expect("Should connect to the configured database")
-    }
+    create_test_db()
+        .await
+        .expect("Should connect to the configured database")
 }
 
 /// A stored API key must be retrievable by its own prefix and hash.

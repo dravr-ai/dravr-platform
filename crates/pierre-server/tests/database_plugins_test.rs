@@ -7,42 +7,20 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::constants::oauth_providers;
 use serde_json::json;
-use std::env;
 use uuid::Uuid;
 
 async fn create_test_database() -> Database {
     let encryption_key = (0..32).collect::<Vec<u8>>();
-    // Use a unique database file path for each test to ensure isolation
-    let unique_id = uuid::Uuid::new_v4();
-    let temp_dir = env::temp_dir();
-    let db_path = temp_dir.join(format!("test_{unique_id}.db"));
-    let database_url = format!("sqlite:{}", db_path.display());
-
-    #[cfg(feature = "postgresql")]
-    {
-        Database::new(
-            &database_url,
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
+    create_test_db_with_key(encryption_key)
         .await
         .expect("Failed to create test database")
-    }
-
-    #[cfg(not(feature = "postgresql"))]
-    {
-        Database::new(&database_url, encryption_key)
-            .await
-            .expect("Failed to create test database")
-    }
 }
 
 async fn create_test_user(db: &Database) -> Uuid {
@@ -86,22 +64,13 @@ async fn create_test_user(db: &Database) -> Uuid {
 async fn test_database_factory_creation() {
     let encryption_key = (0..32).collect::<Vec<u8>>();
 
-    // Test SQLite creation
-    #[cfg(feature = "postgresql")]
-    let sqlite_db = Database::new(
-        "sqlite::memory:",
-        encryption_key.clone(),
-        &PostgresPoolConfig::default(),
-    )
-    .await;
+    // Test creation through the factory
+    let created = create_test_db_with_key(encryption_key).await;
 
-    #[cfg(not(feature = "postgresql"))]
-    let sqlite_db = Database::new("sqlite::memory:", encryption_key.clone()).await;
-
-    assert!(sqlite_db.is_ok(), "Failed to create SQLite database");
+    assert!(created.is_ok(), "Failed to create database");
 
     // Test migration
-    let db = sqlite_db.unwrap();
+    let db = created.unwrap();
     let migration_result = db.migrate().await;
     assert!(migration_result.is_ok(), "Failed to run migrations");
 }

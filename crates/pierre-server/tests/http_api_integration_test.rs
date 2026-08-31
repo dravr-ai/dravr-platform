@@ -29,6 +29,7 @@ use pierre_config::environment::{
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
@@ -44,19 +45,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
     // Initialize server config for tests
     common::init_server_config();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(
-            "sqlite::memory:",
-            generate_encryption_key().to_vec(),
-            &PostgresPoolConfig::default(),
-        )
-        .await?,
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database =
-        Arc::new(Database::new("sqlite::memory:", generate_encryption_key().to_vec()).await?);
+    let database = Arc::new(create_test_db_with_key(generate_encryption_key().to_vec()).await?);
     database.migrate().await?;
 
     let auth_manager = Arc::new(AuthManager::new(24));

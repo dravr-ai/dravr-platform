@@ -607,6 +607,7 @@ mod messaging {
     use super::*;
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -618,18 +619,24 @@ mod messaging {
 
     /// The conversation id the messaging session points at, once it exists.
     async fn session_conversation_id(resources: &ServerContext, user_id: Uuid) -> Option<String> {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT pierre_conversation_id FROM messaging_sessions WHERE user_id = ?1",
-        )
-        .bind(user_id.to_string())
-        .fetch_optional(pool)
-        .await
-        .unwrap();
+        // `messaging_sessions.user_id` is a `uuid` column on PostgreSQL and text
+        // on SQLite; the cast lets one bound text id serve both.
+        const SQL: &str = "SELECT pierre_conversation_id FROM messaging_sessions \
+             WHERE CAST(user_id AS TEXT) = $1";
+        let user = user_id.to_string();
+        let row: Option<(Option<String>,)> = match resources.coach.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_as(SQL)
+                .bind(&user)
+                .fetch_optional(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                .bind(&user)
+                .fetch_optional(db.pool())
+                .await
+                .unwrap(),
+        };
         row.and_then(|r| r.0)
     }
 

@@ -6,7 +6,7 @@
 
 //! Mobility Database Unit Tests
 //!
-//! Tests the `MobilityManager` database operations:
+//! Tests the `MobilityRepository` operations on whichever backend the test factory opens:
 //! - Stretching exercises: list, get, search, filter
 //! - Yoga poses: list, get, search, filter by category/difficulty/recovery
 //! - Activity-muscle mappings
@@ -14,118 +14,49 @@
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use chrono::Utc;
-use pierre_database::database::mobility::{
-    DifficultyLevel, ListStretchingFilter, ListYogaFilter, MobilityManager, StretchingCategory,
-    YogaCategory, YogaPoseType,
+use pierre_core::models::mobility::{
+    DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, YogaCategory,
+    YogaPoseType,
 };
-use sqlx::SqlitePool;
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 
 // ============================================================================
 // Test Setup
 // ============================================================================
 
-/// Create a test database with mobility schema
-async fn create_test_db() -> SqlitePool {
-    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-
-    // Create stretching_exercises table
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS stretching_exercises (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT NOT NULL,
-            category TEXT NOT NULL DEFAULT 'static',
-            difficulty TEXT NOT NULL DEFAULT 'beginner',
-            primary_muscles TEXT NOT NULL,
-            secondary_muscles TEXT,
-            duration_seconds INTEGER NOT NULL DEFAULT 30,
-            repetitions INTEGER,
-            sets INTEGER NOT NULL DEFAULT 1,
-            recommended_for_activities TEXT,
-            contraindications TEXT,
-            instructions TEXT NOT NULL,
-            cues TEXT,
-            image_url TEXT,
-            video_url TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create yoga_poses table
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS yoga_poses (
-            id TEXT PRIMARY KEY,
-            english_name TEXT NOT NULL,
-            sanskrit_name TEXT,
-            description TEXT NOT NULL,
-            benefits TEXT NOT NULL,
-            category TEXT NOT NULL DEFAULT 'standing',
-            difficulty TEXT NOT NULL DEFAULT 'beginner',
-            pose_type TEXT NOT NULL DEFAULT 'stretch',
-            primary_muscles TEXT NOT NULL,
-            secondary_muscles TEXT,
-            chakras TEXT,
-            hold_duration_seconds INTEGER NOT NULL DEFAULT 30,
-            breath_guidance TEXT,
-            recommended_for_activities TEXT,
-            recommended_for_recovery TEXT,
-            contraindications TEXT,
-            instructions TEXT NOT NULL,
-            modifications TEXT,
-            progressions TEXT,
-            cues TEXT,
-            warmup_poses TEXT,
-            followup_poses TEXT,
-            image_url TEXT,
-            video_url TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Create activity_muscle_mapping table
-    sqlx::query(
-        r"
-        CREATE TABLE IF NOT EXISTS activity_muscle_mapping (
-            id TEXT PRIMARY KEY,
-            activity_type TEXT NOT NULL UNIQUE,
-            primary_muscles TEXT NOT NULL,
-            secondary_muscles TEXT,
-            recommended_stretch_categories TEXT,
-            recommended_yoga_categories TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        ",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    pool
+/// Run one reference-data INSERT on whichever backend the test database is.
+///
+/// `stretching_exercises` and `yoga_poses` are catalogue tables with no
+/// repository writer, so the fixtures are written with raw SQL. `$n`
+/// placeholders parse on both engines and the timestamp is bound as a
+/// `DateTime`, which `SQLite` stores as RFC 3339 text and `PostgreSQL` as
+/// `TIMESTAMPTZ`.
+macro_rules! execute_on {
+    ($db:expr, $sql:expr, $($bind:expr),+ $(,)?) => {
+        match $db {
+            Database::SQLite(d) => {
+                sqlx::query($sql)$(.bind($bind))+.execute(d.pool()).await.unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(d) => {
+                sqlx::query($sql)$(.bind($bind))+.execute(d.pool()).await.unwrap();
+            }
+        }
+    };
 }
 
 /// Insert a test stretching exercise
 async fn insert_test_stretch(
-    pool: &SqlitePool,
+    db: &Database,
     id: &str,
     name: &str,
     category: &str,
     difficulty: &str,
 ) {
-    let now = Utc::now().to_rfc3339();
-    sqlx::query(
+    let now = Utc::now();
+    execute_on!(
+        db,
         r#"
         INSERT INTO stretching_exercises
         (id, name, description, category, difficulty, primary_muscles, secondary_muscles,
@@ -133,28 +64,26 @@ async fn insert_test_stretch(
         VALUES ($1, $2, 'Test description', $3, $4, '["hamstrings"]', '["calves"]',
                 30, 2, '["running"]', '["Step 1", "Step 2"]', $5, $5)
         "#,
-    )
-    .bind(id)
-    .bind(name)
-    .bind(category)
-    .bind(difficulty)
-    .bind(&now)
-    .execute(pool)
-    .await
-    .unwrap();
+        id,
+        name,
+        category,
+        difficulty,
+        now
+    );
 }
 
 /// Insert a test yoga pose
 async fn insert_test_pose(
-    pool: &SqlitePool,
+    db: &Database,
     id: &str,
     name: &str,
     category: &str,
     difficulty: &str,
     recovery: &str,
 ) {
-    let now = Utc::now().to_rfc3339();
-    sqlx::query(
+    let now = Utc::now();
+    execute_on!(
+        db,
         r#"
         INSERT INTO yoga_poses
         (id, english_name, sanskrit_name, description, benefits, category, difficulty, pose_type,
@@ -163,16 +92,13 @@ async fn insert_test_pose(
         VALUES ($1, $2, NULL, 'Test description', '["benefit1"]', $3, $4, 'stretch',
                 '["hamstrings"]', '["calves"]', 30, '["running"]', $5, '["Step 1"]', $6, $6)
         "#,
-    )
-    .bind(id)
-    .bind(name)
-    .bind(category)
-    .bind(difficulty)
-    .bind(recovery)
-    .bind(&now)
-    .execute(pool)
-    .await
-    .unwrap();
+        id,
+        name,
+        category,
+        difficulty,
+        recovery,
+        now
+    );
 }
 
 // ============================================================================
@@ -299,8 +225,8 @@ fn test_yoga_category_as_str() {
 
 #[tokio::test]
 async fn test_list_stretching_empty() {
-    let pool = create_test_db().await;
-    let manager = MobilityManager::new(pool);
+    let db = create_test_db().await.unwrap();
+    let manager = db.repositories().mobility;
 
     let filter = ListStretchingFilter::default();
     let exercises = manager.list_stretching_exercises(&filter).await.unwrap();
@@ -310,21 +236,14 @@ async fn test_list_stretching_empty() {
 
 #[tokio::test]
 async fn test_list_stretching_exercises() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
     // Insert test data
-    insert_test_stretch(
-        &pool,
-        "stretch-1",
-        "Hamstring Stretch",
-        "static",
-        "beginner",
-    )
-    .await;
-    insert_test_stretch(&pool, "stretch-2", "Quad Stretch", "static", "intermediate").await;
-    insert_test_stretch(&pool, "stretch-3", "Leg Swings", "dynamic", "beginner").await;
+    insert_test_stretch(&db, "stretch-1", "Hamstring Stretch", "static", "beginner").await;
+    insert_test_stretch(&db, "stretch-2", "Quad Stretch", "static", "intermediate").await;
+    insert_test_stretch(&db, "stretch-3", "Leg Swings", "dynamic", "beginner").await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListStretchingFilter::default();
     let exercises = manager.list_stretching_exercises(&filter).await.unwrap();
@@ -334,19 +253,12 @@ async fn test_list_stretching_exercises() {
 
 #[tokio::test]
 async fn test_list_stretching_by_category() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
-    insert_test_stretch(
-        &pool,
-        "stretch-1",
-        "Hamstring Stretch",
-        "static",
-        "beginner",
-    )
-    .await;
-    insert_test_stretch(&pool, "stretch-2", "Leg Swings", "dynamic", "beginner").await;
+    insert_test_stretch(&db, "stretch-1", "Hamstring Stretch", "static", "beginner").await;
+    insert_test_stretch(&db, "stretch-2", "Leg Swings", "dynamic", "beginner").await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListStretchingFilter {
         category: Some(StretchingCategory::Static),
@@ -361,20 +273,13 @@ async fn test_list_stretching_by_category() {
 
 #[tokio::test]
 async fn test_list_stretching_by_difficulty() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
-    insert_test_stretch(&pool, "stretch-1", "Easy Stretch", "static", "beginner").await;
-    insert_test_stretch(
-        &pool,
-        "stretch-2",
-        "Medium Stretch",
-        "static",
-        "intermediate",
-    )
-    .await;
-    insert_test_stretch(&pool, "stretch-3", "Hard Stretch", "static", "advanced").await;
+    insert_test_stretch(&db, "stretch-1", "Easy Stretch", "static", "beginner").await;
+    insert_test_stretch(&db, "stretch-2", "Medium Stretch", "static", "intermediate").await;
+    insert_test_stretch(&db, "stretch-3", "Hard Stretch", "static", "advanced").await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListStretchingFilter {
         difficulty: Some(DifficultyLevel::Beginner),
@@ -388,11 +293,11 @@ async fn test_list_stretching_by_difficulty() {
 
 #[tokio::test]
 async fn test_get_stretching_exercise() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
-    insert_test_stretch(&pool, "stretch-123", "Test Stretch", "static", "beginner").await;
+    insert_test_stretch(&db, "stretch-123", "Test Stretch", "static", "beginner").await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let exercise = manager
         .get_stretching_exercise("stretch-123")
@@ -407,8 +312,8 @@ async fn test_get_stretching_exercise() {
 
 #[tokio::test]
 async fn test_get_stretching_exercise_not_found() {
-    let pool = create_test_db().await;
-    let manager = MobilityManager::new(pool);
+    let db = create_test_db().await.unwrap();
+    let manager = db.repositories().mobility;
 
     let result = manager
         .get_stretching_exercise("nonexistent")
@@ -420,20 +325,13 @@ async fn test_get_stretching_exercise_not_found() {
 
 #[tokio::test]
 async fn test_search_stretching_exercises() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
-    insert_test_stretch(
-        &pool,
-        "stretch-1",
-        "Hamstring Stretch",
-        "static",
-        "beginner",
-    )
-    .await;
-    insert_test_stretch(&pool, "stretch-2", "Quad Stretch", "static", "beginner").await;
-    insert_test_stretch(&pool, "stretch-3", "Calf Raise", "dynamic", "beginner").await;
+    insert_test_stretch(&db, "stretch-1", "Hamstring Stretch", "static", "beginner").await;
+    insert_test_stretch(&db, "stretch-2", "Quad Stretch", "static", "beginner").await;
+    insert_test_stretch(&db, "stretch-3", "Calf Raise", "dynamic", "beginner").await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let results = manager
         .search_stretching_exercises("stretch", None)
@@ -445,11 +343,11 @@ async fn test_search_stretching_exercises() {
 
 #[tokio::test]
 async fn test_list_stretching_with_pagination() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
     for i in 0..10 {
         insert_test_stretch(
-            &pool,
+            &db,
             &format!("stretch-{i}"),
             &format!("Stretch {i}"),
             "static",
@@ -458,7 +356,7 @@ async fn test_list_stretching_with_pagination() {
         .await;
     }
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListStretchingFilter {
         limit: Some(3),
@@ -483,8 +381,8 @@ async fn test_list_stretching_with_pagination() {
 
 #[tokio::test]
 async fn test_list_yoga_empty() {
-    let pool = create_test_db().await;
-    let manager = MobilityManager::new(pool);
+    let db = create_test_db().await.unwrap();
+    let manager = db.repositories().mobility;
 
     let filter = ListYogaFilter::default();
     let poses = manager.list_yoga_poses(&filter).await.unwrap();
@@ -494,10 +392,10 @@ async fn test_list_yoga_empty() {
 
 #[tokio::test]
 async fn test_list_yoga_poses() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
     insert_test_pose(
-        &pool,
+        &db,
         "pose-1",
         "Warrior I",
         "standing",
@@ -506,7 +404,7 @@ async fn test_list_yoga_poses() {
     )
     .await;
     insert_test_pose(
-        &pool,
+        &db,
         "pose-2",
         "Downward Dog",
         "inversion",
@@ -515,7 +413,7 @@ async fn test_list_yoga_poses() {
     )
     .await;
     insert_test_pose(
-        &pool,
+        &db,
         "pose-3",
         "Child's Pose",
         "seated",
@@ -524,7 +422,7 @@ async fn test_list_yoga_poses() {
     )
     .await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListYogaFilter::default();
     let poses = manager.list_yoga_poses(&filter).await.unwrap();
@@ -534,10 +432,10 @@ async fn test_list_yoga_poses() {
 
 #[tokio::test]
 async fn test_list_yoga_by_category() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
     insert_test_pose(
-        &pool,
+        &db,
         "pose-1",
         "Warrior I",
         "standing",
@@ -546,7 +444,7 @@ async fn test_list_yoga_by_category() {
     )
     .await;
     insert_test_pose(
-        &pool,
+        &db,
         "pose-2",
         "Tree Pose",
         "balance",
@@ -555,7 +453,7 @@ async fn test_list_yoga_by_category() {
     )
     .await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListYogaFilter {
         category: Some(YogaCategory::Standing),
@@ -570,12 +468,12 @@ async fn test_list_yoga_by_category() {
 
 #[tokio::test]
 async fn test_list_yoga_by_difficulty() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
-    insert_test_pose(&pool, "pose-1", "Easy Pose", "seated", "beginner", r"[]").await;
-    insert_test_pose(&pool, "pose-2", "Crow Pose", "balance", "advanced", r"[]").await;
+    insert_test_pose(&db, "pose-1", "Easy Pose", "seated", "beginner", r"[]").await;
+    insert_test_pose(&db, "pose-2", "Crow Pose", "balance", "advanced", r"[]").await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListYogaFilter {
         difficulty: Some(DifficultyLevel::Advanced),
@@ -589,19 +487,11 @@ async fn test_list_yoga_by_difficulty() {
 
 #[tokio::test]
 async fn test_get_yoga_pose() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
-    insert_test_pose(
-        &pool,
-        "pose-123",
-        "Test Pose",
-        "standing",
-        "beginner",
-        r"[]",
-    )
-    .await;
+    insert_test_pose(&db, "pose-123", "Test Pose", "standing", "beginner", r"[]").await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let pose = manager.get_yoga_pose("pose-123").await.unwrap();
 
@@ -613,8 +503,8 @@ async fn test_get_yoga_pose() {
 
 #[tokio::test]
 async fn test_get_yoga_pose_not_found() {
-    let pool = create_test_db().await;
-    let manager = MobilityManager::new(pool);
+    let db = create_test_db().await.unwrap();
+    let manager = db.repositories().mobility;
 
     let result = manager.get_yoga_pose("nonexistent").await.unwrap();
 
@@ -623,12 +513,12 @@ async fn test_get_yoga_pose_not_found() {
 
 #[tokio::test]
 async fn test_search_yoga_poses() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
-    insert_test_pose(&pool, "pose-1", "Warrior I", "standing", "beginner", r"[]").await;
-    insert_test_pose(&pool, "pose-2", "Warrior II", "standing", "beginner", r"[]").await;
+    insert_test_pose(&db, "pose-1", "Warrior I", "standing", "beginner", r"[]").await;
+    insert_test_pose(&db, "pose-2", "Warrior II", "standing", "beginner", r"[]").await;
     insert_test_pose(
-        &pool,
+        &db,
         "pose-3",
         "Downward Dog",
         "inversion",
@@ -637,7 +527,7 @@ async fn test_search_yoga_poses() {
     )
     .await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let results = manager.search_yoga_poses("warrior", None).await.unwrap();
 
@@ -646,10 +536,10 @@ async fn test_search_yoga_poses() {
 
 #[tokio::test]
 async fn test_get_poses_for_recovery() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
     insert_test_pose(
-        &pool,
+        &db,
         "pose-1",
         "Recovery Pose 1",
         "supine",
@@ -658,7 +548,7 @@ async fn test_get_poses_for_recovery() {
     )
     .await;
     insert_test_pose(
-        &pool,
+        &db,
         "pose-2",
         "Recovery Pose 2",
         "seated",
@@ -667,7 +557,7 @@ async fn test_get_poses_for_recovery() {
     )
     .await;
     insert_test_pose(
-        &pool,
+        &db,
         "pose-3",
         "Other Pose",
         "standing",
@@ -676,7 +566,7 @@ async fn test_get_poses_for_recovery() {
     )
     .await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let poses = manager
         .get_poses_for_recovery("post_cardio", None)
@@ -688,11 +578,11 @@ async fn test_get_poses_for_recovery() {
 
 #[tokio::test]
 async fn test_list_yoga_with_pagination() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
     for i in 0..10 {
         insert_test_pose(
-            &pool,
+            &db,
             &format!("pose-{i}"),
             &format!("Pose {i}"),
             "standing",
@@ -702,7 +592,7 @@ async fn test_list_yoga_with_pagination() {
         .await;
     }
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListYogaFilter {
         limit: Some(5),
@@ -727,20 +617,13 @@ async fn test_list_yoga_with_pagination() {
 
 #[tokio::test]
 async fn test_list_stretching_multiple_filters() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
-    insert_test_stretch(&pool, "stretch-1", "Static Beginner", "static", "beginner").await;
-    insert_test_stretch(&pool, "stretch-2", "Static Advanced", "static", "advanced").await;
-    insert_test_stretch(
-        &pool,
-        "stretch-3",
-        "Dynamic Beginner",
-        "dynamic",
-        "beginner",
-    )
-    .await;
+    insert_test_stretch(&db, "stretch-1", "Static Beginner", "static", "beginner").await;
+    insert_test_stretch(&db, "stretch-2", "Static Advanced", "static", "advanced").await;
+    insert_test_stretch(&db, "stretch-3", "Dynamic Beginner", "dynamic", "beginner").await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListStretchingFilter {
         category: Some(StretchingCategory::Static),
@@ -755,10 +638,10 @@ async fn test_list_stretching_multiple_filters() {
 
 #[tokio::test]
 async fn test_list_yoga_multiple_filters() {
-    let pool = create_test_db().await;
+    let db = create_test_db().await.unwrap();
 
     insert_test_pose(
-        &pool,
+        &db,
         "pose-1",
         "Standing Beginner",
         "standing",
@@ -767,7 +650,7 @@ async fn test_list_yoga_multiple_filters() {
     )
     .await;
     insert_test_pose(
-        &pool,
+        &db,
         "pose-2",
         "Standing Advanced",
         "standing",
@@ -776,7 +659,7 @@ async fn test_list_yoga_multiple_filters() {
     )
     .await;
     insert_test_pose(
-        &pool,
+        &db,
         "pose-3",
         "Seated Beginner",
         "seated",
@@ -785,7 +668,7 @@ async fn test_list_yoga_multiple_filters() {
     )
     .await;
 
-    let manager = MobilityManager::new(pool);
+    let manager = db.repositories().mobility;
 
     let filter = ListYogaFilter {
         category: Some(YogaCategory::Standing),

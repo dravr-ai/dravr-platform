@@ -1,20 +1,18 @@
-// ABOUTME: Tests to ensure in-memory databases don't create physical files
-// ABOUTME: Validates SQLite memory database isolation and cleanup behavior
+// ABOUTME: Tests to ensure test databases don't create physical files in the working directory
+// ABOUTME: Validates isolation between two databases opened through the test factory
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Tests to ensure in-memory databases don't create physical files
+//! Tests to ensure test databases don't create physical files in the working directory
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use anyhow::Result;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::User;
-use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use std::env;
 use std::fs;
 
@@ -22,17 +20,8 @@ use std::fs;
 async fn test_memory_database_no_physical_files() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
 
-    // Create in-memory database - this should NOT create any physical files
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key).await?;
+    // Open the test database - this must NOT create any physical files here
+    let database = create_test_db_with_key(encryption_key).await?;
 
     // Verify no physical files are created with memory database patterns
     let current_dir = env::current_dir()?;
@@ -80,28 +69,10 @@ async fn test_multiple_memory_databases_isolated() -> Result<()> {
     let encryption_key1 = generate_encryption_key().to_vec();
     let encryption_key2 = generate_encryption_key().to_vec();
 
-    // Create two separate in-memory databases
-    #[cfg(feature = "postgresql")]
-    let database1 = Database::new(
-        "sqlite::memory:",
-        encryption_key1,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
+    // Create two separate databases
+    let database1 = create_test_db_with_key(encryption_key1).await?;
 
-    #[cfg(not(feature = "postgresql"))]
-    let database1 = Database::new("sqlite::memory:", encryption_key1).await?;
-
-    #[cfg(feature = "postgresql")]
-    let database2 = Database::new(
-        "sqlite::memory:",
-        encryption_key2,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database2 = Database::new("sqlite::memory:", encryption_key2).await?;
+    let database2 = create_test_db_with_key(encryption_key2).await?;
 
     // Create users in each database
     let user1 = User::new(

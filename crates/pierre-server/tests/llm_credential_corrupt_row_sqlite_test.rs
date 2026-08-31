@@ -24,14 +24,23 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_core::models::TenantId;
-use pierre_database::database::{generate_encryption_key, Database as SqliteDatabase};
+use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_sqlite_test_db;
+use pierre_database::database::Database as SqliteDatabase;
 use pierre_database::repositories::LlmCredentialRepository;
 use sqlx::Executor;
 use uuid::Uuid;
 
+/// The `SQLite` backend itself: the corruptions below are shapes only its
+/// untyped TEXT columns accept (`PostgreSQL` refuses a non-UUID in a UUID
+/// column and a non-timestamp in a TIMESTAMPTZ column at the INSERT), and
+/// `PRAGMA foreign_keys` is a `SQLite` switch.
 async fn open_in_memory_db() -> Result<SqliteDatabase> {
-    let encryption_key = generate_encryption_key().to_vec();
-    Ok(SqliteDatabase::new("sqlite::memory:", encryption_key).await?)
+    match create_sqlite_test_db().await? {
+        Database::SQLite(db) => Ok(db),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(_) => unreachable!("create_sqlite_test_db opens SQLite"),
+    }
 }
 
 /// Seed the user and tenant rows the `user_llm_credentials` foreign keys need.

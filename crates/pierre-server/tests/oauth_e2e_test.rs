@@ -161,10 +161,8 @@ use pierre_config::environment::{
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::{
-    backends::{factory::Database, DatabaseProvider},
-    database::generate_encryption_key,
-};
+use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::mcp::{
     multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
@@ -183,19 +181,7 @@ async fn test_oauth_flow_through_mcp() {
     // Setup multi-tenant server components
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
 
     let auth_manager = AuthManager::new(24);
 
@@ -435,19 +421,7 @@ async fn test_oauth_callback_error_handling() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     database.migrate().await.unwrap();
 
     let auth_manager = AuthManager::new(24);
@@ -748,19 +722,7 @@ async fn test_oauth_state_csrf_protection() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
 
     database.migrate().await.unwrap();
 
@@ -1048,19 +1010,7 @@ async fn test_connection_status_tracking() {
     common::init_server_config();
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await
-    .unwrap();
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new("sqlite::memory:", encryption_key)
-        .await
-        .unwrap();
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
     let auth_manager = AuthManager::new(24);
 
     // Register a test user

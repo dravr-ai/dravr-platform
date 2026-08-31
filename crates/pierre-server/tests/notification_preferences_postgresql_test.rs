@@ -14,6 +14,7 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::{NaiveTime, Utc};
+use pierre_database::database::test_utils::create_test_db;
 use pierre_notifications::models::{
     CreateNotificationParams, CreateScheduledNotificationParams, DevicePlatform,
     NotificationCategory, UpsertNotificationPreferenceParams,
@@ -21,8 +22,6 @@ use pierre_notifications::models::{
 use pierre_notifications::{NotificationService, TenantId};
 use serde_json::json;
 use uuid::Uuid;
-
-mod common;
 
 /// The name 20260311000007's inline column CHECK received from `PostgreSQL`,
 /// which 20260826000007 re-created under the same name.
@@ -49,14 +48,7 @@ async fn insert_preference(
 
 #[tokio::test]
 async fn test_pg_category_check_matches_the_enum() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let pool = db.postgres_pool().expect("PG lane");
     let user_id = Uuid::new_v4();
     let tenant_id = Uuid::new_v4();
@@ -129,14 +121,7 @@ async fn test_pg_category_check_matches_the_enum() {
 // back here through the service, on PostgreSQL, field by field.
 #[tokio::test]
 async fn test_pg_notification_service_round_trips_every_table() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let pool = db.postgres_pool().expect("PG lane");
     let service = NotificationService::from_postgres(pool.clone());
     let user_id = Uuid::new_v4();

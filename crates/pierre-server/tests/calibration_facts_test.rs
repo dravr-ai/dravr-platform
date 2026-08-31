@@ -17,11 +17,10 @@
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
@@ -35,15 +34,7 @@ use uuid::Uuid;
 
 async fn open_in_memory_db() -> Result<Database> {
     let encryption_key = generate_encryption_key().to_vec();
-    #[cfg(feature = "postgresql")]
-    let db = Database::new(
-        "sqlite::memory:",
-        encryption_key,
-        &PostgresPoolConfig::default(),
-    )
-    .await?;
-    #[cfg(not(feature = "postgresql"))]
-    let db = Database::new("sqlite::memory:", encryption_key).await?;
+    let db = create_test_db_with_key(encryption_key).await?;
     Ok(db)
 }
 

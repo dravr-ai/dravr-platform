@@ -59,6 +59,7 @@ mod pipeline_tool_loop {
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -305,11 +306,11 @@ mod pipeline_tool_loop {
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
     ) -> Option<Uuid> {
-        let pool = resources
-            .coach
-            .database
-            .sqlite_pool()
-            .expect("test fixture runs against SQLite");
+        // `turn_id` is a `uuid` column on PostgreSQL; the cast reads it as text
+        // on both backends.
+        const SQL: &str = "SELECT CAST(turn_id AS TEXT) FROM llm_usage \
+             WHERE tenant_id = $1 AND tools_called IS NOT NULL AND tools_called != '[]' \
+             ORDER BY created_at DESC LIMIT 1";
         let tenant_str = tenant_id.to_string();
 
         // 150 iterations × 200ms = 30s. Was 50 × 200ms = 10s; the user-
@@ -319,13 +320,19 @@ mod pipeline_tool_loop {
         // failed here despite the test using a mock LLM). 30s is
         // comfortable for any happy-path tool dispatch.
         for _ in 0..150 {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT turn_id FROM llm_usage WHERE tenant_id = ?1 AND tools_called IS NOT NULL AND tools_called != '[]' ORDER BY created_at DESC LIMIT 1",
-            )
-            .bind(&tenant_str)
-            .fetch_optional(pool)
-            .await
-            .unwrap();
+            let row: Option<(String,)> = match resources.coach.database.as_ref() {
+                Database::SQLite(db) => sqlx::query_as(SQL)
+                    .bind(&tenant_str)
+                    .fetch_optional(db.pool())
+                    .await
+                    .unwrap(),
+                #[cfg(feature = "postgresql")]
+                Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                    .bind(&tenant_str)
+                    .fetch_optional(db.pool())
+                    .await
+                    .unwrap(),
+            };
             if let Some((turn_id_str,)) = row {
                 return Uuid::parse_str(&turn_id_str).ok();
             }

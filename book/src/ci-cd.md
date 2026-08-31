@@ -87,12 +87,21 @@ STRAVA_REDIRECT_URI="http://localhost:8080/auth/strava/callback"
 6. All tests with SQLite coverage
 7. Codecov upload (flag: `backend-sqlite`)
 
-**Job 2: postgres-tests (PostgreSQL)**
-1. PostgreSQL 16 service container startup
-2. Connection verification
-3. Database plugin tests (`--features postgresql`)
-4. All tests with PostgreSQL coverage (30-minute timeout)
-5. Codecov upload (flag: `backend-postgresql`)
+**Job 2: postgres-tests (PostgreSQL, `ci-postgres.yml`)**
+1. PostgreSQL 16 service container startup, connection verification, and
+   throwaway-server tuning (`fsync`, `synchronous_commit`, `full_page_writes` off)
+2. Four shards, each building its quarter of the test binaries once
+   (`cargo test --features postgresql --no-run`) and then running them one file
+   at a time; shard 1 also runs `pierre-database`'s own suite
+3. Every test opens a private PostgreSQL database through
+   `pierre_database::database::test_utils` — a clone of a migrated template
+   named after the embedded migration set, reclaimed once the test is done.
+   `PIERRE_TEST_REQUIRE_POSTGRES=1` makes the factory refuse SQLite, so a
+   missing or wrong `DATABASE_URL` fails the test rather than silently
+   running the other backend. Files named `*_sqlite_test.rs` test the SQLite
+   backend itself and run on the daily SQLite shards instead.
+4. A final step proves the shard ran on PostgreSQL: the migrated template
+   database must exist on the service container, or the job fails
 
 **Job 3: frontend-tests**
 1. Node.js 20 setup

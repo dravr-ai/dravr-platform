@@ -12,10 +12,10 @@ mod common;
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_core::admin::models::{AdminPermission, AdminPermissions};
+use pierre_core::admin::TokenScope;
 use pierre_core::models::User;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database};
 use pierre_routes_admin::auth::jwt::AdminJwtManager;
 use std::{sync::Arc, time::Duration};
@@ -24,15 +24,9 @@ use tokio::time::sleep;
 /// Create a test database for RSA key persistence tests
 async fn create_rsa_test_database() -> Result<Database> {
     common::init_test_logging();
-    let database_url = "sqlite::memory:";
     let encryption_key = database::generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database =
-        Database::new(database_url, encryption_key, &PostgresPoolConfig::default()).await?;
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Database::new(database_url, encryption_key).await?;
+    let database = create_test_db_with_key(encryption_key).await?;
 
     Ok(database)
 }
@@ -139,7 +133,7 @@ async fn test_cli_generated_admin_token_valid_on_server() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        &pierre_core::admin::TokenScope {
+        &TokenScope {
             is_super_admin: false,
             expires_at: None,
             tenant_id: None,
@@ -345,7 +339,7 @@ async fn test_super_admin_token_persistence() -> Result<()> {
         "super_token",
         "super_service",
         &permissions,
-        &pierre_core::admin::TokenScope {
+        &TokenScope {
             is_super_admin: true,
             expires_at: None,
             tenant_id: None,

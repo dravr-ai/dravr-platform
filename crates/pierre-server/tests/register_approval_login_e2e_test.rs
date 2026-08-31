@@ -140,9 +140,28 @@ async fn register_pending_then_approve_then_login_then_onboarding() {
     let user_uuid = Uuid::parse_str(&user_id).expect("user_id must be a UUID");
 
     // 2. Admin approval (state transition; the HTTP approve endpoint itself is
-    //    covered by admin_user_approval_e2e_test). The approver UUID stands in
-    //    for the acting admin.
-    let approver = Uuid::new_v4();
+    //    covered by admin_user_approval_e2e_test). A registered account stands
+    //    in for the acting admin, because users.approved_by references users.id.
+    let approver_resp = AxumTestRequest::post("/api/auth/register")
+        .json(&json!({
+            "email": "acting-admin@example.com",
+            "password": password,
+            "display_name": "Acting Admin"
+        }))
+        .send(auth_routes.clone())
+        .await;
+    assert_eq!(
+        approver_resp.status(),
+        201,
+        "approver registration must succeed"
+    );
+    let approver_body: Value = approver_resp.json();
+    let approver = Uuid::parse_str(
+        approver_body["user_id"]
+            .as_str()
+            .expect("register response must carry user_id"),
+    )
+    .expect("approver user_id must be a UUID");
     resources
         .common
         .repos

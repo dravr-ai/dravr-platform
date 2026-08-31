@@ -15,30 +15,19 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
-#[cfg(feature = "postgresql")]
-use pierre_config::environment::PostgresPoolConfig;
 use pierre_config::environment::RateLimitConfig;
 use pierre_core::models::User;
-use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_middleware::McpAuthMiddleware;
 use std::sync::Arc;
 
 #[tokio::test]
 async fn test_jwt_tokens_now_have_rate_limiting() {
     // Create test database
-    let database_url = "sqlite::memory:";
     let encryption_key = generate_encryption_key().to_vec();
 
-    #[cfg(feature = "postgresql")]
-    let database = Arc::new(
-        Database::new(database_url, encryption_key, &PostgresPoolConfig::default())
-            .await
-            .unwrap(),
-    );
-
-    #[cfg(not(feature = "postgresql"))]
-    let database = Arc::new(Database::new(database_url, encryption_key).await.unwrap());
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
 
     // Create auth manager and middleware
     let auth_manager = AuthManager::new(24);

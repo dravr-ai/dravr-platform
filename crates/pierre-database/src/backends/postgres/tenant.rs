@@ -528,7 +528,7 @@ impl TenantRepository for PostgresDatabase {
 
     async fn get_all(&self) -> AppResult<Vec<Tenant>> {
         let query = r"
-            SELECT t.id, t.slug, t.name, t.domain, t.subscription_tier,
+            SELECT t.id::text AS id, t.slug, t.name, t.domain, t.subscription_tier,
                    tu.user_id::text AS owner_user_id, t.created_at, t.updated_at
             FROM tenants t
             JOIN tenant_users tu ON tu.tenant_id = t.id AND tu.role = 'owner'
@@ -895,7 +895,7 @@ impl LlmCredentialRepository for PostgresDatabase {
             INSERT INTO user_llm_credentials (
                 id, tenant_id, user_id, provider, api_key_encrypted,
                 base_url, default_model, is_active, created_at, updated_at, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11)
             ON CONFLICT(tenant_id, user_id, provider) DO UPDATE SET
                 api_key_encrypted = EXCLUDED.api_key_encrypted,
                 base_url = EXCLUDED.base_url,

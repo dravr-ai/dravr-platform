@@ -10,14 +10,13 @@
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{DecryptedToken, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::{OAuthTokenRepository, UserRepository};
-use pierre_database::database::Database;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::constants::oauth_providers;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn test_strava_token_storage() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
 
@@ -49,7 +48,9 @@ async fn test_strava_token_storage() {
         theme: None,
     };
 
-    UserRepository::create(&db, &user)
+    db.repositories()
+        .users
+        .create(&user)
         .await
         .expect("Failed to create user");
 
@@ -74,12 +75,16 @@ async fn test_strava_token_storage() {
         Some(token.expires_at),
         Some(token.scope.clone()),
     );
-    db.upsert_token(&oauth_token)
+    db.repositories()
+        .oauth_tokens
+        .upsert_token(&oauth_token)
         .await
         .expect("Failed to update Strava token");
 
     // Retrieve token
     let retrieved_oauth = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user.id,
             TenantId::from_uuid(Uuid::nil()),
@@ -102,16 +107,20 @@ async fn test_strava_token_storage() {
     assert_eq!(retrieved.scope, token.scope);
 
     // Clear token
-    db.delete_token(
-        user.id,
-        TenantId::from_uuid(Uuid::nil()),
-        oauth_providers::STRAVA,
-    )
-    .await
-    .expect("Failed to clear Strava token");
+    db.repositories()
+        .oauth_tokens
+        .delete_token(
+            user.id,
+            TenantId::from_uuid(Uuid::nil()),
+            oauth_providers::STRAVA,
+        )
+        .await
+        .expect("Failed to clear Strava token");
 
     // Verify cleared
     let cleared = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user.id,
             TenantId::from_uuid(Uuid::nil()),
@@ -124,7 +133,7 @@ async fn test_strava_token_storage() {
 
 #[tokio::test]
 async fn test_fitbit_token_storage() {
-    let db = Database::new("sqlite::memory:", vec![0u8; 32])
+    let db = create_test_db()
         .await
         .expect("Failed to create test database");
 
@@ -157,7 +166,9 @@ async fn test_fitbit_token_storage() {
         theme: None,
     };
 
-    UserRepository::create(&db, &user)
+    db.repositories()
+        .users
+        .create(&user)
         .await
         .expect("Failed to create user");
 
@@ -182,12 +193,16 @@ async fn test_fitbit_token_storage() {
         Some(token.expires_at),
         Some(token.scope.clone()),
     );
-    db.upsert_token(&oauth_token)
+    db.repositories()
+        .oauth_tokens
+        .upsert_token(&oauth_token)
         .await
         .expect("Failed to update Fitbit token");
 
     // Retrieve token
     let retrieved_oauth = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),

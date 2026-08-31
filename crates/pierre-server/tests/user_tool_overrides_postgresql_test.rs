@@ -16,10 +16,9 @@ use chrono::Utc;
 use pierre_core::models::{CoachingPersona, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
+use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::UserToolOverride;
 use uuid::Uuid;
-
-mod common;
 
 async fn seed_pg_user(db: &Database) -> Uuid {
     let user_id = Uuid::new_v4();
@@ -55,14 +54,7 @@ async fn seed_pg_user(db: &Database) -> Uuid {
 
 #[tokio::test]
 async fn test_pg_user_tool_override_crud_uuid_binds() {
-    let isolated = match common::IsolatedPostgresDb::new().await {
-        Ok(db) => db,
-        Err(e) => {
-            eprintln!("Skipping test: PostgreSQL not available: {e}");
-            return;
-        }
-    };
-    let db = isolated.get_database().await.unwrap();
+    let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
     let user_id = seed_pg_user(&db).await;

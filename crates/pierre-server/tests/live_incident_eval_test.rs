@@ -91,6 +91,7 @@ mod live_incident_eval {
         WITHHELD_REPLY_FINISH_REASON,
     };
     use pierre_core::permissions::UserRole;
+    use pierre_database::backends::factory::Database;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -1206,17 +1207,56 @@ mod live_incident_eval {
     /// — persists a row like any completed turn.
     /// [`PLATFORM_AUTHORED_FINISH_REASONS`] separates those.
     async fn assistant_row_count(resources: &Arc<ServerContext>, tenant: TenantId) -> i64 {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: (i64,) = sqlx::query_as(
+        count_for_tenant(
+            &resources.coach.database,
             "SELECT COUNT(*) FROM chat_messages m \
              JOIN chat_conversations c ON m.conversation_id = c.id \
-             WHERE c.tenant_id = ?1 AND m.role = 'assistant'",
+             WHERE c.tenant_id = $1 AND m.role = 'assistant'",
+            tenant,
         )
-        .bind(tenant.to_string())
-        .fetch_one(pool)
         .await
-        .unwrap();
-        row.0
+    }
+
+    /// `sql` is a `COUNT(*)` with the tenant id bound as `$1`, run on
+    /// whichever backend the test database is.
+    async fn count_for_tenant(db: &Database, sql: &str, tenant: TenantId) -> i64 {
+        let tenant = tenant.to_string();
+        match db {
+            Database::SQLite(sqlite) => sqlx::query_scalar(sql)
+                .bind(&tenant)
+                .fetch_one(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_scalar(sql)
+                .bind(&tenant)
+                .fetch_one(pg.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
+    /// The newest row `sql` selects for the tenant bound as `$1`, on whichever
+    /// backend the test database is; `sql` selects two nullable text columns.
+    async fn latest_for_tenant(
+        db: &Database,
+        sql: &str,
+        tenant: TenantId,
+    ) -> Option<(Option<String>, Option<String>)> {
+        let tenant = tenant.to_string();
+        match db {
+            Database::SQLite(sqlite) => sqlx::query_as(sql)
+                .bind(&tenant)
+                .fetch_optional(sqlite.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => sqlx::query_as(sql)
+                .bind(&tenant)
+                .fetch_optional(pg.pool())
+                .await
+                .unwrap(),
+        }
     }
 
     /// Post one inbound Slack message and wait for the delivered reply.
@@ -1308,31 +1348,26 @@ mod live_incident_eval {
     }
 
     async fn outbound_count(resources: &Arc<ServerContext>, tenant: TenantId) -> i64 {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: (i64,) = sqlx::query_as(
+        count_for_tenant(
+            &resources.coach.database,
             "SELECT COUNT(*) FROM messaging_messages \
-             WHERE tenant_id = ?1 AND direction = 'outbound'",
+             WHERE tenant_id = $1 AND direction = 'outbound'",
+            tenant,
         )
-        .bind(tenant.to_string())
-        .fetch_one(pool)
         .await
-        .unwrap();
-        row.0
     }
 
     /// The reply as it went **out**, not as it was stored.
     async fn latest_outbound(resources: &Arc<ServerContext>, tenant: TenantId) -> Option<String> {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT content_body FROM messaging_messages \
-             WHERE tenant_id = ?1 AND direction = 'outbound' \
+        latest_for_tenant(
+            &resources.coach.database,
+            "SELECT content_body, NULL FROM messaging_messages \
+             WHERE tenant_id = $1 AND direction = 'outbound' \
              ORDER BY created_at DESC LIMIT 1",
+            tenant,
         )
-        .bind(tenant.to_string())
-        .fetch_optional(pool)
         .await
-        .unwrap();
-        row.map(|(body,)| body)
+        .and_then(|(body, _)| body)
     }
 
     /// The latest assistant row's `content_blocks` and `finish_reason`, read
@@ -1343,18 +1378,16 @@ mod live_incident_eval {
         resources: &Arc<ServerContext>,
         tenant: TenantId,
     ) -> (Option<String>, Option<String>) {
-        let pool = resources.coach.database.sqlite_pool().unwrap();
-        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        latest_for_tenant(
+            &resources.coach.database,
             "SELECT m.content_blocks, m.finish_reason FROM chat_messages m \
              JOIN chat_conversations c ON m.conversation_id = c.id \
-             WHERE c.tenant_id = ?1 AND m.role = 'assistant' \
+             WHERE c.tenant_id = $1 AND m.role = 'assistant' \
              ORDER BY m.created_at DESC LIMIT 1",
+            tenant,
         )
-        .bind(tenant.to_string())
-        .fetch_optional(pool)
         .await
-        .unwrap();
-        row.unwrap_or((None, None))
+        .unwrap_or((None, None))
     }
 
     // -----------------------------------------------------------------------

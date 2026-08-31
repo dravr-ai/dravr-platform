@@ -45,7 +45,7 @@ async fn create_test_coach(router: &axum::Router, auth: &str) -> String {
 }
 
 async fn setup_single_user() -> (axum::Router, String, String, String) {
-    setup_single_user_with("groupuser@test.com", "professional").await
+    Box::pin(setup_single_user_with("groupuser@test.com", "professional")).await
 }
 
 /// Like [`setup_single_user`] but on an explicit billing `plan` so tier
@@ -69,7 +69,7 @@ async fn setup_single_user_with(email: &str, plan: &str) -> (axum::Router, Strin
 }
 
 async fn setup_two_users() -> (axum::Router, String, String, String, String, String) {
-    let (router, a1, a2, u1, u2, cid, _a2_own) = setup_two_users_with_res().await;
+    let (router, a1, a2, u1, u2, cid, _a2_own) = Box::pin(setup_two_users_with_res()).await;
     (router, a1, a2, u1, u2, cid)
 }
 
@@ -181,7 +181,7 @@ async fn create_group_with_invite(
 
 #[tokio::test]
 async fn test_create_group() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -222,7 +222,7 @@ async fn test_starter_plan_clamps_max_members_to_tier_cap() {
     // the bot to a Telegram group works on the plan every tenant is created
     // on. The tier still bites: a larger request is clamped down.
     let (router, auth, _user_id, coach_id) =
-        setup_single_user_with("starteruser@test.com", "starter").await;
+        Box::pin(setup_single_user_with("starteruser@test.com", "starter")).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -249,7 +249,7 @@ async fn test_starter_plan_clamps_max_members_to_tier_cap() {
 #[tokio::test]
 async fn test_professional_clamps_max_members_to_tier_cap() {
     // Professional tier caps members per group at 10.
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -271,7 +271,7 @@ async fn test_professional_clamps_max_members_to_tier_cap() {
 
 #[tokio::test]
 async fn test_create_group_missing_name_fails() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -290,7 +290,7 @@ async fn test_create_group_missing_name_fails() {
 
 #[tokio::test]
 async fn test_list_my_groups() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     // Create two groups
     for name in &["Group A", "Group B"] {
@@ -317,7 +317,7 @@ async fn test_list_my_groups() {
 
 #[tokio::test]
 async fn test_get_group() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -343,7 +343,7 @@ async fn test_get_group() {
 
 #[tokio::test]
 async fn test_update_group() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -372,7 +372,7 @@ async fn test_update_group() {
 
 #[tokio::test]
 async fn test_delete_group() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -408,7 +408,7 @@ async fn test_delete_group() {
 
 #[tokio::test]
 async fn test_owner_auto_added_as_member() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -435,7 +435,7 @@ async fn test_owner_auto_added_as_member() {
 
 #[tokio::test]
 async fn test_join_via_invite_code() {
-    let (router, auth1, auth2, _user1_id, _user2_id, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _user1_id, _user2_id, coach_id) = Box::pin(setup_two_users()).await;
 
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
@@ -460,7 +460,7 @@ async fn test_join_via_invite_code() {
 
 #[tokio::test]
 async fn test_cannot_join_twice() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
     let (_group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     // First join succeeds
@@ -488,7 +488,7 @@ async fn test_cannot_join_twice() {
 
 #[tokio::test]
 async fn test_leave_group() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     // Join
@@ -517,7 +517,7 @@ async fn test_leave_group() {
 
 #[tokio::test]
 async fn test_remove_member_by_admin() {
-    let (router, auth1, auth2, _u1, user2_id, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, user2_id, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     // User2 joins
@@ -542,7 +542,7 @@ async fn test_remove_member_by_admin() {
 
 #[tokio::test]
 async fn test_member_cannot_update_group() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     // User2 joins as member
@@ -564,7 +564,7 @@ async fn test_member_cannot_update_group() {
 
 #[tokio::test]
 async fn test_member_cannot_remove_others() {
-    let (router, auth1, auth2, user1_id, _u2, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, user1_id, _u2, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     // User2 joins
@@ -589,7 +589,7 @@ async fn test_group_admin_cannot_demote_owner() {
     // able to change the OWNER's role. handle_remove_member already refuses to remove
     // the owner; handle_update_role skipped the same guard, so an admin could demote
     // the owner to member and seize effective control. This pins the guard.
-    let (router, auth1, auth2, user1_id, user2_id, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, user1_id, user2_id, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     // User2 joins as a member...
@@ -624,7 +624,7 @@ async fn test_group_admin_cannot_demote_owner() {
 async fn test_owner_can_demote_admin_to_member() {
     // The owner-protection guard must NOT block legitimate role management: the owner
     // can still demote a (non-owner) admin back to member.
-    let (router, auth1, auth2, _u1, user2_id, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, user2_id, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     AxumTestRequest::post("/api/groups/join")
@@ -653,7 +653,7 @@ async fn test_owner_can_demote_admin_to_member() {
 
 #[tokio::test]
 async fn test_unauthenticated_request_fails() {
-    let (router, _auth, _user_id, _coach_id) = setup_single_user().await;
+    let (router, _auth, _user_id, _coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::get("/api/groups").send(router).await;
 
@@ -662,7 +662,7 @@ async fn test_unauthenticated_request_fails() {
 
 #[tokio::test]
 async fn test_owner_cannot_leave_group() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -690,7 +690,7 @@ async fn test_owner_cannot_leave_group() {
 
 #[tokio::test]
 async fn test_create_invite() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -720,7 +720,7 @@ async fn test_create_invite() {
 
 #[tokio::test]
 async fn test_list_invites() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -755,7 +755,7 @@ async fn test_list_invites() {
 
 #[tokio::test]
 async fn test_deactivate_invite() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
     let (group_id, _invite_code) = create_group_with_invite(&router, &auth, &coach_id).await;
 
     // Get invite ID
@@ -784,7 +784,8 @@ async fn test_admin_cannot_deactivate_other_groups_invite() {
     // belongs to group B, deactivating another group's invite. The repo now scopes
     // the update by group_id; a cross-group target must 404 (not found), and the
     // legitimate owner of the invite's group must still be able to deactivate it.
-    let (router, auth1, _auth2, _u1, _u2, coach_id, auth2_own) = setup_two_users_with_res().await;
+    let (router, auth1, _auth2, _u1, _u2, coach_id, auth2_own) =
+        Box::pin(setup_two_users_with_res()).await;
 
     // Group A owned/administered by user1 (in the shared tenant).
     let (group_a, _code_a) = create_group_with_invite(&router, &auth1, &coach_id).await;
@@ -826,7 +827,7 @@ async fn test_admin_cannot_deactivate_other_groups_invite() {
 
 #[tokio::test]
 async fn test_join_with_invalid_code_fails() {
-    let (router, auth, ..) = setup_single_user().await;
+    let (router, auth, ..) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups/join")
         .header("authorization", &auth)
@@ -843,7 +844,7 @@ async fn test_join_with_invalid_code_fails() {
 
 #[tokio::test]
 async fn test_update_peer_sharing_consent() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     // User2 joins
@@ -865,7 +866,7 @@ async fn test_update_peer_sharing_consent() {
 
 #[tokio::test]
 async fn test_toggle_group_peer_sharing() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -892,7 +893,7 @@ async fn test_toggle_group_peer_sharing() {
 
 #[tokio::test]
 async fn test_update_group_respond_mode_round_trips() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -942,7 +943,7 @@ async fn test_update_group_respond_mode_round_trips() {
 
 #[tokio::test]
 async fn test_get_group_stats() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -967,7 +968,7 @@ async fn test_get_group_stats() {
 
 #[tokio::test]
 async fn test_get_group_health_flags() {
-    let (router, auth, _user_id, coach_id) = setup_single_user().await;
+    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
@@ -996,7 +997,7 @@ async fn test_get_group_health_flags() {
 
 #[tokio::test]
 async fn test_full_group_lifecycle() {
-    let (router, auth1, auth2, _u1, user2_id, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, user2_id, coach_id) = Box::pin(setup_two_users()).await;
 
     // 1. Owner creates group
     let resp = AxumTestRequest::post("/api/groups")
@@ -1175,7 +1176,7 @@ async fn cross_tenant_group_entity_isolation() {
 /// dialog promising the group is gone and its members with it.
 #[tokio::test]
 async fn test_deleted_group_invite_cannot_be_redeemed() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     let resp = AxumTestRequest::delete(&format!("/api/groups/{group_id}"))
@@ -1218,7 +1219,7 @@ async fn test_deleted_group_invite_cannot_be_redeemed() {
 /// archive and the group stayed readable to everyone already in it.
 #[tokio::test]
 async fn test_delete_group_releases_its_members() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = setup_two_users().await;
+    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
 
     let resp = AxumTestRequest::post("/api/groups/join")
