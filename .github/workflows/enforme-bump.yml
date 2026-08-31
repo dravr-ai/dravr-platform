@@ -514,10 +514,15 @@ jobs:
   tag-deployed-sciotte:
     name: Tag Deployed Digest (sciotte, dev)
     runs-on: ubuntu-latest
-    # Only after a deploy that actually passed its probe. `needs` is success-gated
-    # by default, so a rolled-back deploy anchors nothing — the tag must never
-    # point at an image the probe rejected.
     needs: [image, deploy]
+    # Explicit, not defaulted. With no `if:` a job evaluates `success()`, which is
+    # false when any *transitive* ancestor was skipped — and bump/gate/merge skip
+    # on every run that needs no version bump, which is most of them. That silently
+    # skipped this job while the run still reported success (2026-08-31), so a green
+    # lane proved nothing. The deploy job above carries the same guard for the same
+    # reason. The safety property is unchanged and now stated rather than inherited:
+    # tag only a deploy that succeeded, so a rolled-back image is never anchored.
+    if: ${{ !cancelled() && needs.image.result == 'success' && needs.deploy.result == 'success' }}
 
     steps:
       # image-publisher (artifactregistry.writer), not the dev deployer: the tag
