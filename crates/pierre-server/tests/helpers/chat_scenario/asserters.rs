@@ -113,11 +113,14 @@ fn assert_no_substring(
     }
 }
 
-/// Below this many characters whatlang's verdict is noise.
+/// The floor below which a reply is refused without consulting whatlang.
 ///
 /// Mirrors `chat_pipeline::turn_service::detect_turn_locale`'s own floor, so
 /// the test and the code under test agree on when a language claim is
-/// meaningful at all.
+/// meaningful at all. It is a fast reject with a better error message, NOT
+/// the real gate: whatlang stays unreliable well above 12 characters, and
+/// `Info::is_reliable` is what actually refuses that band. See the envelope
+/// documented on [`assert_reply_language`].
 const MIN_JUDGEABLE_CHARS: usize = 12;
 
 /// Assert the reply is WRITTEN IN the expected language.
@@ -127,6 +130,18 @@ const MIN_JUDGEABLE_CHARS: usize = 12;
 /// not read is worse than no assertion: it reports coverage the suite does not
 /// have, which is exactly how the five `*_fr.yaml` scenarios came to look like
 /// they were guarding the language when they were only matching substrings.
+///
+/// **Operating envelope**, measured across the five shipped locales at real
+/// reply lengths: at roughly 130 characters and up whatlang returns the right
+/// language at confidence 1.00 and `is_reliable()`, in every locale. Below
+/// about 60 it is noise — plain English scores as Danish, French as Catalan —
+/// and `is_reliable()` correctly refuses all of it. There is no configuration
+/// that rescues the short band: restricting the detector to the five platform
+/// languages moves the wrong answers around (English reads as French instead
+/// of Danish) without making one verdict trustworthy, so this deliberately
+/// runs the plain detector and lets the reliability flag do the gating.
+/// A turn that cannot produce ~130 characters of prose belongs in
+/// `skip_language_check`, not in a weakened assertion.
 fn assert_reply_language(
     ctx: &TurnContext<'_>,
     expected: Option<&str>,
@@ -145,8 +160,9 @@ fn assert_reply_language(
     if reply.chars().count() < MIN_JUDGEABLE_CHARS {
         return fail(format!(
             "reply is {} chars, below the {MIN_JUDGEABLE_CHARS}-char floor where a language \
-             verdict means anything — assert the language on a turn that produces prose, or \
-             drop this assertion for this turn",
+             verdict means anything. Every turn is language-checked against its run locale; \
+             if this turn genuinely cannot produce prose, set `skip_language_check: true` on \
+             it — do NOT set it on a turn that answered in the wrong language",
             reply.chars().count()
         ));
     }
@@ -173,7 +189,9 @@ fn assert_reply_language(
         return fail(format!(
             "reply is written in {detected}, expected {expected} (confidence {:.2}). \
              This is the carnet#159 shape: the turn resolved one language and the coach \
-             answered in another. First 160 chars: {:?}",
+             answered in another. Every turn is checked against its scenario's `locales:` \
+             whether or not it declares an assertion, so this fires on turns whose YAML \
+             looks empty. First 160 chars: {:?}",
             info.confidence(),
             reply.chars().take(160).collect::<String>()
         ));
@@ -184,9 +202,11 @@ fn assert_reply_language(
     if !info.is_reliable() {
         return fail(format!(
             "reply reads as {detected} (the expected language) but whatlang rates the verdict \
-             unreliable at confidence {:.2}, so this turn proves nothing about the language — \
-             lengthen the turn or assert something else",
-            info.confidence()
+             unreliable at confidence {:.2}, so this turn proves nothing about the language. \
+             Replies get reliable below roughly 130 chars; this one is {}. If the turn cannot \
+             produce prose, set `skip_language_check: true` on it",
+            info.confidence(),
+            reply.chars().count()
         ));
     }
 
@@ -483,6 +503,102 @@ mod tests {
             "a too-short reply must fail loudly, got: {}",
             err.reason
         );
+    }
+
+    /// A full-length coaching reply is judged correctly in all five locales.
+    ///
+    /// Every turn in the suite is graded through this asserter since
+    /// carnet#162, so its envelope is load-bearing: if whatlang could not read
+    /// ordinary Spanish or Portuguese coaching prose, making the check
+    /// automatic would have turned the nightly into a language-detector bug
+    /// report. Each string here is the length and register of a real reply.
+    #[test]
+    fn a_full_length_reply_is_judged_in_every_shipped_locale() {
+        let vocab = VocabularyContractRegistry::empty();
+        let corpus = [
+            (
+                "en",
+                "Your training load is trending up and recovery has not kept pace, so \
+                    tomorrow should be easy rather than another interval session. Keep the \
+                    effort conversational and we reassess on Thursday.",
+            ),
+            (
+                "fr",
+                "Ta charge est en hausse et ta récupération n'a pas suivi, donc demain \
+                    devrait rester facile plutôt qu'une nouvelle séance d'intervalles. Garde \
+                    un rythme conversationnel et on réévalue jeudi.",
+            ),
+            (
+                "es",
+                "Tu carga de entrenamiento está subiendo y la recuperación no ha seguido el \
+                    ritmo, así que mañana debería ser suave en lugar de otra sesión de series. \
+                    Mantén un ritmo conversacional.",
+            ),
+            (
+                "de",
+                "Deine Trainingsbelastung steigt und die Erholung ist nicht mitgekommen, \
+                    deshalb sollte morgen locker bleiben statt einer weiteren \
+                    Intervalleinheit. Halte ein Unterhaltungstempo.",
+            ),
+            (
+                "pt",
+                "A tua carga de treino está a subir e a recuperação não acompanhou, por \
+                    isso amanhã deve ser leve em vez de outra sessão de intervalos. Mantém um \
+                    ritmo conversacional.",
+            ),
+        ];
+        let mut misjudged: Vec<String> = Vec::new();
+        for (locale, reply) in corpus {
+            let ctx = TurnContext {
+                reply,
+                tools_called: Vec::new(),
+                locale,
+            };
+            let spec = AssertionSpec::ReplyLanguage { locale: None };
+            if let Err(e) = evaluate(&spec, &ctx, &vocab) {
+                misjudged.push(format!("[{locale}] → {}", e.reason));
+            }
+        }
+        assert!(
+            misjudged.is_empty(),
+            "the detector must read a normal reply in each shipped locale:\n{}",
+            misjudged.join("\n")
+        );
+    }
+
+    /// The short band is refused, not guessed at — in every locale.
+    ///
+    /// One sentence is below where whatlang means anything: plain English
+    /// scores as Danish, French as Catalan. The assertion must report that as
+    /// a failure the author resolves with `skip_language_check`, never as a
+    /// pass. A single reply that slipped through here would be coverage the
+    /// suite does not have, on the exact turns most likely to be terse.
+    #[test]
+    fn a_one_sentence_reply_is_refused_rather_than_guessed() {
+        let vocab = VocabularyContractRegistry::empty();
+        let short = [
+            ("en", "Hello — your training week looks steady so far."),
+            ("fr", "Voici ta semaine : 50 km au total, rien d'alarmant."),
+            ("es", "Esta semana llevas 50 km en total, nada preocupante."),
+            ("pt", "Esta semana tens 50 km no total, nada preocupante."),
+        ];
+        for (locale, reply) in short {
+            let ctx = TurnContext {
+                reply,
+                tools_called: Vec::new(),
+                locale,
+            };
+            let spec = AssertionSpec::ReplyLanguage { locale: None };
+            let Err(err) = evaluate(&spec, &ctx, &vocab) else {
+                panic!("[{locale}] a one-sentence reply must not produce a verdict: {reply:?}")
+            };
+            assert!(
+                err.reason.contains("skip_language_check")
+                    || err.reason.contains("not a language the platform speaks"),
+                "[{locale}] the refusal must tell the author what to do: {}",
+                err.reason
+            );
+        }
     }
 
     /// An explicit `locale:` overrides the turn's own.

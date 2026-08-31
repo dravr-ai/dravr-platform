@@ -9,15 +9,12 @@ locales: ["fr"]
 notes: "Bug 5 regression — intent routing under planning context"
 turns:
   - user: "Suis fatigué"
-    # Was `assertions: []` — a setup turn that still produces a real reply.
-    # It asserted nothing, so it could return English and stay green.
-    assertions:
-      - kind: reply_language
+    # A setup turn that still produces a real coaching reply. It declares
+    # nothing of its own; the runner's automatic language check against
+    # `locales:` is what stops it answering in English and staying green.
+    assertions: []
   - user: "Côté course, combien de km?"
     assertions:
-      # The turn runs in French; the reply must BE French, not merely
-      # contain French words. Substring asserts alone passed carnet#159.
-      - kind: reply_language
       # Recommendation register, plain-language: a correct reply offers a
       # today-distance OR pivots to rest/lighter-effort/planning guidance.
       # Kept broad (synonyms — "repos", "plus léger", "objectif adapté")

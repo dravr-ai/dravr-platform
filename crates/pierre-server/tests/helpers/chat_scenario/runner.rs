@@ -306,7 +306,7 @@ fn run_one_locale<D: ScenarioDriver>(
             locale,
         };
         let (failures, not_evaluated) =
-            split_unreachable(evaluate_all(&turn.assertions, &ctx, vocab));
+            split_unreachable(evaluate_all(&effective_assertions(turn), &ctx, vocab));
         if !failures.is_empty() {
             turn_failures.push(TurnFailure {
                 turn_index,
@@ -335,6 +335,33 @@ fn run_one_locale<D: ScenarioDriver>(
         drift_findings,
         infra_errors,
     }
+}
+
+/// The assertions this turn is actually graded on: what it declares, plus
+/// the language check every turn gets for free.
+///
+/// `locales: ["fr"]` says the conversation happens in French, so a reply in
+/// English is a finding in every French scenario rather than only in the ones
+/// whose author knew to ask. Opt-in put the burden on the person least likely
+/// to carry it — the next scenario author, who has no reason to know the
+/// assertion exists. `intent_cote_course_combien_fr` turn 1 shipped with
+/// `assertions: []` and could have answered the carnet#159 way and stayed
+/// green.
+///
+/// Two turns get no implied assertion. One that sets
+/// [`TurnSpec::skip_language_check`] has declared its reply unjudgeable. One
+/// that already names a `reply_language` is asserting a language of its own —
+/// a code-switch turn expecting a reply in something other than the run
+/// locale — and an implied assertion for the run locale would contradict it.
+fn effective_assertions(turn: &TurnSpec) -> Vec<AssertionSpec> {
+    let mut specs = turn.assertions.clone();
+    let already_declared = specs
+        .iter()
+        .any(|a| matches!(a, AssertionSpec::ReplyLanguage { .. }));
+    if !turn.skip_language_check && !already_declared {
+        specs.push(AssertionSpec::ReplyLanguage { locale: None });
+    }
+    specs
 }
 
 /// Split a turn's failures into independent findings and unreachable ones.
@@ -711,6 +738,10 @@ mod tests {
                 user: "Hi".to_owned(),
                 trigger_sync_before_turn: false,
                 assertions: vec![reply_assertion],
+                // Left on, so the framework's own smoke tests run under the
+                // implied language check every real scenario gets. Their
+                // canned replies are English prose for that reason.
+                skip_language_check: false,
             }],
         }
     }
@@ -726,7 +757,15 @@ mod tests {
         });
         scenario.current_date = Some("2026-05-22 12:00".to_owned());
 
-        let mut driver = MockScenarioDriver::new(vec!["hello world".to_owned()], vec![vec![]]);
+        let mut driver = MockScenarioDriver::new(
+            vec![
+                "Hello — your training week looks steady so far, with the load climbing \
+                  gently and recovery keeping pace. Nothing here needs changing before \
+                  Thursday."
+                    .to_owned(),
+            ],
+            vec![vec![]],
+        );
         let vocab = VocabularyContractRegistry::with_defaults();
         run_scenario(&scenario, &mut driver, &vocab);
 
@@ -782,6 +821,168 @@ mod tests {
         );
     }
 
+    /// A French scenario whose single turn declares nothing at all.
+    ///
+    /// The `intent_cote_course_combien_fr` turn-1 shape, and the reason
+    /// carnet#162 made the language check automatic.
+    fn silent_french_turn() -> ChatScenario {
+        ChatScenario {
+            name: "Silent turn".to_owned(),
+            locales: vec!["fr".to_owned()],
+            notes: String::new(),
+            provider_state: ProviderState::default(),
+            skip_drift: true,
+            nightly_gate: true,
+            current_date: None,
+            turns: vec![TurnSpec {
+                user: "Suis fatigué".to_owned(),
+                trigger_sync_before_turn: false,
+                assertions: vec![],
+                skip_language_check: false,
+            }],
+        }
+    }
+
+    /// A turn that asserts NOTHING is still graded on its language.
+    ///
+    /// This is the whole of carnet#162. Under the opt-in design this
+    /// scenario passed: it declared no assertions, so there was nothing to
+    /// fail, and an English answer to a French athlete was green. The reply
+    /// below is the real carnet#159 text.
+    #[test]
+    fn a_turn_with_no_assertions_is_still_language_checked() {
+        let scenario = silent_french_turn();
+        let mut driver = MockScenarioDriver::new(
+            vec![
+                "This combination — rising non-activity strain on WHOOP, poor sleep and new \
+                  urinary difficulty — is not something a cycling load adjustment can address."
+                    .to_owned(),
+            ],
+            vec![vec![]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+
+        assert!(
+            !reports[0].passed(),
+            "an English reply on a French turn must fail even with assertions: []"
+        );
+        let tf = &reports[0].turn_failures[0];
+        assert_eq!(tf.failures.len(), 1);
+        assert!(matches!(
+            tf.failures[0].spec,
+            AssertionSpec::ReplyLanguage { locale: None }
+        ));
+        assert!(
+            tf.failures[0].reason.contains("written in en, expected fr"),
+            "{}",
+            tf.failures[0].reason
+        );
+    }
+
+    /// The same turn, answered in French, passes with nothing declared.
+    #[test]
+    fn a_silent_turn_answered_in_its_own_language_passes() {
+        let scenario = silent_french_turn();
+        let mut driver = MockScenarioDriver::new(
+            vec![
+                "Compris — on lève le pied aujourd'hui. Repos complet, pas de fractionné, \
+                 et on réévalue demain matin avant de replanifier le reste de la semaine. \
+                 Rien d'inquiétant dans tes chiffres pour l'instant."
+                    .to_owned(),
+            ],
+            vec![vec![]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+        assert!(reports[0].passed(), "{}", reports[0].failure_summary());
+    }
+
+    /// `skip_language_check` exempts a turn that cannot produce prose.
+    #[test]
+    fn skip_language_check_exempts_a_turn() {
+        let mut scenario = silent_french_turn();
+        scenario.turns[0].skip_language_check = true;
+        let mut driver = MockScenarioDriver::new(vec!["Ok!".to_owned()], vec![vec![]]);
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+        assert!(
+            reports[0].passed(),
+            "an opted-out turn must not be language-graded: {}",
+            reports[0].failure_summary()
+        );
+    }
+
+    /// A turn that names its own language is not also given the implied one.
+    ///
+    /// Otherwise a code-switch turn — French run, reply expected in English —
+    /// would carry two contradictory assertions and could never pass.
+    #[test]
+    fn an_explicit_reply_language_replaces_the_implied_one() {
+        let mut scenario = silent_french_turn();
+        scenario.turns[0].assertions = vec![AssertionSpec::ReplyLanguage {
+            locale: Some("en".to_owned()),
+        }];
+        let mut driver = MockScenarioDriver::new(
+            vec![
+                "Your load is trending up and recovery has not kept pace, so tomorrow should \
+                 be easy rather than another interval session. Keep it conversational and \
+                 we will look at the week again on Thursday."
+                    .to_owned(),
+            ],
+            vec![vec![]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+        assert!(
+            reports[0].passed(),
+            "an explicit locale must win outright: {}",
+            reports[0].failure_summary()
+        );
+    }
+
+    /// The implied assertion survives a missing tool call as its own finding.
+    ///
+    /// A language verdict does not read the tool payload — the coach wrote
+    /// prose in some language whether or not the data arrived — so it must
+    /// not be swept into `not_evaluated` with the content assertions.
+    #[test]
+    fn the_implied_language_check_is_not_swept_into_not_evaluated() {
+        let mut scenario = silent_french_turn();
+        scenario.turns[0].assertions = vec![AssertionSpec::ToolCalled {
+            name: "get_activities".to_owned(),
+            min_calls: 1,
+        }];
+        let mut driver = MockScenarioDriver::new(
+            vec![
+                "I don't have your recent rides on hand, so I cannot compare the two weeks \
+                 yet and I would rather say that than guess at the numbers. Reconnect \
+                 the provider and ask me again."
+                    .to_owned(),
+            ],
+            vec![vec![]],
+        );
+        let vocab = VocabularyContractRegistry::empty();
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+
+        let tf = &reports[0].turn_failures[0];
+        assert_eq!(
+            tf.failures.len(),
+            2,
+            "the missing tool call and the English reply are independent findings: {:?}",
+            tf.failures
+        );
+        assert!(tf
+            .failures
+            .iter()
+            .any(|f| matches!(f.spec, AssertionSpec::ReplyLanguage { .. })));
+        assert!(
+            tf.not_evaluated.is_empty(),
+            "a language verdict reads no tool payload: {:?}",
+            tf.not_evaluated
+        );
+    }
+
     /// One turn carrying several assertions, for the reporting split.
     fn one_turn_scenario_with(assertions: Vec<AssertionSpec>) -> ChatScenario {
         ChatScenario {
@@ -796,6 +997,12 @@ mod tests {
                 user: "J'ai fait quoi cette semaine incluant ce matin".to_owned(),
                 trigger_sync_before_turn: false,
                 assertions,
+                // These tests assert exact failure COUNTS to pin the
+                // unreachable-assertion split. An implied language finding on
+                // a canned fixture reply would add a failure that has nothing
+                // to do with the split and make the counts read as a
+                // regression in it.
+                skip_language_check: true,
             }],
         }
     }
@@ -983,7 +1190,15 @@ mod tests {
         let scenario = one_turn_scenario(AssertionSpec::ReplyContains {
             value: "hello".to_owned(),
         });
-        let mut driver = MockScenarioDriver::new(vec!["hello world".to_owned()], vec![vec![]]);
+        let mut driver = MockScenarioDriver::new(
+            vec![
+                "Hello — your training week looks steady so far, with the load climbing \
+                  gently and recovery keeping pace. Nothing here needs changing before \
+                  Thursday."
+                    .to_owned(),
+            ],
+            vec![vec![]],
+        );
         let vocab = VocabularyContractRegistry::with_defaults();
         run_scenario(&scenario, &mut driver, &vocab);
 
@@ -995,7 +1210,15 @@ mod tests {
         let scenario = one_turn_scenario(AssertionSpec::ReplyContains {
             value: "hello".to_owned(),
         });
-        let mut driver = MockScenarioDriver::new(vec!["hello world".to_owned()], vec![vec![]]);
+        let mut driver = MockScenarioDriver::new(
+            vec![
+                "Hello — your training week looks steady so far, with the load climbing \
+                  gently and recovery keeping pace. Nothing here needs changing before \
+                  Thursday."
+                    .to_owned(),
+            ],
+            vec![vec![]],
+        );
         let vocab = VocabularyContractRegistry::with_defaults();
         let reports = run_scenario(&scenario, &mut driver, &vocab);
         assert_eq!(reports.len(), 1);
@@ -1008,7 +1231,12 @@ mod tests {
             values: vec!["medical disclaimer".to_owned()],
         });
         let mut driver = MockScenarioDriver::new(
-            vec!["**Medical disclaimer:** see a doctor".to_owned()],
+            vec![
+                "**Medical disclaimer:** I am a coach, not a clinician. What you are \
+                  describing should be looked at by a doctor before we touch the \
+                  training plan at all."
+                    .to_owned(),
+            ],
             vec![vec![]],
         );
         let vocab = VocabularyContractRegistry::empty();
@@ -1032,6 +1260,7 @@ mod tests {
                 user: "Hi".to_owned(),
                 trigger_sync_before_turn: false,
                 assertions: vec![],
+                skip_language_check: false,
             }],
         };
         let mut driver = MockScenarioDriver::new(
@@ -1063,11 +1292,13 @@ mod tests {
                     user: "stats?".to_owned(),
                     trigger_sync_before_turn: false,
                     assertions: vec![],
+                    skip_language_check: false,
                 },
                 TurnSpec {
                     user: "manque hier".to_owned(),
                     trigger_sync_before_turn: true,
                     assertions: vec![],
+                    skip_language_check: false,
                 },
             ],
         };
@@ -1099,11 +1330,13 @@ mod tests {
                     user: "q1".to_owned(),
                     trigger_sync_before_turn: false,
                     assertions: vec![],
+                    skip_language_check: false,
                 },
                 TurnSpec {
                     user: "q2".to_owned(),
                     trigger_sync_before_turn: false,
                     assertions: vec![],
+                    skip_language_check: false,
                 },
             ],
         };

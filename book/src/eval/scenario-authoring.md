@@ -69,7 +69,36 @@ turns:
 | `provider_state.providers.<name>.appears_after_sync` | no | Activities promoted into the provider view when a sync fires |
 | `turns[].user` | yes | User-facing text for this turn |
 | `turns[].trigger_sync_before_turn` | no (default `false`) | Promote `appears_after_sync` before running this turn |
-| `turns[].assertions` | no | Property assertions; empty ⇒ smoke check only |
+| `turns[].assertions` | no | Property assertions *on top of* the automatic language check; empty ⇒ the reply is graded on its language alone |
+| `turns[].skip_language_check` | no (default `false`) | Exempt this turn from the automatic language check — see below |
+
+### Every turn is graded on its language
+
+`locales: ["fr"]` means the conversation happens in French, so the runner
+asserts that **every** reply is written in its run locale. You do not declare
+it, and you cannot forget it.
+
+This is not how it started. The assertion shipped opt-in, and
+`intent_cote_course_combien_fr` turn 1 carried `assertions: []` — a setup turn
+that produces a real coaching reply and graded nothing, free to answer in
+English and stay green. That is the [carnet#159][] shape: substring assertions
+cannot see the language of the prose around the match, because an English reply
+about a French athlete's ride still carries `km`, a date and a place name.
+Opt-in put the burden on the next scenario author, who has no reason to know
+the assertion exists.
+
+The check reads the reply with `whatlang` and **fails on a reply it cannot
+judge** rather than passing. Its envelope, measured across all five shipped
+locales: from roughly 130 characters up it returns the right language at
+confidence 1.00; below about 60 it is noise (plain English scores as Danish,
+French as Catalan) and `is_reliable()` refuses the verdict. A turn that
+legitimately cannot produce that much prose — a bare figure, a one-word
+acknowledgement — sets `skip_language_check: true`.
+
+Never set `skip_language_check` on a turn that answered in the wrong language.
+That is the finding; silencing it deletes the coverage.
+
+[carnet#159]: https://github.com/dravr-ai/dravr-carnet/issues/159
 
 ### Assertion catalog
 
@@ -82,6 +111,7 @@ turns:
 | `tool_called` | `name`, optional `min_calls` (default 1) | LLM claimed a tool-derived answer without invoking the tool |
 | `vocabulary_contract` | `coach_id` | Reply from coach `coach_id` honoured no terms from its declared vocabulary contract (see `vocabulary_contract.rs`) |
 | `any_of` | `values: [...]` | Reply matched none of the OR-list (use for "expected phrasing varies by locale or LLM") |
+| `reply_language` | `locale` (**required**) | Reply written in a language other than the named one. This is the *override*: the run locale is already checked automatically, so write this only for a code-switch turn expecting a reply in something else. A bare `reply_language` with no `locale` restates the default and is rejected by the structural invariant test |
 
 Adding a new `kind` requires:
 
@@ -130,14 +160,25 @@ The same test file runs in two modes:
   pass: every scenario parses, the runner exercises the mock driver,
   the framework's own asserter tests run. Fast (< 1 s after the
   build cache is warm). This is the per-push CI gate.
-- **`CHAT_SCENARIO_LIVE=1 cargo test --test chat_scenario_test -- --include-ignored`**
-  — live-LLM pass: scenarios are driven through the real chat
-  pipeline against the configured LLM. Cost-bounded by the
-  scenario count × the per-scenario token budget. This is the
-  nightly drift detector (see `.github/workflows/chat-conversation-eval.yml`).
+- **`CHAT_SCENARIO_LIVE=1 PIERRE_LLM_MODEL=<model> cargo test --test chat_scenario_test`**
+  — live-LLM pass: every scenario is driven against the configured
+  `OpenAI`-compatible endpoint (a local Ollama). Without the env vars the
+  test self-skips, so a casual `cargo test` never stalls on CPU inference.
+  This is the nightly drift detector (see
+  `.github/workflows/chat-conversation-eval.yml`).
 
-The live driver itself lands in P3 of the gap-analysis plan; the
-ignored test is the placeholder it slots into.
+`CHAT_SCENARIO_SHARD="<index>/<total>"` restricts a run to one slice of the
+sorted scenario list — CI fans the suite across runners with it, and locally
+`<i>/<file count>` is the way to drive a single scenario.
+
+A live pass is evidence about the **assembled prompt**, not about production:
+`LiveScenarioDriver` layers the platform contract, the persona prompt, the
+shipped turn-language directive and the tool catalog, then dispatches straight
+to the model. It does not run `chat_pipeline::run`, so memory recall,
+persistence, post-process guardrails and claim verification are not exercised.
+Anything the driver builds itself rather than reading from the shipped
+prompt registry is a prompt nobody sends — which is why the locale block reads
+`KEY_TURN_LANGUAGE` from contremaitre rather than paraphrasing it.
 
 ## Drift detection
 

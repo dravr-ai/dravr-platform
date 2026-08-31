@@ -20,6 +20,12 @@
 # Turn 3 is the "Yes" follow-up. It is here to pin the OTHER half: a short
 # confirmation must stay in French too, riding the stored locale rather
 # than flipping to the language of the English word the athlete typed.
+#
+# No turn below names a language assertion. It does not need to: `locales:`
+# says this conversation happens in French, and the runner grades every turn
+# on being written in its run locale (carnet#162). That is the assertion this
+# scenario exists for — the substring asserts below would all have passed the
+# incident reply.
 name: "Language holds across a long, tool-heavy French turn (FR)"
 locales: ["fr"]
 notes: "carnet#159 regression — 2026-08-30 Telegram, English reply to a French question"
@@ -42,8 +48,6 @@ turns:
   # asking something that cannot be answered without pulling training data.
   - user: "En regardant mon high non activity stress qui est à la hausse sur whoop, devrais je m'inquiéter? Je me sens anormalement fatigué, j'ai de la misère à bien dormir, j'ai un peu plus de difficulté à uriner que d'habitude et jai eu anormalement chaud les quelques dernières nuits. J'ai également dû, pour la première fois, m'étendre à la fin de ma ride de samedi dernier à Magog pour être capable de finir"
     assertions:
-      # THE assertion. This is the one the incident would have failed.
-      - kind: reply_language
       - kind: tool_called
         name: get_activities
       # A French reply discussing a doctor triggers the French disclaimer.
@@ -54,12 +58,10 @@ turns:
   # Still French, still long, and now leaning harder on the fetched data.
   - user: "Peux-tu comparer ma charge des deux dernières semaines et me dire si mon volume explique la fatigue?"
     assertions:
-      - kind: reply_language
       - kind: tool_called
         name: get_activities
   # The follow-up from the real transcript. An English word as the entire
   # message, below the language-detection floor, so the turn rides the
   # stored locale. It must NOT flip the reply to English.
   - user: "Yes"
-    assertions:
-      - kind: reply_language
+    assertions: []

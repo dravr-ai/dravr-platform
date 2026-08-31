@@ -153,10 +153,29 @@ pub struct TurnSpec {
     #[serde(default)]
     pub trigger_sync_before_turn: bool,
     /// Property assertions evaluated against the coach's reply for
-    /// this turn. Empty list ⇒ the runner only checks the turn
-    /// completes without error (smoke-test mode).
+    /// this turn, on top of the language check every turn gets (see
+    /// [`Self::skip_language_check`]). Empty list ⇒ the reply is graded
+    /// on its language alone.
     #[serde(default)]
     pub assertions: Vec<AssertionSpec>,
+    /// Exempt this turn from the automatic language check.
+    ///
+    /// Every turn is graded on being WRITTEN IN its run locale, because
+    /// `locales: ["fr"]` already means "this conversation happens in
+    /// French" and an English reply is a bug in every French scenario, not
+    /// only in the ones where somebody remembered to assert it. Opt-in was
+    /// the wrong default: `intent_cote_course_combien_fr` turn 1 carried
+    /// `assertions: []` and was free to answer in English and stay green,
+    /// which is the carnet#159 shape the suite exists to catch.
+    ///
+    /// Set this ONLY when the turn cannot produce a judgeable reply — a bare
+    /// figure, a one-word acknowledgement, or anything else too short for
+    /// whatlang to rate reliably (roughly 130 characters; the envelope is
+    /// documented on `asserters::assert_reply_language`). It is not an escape
+    /// hatch for a turn that answers in the wrong language: that is the
+    /// finding, and silencing it deletes the coverage.
+    #[serde(default)]
+    pub skip_language_check: bool,
 }
 
 /// Enumerated assertion catalog.
@@ -211,12 +230,6 @@ pub enum AssertionSpec {
     AnyOf { values: Vec<String> },
     /// The reply must be WRITTEN IN the given language.
     ///
-    /// Defaults to the locale the turn is running under, which is what
-    /// almost every scenario wants: `locales: ["fr"]` should mean the
-    /// coach answers in French, not merely that a French word appears
-    /// somewhere. Set `locale` explicitly only to assert a language
-    /// that differs from the turn's own.
-    ///
     /// This exists because nothing else here could express it. On
     /// 2026-08-30 a French Telegram turn came back entirely in English
     /// (carnet#159), and the five `*_fr.yaml` scenarios would all have
@@ -224,8 +237,19 @@ pub enum AssertionSpec {
     /// about a French athlete's ride still carries `km`, a date, and a
     /// place name. Substring matching cannot see the language of the
     /// prose around the match.
+    ///
+    /// **Writing this in a scenario is the OVERRIDE, not the rule.** The
+    /// runner already applies this assertion to every turn against its run
+    /// locale; a bare `reply_language` with no `locale:` restates the
+    /// default and is rejected by the structural invariant test, because an
+    /// author who believes the check is opt-in is one turn away from the
+    /// gap carnet#159 walked through. Name a `locale:` only to assert a
+    /// language that differs from the run's — a turn where the athlete
+    /// deliberately switches and the coach is expected to follow.
     ReplyLanguage {
-        /// BCP-47 short code. Omitted ⇒ the turn's own locale.
+        /// BCP-47 short code. `None` means "the turn's own locale", which
+        /// is how the runner constructs the implied per-turn assertion;
+        /// see [`TurnSpec::skip_language_check`].
         #[serde(default)]
         locale: Option<String>,
     },
@@ -335,6 +359,10 @@ turns:
         assert_eq!(s.locales, vec!["en"]);
         assert_eq!(s.turns.len(), 1);
         assert!(s.turns[0].assertions.is_empty());
+        // A turn is language-checked unless it says otherwise. The default
+        // has to be the strict one: an author who omits the field is the
+        // author carnet#162 exists for.
+        assert!(!s.turns[0].skip_language_check);
         // Unset anchor => wall-clock now, the correct default for a
         // scenario with no relative-time language.
         assert_eq!(s.current_date, None);

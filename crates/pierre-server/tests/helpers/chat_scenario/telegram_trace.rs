@@ -83,6 +83,12 @@ pub struct TraceTurn {
     pub assistant_reply_seen: Option<String>,
     #[serde(default)]
     pub assertions: Vec<super::format::AssertionSpec>,
+    /// Exempt this turn from the automatic language check — see
+    /// [`super::format::TurnSpec::skip_language_check`]. A captured turn
+    /// whose bot reply was a bare figure or a one-word acknowledgement has
+    /// no prose to read a language from.
+    #[serde(default)]
+    pub skip_language_check: bool,
 }
 
 /// Load a trace from disk and project it onto a [`ChatScenario`].
@@ -110,6 +116,7 @@ fn project(trace: TelegramTrace) -> ChatScenario {
             user: t.user,
             trigger_sync_before_turn: t.trigger_sync_before_turn,
             assertions: t.assertions,
+            skip_language_check: t.skip_language_check,
         })
         .collect();
     let notes = if let Some(captured_at) = trace.captured_at {
@@ -186,6 +193,7 @@ mod tests {
                 assertions: vec![AssertionSpec::ReplyContains {
                     value: "salut".to_owned(),
                 }],
+                skip_language_check: false,
             }],
         };
         let scenario = project(trace);
@@ -214,6 +222,7 @@ mod tests {
                     "this exact string should not leak into the scenario".to_owned(),
                 ),
                 assertions: vec![],
+                skip_language_check: false,
             }],
         };
         let scenario = project(trace);

@@ -12,6 +12,22 @@ locales: ["fr", "en", "es", "de", "pt"]
 notes: "Rendering regression — bug from 2026-05-16 Telegram screenshot 1"
 turns:
   - user: "/privacy"
+    # The one turn in the corpus that is exempt from the automatic language
+    # check, and the reason is that its reply is not a coach reply.
+    #
+    # In production `/privacy` never reaches the model: a slash-command
+    # handler returns the canned localized string this scenario checks for
+    # HTML-tag leakage. The live driver carries no slash-command handling, so
+    # it hands the bare token to the LLM, which has no natural language to
+    # answer and degenerates — measured 2026-08-31 on dravr-chateval-local, it
+    # replies in English on fr/es/de/pt, and with the shipped turn-language
+    # directive in place it echoes chunks of the platform contract back
+    # instead. Grading the language of that grades the eval's stand-in for a
+    # code path production does not take.
+    #
+    # The tag assertion below still means something on either reply, which is
+    # what this scenario was written to catch.
+    skip_language_check: true
     assertions:
       - kind: no_substring
         values:

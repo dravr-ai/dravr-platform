@@ -36,6 +36,7 @@ use std::collections::BTreeMap;
 use std::env;
 
 use chrono::Utc;
+use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_TURN_LANGUAGE};
 use pierre_core::errors::AppError;
 use pierre_llm::prompts::{PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT};
 use pierre_llm::{
@@ -636,11 +637,21 @@ fn build_system_prompt(locale: &str, frozen_date: Option<&str>) -> String {
     // machinery, and a model that sees a literal `{{CAPABILITY_REFUSAL}}`
     // token will helpfully echo it verbatim as the refusal text.
     let cleaned_base = strip_template_placeholders(&dated_base);
-    let locale_block = format!(
-        "## LOCALE\n\nThe user is writing in `{locale}`. Reply in `{locale}` \
-         unless the user explicitly switches language. Do not emit \
-         disclaimers in any language other than `{locale}`."
-    );
+    // The language directive production actually sends (Stage 7g.3b), read
+    // from the same registry the server reads, rather than an approximation
+    // written here.
+    //
+    // This block used to be a hand-rolled English sentence — "The user is
+    // writing in `es`. Reply in `es` ...". Once every turn was graded on its
+    // language (carnet#162), four of the five locales in
+    // `rendering_richtext_telegram` came back in English at confidence 1.00
+    // against exactly that sentence. Which is the carnet#159 finding restated:
+    // an English instruction to write Spanish is one more English sentence on
+    // a pile of English, and it loses. The shipped directive is authored in
+    // the target language and says what to do with the English tool output it
+    // is handed; an eval carrying the weaker text grades a prompt nobody
+    // sends, and cannot see a regression in the one that ships.
+    let locale_block = MessagingStringsRegistry::new().get(KEY_TURN_LANGUAGE, locale);
     let function_calling_block = "## TOOL INVOCATION\n\n\
          You have access to functions through the LLM's native function-calling \
          API (the same mechanism every `tools=[...]` request exposes). When you \
@@ -864,6 +875,36 @@ mod tests {
             "Rule 8 (activity density) must reach the model; prompt is {} bytes",
             prompt.len(),
         );
+    }
+
+    /// The eval's language instruction must BE the shipped one.
+    ///
+    /// This block used to be a sentence written here — "The user is writing in
+    /// `fr`. Reply in `fr` ..." — which is a prompt production never sends, so
+    /// a live pass said nothing about the directive that does ship, and the
+    /// nightly could not see a regression in it. Worse, it was English, which
+    /// is the carnet#159 failure in miniature: measured on
+    /// `dravr-chateval-local`, that sentence produced English replies on
+    /// fr/es/de/pt at confidence 1.00.
+    ///
+    /// Assert the registry's own text rather than a phrase copied out of it,
+    /// so editing `KEY_TURN_LANGUAGE` in contremaitre can never leave this
+    /// driver quietly behind.
+    #[test]
+    fn the_locale_block_is_the_shipped_turn_language_directive() {
+        let strings = MessagingStringsRegistry::new();
+        for locale in ["fr", "en", "es", "de", "pt"] {
+            let directive = strings.get(KEY_TURN_LANGUAGE, locale);
+            assert!(
+                !directive.trim().is_empty(),
+                "[{locale}] the registry must carry a turn-language directive"
+            );
+            assert!(
+                build_system_prompt(locale, None).contains(&directive),
+                "[{locale}] the live driver must carry the shipped directive verbatim, not a \
+                 paraphrase of it"
+            );
+        }
     }
 
     #[test]

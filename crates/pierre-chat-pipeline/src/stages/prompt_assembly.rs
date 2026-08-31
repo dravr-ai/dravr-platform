@@ -1007,11 +1007,15 @@ pub(crate) async fn assemble_prompt_and_messages(
     // reporting urinary symptoms, matched no French trigger against its English
     // text and shipped with no disclaimer at all.
     //
-    // The only language rule that existed lived in contremaitre's
-    // `messaging_context.md` ("reply in the same language the person used"),
-    // which asks for that same inference and, arriving as
-    // `SurfaceProfile::prose_contract`, reaches messaging surfaces only — the
-    // app's chat had no language rule of any kind.
+    // This block is now the ONLY language rule in the stack. The one it
+    // replaced was prose in contremaitre's `messaging_context.md` ("reply in
+    // the same language the person used") — it asked for the same inference,
+    // and arriving as `SurfaceProfile::prose_contract` it reached messaging
+    // surfaces only, so the app's chat carried no language rule at all. It was
+    // deleted once this shipped (carnet#163); every property it stated,
+    // including "do not switch languages mid-reply", is stated here in all
+    // five locales. The gender-neutrality clause that shared its `Language:`
+    // heading stays in contremaitre — different subject, still inference.
     //
     // Appended unconditionally, including under the structured-output contract:
     // this block says which language to write in, never what to produce, so it

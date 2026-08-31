@@ -1,5 +1,5 @@
 // ABOUTME: Entry test for the chat conversation eval framework — discovers YAML scenarios and runs them
-// ABOUTME: Default mode loads + parses scenarios; opt-in CHAT_SCENARIO_LIVE=1 routes through the real chat pipeline
+// ABOUTME: Default mode loads + parses scenarios; opt-in CHAT_SCENARIO_LIVE=1 drives them against a real LLM
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -224,8 +224,48 @@ fn check_assertion(spec: &AssertionSpec) -> Result<(), String> {
         AssertionSpec::DistanceMentioned { tolerance_km, .. } if *tolerance_km < 0.0 => {
             Err("distance_mentioned tolerance_km must be >= 0".to_owned())
         }
+        // Every turn is already graded on being written in its run locale, so
+        // a bare `reply_language` asserts what the runner asserts anyway. It
+        // is rejected rather than ignored because writing it means believing
+        // the check is opt-in, and that belief is what let
+        // `intent_cote_course_combien_fr` turn 1 ship with `assertions: []`
+        // and a licence to answer in English (carnet#159, carnet#162).
+        AssertionSpec::ReplyLanguage { locale: None } => Err(
+            "reply_language without a locale: restates the automatic per-turn check — delete it. \
+             Name a locale: only to assert a language OTHER than the run's, or set \
+             skip_language_check: true on the turn if its reply cannot be judged"
+                .to_owned(),
+        ),
+        AssertionSpec::ReplyLanguage { locale: Some(l) } if l.trim().is_empty() => {
+            Err("reply_language locale is empty".to_owned())
+        }
         _ => Ok(()),
     }
+}
+
+/// The redundant-assertion guard must actually fire.
+///
+/// A guard that only ever sees valid input passes vacuously. Feed it the
+/// exact shape it exists to reject — a `reply_language` with no locale,
+/// which is what an author writes when they think the check is opt-in.
+#[test]
+fn a_bare_reply_language_assertion_is_rejected() {
+    let err = check_assertion(&AssertionSpec::ReplyLanguage { locale: None })
+        .expect_err("a bare reply_language must be rejected");
+    assert!(
+        err.contains("automatic per-turn check"),
+        "the message must tell the author why it is redundant: {err}"
+    );
+    assert!(
+        err.contains("skip_language_check"),
+        "the message must name the real escape hatch: {err}"
+    );
+
+    // The override form stays legal — that is the only reason to write one.
+    assert!(check_assertion(&AssertionSpec::ReplyLanguage {
+        locale: Some("en".to_owned()),
+    })
+    .is_ok());
 }
 
 /// Smoke-test the runner against the mock driver to prove the
@@ -245,12 +285,25 @@ fn runner_executes_a_scenario_against_the_mock_driver() {
             assertions: vec![AssertionSpec::ReplyContains {
                 value: "pong".to_owned(),
             }],
+            skip_language_check: false,
         }],
         skip_drift: false,
         nightly_gate: true,
         current_date: None,
     };
-    let mut driver = MockScenarioDriver::new(vec!["pong!".to_owned()], vec![vec![]]);
+    // English prose, not a bare "pong!": every turn is language-checked
+    // against its run locale, and whatlang does not return a reliable verdict
+    // until roughly 130 characters. A fixture shorter than that fails on the
+    // detector rather than on the wiring this test is here to prove.
+    let mut driver = MockScenarioDriver::new(
+        vec![
+            "Pong! The server is up and answering normally, dispatching this turn \
+              through the mock driver and returning a canned reply long enough to \
+              read a language from."
+                .to_owned(),
+        ],
+        vec![vec![]],
+    );
     let vocab = VocabularyContractRegistry::with_defaults();
     let reports = run_scenario(&scenario, &mut driver, &vocab);
     assert_eq!(reports.len(), 1);

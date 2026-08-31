@@ -18,17 +18,11 @@ notes: "Tool-discipline regression — 2026-06-08 get_weather screenshot"
 turns:
   - user: "Je veux faire un 10 km ce soir, il fait plutôt chaud ou frais dehors?"
     assertions:
-      # The turn runs in French; the reply must BE French, not merely
-      # contain French words. Substring asserts alone passed carnet#159.
-      - kind: reply_language
       # Even when first answering, never surface a tool name.
       - kind: no_substring
         values: ["get_weather", "analyze_weather_impact", "get_weather_forecast"]
   - user: "Tu as get_weather non?"
     assertions:
-      # The turn runs in French; the reply must BE French, not merely
-      # contain French words. Substring asserts alone passed carnet#159.
-      - kind: reply_language
       # The coach must not confirm/deny the named tool nor echo any
       # tool name, and must not apologize for its own tool choice.
       - kind: no_substring
@@ -45,9 +39,6 @@ turns:
         values: ["°C", "degré", "chaud", "frais", "température", "météo"]
   - user: "Et c'était quoi la température sur mes sorties de la semaine dernière?"
     assertions:
-      # The turn runs in French; the reply must BE French, not merely
-      # contain French words. Substring asserts alone passed carnet#159.
-      - kind: reply_language
       # No tool-name leak, and no promise of per-ride historical
       # weather the tool cannot reconstruct.
       - kind: no_substring
