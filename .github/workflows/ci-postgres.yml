@@ -1,4 +1,4 @@
-# ABOUTME: The per-push backend suite, run against a real PostgreSQL 16 service — every test database is PostgreSQL, refused otherwise.
+# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature/*; *_postgresql_test.rs smoke on fix|debug|claude|copilot prefixes.
 # ABOUTME: Runs when ANY crate (crates/**) or migration changes — broad on purpose so a newly-extracted crate can never silently skip the backend suite.
 name: "CI: Backend (PostgreSQL)"
 
@@ -35,7 +35,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Do NOT cancel in-progress PG runs: the full-on-main suite takes ~11 min and
+  # Do NOT cancel in-progress PG runs: the full suite takes ~20 min of work and
   # rapid main pushes were cancelling it mid-run, so its verdict was never seen.
   # Runs queue per ref and complete instead of being killed.
   cancel-in-progress: false
@@ -142,7 +142,7 @@ jobs:
             SELECT pg_reload_conf();
           SQL
 
-      - name: Run PostgreSQL tests (full suite on every trigger)
+      - name: Run PostgreSQL tests (full suite on main/schedule/dispatch/feature; PG smoke on short-lived prefixes)
         # Every test database in this job is PostgreSQL. The factory in
         # `pierre_database::database::test_utils` clones each test a private
         # database from a migrated template on the service container; with
@@ -155,11 +155,15 @@ jobs:
         # `*_sqlite_test.rs` test the SQLite backend itself and belong to the
         # daily SQLite shards in ci-backend.yml, not here.
         #
-        # The selection is by test FILE: every trigger — push (main and
-        # branches alike), pull_request, schedule, dispatch — runs every test
-        # file, partitioned round-robin across 4 shards, so a branch push
-        # validates exactly what main validates. An empty selection fails the
-        # job rather than reporting green over zero tests.
+        # Lane contract (carnet#154, decided 2026-08-31): main, schedule,
+        # dispatch and feature/* refs run EVERY test file; the short-lived
+        # prefixes (fix/*, debug/*, claude/*, copilot/*) run the
+        # `*_postgresql_test.rs` smoke — the files whose failure shape is
+        # PostgreSQL-only. A green run on those refs therefore means the
+        # smoke ran, not the suite: name the branch feature/* or dispatch
+        # this workflow for a full verdict on any ref (~21-24 min). Files are
+        # partitioned round-robin across 4 shards; an empty selection fails
+        # the job rather than reporting green over zero tests.
         #
         # The shard's binaries are built in one `cargo test --no-run` first,
         # then each file runs on its own: a monolithic `cargo test` over all
@@ -171,14 +175,24 @@ jobs:
         run: |
           SHARD=${{ matrix.shard }}
           SHARDS=4
-          mapfile -t ALL_TESTS < <(
-            find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -not -name '*_sqlite_test.rs' -printf '%f\n' \
-              | sed 's/\.rs$//' \
-              | grep -v '^common$' \
-              | sort
-          )
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/heads/feature/* ]]; then
+            LANE="full suite"
+            mapfile -t ALL_TESTS < <(
+              find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -not -name '*_sqlite_test.rs' -printf '%f\n' \
+                | sed 's/\.rs$//' \
+                | grep -v '^common$' \
+                | sort
+            )
+          else
+            LANE="PostgreSQL-specific smoke"
+            mapfile -t ALL_TESTS < <(
+              find crates/pierre-server/tests -maxdepth 1 -name '*_postgresql_test.rs' -printf '%f\n' \
+                | sed 's/\.rs$//' \
+                | sort
+            )
+          fi
           if [ "${#ALL_TESTS[@]}" -eq 0 ]; then
-            echo "::error::PostgreSQL lane selected no test files — refusing to report green."
+            echo "::error::PostgreSQL lane selected no test files ($LANE) — refusing to report green."
             exit 1
           fi
           SHARD_TESTS=()
@@ -187,7 +201,7 @@ jobs:
               SHARD_TESTS+=("${ALL_TESTS[$i]}")
             fi
           done
-          echo "=== Shard $SHARD/$SHARDS: ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} test files ==="
+          echo "=== Shard $SHARD/$SHARDS ($LANE): ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} test files ==="
           if [ "${#SHARD_TESTS[@]}" -eq 0 ]; then
             echo "Fewer test files than shards; shard $SHARD has nothing to run."
             exit 0

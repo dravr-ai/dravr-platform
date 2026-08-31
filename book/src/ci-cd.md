@@ -11,7 +11,6 @@ The project uses specialized GitHub Actions workflows that validate different as
 
 | Workflow | Focus | Platforms | Database Support |
 |----------|-------|-----------|------------------|
-| **Rust** | Core Rust quality gate | Ubuntu | SQLite |
 | **Backend CI** | Comprehensive backend + frontend | Ubuntu | SQLite + PostgreSQL |
 | **Cross-Platform** | OS compatibility | Linux, macOS, Windows | Mixed |
 | **SDK Tests** | TypeScript SDK bridge | Ubuntu | SQLite |
@@ -25,48 +24,12 @@ The Backend CI workflow includes a `detect-changes` job that uses `dorny/paths-f
 
 | Output | Triggers When | Jobs Affected |
 |--------|---------------|---------------|
-| `database` | `src/database/**`, `migrations/**`, `crates/pierre-database/**` | `postgres-tests` |
 | `cache` | `src/cache/**`, `tests/cache_redis_test.rs` | `redis-tests` |
 | `release-worthy` | `src/**`, `crates/**`, `Cargo.toml` | `release-binary` |
 
-On `main` branch and scheduled runs, all jobs always run (full validation). Filtering only applies to feature branches.
+The PostgreSQL lane is NOT gated by `detect-changes` — `ci-postgres.yml` is its own workflow, triggered by its own `paths:` filter (any `crates/**` or migration change). On `main` and scheduled runs, all jobs always run (full validation).
 
 ## Workflow Details
-
-### Rust Workflow
-
-**File**: `.github/workflows/rust.yml`
-
-**Purpose**: Fast quality gate for core Rust development
-
-**When it runs**: All pushes and PRs
-
-**What it validates**:
-1. Code formatting (`cargo fmt --check`)
-2. Clippy zero-tolerance linting
-3. Security audit (`cargo deny check`)
-4. Architectural validation (`./scripts/ci/architectural-validation.sh`)
-5. Release build (`cargo build --release`)
-6. Test coverage with `cargo-llvm-cov`
-7. Codecov upload
-
-**Database**: SQLite in-memory only
-
-**Key characteristics**:
-- Single Ubuntu runner
-- Full quality checks
-- ~8-10 minutes runtime
-- Generates coverage report
-
-**Environment variables**:
-```bash
-DATABASE_URL="sqlite::memory:"
-ENCRYPTION_KEY="rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
-PIERRE_MASTER_ENCRYPTION_KEY="rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
-STRAVA_CLIENT_ID="test_client_id_ci"
-STRAVA_CLIENT_SECRET="test_client_secret_ci"
-STRAVA_REDIRECT_URI="http://localhost:8080/auth/strava/callback"
-```
 
 ### Backend CI Workflow
 
@@ -74,11 +37,13 @@ STRAVA_REDIRECT_URI="http://localhost:8080/auth/strava/callback"
 
 **Purpose**: Comprehensive backend and frontend validation with multi-database support
 
-**When it runs**: All pushes and PRs
+**When it runs**: All pushes and PRs (lint, gates, leaf-crate and changed-file
+tests); the SQLite test shards (`backend-tests`) are **cron-only** — daily at
+08:00 UTC or `workflow_dispatch`, never on a push.
 
 **What it validates**:
 
-**Job 1: backend-tests (SQLite)**
+**Job 1: backend-tests (SQLite, cron-only)**
 1. Code formatting
 2. Clippy zero-tolerance
 3. Security audit
@@ -88,6 +53,14 @@ STRAVA_REDIRECT_URI="http://localhost:8080/auth/strava/callback"
 7. Codecov upload (flag: `backend-sqlite`)
 
 **Job 2: postgres-tests (PostgreSQL, `ci-postgres.yml`)**
+
+Lane contract (carnet#154, decided 2026-08-31): `main`, `schedule`,
+`workflow_dispatch`, and `feature/*` refs run the **full** server suite
+(~500 test files); pushes on `fix/*`, `debug/*`, `claude/*`, `copilot/*`
+run only the `*_postgresql_test.rs` smoke. A green run on those prefixes
+means the smoke ran, not the suite — name the branch `feature/*` or
+dispatch the workflow for a full verdict on any ref.
+
 1. PostgreSQL 16 service container startup, connection verification, and
    throwaway-server tuning (`fsync`, `synchronous_commit`, `full_page_writes` off)
 2. Four shards, each building its quarter of the test binaries once
@@ -104,18 +77,18 @@ STRAVA_REDIRECT_URI="http://localhost:8080/auth/strava/callback"
    database must exist on the service container, or the job fails
 
 **Job 3: frontend-tests**
-1. Node.js 20 setup
-2. npm lint (`npm run lint`)
-3. TypeScript type checking (`npx tsc --noEmit`)
-4. Frontend tests with coverage (`npm run test:coverage`)
-5. Frontend build (`npm run build`)
+1. Bun setup
+2. Lint (`bun run lint`)
+3. TypeScript type checking
+4. Frontend tests with coverage (`bun run test:coverage`)
+5. Frontend build (`bun run build`)
 6. Codecov upload (flag: `frontend`)
 
 **Key characteristics**:
 - Three parallel jobs
 - Separate coverage for each database
 - Frontend validation included
-- ~15-35 minutes runtime (PostgreSQL job is longest)
+- Full PostgreSQL lane: ~20 min of work, 20-43 min wall with queueing; smoke lane ~6 min; Coverage (separate workflow, SQLite, main/PR only) ~1h45m
 
 **PostgreSQL configuration**:
 ```bash

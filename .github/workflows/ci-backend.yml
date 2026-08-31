@@ -72,7 +72,7 @@ jobs:
   #   security-audit       — cargo deny + dravr-* duplicate check (~3 min)
   #   doc-tests            — cargo test --doc + telemetry-feature tests (~5 min)
   #   contremaitre-sync    — the 4 platform<->contremaitre coupling tests (~5 min)
-  #   feature-profiles     — cargo check of the 5 non-default server profiles (~5 min)
+  #   feature-profiles     — the 2-profile server feature matrix: production clippy + no-default-features check (~5 min)
   #   backend-tests        — SQLite shards, cron / workflow_dispatch only
   #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir, per push
   #   changed-server-tests — the pierre-server test files THIS push touched
@@ -260,7 +260,7 @@ jobs:
           done <<< "${{ steps.detect.outputs.crates }}"
 
           # Changed integration-test binaries, one target at a time. `--test X`
-          # builds the library plus that one binary, not all ~325 of them, which
+          # builds the library plus that one binary, not all ~500 of them, which
           # is what makes this affordable here.
           while IFS= read -r target; do
               [ -z "$target" ] && continue
@@ -483,7 +483,7 @@ jobs:
   # SQLite shards, full-on-main ci-postgres, coverage. Since features merge by
   # local squash with no PR, the branch never executed them: drift false-greened
   # the branch and red main post-merge. Running the four files on every push
-  # moves that verdict before the merge. Four test binaries, not 325, and it
+  # moves that verdict before the merge. Four test binaries, not ~500, and it
   # runs alongside the ~10-12 min clippy job, so it costs no critical path.
   contremaitre-sync:
     name: Contremaitre Coupling Tests
@@ -765,9 +765,10 @@ jobs:
           PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
 
   # The pierre-server test files THIS push added or edited, run immediately.
-  # The full 325-file suite runs per-push only on main (ci-postgres) and in
-  # coverage; a branch push runs almost none of them, and even on main a file
-  # broken at birth is reported an hour later. This job closes the
+  # The full server suite (~500 files) runs per-push on main and feature/*
+  # (ci-postgres) and in coverage; a fix/debug/claude/copilot push runs only
+  # the PG smoke besides this job, and even on main a file broken at birth
+  # used to be reported an hour later. This job closes the
   # landed-already-red class (ffbd9889b: a reconnect test red from the moment
   # it landed, every lane green): whatever server test files the push touches
   # run here, on SQLite, within minutes. A push touching none skips free.
