@@ -355,7 +355,7 @@ pub async fn refresh_stale_head(
     before: Option<i64>,
     served: &mut Vec<Activity>,
 ) {
-    if before.is_some() {
+    if before_bounds_a_closed_window(before, Utc::now().timestamp()) {
         return;
     }
 
@@ -406,6 +406,37 @@ pub async fn refresh_stale_head(
 
 /// Cap on rows a stale-head refresh reads back.
 const STALE_HEAD_REFRESH_LIMIT: usize = 200;
+
+/// How far behind `now` a `before` bound may sit and still count as an open head.
+///
+/// The model is told to pass `before` = now for any window question (today /
+/// hier / cette semaine / ce mois), and the clock it reads is floored to a 300 s
+/// quantum for prompt-cache stability, so "now" reaches this function already a
+/// few minutes stale. An hour absorbs that without admitting a window the
+/// athlete meant as closed.
+const HEAD_OPEN_TOLERANCE_SECS: i64 = 3_600;
+
+/// Whether `before` bounds a window that is genuinely closed — one no activity
+/// recorded from here on can fall inside.
+///
+/// A closed window is the case [`refresh_stale_head`] exists to skip: topping up
+/// the head cannot change an answer about 2022. A window ending at the *present*
+/// is the opposite — it is the athlete asking what they have just done, and it is
+/// exactly the shape the model produces for "what did I do this week".
+///
+/// The distinction was missing, and `before.is_some()` alone stood in for it. Since
+/// the prompt instructs `before` = now for every window question, that guard made
+/// the head top-up unreachable on the most common ask in the product: on
+/// 2026-08-31 a "cette semaine" turn served 109 rows from a cache whose newest
+/// activity was three days old, with `before` set to the turn's own timestamp, and
+/// returned here before it could read the freshness it would have acted on.
+///
+/// `pub` so the decision is exercisable by the integration test suite, like
+/// [`historical_depth_covered`] and [`historical_head_slice`].
+#[must_use]
+pub fn before_bounds_a_closed_window(before: Option<i64>, now_ts: i64) -> bool {
+    before.is_some_and(|b| b < now_ts - HEAD_OPEN_TOLERANCE_SECS)
+}
 
 /// Fetch activities for a single provider connection, authenticating (and
 /// refreshing tokens) as needed.

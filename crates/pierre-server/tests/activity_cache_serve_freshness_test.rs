@@ -36,6 +36,7 @@ use chrono::{Duration, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType};
 use pierre_database::repositories::BackfillCoverage;
+use pierre_tool_runtime::activity_fetch::before_bounds_a_closed_window;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -201,5 +202,57 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
          came FROM the cache, so the provider-sync clock must not move. Moving it makes \
          DataFreshness report Fresh, which makes refresh_stale_head return early, which \
          is how a capture that stopped days ago keeps reporting itself current."
+    );
+}
+
+/// A window ending at the present is an open head, not a closed window.
+///
+/// `refresh_stale_head` skipped every ask carrying a `before`, and the prompt
+/// instructs the model to pass `before` = now for every window question (today /
+/// hier / cette semaine / ce mois). So the top-up was unreachable on the most
+/// common ask in the product, and only a bare freshness fetch — which passes
+/// neither bound — could ever reach it.
+///
+/// Observed 2026-08-31 11:48:07Z: a "cette semaine" turn arrived with
+/// `after=1778500087` and `before=1788176887`, the turn's own timestamp. It served
+/// 109 rows from a cache whose newest activity was three days stale and returned
+/// before reading the freshness it would have acted on.
+#[test]
+fn a_window_ending_now_is_an_open_head_not_a_closed_window() {
+    let now = 1_788_176_887_i64;
+
+    assert!(
+        !before_bounds_a_closed_window(None, now),
+        "a bare freshness fetch passes no bound and has always been an open head"
+    );
+
+    // The exact bound from the incident: `before` IS the turn's timestamp.
+    assert!(
+        !before_bounds_a_closed_window(Some(now), now),
+        "`before` = now is the athlete asking what they have just done; skipping the \
+         top-up here is what left a 5.3 km run uncaptured for three days"
+    );
+
+    // The prompt clock is floored to a 300 s quantum, so `before` reaches the tool
+    // already minutes stale. That must still read as open.
+    assert!(
+        !before_bounds_a_closed_window(Some(now - 300), now),
+        "the 300 s prompt-clock quantum must not turn an open head into a closed window"
+    );
+    assert!(
+        !before_bounds_a_closed_window(Some(now - 3_000), now),
+        "a bound just inside the tolerance is still an open head"
+    );
+
+    // A genuinely closed window still skips: topping up the head cannot change an
+    // answer about a season that ended.
+    assert!(
+        before_bounds_a_closed_window(Some(now - 7_200), now),
+        "a bound two hours back is closed — past the one-hour tolerance"
+    );
+    let one_year = 365 * 86_400;
+    assert!(
+        before_bounds_a_closed_window(Some(now - one_year), now),
+        "\"my 2022 runs\" is a closed window and must keep skipping the top-up"
     );
 }
