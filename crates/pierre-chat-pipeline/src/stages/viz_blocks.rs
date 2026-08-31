@@ -33,8 +33,9 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use serde_json::Value;
 use tracing::warn;
 
@@ -128,6 +129,66 @@ pub fn schema_contract(schemas: &SchemaTexts) -> String {
          that actually ran this turn.\n",
     );
     out
+}
+
+/// Re-ask the model for a reply whose blocks satisfy the schema.
+///
+/// A refused block is the one failure in this stage the athlete feels directly:
+/// they asked for a chart, the prose arrives without one, and nothing in the
+/// reply admits a visual was withheld. Until now the only recourse was to drop
+/// it, which is why a fixable encoding mistake — a comparison written as one
+/// series per athlete instead of one series of two points — cost the chart on
+/// every attempt (2026-08-31).
+///
+/// Bounded to a single re-ask, and fail-open: any error, empty completion, or
+/// repair that still does not validate leaves the original reply untouched. The
+/// caller keeps whatever it already had, so this can only add a chart, never
+/// remove one.
+///
+/// `faults` are the per-block reasons from [`VizExtraction::refusals`], which
+/// name the offending field — a repair prompt carrying the bare `oneOf` refusal
+/// would tell the model nothing it could act on.
+pub async fn repair_refused_blocks(
+    provider: &Arc<ChatProvider>,
+    reply: &str,
+    faults: &[String],
+    active_model: &str,
+) -> Option<String> {
+    if faults.is_empty() {
+        return None;
+    }
+    let rules = faults
+        .iter()
+        .map(|f| format!("- {f}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Preserve-the-language for the same reason the persona repair states it:
+    // this editor reads an English instruction and a reply that may be in any
+    // of the five locales, and the turn's language rides on the rewrite.
+    let system = format!(
+        "The assistant reply below contains one or more ```dravr-viz blocks that failed schema validation and were rejected:\n{rules}\n\nReturn the same reply with each rejected block corrected so it satisfies the schema. Keep the prose, its facts and its numbers exactly as they are, and keep any block that was already accepted. If a chart's data genuinely cannot satisfy the schema, remove that block and leave the prose. Write in the same language as the reply below; never translate it, whatever language these instructions are in. Output only the corrected reply, with no preamble."
+    );
+    let request = ChatRequest::new(vec![
+        ChatMessage::system(system),
+        ChatMessage::user(reply.to_owned()),
+    ])
+    .with_temperature(0.2)
+    // Pin the turn's model: on the ACP path a subprocess is pinned at spawn, so
+    // resolving to the env default here would discard the warm subprocess and
+    // pay a cold spawn on every repair.
+    .with_model(active_model);
+
+    match provider.complete(&request).await {
+        Ok(resp) if !resp.content.trim().is_empty() => Some(resp.content),
+        Ok(_) => {
+            warn!("viz-blocks: repair re-ask returned an empty reply; keeping the original");
+            None
+        }
+        Err(e) => {
+            warn!(error = %e, "viz-blocks: repair re-ask failed; keeping the original");
+            None
+        }
+    }
 }
 
 /// One or more bullet lines describing a property's enforced bounds.

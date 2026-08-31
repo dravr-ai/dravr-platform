@@ -7,7 +7,7 @@
 use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
 use pierre_database::database::ConversationRecord;
 use pierre_services::prompt_leak;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::envelope::VerdictChip;
@@ -149,11 +149,98 @@ async fn resolve_roster_scope(
 /// Skipped on messaging — there is no block renderer there, and stripping the
 /// fences would leave markers pointing at nothing. The matching prompt
 /// permission is withheld there too, so a messaging coach never emits one.
-fn lift_viz_blocks(
+/// Stage 16a then 16b: gloss first-use acronyms, then enforce the persona's
+/// output-format contract.
+///
+/// Ordered, not merely adjacent: the gloss must land before the conformance
+/// scan, or the scan reports the unglossed-acronym violation the gloss just
+/// pre-empted. Both read the same contremaitre snapshot for that reason.
+async fn apply_style_stages(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    content: String,
+    locale: &str,
+    active_model: &str,
+) -> String {
+    let contracts_snapshot = ctx.persona_contract_registry.snapshot();
+    let content = expand_acronyms_first_use(&contracts_snapshot, &content, locale);
+
+    // In strict_mode the reply is re-prompted into compliance before
+    // verification; otherwise the violations are logged only (shadow mode).
+    let persona = resolve_user_persona(ctx.repos.users.as_ref(), &input.user_id).await;
+    let roster = resolve_roster_scope(ctx, input, &contracts_snapshot, persona).await;
+    let conformance_violations = check_reply_conformance(
+        &ctx.persona_contract_registry,
+        persona,
+        &content,
+        roster.as_ref(),
+    );
+    tracing::debug!(
+        persona = persona.as_str(),
+        violations = conformance_violations.len(),
+        "persona conformance scan complete"
+    );
+    enforce_conformance(
+        ctx.chat_provider.as_ref(),
+        &ctx.persona_contract_registry,
+        persona,
+        content,
+        &conformance_violations,
+        active_model,
+    )
+    .await
+}
+
+/// One bounded re-ask for a reply whose blocks the schema refused.
+///
+/// `Some` only for a repair that is strictly better than what we already had:
+/// it recovered at least one block *and* left fewer refusals behind. Anything
+/// else — no provider, a failed or empty completion, a repair that traded one
+/// refusal for another — yields `None` and the original extraction stands, so
+/// this can only add a chart, never cost the athlete prose they would have got.
+async fn repaired_extraction(
+    ctx: &ChatPipelineContext,
+    granted: &[String],
+    tools_called: &[String],
+    raw_content: &str,
+    current: &viz_blocks::VizExtraction,
+    active_model: &str,
+) -> Option<viz_blocks::VizExtraction> {
+    if current.refusals.is_empty() {
+        return None;
+    }
+    let provider = ctx.chat_provider.as_ref()?;
+    let repaired =
+        viz_blocks::repair_refused_blocks(provider, raw_content, &current.refusals, active_model)
+            .await?;
+    let second = viz_blocks::extract_viz_blocks(
+        &ctx.structured_output_schemas,
+        granted,
+        tools_called,
+        &repaired,
+    )?;
+    if second.blocks.len() > current.blocks.len() && second.refusals.len() < current.refusals.len()
+    {
+        info!(
+            recovered = second.blocks.len() - current.blocks.len(),
+            still_refused = second.refusals.len(),
+            "viz-blocks: repair re-ask recovered a block the schema had refused"
+        );
+        return Some(second);
+    }
+    info!(
+        still_refused = second.refusals.len(),
+        "viz-blocks: repair re-ask did not improve on the original; keeping it"
+    );
+    None
+}
+
+async fn lift_viz_blocks(
     ctx: &ChatPipelineContext,
     coach_ctx: Option<&CoachRuntimeContext>,
     tools_called: &[String],
     raw_content: String,
+    active_model: &str,
 ) -> (String, Option<String>, usize) {
     // Extraction is channel-agnostic. Messaging used to short-circuit here,
     // when a chart had nowhere to go on a channel that cannot render one
@@ -173,7 +260,7 @@ fn lift_viz_blocks(
         return (raw_content, None, 0);
     }
     let granted = granted.as_slice();
-    let Some(extraction) = viz_blocks::extract_viz_blocks(
+    let Some(mut extraction) = viz_blocks::extract_viz_blocks(
         &ctx.structured_output_schemas,
         granted,
         tools_called,
@@ -181,6 +268,23 @@ fn lift_viz_blocks(
     ) else {
         return (raw_content, None, 0);
     };
+
+    // A refused block is the failure the athlete feels: they asked for a chart
+    // and the prose arrives without one, with nothing admitting a visual was
+    // withheld. The refusals now name the offending field, so the model can be
+    // handed something it can act on — one re-ask, fail-open.
+    if let Some(better) = repaired_extraction(
+        ctx,
+        granted,
+        tools_called,
+        &raw_content,
+        &extraction,
+        active_model,
+    )
+    .await
+    {
+        extraction = better;
+    }
     // Re-encoding cannot realistically fail for values that were just parsed,
     // but if it did, keeping the marker text without the blocks would leave the
     // athlete reading a bare `⟦viz:0⟧`.
@@ -317,7 +421,7 @@ pub(crate) async fn post_process_assistant_reply(
 
     // Stage 15.55: Inline visual blocks.
     let (raw_content, content_blocks, block_count) =
-        lift_viz_blocks(ctx, coach_ctx, tools_called, raw_content);
+        lift_viz_blocks(ctx, coach_ctx, tools_called, raw_content, active_model).await;
 
     // Stage 15.6: Internal-narration scrub. Drops prose sentences where the
     // model narrates about its hidden scaffolding («Je continue d'ignorer le
@@ -362,38 +466,8 @@ pub(crate) async fn post_process_assistant_reply(
         locale,
     );
 
-    // Stage 16a: Deterministic first-use acronym expansion. Runs before
-    // conformance so the gloss it inserts pre-empts the conformance
-    // stage's unglossed-acronym violation. Sources the glossary from the
-    // same contremaitre snapshot the conformance stage reads.
-    let contracts_snapshot = ctx.persona_contract_registry.snapshot();
-    content = expand_acronyms_first_use(&contracts_snapshot, &content, locale);
-
-    // Stage 16b: Per-persona output-format conformance. In strict_mode the
-    // reply is re-prompted into compliance before verification; otherwise the
-    // violations are logged only (shadow mode).
-    let persona = resolve_user_persona(ctx.repos.users.as_ref(), &input.user_id).await;
-    let roster = resolve_roster_scope(ctx, input, &contracts_snapshot, persona).await;
-    let conformance_violations = check_reply_conformance(
-        &ctx.persona_contract_registry,
-        persona,
-        &content,
-        roster.as_ref(),
-    );
-    tracing::debug!(
-        persona = persona.as_str(),
-        violations = conformance_violations.len(),
-        "persona conformance scan complete"
-    );
-    content = enforce_conformance(
-        ctx.chat_provider.as_ref(),
-        &ctx.persona_contract_registry,
-        persona,
-        content,
-        &conformance_violations,
-        active_model,
-    )
-    .await;
+    // Stages 16a-16b: acronym gloss, then per-persona output-format conformance.
+    content = apply_style_stages(ctx, input, content, locale, active_model).await;
 
     // Stage 17: claim verification (gated behind tools-verification).
     #[cfg(not(feature = "tools-verification"))]
