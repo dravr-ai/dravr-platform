@@ -42,6 +42,7 @@
 - [Messaging Gateway](messaging-gateway.md)
 - [Admin Tool Management](admin-tool-management.md)
 - [Conversation-Turn Observability](conversation-turn-observability.md)
+- [Capture Staleness & Refresh](capture-sweep.md)
 
 # Development
 

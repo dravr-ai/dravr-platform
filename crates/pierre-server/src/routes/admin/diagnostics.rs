@@ -1,5 +1,5 @@
 // ABOUTME: Admin diagnostics endpoints for system observability and resource measurement
-// ABOUTME: Provides tool schema size estimation and tronc-canary alerting probe
+// ABOUTME: Tool schema sizing, the tronc-canary probe, capture staleness and the capture refresh
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -25,7 +25,6 @@ use axum::{
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_database::repositories::CaptureFreshness;
-use pierre_database::RepositoryRegistry;
 use pierre_routes_admin::auth::middleware::admin_auth_middleware;
 use pierre_routes_admin::auth::service::AdminAuthService;
 use serde::{Deserialize, Serialize};
@@ -34,7 +33,9 @@ use tracing::error;
 use uuid::Uuid;
 
 use pierre_core::errors::AppResult;
+use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget};
 use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Focused context for the diagnostics sub-routes.
 ///
@@ -45,9 +46,12 @@ use pierre_tool_runtime::registry::ToolRegistry;
 pub struct DiagnosticsContext {
     /// Tool registry — primary input for schema-size estimation.
     pub tool_registry: Arc<ToolRegistry>,
-    /// Repositories — the capture-staleness report reads provider connections
-    /// and their fetch-freshness marks.
-    pub repos: Arc<RepositoryRegistry>,
+    /// Composition-root runtime. Carries the repositories the capture-staleness
+    /// report reads and the provider auth the capture refresh fetches through —
+    /// one handle rather than two, since `ToolRuntime::repos` already exposes
+    /// the registry. `Arc` because the sweep holds it across every await in a
+    /// walk of the deployment's live connections.
+    pub runtime: Arc<dyn ToolRuntime>,
 }
 
 /// Mount the diagnostics sub-routes behind the admin-token JWT middleware.
@@ -66,6 +70,10 @@ pub fn routes(context: DiagnosticsContext, auth_service: AdminAuthService) -> Ro
         .route(
             "/admin/diagnostics/capture-staleness",
             get(handle_capture_staleness),
+        )
+        .route(
+            "/admin/diagnostics/capture-refresh",
+            post(handle_capture_refresh),
         )
         .with_state(context)
         .layer(middleware::from_fn_with_state(
@@ -298,7 +306,8 @@ pub async fn handle_capture_staleness(
         .clamp(1, MAX_THRESHOLD_HOURS);
 
     let snapshot = context
-        .repos
+        .runtime
+        .repos()
         .activity_cache
         .capture_freshness_snapshot(SNAPSHOT_LIMIT)
         .await?;
@@ -322,4 +331,46 @@ pub async fn handle_capture_staleness(
             stale,
         }),
     ))
+}
+
+/// `POST /admin/diagnostics/capture-refresh`.
+///
+/// The actor behind [`handle_capture_staleness`]. Refreshes the recent head of
+/// every live provider connection through the same write-through path a chat
+/// turn uses, so a capture that stopped starts again and `fetched_at` — the
+/// column the staleness report reads — advances for the ones that answer.
+///
+/// **Never attempts a login.** A connection whose credential is gone fails in an
+/// auth-shaped way, is flipped to `needs_reauth`, and drops out of the staleness
+/// snapshot; the athlete's next turn offers a reconnect link. Nobody is asked
+/// for a 2FA phone tap at 04:00, which is what makes an unattended nightly
+/// possible at all.
+///
+/// Runs inline rather than detached: the service scales to zero, so a spawned
+/// task has no CPU to run on once the response is sent. It is bounded per
+/// connection and overall, and reports `completed: false` for a sweep whose
+/// budget ran out before it reached every connection.
+///
+/// Ids only in the response body, never an email — this repo is public and the
+/// monitor that calls this endpoint echoes its output into world-readable CI
+/// logs.
+///
+/// # Errors
+///
+/// Returns an error when the caller's admin token lacks
+/// [`AdminPermission::ManageConfiguration`], or when the connection snapshot
+/// cannot be read. A per-connection failure is reported in the body, never
+/// raised.
+pub async fn handle_capture_refresh(
+    State(context): State<Arc<DiagnosticsContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+) -> AppResult<impl IntoResponse> {
+    // Mutating, and it spends provider calls: this flips connection status and
+    // wakes the scraper, so it takes the manage permission rather than the view
+    // one its read-only sibling is content with.
+    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
+
+    let report = refresh_captures(&context.runtime, SweepBudget::default()).await?;
+
+    Ok((StatusCode::OK, Json(report)))
 }

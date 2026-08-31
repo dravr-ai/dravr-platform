@@ -65,6 +65,8 @@ pub mod activity_fetch;
 /// The one display-name rule a member is rendered by, on every build.
 pub mod athlete_display_name;
 pub mod capabilities;
+/// Nightly capture refresh — the actor behind the capture-staleness reader.
+pub mod capture_sweep;
 pub mod commitment_refresh;
 pub mod context;
 /// Conversions wiring host tool types onto the tronc MCP tool trait surface.

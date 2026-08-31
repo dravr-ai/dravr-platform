@@ -1,4 +1,4 @@
-# ABOUTME: Daily check that a live, actively-served provider connection is still reaching its provider
+# ABOUTME: Daily refresh of every live provider capture, then the check that they are still reaching their provider
 # ABOUTME: Exists because jf@dravr.ai's capture froze for days while the coach kept answering from cache
 #
 # On 2026-08-28 02:59Z the sciotte capture for one athlete stopped. It was still
@@ -23,7 +23,15 @@
 # from alarming: nobody asked, so nothing should have fetched, and that is not a
 # fault. An unused connection is reported in the summary and never alarms.
 #
-# Read-only: one authenticated GET against the dev API.
+# The lane refreshes before it reads. A reader alone leaves a stopped capture
+# stopped: it can say a provider went quiet, but nothing re-fetches and nothing
+# marks the connection, so the athlete is never asked to reconnect. The refresh
+# NEVER attempts a login — it re-fetches what is already authenticated and flips
+# an auth-shaped failure to `needs_reauth`, which is what makes an unattended
+# 2FA-free nightly possible. A connection it flags leaves the staleness snapshot,
+# so the read that follows stops counting a failure that now has a stated remedy.
+#
+# One authenticated POST then one authenticated GET against the dev API.
 
 name: "Monitor: Capture Staleness (dev)"
 
@@ -35,6 +43,10 @@ on:
     - cron: '17 12 * * *'
   workflow_dispatch:
     inputs:
+      refresh:
+        description: "Refresh every live capture before reading the report"
+        required: false
+        default: "true"
       stale_after_hours:
         description: "Hours since the last successful provider fetch before a connection is stale"
         required: false
@@ -55,9 +67,92 @@ jobs:
   capture-staleness:
     name: Live connections are still reaching their provider
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The refresh is bounded server-side at 480s and walks every live connection,
+    # several of which drive a headless browser. 20 minutes covers it plus the read.
+    timeout-minutes: 20
 
     steps:
+      - name: Refresh every live capture
+        if: (github.event.inputs.refresh || 'true') == 'true'
+        env:
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          BASE_URL: ${{ secrets.CANARY_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ADMIN_TOKEN}" ] || [ -z "${BASE_URL}" ]; then
+            echo "::warning::CANARY_ADMIN_TOKEN or CANARY_BASE_URL not set — skipping capture refresh"
+            exit 0
+          fi
+
+          # 540s: over the server's own 480s sweep budget and under the API's
+          # 600s request timeout, so a long sweep returns what it reached rather
+          # than dying client-side with no body to report.
+          CODE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Accept: application/json" \
+            --max-time 540 \
+            -o /tmp/refresh.json \
+            -w '%{http_code}' \
+            "${BASE_URL}/admin/diagnostics/capture-refresh" || echo "000")
+
+          # A failed refresh warns rather than reds, like the staleness verdict
+          # below: this lane runs only on a schedule, so a red would have
+          # monitor-scheduled-lanes.yml report the monitor as broken. It cannot
+          # hide either — a refresh that did not happen leaves the connections
+          # stale, and the read below is what files the issue.
+          if [ "${CODE}" = "403" ]; then
+            echo "::warning::The admin token lacks manage_configuration, which capture-refresh requires. Mint a super-admin token (pierre-cli token generate --service admin_console --super-admin) and update CANARY_ADMIN_TOKEN."
+            exit 0
+          fi
+          if [ "${CODE}" != "200" ]; then
+            echo "::warning::Capture refresh returned HTTP ${CODE} — captures were not refreshed before the read below."
+            head -c 1000 /tmp/refresh.json || true
+            exit 0
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open("/tmp/refresh.json") as fh:
+              report = json.load(fh)
+
+          lines = [
+              "## Capture refresh — dev",
+              "",
+              "| outcome | connections |",
+              "|---|---:|",
+              f"| refreshed | {report.get('refreshed', 0)} |",
+              f"| flagged for re-auth | {report.get('flagged', 0)} |",
+              f"| failed (transient) | {report.get('failed', 0)} |",
+              f"| not reached (budget) | {report.get('skipped', 0)} |",
+              "",
+          ]
+          if not report.get("completed", True):
+              lines += ["> The sweep hit its time budget before reaching every connection.", ""]
+
+          flagged = [c for c in report.get("connections", []) if c.get("outcome") == "flagged"]
+          if flagged:
+              lines += [
+                  "### Flagged for re-auth this run",
+                  "",
+                  "| provider | athlete | reason |",
+                  "|---|---|---|",
+              ]
+              lines += [
+                  f"| {c['provider']} | {c['user_id']} | {c.get('reason', '')} |" for c in flagged
+              ]
+              lines += [
+                  "",
+                  "No login was attempted. Each of these athletes gets a reconnect link on their next turn.",
+                  "",
+              ]
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+          PY
+
       - name: Read the capture-staleness report
         id: probe
         env:

@@ -17,6 +17,7 @@ use std::env;
 use std::sync::Arc;
 
 use chrono::{Duration, TimeZone, Utc};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityCacheRepository, BackfillCoverage};
@@ -27,6 +28,7 @@ use uuid::Uuid;
 use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
+use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
 use pierre_providers::backend_resolver;
 use serde_json::Value;
@@ -454,55 +456,95 @@ pub async fn fetch_provider_activities(
     tenant_id: &str,
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
-    let auth_service = AuthService::new(Arc::clone(runtime));
-    let tenant = TenantId::parse_str(tenant_id).ok();
-
-    let live = match auth_service
-        .create_authenticated_provider(provider_slug, user_id, Some(tenant_id))
-        .await
-    {
-        Ok(provider) => provider
-            .get_activities_with_params(params)
-            .await
-            .map_err(|e| {
-                warn!(
-                    user_id = %user_id,
-                    provider = %provider_slug,
-                    error = %e,
-                    "fetch_provider_activities: failed to fetch activities"
-                );
-            })
-            .ok(),
+    match fetch_provider_head(runtime, provider_slug, user_id, tenant_id, params).await {
+        Ok(activities) => Some(activities),
         Err(e) => {
             warn!(
                 user_id = %user_id,
                 provider = %provider_slug,
-                error = ?e.error,
-                "fetch_provider_activities: failed to create authenticated provider"
+                error = %e,
+                auth_required = e.provider_auth_required_provider().is_some(),
+                "fetch_provider_activities: live fetch failed; serving cache"
             );
-            None
+            // Live fetch failed — serve the user's cached activities for this
+            // window rather than returning nothing.
+            let tenant = TenantId::parse_str(tenant_id).ok()?;
+            serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await
         }
-    };
-
-    if let Some(activities) = live {
-        // Warm the stale-while-revalidate cache so the next outage serves these.
-        if let Some(tenant) = tenant {
-            write_through_activity_cache(
-                &auth_service,
-                user_id,
-                tenant,
-                provider_slug,
-                &activities,
-                activity_cache_retention_days(),
-            )
-            .await;
-        }
-        return Some(activities);
     }
+}
 
-    // Live fetch failed — serve the user's cached activities for this window
-    // rather than returning nothing.
-    serve_stale_activities(runtime, provider_slug, user_id, tenant?, params).await
+/// Authenticate the provider, fetch `params` live, and write the result through
+/// to the durable cache — no cache fallback, no swallowed error.
+///
+/// [`fetch_provider_activities`] is this plus the read path's fallback. Serving
+/// stale rows is right for an athlete waiting on an answer and wrong for a
+/// caller whose whole job is to notice that the fetch failed: the nightly
+/// capture sweep must tell an auth-shaped failure (a lapsed scrape session or a
+/// 401, both surfacing as [`AppError::provider_auth_required`]) from a transient
+/// one, because only the first may flag the athlete's connection.
+///
+/// The write-through and its fetch-freshness mark are the shared ones, so a
+/// sweep fetch and a chat turn's fetch can never disagree about upsert, prune
+/// or freshness.
+///
+/// # Errors
+///
+/// Returns [`AppError::provider_auth_required`] when the connection is
+/// non-recoverably dead, and the provider's own error otherwise.
+pub async fn fetch_provider_head(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: &str,
+    params: &ActivityQueryParams,
+) -> AppResult<Vec<Activity>> {
+    let auth_service = AuthService::new(Arc::clone(runtime));
+    let provider = auth_service
+        .create_authenticated_provider(provider_slug, user_id, Some(tenant_id))
+        .await
+        .map_err(|response| provider_auth_failure(provider_slug, &response))?;
+
+    let activities = provider.get_activities_with_params(params).await?;
+
+    // Warm the stale-while-revalidate cache so the next outage serves these.
+    if let Ok(tenant) = TenantId::parse_str(tenant_id) {
+        write_through_activity_cache(
+            &auth_service,
+            user_id,
+            tenant,
+            provider_slug,
+            &activities,
+            activity_cache_retention_days(),
+        )
+        .await;
+    }
+    Ok(activities)
+}
+
+/// Type a failed `create_authenticated_provider`, preserving the auth shape.
+///
+/// That call tags a non-recoverably dead connection with
+/// [`META_AUTH_REQUIRED_PROVIDER`] — the one signal that says the athlete must
+/// reconnect. Everything else it can fail with (an unsupported provider, a
+/// tenant missing OAuth credentials, a transport blip) is not a dead session
+/// and must never flag a connection, so it degrades to a plain external-service
+/// error the sweep treats as transient.
+fn provider_auth_failure(provider_slug: &str, response: &UniversalResponse) -> AppError {
+    if response
+        .metadata
+        .as_ref()
+        .is_some_and(|m| m.contains_key(META_AUTH_REQUIRED_PROVIDER))
+    {
+        return AppError::provider_auth_required(provider_slug);
+    }
+    AppError::external_service(
+        provider_slug,
+        response
+            .error
+            .clone()
+            .unwrap_or_else(|| "provider authentication failed".to_owned()),
+    )
 }
 
 /// Read a provider's cached activities for the request window from the durable

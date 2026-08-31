@@ -1223,7 +1223,7 @@ impl ProviderToolRouter {
             ));
             let diagnostics_ctx = DiagnosticsContext {
                 tool_registry: resources.mcp.tool_registry.clone(),
-                repos: resources.common.repos.clone(),
+                runtime: resources.clone(), // Safe: Arc clone coerced into the trait object
             };
             let diagnostics_router = diagnostics_routes(diagnostics_ctx, auth_service);
 
