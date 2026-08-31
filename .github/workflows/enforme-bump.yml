@@ -343,10 +343,23 @@ jobs:
     environment: development
     steps:
       - name: Authenticate to GCP (dev deployer)
+        id: auth
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+          # sciotte enforces Cloud Run IAM (backend_sciotte_iam, on since
+          # 118571ed3), so the HTTP probe below needs a Google-signed identity
+          # token — an anonymous request is refused with 403 before any identity
+          # is considered. The audience mirrors terraform's local.sciotte_audience
+          # ("dravr-sciotte-${environment}"), the stable literal the service
+          # declares in custom_audiences; the generated URL is not known this
+          # early in the job. include_email is required, not cosmetic: Cloud Run
+          # matches the token's email claim against the invoker policy, and a
+          # token minted without it is rejected exactly like an anonymous one.
+          token_format: id_token
+          id_token_audience: dravr-sciotte-dev
+          id_token_include_email: true
 
       - uses: google-github-actions/setup-gcloud@v3
         with:
@@ -431,17 +444,34 @@ jobs:
         # Cloud Run's startup probe already proved the container answers /health, but
         # only that it answered — a build that lost a provider still boots. This asserts
         # what the service says about itself: ok, and both scraping providers present.
-        # The service is INGRESS_TRAFFIC_ALL with allow_unauthenticated (see the sciotte
-        # module in infra/environments/dev/main.tf — the API pod egresses
-        # PRIVATE_RANGES_ONLY, so internal-only ingress would drop its calls, and the
-        # app bearer is the auth boundary instead), so /health is reachable from here.
+        #
+        # The service is INGRESS_TRAFFIC_ALL (the API pod egresses PRIVATE_RANGES_ONLY,
+        # so internal-only ingress would drop its calls) but NOT unauthenticated:
+        # backend_sciotte_iam has been true since 118571ed3, so Cloud Run verifies a
+        # Google-signed identity token and checks roles/run.invoker. The deployer SA
+        # carries that permission through its project-level roles/run.admin, which
+        # includes run.routes.invoke — no extra grant is needed, only the token.
+        #
+        # This step read as "the new image is unhealthy" for a week (carnet#164) while
+        # the real answer was a 403 the probe never named. The status code is now
+        # reported on failure so an auth refusal can never again be mistaken for a
+        # sick container: curl exits 22 on any >=400, and -f prints no body to say why.
         env:
           SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-sciotte
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          ID_TOKEN: ${{ steps.auth.outputs.id_token }}
         run: |
           set -euo pipefail
           URL=$(gcloud run services describe "${SVC}" --region "${REGION}" --format='value(status.url)')
-          BODY=$(curl -sf -m 30 --retry 3 --retry-delay 5 "${URL}/health")
+
+          CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' -m 30 --retry 3 --retry-delay 5 \
+              -H "Authorization: Bearer ${ID_TOKEN}" "${URL}/health")
+          if [ "${CODE}" != "200" ]; then
+              echo "::error::GET ${URL}/health returned HTTP ${CODE} (403 = identity token rejected, not a sick container)"
+              head -c 500 /tmp/health.json || true
+              exit 1
+          fi
+          BODY=$(cat /tmp/health.json)
           echo "${BODY}" | jq .
 
           STATUS=$(jq -r '.status' <<<"${BODY}")
