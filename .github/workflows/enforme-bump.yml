@@ -32,7 +32,11 @@ on:
     types: [enforme-released]
   schedule:
     # Weekly safety net, so a missed or failed dispatch still gets integrated.
-    - cron: "0 13 * * 1"
+    # Off :00 deliberately: the top of the hour is the most contended slot on
+    # GitHub's scheduler, and this lane's 2026-08-31 firing landed 6h20m late
+    # (19:20 UTC for a 13:00 slot), well after anyone would look for it. :11
+    # also keeps it clear of photograveur-bump's :30 in the same hour.
+    - cron: "11 13 * * 1"
   workflow_dispatch:
     inputs:
       version:
