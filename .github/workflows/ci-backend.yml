@@ -51,7 +51,12 @@ concurrency:
   # run's run_started_at equalled its created_at, so it never waited on the
   # group the way a false would have made it. `group` expressions demonstrably
   # do evaluate: that is what has been scoping cancellation per ref all along.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  # The event name is part of the group too: a `schedule` run on main carries
+  # the tip's sha, so without it the cron joined the tip's push-run group and
+  # cancelled that verdict mid-flight (observed 2026-08-31: the 15:59 UTC cron
+  # killed 7eac7b067's push run six minutes in). Push, schedule and dispatch
+  # now each get their own group; the per-commit protection is unchanged.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 permissions:
