@@ -8,6 +8,15 @@
 name: "Strength coach uses strength vocabulary even on recovery questions"
 locales: ["en"]
 notes: "Monitor LLM flake — vocabulary contract pattern"
+# On-demand lane (2026-08-31): the coach must answer in the strength coach's
+# own vocabulary, and the local grader model (qwen2.5:7b, CPU-only) opens by
+# narrating a fetch it never performs — "I'll need to analyze your recent
+# activities" — so the specialised vocabulary never arrives. carnet#107 tracked
+# this as persona dilution; the eval half was the driver running without the
+# platform contract (fixed), and what remains is a grader that neither invokes
+# nor holds a persona under a full prompt. The VocabularyContract stays STRICT.
+# Runs when CHAT_SCENARIO_INCLUDE_ONDEMAND=1 or against a stronger model.
+nightly_gate: false
 turns:
   - user: "How should I improve recovery this week?"
     assertions:

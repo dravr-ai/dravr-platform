@@ -15,6 +15,15 @@ notes: "Bug 2 + Bug 3 regression — 2026-05-18 Telegram screenshots 3+4"
 # out of drift; the per-turn distance_mentioned assertion keeps the recompute
 # honestly pinned. (2026-07-09: surfaced once the eval ran on a local model.)
 skip_drift: true
+# On-demand lane (2026-08-31): turns 2 and 3 assert the coach RE-INVOKES
+# get_activities rather than answering from the previous turn. The local grader
+# model (qwen2.5:7b, CPU-only) does not call tools, and answers from history
+# instead — turn 2 produced "environ 33,10 km" with no fetch, which is the exact
+# behaviour this scenario forbids. The driver's prefetch used to mask that by
+# fetching on the turn's keywords and counting itself as the call. The
+# assertions stay STRICT; they need a grader that invokes. Runs when
+# CHAT_SCENARIO_INCLUDE_ONDEMAND=1 or against a stronger model.
+nightly_gate: false
 provider_state:
   providers:
     strava:

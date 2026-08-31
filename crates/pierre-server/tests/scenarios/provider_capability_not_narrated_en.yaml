@@ -13,6 +13,16 @@
 name: "Provider data access is not narrated to the user (EN)"
 locales: ["en"]
 notes: "Tool-discipline regression — 2026-06-08 post-run-stretching screenshot"
+# On-demand lane (2026-08-31): turn 2 asserts the coach INVOKES get_activities,
+# and the local grader model (qwen2.5:7b, CPU-only) does not call tools. That was
+# invisible while the driver prefetched on the turn's "provider" keyword and
+# credited its own fetch as the model's; once the prefetch stopped answering for
+# it, the coach replied "Yes, I have that information via your provider" with no
+# distance at all. The assertion is correct and stays STRICT — it pins the
+# 2026-06-08 narration regression — it simply cannot gate a nightly on a grader
+# that never invokes. Runs when CHAT_SCENARIO_INCLUDE_ONDEMAND=1 (the workflow's
+# include_ondemand dispatch input) or against a stronger model.
+nightly_gate: false
 provider_state:
   providers:
     strava:
